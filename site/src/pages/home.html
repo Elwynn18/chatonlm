@@ -11,11 +11,11 @@
   <body class="page-accueil">
     {{>header.html}}
     <main id="contenu">
-      <!-- Le fil : une seule ligne, tracée par site.js d'un repère [data-fil] au suivant. -->
-      <svg class="fil" data-fil-toile aria-hidden="true">
-        <path class="fil-trait" />
-        <g class="fil-perles"></g>
-      </svg>
+      <!-- Le fil : une seule ligne, tracée par site.js d'un repère [data-fil] au suivant, en tronçons.
+           Trois calques : les tronçons tracés, celui que le fil est en train de tracer, les perles. -->
+      <svg class="fil" data-fil-toile aria-hidden="true"><g class="fil-trait"></g></svg>
+      <svg class="fil fil-trait fil--bout" data-fil-bout aria-hidden="true"></svg>
+      <svg class="fil fil-perles" data-fil-perles aria-hidden="true"></svg>
 
       <section class="hero cadre" id="haut">
         <div class="hero-texte">

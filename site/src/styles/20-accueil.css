@@ -4,8 +4,9 @@ main {
   position: relative;
 }
 
-/* Le fil : tracé par site.js de repère en repère (.fil-a). Il passe au-dessus
-   des fonds des sections (z-index 1) et sous leurs contenus (z-index 2). */
+/* Le fil : tracé par site.js de repère en repère (.fil-a), en tronçons (un
+   <path> chacun), sur trois calques superposés. Il passe au-dessus des fonds
+   des sections (z-index 1) et sous leurs contenus (z-index 2). */
 .fil {
   position: absolute;
   left: 0;
@@ -22,6 +23,19 @@ main {
   stroke-width: 5;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+/* Les calques du bout du fil et des perles : site.js les réduit à ce qu'ils
+   portent. Le tronçon en cours de tracé a sa propre couche de composition : le
+   fil qui avance ne fait repeindre qu'elle, jamais la page qu'il traverse. Pas
+   de will-change, qui rendrait ce tronçon flou aux échelles d'écran
+   fractionnaires. */
+.fil--bout,
+.fil-perles {
+  width: 0;
+  height: 0;
+}
+.fil--bout {
+  transform: translateZ(0);
 }
 .fil-perles circle {
   fill: var(--laine);

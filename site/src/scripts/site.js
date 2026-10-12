@@ -89,9 +89,24 @@ function chatons() {
 // document, et se dessine à mesure que l'on descend. Un repère « perle » pose
 // une perle et révèle sa carte ; le repère « maison » fait dessiner au fil le
 // contour d'une maison autour de son cadre.
+//
+// Le fil est découpé en tronçons, un <path> chacun, sur trois calques : les
+// tronçons tracés (peints avec la page), celui que le fil est en train de
+// tracer (calque « bout », seul dans sa couche de composition, réduit à ce
+// tronçon) et les perles, au-dessus. À chaque image, seul le calque du bout
+// est repeint. Tracé d'un seul <path>, le fil faisait repeindre son rectangle
+// englobant, donc toute la hauteur de la page, à chaque image : le navigateur
+// refaisait toutes ses tuiles (mesuré : 280 par seconde pendant le tracé de la
+// maison, sur un écran 4K). C'est là que Brave a montré des bandes de page
+// périmées, décalées de deux tuiles.
 
 // Temps que met le fil à tracer la maison, en millisecondes.
 const DUREE_MAISON = 3400;
+// Longueur d'un tronçon du fil, en pixels.
+const TRONCON = 320;
+// Ce qu'un dessin déborde de ses points : demi-épaisseur du trait (5 px dans
+// la feuille de style), bouts ronds et lissage.
+const DEBORD = 4;
 const SVG = "http://www.w3.org/2000/svg";
 const aLEcran = (el) => {
   const r = el.getBoundingClientRect();
@@ -109,16 +124,103 @@ const sur = (s, t) => {
   ];
 };
 
+// Le trajet (segments mis bout à bout depuis `depart`) découpé en tronçons de
+// TRONCON pixels. Il est écrit et mesuré du même geste : chaque segment est
+// échantillonné en cordes de quelques pixels, posées au dixième de pixel, et
+// le tracé d'un tronçon est cette ligne brisée (une droite n'y garde que ses
+// bouts), dont la longueur, celle de ses tirets, est donc connue sans la
+// demander au navigateur, comme le rectangle qu'il occupe. Pour chaque point,
+// on garde la longueur parcourue et le point le plus bas atteint (croissant,
+// donc cherchable) ; `fins` donne la longueur au bout de chaque segment.
+// Demander ces points au navigateur (getPointAtLength, des milliers de fois)
+// figeait la page une demi-seconde à chaque changement de hauteur.
+export function tronconner(depart, segments) {
+  const dixieme = (n) => Math.round(n * 10) / 10;
+  let [x0, y0] = [dixieme(depart.x), dixieme(depart.y)];
+  const ouvrir = (x, y, debut) => ({
+    d: `M${x} ${y}L`,
+    debut,
+    long: 0,
+    gauche: x,
+    haut: y,
+    droite: x,
+    bas: y,
+  });
+  const troncons = [];
+  let troncon = ouvrir(x0, y0, 0);
+  const parcouru = [0];
+  const atteint = [y0];
+  const fins = [];
+  let total = 0;
+  let bas = y0;
+  for (const s of segments) {
+    let enveloppe = 0;
+    for (let i = 1; i < s.length; i += 1)
+      enveloppe += Math.hypot(s[i].x - s[i - 1].x, s[i].y - s[i - 1].y);
+    const n = borne(Math.ceil(enveloppe / 5), 1, 400);
+    for (let i = 1; i <= n; i += 1) {
+      const [x, y] = sur(s, i / n).map(dixieme);
+      const corde = Math.hypot(x - x0, y - y0);
+      total += corde;
+      bas = Math.max(bas, y);
+      parcouru.push(total);
+      atteint.push(bas);
+      troncon.long += corde;
+      troncon.gauche = Math.min(troncon.gauche, x);
+      troncon.haut = Math.min(troncon.haut, y);
+      troncon.droite = Math.max(troncon.droite, x);
+      troncon.bas = Math.max(troncon.bas, y);
+      [x0, y0] = [x, y];
+      const plein = troncon.long >= TRONCON;
+      if (s.length === 4 || i === n || plein) troncon.d += `${x} ${y} `;
+      if (plein) {
+        troncons.push(troncon);
+        troncon = ouvrir(x, y, total);
+      }
+    }
+    fins.push(total);
+  }
+  if (troncon.long) troncons.push(troncon);
+  return { troncons, parcouru, atteint, fins, total };
+}
+
+// Part d'un tronçon que le fil a parcourue quand il est long de `courant` :
+// 0 tant qu'il n'y est pas, sa longueur quand il l'a dépassé.
+export const parcourue = (troncon, courant) =>
+  borne(courant - troncon.debut, 0, troncon.long);
+
+// Réduit un calque du fil à un rectangle de la page, débord compris (ses
+// dessins gardent leurs coordonnées) : sa couche de composition, s'il en a
+// une, n'est pas plus grande que lui.
+function cadrer(calque, gauche, haut, droite, bas) {
+  const [x, y] = [Math.floor(gauche) - DEBORD, Math.floor(haut) - DEBORD];
+  const [large, haute] = [
+    Math.ceil(droite) + DEBORD - x,
+    Math.ceil(bas) + DEBORD - y,
+  ];
+  calque.setAttribute("viewBox", `${x} ${y} ${large} ${haute}`);
+  Object.assign(calque.style, {
+    left: `${x}px`,
+    top: `${y}px`,
+    width: `${large}px`,
+    height: `${haute}px`,
+  });
+}
+
 function fil() {
   const toile = document.querySelector("[data-fil-toile]");
   if (!toile) return;
   const page = toile.parentElement;
   const trait = toile.querySelector(".fil-trait");
-  const perles = toile.querySelector(".fil-perles");
+  const bout = page.querySelector("[data-fil-bout]");
+  const perles = page.querySelector("[data-fil-perles]");
   const pelote = document.querySelector("[data-pelote]");
   let longueur = 0;
   let longueurs = new Float32Array(0);
   let hauteurs = new Float32Array(0);
+  let troncons = [];
+  const traces = [];
+  let auBout = null;
   let marques = [];
   let maison = null;
   let largeur = 0;
@@ -219,47 +321,21 @@ function fil() {
       ],
     );
 
-    // Le tracé est écrit et mesuré du même geste : chaque segment est découpé en
-    // cordes de quelques pixels, dont on garde la longueur parcourue et le point
-    // le plus bas atteint (croissant, donc cherchable). Demander ces points au
-    // navigateur (getPointAtLength, des milliers de fois) figeait la page une
-    // demi-seconde à chaque changement de hauteur.
-    let d = `M${depart.x} ${depart.y}`;
-    const parcouru = [0];
-    const atteint = [depart.y];
-    const fins = [];
-    let total = 0;
-    let bas = depart.y;
-    for (const s of segments) {
-      const b = s.at(-1);
-      d +=
-        s.length === 4
-          ? `C${s[1].x} ${s[1].y} ${s[2].x} ${s[2].y} ${b.x} ${b.y}`
-          : `L${b.x} ${b.y}`;
-      let enveloppe = 0;
-      for (let i = 1; i < s.length; i += 1)
-        enveloppe += Math.hypot(s[i].x - s[i - 1].x, s[i].y - s[i - 1].y);
-      const n = borne(Math.ceil(enveloppe / 5), 1, 400);
-      let [x0, y0] = [s[0].x, s[0].y];
-      for (let i = 1; i <= n; i += 1) {
-        const [x, y] = sur(s, i / n);
-        total += Math.hypot(x - x0, y - y0);
-        bas = Math.max(bas, y);
-        parcouru.push(total);
-        atteint.push(bas);
-        [x0, y0] = [x, y];
-      }
-      fins.push(total);
-    }
-    trait.setAttribute("d", d);
-    // Les tirets suivent la longueur du navigateur : la nôtre s'y ramène.
-    longueur = trait.getTotalLength();
-    trait.style.strokeDasharray = `${longueur}`;
-    const echelle = total ? longueur / total : 1;
-    longueurs = Float32Array.from(parcouru, (l) => l * echelle);
-    hauteurs = Float32Array.from(atteint);
+    const trajet = tronconner(depart, segments);
+    // Un <path> par tronçon ; ceux qui existent sont repris, et peindre() les
+    // pose sur leur calque. `fait` est la part déjà peinte du tronçon (aucune
+    // après un nouveau tracé).
+    troncons = trajet.troncons.map((troncon, i) => {
+      const el = (traces[i] ??= document.createElementNS(SVG, "path"));
+      el.setAttribute("d", troncon.d);
+      return { ...troncon, el, fait: -1 };
+    });
+    for (const el of traces.splice(troncons.length)) el.remove();
+    longueur = trajet.total;
+    longueurs = Float32Array.from(trajet.parcouru);
+    hauteurs = Float32Array.from(trajet.atteint);
     // Longueur de fil déroulée au bout du segment de ce rang.
-    const apres = (rang) => (rang ? fins[rang - 1] * echelle : 0);
+    const apres = (rang) => (rang ? trajet.fins[rang - 1] : 0);
     maison = murs && {
       el: murs.el,
       debut: apres(murs.debut),
@@ -280,6 +356,15 @@ function fil() {
       };
     });
     while (perles.children.length > points.length) perles.lastChild.remove();
+    // Le calque des perles s'arrête à elles (rayon, liseré et rebond de l'entrée).
+    if (points.length)
+      cadrer(
+        perles,
+        Math.min(...points.map(({ p }) => p.x)) - 16,
+        Math.min(...points.map(({ p }) => p.y)) - 16,
+        Math.max(...points.map(({ p }) => p.x)) + 16,
+        Math.max(...points.map(({ p }) => p.y)) + 16,
+      );
     largeur = page.clientWidth;
     return true;
   }
@@ -296,7 +381,32 @@ function fil() {
   }
 
   function peindre() {
-    trait.style.strokeDashoffset = `${longueur - courant}`;
+    // Seuls les tronçons dont la part parcourue a changé sont touchés : celui
+    // du bout du fil, et ceux qu'il vient de franchir. Un tronçon n'est pas
+    // dans la page tant que le fil n'y est pas ; en cours de tracé, il est sur
+    // le calque du bout ; entier, il perd ses tirets et rejoint les autres.
+    for (const troncon of troncons) {
+      const fait = parcourue(troncon, courant);
+      if (fait === troncon.fait) continue;
+      troncon.fait = fait;
+      const { el } = troncon;
+      if (!fait) {
+        el.remove();
+        continue;
+      }
+      const entier = fait === troncon.long;
+      el.style.strokeDasharray = entier ? "" : troncon.long.toFixed(2);
+      el.style.strokeDashoffset = entier
+        ? ""
+        : (troncon.long - fait).toFixed(2);
+      if (!entier && auBout !== troncon) {
+        auBout = troncon;
+        const { gauche, haut, droite, bas } = troncon;
+        cadrer(bout, gauche, haut, droite, bas);
+      }
+      const calque = entier ? trait : bout;
+      if (el.parentNode !== calque) calque.append(el);
+    }
     if (pelote)
       pelote.style.transform = `rotate(${(-courant / 5).toFixed(1)}deg)`;
     for (const { seuil, perle, carte } of marques) {

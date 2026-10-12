@@ -5,7 +5,7 @@
 // et le référencement (balises, données structurées, plan du site daté).
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   LANGS,
   PAGES,
@@ -25,6 +25,10 @@ import {
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const OUT = path.join(ROOT, ".tools", "site-test-dist");
+
+// Chaque fabrication écrit une soixantaine de fichiers sous .tools/, sur un
+// disque lent quand il est chargé : les délais par défaut (5 et 10 s) y sautent.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 describe("catalogues", () => {
   it("aplatit les clés", () => {
