@@ -1,0 +1,1738 @@
+/* chatonlm.com : sections de la page d'accueil, dans l'ordre de la page. */
+
+main {
+  position: relative;
+}
+
+/* Le fil : tracé par site.js de repère en repère (.fil-a). Il passe au-dessus
+   des fonds des sections (z-index 1) et sous leurs contenus (z-index 2). */
+.fil {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+}
+.fil-trait {
+  fill: none;
+  stroke: var(--laine);
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.fil-perles circle {
+  fill: var(--laine);
+  stroke: var(--creme);
+  stroke-width: 5;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0);
+  transition: transform 0.45s var(--ressort);
+}
+.fil-perles circle.vu {
+  transform: scale(1);
+}
+.sans-fil .fil {
+  display: none;
+}
+.fil-a {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+/* 1. Haut de page : « Une IA d'intérieur » */
+.hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  align-items: center;
+  gap: 16px;
+  padding-top: clamp(24px, 4.4vw, 60px);
+  padding-bottom: clamp(70px, 10vw, 150px);
+  min-height: min(840px, 100vh - 70px);
+}
+.hero-texte {
+  position: relative;
+  z-index: 2;
+}
+/* Le titre de la page porte deux lignes, chacune avec son aspect : le surtitre
+   (ce qu'est l'app, pour les moteurs comme pour le lecteur) et le grand titre. */
+.hero h1 {
+  font: inherit;
+  letter-spacing: normal;
+  text-wrap: wrap;
+  margin-bottom: 34px;
+}
+.hero h1 > span {
+  display: block;
+}
+.hero-titre {
+  font-family: var(--f-titre);
+  font-weight: 600;
+  font-size: clamp(60px, 9.6vw, 142px);
+  line-height: 0.89;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+  margin-top: 26px;
+}
+.hero .chapo {
+  margin-bottom: 38px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 26px;
+}
+.hero-note {
+  margin-top: 24px;
+}
+.hero-art {
+  position: relative;
+  z-index: 2;
+}
+.hero-art svg {
+  width: 114%;
+  max-width: none;
+  margin-left: -7%;
+  overflow: visible;
+}
+.fil-a--pelote {
+  left: 15%;
+  top: 88%;
+}
+.fil-a--hero {
+  left: 34%;
+  bottom: 36px;
+}
+/* La pelote tourne à mesure que le fil se déroule (site.js). */
+.pelote,
+.pelote-entree {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.pelote {
+  transition: transform 0.5s var(--doux);
+}
+@keyframes monte {
+  from {
+    transform: translateY(26px);
+    opacity: 0;
+  }
+}
+@keyframes roule {
+  from {
+    transform: translateX(300px) rotate(330deg);
+    opacity: 0;
+  }
+}
+@keyframes pose {
+  from {
+    transform: translateY(40px) scale(0.94);
+    opacity: 0;
+  }
+}
+/* Entrée en cascade : surtitre, grand titre (les deux lignes du h1), puis la suite. */
+.hero-texte > :not(h1),
+.hero h1 > span {
+  animation: monte 0.7s var(--doux) backwards;
+}
+.hero h1 > .hero-titre {
+  animation-delay: 0.08s;
+}
+.hero-texte > :nth-child(2) {
+  animation-delay: 0.16s;
+}
+.hero-texte > :nth-child(3) {
+  animation-delay: 0.24s;
+}
+.hero-texte > :nth-child(4) {
+  animation-delay: 0.32s;
+}
+.hero-art svg {
+  animation: pose 0.8s var(--ressort) 0.15s backwards;
+}
+.pelote-entree {
+  animation: roule 1.1s var(--doux) 0.35s backwards;
+}
+
+/* 2. Les six outils dans une fenêtre */
+.outils {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: clamp(28px, 5vw, 76px);
+  align-items: center;
+  padding-block: clamp(50px, 8vw, 110px);
+}
+.outils-texte {
+  position: relative;
+  z-index: 2;
+}
+.outils h2 {
+  margin-bottom: 18px;
+}
+.outils .chapo {
+  margin-bottom: 26px;
+}
+.onglets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.onglet {
+  all: unset;
+  box-sizing: border-box;
+  position: relative;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 13px 16px;
+  border-radius: 16px;
+  overflow: hidden;
+  transition: background-color 0.2s;
+}
+.onglet > svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.onglet strong {
+  display: block;
+  font-size: 18px;
+  font-weight: 700;
+}
+.onglet:hover {
+  background: rgb(42 26 16 / 0.05);
+}
+.onglet:focus-visible {
+  outline: 2.5px solid var(--roux-fonce);
+  outline-offset: 2px;
+}
+.onglet[aria-pressed="true"] {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--trait);
+}
+.onglet[aria-pressed="true"] > svg {
+  color: var(--roux-fonce);
+}
+/* Le texte de l'outil montré : les six sont empilés dans la même case, pour
+   que la hauteur de la section ne change pas d'un outil à l'autre. */
+.outil-textes {
+  display: grid;
+  margin-top: 14px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--trait);
+}
+.outil-textes p {
+  grid-area: 1 / 1;
+  font-size: 16.5px;
+  line-height: 1.45;
+  color: var(--encre-2);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.3s,
+    visibility 0s 0.3s;
+}
+.outil-textes strong {
+  display: none;
+  color: var(--encre);
+}
+.outils[data-outil="chat"] .outil-textes p[data-vue="chat"],
+.outils[data-outil="hub"] .outil-textes p[data-vue="hub"],
+.outils[data-outil="dictee"] .outil-textes p[data-vue="dictee"],
+.outils[data-outil="voix"] .outil-textes p[data-vue="voix"],
+.outils[data-outil="correction"] .outil-textes p[data-vue="correction"],
+.outils[data-outil="etude"] .outil-textes p[data-vue="etude"] {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+/* Sans script, rien ne change d'outil : les six textes se lisent à la suite. */
+.sans-js .outil-textes {
+  gap: 12px;
+}
+.sans-js .outil-textes p {
+  grid-area: auto;
+  opacity: 1;
+  visibility: visible;
+}
+.sans-js .outil-textes strong {
+  display: inline;
+}
+/* Défilement automatique : un filet se remplit sous l'outil montré. */
+.onglets--auto .onglet[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--roux);
+  transform-origin: 0 50%;
+  animation: remplit 5s linear forwards;
+}
+@keyframes remplit {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.scene {
+  position: relative;
+  z-index: 2;
+  padding-top: 118px;
+}
+.scene .guetteur {
+  position: absolute;
+  right: 9%;
+  top: -42px;
+  width: 196px;
+  z-index: 0;
+  transition: transform 0.5s var(--ressort);
+}
+.scene:hover .guetteur {
+  transform: translateY(-14px);
+}
+.scene .pattes {
+  position: absolute;
+  right: 9%;
+  top: 100px;
+  width: 196px;
+  z-index: 3;
+}
+.fil-a--scene-haut {
+  left: 30%;
+  top: 150px;
+}
+.fil-a--scene-bas {
+  left: 68%;
+  bottom: 40px;
+}
+.app {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  height: 470px;
+  background: var(--surface);
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1.5px var(--trait),
+    0 44px 80px -40px rgb(42 26 16 / 0.45);
+  font-size: 15.5px;
+  line-height: 1.45;
+}
+.app p {
+  margin: 0;
+}
+.app-rail {
+  background: var(--surface-2);
+  padding: 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.app-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 11px;
+  transition: background-color 0.3s;
+}
+.app-item svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.app[data-app="chat"] .app-item[data-pour~="chat"],
+.app[data-app="hub"] .app-item[data-pour~="hub"],
+.app[data-app="dictee"] .app-item[data-pour~="dictee"],
+.app[data-app="voix"] .app-item[data-pour~="voix"],
+.app[data-app="correction"] .app-item[data-pour~="correction"],
+.app[data-app="etude"] .app-item[data-pour~="etude"] {
+  background: var(--roux);
+}
+/* La fenêtre se clique comme l'app (site.js) : son menu, ses conversations et
+   les boutons de sa zone de saisie mènent au même outil que les boutons d'à côté. */
+.app [data-vers] {
+  cursor: pointer;
+}
+.app-item[data-vers]:hover,
+.app-fil[data-vers]:hover,
+.saisie-outil:hover {
+  background: rgb(42 26 16 / 0.07);
+}
+.app-groupe {
+  padding: 16px 10px 6px;
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--encre-2);
+}
+.app-fil {
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-weight: 500;
+  color: var(--encre-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-fil--actif,
+.app-fil--actif[data-vers]:hover {
+  background: rgb(42 26 16 / 0.06);
+  color: var(--encre);
+}
+.app-vues {
+  position: relative;
+}
+.vue {
+  position: absolute;
+  inset: 0;
+  padding: 28px 30px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(10px);
+  transition:
+    opacity 0.3s,
+    transform 0.45s var(--doux),
+    visibility 0s 0.3s;
+}
+.app[data-app="chat"] .vue[data-vue="chat"],
+.app[data-app="hub"] .vue[data-vue="hub"],
+.app[data-app="dictee"] .vue[data-vue="dictee"],
+.app[data-app="voix"] .vue[data-vue="voix"],
+.app[data-app="correction"] .vue[data-vue="correction"],
+.app[data-app="etude"] .vue[data-vue="etude"] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition-delay: 0s;
+}
+.vue-titre {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--encre-2);
+}
+.vue-note {
+  font-size: 14.5px;
+  color: var(--encre-2);
+}
+.bulle {
+  align-self: flex-end;
+  max-width: 82%;
+  background: var(--sable);
+  border-radius: 18px 18px 5px 18px;
+  padding: 11px 16px;
+}
+.pense {
+  font-size: 14px;
+  color: var(--encre-2);
+}
+.curseur {
+  display: inline-block;
+  width: 9px;
+  height: 1.05em;
+  margin-left: 3px;
+  vertical-align: -3px;
+  border-radius: 2px;
+  background: var(--roux);
+  animation: bat 1s steps(2) infinite;
+}
+@keyframes bat {
+  50% {
+    opacity: 0;
+  }
+}
+.saisie {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px 11px 16px;
+  border-radius: 18px;
+  background: var(--surface-2);
+}
+.saisie > span:first-child {
+  margin-right: auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--encre-2);
+}
+.saisie-outil {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-inline: -4px;
+  border-radius: 50%;
+  color: var(--encre-2);
+  transition: background-color 0.2s;
+}
+.saisie-outil svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.saisie b {
+  font-size: 13.5px;
+  background: var(--surface);
+  border-radius: 9px;
+  padding: 5px 10px;
+  box-shadow: inset 0 0 0 1.5px var(--trait);
+}
+.envoi {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--encre);
+  position: relative;
+}
+.envoi::after {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 12px;
+  width: 8px;
+  height: 8px;
+  border-left: 2.5px solid var(--creme);
+  border-top: 2.5px solid var(--creme);
+  transform: rotate(45deg);
+}
+.ligne {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 15px;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1.5px var(--trait);
+}
+.ligne small {
+  font-size: 14px;
+  color: var(--encre-2);
+}
+.ligne em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 13.5px;
+  font-weight: 700;
+  background: var(--vert);
+  color: var(--vert-texte);
+  border-radius: 9px;
+  padding: 5px 10px;
+}
+.ligne em.non {
+  background: var(--sable);
+  color: var(--encre-2);
+}
+.onde {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 64px;
+}
+.onde i {
+  width: 6px;
+  height: 12px;
+  border-radius: 9px;
+  background: var(--roux);
+  animation: onde 1.1s ease-in-out infinite;
+}
+.onde i:nth-child(3n + 1) {
+  --h: 52px;
+  animation-delay: 0.1s;
+}
+.onde i:nth-child(3n + 2) {
+  --h: 30px;
+  animation-delay: 0.32s;
+}
+.onde i:nth-child(3n) {
+  --h: 62px;
+  animation-delay: 0.55s;
+}
+.onde i:nth-child(4n) {
+  --h: 40px;
+  animation-delay: 0.75s;
+}
+@keyframes onde {
+  50% {
+    height: var(--h, 44px);
+  }
+}
+.onde--petite {
+  height: 26px;
+  gap: 3px;
+}
+/* :nth-child(n) : même poids que les règles de hauteur de .onde, qui sinon l'emportent. */
+.onde--petite i:nth-child(n) {
+  width: 4px;
+  height: 6px;
+  --h: 22px;
+}
+.onde--petite i:nth-child(2n) {
+  --h: 14px;
+}
+.cite {
+  font: 500 22px/1.32 var(--f-titre);
+  letter-spacing: -0.01em;
+}
+.pastille {
+  align-self: flex-start;
+  font-size: 13.5px;
+  font-weight: 700;
+  background: var(--vert);
+  color: var(--vert-texte);
+  border-radius: 99px;
+  padding: 7px 13px;
+}
+.parle {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.disque {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--roux);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+.disque i {
+  width: 3.5px;
+  height: 8px;
+  border-radius: 9px;
+  background: var(--encre);
+  animation: onde 0.9s ease-in-out infinite;
+  --h: 20px;
+}
+.disque i:nth-child(2n) {
+  --h: 12px;
+  animation-delay: 0.3s;
+}
+.saisie--voix {
+  justify-content: center;
+  background: var(--encre);
+  color: var(--creme);
+}
+.saisie--voix > span:first-child {
+  margin-right: 0;
+}
+.saisie--voix .onde i {
+  background: var(--roux);
+}
+.app del {
+  color: var(--rouge);
+  text-decoration-thickness: 2px;
+}
+.app ins {
+  text-decoration: none;
+  background: var(--vert);
+  color: var(--vert-texte);
+  border-radius: 6px;
+  padding: 0 5px;
+}
+.boutons-app {
+  margin-top: auto;
+  display: flex;
+  gap: 8px;
+}
+.boutons-app b {
+  font-size: 14.5px;
+  padding: 9px 16px;
+  border-radius: 12px;
+  background: var(--sable);
+}
+.boutons-app b.actif {
+  background: var(--encre);
+  color: var(--creme);
+}
+.jauge {
+  height: 7px;
+  border-radius: 9px;
+  background: var(--sable);
+}
+.jauge i {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: 9px;
+  background: var(--roux);
+}
+.choix {
+  display: grid;
+  gap: 8px;
+}
+.choix span {
+  padding: 11px 15px;
+  border-radius: 13px;
+  box-shadow: inset 0 0 0 1.5px var(--trait);
+}
+.choix .bon {
+  background: var(--roux);
+  box-shadow: none;
+  font-weight: 700;
+}
+
+/* 3. Six apps ailleurs, une seule ici */
+.reunis {
+  position: relative;
+  padding-block: clamp(50px, 8vw, 110px) clamp(60px, 9vw, 120px);
+}
+.reunis-texte {
+  position: relative;
+  z-index: 2;
+  max-width: 720px;
+  margin-bottom: clamp(36px, 5vw, 60px);
+}
+.reunis h2 {
+  margin-bottom: 18px;
+}
+.reunis .chapo {
+  max-width: 31em;
+}
+.reunis-scene {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 390px);
+  gap: clamp(60px, 13vw, 200px);
+  align-items: center;
+}
+.tas {
+  position: relative;
+  height: 330px;
+  max-width: 620px;
+}
+.mini {
+  position: absolute;
+  z-index: 2;
+  width: 206px;
+  height: 126px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1.5px var(--trait),
+    0 18px 30px -18px rgb(42 26 16 / 0.35);
+  font-size: 15px;
+  font-weight: 600;
+}
+.mini::before {
+  content: "";
+  display: block;
+  width: 34px;
+  height: 8px;
+  margin-bottom: 14px;
+  border-radius: 9px;
+  background: rgb(42 26 16 / 0.14);
+}
+.mini::after {
+  content: "";
+  display: block;
+  height: 34px;
+  margin-top: 14px;
+  border-radius: 8px;
+  background: repeating-linear-gradient(
+    rgb(42 26 16 / 0.09) 0 7px,
+    transparent 7px 14px
+  );
+}
+.mini:nth-child(1) {
+  left: 0;
+  top: 22px;
+  rotate: -6deg;
+  --vy: 60px;
+}
+.mini:nth-child(2) {
+  left: 25%;
+  top: 0;
+  rotate: 4deg;
+  --vy: 80px;
+}
+.mini:nth-child(3) {
+  left: 52%;
+  top: 30px;
+  rotate: -3deg;
+  --vy: 50px;
+}
+.mini:nth-child(4) {
+  left: 9%;
+  top: 152px;
+  rotate: 5deg;
+  --vy: -60px;
+}
+.mini:nth-child(5) {
+  left: 37%;
+  top: 174px;
+  rotate: -5deg;
+  --vy: -80px;
+}
+.mini:nth-child(6) {
+  left: 64%;
+  top: 150px;
+  rotate: 7deg;
+  --vy: -50px;
+}
+.une {
+  position: relative;
+  z-index: 2;
+  padding: 22px;
+  background: var(--surface);
+  border-radius: 22px;
+  box-shadow:
+    0 0 0 1.5px var(--trait),
+    0 30px 50px -30px rgb(42 26 16 / 0.4);
+}
+/* Le fil passe derrière la grande fenêtre : il y entre par le haut, en ressort par le bas. */
+.fil-a--une-haut {
+  left: 50%;
+  top: 14px;
+}
+.fil-a--une-bas {
+  left: 50%;
+  bottom: 14px;
+}
+.une p {
+  margin: 0;
+}
+.une-tete {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 600 22px/1 var(--f-titre);
+  margin-bottom: 16px !important;
+}
+.une-tete svg {
+  width: 30px;
+  height: 30px;
+}
+.une-outils {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.une-outils span {
+  min-width: 0;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: var(--roux);
+  font-size: 15px;
+  font-weight: 700;
+}
+.reunis-legende {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 390px);
+  gap: clamp(60px, 13vw, 200px);
+  margin-top: 26px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--encre-2);
+}
+.rejouer {
+  all: unset;
+  cursor: pointer;
+  position: relative;
+  z-index: 2;
+  margin-top: 18px;
+  font-size: 14.5px;
+  font-weight: 700;
+  padding: 9px 16px;
+  border-radius: 99px;
+  box-shadow: inset 0 0 0 1.5px var(--trait);
+}
+.rejouer:hover {
+  background: var(--sable);
+}
+.rejouer:focus-visible {
+  outline: 2.5px solid var(--roux-fonce);
+  outline-offset: 2px;
+}
+.sans-js .rejouer {
+  display: none;
+}
+/* Le tour : chaque petite fenêtre file vers la grande, qui gagne un outil ; elle
+   revient ensuite, pâle (on n'en a plus besoin). */
+.reunis--pret .une-outils span {
+  background: var(--sable);
+}
+.reunis--joue .mini {
+  animation: file 1.5s var(--doux) forwards;
+}
+.reunis--joue .une-outils span {
+  animation: allume 0.5s var(--ressort) forwards;
+}
+.reunis--joue .mini:nth-child(2),
+.reunis--joue .une-outils span:nth-child(2) {
+  animation-delay: 0.22s;
+}
+.reunis--joue .mini:nth-child(3),
+.reunis--joue .une-outils span:nth-child(3) {
+  animation-delay: 0.44s;
+}
+.reunis--joue .mini:nth-child(4),
+.reunis--joue .une-outils span:nth-child(4) {
+  animation-delay: 0.66s;
+}
+.reunis--joue .mini:nth-child(5),
+.reunis--joue .une-outils span:nth-child(5) {
+  animation-delay: 0.88s;
+}
+.reunis--joue .mini:nth-child(6),
+.reunis--joue .une-outils span:nth-child(6) {
+  animation-delay: 1.1s;
+}
+.reunis--joue .une-outils span {
+  animation-delay: 0.45s;
+}
+.reunis--joue .une-outils span:nth-child(2) {
+  animation-delay: 0.67s;
+}
+.reunis--joue .une-outils span:nth-child(3) {
+  animation-delay: 0.89s;
+}
+.reunis--joue .une-outils span:nth-child(4) {
+  animation-delay: 1.11s;
+}
+.reunis--joue .une-outils span:nth-child(5) {
+  animation-delay: 1.33s;
+}
+.reunis--joue .une-outils span:nth-child(6) {
+  animation-delay: 1.55s;
+}
+@keyframes file {
+  45% {
+    translate: 115% var(--vy, 0);
+    scale: 0.25;
+    opacity: 0;
+  }
+  46% {
+    translate: 0 0;
+    scale: 1;
+    opacity: 0;
+  }
+  100% {
+    translate: 0 0;
+    scale: 1;
+    opacity: 0.34;
+  }
+}
+@keyframes allume {
+  0% {
+    background: var(--sable);
+    scale: 0.9;
+  }
+  100% {
+    background: var(--roux);
+    scale: 1;
+  }
+}
+
+/* 4. Bandeau défilant */
+.bandeau {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  height: 78px;
+  overflow: hidden;
+  white-space: nowrap;
+  background: var(--encre);
+  color: var(--creme);
+}
+.bandeau-piste {
+  display: flex;
+  align-items: center;
+  gap: 34px;
+  padding-right: 34px;
+  font: 700 21px/1 var(--f-affiche);
+  text-transform: uppercase;
+  animation: defile 38s linear infinite;
+}
+.bandeau-piste svg {
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+.bandeau:hover .bandeau-piste {
+  animation-play-state: paused;
+}
+@keyframes defile {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* 5. L'affiche : zéro abonnement */
+.affiche {
+  position: relative;
+  overflow: clip;
+  background: var(--encre);
+  color: var(--creme);
+  padding: clamp(70px, 9vw, 130px) 0 clamp(130px, 17vw, 250px);
+}
+.affiche .cadre {
+  position: relative;
+  z-index: 2;
+}
+.affiche .surtitre {
+  color: var(--roux);
+}
+.affiche-titre {
+  /* Tient dans les trois langues sans l'ajustement du script, dès 360 px. */
+  font: 900 clamp(26px, 8vw, 110px) / 0.9 var(--f-affiche);
+  text-transform: uppercase;
+  letter-spacing: -0.045em;
+  margin: 20px 0 clamp(34px, 5vw, 60px);
+  text-wrap: nowrap;
+}
+.affiche-titre em {
+  font-style: normal;
+  font-weight: 900;
+  color: var(--roux);
+}
+.affiche-bas {
+  display: grid;
+  grid-template-columns: minmax(0, 520px) minmax(0, 1fr);
+  gap: clamp(28px, 5vw, 70px);
+  max-width: 62%;
+}
+.affiche-bas .chapo {
+  grid-column: 1 / -1;
+  max-width: 34em;
+}
+.zeros {
+  grid-column: 1 / -1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px clamp(24px, 4vw, 56px);
+}
+.zeros b {
+  display: block;
+  font: 900 clamp(40px, 5vw, 70px) / 1 var(--f-affiche);
+  letter-spacing: -0.04em;
+  color: var(--roux);
+  font-variant-numeric: tabular-nums;
+}
+.zeros span {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgb(255 244 232 / 0.72);
+}
+.affiche-note {
+  margin-top: 34px;
+  max-width: min(44em, 62%);
+  font-size: 13.5px;
+  color: rgb(255 244 232 / 0.5);
+}
+.affiche,
+.affiche-pattes {
+  --chat-droite: max(3vw, 50% - 640px);
+  --chat-large: clamp(230px, 36vw, 540px);
+}
+.guetteur--geant {
+  position: absolute;
+  z-index: 2;
+  right: var(--chat-droite);
+  bottom: 0;
+  width: var(--chat-large);
+}
+.affiche-pattes {
+  position: relative;
+  z-index: 3;
+  height: 0;
+}
+.affiche-pattes .pattes {
+  position: absolute;
+  right: var(--chat-droite);
+  width: var(--chat-large);
+  transform: translateY(-48%);
+}
+/* Le fil descend à droite, passe derrière la tête du chaton et ressort entre ses pattes. */
+.fil-a--affiche-haut {
+  right: clamp(8px, 2.4vw, 34px);
+  top: 40px;
+}
+.fil-a--affiche-bas {
+  right: calc(var(--chat-droite) + var(--chat-large) / 2);
+  bottom: 90px;
+}
+.fil-a--sous-pattes {
+  right: calc(var(--chat-droite) + var(--chat-large) / 2);
+  top: 76px;
+}
+
+/* 6. Les raisons, le long du fil */
+.raisons {
+  position: relative;
+  padding-block: clamp(110px, 12vw, 170px) clamp(70px, 8vw, 110px);
+}
+.raisons .cadre {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: clamp(90px, 12vw, 170px);
+  grid-auto-rows: minmax(88px, auto);
+}
+.raisons-liste {
+  display: contents;
+  list-style: none;
+}
+.raisons-tete,
+.raison {
+  position: relative;
+  z-index: 2;
+  max-width: 440px;
+}
+.raisons-tete {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  justify-self: end;
+  text-align: right;
+  align-self: start;
+}
+.raisons-tete {
+  padding-bottom: 56px;
+}
+.raisons-tete h2 {
+  margin-bottom: 16px;
+}
+.raison {
+  padding-block: 4px 72px;
+  opacity: 0.22;
+  transform: translateY(14px);
+  transition:
+    opacity 0.5s,
+    transform 0.6s var(--doux);
+}
+.raison.vu,
+.sans-fil .raison {
+  opacity: 1;
+  transform: none;
+}
+.raison h3 {
+  margin-bottom: 8px;
+}
+.raison p {
+  font-size: 17.5px;
+}
+.raison:nth-child(odd) {
+  grid-column: 2;
+}
+.raison:nth-child(even) {
+  grid-column: 1;
+  justify-self: end;
+  text-align: right;
+}
+.raison:nth-child(1) {
+  grid-row: 2 / span 2;
+}
+.raison:nth-child(2) {
+  grid-row: 3 / span 2;
+}
+.raison:nth-child(3) {
+  grid-row: 4 / span 2;
+}
+.raison:nth-child(4) {
+  grid-row: 5 / span 2;
+}
+.raison:nth-child(5) {
+  grid-row: 6 / span 2;
+}
+.raison:nth-child(6) {
+  grid-row: 7 / span 2;
+}
+.raison .fil-a {
+  top: 16px;
+}
+.raison:nth-child(odd) .fil-a {
+  left: calc(clamp(90px, 12vw, 170px) / -2);
+}
+.raison:nth-child(even) .fil-a {
+  right: calc(clamp(90px, 12vw, 170px) / -2);
+}
+.fil-a--raisons-haut {
+  display: none;
+  top: 0;
+}
+
+/* 7. Ce qui sort de chez vous */
+.interieur {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: clamp(36px, 7vw, 110px);
+  align-items: center;
+  padding-block: clamp(70px, 10vw, 140px);
+}
+.interieur-dessin {
+  position: relative;
+  padding: 30% 11% 5%;
+}
+.fil-a--maison {
+  inset: 0;
+  width: auto;
+  height: auto;
+}
+.maison-fixe {
+  display: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.maison-fixe path {
+  fill: none;
+  stroke: var(--laine);
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.sans-fil .maison-fixe {
+  display: block;
+}
+/* Avant de paraître à l'écran, puis site.js en trace le contour. */
+.maison--attend path {
+  visibility: hidden;
+}
+.dormeur {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  overflow: visible;
+}
+.souffle {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: souffle 4.2s ease-in-out infinite;
+}
+@keyframes souffle {
+  50% {
+    transform: scaleY(1.04);
+  }
+}
+.zzz {
+  position: absolute;
+  z-index: 2;
+  left: 20%;
+  top: 36%;
+  font: 800 26px/1 var(--f-texte);
+  color: var(--roux-fonce);
+}
+.zzz i {
+  position: absolute;
+  opacity: 0;
+  animation: zzz 4.2s ease-out infinite;
+}
+.zzz i:nth-child(2) {
+  animation-delay: 1.4s;
+}
+.zzz i:nth-child(3) {
+  animation-delay: 2.8s;
+}
+@keyframes zzz {
+  0% {
+    transform: translate(0, 0) scale(0.6);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-34px, -70px) scale(1.3);
+    opacity: 0;
+  }
+}
+.interieur-texte {
+  position: relative;
+  z-index: 2;
+}
+.interieur h2 {
+  margin-bottom: 18px;
+}
+.flux {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  margin: 30px 0 24px;
+}
+.flux h3 {
+  font: 700 13.5px/1 var(--f-texte);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--vert-texte);
+  margin-bottom: 14px;
+}
+.flux--sort h3 {
+  color: var(--roux-fonce);
+}
+.flux ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  font-size: 16.5px;
+  line-height: 1.4;
+}
+.flux li {
+  position: relative;
+  padding-left: 26px;
+}
+.flux li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.38em;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--vert-texte);
+}
+.flux--sort li::before {
+  background: none;
+  box-shadow: inset 0 0 0 2.5px var(--roux-fonce);
+}
+
+/* 8. Télécharger */
+.telecharger {
+  position: relative;
+  background: var(--sable);
+  padding-block: clamp(70px, 9vw, 120px);
+}
+.telecharger-tete {
+  position: relative;
+  z-index: 2;
+  max-width: 760px;
+  margin: 0 auto clamp(36px, 5vw, 56px);
+  text-align: center;
+}
+.telecharger-tete h2 {
+  margin-bottom: 16px;
+}
+.telecharger-tete .chapo {
+  margin-inline: auto;
+}
+.paquets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+.paquet {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 30px 28px 24px;
+  background: var(--surface);
+  border-radius: 26px;
+  box-shadow: 0 0 0 1.5px var(--trait);
+  transition: transform 0.3s var(--ressort);
+}
+.paquet:hover {
+  transform: translateY(-6px) rotate(-0.6deg);
+}
+.paquet-logo {
+  width: 44px;
+  height: 44px;
+  fill: var(--encre);
+}
+.paquet > p:not(.discret) {
+  flex: 1;
+  font-size: 16.5px;
+}
+.paquet .bouton {
+  margin-top: 8px;
+}
+.paquet--conseil {
+  box-shadow: 0 0 0 2.5px var(--roux);
+}
+.paquet--ici {
+  box-shadow: 0 0 0 2.5px var(--encre);
+}
+.paquet-conseil {
+  position: absolute;
+  top: -13px;
+  right: 22px;
+  padding: 6px 12px;
+  border-radius: 99px;
+  background: var(--roux);
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.telecharger-note {
+  position: relative;
+  z-index: 2;
+  margin: 28px auto 0;
+  max-width: 50em;
+  text-align: center;
+}
+.fil-a--paquets {
+  left: clamp(8px, 2.4vw, 34px);
+  top: 46%;
+}
+
+/* 9. Questions */
+.questions {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: clamp(30px, 6vw, 90px);
+  align-items: start;
+  padding-block: clamp(70px, 9vw, 120px);
+}
+.questions h2 {
+  position: relative;
+  z-index: 2;
+}
+.questions-liste {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 10px;
+}
+.questions details {
+  padding: 0 22px;
+  background: var(--surface);
+  border-radius: 18px;
+  box-shadow: 0 0 0 1.5px var(--trait);
+}
+.questions summary {
+  position: relative;
+  cursor: pointer;
+  list-style: none;
+  padding: 18px 34px 18px 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.questions summary::-webkit-details-marker {
+  display: none;
+}
+.questions summary::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  border-right: 2.5px solid;
+  border-bottom: 2.5px solid;
+  transform: translateY(-70%) rotate(45deg);
+  transition: transform 0.25s;
+}
+.questions details[open] summary::after {
+  transform: translateY(-25%) rotate(225deg);
+}
+/* La réponse se déroule : site.js anime la hauteur du bloc, rien n'en dépasse
+   pendant le trajet. En se refermant, le chevron se retourne dès le départ. */
+.questions details.deroule {
+  overflow: hidden;
+}
+.questions details.deroule p {
+  animation: reponse 0.36s var(--doux) backwards;
+}
+.questions details.deroule--ferme p {
+  animation: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.questions details.deroule--ferme summary::after {
+  transform: translateY(-70%) rotate(45deg);
+}
+@keyframes reponse {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+.questions details p {
+  padding-bottom: 20px;
+  font-size: 17px;
+  color: var(--encre-2);
+}
+.questions details a {
+  color: var(--encre);
+}
+.fil-a--questions {
+  left: calc(
+    clamp(8px, 2.4vw, 34px) - max(var(--marge), (100vw - var(--large)) / 2)
+  );
+  bottom: 60px;
+}
+
+/* 10. Le bout du fil */
+.bout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: clamp(20px, 5vw, 70px);
+  padding-block: clamp(30px, 6vw, 80px) clamp(70px, 10vw, 140px);
+}
+.bout-dessin {
+  position: relative;
+  z-index: 2;
+}
+.bout-dessin svg {
+  width: 100%;
+  overflow: visible;
+}
+.fil-a--fin {
+  left: 13%;
+  top: 30%;
+}
+.bras {
+  transform-box: fill-box;
+  transform-origin: 96% 96%;
+  animation: tape 1.5s ease-in-out infinite;
+}
+@keyframes tape {
+  0%,
+  100% {
+    transform: rotate(3deg);
+  }
+  50% {
+    transform: rotate(-9deg);
+  }
+}
+.bout-texte {
+  position: relative;
+  z-index: 2;
+}
+.bout h2 {
+  font-size: clamp(46px, 7.6vw, 108px);
+  line-height: 0.92;
+  margin-bottom: 22px;
+}
+.bout .chapo {
+  margin-bottom: 34px;
+}
+
+/* Écrans étroits : une colonne ; le fil ne garde que les raisons. */
+@media (max-width: 900px) {
+  .fil-a:not(.raison .fil-a, .fil-a--toujours) {
+    display: none;
+  }
+  .fil-a--raisons-haut {
+    display: block;
+    left: calc(var(--marge) + 12px);
+  }
+  .maison-fixe {
+    display: block;
+  }
+  .hero,
+  .outils,
+  .interieur,
+  .questions,
+  .bout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .hero {
+    min-height: 0;
+    padding-bottom: 40px;
+  }
+  .hero-art svg {
+    width: 100%;
+    margin-left: 0;
+  }
+  .hero-art {
+    max-width: 460px;
+  }
+  .onglets {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    overflow-x: auto;
+    gap: 6px;
+    margin-inline: calc(-1 * var(--marge));
+    padding: 4px var(--marge);
+    scrollbar-width: none;
+  }
+  .onglet {
+    padding: 10px 14px;
+    gap: 9px;
+    box-shadow: inset 0 0 0 1.5px var(--trait);
+    border-radius: 99px;
+  }
+  .onglet strong {
+    font-size: 15.5px;
+  }
+  .onglet[aria-pressed="true"] {
+    background: var(--encre);
+    color: var(--creme);
+  }
+  .onglet[aria-pressed="true"] > svg {
+    color: var(--roux);
+  }
+  .onglet > svg {
+    width: 18px;
+    height: 18px;
+  }
+  .scene {
+    padding-top: 96px;
+  }
+  .scene .guetteur,
+  .scene .pattes {
+    width: 150px;
+    right: 8%;
+  }
+  .scene .guetteur {
+    top: -22px;
+  }
+  .scene .pattes {
+    top: 83px;
+  }
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+    height: 400px;
+  }
+  .app-rail {
+    display: none;
+  }
+  .vue {
+    padding: 22px;
+  }
+  .cite {
+    font-size: 19px;
+  }
+  .reunis-scene,
+  .reunis-legende {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 26px;
+  }
+  .reunis-legende span:first-child {
+    display: none;
+  }
+  .tas {
+    height: 250px;
+  }
+  .mini {
+    width: 150px;
+    height: 96px;
+    font-size: 13.5px;
+    padding: 10px 12px;
+  }
+  .mini::after {
+    height: 20px;
+    margin-top: 10px;
+  }
+  .mini:nth-child(n + 4) {
+    top: 118px;
+  }
+  .mini:nth-child(3),
+  .mini:nth-child(6) {
+    left: auto;
+    right: 0;
+  }
+  .affiche-bas {
+    max-width: none;
+  }
+  .affiche-note {
+    max-width: none;
+  }
+  .affiche {
+    padding-bottom: 62vw;
+  }
+  .guetteur--geant,
+  .affiche-pattes .pattes {
+    width: 72vw;
+    right: 14vw;
+  }
+  .guetteur--geant {
+    bottom: -6vw;
+  }
+  .raisons .cadre {
+    grid-template-columns: minmax(0, 1fr);
+    padding-left: 34px;
+    grid-auto-rows: auto;
+  }
+  .raisons-tete,
+  .raison,
+  .raison:nth-child(n) {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+    text-align: left;
+    max-width: none;
+  }
+  .raisons-tete {
+    margin-bottom: 30px;
+  }
+  .raison:nth-child(n) .fil-a {
+    left: -22px;
+    right: auto;
+  }
+  .interieur-dessin {
+    max-width: 420px;
+  }
+  .flux {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .paquets {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .questions h2 {
+    position: static;
+  }
+  .bout-dessin {
+    max-width: 320px;
+    order: 2;
+  }
+}
+
+/* Téléphone : la zone de saisie de la fenêtre garde son invite entière. */
+@media (max-width: 480px) {
+  .saisie b {
+    display: none;
+  }
+}
+
+/* Mouvement réduit : l'animation des six fenêtres ne joue pas, son bouton non plus. */
+@media (prefers-reduced-motion: reduce) {
+  .rejouer {
+    display: none;
+  }
+}

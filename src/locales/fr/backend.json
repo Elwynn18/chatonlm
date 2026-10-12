@@ -1,0 +1,339 @@
+{
+  "dialogs": {
+    "selectFiles": "Choisir des fichiers",
+    "supportedFiles": "Fichiers pris en charge",
+    "selectModelDirectory": "Choisir le dossier des modèles"
+  },
+  "tray": {
+    "show": "Afficher ChatonLM",
+    "startDictation": "Commencer la dictée",
+    "stopDictation": "Arrêter la dictée",
+    "cancelDictation": "Annuler la dictée",
+    "dictationSettings": "Paramètres de la dictée…",
+    "updateAvailable": "Une mise à jour est disponible",
+    "restartToUpdate": "Redémarrer pour mettre à jour",
+    "quit": "Quitter ChatonLM",
+    "ready": "Prêt",
+    "listening": "À l'écoute…",
+    "transcribing": "Transcription…",
+    "polishing": "Mise au propre…",
+    "hint": {
+      "summary": "ChatonLM continue de fonctionner",
+      "body": "ChatonLM continue de fonctionner dans la zone de notification pour garder vos raccourcis disponibles. Choisissez Quitter dans son menu pour le fermer."
+    }
+  },
+  "notifications": {
+    "listening": "À l'écoute…",
+    "pressAgain": "Appuyez de nouveau sur {trigger} pour arrêter",
+    "release": "Relâchez {trigger} pour arrêter",
+    "runAgain": "Appuyez de nouveau sur le raccourci pour arrêter",
+    "transcribing": "Transcription…",
+    "copied": "Copié dans le presse-papiers",
+    "copiedRaw": "Copié dans le presse-papiers (sans mise au propre)",
+    "notCopied": "Impossible de copier dans le presse-papiers",
+    "ready": "Transcription prête",
+    "readyRaw": "Transcription prête (sans mise au propre)",
+    "copy": "Copier",
+    "show": "Afficher",
+    "textHidden": "Texte masqué",
+    "failed": "Échec de la dictée"
+  },
+  "shortcut": {
+    "description": "Commencer ou arrêter la dictée",
+    "proofreadDescription": "Corriger le texte sélectionné",
+    "noPortal": "Les raccourcis globaux ne sont pas disponibles sur ce bureau",
+    "refused": "Le raccourci n'a pas été défini",
+    "failed": "Le bureau n'a pas pu définir le raccourci",
+    "failedWithError": "Le bureau n'a pas pu définir le raccourci : {error}",
+    "lost": "Le bureau a désactivé le raccourci",
+    "turnOnFirst": "Activez d'abord la dictée",
+    "noneWanted": "Activez d'abord un raccourci global",
+    "notSet": "Le raccourci n'est pas encore défini",
+    "cannotConfigure": "Ce bureau ne permet pas de changer le raccourci depuis ChatonLM",
+    "settingsFailed": "Impossible d'ouvrir les paramètres du raccourci : {error}",
+    "taken": "{trigger} est déjà utilisé par une autre application",
+    "registerFailed": "Windows n'a pas pu définir le raccourci : {error}",
+    "invalidKey": "Utilisez une lettre, un chiffre ou une touche de fonction (F1 à F24)",
+    "needsModifier": "Ajoutez Ctrl, Alt ou la touche Windows",
+    "sameKeys": "Les deux raccourcis ne peuvent pas utiliser les mêmes touches",
+    "keys": {
+      "shift": "Maj",
+      "win": "Win"
+    }
+  },
+  "proofread": {
+    "selection": {
+      "correcting": "Correction du texte sélectionné…",
+      "model": "Modèle : {model}",
+      "copied": "Texte corrigé copié",
+      "noMistakes": "Aucune faute trouvée",
+      "unchanged": "Texte copié tel quel",
+      "kept": "Certains passages ont été gardés tels quels : la réponse du modèle ne ressemblait pas à une correction.",
+      "empty": "Aucun texte sélectionné",
+      "emptyHint": "Sélectionnez un texte dans n'importe quelle application, puis utilisez de nouveau le raccourci.",
+      "tooLong": "Le texte sélectionné est trop long",
+      "tooLongHint": "Sélectionnez au plus 100 000 caractères.",
+      "noModel": "Aucun modèle choisi",
+      "noModelHint": "Choisissez un modèle sur la page « Correction » de ChatonLM.",
+      "failed": "Échec de la correction",
+      "unreadable": "Impossible de lire le texte sélectionné",
+      "unreadableTimeout": "L'application qui détient le texte sélectionné n'a pas répondu.",
+      "unreadableStopped": "La lecture du texte sélectionné s'est arrêtée de façon inattendue.",
+      "unreadableUnsupported": "Ce bureau ne permet pas à ChatonLM de lire le texte sélectionné.",
+      "cloud": "Texte sélectionné non envoyé",
+      "cloudHint": "Le modèle de la conversation ({model}) fonctionne hors de cet ordinateur. Pour corriger avec ce modèle, choisissez-le sur la page « Correction » de ChatonLM.",
+      "stopped": "Correction arrêtée",
+      "stoppedHint": "Rien n'a été copié.",
+      "keysHeld": "Relâchez les touches du raccourci, puis utilisez-le de nouveau.",
+      "copyBlocked": "Windows n'a pas laissé ChatonLM copier le texte sélectionné."
+    },
+    "empty": "Il n'y a aucun texte à corriger",
+    "tooLong": "Le texte est trop long : 100 000 caractères au plus",
+    "noModel": "Choisissez un modèle pour la correction",
+    "modelNotFound": "Le modèle {model} n'est pas installé",
+    "failed": "La correction a échoué : {detail}",
+    "failedRephrase": "La reformulation a échoué : {detail}",
+    "timedOut": "le modèle a mis trop de temps à répondre",
+    "connectionLost": "la connexion à Ollama a été perdue"
+  },
+  "study": {
+    "noModel": "Choisissez un modèle pour vos cours",
+    "modelNotFound": "Le modèle {model} n'est pas installé",
+    "failed": "La génération a échoué : {detail}",
+    "timedOut": "le modèle a mis trop de temps à répondre",
+    "connectionLost": "la connexion à Ollama a été perdue",
+    "invalid": "Les réponses du modèle sont inutilisables. Réessayez, ou choisissez un modèle plus grand.",
+    "signedOut": "La recherche web nécessite un compte Ollama",
+    "whichMeaning": "Lequel voulez-vous dire ?",
+    "topicTooLong": "Le sujet est trop long : 300 caractères au plus",
+    "badDuration": "Un cours dure 10, 20 ou 30 minutes",
+    "tooManyDocuments": "3 documents au plus",
+    "emptyTopic": "Saisissez un sujet ou ajoutez un document",
+    "unknownDocument": "Ce document n'est plus disponible : ajoutez-le de nouveau",
+    "imageDocument": "{name} : une image ne peut pas servir de document de cours",
+    "questionLength": "Posez une question de 1 000 caractères au plus",
+    "notFound": "cours introuvable",
+    "unavailable": "Cette action n'est pas possible pour ce cours en ce moment",
+    "saveNotes": "Enregistrer la fiche",
+    "markdownFiles": "Fichiers Markdown",
+    "notes": {
+      "objectives": "Objectifs",
+      "level": "Palier {number} : {title}",
+      "keyPoints": "À retenir",
+      "pitfall": "**Piège fréquent :** {text}",
+      "sources": "Sources"
+    }
+  },
+  "dictation": {
+    "disabled": "La dictée est désactivée dans les paramètres",
+    "noModel": "Choisissez un modèle de transcription dans les paramètres",
+    "notInstalled": "Modèle de transcription non installé",
+    "noDatabase": "Impossible d'ouvrir la base de données",
+    "noMicrophone": "Aucun microphone trouvé",
+    "microphoneFailed": "Impossible d'ouvrir le microphone : {error}",
+    "microphoneBlocked": "Windows bloque le microphone. Dans Paramètres de Windows › Confidentialité et sécurité › Microphone, activez « Accès au microphone » et « Autoriser les applications de bureau à accéder à votre microphone ».",
+    "recordingFailed": "Échec de l'enregistrement : {error}",
+    "noSpeech": "Aucune parole détectée",
+    "loadFailed": "Impossible de charger le modèle de transcription : {error}",
+    "transcriptionFailed": "Échec de la transcription : {error}",
+    "cpuUnsupported": "Ce processeur ne peut pas faire tourner les modèles Whisper (il lui manque : {features}). Choisissez un modèle Parakeet dans les paramètres.",
+    "runtimeUnavailable": "Parakeet ne peut pas fonctionner : ONNX Runtime n'a pas pu être chargé ({detail}). Réinstallez ChatonLM, ou choisissez un modèle Whisper dans les paramètres.",
+    "polish": {
+      "skipped": "Pas de mise au propre : la réponse du modèle ne ressemblait pas à votre texte",
+      "cloud": "Pas de mise au propre : les modèles cloud ne servent pas à la dictée",
+      "failed": "Échec de la mise au propre : {detail}",
+      "tooLong": "le modèle a mis trop de temps à répondre"
+    },
+    "copyFailed": "Impossible de copier le texte dans le presse-papiers : {reason}",
+    "nothingToCopy": "Rien à copier",
+    "voiceModeActive": "Le mode vocal est actif : terminez-le pour dicter",
+    "models": {
+      "downloading": "Ce modèle est en cours de téléchargement : annulez d'abord le téléchargement",
+      "stillDownloading": "Ce modèle est encore en cours de téléchargement : réessayez dans un instant"
+    }
+  },
+  "speechDownloads": {
+    "createFolder": "Impossible de créer le dossier du modèle : {error}",
+    "failed": "Échec du téléchargement : {error}",
+    "unreachable": "Échec du téléchargement : impossible de joindre le serveur de téléchargement",
+    "resumeRefused": "Échec du téléchargement : le serveur a refusé la reprise, réessayez",
+    "http": "Échec du téléchargement : HTTP {status}",
+    "tooLarge": "Échec du téléchargement : {file} est plus gros que prévu",
+    "interrupted": "Téléchargement interrompu : {error}",
+    "connectionClosed": "la connexion a été fermée",
+    "damaged": "{file} est endommagé (somme de contrôle incorrecte) : téléchargez-le de nouveau",
+    "checkFailed": "Impossible de vérifier {file} : {error}",
+    "saveFailed": "Impossible d'enregistrer {file} : {error}"
+  },
+  "readAloud": {
+    "runtimeUnavailable": "La lecture à voix haute ne peut pas fonctionner : ONNX Runtime n'a pas pu être chargé ({detail}). Réinstallez ChatonLM."
+  },
+  "voiceMode": {
+    "dictationActive": "Une dictée est en cours : terminez-la d'abord",
+    "speechModelMissing": "Téléchargez d'abord un modèle de transcription",
+    "voiceMissing": "Téléchargez d'abord une voix pour la lecture à voix haute",
+    "runtimeUnavailable": "Le mode vocal ne peut pas fonctionner : ONNX Runtime n'a pas pu être chargé ({detail}). Réinstallez ChatonLM.",
+    "listening": {
+      "detectionFailed": "La détection de la parole a échoué : {error}",
+      "microphoneLost": "Le microphone a cessé de fonctionner : {error}"
+    }
+  },
+  "attachments": {
+    "fileTypeNotSupported": "Type de fichier non pris en charge",
+    "fileTooLarge": "Fichier trop volumineux",
+    "errorReadingFile": "Erreur de lecture du fichier"
+  },
+  "chat": {
+    "emptyMessage": "le message est vide",
+    "noModel": "aucun modèle n'est sélectionné",
+    "busy": "cette conversation attend déjà une réponse",
+    "webSearchSignedOut": "La recherche web nécessite un compte Ollama",
+    "notFound": "conversation introuvable : {id}",
+    "emptyTitle": "le titre ne peut pas être vide"
+  },
+  "errors": {
+    "connectionLost": "Connexion perdue",
+    "connectionLostDetail": "Connexion perdue : {error}",
+    "database": "erreur de la base de données : {error}",
+    "file": "erreur de fichier : {error}",
+    "internal": "erreur interne : {error}",
+    "newerDatabase": "la base de données a été créée par une version plus récente de ChatonLM (schéma {found}, pris en charge : {supported})",
+    "connectionFailed": "échec de la connexion",
+    "requestFailed": "échec de la requête",
+    "unknown": "erreur"
+  },
+  "downloads": {
+    "offline": "Impossible de télécharger le modèle. Vérifiez votre connexion Internet pour télécharger le modèle et l'utiliser hors ligne.",
+    "sharded": "Cette version est découpée en plusieurs fichiers, qu'Ollama ne sait pas encore télécharger depuis Hugging Face. Choisissez une autre version.",
+    "unavailableVersion": "Cette version n'est pas disponible sur Hugging Face. Choisissez une autre version.",
+    "notGguf": "Ce dépôt ne contient aucun fichier de modèle utilisable par Ollama.",
+    "notFoundOrPrivate": "Ce modèle n'existe pas sur Hugging Face, est privé ou demande un compte pour être téléchargé.",
+    "unreachable": "Impossible de joindre Ollama. Vérifiez qu'il est lancé, puis réessayez.",
+    "timedOut": "Hugging Face n'a pas répondu à temps. Réessayez.",
+    "locationChanging": "l'emplacement des modèles est en train de changer : réessayez une fois le changement terminé",
+    "serverChanged": "Arrêté : ChatonLM utilise maintenant un autre serveur Ollama. Téléchargez-le de nouveau pour l'utiliser avec celui-ci.",
+    "hfTimeout": "Hugging Face n'a pas répondu à temps",
+    "hfUnreachable": "impossible de joindre Hugging Face : {error}",
+    "hfStatus": "Hugging Face a répondu avec le code {status}."
+  },
+  "ollama": {
+    "unreachable": "impossible de se connecter à Ollama",
+    "unreachableAt": "impossible de se connecter à Ollama à l'adresse {address}",
+    "timeout": "Ollama n'a pas répondu à temps",
+    "requestFailed": "échec de la requête à Ollama : {error}",
+    "http": "Ollama a répondu avec le code HTTP {status} : {message}",
+    "httpStatus": "Ollama a répondu avec le code HTTP {status}",
+    "unexpectedAnswer": "réponse inattendue d'Ollama : {error}",
+    "unexpectedModels": "réponse inattendue d'Ollama pour la liste des modèles : {error}",
+    "unexpectedDetails": "réponse inattendue d'Ollama pour les détails du modèle : {error}",
+    "unexpectedRecommendations": "réponse inattendue d'Ollama pour les recommandations de modèles : {error}",
+    "unexpectedLoaded": "réponse inattendue d'Ollama pour la liste des modèles chargés : {error}",
+    "unexpectedAccount": "réponse inattendue d'Ollama pour les détails du compte : {error}",
+    "modelNotFound": "modèle « {model} » introuvable",
+    "installedNotFound": "modèle introuvable",
+    "registryTimeout": "le registre des modèles n'a pas répondu à temps",
+    "registryUnreachable": "impossible de joindre le registre des modèles : {error}"
+  },
+  "account": {
+    "noConnectUrl": "Impossible d'obtenir l'adresse de connexion"
+  },
+  "models": {
+    "cloudNotLoaded": "{model} tourne sur ollama.com : les modèles cloud ne sont pas chargés sur cet ordinateur"
+  },
+  "server": {
+    "address": {
+      "invalid": "adresse du serveur invalide : {detail}",
+      "unsupportedScheme": "adresse du serveur invalide : schéma {scheme} non pris en charge",
+      "credentials": "adresse du serveur invalide : les identifiants ne sont pas pris en charge",
+      "query": "adresse du serveur invalide : les paramètres de requête ne sont pas pris en charge",
+      "portOnly": "adresse du serveur invalide : {value} n'est pas un hôte ; pour un port de cet ordinateur, saisissez localhost:{value}",
+      "invalidPort": "adresse du serveur invalide : port {port} invalide"
+    }
+  },
+  "modelLocation": {
+    "browseFirst": "choisissez d'abord le dossier avec Parcourir",
+    "busy": "l'emplacement des modèles est déjà en cours de modification",
+    "downloadsRunning": "attendez la fin des téléchargements de modèles, puis réessayez",
+    "systemServiceOnly": "ChatonLM ne peut changer que le dossier du service système d'Ollama",
+    "root": "le service d'Ollama tourne en root : changez l'emplacement de ses modèles dans un terminal",
+    "noPkexec": "pkexec n'est pas installé",
+    "unusableFolder": "ce dossier ne peut pas accueillir de modèles ({problem})",
+    "modelConflict": "le nouveau dossier contient déjà une autre version de {model} : ChatonLM ne les fusionne pas (l'une des deux serait perdue). Choisissez un autre dossier, ou supprimez d'abord l'une des deux",
+    "specialFile": "{path} est un lien symbolique ou un fichier spécial : ChatonLM ne peut pas le déplacer. Déplacez les modèles vous-même, ou choisissez un autre dossier"
+  },
+  "ollamaHome": {
+    "busy": "le service Ollama est déjà en cours de modification",
+    "root": "le service Ollama tourne en root : ChatonLM ne le modifiera pas"
+  },
+  "builtinOllama": {
+    "unavailable": "cette version de ChatonLM ne contient pas l'Ollama intégré",
+    "noSystemd": "impossible de joindre systemd",
+    "upgradeInProgress": "Ollama est en cours de mise à jour. Réessayez dans un instant.",
+    "failed": {
+      "spawn": "impossible de démarrer l'Ollama intégré : {error}",
+      "notReady": "l'Ollama intégré n'a pas répondu en {seconds} secondes",
+      "crashed": "l'Ollama intégré s'est arrêté de manière inattendue plusieurs fois de suite ({status})"
+    },
+    "exitCode": "code de sortie {code}",
+    "exitSignal": "arrêté par le signal {signal}",
+    "exitUnknown": "état de sortie inconnu",
+    "notRunning": "l'Ollama intégré ne tourne pas",
+    "notRunningBecause": "l'Ollama intégré ne tourne pas : {reason}",
+    "modelsDirMissing": "le dossier des modèles {path} n'existe pas"
+  },
+  "links": {
+    "noXdgOpen": "xdg-open n'est pas installé : impossible d'ouvrir les liens",
+    "noBrowser": "aucune application n'est définie pour ouvrir les liens web (xdg-open s'est terminé avec le code 3)",
+    "noApplication": "aucune application n'est définie pour ouvrir ce fichier (xdg-open s'est terminé avec le code 3)",
+    "failed": "xdg-open s'est terminé avec le code {code}",
+    "noAppWindows": "aucune application n'est définie pour ouvrir ceci",
+    "openFailed": "Windows n'a pas pu l'ouvrir (erreur {code})"
+  },
+  "menuEntry": {
+    "writeFailed": "Impossible d'ajouter ChatonLM au menu des applications : {error}",
+    "removeFailed": "Impossible de retirer ChatonLM du menu des applications : {error}"
+  },
+  "updates": {
+    "notification": {
+      "summary": "Mise à jour disponible",
+      "body": "La version {version} de ChatonLM est prête à être installée"
+    },
+    "notReady": "Aucune mise à jour n'est prête à être installée",
+    "installing": "La mise à jour est déjà en cours d'installation",
+    "nothingToDownload": "Aucune mise à jour à télécharger",
+    "readOnlyFolder": "ChatonLM ne peut pas remplacer son AppImage dans ce dossier. Déplacez l'AppImage dans un dossier à vous (par exemple ~/Applications), puis relancez ChatonLM depuis ce dossier.",
+    "installFailed": "Impossible d'installer la mise à jour : {error}",
+    "notConfigured": "Les mises à jour ne sont pas configurées",
+    "signedForOtherVersion": "La mise à jour a été signée pour la version {signed}, pas pour la {version}",
+    "unsignedVersion": "La signature de la mise à jour n'indique pas sa version",
+    "signedForOtherFile": "La mise à jour a été signée pour un autre type de paquet ({file})",
+    "notAppImage": "La mise à jour téléchargée n'est pas une AppImage",
+    "notDeb": "La mise à jour téléchargée n'est pas un paquet .deb",
+    "windows": {
+      "notInstaller": "La mise à jour téléchargée n'est pas un installateur Windows",
+      "launchFailed": "L'installateur n'a pas pu être lancé : {error}",
+      "blocked": "Windows n'a pas autorisé le lancement de l'installateur (règle de sécurité ou antivirus)",
+      "notCompleted": "L'installateur n'est pas allé au bout. Vous pouvez réessayer.",
+      "installFolderReadOnly": "ChatonLM ne peut pas écrire dans son dossier d'installation. Réinstallez-le avec son installateur, dans un dossier à vous."
+    },
+    "errors": {
+      "noRelease": "Le serveur des mises à jour n'a fourni aucune information sur la dernière version",
+      "invalidRelease": "Le serveur des mises à jour a renvoyé des informations de version invalides",
+      "timeout": "Le serveur des mises à jour n'a pas répondu à temps",
+      "unreachable": "Impossible de joindre le serveur des mises à jour : {error}",
+      "downloadStatus": "Le serveur des mises à jour a refusé le téléchargement (HTTP {status})",
+      "badSignature": "La signature de la mise à jour ne correspond pas à la clé de ChatonLM",
+      "unexpected": "Erreur inattendue : {error}"
+    },
+    "deb": {
+      "pkexecMissing": "La demande de mot de passe du système (pkexec) n'est pas disponible",
+      "dismissed": "La demande de mot de passe a été fermée avant l'installation de la mise à jour",
+      "refused": "Le système n'a pas autorisé l'installation de la mise à jour (mot de passe incorrect, ou aucune demande de mot de passe disponible)",
+      "failed": "dpkg n'a pas pu installer la mise à jour (code {code}) : {output}",
+      "failedCode": "dpkg n'a pas pu installer la mise à jour (code {code})"
+    }
+  },
+  "startup": {
+    "newerDatabase": "mettez à jour ChatonLM pour ouvrir cette base de données"
+  }
+}

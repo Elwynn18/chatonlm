@@ -1,0 +1,21 @@
+{
+  "units": {
+    "B": "o",
+    "KB": "Ko",
+    "MB": "Mo",
+    "GB": "Go",
+    "TB": "To"
+  },
+  "size": "{value} {unit}",
+  "actions": {
+    "cancel": "Annuler",
+    "copy": "Copier",
+    "copied": "Copié",
+    "delete": "Supprimer",
+    "retry": "Réessayer",
+    "remove": "Retirer"
+  },
+  "time": {
+    "justNow": "à l'instant"
+  }
+}

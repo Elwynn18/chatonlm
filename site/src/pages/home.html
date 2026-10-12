@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="{{lang}}" class="sans-js sans-fil">
+  <head>
+    {{>head.html}}
+    <title>{{t:meta.home.title}}</title>
+    <meta name="description" content="{{t:meta.home.description}}" />
+    <meta property="og:title" content="{{t:meta.home.social_title}}" />
+    <meta property="og:description" content="{{t:meta.home.description}}" />
+    {{>head-index.html}}
+  </head>
+  <body class="page-accueil">
+    {{>header.html}}
+    <main id="contenu">
+      <!-- Le fil : une seule ligne, tracée par site.js d'un repère [data-fil] au suivant. -->
+      <svg class="fil" data-fil-toile aria-hidden="true">
+        <path class="fil-trait" />
+        <g class="fil-perles"></g>
+      </svg>
+
+      <section class="hero cadre" id="haut">
+        <div class="hero-texte">
+          <!-- Le surtitre fait partie du titre de la page : les moteurs y lisent ce qu'est l'app. -->
+          <h1><span class="surtitre">{{t:hero.eyebrow}}</span> <span class="hero-titre">{{h:hero.title}}</span></h1>
+          <p class="chapo">{{t:hero.lead}}</p>
+          <div class="actions">
+            <a class="bouton" href="#telecharger" data-telecharger
+              data-label-windows="{{t:download.for_windows}}" data-label-linux="{{t:download.for_linux}}"
+              data-label-soon="{{t:download.soon}}">{{>i-down.svg}}<span>{{t:download.cta}}</span></a>
+            <a class="lien" href="#telecharger">{{t:hero.other}}</a>
+          </div>
+          <p class="discret hero-note">{{t:hero.note}}</p>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <svg viewBox="-170 -10 620 470" data-chaton>
+            <ellipse cx="150" cy="432" rx="250" ry="16" fill="#F0DCC5" />
+            {{>cat-body.svg}}
+            <ellipse cx="166" cy="416" rx="32" ry="17" fill="#FFF4E8" />
+            <ellipse cx="234" cy="416" rx="32" ry="17" fill="#FFF4E8" />
+            <path d="M158 412v10M174 412v10M226 412v10M242 412v10" stroke="#2A1A10" stroke-opacity=".28" stroke-width="3.500" stroke-linecap="round" />
+            <g transform="translate(31 -44) scale(.66)">{{>cat-head.svg}}</g>
+            <g transform="translate(14 346)">
+              <g class="pelote-entree">
+                <circle r="93" fill="#FFF4E8" />
+                <g class="pelote" data-pelote>{{>yarn.svg}}</g>
+              </g>
+            </g>
+          </svg>
+          <i class="fil-a fil-a--pelote" data-fil></i>
+        </div>
+        <i class="fil-a fil-a--hero" data-fil></i>
+      </section>
+
+      <section class="outils cadre" id="outils" data-demo data-outil="chat">
+        <div class="outils-texte">
+          <h2>{{h:tools.title}}</h2>
+          <p class="chapo">{{t:tools.lead}}</p>
+          <div class="onglets" role="group" aria-label="{{t:tools.label}}">
+            <button type="button" class="onglet" data-vue="chat" aria-pressed="true">
+              {{>i-chat.svg}}<strong>{{t:tools.chat.name}}</strong>
+            </button>
+            <button type="button" class="onglet" data-vue="hub" aria-pressed="false">
+              {{>i-hub.svg}}<strong>{{t:tools.hub.name}}</strong>
+            </button>
+            <button type="button" class="onglet" data-vue="dictee" aria-pressed="false">
+              {{>i-mic.svg}}<strong>{{t:tools.dictation.name}}</strong>
+            </button>
+            <button type="button" class="onglet" data-vue="voix" aria-pressed="false">
+              {{>i-wave.svg}}<strong>{{t:tools.voice.name}}</strong>
+            </button>
+            <button type="button" class="onglet" data-vue="correction" aria-pressed="false">
+              {{>i-pen.svg}}<strong>{{t:tools.proofread.name}}</strong>
+            </button>
+            <button type="button" class="onglet" data-vue="etude" aria-pressed="false">
+              {{>i-book.svg}}<strong>{{t:tools.study.name}}</strong>
+            </button>
+          </div>
+          <div class="outil-textes" data-outil-textes>
+            <p data-vue="chat"><strong>{{t:tools.chat.name}}.</strong> {{t:tools.chat.text}} <a href="/{{lang}}/{{path:chat}}">{{t:toolpage.more}}</a></p>
+            <p data-vue="hub"><strong>{{t:tools.hub.name}}.</strong> {{t:tools.hub.text}} <a href="/{{lang}}/{{path:hub}}">{{t:toolpage.more}}</a></p>
+            <p data-vue="dictee"><strong>{{t:tools.dictation.name}}.</strong> {{t:tools.dictation.text}} <a href="/{{lang}}/{{path:dictation}}">{{t:toolpage.more}}</a></p>
+            <p data-vue="voix"><strong>{{t:tools.voice.name}}.</strong> {{t:tools.voice.text}} <a href="/{{lang}}/{{path:voice}}">{{t:toolpage.more}}</a></p>
+            <p data-vue="correction"><strong>{{t:tools.proofread.name}}.</strong> {{t:tools.proofread.text}} <a href="/{{lang}}/{{path:proofread}}">{{t:toolpage.more}}</a></p>
+            <p data-vue="etude"><strong>{{t:tools.study.name}}.</strong> {{t:tools.study.text}} <a href="/{{lang}}/{{path:study}}">{{t:toolpage.more}}</a></p>
+          </div>
+        </div>
+        <div class="scene" aria-hidden="true">
+          <i class="fil-a fil-a--scene-haut" data-fil></i>
+          <svg class="guetteur" viewBox="60 60 392 330" data-chaton>{{>cat-head.svg}}</svg>
+          {{>cat-paws.svg}}
+          <div class="app" data-app="chat">
+            {{>app-rail.html}}
+            <div class="app-vues">
+              {{>vue-chat.html}}
+              {{>vue-hub.html}}
+              {{>vue-dictation.html}}
+              {{>vue-voice.html}}
+              {{>vue-proofread.html}}
+              {{>vue-study.html}}
+            </div>
+          </div>
+          <i class="fil-a fil-a--scene-bas" data-fil></i>
+        </div>
+      </section>
+
+      <section class="reunis cadre" id="une-seule" data-reunis>
+        <div class="reunis-texte">
+          <h2>{{h:merge.title}}</h2>
+          <p class="chapo">{{t:merge.lead}}</p>
+        </div>
+        <div class="reunis-scene" aria-hidden="true">
+          <div class="tas">
+            <span class="mini">{{t:merge.w1}}</span>
+            <span class="mini">{{t:merge.w2}}</span>
+            <span class="mini">{{t:merge.w3}}</span>
+            <span class="mini">{{t:merge.w4}}</span>
+            <span class="mini">{{t:merge.w5}}</span>
+            <span class="mini">{{t:merge.w6}}</span>
+          </div>
+          <div class="une">
+            <i class="fil-a fil-a--une-haut" data-fil></i>
+            <i class="fil-a fil-a--une-bas" data-fil></i>
+            <p class="une-tete"><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg>ChatonLM</p>
+            <p class="une-outils">
+              <span>{{t:tools.chat.name}}</span><span>{{t:tools.hub.name}}</span><span>{{t:tools.dictation.name}}</span><span>{{t:tools.voice.name}}</span><span>{{t:tools.proofread.name}}</span><span>{{t:tools.study.name}}</span>
+            </p>
+          </div>
+        </div>
+        <p class="reunis-legende"><span>{{t:merge.before}}</span><span>{{t:merge.after}}</span></p>
+        <button type="button" class="rejouer" data-rejouer>{{t:merge.replay}}</button>
+      </section>
+
+      <div class="bandeau" aria-hidden="true">
+        <div class="bandeau-piste">
+          <span>{{t:ticker.w1}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w2}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w3}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w4}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w5}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w6}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg>
+          <span>{{t:ticker.w1}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w2}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w3}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w4}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w5}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w6}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg>
+        </div>
+      </div>
+
+      <section class="affiche" id="gratuit">
+        <i class="fil-a fil-a--affiche-haut" data-fil></i>
+        <div class="cadre">
+          <p class="surtitre">{{t:free.eyebrow}}</p>
+          <h2 class="affiche-titre" data-ajuste>{{h:free.title}}</h2>
+          <div class="affiche-bas">
+            <p class="chapo">{{t:free.lead}}</p>
+            <ul class="zeros">
+              <li><b data-compte="60">{{t:free.zero1}}</b><span>{{t:free.zero1_label}}</span></li>
+              <li><b>0</b><span>{{t:free.zero2_label}}</span></li>
+              <li><b>0</b><span>{{t:free.zero3_label}}</span></li>
+            </ul>
+          </div>
+          <p class="affiche-note">{{t:free.note}}</p>
+        </div>
+        <i class="fil-a fil-a--affiche-bas" data-fil></i>
+        <svg class="guetteur guetteur--geant" viewBox="60 60 392 330" aria-hidden="true" data-chaton>{{>cat-head.svg}}</svg>
+      </section>
+      <div class="affiche-pattes" aria-hidden="true">{{>cat-paws.svg}}<i class="fil-a fil-a--sous-pattes" data-fil></i></div>
+
+      <section class="raisons" id="pourquoi">
+        <i class="fil-a fil-a--raisons-haut fil-a--toujours" data-fil></i>
+        <div class="cadre">
+          <div class="raisons-tete">
+            <h2>{{h:why.title}}</h2>
+            <p class="chapo">{{t:why.lead}}</p>
+          </div>
+          <ol class="raisons-liste" role="list">
+            <li class="raison" data-fil-carte><i class="fil-a" data-fil="perle"></i><h3>{{t:why.r1.title}}</h3><p>{{t:why.r1.text}}</p></li>
+            <li class="raison" data-fil-carte><i class="fil-a" data-fil="perle"></i><h3>{{t:why.r2.title}}</h3><p>{{t:why.r2.text}}</p></li>
+            <li class="raison" data-fil-carte><i class="fil-a" data-fil="perle"></i><h3>{{t:why.r3.title}}</h3><p>{{t:why.r3.text}}</p></li>
+            <li class="raison" data-fil-carte><i class="fil-a" data-fil="perle"></i><h3>{{t:why.r4.title}}</h3><p>{{t:why.r4.text}}</p></li>
+            <li class="raison" data-fil-carte><i class="fil-a" data-fil="perle"></i><h3>{{t:why.r5.title}}</h3><p>{{t:why.r5.text}}</p></li>
+            <li class="raison" data-fil-carte><i class="fil-a" data-fil="perle"></i><h3>{{t:why.r6.title}}</h3><p>{{t:why.r6.text}}</p></li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="interieur cadre" id="interieur">
+        <div class="interieur-dessin" aria-hidden="true">
+          <i class="fil-a fil-a--maison" data-fil="maison"></i>
+          <svg class="maison-fixe" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M6 44V96M6 44L50 6L94 44V96" /></svg>
+          <svg class="dormeur chaton--dort" viewBox="0 150 560 330">
+            <ellipse cx="290" cy="452" rx="260" ry="15" fill="#F0DCC5" />
+            <g class="souffle">
+              <path d="M150 440C120 330 200 232 320 232C440 232 520 310 508 400C504 432 480 446 440 446Z" fill="#F28A38" />
+              <path d="M300 244l-6 34M350 248l-2 36M400 262l4 34M446 290l12 30" fill="none" stroke="#D9701F" stroke-width="12" stroke-linecap="round" />
+            </g>
+            <path d="M500 404C520 452 430 462 330 446" fill="none" stroke="#F28A38" stroke-width="36" stroke-linecap="round" />
+            <path d="M500 404C520 452 430 462 330 446" fill="none" stroke="#D9701F" stroke-width="36" stroke-dasharray="11 30" stroke-dashoffset="-30" />
+            <path d="M346 449C340 448 335 447 330 446" fill="none" stroke="#D9701F" stroke-width="36" stroke-linecap="round" />
+            <ellipse cx="208" cy="358" rx="118" ry="112" fill="#D9701F" opacity=".5" />
+            <g transform="translate(26 152) scale(.66)">{{>cat-head.svg}}</g>
+            <ellipse cx="150" cy="440" rx="30" ry="14" fill="#FFF4E8" />
+            <ellipse cx="246" cy="440" rx="30" ry="14" fill="#FFF4E8" />
+          </svg>
+          <span class="zzz"><i>z</i><i>z</i><i>z</i></span>
+        </div>
+        <div class="interieur-texte">
+          <h2>{{h:inside.title}}</h2>
+          <p class="chapo">{{t:inside.lead}}</p>
+          <div class="flux">
+            <div>
+              <h3>{{t:inside.stays}}</h3>
+              <ul>
+                <li>{{t:inside.stays1}}</li>
+                <li>{{t:inside.stays2}}</li>
+                <li>{{t:inside.stays3}}</li>
+                <li>{{t:inside.stays4}}</li>
+              </ul>
+            </div>
+            <div class="flux--sort">
+              <h3>{{t:inside.goes}}</h3>
+              <ul>
+                <li>{{t:inside.goes1}}</li>
+                <li>{{t:inside.goes2}}</li>
+                <li>{{t:inside.goes3}}</li>
+              </ul>
+            </div>
+          </div>
+          <a class="lien" href="/{{lang}}/privacy/">{{t:inside.more}}</a>
+        </div>
+      </section>
+
+      <section class="telecharger" id="telecharger" data-unite="{{t:download.unit}}">
+        <i class="fil-a fil-a--paquets" data-fil></i>
+        <div class="cadre">
+          <div class="telecharger-tete">
+            <h2>{{h:download.title}}</h2>
+            <p class="chapo" data-si="publie">{{t:download.lead}}</p>
+            <p class="chapo" data-si="bientot" hidden>{{h:download.soon_lead}}</p>
+          </div>
+          <div class="paquets">
+            <article class="paquet" data-os="windows">
+              <svg class="paquet-logo" viewBox="0 0 48 48" aria-hidden="true"><path d="M6 12.500 21.500 10v13H6Zm18-3L42 6.500V23H24ZM6 26h15.500v13L6 36.500Zm18 0h18v16.500l-18-3Z" /></svg>
+              <h3>Windows</h3>
+              <p>{{t:download.windows.text}}</p>
+              <a class="bouton bouton--roux" href="/download/windows" data-fichier="windows" data-label-soon="{{t:download.soon}}">{{>i-down.svg}}<span>{{t:download.cta}}</span></a>
+              <p class="discret" data-taille="windows">{{t:download.windows.file}}</p>
+            </article>
+            <article class="paquet paquet--conseil" data-os="linux">
+              <span class="paquet-conseil">{{t:download.recommended}}</span>
+              <svg class="paquet-logo" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 5 41 14.500v19L24 43 7 33.500v-19Zm0 19 17-9.500M24 24 7 14.500M24 24v19" fill="none" stroke="currentColor" stroke-width="3.200" stroke-linejoin="round" /></svg>
+              <h3>Linux · AppImage</h3>
+              <p>{{t:download.appimage.text}}</p>
+              <a class="bouton bouton--roux" href="/download/appimage" data-fichier="appimage" data-label-soon="{{t:download.soon}}">{{>i-down.svg}}<span>{{t:download.cta}}</span></a>
+              <p class="discret" data-taille="appimage">{{t:download.appimage.file}}</p>
+            </article>
+            <article class="paquet" data-os="linux">
+              <svg class="paquet-logo" viewBox="0 0 48 48" aria-hidden="true"><path d="M9 17h30v22H9Zm-2-8h34v8H7Zm13 16h8" fill="none" stroke="currentColor" stroke-width="3.200" stroke-linejoin="round" stroke-linecap="round" /></svg>
+              <h3>Linux · .deb</h3>
+              <p>{{t:download.deb.text}}</p>
+              <a class="bouton bouton--roux" href="/download/deb" data-fichier="deb" data-label-soon="{{t:download.soon}}">{{>i-down.svg}}<span>{{t:download.cta}}</span></a>
+              <p class="discret" data-taille="deb">{{t:download.deb.file}}</p>
+            </article>
+          </div>
+          <p class="discret telecharger-note"><span hidden data-version-ligne>{{t:download.version}} <b data-numero></b> · </span>{{t:download.requirements}}</p>
+        </div>
+      </section>
+
+      <section class="questions cadre" id="questions">
+        <h2>{{h:faq.title}}</h2>
+        <div class="questions-liste">
+          <details><summary>{{t:faq.what_q}}</summary><p>{{t:faq.what_a}}</p></details>
+          <details><summary>{{t:faq.q1}}</summary><p>{{t:faq.a1}}</p></details>
+          <details><summary>{{t:faq.q2}}</summary><p>{{t:faq.a2}}</p></details>
+          <details><summary>{{t:faq.offline_q}}</summary><p>{{t:faq.offline_a}}</p></details>
+          <details><summary>{{t:faq.models_q}}</summary><p>{{t:faq.models_a}}</p></details>
+          <details><summary>{{t:faq.engine_q}}</summary><p>{{t:faq.engine_a}}</p></details>
+          <details><summary>{{t:faq.q3}}</summary><p>{{t:faq.a3}}</p></details>
+          <details><summary>{{t:faq.q4}}</summary><p>{{t:faq.a4}}</p></details>
+          <details><summary>{{t:faq.q5}}</summary><p>{{t:faq.a5}}</p></details>
+          <details><summary>{{t:faq.q6}}</summary><p>{{h:faq.a6}}</p></details>
+        </div>
+        <i class="fil-a fil-a--questions" data-fil></i>
+      </section>
+
+      <section class="bout cadre">
+        <div class="bout-dessin" aria-hidden="true">
+          <i class="fil-a fil-a--fin" data-fil></i>
+          <svg viewBox="-30 40 450 420" data-chaton>
+            <ellipse cx="200" cy="432" rx="190" ry="15" fill="#F0DCC5" />
+            {{>cat-body.svg}}
+            <ellipse cx="234" cy="416" rx="32" ry="17" fill="#FFF4E8" />
+            <path d="M226 412v10M242 412v10" stroke="#2A1A10" stroke-opacity=".28" stroke-width="3.500" stroke-linecap="round" />
+            <g transform="rotate(-7 200 190) translate(31 -44) scale(.66)">{{>cat-head.svg}}</g>
+            <g class="bras">
+              <path d="M138 318C100 300 62 262 44 212" fill="none" stroke="#F28A38" stroke-width="36" stroke-linecap="round" />
+              <path d="M34 208l6 14M52 202l6 14" stroke="#D9701F" stroke-width="5.500" stroke-linecap="round" />
+            </g>
+          </svg>
+        </div>
+        <div class="bout-texte">
+          <h2>{{h:end.title}}</h2>
+          <p class="chapo">{{t:end.lead}}</p>
+          <a class="bouton" href="#telecharger" data-telecharger
+            data-label-windows="{{t:download.for_windows}}" data-label-linux="{{t:download.for_linux}}"
+            data-label-soon="{{t:download.soon}}">{{>i-down.svg}}<span>{{t:download.cta}}</span></a>
+        </div>
+      </section>
+    </main>
+    {{>footer.html}}
+    {{>contact-dialog.html}}
+  </body>
+</html>

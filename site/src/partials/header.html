@@ -1,0 +1,19 @@
+<a class="saut" href="#contenu">{{t:nav.skip}}</a>
+    <header class="entete" data-entete>
+      <a class="marque" href="/{{lang}}/" aria-label="{{t:nav.home}}">
+        <svg viewBox="60 66 392 388" aria-hidden="true">{{>logo-head.svg}}</svg>
+        <span>ChatonLM</span>
+      </a>
+      <nav class="menu" aria-label="{{t:nav.label}}">
+        <a href="/{{lang}}/#outils">{{t:nav.tools}}</a>
+        <a href="/{{lang}}/#pourquoi">{{t:nav.why}}</a>
+        <a href="/{{lang}}/#interieur">{{t:nav.privacy}}</a>
+        <a href="/{{lang}}/contact/" data-contact>{{t:nav.contact}}</a>
+      </nav>
+      <div class="langues" role="group" aria-label="{{t:nav.language}}">
+        <a href="{{url:fr}}" lang="fr" hreflang="fr" title="Français"{{current:fr}}>FR</a>
+        <a href="{{url:en}}" lang="en" hreflang="en" title="English"{{current:en}}>EN</a>
+        <a href="{{url:es}}" lang="es" hreflang="es" title="Español"{{current:es}}>ES</a>
+      </div>
+      <a class="bouton bouton--petit" href="/{{lang}}/#telecharger">{{>i-down.svg}}<span>{{t:nav.download}}</span></a>
+    </header>

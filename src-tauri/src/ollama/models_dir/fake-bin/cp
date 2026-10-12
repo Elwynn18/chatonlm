@@ -1,0 +1,6 @@
+#!/bin/sh
+# Faux cp : FAKE_FAIL « cp-after-N » échoue à partir du N-ième appel.
+n=$(cat "$CHATONLM_TEST_ROOT/state/cp_count" 2>/dev/null || echo 0); n=$((n + 1))
+echo "$n" > "$CHATONLM_TEST_ROOT/state/cp_count"
+for w in ${FAKE_FAIL:-}; do case $w in cp-after-*) [ "$n" -ge "${w#cp-after-}" ] && { echo "cp: fake failure" >&2; exit 1; } ;; esac; done
+exec /usr/bin/cp "$@"

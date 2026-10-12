@@ -1,0 +1,5 @@
+#!/bin/sh
+# Faux pkexec : sortie d'un déplacement réussi dont une ligne `copy` porte un
+# nom de fichier en Latin-1 (octet 0xE9, non UTF-8), puis `result` ; code 0.
+printf 'step prepare\nstep stop\nstep move\ntotal 5\ncopy 5 blobs/caf\351\nstep config\nstep start\nstep cleanup\n'
+printf 'result restarted=yes renamed=0 copied=1 skipped=0 cleanup=ok\n'

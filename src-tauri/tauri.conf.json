@@ -1,0 +1,90 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "chatonlm",
+  "version": "0.9.0",
+  "identifier": "com.chatonlm.chatonlm",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist",
+    "beforeBundleCommand": "node scripts/package-notices.mjs"
+  },
+  "app": {
+    "enableGTKAppId": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "ChatonLM",
+        "width": 1360,
+        "height": 960,
+        "minWidth": 900,
+        "minHeight": 660,
+        "visible": false,
+        "create": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: chatonlm:; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage"],
+    "createUpdaterArtifacts": true,
+    "useLocalToolsDir": true,
+    "category": "Utility",
+    "shortDescription": "Unofficial desktop chat client for Ollama",
+    "longDescription": "ChatonLM is an independent, open-source desktop app for chatting with large language models served by Ollama. It uses the Ollama already running on this computer or on another one, and includes its own copy of Ollama (CPU and Vulkan) for computers without one. ChatonLM is not affiliated with, endorsed or sponsored by Ollama. \"Ollama\" is a trademark of its owner and is used only to describe compatibility.",
+    "license": "MIT",
+    "copyright": "Copyright (c) 2026 Elwynn18 and ChatonLM contributors. Portions Copyright (c) Ollama.",
+    "publisher": "Elwynn18",
+    "icon": [
+      "icons/256x256.png",
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/512x512.png"
+    ],
+    "homepage": "https://github.com/Elwynn18/chatonlm",
+    "linux": {
+      "deb": {
+        "depends": ["libasound2"],
+        "recommends": ["libvulkan1"],
+        "section": "utils",
+        "desktopTemplate": "../packaging/linux/chatonlm.desktop.in",
+        "files": {
+          "/usr/share/applications/com.chatonlm.chatonlm.desktop": "../packaging/linux/com.chatonlm.chatonlm.desktop",
+          "/usr/share/metainfo/com.chatonlm.chatonlm.metainfo.xml": "../packaging/linux/com.chatonlm.chatonlm.metainfo.xml",
+          "/usr/share/icons/hicolor/scalable/apps/chatonlm.svg": "../assets/logo.svg",
+          "/usr/share/doc/chatonlm": "../.tools/package/notices/deb",
+          "/usr/lib/chatonlm/libonnxruntime.so.1": "../.tools/runtimes/onnxruntime/libonnxruntime.so.1",
+          "/usr/lib/chatonlm/ollama/bin": "../.tools/runtimes/ollama/bin",
+          "/usr/lib/chatonlm/ollama/lib": "../.tools/runtimes/ollama/lib",
+          "/usr/lib/chatonlm/ollama/VERSION": "../.tools/runtimes/ollama/VERSION"
+        }
+      },
+      "appimage": {
+        "bundleMediaFramework": false,
+        "files": {
+          "/usr/share/icons/hicolor/scalable/apps/chatonlm.svg": "../assets/logo.svg",
+          "/usr/share/doc/chatonlm": "../.tools/package/notices/appimage",
+          "/usr/lib/chatonlm/libonnxruntime.so.1": "../.tools/runtimes/onnxruntime/libonnxruntime.so.1",
+          "/usr/lib/chatonlm": "../.tools/package/appimage-lib",
+          "/usr/libexec/chatonlm/ollama/bin": "../.tools/runtimes/ollama/bin",
+          "/usr/libexec/chatonlm/ollama/lib": "../.tools/runtimes/ollama/lib",
+          "/usr/libexec/chatonlm/ollama/VERSION": "../.tools/runtimes/ollama/VERSION"
+        }
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZGM0ZBMEU1QUU4NjE2QTYKUldTbUZvYXU1YUEvLysxVllnN3hxTlJYY1F1Kys2UGtLUElTYWhMbGpWZnFucVE3MjRGNThONGEK",
+      "endpoints": [
+        "https://github.com/Elwynn18/chatonlm/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "description": "The model isn't installed and the registry can't be reached: the official offline message.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "Say hello in one word.",
+    "model": "chatonlm-pull-offline"
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "Say hello in one word.",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "kind": "download",
+      "message": "Unable to download model. Please check your internet connection to download the model for offline use.",
+      "type": "error"
+    }
+  ],
+  "error": null
+}

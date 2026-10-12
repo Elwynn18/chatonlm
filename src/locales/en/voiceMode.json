@@ -1,0 +1,63 @@
+{
+  "button": {
+    "start": "Start voice mode",
+    "title": "Voice mode ({keys})"
+  },
+  "bar": {
+    "phase": {
+      "starting": "Getting ready…",
+      "listening": "Listening…",
+      "transcribing": "Transcribing…",
+      "thinking": "Thinking…",
+      "loadingModel": "Loading model…",
+      "downloadingModel": "Downloading model…",
+      "searching": "Searching the web…",
+      "speaking": "Speaking…",
+      "muted": "Microphone off",
+      "paused": "Paused — click to resume",
+      "downloading": "Downloading voice mode files…",
+      "downloadingProgress": "Downloading voice mode files… {percent}"
+    },
+    "help": {
+      "handsFree": "<key>Space</key>: I'm done · <key>Esc</key>: end",
+      "interrupt": "<key>Space</key>: interrupt · <key>Esc</key>: end",
+      "pushToTalk": "Hold <key>Space</key> to talk · <key>Esc</key>: end",
+      "paused": "<key>Space</key>: resume · <key>Esc</key>: end"
+    },
+    "talk": {
+      "done": "I'm done",
+      "interrupt": "Interrupt",
+      "hold": "Hold to talk",
+      "resume": "Resume listening"
+    },
+    "mute": "Mute microphone",
+    "end": "End",
+    "endLabel": "End voice mode"
+  },
+  "notice": {
+    "unsupportedLanguage": "This reply isn't in English, French or Spanish: it's written, not read aloud.",
+    "missingVoice": {
+      "en": "The English voice isn't downloaded: this reply is written, not read aloud.",
+      "es": "The Spanish voice isn't downloaded: this reply is written, not read aloud.",
+      "fr": "The French voice isn't downloaded: this reply is written, not read aloud."
+    }
+  },
+  "download": {
+    "title": {
+      "one": "Download a file for voice mode?",
+      "other": "Download {count} files for voice mode?"
+    },
+    "intro": {
+      "one": "Voice mode needs this file. It's downloaded once from the Internet and stays on this computer.",
+      "other": "Voice mode needs these files. They're downloaded once from the Internet and stay on this computer."
+    },
+    "speechModel": "Speech recognition: {name} ({size})",
+    "voice": "Voice: {name} ({size})",
+    "confirm": "Download and start",
+    "failed": "Couldn't download the files voice mode needs. Try again.",
+    "cancelled": "The download of the files voice mode needs was stopped."
+  },
+  "errors": {
+    "noModel": "Choose a model to talk to."
+  }
+}

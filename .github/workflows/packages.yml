@@ -1,0 +1,356 @@
+# Paquets Linux de ChatonLM (.deb et AppImage) : construits sous Ubuntu 22.04
+# (glibc et bibliothèques les plus anciennes visées), inspectés, puis lancés
+# sur des systèmes neufs (essais de fumée sous Xvfb). Aucune publication : les
+# paquets restent des artefacts du run.
+#
+# Lancement : à la main (workflow_dispatch), en poussant une branche ci/**,
+# ou appelé par release.yml (workflow_call). Jamais aucun secret : les
+# paquets sont construits sans signature (scripts/package.sh passe
+# --no-sign) ; release.yml les signe ensuite dans un job à part, qui seul
+# reçoit la clé.
+# Construction : scripts/package.sh --lgpl (Ollama intégré téléchargé et
+# vérifié par scripts/fetch-ollama.sh, 1re passe deb + AppImage, inventaire
+# des bibliothèques de l'AppImage, 2e passe AppImage), puis
+# scripts/inspect-packages.mjs (dont l'Ollama intégré : fichiers intacts,
+# glibc), tailles dans le résumé du run, puis le code source des
+# bibliothèques LGPL (scripts/appimage-libs.sh --sources), à publier à côté
+# de l'AppImage. Essais de fumée : l'app (packaging/ci/smoke-launch.sh), puis
+# l'app qui démarre elle-même l'Ollama intégré de son paquet (--builtin : ces
+# machines n'ont pas d'Ollama ; binaire du paquet, environnement nettoyé,
+# aucun processus restant après l'arrêt de l'app), puis l'Ollama intégré de
+# chaque paquet lancé seul (packaging/ci/smoke-ollama.sh).
+name: Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      build-runner:
+        description: Système de construction
+        type: choice
+        options:
+          - ubuntu-22.04
+          - ubuntu-24.04
+        default: ubuntu-22.04
+  workflow_call:
+    inputs:
+      build-runner:
+        description: Système de construction
+        type: string
+        default: ubuntu-22.04
+  push:
+    branches:
+      - "ci/**"
+
+permissions:
+  contents: read
+
+# Un nouvel essai annule le précédent de la même branche ; jamais une
+# construction appelée par release.yml (contexte `github` de l'appelant :
+# `github.workflow` vaut alors « Release »), qui a son propre groupe.
+concurrency:
+  group: packages-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.workflow != 'Release' }}
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+
+# bash -eo pipefail pour chaque étape.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Construction (${{ inputs.build-runner || 'ubuntu-22.04' }})
+    runs-on: ${{ inputs.build-runner || 'ubuntu-22.04' }}
+    timeout-minutes: 150
+    steps:
+      - name: Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Les dépôts de sources sont activés avant la mise à jour des index :
+      # binaires installés et sources téléchargées à la fin viennent des
+      # mêmes index (scripts/appimage-libs.sh --sources).
+      - name: Dépendances système (et dépôts deb-src)
+        run: |
+          # Format classique (22.04) ou deb822 (24.04).
+          { grep -h '^deb ' /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true; } |
+            sed 's/^deb /deb-src /' | sudo tee /etc/apt/sources.list.d/chatonlm-deb-src.list >/dev/null
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config cmake clang libclang-dev file curl zstd \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libasound2-dev libdbus-1-dev \
+            desktop-file-utils appstream ubuntu-dev-tools
+
+      # Le greffon GTK de linuxdeploy copie tous les chargeurs d'images de
+      # gdk-pixbuf : celui du TIFF tirerait libtiff puis libjbig (JBIG-KIT,
+      # GPL-2+ seulement) dans l'AppImage, que scripts/appimage-libs.sh
+      # refuse. ChatonLM n'affiche pas de TIFF par GTK (WebKitGTK a ses propres
+      # décodeurs, sans TIFF) : le chargeur est retiré de cette machine jetable.
+      - name: Sans le chargeur TIFF de gdk-pixbuf
+        run: |
+          moduledir="$(pkg-config --variable=gdk_pixbuf_moduledir gdk-pixbuf-2.0)"
+          query="$(dirname "$(dirname "$moduledir")")/gdk-pixbuf-query-loaders"
+          sudo rm -f "$moduledir/libpixbufloader-tiff.so"
+          sudo "$query" --update-cache
+          if "$query" | grep -q tiff; then
+            echo "Chargeur TIFF encore présent." >&2
+            exit 1
+          fi
+
+      - name: Node (.nvmrc)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Rust (rust-toolchain.toml)
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal
+          rustc --version
+          cargo --version
+
+      # Restauration et sauvegarde séparées : le cache est gardé dès que la
+      # construction réussit, même si une étape suivante échoue (sinon chaque
+      # nouvel essai recompile tout, ~25 min).
+      - name: Cache Cargo (restauration)
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin/cargo-about
+            .tools/package-target
+            !.tools/package-target/release/bundle
+          key: packages-${{ runner.os }}-${{ inputs.build-runner || 'ubuntu-22.04' }}-${{ hashFiles('rust-toolchain.toml', 'src-tauri/Cargo.lock', 'scripts/package-notices.mjs') }}
+          restore-keys: |
+            packages-${{ runner.os }}-${{ inputs.build-runner || 'ubuntu-22.04' }}-
+
+      - name: cargo-about (version de scripts/package-notices.mjs)
+        run: |
+          version="$(sed -n 's/^export const CARGO_ABOUT_VERSION = "\(.*\)";$/\1/p' scripts/package-notices.mjs)"
+          test -n "$version"
+          if [ "$(cargo about --version 2>/dev/null)" != "cargo-about $version" ]; then
+            cargo install cargo-about --version "$version" --locked --features cli --force
+          fi
+          cargo about --version
+
+      - name: Paquets npm
+        run: npm ci
+
+      # Sans clé (paquets non signés : voir l'en-tête).
+      - name: Construction, inventaire et 2e passe de l'AppImage
+        id: build
+        run: scripts/package.sh --lgpl
+
+      - name: Cache Cargo (sauvegarde)
+        if: always() && steps.build.outcome == 'success' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin/cargo-about
+            .tools/package-target
+            !.tools/package-target/release/bundle
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+
+      - name: Inspection
+        run: |
+          version="$(node -p 'require("./src-tauri/tauri.conf.json").version')"
+          bundle=.tools/package-target/release/bundle
+          mkdir -p out
+          cp "$bundle/deb/chatonlm_${version}_amd64.deb" "$bundle/appimage/chatonlm_${version}_amd64.AppImage" out/
+          cp .tools/package/appimage-libs/libraries.txt out/appimage-libraries.txt
+          # glibc de la base visée : seulement pour une construction sous 22.04.
+          node scripts/inspect-packages.mjs --require-inventory \
+            ${{ (inputs.build-runner || 'ubuntu-22.04') == 'ubuntu-22.04' && '--max-glibc 2.35' || '' }} \
+            --report out/inspection.txt \
+            "out/chatonlm_${version}_amd64.deb" "out/chatonlm_${version}_amd64.AppImage"
+          {
+            echo "### Paquets"
+            echo
+            echo "| Fichier | Taille |"
+            echo "| --- | --- |"
+            for file in out/*.deb out/*.AppImage; do
+              echo "| $(basename "$file") | $(du -h "$file" | cut -f1) ($(stat -c %s "$file") octets) |"
+            done
+            echo
+            echo "Ollama intégré : $(du -sh .tools/runtimes/ollama | cut -f1) non compressé."
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Code source des bibliothèques de l'AppImage
+        run: |
+          version="$(node -p 'require("./src-tauri/tauri.conf.json").version')"
+          scripts/appimage-libs.sh --sources .tools/package/appimage-libs \
+            "out/chatonlm_${version}_amd64.AppImage-sources.tar"
+
+      - name: Artefacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chatonlm-packages
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
+
+  smoke-deb:
+    name: .deb sur ${{ matrix.os }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Code (script d'essai)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: packaging/ci
+
+      - name: Paquets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chatonlm-packages
+          path: out
+
+      - name: Installation par apt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth dbus libgl1-mesa-dri procps
+          sudo apt-get install -y ./out/chatonlm_*_amd64.deb
+          dpkg -s chatonlm | sed -n '1,/^Description/p'
+          test -f /usr/share/applications/com.chatonlm.chatonlm.desktop
+          test -f /usr/share/doc/chatonlm/copyright
+
+      - name: Lancement
+        run: packaging/ci/smoke-launch.sh chatonlm
+
+      - name: Lancement avec l'Ollama intégré
+        run: packaging/ci/smoke-launch.sh --builtin chatonlm
+
+      - name: Ollama intégré
+        run: packaging/ci/smoke-ollama.sh /usr/lib/chatonlm/ollama
+
+  smoke-appimage:
+    name: AppImage sur ubuntu-24.04
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Code (script d'essai)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: packaging/ci
+
+      - name: Paquets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chatonlm-packages
+          path: out
+
+      # Xvfb et D-Bus pour l'essai, plus les bibliothèques graphiques qu'un
+      # bureau a toujours et que l'AppImage n'embarque pas (liste d'exclusion
+      # de linuxdeploy : libEGL, libGL, libGLESv2 de libglvnd).
+      - name: Outils de l'essai
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth dbus libgl1-mesa-dri procps \
+            libegl1 libgl1 libgles2
+
+      # Sans FUSE : le runtime extrait l'AppImage dans un dossier temporaire.
+      - name: Lancement
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
+          chmod +x "$app"
+          packaging/ci/smoke-launch.sh "$app"
+
+      # Sans FUSE, extraite : son runtime lance l'app en enfant ; l'Ollama
+      # intégré est atteint par le lien usr/lib/chatonlm/ollama.
+      - name: Lancement avec l'Ollama intégré
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
+          packaging/ci/smoke-launch.sh --builtin "$app"
+
+      - name: Ollama intégré
+        run: |
+          app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
+          cd "$RUNNER_TEMP"
+          "$app" --appimage-extract >/dev/null
+          "$GITHUB_WORKSPACE/packaging/ci/smoke-ollama.sh" squashfs-root/usr/lib/chatonlm/ollama
+
+  smoke-appimage-fedora:
+    name: AppImage sur Fedora 44
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
+    steps:
+      # Bibliothèques qu'une Fedora de bureau a toujours, et que l'AppImage
+      # n'embarque pas (liste d'exclusion de linuxdeploy : glibc, libstdc++,
+      # Mesa, X11, fontconfig, ALSA…), plus Xvfb et D-Bus pour l'essai.
+      - name: Outils et bibliothèques du bureau
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            git xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon dbus-tools procps-ng findutils util-linux curl \
+            mesa-dri-drivers mesa-libEGL mesa-libGL mesa-libgbm libglvnd-egl libglvnd-gles libglvnd-glx \
+            libX11 libxcb libXext libXrender libXi libXrandr libXcursor libXdamage libXcomposite \
+            libXfixes libXinerama libxkbcommon libwayland-client libwayland-cursor libwayland-egl \
+            alsa-lib libstdc++ fontconfig freetype harfbuzz fribidi gmp zlib expat libuuid \
+            libgpg-error libdrm dejavu-sans-fonts
+
+      - name: Code (script d'essai)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: packaging/ci
+
+      - name: Paquets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chatonlm-packages
+          path: out
+
+      - name: Lancement
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
+          chmod +x "$app"
+          packaging/ci/smoke-launch.sh "$app"
+
+      # Sans FUSE, extraite : son runtime lance l'app en enfant ; l'Ollama
+      # intégré est atteint par le lien usr/lib/chatonlm/ollama.
+      - name: Lancement avec l'Ollama intégré
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
+          packaging/ci/smoke-launch.sh --builtin "$app"
+
+      - name: Ollama intégré
+        run: |
+          app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
+          cd "$RUNNER_TEMP"
+          "$app" --appimage-extract >/dev/null
+          "$GITHUB_WORKSPACE/packaging/ci/smoke-ollama.sh" squashfs-root/usr/lib/chatonlm/ollama

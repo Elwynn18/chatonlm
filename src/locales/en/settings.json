@@ -1,0 +1,444 @@
+{
+  "title": "Settings",
+  "tabs": {
+    "general": "General",
+    "models": "Models",
+    "account": "Account",
+    "dictation": "Dictation",
+    "readAloud": "Read aloud",
+    "voiceMode": "Voice mode",
+    "shortcuts": "Keyboard shortcuts"
+  },
+  "loadFailed": "Failed to load settings",
+  "general": {
+    "language": {
+      "label": "Language",
+      "description": "Follow the system language, or always use another one.",
+      "system": "System"
+    },
+    "ollama": {
+      "label": "Ollama"
+    },
+    "address": {
+      "label": "Server address"
+    },
+    "modelLocation": {
+      "label": "Model location",
+      "description": "Location where models are stored."
+    },
+    "contextLength": {
+      "label": "Context length",
+      "description": "Context length determines how much of your conversation local LLMs can remember and use to generate responses.",
+      "default": "Default"
+    },
+    "theme": {
+      "label": "Theme",
+      "description": "Follow the system appearance, or always use light or dark.",
+      "system": "System",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "menuEntry": {
+      "label": "Applications menu",
+      "description": "Show ChatonLM in the applications menu of your desktop, to launch this AppImage. Turn off to remove it.",
+      "switch": "Show in the applications menu"
+    },
+    "reset": {
+      "button": "Reset to defaults",
+      "resetting": "Resetting…",
+      "error": "ChatonLM could not reset every setting. Check the settings above and try again."
+    }
+  },
+  "ollama": {
+    "builtin": "Built-in Ollama {version}",
+    "builtinNoVersion": "Built-in Ollama",
+    "local": "Ollama {version} on this computer",
+    "localNoVersion": "Ollama on this computer",
+    "remote": "Ollama {version} at {url}",
+    "remoteNoVersion": "Ollama at {url}",
+    "autoBuiltin": "No other Ollama was found on this computer.",
+    "failed": "The built-in Ollama failed to start. See its log: {path}",
+    "openLog": "Open log",
+    "openLogError": "Couldn't open the log: {message}",
+    "useBuiltin": "Use the built-in Ollama",
+    "useBuiltinInstead": "Use the built-in Ollama instead",
+    "useBuiltinModels": {
+      "one": "Use the built-in Ollama and its model",
+      "other": "Use the built-in Ollama and its {count} models"
+    },
+    "useLocal": "Use Ollama on this computer",
+    "useAddress": "Use the Ollama at {url}",
+    "switching": "Switching…",
+    "switchError": "Couldn't switch Ollama: {message}",
+    "address": "Address of the built-in Ollama, chosen by ChatonLM. Only apps on this computer can reach it.",
+    "leftover": {
+      "one": "The built-in Ollama still has {count} model ({size}) in its folder.",
+      "other": "The built-in Ollama still has {count} models ({size}) in its folder."
+    },
+    "leftoverHint": "Ollama on this computer doesn't see them. Use the built-in Ollama to chat with them, or delete the folder to free up space.",
+    "openFolder": "Open folder",
+    "openFolderError": "Couldn't open the folder: {message}",
+    "modelsDirMissing": "The model location chosen for the built-in Ollama can't be found. It uses its default folder instead."
+  },
+  "updates": {
+    "title": "Updates",
+    "versions": {
+      "label": "Version",
+      "chatonlm": "ChatonLM {version}",
+      "ollama": "Built-in Ollama {version}"
+    },
+    "status": {
+      "idle": "Not checked yet",
+      "schedule": "ChatonLM checks for updates when it starts, then every hour.",
+      "checking": "Checking for updates…",
+      "upToDate": "ChatonLM is up to date",
+      "lastCheck": "Last checked: {time}",
+      "checkFailed": "The last check for updates failed: {detail}",
+      "available": "ChatonLM version {version} is available",
+      "released": "Released on {date}",
+      "downloading": "Downloading ChatonLM version {version}…",
+      "ready": "ChatonLM version {version} is ready to install",
+      "restartHint": "ChatonLM will close, then start again with the new version.",
+      "passwordHint": "Your system will ask for your password to install it.",
+      "installerHint": "The ChatonLM installer will appear for a moment.",
+      "installing": "Installing ChatonLM version {version}…",
+      "installingHint": "ChatonLM is stopping its services, then will start again with the new version.",
+      "installingPassword": "Your system is asking for your password to install it.",
+      "unsupported": "Updates can't be installed from ChatonLM",
+      "reasons": {
+        "noPackage": "This copy of ChatonLM wasn't installed from a package (AppImage or .deb), so it can't update itself.",
+        "packageManager": "ChatonLM was installed by your package manager: updates come through it.",
+        "readOnlyFolder": "ChatonLM can't replace the AppImage in its folder. Move it to a folder of your own (for example ~/Applications), then start ChatonLM again from there.",
+        "notInstalled": "This copy of ChatonLM wasn't installed with its installer, so it can't update itself. Download the latest installer to update.",
+        "installFolderReadOnly": "ChatonLM can't write to its installation folder. Install it again with its installer, in a folder of your own."
+      }
+    },
+    "notes": "What's new",
+    "progress": "{received} of {total} ({percent})",
+    "error": {
+      "check": "Couldn't check for updates",
+      "download": "Couldn't download the update",
+      "signature": "The downloaded update couldn't be verified",
+      "install": "Couldn't install the update",
+      "io": "Couldn't read the downloaded update"
+    },
+    "actions": {
+      "check": "Check for updates",
+      "download": "Download",
+      "restart": "Restart to update",
+      "restarting": "Restarting…"
+    },
+    "autoDownload": {
+      "label": "Auto-download updates",
+      "on": "Automatically download updates when available.",
+      "off": "Updates will not be downloaded automatically."
+    },
+    "loadError": "Couldn't read the update status: {message}"
+  },
+  "modelLocation": {
+    "remoteField": "On {host}",
+    "unknownField": "Unknown",
+    "browse": "Browse",
+    "moving": "Moving models…",
+    "movingLabel": "Moving models",
+    "changing": "Changing location…",
+    "restarting": "Restarting Ollama…",
+    "progress": "{done} of {total}",
+    "remote": "Ollama runs on {host}. Change the model location on that computer.",
+    "notRunning": "Start Ollama to see where models are stored.",
+    "container": "Ollama seems to run in a container. Change the models volume where the container is created, for example:",
+    "desktopApp": "Ollama's app chooses this folder; the one shown is its usual location. To change it, open Ollama's settings (Model location), or set the OLLAMA_MODELS variable of your user account, then quit Ollama from the system tray and start it again.",
+    "envFile": "OLLAMA_MODELS is set in {file}. Change it there.",
+    "envFileUnknown": "OLLAMA_MODELS is set in an environment file of the service. Change it there.",
+    "manual": "Ollama was started from a terminal. Stop it, then start it again with:",
+    "userService": "Ollama runs as a service of your user account. Run:",
+    "unknownRunning": "ChatonLM can't tell how Ollama was started. Start it with:",
+    "rootService": "The Ollama service runs as root. Change its model location in a terminal:",
+    "noPkexec": "Changing the Ollama service needs administrator rights, and pkexec is not installed. Run these commands in a terminal:",
+    "downloads": "Wait for the model downloads to finish, then try again.",
+    "problems": {
+      "system": "This folder can't hold models. Choose a folder outside the system folders.",
+      "badCharacters": "Choose a folder whose name has no \" \\ : $ or ` characters.",
+      "badCharactersWindows": "This folder's name has characters ChatonLM can't use. Choose another folder.",
+      "notEmpty": "Choose an empty folder, or a folder that already contains Ollama models.",
+      "inside": "Choose a folder outside the current model location.",
+      "missing": "This folder can't be found.",
+      "notYours": "Choose a folder you created, or a new folder."
+    },
+    "confirm": {
+      "moveTitle": "Move models to the new location?",
+      "changeTitle": "Change the model location?",
+      "restartAndStore": "Ollama will restart and store new models in {path}.",
+      "store": "Ollama will store new models in {path}.",
+      "models": {
+        "one": "Your {count} model ({size}) is in {dir}.",
+        "other": "Your {count} models ({size}) are in {dir}."
+      },
+      "modelsUnknown": "Your models are in {dir}.",
+      "otherDrive": "Copying them to another drive can take several minutes.",
+      "nextStart": "Used the next time Ollama starts.",
+      "replies": "Replies in progress will stop.",
+      "leaveThem": "Leave them",
+      "moveModels": "Move models",
+      "changeLocation": "Change location"
+    },
+    "stoppedSaved": "Saved. Ollama will use this folder the next time it starts.",
+    "cleanupFailed": "The models were copied, but the old copies in {dir} could not be deleted.",
+    "failures": {
+      "notAuthorized": "Authentication failed. The model location was not changed.",
+      "noSpace": "Not enough free space: {need} needed, {free} available.",
+      "noSpaceUnknown": "Not enough free space.",
+      "cannotWrite": "The Ollama service (user {user}) can't write to this folder. Its drive may not support Linux permissions, or a parent folder is private.",
+      "stopFailed": "Ollama could not be stopped. Nothing was changed.",
+      "putBack": "The model location could not be changed. Everything was put back as before.",
+      "overridden": "Another setting of the Ollama service chooses the model location. Everything was put back as before.",
+      "startFailed": "Ollama did not start with the new location, so the previous one was restored. See: journalctl -u ollama",
+      "unexpected": "The model location could not be changed."
+    },
+    "builtin": {
+      "cannotWrite": "ChatonLM can't write to this folder. Its drive may not support Linux permissions.",
+      "cannotWriteWindows": "ChatonLM can't write to this folder.",
+      "startFailed": "The built-in Ollama did not start with the new location, so the previous one was restored.",
+      "restoreFailed": "ChatonLM could not undo every change.",
+      "modelConflict": "The new folder already has another version of {model}. Nothing was moved.",
+      "symlink": "The model folder has a link or a special file that ChatonLM doesn't move: {path}. Nothing was moved."
+    }
+  },
+  "service": {
+    "noAgent": "No password prompt is available in this session. Run these commands in a terminal:",
+    "unitChanged": "The Ollama service changed. Reopen Settings and try again.",
+    "restoreFailed": "ChatonLM could not undo every change. Check the service with: systemctl status ollama",
+    "details": "Details"
+  },
+  "ollamaHome": {
+    "alert": "Ollama can't read its own files in {dir}: its systemd service hides {root} (ProtectHome). Downloads from ollama.com and your Ollama account won't work until this is fixed.",
+    "root": "Ollama's service runs as root: ChatonLM won't change it. Run the service as another user (User= in its unit), or change its ProtectHome= setting yourself.",
+    "fix": "Fix",
+    "fixing": "Fixing…",
+    "asksRestart": "Fix asks for an administrator password, then restarts Ollama.",
+    "asks": "Fix asks for an administrator password.",
+    "noPkexec": "Fixing this needs administrator rights, and pkexec is not installed. Run these commands in a terminal:",
+    "fixError": "Couldn't fix this: {message}",
+    "failures": {
+      "notAuthorized": "Authentication failed. Nothing was changed.",
+      "notYours": "{dir} is not a folder of the Ollama service (user {user}). Nothing was changed.",
+      "cannotCreate": "The Ollama service (user {user}) can't create {dir}. Nothing was changed.",
+      "configFailed": "The Ollama service could not be changed. Everything was put back as before.",
+      "overridden": "Another setting of the Ollama service hides {root} again. Everything was put back as before.",
+      "startFailed": "Ollama did not restart with this change, so it was undone. See: journalctl -u ollama",
+      "unexpected": "The Ollama service could not be changed."
+    },
+    "link": "Fix in Settings › General"
+  },
+  "models": {
+    "keepAlive": {
+      "label": "Keep models loaded",
+      "description": "How long a model stays in memory after its last use. Default follows the Ollama server (5 minutes unless OLLAMA_KEEP_ALIVE is set).",
+      "default": "Default",
+      "minutes": {
+        "one": "{count} min",
+        "other": "{count} min"
+      },
+      "hours": {
+        "one": "{count} hour",
+        "other": "{count} hours"
+      },
+      "always": "Always"
+    },
+    "preload": {
+      "label": "Preload the chosen model",
+      "description": "Load the model selected in the chat as soon as you choose it and when ChatonLM starts, so your first message doesn't wait."
+    },
+    "loaded": {
+      "title": "Loaded models",
+      "reachError": "Couldn't reach Ollama: {message}",
+      "none": "No models are loaded.",
+      "summary": {
+        "one": "{count} model loaded · {size} in memory",
+        "other": "{count} models loaded · {size} in memory"
+      },
+      "unloadAll": "Unload all",
+      "unload": "Unload",
+      "unloading": "Unloading…",
+      "processor": {
+        "gpu": "{percent} GPU",
+        "cpu": "{percent} CPU",
+        "split": "{cpu}/{gpu} CPU/GPU"
+      },
+      "context": "{context} context",
+      "expiry": {
+        "kept": "Stays loaded",
+        "soon": "Unloads soon",
+        "seconds": {
+          "one": "Unloads in {count} second",
+          "other": "Unloads in {count} seconds"
+        },
+        "minutes": {
+          "one": "Unloads in {count} minute",
+          "other": "Unloads in {count} minutes"
+        },
+        "hours": {
+          "one": "Unloads in {count} hour",
+          "other": "Unloads in {count} hours"
+        }
+      },
+      "unloadError": "Couldn't unload {model}: {message}",
+      "unloadAllError": "Couldn't unload the models: {message}",
+      "loadLabel": "Load a model",
+      "noOther": "No other model installed",
+      "loading": "Loading…",
+      "load": "Load",
+      "loadError": "Couldn't load {model}: {message}"
+    }
+  },
+  "readAloud": {
+    "auto": {
+      "label": "Read responses aloud automatically",
+      "description": "Each new response is read aloud while it's being written, if the voice of its language is downloaded. Older responses aren't read when you open a chat."
+    },
+    "voices": {
+      "title": "Voices",
+      "description": "One voice per language, downloaded once. Responses in other languages aren't read.",
+      "installed": "Installed",
+      "missing": "Not downloaded",
+      "downloading": "Downloading…",
+      "downloadingProgress": "Downloading… {percent}",
+      "manage": "Manage voices in the ModelHub",
+      "loadFailed": "Couldn't read the voices: {message}"
+    }
+  },
+  "voiceMode": {
+    "loadFailed": "Couldn't read the voice mode settings: {message}",
+    "turns": {
+      "label": "Taking turns",
+      "description": "Hands-free: what you say is sent when you pause. Push to talk: hold Space, or the button of the voice bar, while you speak.",
+      "handsFree": "Hands-free",
+      "pushToTalk": "Push to talk"
+    },
+    "pause": {
+      "label": "Pause before sending",
+      "description": "How long you can stay silent before what you said is sent (hands-free). Choose Long if you're cut off mid-sentence.",
+      "short": "Short",
+      "normal": "Normal",
+      "long": "Long"
+    },
+    "bargeIn": {
+      "label": "Interrupt by speaking",
+      "description": "Speaking over a reply stops it (hands-free). ChatonLM removes its own voice from what the microphone hears (echo cancellation), so this also works with speakers; headphones work best."
+    },
+    "keepThink": {
+      "label": "Let models think",
+      "description": "Voice messages keep the choice of the Think button. Off: thinking is turned off when the model allows it, so replies start sooner."
+    },
+    "instructions": {
+      "title": "Instructions",
+      "label": "Voice instructions",
+      "description": "Sent to the model with each voice message, never saved in the chat. Leave empty to use the default instructions shown in the field.",
+      "reset": "Reset to default"
+    },
+    "speech": {
+      "title": "Speech",
+      "transcription": {
+        "label": "Speech recognition",
+        "description": "Voice mode uses the speech model and the language of dictation.",
+        "link": "Dictation settings"
+      },
+      "voices": {
+        "label": "Voices",
+        "description": "Replies are read aloud with the voice of their language: English, French or Spanish.",
+        "link": "Manage voices in the ModelHub"
+      }
+    }
+  },
+  "account": {
+    "title": "Ollama account",
+    "cloudOffEnv": "The OLLAMA_NO_CLOUD environment variable is currently forcing cloud off.",
+    "cloudOff": "Cloud is turned off on the Ollama server.",
+    "checkError": "Couldn't check your Ollama account: {reason}",
+    "retrying": "Retrying…",
+    "upgrade": "Upgrade",
+    "manage": "Manage",
+    "signOut": "Sign out",
+    "notConnected": "Not connected",
+    "signIn": "Sign In",
+    "connectFailed": "Failed to connect to Ollama account",
+    "disconnectFailed": "Failed to disconnect Ollama account"
+  },
+  "tryAgain": "Try again",
+  "saveError": "Couldn't save this setting: {message}",
+  "saved": "Saved",
+  "shortcuts": {
+    "global": {
+      "title": "Global shortcuts",
+      "description": "They work in any app. You set their keys in your desktop, not in ChatonLM.",
+      "descriptionApp": "They work in any app. Choose their keys here.",
+      "dictation": {
+        "label": "Dictation",
+        "description": "Starts and stops dictation.",
+        "off": "Turn on dictation to use this shortcut.",
+        "settings": "Dictation settings"
+      },
+      "proofread": {
+        "label": "Correct selected text",
+        "description": "Corrects the text selected in any app and copies the result: press Ctrl+V to replace the selection.",
+        "off": "Turn on the shortcut to choose its keys."
+      },
+      "waiting": "Waiting for your desktop…",
+      "notSet": "Not set",
+      "set": "Set shortcut",
+      "change": "Change…",
+      "tryAgain": "Try again",
+      "bindCommand": "Bind this command to a shortcut in your system settings:",
+      "loadFailed": "Couldn't read the shortcuts: {message}"
+    },
+    "app": {
+      "title": "App shortcuts",
+      "groups": {
+        "general": "General",
+        "chat": "Chat",
+        "voiceMode": "Voice mode",
+        "proofread": "Proofread",
+        "hub": "ModelHub"
+      },
+      "actions": {
+        "newChat": "New chat",
+        "settings": "Settings",
+        "quit": "Quit",
+        "zoomIn": "Zoom in",
+        "zoomOut": "Zoom out",
+        "actualSize": "Actual size",
+        "undoTyping": "Undo in a text field",
+        "redoTyping": "Redo in a text field",
+        "send": "Send",
+        "newLine": "New line",
+        "stopAnswer": "Stop the response",
+        "cancelEdit": "Cancel editing a message",
+        "paste": "Paste text, images or files",
+        "voiceModeToggle": "Start or end voice mode",
+        "voiceModeSpace": "I'm done, or interrupt the reply (push to talk: hold to speak)",
+        "voiceModeEnd": "End voice mode",
+        "correct": "Correct",
+        "rephrase": "Rephrase",
+        "stopProofread": "Stop",
+        "undoCorrection": "Undo the correction",
+        "redoCorrection": "Redo the correction",
+        "pasteInReview": "Paste at the end of the corrected text",
+        "searchModels": "Search models"
+      }
+    },
+    "keys": {
+      "ctrl": "Ctrl",
+      "shift": "Shift",
+      "enter": "Enter",
+      "esc": "Esc",
+      "space": "Space"
+    },
+    "either": "<first/> or <second/>",
+    "recorder": {
+      "label": "New shortcut: {name}",
+      "prompt": "Press the new shortcut…",
+      "hint": "Use Ctrl, Alt or the Windows key with a letter, a digit or a function key.",
+      "reset": "Reset to default"
+    }
+  }
+}

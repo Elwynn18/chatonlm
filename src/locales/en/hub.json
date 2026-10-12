@@ -1,0 +1,287 @@
+{
+  "title": "ModelHub",
+  "tabs": {
+    "discover": "Discover",
+    "transcription": "Transcription",
+    "polish": "Polish",
+    "voices": "Voices",
+    "installed": "Installed",
+    "downloads": "Downloads"
+  },
+  "discover": {
+    "title": "Discover models",
+    "subtitle": "Open models from Hugging Face, ready to run with Ollama.",
+    "loading": "Loading models",
+    "seeAll": "See all",
+    "seeAllLabel": "See all {section}",
+    "families": "Families",
+    "modelCount": {
+      "one": "{count} model",
+      "other": "{count} models"
+    },
+    "allModels": "All models",
+    "searchFor": "Search Hugging Face for “{query}”",
+    "results": "Results for “{query}”",
+    "noMatch": "No models match these filters.",
+    "noResults": "No models match your search.",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…"
+  },
+  "search": {
+    "placeholder": "Search Hugging Face models",
+    "clear": "Clear search"
+  },
+  "machine": {
+    "cpuOnly": "CPU only",
+    "vram": "{size} VRAM",
+    "ram": "{size} RAM",
+    "remote": "Remote server — memory fit unknown",
+    "remoteHint": "The Ollama server runs on another machine: ChatonLM can't tell which models fit in its memory.",
+    "hint": {
+      "estimates": "Estimates for a {context} context.",
+      "estimatesCpu": "Estimates for a {context} context, without a graphics card.",
+      "fitsGpu": "Fits your GPU: runs entirely on the graphics card.",
+      "fitsMemory": "Fits in memory: runs on the processor.",
+      "partial": "Runs partly on CPU: works, but slower.",
+      "tooLarge": "Too large: needs more memory than this machine has."
+    }
+  },
+  "filters": {
+    "label": "Filters",
+    "openLicense": "Open license",
+    "verifiedOnly": "Verified only",
+    "reset": "Reset filters"
+  },
+  "uses": {
+    "code": "Code",
+    "vision": "Vision",
+    "reasoning": "Reasoning",
+    "tools": "Tools"
+  },
+  "sizes": {
+    "fits": "Fits my machine",
+    "small": "Small",
+    "medium": "Medium",
+    "large": "Large"
+  },
+  "sections": {
+    "forYou": "Best for your machine",
+    "trending": "Trending",
+    "popular": "Popular",
+    "coding": "For coding",
+    "vision": "With vision",
+    "reasoning": "Reasoning",
+    "small": "Small and fast"
+  },
+  "card": {
+    "contextLength": "Context length",
+    "downloadsHint": {
+      "one": "{count} download in the last 30 days",
+      "other": "{count} downloads in the last 30 days"
+    },
+    "likesHint": {
+      "one": "{count} like",
+      "other": "{count} likes"
+    },
+    "lastUpdated": "Last updated"
+  },
+  "trust": {
+    "verified": "Verified",
+    "unverified": "Unverified",
+    "unverifiedHint": "This publisher isn't on ChatonLM's list of trusted publishers. Check the model card before using it."
+  },
+  "capabilities": "Capabilities",
+  "fit": {
+    "fitsGpu": "Fits your GPU",
+    "fitsMemory": "Fits in memory",
+    "partial": "Runs partly on CPU",
+    "tooLarge": "Too large"
+  },
+  "installedBadge": "Installed",
+  "status": {
+    "earlier": "earlier",
+    "stale": {
+      "offline": "You're offline. Showing models saved {saved}.",
+      "unavailable": "Hugging Face isn't responding. Showing models saved {saved}.",
+      "incident": "Hugging Face isn't responding. Hugging Face reports an incident. Showing models saved {saved}.",
+      "notFound": "This model doesn't exist on Hugging Face, or it's private. Showing what was saved {saved}.",
+      "failed": "Hugging Face returned an error: {message}. Showing models saved {saved}."
+    },
+    "rateLimited": "Hugging Face is limiting requests. Try again in {seconds} s.",
+    "restricted": "This model needs a Hugging Face account. ChatonLM can't download it.",
+    "offlineTitle": "You're offline",
+    "offlineText": "Connect to the internet to browse models on Hugging Face. Your installed models are still available.",
+    "unavailableTitle": "Hugging Face isn't responding",
+    "unavailableText": "Try again in a few minutes.",
+    "incidentText": "Hugging Face reports an incident. Try again in a few minutes.",
+    "rateLimitedTitle": "Too many requests",
+    "notFoundTitle": "Model not found",
+    "notFoundText": "This model doesn't exist on Hugging Face, or it's private.",
+    "restrictedTitle": "Restricted model",
+    "failedTitle": "Couldn't reach Hugging Face",
+    "commandError": "Something went wrong"
+  },
+  "model": {
+    "back": "Back",
+    "loading": "Loading model",
+    "details": "Details",
+    "facts": {
+      "parameters": "Parameters",
+      "context": "Context",
+      "contextValue": "{context} tokens",
+      "architecture": "Architecture",
+      "license": "License",
+      "downloads": "Downloads",
+      "updated": "Updated",
+      "languages": "Languages"
+    },
+    "announced": "Announced by the model. Checked after download.",
+    "about": "About",
+    "readmeFailed": "The model card couldn't be loaded.",
+    "noReadme": "This model has no model card."
+  },
+  "readme": {
+    "image": "Image: {label}",
+    "showMore": "Show more",
+    "showLess": "Show less"
+  },
+  "versions": {
+    "title": "Choose a version",
+    "none": "This repository has no model file Ollama can use.",
+    "recommended": "Recommended",
+    "installed": "Installed",
+    "memory": "Needs about {size} of memory.",
+    "memoryContext": "Needs about {size} of memory with a {context} context.",
+    "showAll": "Show all {count} versions",
+    "showFewer": "Show fewer versions",
+    "download": "Download · {size}",
+    "ollamaName": "Ollama name",
+    "copyOllamaName": "Copy Ollama name",
+    "otherSources": "Other sources"
+  },
+  "tiers": {
+    "full": "Full precision",
+    "high": "High quality",
+    "balanced": "Balanced",
+    "compact": "Compact",
+    "tiny": "Smallest"
+  },
+  "issues": {
+    "sharded": "Split into several files — not supported by Ollama yet",
+    "subfolder": "Stored in a subfolder — not supported by Ollama yet"
+  },
+  "progress": {
+    "downloading": "Downloading {name}",
+    "waiting": "Waiting…",
+    "starting": "Starting…",
+    "finishing": "Finishing…",
+    "ofTotal": "{completed} of {total}",
+    "speed": "{size}/s",
+    "secondsLeft": {
+      "one": "{count} s left",
+      "other": "{count} s left"
+    },
+    "minutesLeft": {
+      "one": "{count} min left",
+      "other": "{count} min left"
+    },
+    "hoursLeft": {
+      "one": "{count} h left",
+      "other": "{count} h left"
+    },
+    "hoursMinutesLeft": "{hours} h {minutes} min left"
+  },
+  "actions": {
+    "download": "Download",
+    "useInChat": "Use in chat",
+    "tryAgain": "Try again",
+    "downloadAgain": "Download again",
+    "dismiss": "Dismiss",
+    "browse": "Browse models",
+    "viewOnHuggingFace": "View on Hugging Face",
+    "deleteNamed": "Delete {name}",
+    "deleteConfirm": "Delete {name}?"
+  },
+  "downloadState": {
+    "failed": "The download failed.",
+    "installed": "Installed",
+    "noLongerInstalled": "No longer installed",
+    "cancelled": "Cancelled"
+  },
+  "downloads": {
+    "loading": "Loading downloads",
+    "empty": "No downloads yet.",
+    "emptyText": "Models you download from ModelHub appear here."
+  },
+  "installed": {
+    "empty": "No models yet",
+    "modified": "Modified {time}",
+    "embedding": "Embedding",
+    "deleteText": "This removes the model from Ollama. You can download it again later."
+  },
+  "speech": {
+    "title": "Speech models",
+    "loading": "Loading speech models",
+    "intro": "Speech models run inside ChatonLM, not in Ollama. Dictation uses the one you choose.",
+    "settingsLink": "Dictation settings",
+    "catalog": {
+      "parakeet_tdt_0_6b_v3": {
+        "description": "Fast and accurate, with punctuation. Detects the language automatically. Runs well without a GPU.",
+        "languages": "25 European languages"
+      },
+      "whisper_tiny": {
+        "description": "Smallest and fastest Whisper model. Rough accuracy.",
+        "languages": "99 languages"
+      },
+      "whisper_base": {
+        "description": "Fast, for clear speech.",
+        "languages": "99 languages"
+      },
+      "whisper_small": {
+        "description": "Good balance of speed and accuracy.",
+        "languages": "99 languages"
+      },
+      "whisper_large_v3_turbo": {
+        "description": "Most accurate Whisper model here. Slow without a GPU.",
+        "languages": "99 languages"
+      }
+    },
+    "recommended": "Recommended",
+    "license": "License:",
+    "source": "Source:",
+    "basedOn": "Based on <link>{source}</link>, licensed under {license}.",
+    "inUse": "In use",
+    "unsupported": "Not available on this computer: Whisper needs instructions its processor lacks ({features}).",
+    "runtime": {
+      "missing": "Not available: ONNX Runtime, which Parakeet needs, is missing ({detail}). Reinstall ChatonLM.",
+      "incompatible": "Not available: the ONNX Runtime found can't run Parakeet ({detail}). Reinstall ChatonLM.",
+      "loadFailed": "Not available: ONNX Runtime, which Parakeet needs, could not be loaded ({detail})."
+    },
+    "use": "Use",
+    "deleteText": "This removes the model files from this computer. You can download it again later.",
+    "deleteTextInUse": "This removes the model files from this computer. Dictation won't work until you download it again or choose another speech model."
+  },
+  "voices": {
+    "title": "Voices",
+    "loading": "Loading voices",
+    "intro": "Voices read responses aloud. They run inside ChatonLM, not in Ollama.",
+    "settingsLink": "Read aloud settings",
+    "cardTitle": "{language} · {voice}",
+    "modelLicense": "Model license:",
+    "voice": "Voice: <source>{credit}</source>, <license>{license}</license>",
+    "basedOn": "Based on <link>{source}</link> by Kyutai, licensed under {license}. Exported to ONNX and quantized by ChatonLM.",
+    "runtime": {
+      "missing": "Not available: ONNX Runtime, which reading aloud needs, is missing ({detail}). Reinstall ChatonLM.",
+      "incompatible": "Not available: the ONNX Runtime found can't run reading aloud ({detail}). Reinstall ChatonLM.",
+      "loadFailed": "Not available: ONNX Runtime, which reading aloud needs, could not be loaded ({detail})."
+    },
+    "deleteText": "This removes the voice from this computer. You can download it again later."
+  },
+  "polish": {
+    "intro": "A second model cleans up the transcript: punctuation, filler words, self-corrections. If its answer does not look like what you said, the raw transcript is copied instead.",
+    "unreachable": "Ollama is unreachable. Start it to download or use these models.",
+    "label": "Polish models",
+    "use": "Use for polish",
+    "anyModel": "Any installed model can be chosen in Settings."
+  }
+}

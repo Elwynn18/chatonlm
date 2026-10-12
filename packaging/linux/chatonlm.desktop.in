@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ChatonLM
+Comment=Unofficial desktop chat client for Ollama
+Exec={{exec}}
+Icon={{icon}}
+Terminal=false
+Categories=Utility;
+NoDisplay=true

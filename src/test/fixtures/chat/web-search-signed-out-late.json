@@ -1,0 +1,68 @@
+{
+  "description": "Web search while the account could not be checked (/api/me failed): the model calls web_search, the server refuses it (401), the send stops with a webSearchSignedOut error; the call stays without result or error.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "What is the latest Ollama release?",
+    "model": "chatonlm-search",
+    "webSearch": true
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "What is the latest Ollama release?",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "type": "loading"
+    },
+    {
+      "type": "loaded"
+    },
+    {
+      "createdAt": 1700000000000,
+      "messageId": 2,
+      "type": "replyStarted"
+    },
+    {
+      "text": "The user wants a",
+      "type": "thinking"
+    },
+    {
+      "text": " web search.",
+      "type": "thinking"
+    },
+    {
+      "messageId": 2,
+      "toolCalls": [
+        {
+          "arguments": "{\"query\":\"What is the latest Ollama release?\"}",
+          "error": null,
+          "name": "web_search",
+          "result": null
+        }
+      ],
+      "type": "toolCalls"
+    },
+    {
+      "kind": "webSearchSignedOut",
+      "message": "Web search requires an Ollama account",
+      "type": "error"
+    }
+  ],
+  "error": null
+}

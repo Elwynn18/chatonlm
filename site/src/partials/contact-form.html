@@ -1,0 +1,29 @@
+<form class="formulaire" method="post" action="/api/contact" data-formulaire
+        data-msg-name="{{t:contact.error.name}}" data-msg-email="{{t:contact.error.email}}"
+        data-msg-message="{{t:contact.error.message}}" data-msg-rate="{{t:contact.error.rate}}"
+        data-msg-too_fast="{{t:contact.error.too_fast}}" data-msg-send="{{t:contact.error.send}}"
+        data-msg-sending="{{t:contact.sending}}">
+        <input type="hidden" name="lang" value="{{lang}}" />
+        <div class="champ">
+          <label for="{{page}}-nom">{{t:contact.name}}</label>
+          <input id="{{page}}-nom" name="name" type="text" autocomplete="name" maxlength="100" required />
+        </div>
+        <div class="champ">
+          <label for="{{page}}-courriel">{{t:contact.email}}</label>
+          <input id="{{page}}-courriel" name="email" type="email" autocomplete="email" maxlength="254" required />
+        </div>
+        <div class="champ">
+          <label for="{{page}}-message">{{t:contact.message}}</label>
+          <textarea id="{{page}}-message" name="message" minlength="10" maxlength="5000" required></textarea>
+        </div>
+        <div class="piege" aria-hidden="true">
+          <label for="{{page}}-site">{{t:contact.trap}}</label>
+          <input id="{{page}}-site" name="champ_libre" type="text" tabindex="-1" autocomplete="off" />
+        </div>
+        <p class="etat" role="status" aria-live="polite" id="{{page}}-etat" data-etat></p>
+        <div class="formulaire-bas">
+          <button class="bouton" type="submit">{{t:contact.send}}</button>
+        </div>
+        <p class="discret formulaire-note">{{h:contact.note}}</p>
+        <p class="etat etat--ok" hidden data-merci>{{t:contact.sent}}</p>
+      </form>

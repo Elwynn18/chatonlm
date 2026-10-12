@@ -1,0 +1,11 @@
+{
+  "bundle": {
+    "resources": {
+      "../.tools/runtimes/onnxruntime/onnxruntime.dll": "onnxruntime.dll",
+      "../.tools/runtimes/ollama/ollama.exe": "ollama/ollama.exe",
+      "../.tools/runtimes/ollama/VERSION": "ollama/VERSION",
+      "../.tools/runtimes/ollama/lib/": "ollama/lib/",
+      "../.tools/package/notices/windows/": "licenses/"
+    }
+  }
+}

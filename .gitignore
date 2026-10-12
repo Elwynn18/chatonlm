@@ -1,0 +1,17 @@
+# Environnement isolé (Rust, Node, caches, clone de référence d'Ollama)
+.tools/
+
+# Dépendances et artefacts de build
+node_modules/
+dist/
+target/
+src-tauri/gen/schemas/
+
+# Rapports de tests
+test-results/
+playwright-report/
+blob-report/
+
+# Divers
+*.log
+.DS_Store

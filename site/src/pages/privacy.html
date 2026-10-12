@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="{{lang}}" class="sans-js">
+  <head>
+    {{>head.html}}
+    <title>{{t:meta.privacy.title}}</title>
+    <meta name="description" content="{{t:meta.privacy.description}}" />
+    <meta property="og:title" content="{{t:meta.privacy.title}}" />
+    <meta property="og:description" content="{{t:meta.privacy.description}}" />
+    {{>head-index.html}}
+  </head>
+  <body class="page-texte">
+    {{>header.html}}
+    <main id="contenu" class="cadre">
+      <article class="prose">
+        <h1>{{h:privacy.title}}</h1>
+        <p class="chapo">{{t:privacy.lead}}</p>
+        {{h:privacy.body}}
+        <p class="discret">{{t:privacy.updated}}</p>
+      </article>
+    </main>
+    {{>footer.html}}
+    {{>contact-dialog.html}}
+  </body>
+</html>

@@ -1,0 +1,63 @@
+{
+  "button": {
+    "start": "Démarrer le mode vocal",
+    "title": "Mode vocal ({keys})"
+  },
+  "bar": {
+    "phase": {
+      "starting": "Préparation…",
+      "listening": "À l'écoute…",
+      "transcribing": "Transcription…",
+      "thinking": "Réflexion…",
+      "loadingModel": "Chargement du modèle…",
+      "downloadingModel": "Téléchargement du modèle…",
+      "searching": "Recherche sur le web…",
+      "speaking": "Lecture à voix haute…",
+      "muted": "Micro coupé",
+      "paused": "En pause — cliquez pour reprendre",
+      "downloading": "Téléchargement des fichiers du mode vocal…",
+      "downloadingProgress": "Téléchargement des fichiers du mode vocal… {percent}"
+    },
+    "help": {
+      "handsFree": "<key>Espace</key> : j'ai fini · <key>Échap</key> : terminer",
+      "interrupt": "<key>Espace</key> : interrompre · <key>Échap</key> : terminer",
+      "pushToTalk": "Maintenez <key>Espace</key> pour parler · <key>Échap</key> : terminer",
+      "paused": "<key>Espace</key> : reprendre · <key>Échap</key> : terminer"
+    },
+    "talk": {
+      "done": "J'ai fini",
+      "interrupt": "Interrompre",
+      "hold": "Maintenir pour parler",
+      "resume": "Reprendre l'écoute"
+    },
+    "mute": "Couper le micro",
+    "end": "Terminer",
+    "endLabel": "Terminer le mode vocal"
+  },
+  "notice": {
+    "unsupportedLanguage": "Cette réponse n'est ni en anglais, ni en français, ni en espagnol : elle est écrite, pas lue à voix haute.",
+    "missingVoice": {
+      "en": "La voix anglaise n'est pas téléchargée : cette réponse est écrite, pas lue à voix haute.",
+      "es": "La voix espagnole n'est pas téléchargée : cette réponse est écrite, pas lue à voix haute.",
+      "fr": "La voix française n'est pas téléchargée : cette réponse est écrite, pas lue à voix haute."
+    }
+  },
+  "download": {
+    "title": {
+      "one": "Télécharger un fichier pour le mode vocal ?",
+      "other": "Télécharger {count} fichiers pour le mode vocal ?"
+    },
+    "intro": {
+      "one": "Le mode vocal a besoin de ce fichier. Il est téléchargé une fois depuis Internet et reste sur cet ordinateur.",
+      "other": "Le mode vocal a besoin de ces fichiers. Ils sont téléchargés une fois depuis Internet et restent sur cet ordinateur."
+    },
+    "speechModel": "Reconnaissance vocale : {name} ({size})",
+    "voice": "Voix : {name} ({size})",
+    "confirm": "Télécharger et démarrer",
+    "failed": "Impossible de télécharger les fichiers du mode vocal. Réessayez.",
+    "cancelled": "Le téléchargement des fichiers du mode vocal a été arrêté."
+  },
+  "errors": {
+    "noModel": "Choisissez un modèle à qui parler."
+  }
+}

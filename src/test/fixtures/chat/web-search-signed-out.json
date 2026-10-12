@@ -1,0 +1,37 @@
+{
+  "description": "Web search while the server has no Ollama account (checked with /api/me before answering): the send stops with a webSearchSignedOut error, no answer is created.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "What is the latest Ollama release?",
+    "model": "chatonlm-search",
+    "webSearch": true
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "What is the latest Ollama release?",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "kind": "webSearchSignedOut",
+      "message": "Web search requires an Ollama account",
+      "type": "error"
+    }
+  ],
+  "error": null
+}

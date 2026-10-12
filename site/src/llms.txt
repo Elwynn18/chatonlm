@@ -1,0 +1,35 @@
+# ChatonLM
+
+> ChatonLM is a free, open-source desktop app for Windows 11 and Linux that brings the tools of local AI together in one window: chat, a model catalog, dictation, voice, proofreading and study. Models run on the user's own computer, with no account, no subscription and no telemetry.
+
+Tools:
+
+- {{h:tools.chat.name}}: {{h:tools.chat.text}}
+- {{h:tools.hub.name}}: {{h:tools.hub.text}}
+- {{h:tools.dictation.name}}: {{h:tools.dictation.text}}
+- {{h:tools.voice.name}}: {{h:tools.voice.text}}
+- {{h:tools.proofread.name}}: {{h:tools.proofread.text}}
+- {{h:tools.study.name}}: {{h:tools.study.text}}
+
+Facts:
+
+- Price: free. Open-source software under the MIT license. No paid version, no subscription, no ads.
+- Platforms: Windows 11 (installer) and Linux (AppImage and .deb), on 64-bit x86 PCs. No macOS version for now.
+- Hardware: a graphics card makes models faster but is not required.
+- Interface languages: English, French and Spanish.
+- Engine: ChatonLM includes the Ollama engine, unmodified, and uses an existing Ollama installation and its models when there is one. ChatonLM is an independent project, not affiliated with Ollama.
+- Privacy: conversations, attachments, voice and settings stay on the user's computer. The app goes online only to browse and download models and voices, to check for signed updates and, if enabled, for web search.
+- Designed in France.
+
+## Pages
+
+- [Home]({{origin}}/en/): what ChatonLM does, why choose it, downloads and common questions
+- [Accueil, en français]({{origin}}/fr/)
+- [Inicio, en español]({{origin}}/es/)
+- [Download]({{origin}}/en/#telecharger): Windows installer, Linux AppImage and .deb package
+- [Privacy]({{origin}}/en/privacy/): every connection the website and the app make
+- [Contact]({{origin}}/en/contact/)
+
+## Optional
+
+- [Legal notice]({{origin}}/en/legal/): publisher, hosting provider, license

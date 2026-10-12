@@ -1,0 +1,122 @@
+{
+  "fr/": {
+    "hash": "527b428946219664",
+    "date": "2026-10-12"
+  },
+  "en/": {
+    "hash": "aa04ebbf0d7ac776",
+    "date": "2026-10-12"
+  },
+  "es/": {
+    "hash": "d3b7c30c1495d254",
+    "date": "2026-10-12"
+  },
+  "fr/contact/": {
+    "hash": "71918738c6f42f94",
+    "date": "2026-10-12"
+  },
+  "en/contact/": {
+    "hash": "5364d518aeac25e6",
+    "date": "2026-10-12"
+  },
+  "es/contact/": {
+    "hash": "7893c64f97451201",
+    "date": "2026-10-12"
+  },
+  "fr/legal/": {
+    "hash": "66ff3fb5ef618748",
+    "date": "2026-10-12"
+  },
+  "en/legal/": {
+    "hash": "fbda08325bfd91db",
+    "date": "2026-10-12"
+  },
+  "es/legal/": {
+    "hash": "b0049b7050840b41",
+    "date": "2026-10-12"
+  },
+  "fr/privacy/": {
+    "hash": "172f232673b9da56",
+    "date": "2026-10-12"
+  },
+  "en/privacy/": {
+    "hash": "179d467ff8fa204f",
+    "date": "2026-10-12"
+  },
+  "es/privacy/": {
+    "hash": "9cb27e2a5905e0f7",
+    "date": "2026-10-12"
+  },
+  "fr/conversation-ia-locale/": {
+    "hash": "607c9765bff11732",
+    "date": "2026-10-12"
+  },
+  "en/local-ai-chat/": {
+    "hash": "826eb57bb3bdb4b4",
+    "date": "2026-10-12"
+  },
+  "es/chat-ia-local/": {
+    "hash": "4618038120845113",
+    "date": "2026-10-12"
+  },
+  "fr/modeles-ia-locaux/": {
+    "hash": "379723d6f93eaedf",
+    "date": "2026-10-12"
+  },
+  "en/local-ai-models/": {
+    "hash": "45ee15441df86cde",
+    "date": "2026-10-12"
+  },
+  "es/modelos-ia-locales/": {
+    "hash": "5c4d8c0e93b0c13a",
+    "date": "2026-10-12"
+  },
+  "fr/dictee-vocale/": {
+    "hash": "dc1c3a91f0d5d32b",
+    "date": "2026-10-12"
+  },
+  "en/voice-dictation/": {
+    "hash": "d3cca78d2cb4a9fa",
+    "date": "2026-10-12"
+  },
+  "es/dictado-por-voz/": {
+    "hash": "89753d25550764b0",
+    "date": "2026-10-12"
+  },
+  "fr/mode-vocal/": {
+    "hash": "77af23b37a288974",
+    "date": "2026-10-12"
+  },
+  "en/voice-mode/": {
+    "hash": "58f74f506103b3fb",
+    "date": "2026-10-12"
+  },
+  "es/modo-de-voz/": {
+    "hash": "825a62af8a35373d",
+    "date": "2026-10-12"
+  },
+  "fr/correcteur-de-texte/": {
+    "hash": "da6b2f53757417c6",
+    "date": "2026-10-12"
+  },
+  "en/proofreading/": {
+    "hash": "c410a51042938cab",
+    "date": "2026-10-12"
+  },
+  "es/corrector-de-textos/": {
+    "hash": "5793a4040c282c89",
+    "date": "2026-10-12"
+  },
+  "fr/apprendre-avec-une-ia/": {
+    "hash": "f64c1569e1ee4a00",
+    "date": "2026-10-12"
+  },
+  "en/learn-with-ai/": {
+    "hash": "d45fc8a079ea023c",
+    "date": "2026-10-12"
+  },
+  "es/aprender-con-ia/": {
+    "hash": "4ac740fcf34a0467",
+    "date": "2026-10-12"
+  }
+}

@@ -1,0 +1,21 @@
+.tools/
+dist/
+node_modules/
+src-tauri/target/
+src-tauri/gen/
+src/bindings/
+# Séquences du moteur de chat écrites par « cargo test » (simulateur du frontend).
+src/test/fixtures/
+src/routeTree.gen.ts
+package-lock.json
+test-results/
+playwright-report/
+blob-report/
+# Réponses enregistrées d'Ollama (scripts/record-fixtures.sh), gardées telles quelles.
+src-tauri/crates/fake-ollama/fixtures/
+# Références de Pocket TTS écrites par scripts/tts/fixtures.py, gardées telles quelles.
+src-tauri/src/tts/fixtures/
+# Gabarits du site (marques {{…}}, SVG écrits à la main) : gardés tels quels.
+site/src/pages/
+site/src/partials/
+site/src/root.html

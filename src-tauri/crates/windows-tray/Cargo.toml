@@ -1,0 +1,11 @@
+[package]
+name = "windows-tray"
+version = "0.1.0"
+description = "Active la zone de notification de Tauri pour ChatonLM sous Windows, hors du manifeste de l'app"
+license = "MIT"
+edition = "2024"
+publish = false
+
+# Rien sous Linux : la zone de notification y passe par `ksni`.
+[target.'cfg(windows)'.dependencies]
+tauri = { version = "2.12", features = ["tray-icon"] }

@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Name=ChatonLM
+GenericName=AI Chat Client
+GenericName[es]=Cliente de chat de IA
+GenericName[fr]=Client de conversation IA
+Comment=Unofficial desktop chat client for Ollama
+Comment[es]=Cliente de chat de escritorio no oficial para Ollama
+Comment[fr]=Client de conversation de bureau non officiel pour Ollama
+Keywords=AI;LLM;chat;Ollama;assistant;dictation;
+Keywords[es]=IA;LLM;chat;Ollama;asistente;dictado;
+Keywords[fr]=IA;LLM;conversation;chat;Ollama;assistant;dictée;
+Exec=chatonlm
+Icon=chatonlm
+Terminal=false
+Categories=Utility;
+StartupNotify=true
+StartupWMClass=com.chatonlm.chatonlm

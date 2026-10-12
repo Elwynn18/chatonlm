@@ -1,0 +1,35 @@
+# Configuration de cargo-about (scripts/package-notices.mjs) : licences des
+# crates compilées dans le binaire de ChatonLM, livrées dans les paquets
+# (licenses/rust-crates.txt). Même liste blanche que deny.toml.
+accepted = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "0BSD",
+  "Zlib",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "Unlicense",
+  "BSL-1.0",
+  "MPL-2.0",
+  "CDLA-Permissive-2.0",
+]
+# Cible des paquets Linux. Pour l'installateur Windows,
+# scripts/package-notices-windows.mjs reprend ce fichier en remplaçant cette
+# ligne par la cible MSVC de Windows (.tools/package/about-windows.toml) :
+# une seule liste blanche pour les deux systèmes.
+targets = ["x86_64-unknown-linux-gnu"]
+# Ni les dépendances de compilation (bindgen, cc, cmake...) ni celles des
+# essais ne sont dans le binaire livré.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+ignore-transitive-dependencies = false
+# Clarifications fournies par cargo-about pour des crates dont la licence
+# n'est pas lisible par machine.
+workarounds = ["ring", "rustls"]
+
+[private]
+ignore = true

@@ -1,0 +1,52 @@
+{
+  "description": "Download stopped by the user after three progress events; no answer is created.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "Say hello in one word.",
+    "model": "chatonlm-pull-stall"
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "Say hello in one word.",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "completed": 1160714911,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "completed": 1211180777,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "completed": 1261646643,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "type": "cancelled"
+    }
+  ],
+  "error": null
+}

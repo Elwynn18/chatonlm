@@ -1,0 +1,66 @@
+{
+  "description": "Web search stopped by the user while the tool runs: the call stays without result or error.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "Search slowly for the latest Ollama release.",
+    "model": "chatonlm-search",
+    "webSearch": true
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "Search slowly for the latest Ollama release.",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "type": "loading"
+    },
+    {
+      "type": "loaded"
+    },
+    {
+      "createdAt": 1700000000000,
+      "messageId": 2,
+      "type": "replyStarted"
+    },
+    {
+      "text": "The user wants a",
+      "type": "thinking"
+    },
+    {
+      "text": " web search.",
+      "type": "thinking"
+    },
+    {
+      "messageId": 2,
+      "toolCalls": [
+        {
+          "arguments": "{\"query\":\"Search slowly for the latest Ollama release.\"}",
+          "error": null,
+          "name": "web_search",
+          "result": null
+        }
+      ],
+      "type": "toolCalls"
+    },
+    {
+      "type": "cancelled"
+    }
+  ],
+  "error": null
+}

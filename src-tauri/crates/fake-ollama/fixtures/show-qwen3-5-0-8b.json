@@ -1,0 +1,31 @@
+{
+  "thinking": {
+    "values": [
+      false,
+      true
+    ],
+    "default": true
+  },
+  "details": {
+    "parent_model": "",
+    "format": "gguf",
+    "family": "qwen35",
+    "families": [
+      "qwen35"
+    ],
+    "parameter_size": "873.44M",
+    "quantization_level": "Q8_0"
+  },
+  "model_info": {
+    "general.architecture": "qwen35",
+    "qwen35.context_length": 262144
+  },
+  "capabilities": [
+    "completion",
+    "vision",
+    "tools",
+    "thinking"
+  ],
+  "modified_at": "2026-10-03T20:24:46.016124+02:00",
+  "requires": "0.17.1"
+}

@@ -1,0 +1,444 @@
+{
+  "title": "Paramètres",
+  "tabs": {
+    "general": "Général",
+    "models": "Modèles",
+    "account": "Compte",
+    "dictation": "Dictée",
+    "readAloud": "Lecture à voix haute",
+    "voiceMode": "Mode vocal",
+    "shortcuts": "Raccourcis clavier"
+  },
+  "loadFailed": "Impossible de charger les paramètres",
+  "general": {
+    "language": {
+      "label": "Langue",
+      "description": "Suivre la langue du système, ou toujours en utiliser une autre.",
+      "system": "Système"
+    },
+    "ollama": {
+      "label": "Ollama"
+    },
+    "address": {
+      "label": "Adresse du serveur"
+    },
+    "modelLocation": {
+      "label": "Emplacement des modèles",
+      "description": "Dossier où les modèles sont stockés."
+    },
+    "contextLength": {
+      "label": "Longueur du contexte",
+      "description": "La longueur du contexte détermine la part de votre conversation que les LLM locaux peuvent retenir et utiliser pour générer leurs réponses.",
+      "default": "Par défaut"
+    },
+    "theme": {
+      "label": "Thème",
+      "description": "Suivre l'apparence du système, ou toujours utiliser le thème clair ou sombre.",
+      "system": "Système",
+      "light": "Clair",
+      "dark": "Sombre"
+    },
+    "menuEntry": {
+      "label": "Menu des applications",
+      "description": "Afficher ChatonLM dans le menu des applications du bureau, pour lancer cette AppImage. Désactivez pour l'en retirer.",
+      "switch": "Afficher dans le menu des applications"
+    },
+    "reset": {
+      "button": "Rétablir les valeurs par défaut",
+      "resetting": "Réinitialisation…",
+      "error": "ChatonLM n'a pas pu rétablir tous les paramètres. Vérifiez les paramètres ci-dessus, puis réessayez."
+    }
+  },
+  "ollama": {
+    "builtin": "Ollama intégré {version}",
+    "builtinNoVersion": "Ollama intégré",
+    "local": "Ollama {version} sur cet ordinateur",
+    "localNoVersion": "Ollama sur cet ordinateur",
+    "remote": "Ollama {version} à l'adresse {url}",
+    "remoteNoVersion": "Ollama à l'adresse {url}",
+    "autoBuiltin": "Aucun autre Ollama n'a été trouvé sur cet ordinateur.",
+    "failed": "L'Ollama intégré n'a pas pu démarrer. Consultez son journal : {path}",
+    "openLog": "Ouvrir le journal",
+    "openLogError": "Impossible d'ouvrir le journal : {message}",
+    "useBuiltin": "Utiliser l'Ollama intégré",
+    "useBuiltinInstead": "Utiliser plutôt l'Ollama intégré",
+    "useBuiltinModels": {
+      "one": "Utiliser l'Ollama intégré et son modèle",
+      "other": "Utiliser l'Ollama intégré et ses {count} modèles"
+    },
+    "useLocal": "Utiliser l'Ollama de cet ordinateur",
+    "useAddress": "Utiliser l'Ollama à l'adresse {url}",
+    "switching": "Changement…",
+    "switchError": "Impossible de changer d'Ollama : {message}",
+    "address": "Adresse de l'Ollama intégré, choisie par ChatonLM. Seules les applications de cet ordinateur peuvent y accéder.",
+    "leftover": {
+      "one": "L'Ollama intégré garde encore {count} modèle ({size}) dans son dossier.",
+      "other": "L'Ollama intégré garde encore {count} modèles ({size}) dans son dossier."
+    },
+    "leftoverHint": "L'Ollama de cet ordinateur ne les voit pas. Utilisez l'Ollama intégré pour converser avec eux, ou supprimez le dossier pour libérer de la place.",
+    "openFolder": "Ouvrir le dossier",
+    "openFolderError": "Impossible d'ouvrir le dossier : {message}",
+    "modelsDirMissing": "L'emplacement des modèles choisi pour l'Ollama intégré est introuvable. Il utilise son dossier par défaut à la place."
+  },
+  "updates": {
+    "title": "Mises à jour",
+    "versions": {
+      "label": "Version",
+      "chatonlm": "ChatonLM {version}",
+      "ollama": "Ollama intégré {version}"
+    },
+    "status": {
+      "idle": "Pas encore vérifié",
+      "schedule": "ChatonLM vérifie les mises à jour à son démarrage, puis toutes les heures.",
+      "checking": "Recherche de mises à jour…",
+      "upToDate": "ChatonLM est à jour",
+      "lastCheck": "Dernière vérification : {time}",
+      "checkFailed": "La dernière vérification des mises à jour a échoué : {detail}",
+      "available": "La version {version} de ChatonLM est disponible",
+      "released": "Publiée le {date}",
+      "downloading": "Téléchargement de la version {version} de ChatonLM…",
+      "ready": "La version {version} de ChatonLM est prête à être installée",
+      "restartHint": "ChatonLM va se fermer, puis redémarrer avec la nouvelle version.",
+      "passwordHint": "Votre système vous demandera votre mot de passe pour l'installer.",
+      "installerHint": "L'installateur de ChatonLM apparaîtra un instant.",
+      "installing": "Installation de la version {version} de ChatonLM…",
+      "installingHint": "ChatonLM arrête ses services, puis redémarrera avec la nouvelle version.",
+      "installingPassword": "Votre système vous demande votre mot de passe pour l'installer.",
+      "unsupported": "Les mises à jour ne s'installent pas depuis ChatonLM",
+      "reasons": {
+        "noPackage": "Cette copie de ChatonLM ne vient pas d'un paquet (AppImage ou .deb) : elle ne peut pas se mettre à jour elle-même.",
+        "packageManager": "ChatonLM a été installé par votre gestionnaire de paquets : les mises à jour passent par lui.",
+        "readOnlyFolder": "ChatonLM ne peut pas remplacer l'AppImage dans son dossier. Déplacez-la dans un dossier à vous (par exemple ~/Applications), puis relancez ChatonLM depuis ce dossier.",
+        "notInstalled": "Cette copie de ChatonLM n'a pas été installée par son installateur : elle ne peut pas se mettre à jour elle-même. Téléchargez le dernier installateur pour la mettre à jour.",
+        "installFolderReadOnly": "ChatonLM ne peut pas écrire dans son dossier d'installation. Réinstallez-le avec son installateur, dans un dossier à vous."
+      }
+    },
+    "notes": "Nouveautés",
+    "progress": "{received} sur {total} ({percent})",
+    "error": {
+      "check": "Impossible de vérifier les mises à jour",
+      "download": "Impossible de télécharger la mise à jour",
+      "signature": "La mise à jour téléchargée n'a pas pu être vérifiée",
+      "install": "Impossible d'installer la mise à jour",
+      "io": "Impossible de lire la mise à jour téléchargée"
+    },
+    "actions": {
+      "check": "Rechercher des mises à jour",
+      "download": "Télécharger",
+      "restart": "Redémarrer pour mettre à jour",
+      "restarting": "Redémarrage…"
+    },
+    "autoDownload": {
+      "label": "Télécharger automatiquement les mises à jour",
+      "on": "Les mises à jour sont téléchargées automatiquement dès qu'elles sont disponibles.",
+      "off": "Les mises à jour ne seront pas téléchargées automatiquement."
+    },
+    "loadError": "Impossible de lire l'état des mises à jour : {message}"
+  },
+  "modelLocation": {
+    "remoteField": "Sur {host}",
+    "unknownField": "Inconnu",
+    "browse": "Parcourir",
+    "moving": "Déplacement des modèles…",
+    "movingLabel": "Déplacement des modèles",
+    "changing": "Changement d'emplacement…",
+    "restarting": "Redémarrage d'Ollama…",
+    "progress": "{done} sur {total}",
+    "remote": "Ollama fonctionne sur {host}. Changez l'emplacement des modèles sur cet ordinateur distant.",
+    "notRunning": "Lancez Ollama pour voir où les modèles sont stockés.",
+    "container": "Ollama semble tourner dans un conteneur. Changez le volume des modèles là où le conteneur est créé, par exemple :",
+    "desktopApp": "L'application Ollama choisit ce dossier ; celui affiché est son emplacement habituel. Pour le changer, ouvrez les réglages d'Ollama (Model location), ou définissez la variable OLLAMA_MODELS de votre compte, puis quittez Ollama depuis la zone de notification et relancez-le.",
+    "envFile": "OLLAMA_MODELS est défini dans {file}. Modifiez-le dans ce fichier.",
+    "envFileUnknown": "OLLAMA_MODELS est défini dans un fichier d'environnement du service. Modifiez-le dans ce fichier.",
+    "manual": "Ollama a été lancé depuis un terminal. Arrêtez-le, puis relancez-le avec :",
+    "userService": "Ollama fonctionne comme service de votre compte utilisateur. Exécutez :",
+    "unknownRunning": "ChatonLM ne sait pas comment Ollama a été lancé. Lancez-le avec :",
+    "rootService": "Le service d'Ollama tourne en root. Changez l'emplacement de ses modèles dans un terminal :",
+    "noPkexec": "Modifier le service d'Ollama demande les droits d'administrateur, et pkexec n'est pas installé. Exécutez ces commandes dans un terminal :",
+    "downloads": "Attendez la fin des téléchargements de modèles, puis réessayez.",
+    "problems": {
+      "system": "Ce dossier ne peut pas accueillir de modèles. Choisissez un dossier hors des dossiers du système.",
+      "badCharacters": "Choisissez un dossier dont le nom ne contient aucun des caractères \" \\ : $ ou `.",
+      "badCharactersWindows": "Le nom de ce dossier contient des caractères que ChatonLM ne peut pas utiliser. Choisissez un autre dossier.",
+      "notEmpty": "Choisissez un dossier vide, ou un dossier qui contient déjà des modèles Ollama.",
+      "inside": "Choisissez un dossier hors de l'emplacement actuel des modèles.",
+      "missing": "Ce dossier est introuvable.",
+      "notYours": "Choisissez un dossier que vous avez créé, ou un nouveau dossier."
+    },
+    "confirm": {
+      "moveTitle": "Déplacer les modèles vers le nouvel emplacement ?",
+      "changeTitle": "Changer l'emplacement des modèles ?",
+      "restartAndStore": "Ollama va redémarrer et stocker les nouveaux modèles dans {path}.",
+      "store": "Ollama stockera les nouveaux modèles dans {path}.",
+      "models": {
+        "one": "Votre modèle ({size}) se trouve dans {dir}.",
+        "other": "Vos {count} modèles ({size}) se trouvent dans {dir}."
+      },
+      "modelsUnknown": "Vos modèles se trouvent dans {dir}.",
+      "otherDrive": "Les copier sur un autre disque peut prendre plusieurs minutes.",
+      "nextStart": "Pris en compte au prochain démarrage d'Ollama.",
+      "replies": "Les réponses en cours s'arrêteront.",
+      "leaveThem": "Les laisser",
+      "moveModels": "Déplacer les modèles",
+      "changeLocation": "Changer d'emplacement"
+    },
+    "stoppedSaved": "Enregistré. Ollama utilisera ce dossier à son prochain démarrage.",
+    "cleanupFailed": "Les modèles ont été copiés, mais les anciennes copies dans {dir} n'ont pas pu être supprimées.",
+    "failures": {
+      "notAuthorized": "L'authentification a échoué. L'emplacement des modèles n'a pas été changé.",
+      "noSpace": "Espace libre insuffisant : {need} nécessaires, {free} disponibles.",
+      "noSpaceUnknown": "Espace libre insuffisant.",
+      "cannotWrite": "Le service d'Ollama (utilisateur {user}) ne peut pas écrire dans ce dossier. Son disque ne gère peut-être pas les permissions Linux, ou un dossier parent est privé.",
+      "stopFailed": "Ollama n'a pas pu être arrêté. Rien n'a été changé.",
+      "putBack": "L'emplacement des modèles n'a pas pu être changé. Tout a été remis comme avant.",
+      "overridden": "Un autre réglage du service d'Ollama impose l'emplacement des modèles. Tout a été remis comme avant.",
+      "startFailed": "Ollama n'a pas démarré avec le nouvel emplacement : l'ancien a été rétabli. Voir : journalctl -u ollama",
+      "unexpected": "L'emplacement des modèles n'a pas pu être changé."
+    },
+    "builtin": {
+      "cannotWrite": "ChatonLM ne peut pas écrire dans ce dossier. Son disque ne gère peut-être pas les permissions Linux.",
+      "cannotWriteWindows": "ChatonLM ne peut pas écrire dans ce dossier.",
+      "startFailed": "L'Ollama intégré n'a pas démarré avec le nouvel emplacement : l'ancien a été rétabli.",
+      "restoreFailed": "ChatonLM n'a pas pu annuler toutes les modifications.",
+      "modelConflict": "Le nouveau dossier contient déjà une autre version de {model}. Rien n'a été déplacé.",
+      "symlink": "Le dossier des modèles contient un lien ou un fichier spécial que ChatonLM ne déplace pas : {path}. Rien n'a été déplacé."
+    }
+  },
+  "service": {
+    "noAgent": "Aucune fenêtre de saisie du mot de passe n'est disponible dans cette session. Exécutez ces commandes dans un terminal :",
+    "unitChanged": "Le service d'Ollama a changé. Rouvrez les paramètres, puis réessayez.",
+    "restoreFailed": "ChatonLM n'a pas pu annuler toutes les modifications. Vérifiez le service avec : systemctl status ollama",
+    "details": "Détails"
+  },
+  "ollamaHome": {
+    "alert": "Ollama ne peut pas lire ses propres fichiers dans {dir} : son service systemd cache {root} (ProtectHome). Les téléchargements depuis ollama.com et votre compte Ollama ne fonctionneront pas tant que ce ne sera pas corrigé.",
+    "root": "Le service d'Ollama tourne en root : ChatonLM ne le modifiera pas. Exécutez le service sous un autre utilisateur (User= dans son unité), ou changez vous-même son réglage ProtectHome=.",
+    "fix": "Corriger",
+    "fixing": "Correction…",
+    "asksRestart": "« Corriger » demande un mot de passe d'administrateur, puis redémarre Ollama.",
+    "asks": "« Corriger » demande un mot de passe d'administrateur.",
+    "noPkexec": "Corriger ce problème demande les droits d'administrateur, et pkexec n'est pas installé. Exécutez ces commandes dans un terminal :",
+    "fixError": "Impossible de corriger ce problème : {message}",
+    "failures": {
+      "notAuthorized": "L'authentification a échoué. Rien n'a été changé.",
+      "notYours": "{dir} n'est pas un dossier du service d'Ollama (utilisateur {user}). Rien n'a été changé.",
+      "cannotCreate": "Le service d'Ollama (utilisateur {user}) ne peut pas créer {dir}. Rien n'a été changé.",
+      "configFailed": "Le service d'Ollama n'a pas pu être modifié. Tout a été remis comme avant.",
+      "overridden": "Un autre réglage du service d'Ollama cache de nouveau {root}. Tout a été remis comme avant.",
+      "startFailed": "Ollama n'a pas redémarré avec cette modification : elle a été annulée. Voir : journalctl -u ollama",
+      "unexpected": "Le service d'Ollama n'a pas pu être modifié."
+    },
+    "link": "Corriger dans Paramètres › Général"
+  },
+  "models": {
+    "keepAlive": {
+      "label": "Garder les modèles chargés",
+      "description": "Durée pendant laquelle un modèle reste en mémoire après sa dernière utilisation. « Par défaut » suit le serveur Ollama (5 minutes, sauf si OLLAMA_KEEP_ALIVE est défini).",
+      "default": "Par défaut",
+      "minutes": {
+        "one": "{count} min",
+        "other": "{count} min"
+      },
+      "hours": {
+        "one": "{count} heure",
+        "other": "{count} heures"
+      },
+      "always": "Toujours"
+    },
+    "preload": {
+      "label": "Précharger le modèle choisi",
+      "description": "Charger le modèle sélectionné dans la conversation dès que vous le choisissez et au démarrage de ChatonLM, pour que votre premier message n'ait pas à attendre."
+    },
+    "loaded": {
+      "title": "Modèles chargés",
+      "reachError": "Impossible de joindre Ollama : {message}",
+      "none": "Aucun modèle n'est chargé.",
+      "summary": {
+        "one": "{count} modèle chargé · {size} en mémoire",
+        "other": "{count} modèles chargés · {size} en mémoire"
+      },
+      "unloadAll": "Tout décharger",
+      "unload": "Décharger",
+      "unloading": "Déchargement…",
+      "processor": {
+        "gpu": "{percent} GPU",
+        "cpu": "{percent} CPU",
+        "split": "{cpu}/{gpu} CPU/GPU"
+      },
+      "context": "contexte de {context}",
+      "expiry": {
+        "kept": "Reste chargé",
+        "soon": "Déchargement imminent",
+        "seconds": {
+          "one": "Déchargement dans {count} seconde",
+          "other": "Déchargement dans {count} secondes"
+        },
+        "minutes": {
+          "one": "Déchargement dans {count} minute",
+          "other": "Déchargement dans {count} minutes"
+        },
+        "hours": {
+          "one": "Déchargement dans {count} heure",
+          "other": "Déchargement dans {count} heures"
+        }
+      },
+      "unloadError": "Impossible de décharger {model} : {message}",
+      "unloadAllError": "Impossible de décharger les modèles : {message}",
+      "loadLabel": "Charger un modèle",
+      "noOther": "Aucun autre modèle installé",
+      "loading": "Chargement…",
+      "load": "Charger",
+      "loadError": "Impossible de charger {model} : {message}"
+    }
+  },
+  "readAloud": {
+    "auto": {
+      "label": "Lire les réponses à voix haute automatiquement",
+      "description": "Chaque nouvelle réponse est lue à voix haute pendant qu'elle s'écrit, si la voix de sa langue est téléchargée. Les anciennes réponses ne sont pas lues à l'ouverture d'une conversation."
+    },
+    "voices": {
+      "title": "Voix",
+      "description": "Une voix par langue, téléchargée une fois. Les réponses dans d'autres langues ne sont pas lues.",
+      "installed": "Installée",
+      "missing": "Non téléchargée",
+      "downloading": "Téléchargement…",
+      "downloadingProgress": "Téléchargement… {percent}",
+      "manage": "Gérer les voix dans le ModelHub",
+      "loadFailed": "Impossible de lire les voix : {message}"
+    }
+  },
+  "voiceMode": {
+    "loadFailed": "Impossible de lire les réglages du mode vocal : {message}",
+    "turns": {
+      "label": "Prise de parole",
+      "description": "Mains libres : ce que vous dites part quand vous faites une pause. Appuyer pour parler : maintenez Espace, ou le bouton de la barre vocale, pendant que vous parlez.",
+      "handsFree": "Mains libres",
+      "pushToTalk": "Appuyer pour parler"
+    },
+    "pause": {
+      "label": "Pause avant l'envoi",
+      "description": "Durée de silence après laquelle ce que vous avez dit part (mains libres). Choisissez Longue si vous êtes coupé au milieu d'une phrase.",
+      "short": "Courte",
+      "normal": "Normale",
+      "long": "Longue"
+    },
+    "bargeIn": {
+      "label": "Interrompre en parlant",
+      "description": "Parler pendant une réponse l'arrête (mains libres). ChatonLM retire sa propre voix de ce que le micro entend (annulation d'écho) : cela marche aussi avec des haut-parleurs ; un casque reste le plus sûr."
+    },
+    "keepThink": {
+      "label": "Laisser les modèles réfléchir",
+      "description": "Les messages vocaux gardent le choix du bouton Réfléchir. Désactivé : la réflexion est coupée quand le modèle le permet, pour que la réponse commence plus tôt."
+    },
+    "instructions": {
+      "title": "Consignes",
+      "label": "Consignes vocales",
+      "description": "Envoyées au modèle avec chaque message vocal, jamais enregistrées dans la conversation. Laissez vide pour employer les consignes par défaut, affichées dans le champ.",
+      "reset": "Rétablir les consignes par défaut"
+    },
+    "speech": {
+      "title": "Parole",
+      "transcription": {
+        "label": "Reconnaissance vocale",
+        "description": "Le mode vocal emploie le modèle de transcription et la langue de la dictée.",
+        "link": "Paramètres de la dictée"
+      },
+      "voices": {
+        "label": "Voix",
+        "description": "Les réponses sont lues avec la voix de leur langue : anglais, français ou espagnol.",
+        "link": "Gérer les voix dans le ModelHub"
+      }
+    }
+  },
+  "account": {
+    "title": "Compte Ollama",
+    "cloudOffEnv": "La variable d'environnement OLLAMA_NO_CLOUD force actuellement la désactivation du cloud.",
+    "cloudOff": "Le cloud est désactivé sur le serveur Ollama.",
+    "checkError": "Impossible de vérifier votre compte Ollama : {reason}",
+    "retrying": "Nouvel essai…",
+    "upgrade": "Mettre à niveau",
+    "manage": "Gérer",
+    "signOut": "Se déconnecter",
+    "notConnected": "Non connecté",
+    "signIn": "Se connecter",
+    "connectFailed": "Impossible de se connecter au compte Ollama",
+    "disconnectFailed": "Impossible de déconnecter le compte Ollama"
+  },
+  "tryAgain": "Réessayer",
+  "saveError": "Impossible d'enregistrer ce paramètre : {message}",
+  "saved": "Enregistré",
+  "shortcuts": {
+    "global": {
+      "title": "Raccourcis globaux",
+      "description": "Ils fonctionnent dans toute application. Leurs touches se règlent dans votre bureau, pas dans ChatonLM.",
+      "descriptionApp": "Ils fonctionnent dans toute application. Choisissez leurs touches ici.",
+      "dictation": {
+        "label": "Dictée",
+        "description": "Démarre et arrête la dictée.",
+        "off": "Activez la dictée pour utiliser ce raccourci.",
+        "settings": "Paramètres de la dictée"
+      },
+      "proofread": {
+        "label": "Corriger le texte sélectionné",
+        "description": "Corrige le texte sélectionné dans n'importe quelle application et copie le résultat : appuyez sur Ctrl+V pour remplacer la sélection.",
+        "off": "Activez le raccourci pour choisir ses touches."
+      },
+      "waiting": "En attente de votre bureau…",
+      "notSet": "Non défini",
+      "set": "Définir le raccourci",
+      "change": "Modifier…",
+      "tryAgain": "Réessayer",
+      "bindCommand": "Associez cette commande à un raccourci dans les paramètres du système :",
+      "loadFailed": "Impossible de lire les raccourcis : {message}"
+    },
+    "app": {
+      "title": "Raccourcis de l'application",
+      "groups": {
+        "general": "Général",
+        "chat": "Conversation",
+        "voiceMode": "Mode vocal",
+        "proofread": "Correction",
+        "hub": "ModelHub"
+      },
+      "actions": {
+        "newChat": "Nouvelle conversation",
+        "settings": "Paramètres",
+        "quit": "Quitter",
+        "zoomIn": "Zoom avant",
+        "zoomOut": "Zoom arrière",
+        "actualSize": "Taille réelle",
+        "undoTyping": "Annuler dans un champ de texte",
+        "redoTyping": "Rétablir dans un champ de texte",
+        "send": "Envoyer",
+        "newLine": "Nouvelle ligne",
+        "stopAnswer": "Arrêter la réponse",
+        "cancelEdit": "Annuler la modification du message",
+        "paste": "Coller du texte, des images ou des fichiers",
+        "voiceModeToggle": "Démarrer ou terminer le mode vocal",
+        "voiceModeSpace": "J'ai fini, ou interrompre la réponse (appuyer pour parler : maintenir pour parler)",
+        "voiceModeEnd": "Terminer le mode vocal",
+        "correct": "Corriger",
+        "rephrase": "Reformuler",
+        "stopProofread": "Arrêter",
+        "undoCorrection": "Annuler la correction",
+        "redoCorrection": "Rétablir la correction",
+        "pasteInReview": "Coller à la fin du texte corrigé",
+        "searchModels": "Rechercher des modèles"
+      }
+    },
+    "keys": {
+      "ctrl": "Ctrl",
+      "shift": "Maj",
+      "enter": "Entrée",
+      "esc": "Échap",
+      "space": "Espace"
+    },
+    "either": "<first/> ou <second/>",
+    "recorder": {
+      "label": "Nouveau raccourci : {name}",
+      "prompt": "Appuyez sur le nouveau raccourci…",
+      "hint": "Utilisez Ctrl, Alt ou la touche Windows avec une lettre, un chiffre ou une touche de fonction.",
+      "reset": "Rétablir le raccourci par défaut"
+    }
+  }
+}

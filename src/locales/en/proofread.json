@@ -1,0 +1,60 @@
+{
+  "title": "Proofread",
+  "description": "Paste or type some text, then correct its mistakes or rephrase it. The text keeps its language and meaning.",
+  "model": {
+    "label": "Model",
+    "sameAsChat": "Same as chat ({model})",
+    "sameAsChatNone": "Same as chat",
+    "notInstalled": "{name} (not installed)",
+    "saveError": "Couldn't save the model: {message}"
+  },
+  "editor": {
+    "label": "Text to correct",
+    "placeholder": "Paste or type text to correct"
+  },
+  "running": {
+    "correcting": "Correcting…",
+    "rephrasing": "Rephrasing…",
+    "progress": "Part {current} of {total}",
+    "stopping": "Stopping…"
+  },
+  "review": {
+    "label": "Corrected text",
+    "labelRephrased": "Rephrased text",
+    "editHint": "Type or click to edit the text",
+    "deleted": "deleted:",
+    "inserted": "inserted:",
+    "corrections": {
+      "one": "{count} correction",
+      "other": "{count} corrections"
+    },
+    "noMistakes": "No mistakes found",
+    "noMistakesPartial": "No mistakes in the corrected part",
+    "noChange": "No corrections made",
+    "rephrased": "Text rephrased",
+    "rephrasedPartial": "Part of the text rephrased",
+    "kept": "Some parts were left unchanged: the model's answer did not look like a correction.",
+    "keptRephrase": "Some parts were left unchanged: the model's answer did not look like a rewrite of the text.",
+    "partial": "The rest of the text was left as it was.",
+    "stopped": "Stopped: the rest of the text was left as it was.",
+    "fromSelection": "Text selected in another app, then corrected."
+  },
+  "saved": {
+    "note": "Your text was set aside to show the corrected selection.",
+    "restore": "Back to your text"
+  },
+  "actions": {
+    "withKeys": "{action} ({keys})",
+    "correct": "Correct",
+    "rephrase": "Rephrase",
+    "stop": "Stop",
+    "undo": "Undo",
+    "redo": "Redo",
+    "copyFailed": "Copy failed"
+  },
+  "error": {
+    "chooseModel": "Choose a model",
+    "openHub": "Open ModelHub",
+    "tryAgain": "Try again"
+  }
+}

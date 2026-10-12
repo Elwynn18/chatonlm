@@ -1,0 +1,951 @@
+ChatonLM - Third-party notices
+=============================
+
+ChatonLM is distributed under the MIT License (see LICENSE). It includes the
+third-party material listed below, with the notices required by each license.
+
+  Part 1  Source code adapted from Ollama
+  Part 2  Other third-party material in ChatonLM source files
+  Part 3  Libraries compiled into ChatonLM
+  Part 4  System libraries bundled in the AppImage only
+  Part 5  Built-in Ollama
+  Part 6  Speech recognition models, downloaded on demand
+  Part 7  Text-to-speech models, downloaded on demand
+  Part 8  Voice activity detection model, built into ChatonLM
+  Part 9  Windows installer only
+
+
+== Part 1. Ollama ==
+
+Project:  Ollama, https://github.com/ollama/ollama
+Revision: 42e911bc3d05798cad729cb474bf62f378cb2e26 (2026-10-02)
+License:  MIT
+
+Each file listed below starts with a header of this form:
+
+  SPDX-License-Identifier: MIT
+  SPDX-FileCopyrightText: Ollama
+  SPDX-FileCopyrightText: 2026 Elwynn18 and ChatonLM contributors
+  Adapted from Ollama (https://github.com/ollama/ollama),
+  file <Ollama path>, commit 42e911bc3d05.
+
+A file adapted from several Ollama files names them all in its header and
+has one line per Ollama file below.
+
+Files (ChatonLM path <- Ollama path : copied | adapted | translated to Rust):
+  src/index.css <- app/ui/app/src/index.css : adapted
+  src/index.css <- app/cmd/app/webview.go : adapted
+  src/components/AppSidebar.tsx <- app/ui/app/src/components/AppSidebar.tsx : adapted
+  src/components/Chat.tsx <- app/ui/app/src/components/Chat.tsx : adapted
+  src/components/ChatForm.tsx <- app/ui/app/src/components/ChatForm.tsx : adapted
+  src/components/ChatSidebar.tsx <- app/ui/app/src/components/ChatSidebar.tsx : adapted
+  src/components/ComposerFiles.tsx <- app/ui/app/src/components/ChatForm.tsx : adapted
+  src/components/CopyButton.tsx <- app/ui/app/src/components/CopyButton.tsx : adapted
+  src/components/Downloading.tsx <- app/ui/app/src/components/Downloading.tsx : adapted
+  src/components/DropOverlay.tsx <- app/ui/app/src/components/FileUpload.tsx : adapted
+  src/components/ErrorMessage.tsx <- app/ui/app/src/components/ErrorMessage.tsx : adapted
+  src/components/ImageThumbnail.tsx <- app/ui/app/src/components/ImageThumbnail.tsx : adapted
+  src/components/layout/layout.tsx <- app/ui/app/src/components/layout/layout.tsx : adapted
+  src/components/MessageList.tsx <- app/ui/app/src/components/MessageList.tsx : adapted
+  src/components/MessageList.tsx <- app/ui/app/src/components/Message.tsx : adapted
+  src/components/ModelPicker.tsx <- app/ui/app/src/components/ModelPicker.tsx : adapted
+  src/components/Settings.tsx <- app/ui/app/src/components/Settings.tsx : adapted
+  src/components/settings/ModelLocation.tsx <- app/ui/app/src/components/Settings.tsx : adapted
+  src/components/settings/OllamaAccount.tsx <- app/ui/app/src/components/Settings.tsx : adapted
+  src/components/settings/Slider.tsx <- app/ui/app/src/components/ui/slider.tsx : adapted
+  src/components/StreamingMarkdownContent.tsx <- app/ui/app/src/components/StreamingMarkdownContent.tsx : adapted
+  src/components/StreamingMarkdownContent.test.tsx <- app/ui/app/src/components/StreamingMarkdownContent.test.tsx : adapted
+  src/components/ThinkButton.tsx <- app/ui/app/src/components/ThinkButton.tsx : adapted
+  src/components/Thinking.tsx <- app/ui/app/src/components/Thinking.tsx : adapted
+  src/components/ToolCalls.tsx <- app/ui/app/src/components/Message.tsx : adapted
+  src/components/WebSearchButton.tsx <- app/ui/app/src/components/WebSearchButton.tsx : adapted
+  src/hooks/useAccount.ts <- app/ui/app/src/hooks/useUser.ts : adapted
+  src/hooks/useAccount.ts <- app/ui/app/src/components/Settings.tsx : adapted
+  src/hooks/useCloudStatus.ts <- app/ui/app/src/hooks/useCloudStatus.ts : adapted
+  src/hooks/useDeleteChat.ts <- app/ui/app/src/hooks/useDeleteChat.ts : adapted
+  src/hooks/useMessageAutoscroll.ts <- app/ui/app/src/hooks/useMessageAutoscroll.ts : adapted
+  src/hooks/useModels.ts <- app/ui/app/src/hooks/useModels.ts : adapted
+  src/hooks/useModels.ts <- app/ui/app/src/hooks/useSelectedModel.ts : adapted
+  src/hooks/useModels.ts <- app/ui/app/src/hooks/useFeaturedModels.ts : adapted
+  src/hooks/useRenameChat.ts <- app/ui/app/src/hooks/useRenameChat.ts : adapted
+  src/lib/chatGroups.ts <- app/ui/app/src/components/ChatSidebar.tsx : adapted
+  src/lib/clipboard.test.ts <- app/ui/app/src/utils/clipboard.test.ts : adapted
+  src/lib/contextMenu.ts <- app/ui/app/index.html : adapted
+  src/lib/highlighter.ts <- app/ui/app/src/lib/highlighter.ts : adapted
+  src/lib/highlighterCore.ts <- app/ui/app/src/lib/highlighter.ts : adapted
+  src/lib/keyboard.ts <- app/ui/app/src/lib/keyboard.ts : copied
+  src/lib/keyboard.test.ts <- app/ui/app/src/lib/keyboard.test.ts : adapted
+  src/lib/models.ts <- app/ui/app/src/hooks/useSelectedModel.ts : adapted
+  src/lib/models.ts <- app/ui/app/src/hooks/useModels.ts : adapted
+  src/lib/models.ts <- app/ui/app/src/api.ts : adapted
+  src/lib/navigationGuard.ts <- app/ui/app/index.html : adapted
+  src/lib/navigationGuard.ts <- app/cmd/app/webview.go : adapted
+  src/routes/__root.tsx <- app/ui/app/src/routes/__root.tsx : adapted
+  src/routes/c.$chatId.tsx <- app/ui/app/src/routes/c.$chatId.tsx : adapted
+  src/routes/index.tsx <- app/ui/app/src/routes/index.tsx : adapted
+  src/routes/settings.tsx <- app/ui/app/src/routes/settings.tsx : adapted
+  src-tauri/crates/fake-ollama/src/lib.rs <- server/model_recommendations.go : adapted
+  src-tauri/src/attachments/mod.rs <- app/ui/app/src/utils/fileValidation.ts : translated to Rust
+  src-tauri/src/attachments/mod.rs <- app/ui/extract.go : translated to Rust
+  src-tauri/src/attachments/pdf.rs <- app/ui/extract.go : translated to Rust
+  src-tauri/src/ollama/account.rs <- app/ui/app/src/api.ts : translated to Rust
+  src-tauri/src/ollama/account.rs <- app/ui/app/src/hooks/useUser.ts : translated to Rust
+  src-tauri/src/ollama/builtin.rs <- app/server/server.go : translated to Rust
+  src-tauri/src/ollama/builtin/unix.rs <- app/server/server.go : translated to Rust
+  src-tauri/src/ollama/builtin/windows.rs <- app/server/server_windows.go : translated to Rust
+  src-tauri/src/ollama/builtin/windows.rs <- app/server/server.go : translated to Rust
+  src-tauri/src/ollama/host/app.rs <- cmd/start_windows.go : translated to Rust
+  src-tauri/src/ollama/host/app.rs <- app/ollama.iss : translated to Rust
+  src-tauri/src/ollama/host/app.rs <- app/wintray/tray.go : translated to Rust
+  src-tauri/src/ollama/host/windows.rs <- cmd/start_windows.go : translated to Rust
+  src-tauri/src/ollama/host/windows.rs <- app/wintray/eventloop.go : translated to Rust
+  src-tauri/src/commands/attachments.rs <- app/cmd/app/webview.go : translated to Rust
+  src-tauri/src/commands/models_dir.rs <- app/cmd/app/webview.go : translated to Rust
+  src-tauri/src/chat/pull.rs <- app/ui/ui.go : translated to Rust
+  src-tauri/src/chat/stream.rs <- app/ui/ui.go : translated to Rust
+  src-tauri/src/chat/tools.rs <- app/tools/web_search.go : translated to Rust
+  src-tauri/src/chat/tools.rs <- app/tools/web_fetch.go : translated to Rust
+  src-tauri/src/chat/tools.rs <- app/tools/url_policy.go : translated to Rust
+  src-tauri/src/chat/tools.rs <- app/ui/ui.go : translated to Rust
+
+Not taken from Ollama: the files app/ui/app/src/components/ui/{badge,button,
+fieldset,input,link,switch,text}.tsx (Catalyst, Tailwind Labs), the Ollama
+logo and images, and the icons drawn from Apple SF Symbols.
+
+MIT License
+
+Copyright (c) Ollama
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+== Part 2. Other third-party material ==
+
+-- Atom One Light and One Dark syntax colors --
+
+Project:  Atom one-light-syntax and one-dark-syntax themes,
+          https://github.com/atom/one-light-syntax
+          https://github.com/atom/one-dark-syntax
+License:  MIT
+Used in:  src/lib/highlighterCore.ts. Its "one-light" and "one-dark" code
+          themes, taken from Ollama's app/ui/app/src/lib/highlighter.ts, use
+          colors of the Atom One Light and One Dark palettes.
+
+Both repositories carry the same LICENSE.md:
+
+Copyright (c) 2016 GitHub Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+-- huggingface.js quantization pattern --
+
+Project:  huggingface.js, https://github.com/huggingface/huggingface.js
+Revision: 22d0f2ab0849 (2026-08-04)
+License:  MIT
+Used in:  src-tauri/src/hub/quant.rs. GGUF_QUANT_RE and parseGGUFQuantLabel
+          (packages/tasks/src/gguf.ts), translated to Rust: the quantization
+          label that the Hugging Face registry reads from an Ollama tag. The
+          test server src-tauri/crates/fake-ollama/src/hf.rs lists the same
+          quantization names.
+
+MIT License
+
+Copyright (c) 2023 Hugging Face
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-- Pocket TTS (code) --
+
+Project:  pocket-tts 3.3.0 by Kyutai,
+          https://github.com/kyutai-labs/pocket-tts
+License:  MIT
+Used in:  src-tauri/src/tts/prompt.rs and src-tauri/src/tts/engine.rs
+          (text preparation, chunking and generation loop translated to
+          Rust), src-tauri/src/tts/tokenizer.rs and src-tauri/src/tts/voice.rs
+          (formats read by pocket-tts), and scripts/tts/*.py (ONNX export,
+          built on the pocket-tts modules).
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+== Part 3. Libraries compiled into ChatonLM ==
+
+The npm packages and Rust crates compiled into ChatonLM, with their licenses,
+are listed in the licenses/ directory shipped with the .deb and the AppImage
+(/usr/share/doc/chatonlm/licenses): npm-packages.txt, written from the list of
+packages of the user interface bundle, and rust-crates.txt, written by
+cargo-about. Components licensed under MPL-2.0 are used unmodified; the
+generated list gives, for each of them, the address of its source code.
+
+Some notices that apply to the npm packages below are missing from the
+packages, in whole or in part, so they are given here. Some Rust crates also
+compile C and C++ libraries into ChatonLM, or are ports of such code to Rust:
+their notices follow those of the npm packages.
+
+-- Streamdown --
+
+Package:  streamdown 1.4.0, https://github.com/vercel/streamdown
+License:  Apache-2.0
+
+Copyright 2023 Vercel, Inc.
+
+The package has no NOTICE file, and its LICENSE file only holds the short
+Apache License header. The full text of the Apache License, Version 2.0 is
+part of the generated licenses/ directory.
+
+-- KaTeX fonts --
+
+Package:  katex 0.16.47, https://github.com/KaTeX/KaTeX
+Files:    dist/fonts/KaTeX_*.woff2, shipped unmodified (the woff and ttf
+          versions are not shipped)
+License:  SIL Open Font License 1.1 (OFL-1.1)
+
+The katex package itself is under the MIT License, which the generated list
+includes, but its fonts are under the OFL and the package carries no OFL
+file. Each font file embeds the notice below, where <Family> is its own
+family name: KaTeX_AMS, KaTeX_Caligraphic, KaTeX_Fraktur, KaTeX_Main,
+KaTeX_Math, KaTeX_SansSerif, KaTeX_Script, KaTeX_Size1, KaTeX_Size2,
+KaTeX_Size3, KaTeX_Size4 or KaTeX_Typewriter.
+
+  Copyright (c) 2009-2010, Design Science, Inc. (<www.mathjax.org>)
+  Copyright (c) 2014-2018 Khan Academy (<www.khanacademy.org>),
+  with Reserved Font Name <Family>.
+
+  This Font Software is licensed under the SIL Open Font License, Version 1.1.
+  This license available with a FAQ at:
+  http://scripts.sil.org/OFL
+
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded,
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+
+-- TextMate grammars --
+
+Package:  @shikijs/langs 3.14.0, https://github.com/shikijs/shiki; its
+          grammars are those of tm-grammars 1.25.1,
+          https://github.com/shikijs/textmate-grammars-themes
+
+The package only carries Shiki's own MIT notice (Pine Wu, Anthony Fu),
+which the generated list includes; tm-grammars carries the same. ChatonLM
+ships the grammars of 19 languages and the grammars they include: c, cpp,
+cpp-macro, css, go, html, java, javascript, json, jsx, markdown, python,
+regexp, rust, shellscript (bash, shell), sql, swift, tsx, typescript and
+yaml. glsl, which cpp requires, is not shipped: ChatonLM replaces it with an
+empty grammar when building, as its license is not stated.
+
+The grammars marked "via Visual Studio Code" are taken by tm-grammars from
+the files extensions/*/syntaxes/*.tmLanguage.json of Visual Studio Code, at
+the commits given in its README:
+
+  Visual Studio Code, https://github.com/microsoft/vscode
+  License: MIT
+  Copyright (c) 2015 - present Microsoft Corporation
+
+Visual Studio Code converts them from other projects, named in its
+cgmanifest.json files at those commits, in its ThirdPartyNotices.txt and in
+the grammar files themselves. Each grammar comes from the projects below
+(license, copyright notice):
+
+  c (via Visual Studio Code)
+    https://github.com/jeff-hykin/better-c-syntax
+      MIT, Copyright (c) 2019 Jeff Hykin
+    derived from https://github.com/atom/language-c
+      MIT, Copyright (c) 2014 GitHub Inc.
+    derived from https://github.com/textmate/c.tmbundle
+      TextMate Bundle License, Copyright (c) textmate-c.tmbundle authors
+
+  cpp, cpp-macro (via Visual Studio Code)
+    https://github.com/jeff-hykin/better-cpp-syntax
+      MIT, Copyright (c) 2019 Jeff Hykin
+    derived from https://github.com/atom/language-c and
+    https://github.com/textmate/c.tmbundle, as c above
+
+  css (via Visual Studio Code)
+    https://github.com/microsoft/vscode-css
+      MIT, Copyright (c) Microsoft Corporation.
+    derived from https://github.com/atom/language-css
+      MIT, Copyright (c) 2014 GitHub Inc.
+    derived from https://github.com/textmate/css.tmbundle
+      TextMate Bundle License
+
+  go (via Visual Studio Code)
+    https://github.com/worlpaker/go-syntax
+      MIT, Copyright (c) 2023 Furkan Ozalp
+    derived from https://github.com/jeff-hykin/better-go-syntax
+      MIT, Copyright (c) 2019 Jeff Hykin
+
+  html (via Visual Studio Code)
+    https://github.com/textmate/html.tmbundle
+      TextMate Bundle License,
+      Copyright (c) textmate-html.tmbundle project authors
+
+  java (via Visual Studio Code)
+    https://github.com/redhat-developer/vscode-java, only its file
+    language-support/java/java.tmLanguage.json, which states that it is
+    under the MIT License of atom/language-java (the rest of that project,
+    under EPL-2.0, is not used)
+    derived from https://github.com/atom/language-java
+      MIT, Copyright (c) 2014 GitHub Inc.
+    derived from https://github.com/textmate/java.tmbundle
+      TextMate Bundle License
+
+  javascript, jsx, typescript, tsx (via Visual Studio Code)
+    https://github.com/microsoft/TypeScript-TmLanguage
+      MIT, Copyright (c) Microsoft Corporation
+    which incorporates https://github.com/babel/babel-sublime
+      MIT, Copyright (c) 2015 Andres Suarez
+    and https://github.com/atom/language-javascript
+      MIT, Copyright (c) 2015 GitHub Inc.
+    derived from https://github.com/textmate/javascript.tmbundle
+      TextMate Bundle License,
+      Copyright (c) textmate-javascript.tmbundle project authors
+
+  json (via Visual Studio Code)
+    https://github.com/microsoft/vscode-JSON.tmLanguage
+      MIT, Copyright (c) Microsoft Corporation
+    which republishes the grammar of Benvie/JavaScriptNext.tmLanguage
+    (since deleted)
+      MIT, Copyright (c) 2015 simonzack, zertosh, benvie
+
+  markdown (via Visual Studio Code)
+    https://github.com/microsoft/vscode-markdown-tm-grammar
+      MIT, Copyright (c) Microsoft 2018
+    derived from https://github.com/textmate/markdown.tmbundle
+      TextMate Bundle License, Copyright (c) markdown.tmbundle authors
+
+  python (via Visual Studio Code), regexp (included by cpp)
+    https://github.com/MagicStack/MagicPython
+      MIT, Copyright (c) 2015-present MagicStack Inc.  http://magic.io
+
+  rust (via Visual Studio Code)
+    https://github.com/dustypomerleau/rust-syntax
+      MIT, Copyright (c) 2020 Dustin Pomerleau
+
+  shellscript (via Visual Studio Code)
+    https://github.com/jeff-hykin/better-shell-syntax
+      MIT, Copyright (c) 2019 Jeff Hykin
+
+  sql (via Visual Studio Code)
+    https://github.com/microsoft/vscode-mssql
+      MIT, Copyright (c) Microsoft Corporation
+
+  swift
+    https://github.com/jtbandes/swift-tmlanguage
+      MIT, Copyright 2023 Jacob Bandes-Storch
+    developed earlier at https://github.com/textmate/swift.tmbundle
+      TextMate Bundle License
+
+  yaml
+    https://github.com/textmate/yaml.tmbundle, file Syntaxes/YAML.tmLanguage,
+    commit e54ceae3b719
+      MIT (file Syntaxes/YAML-license.txt of that repository),
+      Copyright (c) 2015 FichteFoll <fichtefoll2@googlemail.com>
+
+Each MIT copyright notice above comes with this permission notice:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+The TextMate Bundle License is stated in the README of each TextMate bundle
+above:
+
+  If not otherwise specified (see below), files in this repository fall
+  under the following license:
+
+    Permission to copy, use, modify, sell and distribute this
+    software is granted. This software is provided "as is" without
+    express or implied warranty, and with no claim as to its
+    suitability for any purpose.
+
+  An exception is made for files in readable text which contain their own
+  license information, or files where an accompanying file exists (in the
+  same directory) with a "-license" suffix added to the base-name name of
+  the original file, and an extension of txt, html, or similar. For example
+  "tidy" is accompanied by "tidy-license.txt".
+
+-- remark-math and rehype-katex --
+
+Packages: remark-math 6.0.0 and rehype-katex 7.0.1,
+          https://github.com/remarkjs/remark-math
+License:  MIT
+
+Both packages declare the MIT License but carry no license file. This is
+the license file of their repository, the same at the tags 6.0.0 and
+rehype-katex@7.0.1:
+
+(The MIT License)
+
+Copyright (c) 2017 Junyoung Choi <fluke8259@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+-- whisper.cpp and ggml --
+
+Crate:    whisper-rs-sys 0.15.0, which compiles whisper.cpp 1.8.3 and
+          ggml 0.9.5, https://github.com/ggml-org/whisper.cpp
+License:  MIT
+
+whisper.cpp runs the Whisper dictation models. The crate's own license
+(Unlicense) is in licenses/rust-crates.txt; the whisper.cpp and ggml code it
+compiles carries the notice below. Two parts of ggml carry their own MIT
+copyright notice, with the same permission notice: the matrix
+multiplication of ggml-cpu/llamafile/sgemm.cpp, Copyright 2024 Mozilla
+Foundation, and the YaRN rotary embedding of ggml-cpu/ops.cpp, Copyright (c)
+2023 Jeffrey Quesnelle and Bowen Peng.
+
+MIT License
+
+Copyright (c) 2023-2024 The ggml authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-- sonora (WebRTC audio processing) --
+
+Crates:   sonora 0.2.0 and the crates it is made of, sonora-aec3,
+          sonora-agc2, sonora-common-audio, sonora-fft, sonora-ns and
+          sonora-simd 0.2.0, https://github.com/dignifiedquire/sonora
+License:  BSD-3-Clause
+
+sonora is a Rust port of the audio processing of WebRTC
+(https://webrtc.org). Voice mode uses its echo canceller (AEC3). The crate
+sonora-aec3 carries no license file of its own; the notice of the project
+follows. The FFT code of sonora-fft is ported from code that WebRTC
+includes: the FFT package of Takuya Ooura and PFFFT, whose notices come
+after it.
+
+Copyright (c) 2011, The WebRTC Project Authors. All rights reserved.
+Copyright (c) 2016, Arun Raghavan and contributors. All rights reserved.
+Copyright (c) 2026, dignifiedquire. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+  * Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+
+  * Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in
+    the documentation and/or other materials provided with the
+    distribution.
+
+  * Neither the name of Google nor the names of its contributors may
+    be used to endorse or promote products derived from this software
+    without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Ooura FFT (WebRTC common_audio/third_party/ooura):
+
+  http://www.kurims.kyoto-u.ac.jp/~ooura/fft.html
+  Copyright Takuya OOURA, 1996-2001
+
+  You may use, copy, modify and distribute this code for any purpose
+  (include commercial use) and without fee. Please refer to this package
+  when you modify this code.
+
+PFFFT (WebRTC third_party/pffft):
+
+  Copyright (c) 2013  Julien Pommier ( pommier@modartt.com )
+
+  Based on original fortran 77 code from FFTPACKv4 from NETLIB,
+  authored by Dr Paul Swarztrauber of NCAR, in 1985.
+
+  As confirmed by the NCAR fftpack software curators, the following
+  FFTPACKv5 license applies to FFTPACKv4 sources. My changes are
+  released under the same terms.
+
+  FFTPACK license:
+
+  http://www.cisl.ucar.edu/css/software/fftpack5/ftpk.html
+
+  Copyright (c) 2004 the University Corporation for Atmospheric
+  Research ("UCAR"). All rights reserved. Developed by NCAR's
+  Computational and Information Systems Laboratory, UCAR,
+  www.cisl.ucar.edu.
+
+  Redistribution and use of the Software in source and binary forms,
+  with or without modification, is permitted provided that the
+  following conditions are met:
+
+  - Neither the names of NCAR's Computational and Information Systems
+  Laboratory, the University Corporation for Atmospheric Research,
+  nor the names of its sponsors or contributors may be used to
+  endorse or promote products derived from this Software without
+  specific prior written permission.
+
+  - Redistributions of source code must retain the above copyright
+  notices, this list of conditions, and the disclaimer below.
+
+  - Redistributions in binary form must reproduce the above copyright
+  notice, this list of conditions, and the disclaimer below in the
+  documentation and/or other materials provided with the
+  distribution.
+
+  THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+  EXPRESS OR IMPLIED, INCLUDING, BUT NOT LIMITED TO THE WARRANTIES OF
+  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT. IN NO EVENT SHALL THE CONTRIBUTORS OR COPYRIGHT
+  HOLDERS BE LIABLE FOR ANY CLAIM, INDIRECT, INCIDENTAL, SPECIAL,
+  EXEMPLARY, OR CONSEQUENTIAL DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+  ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+  CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE
+  SOFTWARE.
+
+-- ONNX Runtime --
+
+Library:  ONNX Runtime 1.28.3, https://github.com/microsoft/onnxruntime,
+          official Microsoft build (onnxruntime-linux-x64-1.28.3.tgz),
+          shipped unmodified as /usr/lib/chatonlm/libonnxruntime.so.1 and
+          loaded at run time through the ort crate
+License:  MIT, Copyright (c) Microsoft Corporation
+
+ONNX Runtime runs the Parakeet dictation model. Its license, and the notices
+of the third-party code it includes (the ThirdPartyNotices.txt of the same
+archive), are shipped as licenses/onnxruntime-LICENSE.txt and
+licenses/onnxruntime-ThirdPartyNotices.txt.
+
+The Windows installer ships the official Microsoft build for Windows of the
+same release instead (its onnxruntime-win-x64 archive), unmodified, as
+onnxruntime.dll next to chatonlm.exe, with the same two files in its licenses
+folder.
+
+-- SQLite --
+
+Crate:    libsqlite3-sys 0.38.2, with its "bundled" feature, which compiles
+          SQLite, https://sqlite.org
+License:  public domain (https://sqlite.org/copyright.html)
+
+
+== Part 4. AppImage only ==
+
+The AppImage also carries system libraries taken from the Ubuntu release it
+is built on (GTK, WebKitGTK, GLib and their dependencies), and an executable
+header, the AppImage runtime, statically linked with libfuse. Several of them
+are under the GNU Lesser General Public License. The AppImage ships, in
+usr/share/doc/chatonlm:
+
+  appimage-libraries/README.txt     how to get their source code, and how
+                                    to replace a library
+  appimage-libraries/libraries.txt  each library, with its Ubuntu package,
+                                    source package, version and license
+  appimage-libraries/copyright/     the copyright file of each package
+  licenses/                         the texts of the LGPL 2.1 and 3 and of
+                                    the GPL 2 and 3
+
+The source code of these libraries and of the runtime, in the versions
+bundled, is published next to each AppImage, in the file
+chatonlm_<version>_amd64.AppImage-sources.tar.
+
+
+== Part 5. Built-in Ollama ==
+
+Program:  Ollama 0.40.0, https://github.com/ollama/ollama, official build
+          for Linux (ollama-linux-amd64.tar.zst of the v0.40.0 release),
+          shipped unmodified in /usr/lib/chatonlm/ollama (in the AppImage:
+          usr/libexec/chatonlm/ollama) and run as a separate program,
+          without its CUDA, ROCm and MLX libraries
+License:  MIT, Copyright (c) Ollama
+
+The .deb and the AppImage include this copy of Ollama, used when no other
+Ollama server is available or when chosen in Settings. It contains Ollama
+itself, llama.cpp and ggml (MIT), and the code they include under other
+permissive licenses: Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC and MIT,
+and public-domain code. The license files that Ollama ships with it, and
+the NOTICE file of XGrammar, are in licenses/ollama/, with a README.txt that
+describes the copy.
+
+It also contains lib/ollama/libgomp.so.1, the GNU OpenMP runtime library
+of GCC 8.5.0, built by AlmaLinux 8 (package libgomp 8.5.0-28.el8_10.alma.1),
+under the GNU General Public License, version 3 or later, with the GCC
+Runtime Library Exception, version 3.1. Both texts are in licenses/ollama/
+(LIBGOMP_GPL-3.0.txt and LIBGOMP_GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt), and
+README.txt gives the address of its corresponding source code, the
+AlmaLinux source package of GCC 8.5.0-28.el8_10.alma.1.
+
+The Windows installer includes the official build of the same release for
+Windows instead (ollama-windows-amd64.zip), shipped unmodified in the ollama
+folder next to chatonlm.exe, without its CUDA libraries, and run as a separate
+program. It has no libgomp. Besides the code described above and its license
+files (in licenses\ollama, with dlfcn-win32 and JSON for Modern C++, both
+under the MIT License), it contains runtime libraries for which the archive
+carries no license file:
+
+  libc++.dll, libunwind.dll, libomp.dll
+      C++, unwinding and OpenMP runtime libraries of the LLVM Project
+      (https://llvm.org), as built by llvm-mingw, under the Apache License
+      2.0 with LLVM Exceptions (licenses\ollama\LLVM-LICENSE.txt)
+  libwinpthread-1.dll
+      winpthreads of the mingw-w64 project (https://www.mingw-w64.org),
+      under the MIT License, with parts under a BSD 3-Clause License
+      (licenses\ollama\winpthreads-COPYING.txt)
+  vulkan\vcruntime140*.dll, msvcp140*.dll, concrt140.dll, vccorlib140.dll
+      Microsoft Visual C++ runtime libraries: see part 9
+
+
+== Part 6. Speech recognition models ==
+
+ChatonLM does not ship speech recognition models. A model chosen in Settings,
+Dictation, is downloaded from Hugging Face at a pinned revision and used
+unmodified. The same attributions are in licenses/speech-models.txt.
+
+-- Parakeet TDT 0.6B v3 --
+
+Creator:  NVIDIA Corporation
+Title:    parakeet-tdt-0.6b-v3
+Source:   https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+License:  Creative Commons Attribution 4.0 International (CC BY 4.0),
+          https://creativecommons.org/licenses/by/4.0/legalcode
+Changes:  converted to the ONNX format, with 8-bit integer weights, by
+          Ilya Stupakov (istupakov) for onnx-asr, under the same license:
+          https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx
+          (revision 8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce). ChatonLM
+          downloads these files without changing them.
+
+The model is offered as-is and as-available, without warranties of any kind
+(CC BY 4.0, section 5).
+
+-- Whisper --
+
+Creator:  OpenAI, https://github.com/openai/whisper
+Models:   tiny, base, small and large-v3-turbo (5-bit quantized)
+License:  MIT, Copyright (c) 2022 OpenAI,
+          https://github.com/openai/whisper/blob/main/LICENSE
+Changes:  converted to the ggml format by the whisper.cpp project:
+          https://huggingface.co/ggerganov/whisper.cpp
+          (revision 5359861c739e955e79d9a303bcbc70fb988958b1).
+
+
+== Part 7. Text-to-speech models ==
+
+ChatonLM does not ship text-to-speech models. A voice, used by Read aloud, is
+downloaded on demand at a pinned version: the model files converted by
+ChatonLM from a GitHub release of ChatonLM, the tokenizer and the voice from
+Hugging Face. The same attributions are in licenses/voice-models.txt.
+
+-- Pocket TTS --
+
+Creator:  Kyutai, https://kyutai.org
+Title:    Pocket TTS (pocket-tts 3.3.0), 6-layer models for French, English
+          and Spanish
+Source:   https://huggingface.co/kyutai/pocket-tts-without-voice-cloning
+          (model weights at the revisions French
+          8843db76457a91db32077edf8dfcd1c0e3e755fd, English
+          e7205b6ee50e654a5ea19f0e9df2b0813b05e921, Spanish
+          4e1e0a3e611c51c0b4ed8174fc10f32a54644303; English tokenizer at
+          00eac05ed3d16bdc3f6b5d598874019c34a89214)
+License:  Creative Commons Attribution 4.0 International (CC BY 4.0),
+          https://creativecommons.org/licenses/by/4.0/legalcode
+Changes:  exported to the ONNX format by ChatonLM (text conditioner, FlowLM
+          step with its flow head, Mimi decoder), with the transformer
+          weights of the FlowLM step quantized to 8-bit integers (per
+          channel); published as the files of the GitHub release
+          tts-models-v1 of https://github.com/Elwynn18/chatonlm. The export
+          scripts are in scripts/tts/ of the ChatonLM source code. The
+          tokenizers are downloaded from the source above without changes.
+The model is offered as-is and as-available, without warranties of any kind
+(CC BY 4.0, section 5).
+
+-- Voices --
+
+Each voice is a model state computed by Kyutai from a recording, downloaded
+without changes from the source above (revision
+4e1e0a3e611c51c0b4ed8174fc10f32a54644303). Recordings, listed at
+https://huggingface.co/kyutai/tts-voices:
+
+  estelle (French)   recorded by Kyutai for Unmute, CC0 1.0
+  alba (English)     Alba MacKenna, CC BY 4.0
+                     (https://creativecommons.org/licenses/by/4.0/legalcode)
+  lola (Spanish)     Mozilla Common Voice (Spanish), CC0 1.0
+
+
+== Part 8. Voice activity detection model ==
+
+ChatonLM ships one model, built into its executable: the voice activity
+detection model of Silero VAD, used unmodified by voice mode to tell speech
+from silence (stored as src-tauri/models/silero_vad.onnx).
+
+-- Silero VAD --
+
+Creator:  Silero Team, https://github.com/snakers4/silero-vad
+Model:    silero_vad_16k_op15.onnx of release v6.2.3 (commit 5cd7945676eb),
+          ONNX format, included unmodified
+SHA-256:  7ed98ddbad84ccac4cd0aeb3099049280713df825c610a8ed34543318f1b2c49
+License:  MIT
+
+MIT License
+
+Copyright (c) 2020-present Silero Team
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+== Part 9. Windows installer only ==
+
+The Windows installer (ChatonLM_<version>_x64-setup.exe) and the files it
+installs also contain the components below. The texts cited are in the
+licenses folder of the installation.
+
+-- WebView2 loader --
+
+Library:  loader of the Microsoft Edge WebView2 SDK (Microsoft.Web.WebView2),
+          linked into chatonlm.exe through the webview2-com-sys crate
+License:  BSD 3-Clause, Copyright (C) Microsoft Corporation
+          (WebView2-SDK-LICENSE.txt)
+
+The WebView2 Runtime, which displays the interface of ChatonLM, is not part
+of ChatonLM: it comes with Windows 11, and the installer downloads it from
+Microsoft where it is missing.
+
+-- NSIS --
+
+Program:  NSIS (Nullsoft Scriptable Install System) 3,
+          https://nsis.sourceforge.io, which the installer and uninstall.exe
+          are made with
+License:  zlib/libpng license; its LZMA compression module is under the
+          Common Public License 1.0, with a special exception for the
+          installers it produces (NSIS-COPYING.txt)
+
+The installer also contains the installer template and the nsis_tauri_utils
+plug-in of the Tauri project (https://github.com/tauri-apps), under the MIT
+License or the Apache License 2.0.
+
+-- Microsoft Visual C++ runtime --
+
+Files:    vcruntime140*.dll, msvcp140*.dll, concrt140.dll and
+          vccorlib140.dll, next to chatonlm.exe (and the copies that Ollama
+          ships in ollama\lib\ollama\vulkan)
+License:  Microsoft Software License Terms of Visual Studio (redistributable
+          files), Copyright (c) Microsoft Corporation
+
+ChatonLM, ONNX Runtime and the Vulkan engine of the built-in Ollama need these
+libraries. They are not open-source software: they are shipped unmodified, as
+Microsoft allows for the redistributable files of Visual Studio.

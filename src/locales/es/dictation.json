@@ -1,0 +1,120 @@
+{
+  "common": {
+    "tryAgain": "Volver a intentar",
+    "notInstalled": "{name} (no instalado)"
+  },
+  "card": {
+    "title": "Dictado",
+    "description": "Pulsa un atajo desde cualquier lugar para dictar. Lo que dices se transcribe en este equipo, se pule con un modelo local y se copia al portapapeles.",
+    "remoteDescription": "Pulsa un atajo desde cualquier lugar para dictar. Lo que dices se transcribe en este equipo, se pule y se copia al portapapeles.",
+    "remoteNote": "La transcripción se envía a tu servidor de Ollama en {server} para pulirla.",
+    "loadFailed": "No se pudo cargar la configuración del dictado.",
+    "downloadModel": "Descargar un modelo de transcripción",
+    "enable": "Activar el dictado"
+  },
+  "shortcut": {
+    "label": "Atajo",
+    "description": "Inicia y detiene el dictado desde cualquier aplicación.",
+    "turnOnFirst": "Activa el dictado para usar el atajo.",
+    "waiting": "Esperando a tu escritorio…",
+    "notSet": "Sin definir",
+    "set": "Definir atajo",
+    "change": "Cambiar…",
+    "bindCommand": "Asigna este comando a un atajo en la configuración del sistema:"
+  },
+  "mode": {
+    "label": "Modo",
+    "description": "Alternar: pulsa el atajo para empezar y otra vez para terminar. Pulsar para hablar: mantenlo pulsado mientras hablas.",
+    "holdNeedsShortcut": "El modo «Pulsar para hablar» necesita el atajo del sistema.",
+    "toggle": "Alternar",
+    "hold": "Pulsar para hablar"
+  },
+  "transcription": {
+    "title": "Transcripción",
+    "model": {
+      "label": "Modelo de transcripción",
+      "description": "Convierte tu voz en texto, en este equipo.",
+      "none": "Ninguno",
+      "loading": "Cargando…",
+      "noneInstalled": "Ningún modelo de transcripción instalado",
+      "choose": "Elige un modelo",
+      "unsupportedOption": "{name} (no compatible con este procesador)",
+      "unsupported": "{name} no puede ejecutarse en este procesador (le falta: {features}). Elige un modelo Parakeet.",
+      "unavailableOption": "{name} (no disponible)",
+      "runtime": {
+        "missing": "{name} no puede ejecutarse: falta ONNX Runtime ({detail}). Reinstala ChatonLM o elige un modelo Whisper.",
+        "incompatible": "{name} no puede ejecutarse: el ONNX Runtime encontrado no es compatible ({detail}). Reinstala ChatonLM o elige un modelo Whisper.",
+        "loadFailed": "{name} no puede ejecutarse: no se pudo cargar ONNX Runtime ({detail}). Reinstala ChatonLM o elige un modelo Whisper."
+      },
+      "manage": "Administrar modelos de transcripción",
+      "unreadable": "No se pudieron leer los modelos de transcripción: {error}"
+    },
+    "language": {
+      "label": "Idioma",
+      "description": "El idioma que hablas.",
+      "descriptionParakeet": "El idioma que hablas. Parakeet detecta el idioma automáticamente.",
+      "auto": "Detección automática"
+    },
+    "dictionary": {
+      "label": "Diccionario",
+      "description": "Nombres y palabras que se escribirán tal cual. Escribe uno y pulsa Enter para añadirlo.",
+      "words": "Palabras del diccionario",
+      "remove": "Quitar {word}",
+      "placeholder": "Añadir una palabra"
+    },
+    "autoCopy": {
+      "label": "Copiar automáticamente al portapapeles",
+      "description": "Si está desactivado, copia el texto desde la notificación o desde el último resultado de abajo."
+    }
+  },
+  "polish": {
+    "title": "Pulido",
+    "model": {
+      "label": "Modelo de pulido",
+      "description": "Un modelo de Ollama pule la transcripción: puntuación, muletillas, rectificaciones.",
+      "off": "Desactivado",
+      "cloud": "{name} (los modelos en la nube no se usan)",
+      "recommended": "Modelos recomendados",
+      "unreachable": "No se puede conectar con Ollama. Sus modelos aparecerán en cuanto responda.",
+      "loading": "Cargando modelos…"
+    },
+    "instructions": {
+      "label": "Instrucciones",
+      "description": "Lo que se le pide al modelo de pulido que haga con tu transcripción.",
+      "reset": "Restablecer las predeterminadas"
+    }
+  },
+  "notifications": {
+    "title": "Notificaciones",
+    "showText": "Mostrar el texto en las notificaciones",
+    "description": "Si está desactivado, la notificación solo indica que el texto se copió."
+  },
+  "try": {
+    "label": "Probar el dictado",
+    "turnOnFirst": "Activa el dictado para probarlo.",
+    "chooseModel": "Elige un modelo de transcripción instalado para probarlo.",
+    "stop": "Detener"
+  },
+  "phase": {
+    "recording": "Escuchando…",
+    "transcribing": "Transcribiendo…",
+    "polishing": "Puliendo…"
+  },
+  "lastResult": {
+    "title": "Último dictado",
+    "copied": "Copiado al portapapeles",
+    "notCopied": "No copiado: selecciona el texto para copiarlo",
+    "notPolished": "sin pulir",
+    "failed": "El dictado falló.",
+    "copyFailed": "No se pudo copiar: {error}"
+  },
+  "download": {
+    "waiting": "En espera…",
+    "verifying": "Verificando…",
+    "progress": "{done} de {total}"
+  },
+  "polishModels": {
+    "bestQuality": "La mejor calidad, necesita unos {size} de memoria de GPU",
+    "smallMachines": "Para equipos modestos, menos fiable"
+  }
+}

@@ -1,0 +1,578 @@
+{
+  "meta": {
+    "home": {
+      "title": "L’app d’IA locale gratuite pour Windows et Linux · ChatonLM",
+      "social_title": "ChatonLM, une IA d’intérieur",
+      "description": "ChatonLM, l’app d’IA locale gratuite et open source pour Windows et Linux : conversation, dictée, voix, correction et révision. Hors ligne, sans compte."
+    },
+    "contact": {
+      "title": "Contact · ChatonLM",
+      "description": "Une question, une idée ou un problème avec ChatonLM, l’app d’IA locale pour Windows et Linux ? Écrivez-nous : nous répondons par courriel."
+    },
+    "contact_sent": {
+      "title": "Message envoyé · ChatonLM"
+    },
+    "contact_error": {
+      "title": "Message non envoyé · ChatonLM"
+    },
+    "not_found": {
+      "title": "Page introuvable · ChatonLM"
+    },
+    "legal": {
+      "title": "Mentions légales · ChatonLM",
+      "description": "Mentions légales de chatonlm.com : éditeur et hébergeur du site, licence MIT du logiciel ChatonLM, propriété des contenus et liens vers d’autres sites."
+    },
+    "privacy": {
+      "title": "Confidentialité · ChatonLM",
+      "description": "Ni cookie, ni mesure d’audience, ni compte : ce que le site chatonlm.com et l’app ChatonLM font, et ne font pas, de vos données."
+    },
+    "og_alt": "Le chaton roux de ChatonLM, assis près d’une pelote de laine, à côté du titre « Une IA d’intérieur ».",
+    "dictation": {
+      "title": "Dictée vocale hors ligne pour Windows et Linux · ChatonLM",
+      "description": "Dictez dans n’importe quelle application : ChatonLM transcrit votre voix sur votre ordinateur, sans rien envoyer en ligne. Gratuit, pour Windows et Linux."
+    },
+    "chat": {
+      "title": "Discuter avec une IA en local, sans compte · ChatonLM",
+      "description": "Discutez avec des modèles d’IA qui tournent sur votre ordinateur : texte, images, PDF, code. Gratuit et open source, pour Windows et Linux, sans compte."
+    },
+    "hub": {
+      "title": "Trouver un modèle d’IA qui tient dans votre PC · ChatonLM",
+      "description": "ModelHub parcourt les modèles ouverts de Hugging Face, montre ceux qui tiennent dans votre carte graphique et votre mémoire, et les installe en un clic."
+    },
+    "voice": {
+      "title": "Parler à une IA en local, lecture à voix haute · ChatonLM",
+      "description": "Conversez à voix haute avec une IA locale : ChatonLM vous écoute, répond d’une voix naturelle et se laisse interrompre. Tout se passe sur votre ordinateur."
+    },
+    "proofread": {
+      "title": "Correcteur de texte par IA, hors ligne et gratuit · ChatonLM",
+      "description": "Corrigez ou reformulez un texte avec une IA qui tourne sur votre ordinateur : dans l’app, ou d’un raccourci sur une sélection. Gratuit, pour Windows et Linux."
+    },
+    "study": {
+      "title": "Apprendre avec une IA locale : cours et quiz · ChatonLM",
+      "description": "Choisissez un sujet : une IA locale écrit un cours à votre niveau, avec leçons, exemples et quiz, à partir de vos documents au besoin. Gratuit, sans compte."
+    }
+  },
+  "nav": {
+    "skip": "Aller au contenu",
+    "home": "ChatonLM, accueil",
+    "label": "Navigation principale",
+    "tools": "Les outils",
+    "why": "Pourquoi ChatonLM",
+    "privacy": "Vie privée",
+    "contact": "Contact",
+    "language": "Langue",
+    "download": "Télécharger"
+  },
+  "footer": {
+    "tagline": "Une IA d’intérieur.",
+    "product": "Produit",
+    "help": "Aide",
+    "faq": "Questions fréquentes",
+    "source": "Code source",
+    "legal": "Mentions",
+    "notice": "Mentions légales",
+    "privacy": "Confidentialité",
+    "rights": "© {{year}} ChatonLM · logiciel libre sous licence MIT",
+    "made": "Conçu en France"
+  },
+  "hero": {
+    "eyebrow": "IA locale · Windows et Linux · gratuit",
+    "title": "Une IA <em>d’intérieur.</em>",
+    "lead": "Discuter, dicter, écouter, corriger, apprendre : ChatonLM réunit dans une seule app ce qu’on fait avec une IA. Elle vit sur votre ordinateur, pas dans le nuage.",
+    "other": "Windows 11 et Linux, 64 bits",
+    "note": "Version 0.9 bêta · gratuit et open source · sans compte"
+  },
+  "download": {
+    "cta": "Télécharger",
+    "for_windows": "Télécharger pour Windows",
+    "for_linux": "Télécharger pour Linux",
+    "soon": "Bientôt disponible",
+    "title": "Prêt à <em>l’adopter ?</em>",
+    "lead": "Choisissez votre système. L’installation prend une minute, et le moteur des modèles est inclus.",
+    "soon_lead": "La première version publique, la 0.9 bêta, arrive. <a href='/{{lang}}/contact/' data-contact>Écrivez-nous</a> pour être prévenu de sa sortie.",
+    "unit": "Mo",
+    "version": "Version",
+    "recommended": "Conseillé",
+    "windows": {
+      "text": "Windows 11, 64 bits. S’installe pour votre compte, sans droits d’administrateur.",
+      "file": "Installateur .exe"
+    },
+    "appimage": {
+      "text": "La plupart des distributions récentes. Un seul fichier, sans installation. Les mises à jour se téléchargent seules et s’installent quand vous le décidez.",
+      "file": "Fichier .AppImage"
+    },
+    "deb": {
+      "text": "Ubuntu 22.04, Debian 12 et leurs dérivés. S’installe comme un paquet du système.",
+      "file": "Paquet .deb"
+    },
+    "requirements": "PC 64 bits (x86-64). Une carte graphique accélère les modèles, sans être obligatoire. Pas de version macOS pour l’instant. Sous Linux, les raccourcis globaux demandent KDE Plasma 6 ou GNOME 48 ; ailleurs, ils se règlent dans le bureau."
+  },
+  "tools": {
+    "title": "Six outils. <em>Une seule fenêtre.</em>",
+    "lead": "Faites le tour : chaque outil est à un clic, et tous partagent vos modèles.",
+    "label": "Les outils de ChatonLM",
+    "chat": {
+      "name": "Conversation",
+      "text": "Discutez avec vos modèles, glissez-y des images, des PDF ou du code. Les modèles qui raisonnent ont leur bouton de réflexion."
+    },
+    "hub": {
+      "name": "ModelHub",
+      "text": "Le catalogue des modèles ouverts. ChatonLM vous montre ceux qui tiennent dans votre carte graphique et votre mémoire, et les installe en un clic."
+    },
+    "dictation": {
+      "name": "Dictée",
+      "text": "Un raccourci, vous parlez, où que vous soyez. Le texte est transcrit sur votre ordinateur et copié, prêt à coller."
+    },
+    "voice": {
+      "name": "Voix",
+      "text": "Faites-vous lire les réponses par une voix naturelle, ou conversez les mains libres : vous parlez, le modèle répond à voix haute, puis vous écoute de nouveau."
+    },
+    "proofread": {
+      "name": "Correction",
+      "text": "Corrigez ou reformulez un texte dans l’app. Ailleurs, un raccourci corrige votre sélection et copie le résultat, prêt à coller."
+    },
+    "study": {
+      "name": "Étude",
+      "text": "Choisissez un sujet : votre modèle écrit un cours, avec ses leçons, ses exemples et ses quiz, à partir de vos documents si vous voulez."
+    }
+  },
+  "app": {
+    "chat": "Conversation",
+    "proofread": "Correction",
+    "study": "Étudier",
+    "settings": "Paramètres",
+    "today": "Aujourd’hui",
+    "history1": "Les trous noirs",
+    "history2": "Idées de voyage",
+    "history3": "Recette de crêpes"
+  },
+  "demo": {
+    "chat": {
+      "question": "Explique-moi les trous noirs en deux phrases.",
+      "thought": "A réfléchi pendant 2,2 secondes",
+      "answer": "Un trou noir est une région de l’espace où la gravité est si forte que rien ne s’en échappe, pas même la lumière. Il naît quand une étoile très massive s’effondre sur elle-même.",
+      "placeholder": "Envoyer un message"
+    },
+    "hub": {
+      "size1": "4 Go",
+      "size2": "5,2 Go",
+      "size3": "73 Go",
+      "fits": "Tient sur votre GPU",
+      "too_big": "Trop grand",
+      "note": "ChatonLM lit votre carte graphique et votre mémoire, puis vous dit ce qui tient dans votre machine."
+    },
+    "dictation": {
+      "title": "Dictée · à l’écoute",
+      "quote": "« Bonjour Camille, je vous confirme notre rendez-vous de jeudi à dix heures. »",
+      "copied": "Copié, prêt à coller"
+    },
+    "voice": {
+      "question": "Il fait froid sur Mars ?",
+      "answer": "Très froid : environ −60 °C en moyenne. Prévoyez un bon manteau.",
+      "listening": "À l’écoute…"
+    },
+    "proofread": {
+      "text": "Je vous <del>envoi</del> <ins>envoie</ins> le dossier demain, <del>comme convenue</del> <ins>comme convenu</ins>.",
+      "correct": "Corriger",
+      "rephrase": "Reformuler"
+    },
+    "study": {
+      "title": "Étude · leçon 2 sur 5",
+      "question": "Où la photosynthèse a-t-elle lieu ?",
+      "a": "Dans les racines",
+      "b": "Dans les chloroplastes",
+      "c": "Dans le noyau"
+    }
+  },
+  "merge": {
+    "title": "Six apps ailleurs. <em>Une seule ici.</em>",
+    "lead": "D’habitude, il faut une app pour parler à un modèle, une autre pour dicter, une troisième pour faire lire un texte, une quatrième pour le corriger. Chacune a ses réglages, ses modèles à télécharger de nouveau, parfois son compte. ChatonLM s’installe une fois, et tout fonctionne ensemble.",
+    "w1": "Discuter",
+    "w2": "Trouver des modèles",
+    "w3": "Dicter",
+    "w4": "Écouter",
+    "w5": "Corriger",
+    "w6": "Réviser",
+    "before": "Six installations, six réglages, six mises à jour",
+    "after": "Une app, un seul réglage",
+    "replay": "Rejouer"
+  },
+  "ticker": {
+    "w1": "Discuter",
+    "w2": "Dicter",
+    "w3": "Écouter",
+    "w4": "Corriger",
+    "w5": "Apprendre",
+    "w6": "Chercher"
+  },
+  "free": {
+    "eyebrow": "Le prix",
+    "title": "Zéro<br /><em>abonnement.</em>",
+    "lead": "Assistant, dictée, voix, correcteur, outil de révision : ailleurs, chacun a son abonnement, et l’addition approche vite les soixante euros par mois*. ChatonLM est gratuit. Pas d’essai limité, pas de version « Pro », pas de carte bancaire.",
+    "zero1": "0 €",
+    "zero1_label": "par mois",
+    "zero2_label": "compte à créer",
+    "zero3_label": "publicité ou pisteur",
+    "note": "* Total des prix publics de cinq services en ligne courants (assistant, dictée, lecture à voix haute, correcteur, révision), facturés à l’année, relevés en octobre 2026."
+  },
+  "why": {
+    "title": "Et ce n’est <em>pas tout.</em>",
+    "lead": "Six autres raisons, à suivre au fil de la page.",
+    "r1": {
+      "title": "Votre voix reste chez vous",
+      "text": "La dictée et le mode vocal sont transcrits par votre ordinateur. Ailleurs, votre voix part souvent vers un serveur."
+    },
+    "r2": {
+      "title": "Rien à configurer",
+      "text": "Vous installez l’app, vous l’ouvrez : ni serveur à lancer, ni conteneur. Le moteur qui fait tourner les modèles est inclus. S’il est déjà sur votre machine, ChatonLM s’en sert, avec les modèles que vous avez déjà téléchargés."
+    },
+    "r3": {
+      "title": "Elle connaît votre machine",
+      "text": "ModelHub lit votre carte graphique et votre mémoire, puis vous indique les modèles qui tiennent dans votre machine. Fini, les 20 Go téléchargés pour rien."
+    },
+    "r4": {
+      "title": "Linux n’attend pas son tour",
+      "text": "Les mêmes outils sous Linux et sous Windows. Beaucoup d’apps d’IA s’arrêtent à Windows et à macOS."
+    },
+    "r5": {
+      "title": "Le code est ouvert",
+      "text": "ChatonLM est un logiciel libre, sous licence MIT. Chacun peut lire ce que fait l’app, la modifier, et vérifier qu’elle ne cache rien."
+    },
+    "r6": {
+      "title": "Elle parle votre langue",
+      "text": "Interface en français, en anglais et en espagnol, voix naturelles dans ces trois langues, dictée dans 99. ChatonLM est conçu en France."
+    }
+  },
+  "inside": {
+    "title": "Ce qui sort de chez vous : <em>presque rien.</em>",
+    "lead": "Pas de compte, pas de télémétrie, pas de publicité. Et quand ChatonLM passe par Internet, vous savez pourquoi.",
+    "stays": "Reste sur votre ordinateur",
+    "stays1": "Vos conversations et vos pièces jointes",
+    "stays2": "Votre voix : dictée, lecture et mode vocal",
+    "stays3": "Vos textes à corriger et vos cours",
+    "stays4": "Vos réglages et votre historique",
+    "goes": "Passe par Internet",
+    "goes1": "Le catalogue et le téléchargement des modèles et des voix",
+    "goes2": "La vérification des mises à jour, toutes signées",
+    "goes3": "La recherche web, facultative, avec un compte en ligne",
+    "more": "Le détail, connexion par connexion"
+  },
+  "faq": {
+    "title": "Questions <em>fréquentes</em>",
+    "q1": "C’est vraiment gratuit ?",
+    "a1": "Oui. ChatonLM est un logiciel libre, sous licence MIT : pas de version payante, pas d’abonnement, pas de publicité. Les modèles ouverts que vous téléchargez sont gratuits eux aussi.",
+    "q2": "Faut-il une carte graphique ?",
+    "a2": "Non. Les modèles tournent aussi sur le processeur, plus lentement. Avec une carte graphique, ils vont plus vite et peuvent être plus gros ; ModelHub vous indique ceux qui tiennent dans votre machine.",
+    "q3": "Est-ce aussi fort que les grandes IA en ligne ?",
+    "a3": "Pas sur tout. Un modèle qui tient sur votre ordinateur est plus petit que ceux des grands services en ligne. Pour discuter, résumer, corriger, traduire, réviser ou dicter, il fait très bien l’affaire, et vos données restent chez vous.",
+    "q4": "Et sur macOS ?",
+    "a4": "Pas pour l’instant. ChatonLM existe pour Windows 11 et pour Linux, en 64 bits.",
+    "q5": "Que faut-il installer d’autre ?",
+    "a5": "Rien pour commencer. Le moteur qui fait tourner les modèles est inclus ; il reste à choisir un modèle dans ModelHub, un clic suffit. Les voix et la reconnaissance de la parole se téléchargent la première fois que vous vous en servez.",
+    "q6": "Windows affiche un avertissement à l’installation",
+    "a6": "ChatonLM est une app jeune : son installateur n’a pas encore de certificat reconnu par Windows, d’où l’écran « Windows a protégé votre ordinateur ». Cliquez sur « Informations complémentaires », puis sur « Exécuter quand même ». Le code est ouvert, et chaque mise à jour est signée.",
+    "what_q": "Qu’est-ce que ChatonLM ?",
+    "what_a": "ChatonLM est une application d’IA locale, gratuite et open source, pour Windows 11 et Linux. Elle réunit six outils dans une seule fenêtre : conversation avec un modèle de langage (LLM), catalogue de modèles, dictée vocale, voix (lecture à voix haute et mode vocal), correction de texte et étude. Les modèles tournent sur votre ordinateur, sans compte ni abonnement.",
+    "offline_q": "Est-ce que ça marche sans Internet ?",
+    "offline_a": "Oui, une fois les modèles, les voix et la reconnaissance de la parole téléchargés. La conversation, la dictée, la voix, la correction et l’étude fonctionnent hors ligne. Internet ne sert qu’à parcourir le catalogue, à télécharger les modèles et les voix, à vérifier les mises à jour et, si vous l’activez, à la recherche web.",
+    "models_q": "Quels modèles peut-on utiliser ?",
+    "models_a": "Les modèles que l’on peut télécharger et faire tourner en local, comme Gemma, Qwen, Mistral ou Llama. ModelHub les réunit dans un catalogue, vous indique ceux qui tiennent dans votre machine et les installe en un clic.",
+    "engine_q": "ChatonLM fonctionne-t-il avec Ollama ?",
+    "engine_a": "Oui. ChatonLM est une application de bureau pour Ollama : le moteur inclus est Ollama, non modifié. Si Ollama est déjà installé sur votre ordinateur, ChatonLM s’y connecte et retrouve les modèles que vous avez déjà téléchargés. ChatonLM est un projet indépendant : il n’est ni affilié à Ollama, ni soutenu par lui."
+  },
+  "end": {
+    "title": "Vous êtes au <em>bout du fil.</em>",
+    "lead": "Il ne reste qu’à l’adopter."
+  },
+  "contact": {
+    "title": "Un mot à <em>nous dire ?</em>",
+    "lead": "Une question, une idée, un problème : écrivez-nous, nous répondons par courriel.",
+    "name": "Votre nom",
+    "email": "Votre adresse électronique",
+    "message": "Votre message",
+    "trap": "Ne remplissez pas ce champ",
+    "send": "Envoyer",
+    "sending": "Envoi…",
+    "sent": "Merci ! Votre message est parti. Nous vous répondrons par courriel.",
+    "note": "Votre message nous arrive par courriel et ne sert qu’à vous répondre. <a href='/{{lang}}/privacy/'>Confidentialité</a>",
+    "close": "Fermer",
+    "error": {
+      "name": "Indiquez votre nom.",
+      "email": "Cette adresse électronique ne semble pas valide.",
+      "message": "Votre message est un peu court : dix caractères au moins.",
+      "rate": "Trop de messages envoyés depuis votre connexion. Réessayez dans une heure.",
+      "too_fast": "Envoi trop rapide. Attendez quelques secondes, puis réessayez.",
+      "send": "Le message n’a pas pu partir. Réessayez dans un instant, ou écrivez à contact.chatonlm@gmail.com."
+    }
+  },
+  "contact_sent": {
+    "title": "Message <em>envoyé.</em>",
+    "text": "Merci ! Nous vous répondrons par courriel.",
+    "back": "Retour à l’accueil"
+  },
+  "contact_error": {
+    "title": "Le message n’est <em>pas parti.</em>",
+    "text": "Vérifiez votre nom, votre adresse et votre message (dix caractères au moins), puis réessayez. Si le problème continue, écrivez à contact.chatonlm@gmail.com.",
+    "back": "Retour au formulaire"
+  },
+  "not_found": {
+    "title": "Cette page <em>dort ailleurs.</em>",
+    "text": "L’adresse demandée n’existe pas, ou plus.",
+    "back": "Retour à l’accueil"
+  },
+  "legal": {
+    "title": "Mentions <em>légales</em>",
+    "lead": "Qui édite ce site, qui l’héberge, et sous quelle licence ChatonLM est publié.",
+    "body": "<h2>Éditeur</h2><p>Le site chatonlm.com est édité par un particulier, à titre non professionnel. Comme le permet l’article 1-1, II de la loi n° 2004-575 du 21 juin 2004 pour la confiance dans l’économie numérique, son identité a été communiquée à l’hébergeur du site.</p><p>Contact : <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>, ou le <a href='/{{lang}}/contact/'>formulaire de contact</a>.</p><h2>Hébergeur</h2><p>OVH SAS, 2 rue Kellermann, 59100 Roubaix, France. Téléphone : 1007. Site : <a href='https://www.ovhcloud.com' rel='noopener'>ovhcloud.com</a>.</p><h2>Licence du logiciel</h2><p>ChatonLM est un logiciel libre, publié sous licence MIT. Il s’appuie sur des logiciels et des modèles libres, dont le moteur Ollama, qu’il embarque sans le modifier ; leurs licences accompagnent chaque version de l’app.</p><p>ChatonLM n’est ni affilié à Ollama, ni soutenu par lui. « Ollama » est une marque de son propriétaire, citée ici pour décrire une compatibilité.</p><h2>Contenu du site</h2><p>Les textes et les dessins de ce site, dont le chaton, appartiennent à leur auteur. Les polices Fraunces, Figtree et Unbounded sont employées sous licence SIL Open Font License 1.1.</p><h2>Liens</h2><p>Les fichiers à télécharger sont hébergés par GitHub. Ce site n’est pas responsable du contenu des sites vers lesquels il renvoie.</p>",
+    "updated": "Dernière mise à jour : octobre 2026."
+  },
+  "privacy": {
+    "title": "Confidentialité",
+    "lead": "Ce site ne vous suit pas : ni cookie, ni mesure d’audience, ni contenu chargé chez un tiers.",
+    "body": "<h2>Quand vous visitez ce site</h2><p>Aucun cookie n’est déposé et aucun outil de mesure d’audience n’est installé. Les polices et les images viennent du site lui-même.</p><p>Comme tout serveur web, le nôtre note dans un journal technique l’adresse IP, la date, la page demandée, le navigateur utilisé et la page d’origine. Ce journal sert à la sécurité et au bon fonctionnement du site ; il est effacé automatiquement au bout de quelques semaines.</p><h2>Quand vous nous écrivez</h2><p>Le formulaire nous transmet votre nom, votre adresse électronique et votre message par courriel, dans une boîte Gmail (Google). Ils ne servent qu’à vous répondre et ne sont enregistrés nulle part ailleurs. Le responsable de ce traitement est l’éditeur du site, qui se fonde sur son intérêt légitime à vous répondre. Google peut conserver ces courriels hors de l’Union européenne. Ils sont supprimés au plus tard un an après notre dernier échange.</p><p>Pour limiter les envois abusifs, votre adresse IP est gardée en mémoire vive un jour au plus, jamais sur le disque.</p><h2>Quand vous téléchargez ChatonLM</h2><p>Les fichiers sont hébergés par GitHub : votre navigateur les télécharge chez lui, et GitHub voit donc votre adresse IP, selon sa propre politique de confidentialité.</p><h2>Dans l’app ChatonLM</h2><p>ChatonLM n’a ni compte, ni télémétrie, ni mesure d’audience. Vos conversations, vos pièces jointes et vos réglages restent sur votre ordinateur ; la dictée et le mode vocal sont transcrits sur place.</p><p>L’app ne se connecte qu’à :</p><ul><li><strong>Hugging Face</strong>, quand vous ouvrez ModelHub (listes et fiches des modèles) et quand vous téléchargez un modèle de reconnaissance de la parole ou une voix ;</li><li><strong>ollama.com</strong>, pour vérifier qu’un nom de modèle existe et, si vous vous y connectez, pour afficher l’image de votre compte ;</li><li><strong>GitHub</strong>, pour vérifier et télécharger les mises à jour, et pour télécharger les fichiers d’une voix.</li></ul><p>Tout le reste passe par le moteur Ollama, sur votre ordinateur par défaut : les conversations, le téléchargement des modèles et, si vous les activez, le compte Ollama et la recherche web, alors traités par ollama.com. Si vous réglez l’app sur un serveur situé sur une autre machine, vos messages, vos pièces jointes et les dictées mises au propre lui sont envoyés.</p><h2>Vos droits</h2><p>Vous pouvez demander à consulter, à corriger ou à faire supprimer les données qui vous concernent, ou vous opposer à leur traitement, en écrivant à <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>. Vous pouvez aussi adresser une réclamation à la CNIL (cnil.fr).</p>",
+    "updated": "Dernière mise à jour : octobre 2026."
+  },
+  "toolpage": {
+    "back": "Les six outils",
+    "more": "En savoir plus",
+    "free": "Gratuit et open source · sans compte",
+    "end_lead": "ChatonLM est gratuit, pour Windows et Linux.",
+    "others_title": "Les six outils de <em>ChatonLM</em>"
+  },
+  "pages": {
+    "dictation": {
+      "eyebrow": "Dictée vocale hors ligne · Windows et Linux",
+      "title": "Vous parlez, <em>ça s’écrit.</em>",
+      "lead": "La dictée de ChatonLM transforme votre voix en texte, sur votre ordinateur. Un raccourci clavier, vous parlez dans n’importe quelle application, et le texte est copié, prêt à coller. Rien ne part en ligne.",
+      "steps_title": "Trois gestes, <em>pas un de plus.</em>",
+      "step1_title": "Appuyez sur le raccourci",
+      "step1_text": "Où que vous soyez : dans un courriel, un document, une messagerie. Ctrl+Alt+D par défaut, et vous pouvez le changer.",
+      "step2_title": "Parlez",
+      "step2_text": "Normalement, à votre rythme. ChatonLM reconnaît la parole sur votre ordinateur ; un modèle peut ensuite remettre la ponctuation et retirer les hésitations.",
+      "step3_title": "Collez",
+      "step3_text": "Le texte est déjà dans le presse-papiers. Ctrl+V, et il est là où vous écriviez.",
+      "facts_title": "Ce qu’elle <em>sait faire.</em>",
+      "fact1_title": "99 langues",
+      "fact1_text": "Deux moteurs au choix : Parakeet, rapide, pour 25 langues européennes, qui détecte seul la langue parlée ; Whisper, pour 99 langues.",
+      "fact2_title": "Vos mots à vous",
+      "fact2_text": "Un dictionnaire personnel garde l’orthographe des noms propres et des termes de votre métier.",
+      "fact3_title": "Un texte propre",
+      "fact3_text": "Si vous le voulez, un modèle local relit la transcription : ponctuation, mots d’hésitation, reprises. Vous réglez ses consignes.",
+      "fact4_title": "Deux façons de dicter",
+      "fact4_text": "Une pression pour commencer et une pour finir, ou la touche maintenue le temps de parler.",
+      "fact5_title": "Sans carte graphique",
+      "fact5_text": "La reconnaissance de la parole tourne sur le processeur. Whisper demande un processeur avec AVX2 ; Parakeet fonctionne sur tout PC 64 bits.",
+      "fact6_title": "Dans toutes les apps",
+      "fact6_text": "Le raccourci est global : il répond au-dessus de votre navigateur, de votre messagerie, de votre traitement de texte.",
+      "privacy_title": "Votre voix <em>reste chez vous.</em>",
+      "privacy_text": "Beaucoup de services de dictée envoient votre voix à un serveur pour la transcrire. Ici, l’enregistrement ne quitte pas votre ordinateur : la reconnaissance se fait sur place, et rien n’est gardé en ligne. Une seule exception, que vous décidez : si vous réglez ChatonLM sur un serveur Ollama situé sur une autre machine, le texte transcrit lui est envoyé pour être relu.",
+      "faq_title": "Questions sur <em>la dictée</em>",
+      "q1": "La dictée fonctionne-t-elle sans Internet ?",
+      "a1": "Oui. Une fois le modèle de reconnaissance de la parole téléchargé, la première fois que vous vous en servez, tout se passe sur votre ordinateur, même hors ligne.",
+      "q2": "Dans quelles langues peut-on dicter ?",
+      "a2": "Dans 99 langues avec Whisper, dont le français, l’anglais et l’espagnol. Parakeet couvre 25 langues européennes et reconnaît seul celle que vous parlez.",
+      "q3": "Ça marche dans toutes les applications ?",
+      "a3": "Oui : le raccourci est global, et le texte est copié dans le presse-papiers pour que vous le colliez où vous voulez. Sous Windows, le raccourci se choisit dans les réglages. Sous Linux, il passe par KDE Plasma 6 ou GNOME 48 et plus ; sur un autre bureau, vous liez une commande à la touche de votre choix.",
+      "q4": "Faut-il un ordinateur puissant ?",
+      "a4": "Non. La reconnaissance tourne sur le processeur, sans carte graphique. Whisper demande un processeur récent (AVX2) ; Parakeet fonctionne sur tout PC 64 bits.",
+      "q5": "Est-ce vraiment gratuit ?",
+      "a5": "Oui. La dictée fait partie de ChatonLM, logiciel libre sous licence MIT : pas d’abonnement, pas de compte.",
+      "end_title": "Prêt à <em>dicter ?</em>"
+    },
+    "chat": {
+      "eyebrow": "Chat IA local · Windows et Linux",
+      "title": "Posez la question, <em>chez vous.</em>",
+      "lead": "La conversation de ChatonLM vous fait discuter avec un modèle de langage qui tourne sur votre ordinateur. Vous écrivez, il répond, et rien de ce que vous dites ne part vers un service en ligne.",
+      "steps_title": "Trois gestes, <em>et la discussion commence.</em>",
+      "step1_title": "Choisissez un modèle",
+      "step1_text": "ModelHub vous montre ceux qui tiennent dans votre machine et les installe en un clic.",
+      "step2_title": "Écrivez",
+      "step2_text": "Une question, un texte à résumer, un bout de code. Ajoutez une image ou un PDF si le sujet le demande.",
+      "step3_title": "Lisez la réponse",
+      "step3_text": "Elle s’écrit sous vos yeux, mise en forme : titres, tableaux, code coloré, formules.",
+      "facts_title": "Ce qu’elle <em>sait faire.</em>",
+      "fact1_title": "Images, PDF, code",
+      "fact1_text": "Glissez un fichier dans la fenêtre : images pour les modèles qui voient, PDF, textes et fichiers de code.",
+      "fact2_title": "Un bouton pour réfléchir",
+      "fact2_text": "Les modèles qui raisonnent ont leur bouton de réflexion, avec un niveau quand le modèle le permet.",
+      "fact3_title": "Un historique à vous",
+      "fact3_text": "Vos conversations sont gardées sur votre ordinateur, avec des favoris. Chaque message reste modifiable.",
+      "fact4_title": "Des réponses lisibles",
+      "fact4_text": "Markdown, code coloré et formules mathématiques, affichés pendant que la réponse s’écrit.",
+      "fact5_title": "Le web, si vous voulez",
+      "fact5_text": "Reliez un compte Ollama, et le modèle peut chercher sur le web. C’est facultatif : sans compte, rien ne sort.",
+      "fact6_title": "Un modèle toujours prêt",
+      "fact6_text": "Gardez un modèle en mémoire aussi longtemps que vous voulez, ou chargez-le dès l’ouverture pour que la première réponse n’attende pas.",
+      "privacy_title": "Vos conversations <em>restent chez vous.</em>",
+      "privacy_text": "Les services d’IA en ligne reçoivent tout ce que vous leur écrivez. Ici, le modèle tourne sur votre ordinateur : vos messages, vos pièces jointes et votre historique n’en sortent pas. Deux exceptions, que vous décidez : la recherche web, traitée par votre compte Ollama, et un serveur Ollama que vous auriez placé sur une autre machine.",
+      "faq_title": "Questions sur <em>la conversation</em>",
+      "q1": "Est-ce que ça marche sans Internet ?",
+      "a1": "Oui, une fois le modèle téléchargé. La conversation se passe entièrement sur votre ordinateur.",
+      "q2": "Faut-il une carte graphique ?",
+      "a2": "Non. Les modèles tournent aussi sur le processeur, plus lentement. Avec une carte graphique, ils répondent plus vite et peuvent être plus gros.",
+      "q3": "Quels modèles peut-on utiliser ?",
+      "a3": "Les modèles que l’on peut télécharger et faire tourner en local, comme Gemma, Qwen, Mistral ou Llama. ModelHub vous indique ceux qui tiennent dans votre machine.",
+      "q4": "Est-ce aussi fort que les grandes IA en ligne ?",
+      "a4": "Pas sur tout. Un modèle qui tient sur votre ordinateur est plus petit que ceux des grands services en ligne. Pour discuter, résumer, corriger, traduire ou réviser, il fait très bien l’affaire, et vos données restent chez vous.",
+      "q5": "Faut-il créer un compte ?",
+      "a5": "Non. ChatonLM n’a ni compte, ni abonnement. Un compte Ollama ne sert que si vous voulez la recherche web.",
+      "end_title": "Prêt à <em>discuter ?</em>"
+    },
+    "hub": {
+      "eyebrow": "Modèles d’IA locaux · catalogue Hugging Face",
+      "title": "Le bon modèle, <em>du premier coup.</em>",
+      "lead": "ModelHub est le catalogue de modèles de ChatonLM. Il lit votre carte graphique et votre mémoire, parcourt les modèles ouverts de Hugging Face et vous dit lesquels tiennent dans votre machine, avant que vous téléchargiez quoi que ce soit.",
+      "steps_title": "Trois gestes, <em>et le modèle est là.</em>",
+      "step1_title": "Parcourez",
+      "step1_text": "Les modèles du moment, que vous filtrez par taille, par capacités, par licence ou par éditeur vérifié.",
+      "step2_title": "Regardez l’étiquette",
+      "step2_text": "Chaque version dit si elle tient dans votre carte graphique, dans votre mémoire, ou si elle est trop grande.",
+      "step3_title": "Installez",
+      "step3_text": "Un clic, et le modèle se télécharge dans Ollama. Il apparaît dans la conversation dès qu’il est prêt.",
+      "facts_title": "Ce qu’il <em>sait faire.</em>",
+      "fact1_title": "Il connaît votre machine",
+      "fact1_text": "ModelHub lit votre carte graphique et votre mémoire. Fini, les 20 Go téléchargés pour rien.",
+      "fact2_title": "Quatre étiquettes claires",
+      "fact2_text": "Tient sur votre GPU, tient en mémoire, en partie sur le processeur, ou trop grand.",
+      "fact3_title": "Des filtres utiles",
+      "fact3_text": "« Adaptés à ma machine », taille, capacités, licence ouverte, éditeurs vérifiés seulement.",
+      "fact4_title": "La fiche du modèle",
+      "fact4_text": "La présentation de son auteur, sa licence et ses versions, sans quitter l’app.",
+      "fact5_title": "Téléchargements suivis",
+      "fact5_text": "La progression de chaque téléchargement dans un onglet, et les modèles installés dans un autre.",
+      "fact6_title": "Aussi pour la voix",
+      "fact6_text": "Les modèles de reconnaissance de la parole et les voix de lecture se choisissent au même endroit.",
+      "privacy_title": "Ce qui passe <em>par Internet.</em>",
+      "privacy_text": "Pour afficher le catalogue et télécharger un modèle, ChatonLM se connecte à Hugging Face : c’est le seul moment où ModelHub passe par Internet. Aucun compte n’est demandé, et l’examen de votre machine se fait sur place : rien de ce que ModelHub apprend de votre carte graphique ou de votre mémoire n’est envoyé.",
+      "faq_title": "Questions sur <em>ModelHub</em>",
+      "q1": "D’où viennent les modèles ?",
+      "a1": "De Hugging Face, la plus grande bibliothèque de modèles ouverts. ModelHub en affiche les modèles compatibles et les installe dans Ollama, le moteur inclus dans ChatonLM.",
+      "q2": "Comment savoir si un modèle tournera chez moi ?",
+      "a2": "ModelHub compare la taille de chaque version à votre carte graphique et à votre mémoire, puis l’indique sur une étiquette. Le filtre « Adaptés à ma machine » ne garde que ceux qui passent.",
+      "q3": "Faut-il un compte Hugging Face ?",
+      "a3": "Non. ChatonLM ne demande aucun compte pour parcourir le catalogue ni pour télécharger.",
+      "q4": "Les modèles sont-ils gratuits ?",
+      "a4": "Oui : ce sont des modèles ouverts, téléchargés librement. Chacun a sa licence, affichée sur sa fiche ; un filtre ne garde que les licences ouvertes.",
+      "q5": "Où sont rangés les modèles ?",
+      "a5": "Sur votre ordinateur, dans le dossier d’Ollama. Vous pouvez choisir un autre dossier dans les réglages, par exemple sur un disque plus grand.",
+      "end_title": "Prêt à <em>choisir ?</em>"
+    },
+    "voice": {
+      "eyebrow": "Mode vocal et lecture à voix haute · en local",
+      "title": "Parlez-lui, <em>il vous répond.</em>",
+      "lead": "La voix de ChatonLM fait deux choses : lire les réponses d’une voix naturelle, et tenir une conversation les mains libres. Vous parlez, le modèle répond à voix haute, puis vous écoute de nouveau. Tout se passe sur votre ordinateur.",
+      "steps_title": "Trois gestes, <em>et vous conversez.</em>",
+      "step1_title": "Ouvrez le mode vocal",
+      "step1_text": "Le bouton en forme d’onde, à côté d’Envoyer, ou Ctrl+Maj+Espace.",
+      "step2_title": "Parlez",
+      "step2_text": "ChatonLM envoie votre phrase quand vous marquez une pause. Vous préférez garder la main ? Maintenez Espace le temps de parler.",
+      "step3_title": "Écoutez, ou coupez-lui la parole",
+      "step3_text": "La réponse est lue à voix haute. Pour l’interrompre, parlez : ChatonLM se tait et vous écoute.",
+      "facts_title": "Ce qu’elle <em>sait faire.</em>",
+      "fact1_title": "Une voix naturelle",
+      "fact1_text": "Une voix par langue, en français, en anglais et en espagnol, téléchargée une fois.",
+      "fact2_title": "Lecture des réponses",
+      "fact2_text": "Chaque réponse peut être lue à voix haute, d’un clic ou automatiquement, pendant qu’elle s’écrit.",
+      "fact3_title": "Coupez-lui la parole",
+      "fact3_text": "ChatonLM retire sa propre voix de ce que le micro entend : vous l’interrompez en parlant, même sur des haut-parleurs.",
+      "fact4_title": "Mains libres ou touche tenue",
+      "fact4_text": "Laissez ChatonLM repérer vos pauses, ou tenez Espace le temps de parler.",
+      "fact5_title": "Des réponses faites pour l’oral",
+      "fact5_text": "En mode vocal, le modèle reçoit la consigne de répondre court, comme on parle. Vous pouvez la changer.",
+      "fact6_title": "Tout reste écrit",
+      "fact6_text": "La conversation s’affiche et s’enregistre comme d’habitude : vous la retrouvez dans l’historique.",
+      "privacy_title": "Rien de ce que vous dites <em>ne sort.</em>",
+      "privacy_text": "La détection de la parole, la transcription, l’annulation d’écho et la voix tournent sur votre ordinateur. Seul le texte transcrit est envoyé au moteur Ollama, comme un message tapé au clavier ; par défaut, ce moteur est lui aussi sur votre machine.",
+      "faq_title": "Questions sur <em>la voix</em>",
+      "q1": "Le mode vocal fonctionne-t-il sans Internet ?",
+      "a1": "Oui, une fois la voix et le modèle de reconnaissance de la parole téléchargés. ChatonLM propose de les télécharger la première fois, en indiquant leur taille.",
+      "q2": "Dans quelles langues ?",
+      "a2": "Les réponses sont lues en français, en anglais et en espagnol, avec la voix de leur langue. Une réponse dans une autre langue est écrite, pas lue.",
+      "q3": "Faut-il un casque ?",
+      "a3": "Non. L’annulation d’écho permet d’interrompre une réponse en parlant, même avec des haut-parleurs. Avec un casque, c’est encore plus net.",
+      "q4": "Peut-on seulement faire lire les réponses ?",
+      "a4": "Oui. Sans le mode vocal, un bouton sous chaque réponse la lit à voix haute, et un réglage lit automatiquement les nouvelles réponses.",
+      "q5": "Que faut-il pour commencer ?",
+      "a5": "Un micro, la voix de votre langue et un modèle de reconnaissance de la parole. Quand il en manque un, ChatonLM propose de le télécharger, puis démarre.",
+      "end_title": "Prêt à <em>lui parler ?</em>"
+    },
+    "proofread": {
+      "eyebrow": "Correcteur de texte par IA · hors ligne",
+      "title": "Vos fautes, <em>corrigées chez vous.</em>",
+      "lead": "La correction de ChatonLM relit vos textes avec un modèle qui tourne sur votre ordinateur. Elle corrige les fautes ou reformule, dans la langue du texte et sans en changer le sens. Rien n’est envoyé en ligne.",
+      "steps_title": "Trois gestes, <em>et c’est propre.</em>",
+      "step1_title": "Collez votre texte",
+      "step1_text": "Dans la page Correction de l’app. Ou sélectionnez-le là où vous écrivez, et appuyez sur le raccourci.",
+      "step2_title": "Corrigez ou reformulez",
+      "step2_text": "« Corriger » ne touche qu’aux fautes. « Reformuler » améliore aussi les phrases.",
+      "step3_title": "Relisez les changements",
+      "step3_text": "Chaque modification est surlignée : ce qui a été retiré, ce qui a été ajouté. Un clic suffit pour annuler.",
+      "facts_title": "Ce qu’elle <em>sait faire.</em>",
+      "fact1_title": "Depuis n’importe quelle app",
+      "fact1_text": "Un raccourci global corrige le texte sélectionné et copie le résultat : Ctrl+V le remplace.",
+      "fact2_title": "Corriger ou reformuler",
+      "fact2_text": "Deux boutons, deux intentions : réparer les fautes, ou réécrire plus clairement.",
+      "fact3_title": "Les changements se voient",
+      "fact3_text": "Le texte corrigé remplace le vôtre, avec les suppressions et les ajouts surlignés, et le nombre de corrections.",
+      "fact4_title": "Dans la langue du texte",
+      "fact4_text": "Le texte garde sa langue et son sens : la correction ne traduit pas et n’invente rien.",
+      "fact5_title": "Le modèle de votre choix",
+      "fact5_text": "La correction a son propre modèle, réglé une fois : le même que la conversation, ou un autre.",
+      "fact6_title": "Les longs textes aussi",
+      "fact6_text": "Un long texte est corrigé partie par partie, et vous pouvez arrêter en cours de route.",
+      "privacy_title": "Vos textes <em>restent chez vous.</em>",
+      "privacy_text": "Un correcteur en ligne lit tout ce que vous lui confiez : courriers, rapports, messages. Ici, c’est un modèle installé sur votre ordinateur qui relit, et vos textes n’en sortent pas. Une seule exception, que vous décidez : un serveur Ollama que vous auriez placé sur une autre machine.",
+      "faq_title": "Questions sur <em>la correction</em>",
+      "q1": "La correction fonctionne-t-elle sans Internet ?",
+      "a1": "Oui, une fois le modèle téléchargé. Le texte est relu sur votre ordinateur.",
+      "q2": "Dans quelles langues ?",
+      "a2": "Dans les langues que connaît le modèle choisi : le français, l’anglais et l’espagnol avec la plupart des modèles, et bien d’autres avec les plus grands.",
+      "q3": "Quelle différence entre corriger et reformuler ?",
+      "a3": "Corriger répare l’orthographe, la grammaire et la ponctuation, sans toucher à vos phrases. Reformuler réécrit aussi les tournures maladroites, en gardant le sens.",
+      "q4": "Le raccourci remplace-t-il mon texte tout seul ?",
+      "a4": "Non. Il corrige la sélection et copie le résultat dans le presse-papiers : vous collez par-dessus avec Ctrl+V. Vous gardez la main.",
+      "q5": "Quel modèle choisir ?",
+      "a5": "Un modèle de taille moyenne corrige mieux qu’un tout petit. ModelHub vous montre ceux qui tiennent dans votre machine.",
+      "end_title": "Prêt à <em>vous relire ?</em>"
+    },
+    "study": {
+      "eyebrow": "Apprendre avec une IA locale · cours et quiz",
+      "title": "Un sujet, <em>un cours sur mesure.</em>",
+      "lead": "L’étude de ChatonLM transforme n’importe quel sujet en cours. Votre modèle écrit les leçons, les exemples et les quiz, niveau par niveau, et vous n’avancez que quand c’est compris. Le tout sur votre ordinateur.",
+      "steps_title": "Trois gestes, <em>et la leçon commence.</em>",
+      "step1_title": "Donnez un sujet",
+      "step1_text": "La photosynthèse, les listes en Python, la Révolution française. Ajoutez vos documents si le cours doit s’y tenir.",
+      "step2_title": "Choisissez niveau et durée",
+      "step2_text": "« Découverte », « J’ai des bases » ou « Approfondir », et le temps que vous voulez y passer.",
+      "step3_title": "Avancez niveau par niveau",
+      "step3_text": "Une leçon, des exemples, puis un quiz. Réussi : vous passez au suivant. Raté : le tuteur réexplique autrement.",
+      "facts_title": "Ce qu’elle <em>sait faire.</em>",
+      "fact1_title": "Tous les sujets",
+      "fact1_text": "Sciences, langues, histoire, programmation : le cours prend la forme qui convient au sujet.",
+      "fact2_title": "À partir de vos documents",
+      "fact2_text": "Joignez un PDF ou un texte : le cours s’appuie dessus. La recherche web peut s’y ajouter, si vous l’avez activée.",
+      "fact3_title": "À votre niveau",
+      "fact3_text": "Trois points de départ, sans test d’entrée, et une durée au choix.",
+      "fact4_title": "Des quiz qui comptent",
+      "fact4_text": "Chaque niveau se valide par des questions. En cas d’erreur : l’explication de ce qui a coincé, puis de nouvelles questions.",
+      "fact5_title": "Un tuteur à qui demander",
+      "fact5_text": "Un point reste flou ? Posez la question au tuteur, sans quitter la leçon.",
+      "fact6_title": "Vos cours gardés",
+      "fact6_text": "Les cours terminés restent dans l’onglet Étudier : vous les relisez quand vous voulez.",
+      "privacy_title": "Vos cours <em>restent chez vous.</em>",
+      "privacy_text": "Vos sujets, vos documents et vos réponses ne quittent pas votre ordinateur : c’est votre modèle qui écrit le cours. Une seule exception, que vous décidez : la recherche web, si vous l’activez, passe par votre compte Ollama.",
+      "faq_title": "Questions sur <em>l’étude</em>",
+      "q1": "Sur quels sujets peut-on créer un cours ?",
+      "a1": "Sur n’importe lequel : une notion de biologie, une règle de grammaire, un chapitre d’histoire, un langage de programmation. Plus le sujet est précis, meilleur est le cours.",
+      "q2": "Les cours sont-ils fiables ?",
+      "a2": "Un modèle peut se tromper, surtout un petit. Un modèle plus grand écrit de meilleures leçons, et un cours appuyé sur vos documents s’y tient davantage. Pour un examen, vérifiez avec vos supports.",
+      "q3": "Combien de temps dure un cours ?",
+      "a3": "Le temps que vous choisissez : une vingtaine de minutes est un bon repère, plus ou moins selon ce que vous voulez apprendre.",
+      "q4": "Peut-on réviser à partir de ses propres cours ?",
+      "a4": "Oui. Joignez vos documents à la création du cours : les leçons et les quiz en sont tirés.",
+      "q5": "Est-ce que ça marche sans Internet ?",
+      "a5": "Oui, une fois le modèle téléchargé. Seule la recherche web, facultative, demande une connexion.",
+      "end_title": "Prêt à <em>apprendre ?</em>"
+    }
+  }
+}

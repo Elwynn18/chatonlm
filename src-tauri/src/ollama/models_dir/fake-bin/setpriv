@@ -1,0 +1,7 @@
+#!/bin/sh
+# Faux setpriv : journalise les identités, exécute la commande sans en changer.
+printf '%s\n' "$*" >> "$CHATONLM_TEST_ROOT/log/setpriv.log"
+while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
+shift
+case " ${FAKE_FAIL:-} " in *" setpriv "*) case $* in *chatonlm-write-test*) exit 1 ;; esac ;; esac
+exec "$@"

@@ -1,0 +1,45 @@
+<footer class="pied">
+      <div class="cadre">
+        <div class="pied-haut">
+          <div>
+            <a class="marque" href="/{{lang}}/">
+              <svg viewBox="60 66 392 388" aria-hidden="true">{{>logo-head.svg}}</svg>
+              <span>ChatonLM</span>
+            </a>
+            <p class="pied-devise">{{t:footer.tagline}}</p>
+            <div class="langues" role="group" aria-label="{{t:nav.language}}">
+              <a href="{{url:fr}}" lang="fr" hreflang="fr" title="Français"{{current:fr}}>FR</a>
+              <a href="{{url:en}}" lang="en" hreflang="en" title="English"{{current:en}}>EN</a>
+              <a href="{{url:es}}" lang="es" hreflang="es" title="Español"{{current:es}}>ES</a>
+            </div>
+          </div>
+          <div>
+            <h3>{{t:footer.product}}</h3>
+            <ul>
+              <li><a href="/{{lang}}/#outils">{{t:nav.tools}}</a></li>
+              <li><a href="/{{lang}}/#pourquoi">{{t:nav.why}}</a></li>
+              <li><a href="/{{lang}}/#telecharger">{{t:nav.download}}</a></li>
+            </ul>
+          </div>
+          <div>
+            <h3>{{t:footer.help}}</h3>
+            <ul>
+              <li><a href="/{{lang}}/#questions">{{t:footer.faq}}</a></li>
+              <li><a href="/{{lang}}/contact/" data-contact>{{t:nav.contact}}</a></li>
+              <li hidden data-source><a href="https://github.com/Elwynn18/chatonlm" rel="noopener">{{t:footer.source}}</a></li>
+            </ul>
+          </div>
+          <div>
+            <h3>{{t:footer.legal}}</h3>
+            <ul>
+              <li><a href="/{{lang}}/legal/">{{t:footer.notice}}</a></li>
+              <li><a href="/{{lang}}/privacy/">{{t:footer.privacy}}</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="pied-bas">
+          <span>{{t:footer.rights}}</span>
+          <span>{{t:footer.made}}</span>
+        </div>
+      </div>
+    </footer>

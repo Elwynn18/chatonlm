@@ -1,0 +1,13 @@
+<circle cx="0" cy="0" r="86" fill="#E2711D"/>
+<path d="M-80 32A86 86 0 0 0 80 32A104 76 0 0 1-80 32Z" fill="#B84A12" opacity=".28"/>
+<g fill="none" stroke-linecap="round" stroke-width="5">
+<g stroke="#B84A12" stroke-opacity=".7">
+<path d="M-82 -22C-40 -60 40 -54 84 -12"/><path d="M-86 6C-40 -34 42 -28 86 14"/><path d="M-78 36C-36 -2 38 2 80 38"/>
+<path d="M-40 -76C-72 -20 -56 40 -18 82"/><path d="M-8 -86C-42 -20 -28 42 12 84"/>
+</g>
+<g stroke="#F8AE6C">
+<path d="M-74 -42C-34 -72 38 -66 76 -40"/><path d="M-84 -8C-40 -46 42 -40 86 0"/>
+<path d="M24 -82C-10 -20 6 38 42 76"/><path d="M52 -68C26 -20 38 30 68 54"/>
+</g>
+<path d="M-58 -44A72 72 0 0 1-14 -70" stroke="#FFF4E8" stroke-opacity=".55" stroke-width="6"/>
+</g>

@@ -1,0 +1,287 @@
+{
+  "title": "ModelHub",
+  "tabs": {
+    "discover": "Descubrir",
+    "transcription": "Transcripción",
+    "polish": "Pulido",
+    "voices": "Voces",
+    "installed": "Instalados",
+    "downloads": "Descargas"
+  },
+  "discover": {
+    "title": "Descubrir modelos",
+    "subtitle": "Modelos abiertos de Hugging Face, listos para ejecutarse con Ollama.",
+    "loading": "Cargando modelos",
+    "seeAll": "Ver todos",
+    "seeAllLabel": "Ver todo: {section}",
+    "families": "Familias",
+    "modelCount": {
+      "one": "{count} modelo",
+      "other": "{count} modelos"
+    },
+    "allModels": "Todos los modelos",
+    "searchFor": "Buscar «{query}» en Hugging Face",
+    "results": "Resultados para «{query}»",
+    "noMatch": "Ningún modelo coincide con estos filtros.",
+    "noResults": "Ningún modelo coincide con tu búsqueda.",
+    "loadMore": "Cargar más",
+    "loadingMore": "Cargando…"
+  },
+  "search": {
+    "placeholder": "Buscar modelos en Hugging Face",
+    "clear": "Borrar la búsqueda"
+  },
+  "machine": {
+    "cpuOnly": "Solo CPU",
+    "vram": "{size} VRAM",
+    "ram": "{size} RAM",
+    "remote": "Servidor remoto — memoria desconocida",
+    "remoteHint": "El servidor de Ollama se ejecuta en otro equipo: ChatonLM no puede saber qué modelos caben en su memoria.",
+    "hint": {
+      "estimates": "Estimaciones para un contexto de {context}.",
+      "estimatesCpu": "Estimaciones para un contexto de {context}, sin tarjeta gráfica.",
+      "fitsGpu": "Cabe en tu GPU: se ejecuta por completo en la tarjeta gráfica.",
+      "fitsMemory": "Cabe en memoria: se ejecuta en el procesador.",
+      "partial": "Parcialmente en la CPU: funciona, pero más lento.",
+      "tooLarge": "Demasiado grande: necesita más memoria de la que tiene este equipo."
+    }
+  },
+  "filters": {
+    "label": "Filtros",
+    "openLicense": "Licencia abierta",
+    "verifiedOnly": "Solo verificados",
+    "reset": "Restablecer filtros"
+  },
+  "uses": {
+    "code": "Código",
+    "vision": "Visión",
+    "reasoning": "Razonamiento",
+    "tools": "Herramientas"
+  },
+  "sizes": {
+    "fits": "Caben en mi equipo",
+    "small": "Pequeños",
+    "medium": "Medianos",
+    "large": "Grandes"
+  },
+  "sections": {
+    "forYou": "Lo mejor para tu equipo",
+    "trending": "Tendencias",
+    "popular": "Populares",
+    "coding": "Para programar",
+    "vision": "Con visión",
+    "reasoning": "Razonamiento",
+    "small": "Pequeños y rápidos"
+  },
+  "card": {
+    "contextLength": "Longitud del contexto",
+    "downloadsHint": {
+      "one": "{count} descarga en los últimos 30 días",
+      "other": "{count} descargas en los últimos 30 días"
+    },
+    "likesHint": {
+      "one": "{count} me gusta",
+      "other": "{count} me gusta"
+    },
+    "lastUpdated": "Última actualización"
+  },
+  "trust": {
+    "verified": "Verificado",
+    "unverified": "No verificado",
+    "unverifiedHint": "Este autor no está en la lista de autores de confianza de ChatonLM. Revisa la ficha del modelo antes de usarlo."
+  },
+  "capabilities": "Capacidades",
+  "fit": {
+    "fitsGpu": "Cabe en tu GPU",
+    "fitsMemory": "Cabe en memoria",
+    "partial": "Parcialmente en la CPU",
+    "tooLarge": "Demasiado grande"
+  },
+  "installedBadge": "Instalado",
+  "status": {
+    "earlier": "anteriormente",
+    "stale": {
+      "offline": "Estás sin conexión. Se muestran los modelos guardados {saved}.",
+      "unavailable": "Hugging Face no responde. Se muestran los modelos guardados {saved}.",
+      "incident": "Hugging Face no responde. Hugging Face informa de un incidente. Se muestran los modelos guardados {saved}.",
+      "notFound": "Este modelo no existe en Hugging Face o es privado. Se muestra lo guardado {saved}.",
+      "failed": "Hugging Face devolvió un error: {message}. Se muestran los modelos guardados {saved}."
+    },
+    "rateLimited": "Hugging Face está limitando las solicitudes. Vuelve a intentarlo en {seconds} s.",
+    "restricted": "Este modelo requiere una cuenta de Hugging Face. ChatonLM no puede descargarlo.",
+    "offlineTitle": "Estás sin conexión",
+    "offlineText": "Conéctate a internet para explorar los modelos de Hugging Face. Tus modelos instalados siguen disponibles.",
+    "unavailableTitle": "Hugging Face no responde",
+    "unavailableText": "Vuelve a intentarlo en unos minutos.",
+    "incidentText": "Hugging Face informa de un incidente. Vuelve a intentarlo en unos minutos.",
+    "rateLimitedTitle": "Demasiadas solicitudes",
+    "notFoundTitle": "Modelo no encontrado",
+    "notFoundText": "Este modelo no existe en Hugging Face o es privado.",
+    "restrictedTitle": "Modelo restringido",
+    "failedTitle": "No se pudo conectar con Hugging Face",
+    "commandError": "Algo salió mal"
+  },
+  "model": {
+    "back": "Atrás",
+    "loading": "Cargando modelo",
+    "details": "Detalles",
+    "facts": {
+      "parameters": "Parámetros",
+      "context": "Contexto",
+      "contextValue": "{context} tokens",
+      "architecture": "Arquitectura",
+      "license": "Licencia",
+      "downloads": "Descargas",
+      "updated": "Actualizado",
+      "languages": "Idiomas"
+    },
+    "announced": "Capacidades declaradas por el modelo. Se comprueban tras la descarga.",
+    "about": "Acerca de",
+    "readmeFailed": "No se pudo cargar la ficha del modelo.",
+    "noReadme": "Este modelo no tiene ficha."
+  },
+  "readme": {
+    "image": "Imagen: {label}",
+    "showMore": "Mostrar más",
+    "showLess": "Mostrar menos"
+  },
+  "versions": {
+    "title": "Elige una versión",
+    "none": "Este repositorio no tiene ningún archivo de modelo que Ollama pueda usar.",
+    "recommended": "Recomendada",
+    "installed": "Instalada",
+    "memory": "Necesita unos {size} de memoria.",
+    "memoryContext": "Necesita unos {size} de memoria con un contexto de {context}.",
+    "showAll": "Mostrar las {count} versiones",
+    "showFewer": "Mostrar menos versiones",
+    "download": "Descargar · {size}",
+    "ollamaName": "Nombre en Ollama",
+    "copyOllamaName": "Copiar el nombre en Ollama",
+    "otherSources": "Otras fuentes"
+  },
+  "tiers": {
+    "full": "Precisión completa",
+    "high": "Alta calidad",
+    "balanced": "Equilibrada",
+    "compact": "Compacta",
+    "tiny": "La más pequeña"
+  },
+  "issues": {
+    "sharded": "Dividida en varios archivos — Ollama aún no la admite",
+    "subfolder": "Guardada en una subcarpeta — Ollama aún no la admite"
+  },
+  "progress": {
+    "downloading": "Descargando {name}",
+    "waiting": "En espera…",
+    "starting": "Iniciando…",
+    "finishing": "Finalizando…",
+    "ofTotal": "{completed} de {total}",
+    "speed": "{size}/s",
+    "secondsLeft": {
+      "one": "queda {count} s",
+      "other": "quedan {count} s"
+    },
+    "minutesLeft": {
+      "one": "queda {count} min",
+      "other": "quedan {count} min"
+    },
+    "hoursLeft": {
+      "one": "queda {count} h",
+      "other": "quedan {count} h"
+    },
+    "hoursMinutesLeft": "quedan {hours} h {minutes} min"
+  },
+  "actions": {
+    "download": "Descargar",
+    "useInChat": "Usar en un chat",
+    "tryAgain": "Volver a intentar",
+    "downloadAgain": "Volver a descargar",
+    "dismiss": "Descartar",
+    "browse": "Explorar modelos",
+    "viewOnHuggingFace": "Ver en Hugging Face",
+    "deleteNamed": "Eliminar {name}",
+    "deleteConfirm": "¿Eliminar {name}?"
+  },
+  "downloadState": {
+    "failed": "La descarga falló.",
+    "installed": "Instalado",
+    "noLongerInstalled": "Ya no está instalado",
+    "cancelled": "Descarga cancelada"
+  },
+  "downloads": {
+    "loading": "Cargando descargas",
+    "empty": "Aún no hay descargas.",
+    "emptyText": "Los modelos que descargues desde ModelHub aparecerán aquí."
+  },
+  "installed": {
+    "empty": "Aún no hay modelos",
+    "modified": "Modificado {time}",
+    "embedding": "Embedding",
+    "deleteText": "Esto elimina el modelo de Ollama. Puedes volver a descargarlo más tarde."
+  },
+  "speech": {
+    "title": "Modelos de transcripción",
+    "loading": "Cargando modelos de transcripción",
+    "intro": "Los modelos de transcripción se ejecutan dentro de ChatonLM, no en Ollama. El dictado usa el que elijas.",
+    "settingsLink": "Configuración del dictado",
+    "catalog": {
+      "parakeet_tdt_0_6b_v3": {
+        "description": "Rápido y preciso, con puntuación. Detecta el idioma automáticamente. Funciona bien sin GPU.",
+        "languages": "25 idiomas europeos"
+      },
+      "whisper_tiny": {
+        "description": "El modelo Whisper más pequeño y rápido. Precisión limitada.",
+        "languages": "99 idiomas"
+      },
+      "whisper_base": {
+        "description": "Rápido, para un habla clara.",
+        "languages": "99 idiomas"
+      },
+      "whisper_small": {
+        "description": "Buen equilibrio entre velocidad y precisión.",
+        "languages": "99 idiomas"
+      },
+      "whisper_large_v3_turbo": {
+        "description": "El modelo Whisper más preciso de esta lista. Lento sin GPU.",
+        "languages": "99 idiomas"
+      }
+    },
+    "recommended": "Recomendado",
+    "license": "Licencia:",
+    "source": "Fuente:",
+    "basedOn": "Basado en <link>{source}</link>, con licencia {license}.",
+    "inUse": "En uso",
+    "unsupported": "No disponible en este equipo: Whisper necesita instrucciones que su procesador no tiene ({features}).",
+    "runtime": {
+      "missing": "No disponible: falta ONNX Runtime, que Parakeet necesita ({detail}). Reinstala ChatonLM.",
+      "incompatible": "No disponible: el ONNX Runtime encontrado no puede ejecutar Parakeet ({detail}). Reinstala ChatonLM.",
+      "loadFailed": "No disponible: no se pudo cargar ONNX Runtime, que Parakeet necesita ({detail})."
+    },
+    "use": "Usar",
+    "deleteText": "Esto elimina los archivos del modelo de este equipo. Puedes volver a descargarlo más tarde.",
+    "deleteTextInUse": "Esto elimina los archivos del modelo de este equipo. El dictado no funcionará hasta que lo vuelvas a descargar o elijas otro modelo de transcripción."
+  },
+  "voices": {
+    "title": "Voces",
+    "loading": "Cargando voces",
+    "intro": "Las voces leen las respuestas en voz alta. Se ejecutan dentro de ChatonLM, no en Ollama.",
+    "settingsLink": "Configuración de la lectura en voz alta",
+    "cardTitle": "{language} · {voice}",
+    "modelLicense": "Licencia del modelo:",
+    "voice": "Voz: <source>{credit}</source>, <license>{license}</license>",
+    "basedOn": "Basado en <link>{source}</link> de Kyutai, con licencia {license}. Exportado a ONNX y cuantizado por ChatonLM.",
+    "runtime": {
+      "missing": "No disponible: falta ONNX Runtime, que la lectura en voz alta necesita ({detail}). Reinstala ChatonLM.",
+      "incompatible": "No disponible: el ONNX Runtime encontrado no puede ejecutar la lectura en voz alta ({detail}). Reinstala ChatonLM.",
+      "loadFailed": "No disponible: no se pudo cargar ONNX Runtime, que la lectura en voz alta necesita ({detail})."
+    },
+    "deleteText": "Esto elimina la voz de este equipo. Puedes volver a descargarla más tarde."
+  },
+  "polish": {
+    "intro": "Un segundo modelo pule la transcripción: puntuación, muletillas, rectificaciones. Si su respuesta no se parece a lo que dijiste, se copia la transcripción sin procesar.",
+    "unreachable": "No se puede conectar con Ollama. Inícialo para descargar o usar estos modelos.",
+    "label": "Modelos de pulido",
+    "use": "Usar para pulir",
+    "anyModel": "Cualquier modelo instalado se puede elegir en Configuración."
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "description": "Second message in an existing chat, thinking turned off (the model is already loaded).",
+  "request": {
+    "chatId": "chat-1",
+    "streamId": "stream-1",
+    "content": "Say hello in one word.",
+    "model": "qwen3:0.6b",
+    "think": false
+  },
+  "events": [
+    {
+      "message": {
+        "attachments": [],
+        "content": "Say hello in one word.",
+        "createdAt": 1700000000000,
+        "id": 3,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "createdAt": 1700000000000,
+      "messageId": 4,
+      "type": "replyStarted"
+    },
+    {
+      "text": "\"",
+      "type": "content"
+    },
+    {
+      "text": "Hi",
+      "type": "content"
+    },
+    {
+      "text": "!\"",
+      "type": "content"
+    },
+    {
+      "messageId": 4,
+      "type": "done"
+    }
+  ],
+  "error": null
+}

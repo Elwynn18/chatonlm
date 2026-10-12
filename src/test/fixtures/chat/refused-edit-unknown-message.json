@@ -1,0 +1,16 @@
+{
+  "description": "Edit of a message that is not saved (unknown id) in the chat filled by the \"attachments\" sequence: the command fails, no event, nothing changed.",
+  "request": {
+    "chatId": "chat-1",
+    "streamId": "stream-1",
+    "content": "Describe this file instead.",
+    "model": "qwen3.5:0.8b",
+    "think": false,
+    "editMessageId": 99
+  },
+  "events": [],
+  "error": {
+    "kind": "invalid",
+    "message": "unknown message: 99"
+  }
+}

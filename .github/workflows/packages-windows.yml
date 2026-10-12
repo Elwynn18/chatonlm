@@ -1,0 +1,272 @@
+# Installateur Windows de ChatonLM (NSIS, x64) : essais Rust, construction,
+# inspection, puis installation silencieuse et lancement de l'app installée
+# sur le même runner. Aucune publication : l'installateur reste un artefact du
+# run (un seul artefact, gardé 2 jours : le stockage du dépôt est compté).
+#
+# Lancement : à la main (workflow_dispatch), en poussant une branche
+# winpkg/** (et non win/**, réservé au simple `cargo check` de
+# windows-check.yml, ni ci/**, qui construit les paquets Linux), ou appelé
+# par un autre workflow (workflow_call). Jamais aucun secret : l'installateur
+# est construit sans signature (scripts/package-windows.sh passe --no-sign ;
+# emplacement de la signature Authenticode : voir ce script).
+#
+# Un seul job (chaque job est arrondi à la minute supérieure, et les minutes
+# d'un runner Windows coûtent plus cher que celles d'un runner Linux) :
+# - ONNX Runtime et Ollama intégré pour Windows, épinglés
+#   (scripts/fetch-onnxruntime.sh, scripts/fetch-ollama.sh) ;
+# - `cargo test --workspace --locked` et la comparaison des fichiers générés
+#   (src/bindings, src/test/fixtures), qui doivent être les mêmes que sous
+#   Linux : un échec laisse construire l'installateur (diagnostic), puis fait
+#   échouer le job à la fin ;
+# - scripts/package-windows.sh (tauri build --bundles nsis) ;
+# - scripts/inspect-windows.mjs (contenu, imports PE, Ollama intégré intact) ;
+# - packaging/ci/smoke-windows.ps1 (installation /S, lancement, Ollama
+#   intégré, arrêt sans processus restant, réinstallation par-dessus une app
+#   en marche, désinstallation /S).
+name: Packages Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: Lancer cargo test avant la construction
+        type: boolean
+        default: true
+  workflow_call:
+  push:
+    branches:
+      - "winpkg/**"
+
+permissions:
+  contents: read
+
+# Un nouvel essai annule le précédent de la même branche ; jamais une
+# construction appelée par release.yml (`github.workflow` vaut alors
+# « Release »).
+concurrency:
+  group: packages-windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.workflow != 'Release' }}
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+  # Essais sans informations de débogage : liens plus rapides, et dossier
+  # target plus petit sur le disque du runner (les messages de panique
+  # gardent le fichier et la ligne).
+  CARGO_PROFILE_DEV_DEBUG: "0"
+
+# Git Bash (bash -eo pipefail) pour chaque étape, sauf la fumée (pwsh).
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Installateur (windows-2025)
+    # Image épinglée plutôt que windows-latest : Visual Studio et son
+    # redistribuable Visual C++ ne changent pas sans qu'on le décide.
+    runs-on: windows-2025
+    timeout-minutes: 150
+    steps:
+      - name: Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node (.nvmrc)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Rust (rust-toolchain.toml)
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal
+          rustc --version --verbose
+          cargo --version
+          cmake --version | head -n 1
+          df -h . || true
+
+      # Restauration et sauvegarde séparées : le cache est gardé dès que la
+      # construction a tourné, même en échec (sinon chaque nouvel essai
+      # recompile tout). Le dossier des runtimes évite de retélécharger
+      # l'archive d'Ollama (1,4 Go) à chaque passage.
+      - name: Cache Cargo (restauration)
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin/cargo-about.exe
+            src-tauri/target
+            !src-tauri/target/release/bundle
+            .tools/runtimes
+          key: packages-windows-${{ hashFiles('rust-toolchain.toml', 'src-tauri/Cargo.lock', 'scripts/package-notices.mjs', 'packaging/*.env') }}
+          restore-keys: |
+            packages-windows-
+
+      - name: cargo-about (version de scripts/package-notices.mjs)
+        run: |
+          version="$(sed -n 's/^export const CARGO_ABOUT_VERSION = "\(.*\)";$/\1/p' scripts/package-notices.mjs)"
+          test -n "$version"
+          if [ "$(cargo about --version 2>/dev/null)" != "cargo-about $version" ]; then
+            cargo install cargo-about --version "$version" --locked --features cli --force
+          fi
+          cargo about --version
+
+      - name: Paquets npm
+        run: npm ci
+
+      # Chemin Windows pour ORT_DYLIB_PATH : lu par l'app et ses essais, pas
+      # par Git Bash.
+      - name: ONNX Runtime et Ollama intégré épinglés
+        run: |
+          scripts/fetch-onnxruntime.sh
+          scripts/fetch-ollama.sh
+          ls -l .tools/runtimes/onnxruntime .tools/runtimes/ollama
+          echo "ORT_DYLIB_PATH=$(cygpath -w "$PWD/.tools/runtimes/onnxruntime/onnxruntime.dll")" >>"$GITHUB_ENV"
+
+      # Exigé par le contexte de Tauri à la compilation (frontendDist) et par
+      # les notices (dist/.vite/license.json).
+      - name: Frontend
+        run: npm run build
+
+      # Un échec n'arrête pas la suite (l'installateur et ses journaux aident
+      # au diagnostic) mais fait échouer le job à la fin (« Bilan des
+      # essais ») : une Release n'est jamais signée sur des essais rouges.
+      # Toujours lancé pour une Release (`github.workflow` y vaut « Release »).
+      # La compilation des essais réchauffe aussi le cache des dépendances.
+      - name: cargo test
+        id: tests
+        if: github.event_name != 'workflow_dispatch' || inputs.tests || github.workflow == 'Release'
+        continue-on-error: true
+        run: |
+          set +e
+          cargo test --manifest-path src-tauri/Cargo.toml --workspace --locked --no-fail-fast 2>&1 | tee cargo-test.log
+          status="${PIPESTATUS[0]}"
+          set -e
+          mkdir -p out
+          cp cargo-test.log out/
+          {
+            echo "### cargo test : code de sortie $status"
+            echo
+            echo '```'
+            grep -E "^test result:|^error(\[E[0-9]+\])?:|could not compile|^failures:$|^    [A-Za-z0-9_:]+$|^test .* \.\.\. FAILED" cargo-test.log | head -n 120 || true
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      # Types ts-rs et séquences du simulateur régénérés par cargo test :
+      # identiques à ceux de Linux, sinon le frontend diverge.
+      - name: Fichiers générés identiques (src/bindings, src/test/fixtures)
+        id: generated
+        if: steps.tests.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          status=0
+          git diff --exit-code --stat -- src/bindings src/test/fixtures || status=1
+          untracked="$(git status --porcelain --untracked-files=all -- src/bindings src/test/fixtures | grep '^??' || true)"
+          if [ -n "$untracked" ]; then
+            echo "$untracked"
+            status=1
+          fi
+          {
+            echo "### Fichiers générés : $([ "$status" = 0 ] && echo identiques || echo DIFFÉRENTS)"
+            echo
+            echo '```'
+            git status --porcelain --untracked-files=all -- src/bindings src/test/fixtures | head -n 60 || true
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          git diff -- src/bindings src/test/fixtures | head -n 200 || true
+          exit "$status"
+
+      # Sans clé ni certificat (installateur non signé : voir l'en-tête).
+      - name: Installateur (NSIS)
+        id: build
+        run: scripts/package-windows.sh
+
+      - name: Cache Cargo (sauvegarde)
+        if: always() && steps.build.outcome != 'skipped' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin/cargo-about.exe
+            src-tauri/target
+            !src-tauri/target/release/bundle
+            .tools/runtimes
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+
+      # Emplacement de la signature Authenticode : aucune aujourd'hui, aucun
+      # secret dans ce workflow (voir scripts/package-windows.sh).
+
+      - name: Inspection
+        id: inspect
+        run: |
+          installer="$(ls out/*-setup.exe)"
+          status=0
+          node scripts/inspect-windows.mjs --report out/inspection-windows.txt "$installer" || status=$?
+          {
+            echo "### Installateur"
+            echo
+            echo "| Fichier | Taille |"
+            echo "| --- | --- |"
+            echo "| $(basename "$installer") | $(du -h "$installer" | cut -f1) ($(stat -c %s "$installer") octets) |"
+            echo
+            echo '```'
+            grep -E "^(✓|✗|⚠)" out/inspection-windows.txt | head -n 60 || true
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      # Même si l'inspection échoue : savoir si l'app installée démarre.
+      - name: Installation, lancement, Ollama intégré, désinstallation
+        id: smoke
+        if: always() && steps.build.outcome == 'success'
+        shell: pwsh
+        run: |
+          $installer = (Get-Item out/*-setup.exe).FullName
+          ./packaging/ci/smoke-windows.ps1 -Installer $installer -LogDir out/smoke *>&1 | Tee-Object -FilePath out/smoke.log
+          $code = $LASTEXITCODE
+          "### Fumée : code de sortie $code", "", '```' | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          Select-String -Path out/smoke.log -Pattern '^(✓|✗|⚠|== )' | ForEach-Object { $_.Line } | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          '```' | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+          exit $code
+
+      - name: Bilan des essais
+        if: always()
+        run: |
+          {
+            echo "### Bilan"
+            echo
+            echo "| Étape | Résultat |"
+            echo "| --- | --- |"
+            echo "| cargo test | ${{ steps.tests.outcome }} |"
+            echo "| fichiers générés | ${{ steps.generated.outcome }} |"
+            echo "| installateur | ${{ steps.build.outcome }} |"
+            echo "| inspection | ${{ steps.inspect.outcome }} |"
+            echo "| fumée | ${{ steps.smoke.outcome }} |"
+          } >>"$GITHUB_STEP_SUMMARY"
+          df -h . || true
+          # `continue-on-error` cache l'échec des deux premières étapes : le
+          # job échoue ici, après l'installateur, l'inspection et la fumée.
+          if [ "${{ steps.tests.outcome }}" = failure ] || [ "${{ steps.generated.outcome }}" = failure ]; then
+            echo "cargo test ou fichiers générés en échec." >&2
+            exit 1
+          fi
+
+      # Un seul artefact par passage : installateur, rapport d'inspection,
+      # journaux des essais et de la fumée.
+      - name: Artefact
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chatonlm-packages-windows
+          path: out/
+          if-no-files-found: warn
+          retention-days: 2

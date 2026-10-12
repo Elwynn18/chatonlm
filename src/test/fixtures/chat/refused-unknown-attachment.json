@@ -1,0 +1,18 @@
+{
+  "description": "An attachment that is no longer staged (removed, or the page was reloaded): the command fails, no event, nothing saved.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "Describe these files.",
+    "model": "qwen3.5:0.8b",
+    "think": false,
+    "attachmentIds": [
+      "staged-1",
+      "staged-unknown"
+    ]
+  },
+  "events": [],
+  "error": {
+    "kind": "invalid",
+    "message": "unknown attachment: staged-unknown"
+  }
+}

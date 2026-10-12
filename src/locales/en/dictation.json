@@ -1,0 +1,120 @@
+{
+  "common": {
+    "tryAgain": "Try again",
+    "notInstalled": "{name} (not installed)"
+  },
+  "card": {
+    "title": "Dictation",
+    "description": "Press a shortcut anywhere to dictate. Your speech is transcribed on this computer, cleaned up by a local model, and copied to the clipboard.",
+    "remoteDescription": "Press a shortcut anywhere to dictate. Your speech is transcribed on this computer, cleaned up, and copied to the clipboard.",
+    "remoteNote": "The transcript is sent to your Ollama server at {server} for clean-up.",
+    "loadFailed": "Couldn't load the dictation settings.",
+    "downloadModel": "Download a speech model",
+    "enable": "Enable dictation"
+  },
+  "shortcut": {
+    "label": "Shortcut",
+    "description": "Starts and stops dictation from any app.",
+    "turnOnFirst": "Turn on dictation to use the shortcut.",
+    "waiting": "Waiting for your desktop…",
+    "notSet": "Not set",
+    "set": "Set shortcut",
+    "change": "Change…",
+    "bindCommand": "Bind this command to a shortcut in your system settings:"
+  },
+  "mode": {
+    "label": "Mode",
+    "description": "Toggle: press the shortcut to start, and again to stop. Push to talk: hold it while you speak.",
+    "holdNeedsShortcut": "Push to talk needs the system shortcut.",
+    "toggle": "Toggle",
+    "hold": "Push to talk"
+  },
+  "transcription": {
+    "title": "Transcription",
+    "model": {
+      "label": "Speech model",
+      "description": "Turns your speech into text, on this computer.",
+      "none": "None",
+      "loading": "Loading…",
+      "noneInstalled": "No speech model installed",
+      "choose": "Choose a model",
+      "unsupportedOption": "{name} (not supported by this processor)",
+      "unsupported": "{name} can't run on this processor (missing: {features}). Choose a Parakeet model.",
+      "unavailableOption": "{name} (unavailable)",
+      "runtime": {
+        "missing": "{name} can't run: ONNX Runtime is missing ({detail}). Reinstall ChatonLM, or choose a Whisper model.",
+        "incompatible": "{name} can't run: the ONNX Runtime found is not compatible ({detail}). Reinstall ChatonLM, or choose a Whisper model.",
+        "loadFailed": "{name} can't run: ONNX Runtime could not be loaded ({detail}). Reinstall ChatonLM, or choose a Whisper model."
+      },
+      "manage": "Manage speech models",
+      "unreadable": "Couldn't read the speech models: {error}"
+    },
+    "language": {
+      "label": "Language",
+      "description": "The language you speak.",
+      "descriptionParakeet": "The language you speak. Parakeet detects the language automatically.",
+      "auto": "Auto-detect"
+    },
+    "dictionary": {
+      "label": "Dictionary",
+      "description": "Names and words to spell exactly as written. Press Enter to add one.",
+      "words": "Dictionary words",
+      "remove": "Remove {word}",
+      "placeholder": "Add a word"
+    },
+    "autoCopy": {
+      "label": "Copy to clipboard automatically",
+      "description": "When off, copy the text from the notification or from the last result below."
+    }
+  },
+  "polish": {
+    "title": "Polish",
+    "model": {
+      "label": "Polish model",
+      "description": "An Ollama model cleans up the transcript: punctuation, filler words, self-corrections.",
+      "off": "Off",
+      "cloud": "{name} (cloud models are not used)",
+      "recommended": "Recommended models",
+      "unreachable": "Ollama is unreachable. Its models will be listed once it answers.",
+      "loading": "Loading models…"
+    },
+    "instructions": {
+      "label": "Instructions",
+      "description": "What the polish model is told to do with your transcript.",
+      "reset": "Reset to default"
+    }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "showText": "Show the text in notifications",
+    "description": "When off, the notification only says the text was copied."
+  },
+  "try": {
+    "label": "Try dictation",
+    "turnOnFirst": "Turn on dictation to try it.",
+    "chooseModel": "Choose an installed speech model to try it.",
+    "stop": "Stop"
+  },
+  "phase": {
+    "recording": "Listening…",
+    "transcribing": "Transcribing…",
+    "polishing": "Polishing…"
+  },
+  "lastResult": {
+    "title": "Last dictation",
+    "copied": "Copied to the clipboard",
+    "notCopied": "Not copied: select the text to copy it",
+    "notPolished": "not polished",
+    "failed": "Dictation failed.",
+    "copyFailed": "Couldn't copy: {error}"
+  },
+  "download": {
+    "waiting": "Waiting…",
+    "verifying": "Verifying…",
+    "progress": "{done} of {total}"
+  },
+  "polishModels": {
+    "bestQuality": "Best quality, needs about {size} of GPU memory",
+    "smallMachines": "For small machines, less reliable"
+  }
+}

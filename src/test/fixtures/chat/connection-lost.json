@@ -1,0 +1,55 @@
+{
+  "description": "The connection to Ollama breaks in the middle of the answer.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "Say hello in one word.",
+    "model": "chatonlm-reset"
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "Say hello in one word.",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "type": "loading"
+    },
+    {
+      "type": "loaded"
+    },
+    {
+      "createdAt": 1700000000000,
+      "messageId": 2,
+      "type": "replyStarted"
+    },
+    {
+      "text": "\"",
+      "type": "content"
+    },
+    {
+      "text": "Hi",
+      "type": "content"
+    },
+    {
+      "kind": "connectionLost",
+      "message": "Connection lost: error decoding response body",
+      "type": "error"
+    }
+  ],
+  "error": null
+}

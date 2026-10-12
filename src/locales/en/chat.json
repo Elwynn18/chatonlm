@@ -1,0 +1,266 @@
+{
+  "app": {
+    "settingsUnreadable": "ChatonLM could not read its settings: {error}"
+  },
+  "actions": {
+    "checking": "Checking…",
+    "saving": "Saving…",
+    "save": "Save"
+  },
+  "layout": {
+    "showSidebar": "Show sidebar",
+    "hideSidebar": "Hide sidebar",
+    "newChat": "New chat"
+  },
+  "nav": {
+    "chat": "Chat",
+    "proofread": "Proofread",
+    "study": "Study",
+    "hub": "ModelHub",
+    "downloading": {
+      "one": "Downloading {count}",
+      "other": "Downloading {count}"
+    },
+    "downloadingStatus": {
+      "one": "Downloading {count} · {percent}",
+      "other": "Downloading {count} · {percent}"
+    },
+    "downloads": "Downloads",
+    "settings": "Settings"
+  },
+  "history": {
+    "loadError": "Error loading chats",
+    "groups": {
+      "favorites": "Favorites",
+      "today": "Today",
+      "thisWeek": "This week",
+      "older": "Older"
+    },
+    "titleField": "Chat title",
+    "favorite": "Favorite",
+    "addFavorite": "Add to favorites",
+    "removeFavorite": "Remove from favorites",
+    "deleteChat": "Delete chat",
+    "rename": "Rename",
+    "confirmDelete": "Are you sure you want to remove this chat?"
+  },
+  "route": {
+    "loading": "Loading chat...",
+    "loadError": "Error loading chat",
+    "notFound": "Chat not found"
+  },
+  "messages": {
+    "edit": "edit",
+    "error": "Error",
+    "loadingModel": "Loading model..."
+  },
+  "thinking": {
+    "active": "Thinking...",
+    "moment": "Thought for a moment",
+    "seconds": "Thought for {seconds} seconds"
+  },
+  "tools": {
+    "searching": "Searching for <term/>…",
+    "fetching": "Fetching for <term/>…",
+    "calling": "Calling <name/>…",
+    "callingWith": "Calling <name/>: <preview/>…",
+    "searchResults": "Search results for <term/>",
+    "webSearchResults": "Web search results",
+    "fetchResults": "Fetch results for <url/>",
+    "webFetchResults": "Web fetch results",
+    "rawResult": "Raw tool result",
+    "error": "Error: {error}"
+  },
+  "download": {
+    "title": "Downloading model",
+    "progress": "{completed} / {total} ({percent})"
+  },
+  "composer": {
+    "editHint": "Press ESC to cancel editing",
+    "placeholder": "Send a message",
+    "label": "Message",
+    "attach": "Upload multiple files",
+    "send": "Send message",
+    "stop": "Stop",
+    "selectFilesFailed": "Failed to select files"
+  },
+  "files": {
+    "noImages": "This model does not support images",
+    "remove": "Remove {name}",
+    "readError": "Error reading file"
+  },
+  "drop": {
+    "hint": "Drop files here or paste from clipboard to add them to your message"
+  },
+  "picker": {
+    "button": "Select model",
+    "loading": "Loading...",
+    "none": "Select a model",
+    "search": "Find model...",
+    "searchLabel": "Find model",
+    "list": "Models",
+    "empty": "No models found",
+    "notDownloaded": "Not downloaded"
+  },
+  "think": {
+    "label": "Think",
+    "enable": "Enable think mode",
+    "disable": "Disable think mode",
+    "level": "Thinking level: {level}",
+    "levelMenu": "Thinking level",
+    "off": "Off",
+    "on": "On",
+    "levels": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "xhigh": "Extra high",
+      "max": "Max"
+    }
+  },
+  "webSearch": {
+    "label": "Web search",
+    "enable": "Enable web search",
+    "disable": "Disable web search",
+    "signIn": "Sign In",
+    "withoutWebSearch": "Generate without web search"
+  },
+  "copy": {
+    "failed": "Copy failed",
+    "command": "Copy command to clipboard"
+  },
+  "readAloud": {
+    "read": "Read aloud",
+    "stop": "Stop reading",
+    "preparing": "Preparing to read…",
+    "downloadingVoice": "Downloading the voice…",
+    "downloadingProgress": "Downloading the voice… {percent}",
+    "playing": "Reading aloud",
+    "unsupported": "Reading aloud is available in English, French and Spanish.",
+    "nothingToRead": "There's nothing to read aloud in this response.",
+    "downloadTitle": "Download the voice?",
+    "needsVoice": {
+      "en": "Reading aloud in English needs the English voice ({size}). It's downloaded once from the Internet (files from GitHub and Hugging Face) and stays on this computer.",
+      "es": "Reading aloud in Spanish needs the Spanish voice ({size}). It's downloaded once from the Internet (files from GitHub and Hugging Face) and stays on this computer.",
+      "fr": "Reading aloud in French needs the French voice ({size}). It's downloaded once from the Internet (files from GitHub and Hugging Face) and stays on this computer."
+    },
+    "downloadAndRead": "Download and read",
+    "error": {
+      "noOutputDevice": "Couldn't read aloud: no audio output device was found.",
+      "runtimeUnavailable": "Reading aloud isn't available on this computer.",
+      "downloadFailed": "The voice couldn't be downloaded. Try again.",
+      "engineFailed": "Couldn't read this response aloud."
+    }
+  },
+  "link": {
+    "open": "Open Link",
+    "copy": "Copy Link"
+  },
+  "linkError": {
+    "open": "Couldn't open the browser ({detail}). Go to <url/>",
+    "copy": "Couldn't copy the link: <url/>",
+    "copyLink": "Copy link",
+    "dismiss": "Dismiss"
+  },
+  "dialog": {
+    "ok": "OK"
+  },
+  "server": {
+    "connecting": "Connecting to Ollama…",
+    "checkFailed": "Can't check the Ollama server",
+    "lost": "Ollama isn't responding.",
+    "builtinFailed": "The built-in Ollama failed to start.",
+    "download": "Download from ollama.com",
+    "runningAt": "Ollama is running at {url}.",
+    "useAddress": "Use this address",
+    "start": "Start Ollama",
+    "starting": "Starting…",
+    "startFailed": "Couldn't start Ollama: {message}",
+    "notAuthorized": "Authentication failed. Ollama was not started.",
+    "noService": "No Ollama service was found. Start Ollama in a terminal with ollama serve.",
+    "noApp": "Ollama's app was not found. Start Ollama in a terminal with ollama serve.",
+    "address": "Server address",
+    "addressHint": "Leave empty to use the OLLAMA_HOST environment variable, or http://localhost:11434 if it isn't set."
+  },
+  "advice": {
+    "notInstalled": {
+      "title": "Ollama is not installed",
+      "description": "ChatonLM chats with the models that Ollama runs on this computer. Install Ollama, then click Retry. If Ollama runs in a container or on another computer, enter its address below."
+    },
+    "notRunning": "Ollama is not running",
+    "serviceStopped": "Ollama is installed, but its service is stopped. Start it in a terminal:",
+    "serviceStoppedStart": "Ollama is installed, but its service is stopped. Click Start Ollama, or start it in a terminal:",
+    "enableAtLogin": "To start it automatically when you log in:",
+    "enableAtBoot": "To start it automatically at boot:",
+    "notRunningHere": "Ollama is not running at this address",
+    "serveHost": "Start the Ollama server on this address in a terminal and keep it open:",
+    "serve": "Start the Ollama server in a terminal and keep it open:",
+    "nothingListening": "Nothing is listening at {url}. Check the server address below.",
+    "serviceFailed": {
+      "title": "Ollama failed to start",
+      "description": "The Ollama service stopped with an error, or keeps restarting. Check its status and logs to find out why:"
+    },
+    "serviceStarting": {
+      "title": "Ollama is starting",
+      "description": "The Ollama service is starting. If this takes more than a few seconds, check its logs:"
+    },
+    "notResponding": "Ollama is not responding",
+    "behindProxy": "{url} responded with HTTP {status}: the Ollama server behind it is not responding.",
+    "noResponseLogs": "No response from {url}. Check the Ollama logs:",
+    "noResponseAddress": "No response from {url}. Check the server address below.",
+    "remoteUnreachable": {
+      "title": "Can't reach the Ollama server",
+      "description": "No response from {url}. Check that Ollama is running on that computer and accepts connections from the network (OLLAMA_HOST=0.0.0.0)."
+    },
+    "connectionFailed": {
+      "title": "Can't connect to Ollama",
+      "https": "Something is listening at {url}, but the connection failed. Ollama serves plain HTTP: use an address that starts with http://.",
+      "address": "Something is listening at {url}, but the connection failed. Check the server address below."
+    },
+    "notOllama": {
+      "title": "This is not an Ollama server",
+      "withStatus": "{url} responded with HTTP {status}, but it isn't an Ollama server. Check the server address below.",
+      "description": "{url} responded, but it isn't an Ollama server. Check the server address below."
+    },
+    "accessDenied": {
+      "title": "Access denied",
+      "description": "{url} refused access (HTTP {status}). Check the server address below."
+    },
+    "builtinStarting": {
+      "title": "Starting Ollama…",
+      "description": "ChatonLM is starting its built-in Ollama. This takes a few seconds."
+    },
+    "builtinFailed": {
+      "title": "The built-in Ollama failed to start",
+      "description": "It stopped with an error several times. Its log may tell why:"
+    },
+    "running": {
+      "title": "Ollama is running",
+      "description": "Connected to Ollama {version} at {url}."
+    }
+  },
+  "database": {
+    "newer": {
+      "title": "ChatonLM needs an update",
+      "description": "Your chats were saved by a newer version of ChatonLM. Update ChatonLM to open them; this version leaves them untouched."
+    },
+    "corrupt": {
+      "title": "ChatonLM can't read its database",
+      "description": "The file that holds your chats and settings is damaged. You can start over with a new database: the damaged file is kept next to it, under another name."
+    },
+    "locked": {
+      "title": "ChatonLM's database is in use",
+      "description": "Another program is using the file that holds your chats and settings. Close it, then click Retry."
+    },
+    "unavailable": {
+      "title": "ChatonLM can't open its database",
+      "description": "{message}. Check that this folder exists and that you can write to it, then click Retry."
+    },
+    "startFresh": "Start with a new database",
+    "starting": "Starting…"
+  },
+  "adviceWindows": {
+    "appStopped": "Ollama is installed, but it isn't running. Click Start Ollama, or open Ollama from the Start menu.",
+    "appStarting": "The Ollama app is starting. If this takes more than a few seconds, check its log:"
+  }
+}

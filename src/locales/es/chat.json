@@ -1,0 +1,266 @@
+{
+  "app": {
+    "settingsUnreadable": "ChatonLM no pudo leer su configuración: {error}"
+  },
+  "actions": {
+    "checking": "Comprobando…",
+    "saving": "Guardando…",
+    "save": "Guardar"
+  },
+  "layout": {
+    "showSidebar": "Mostrar barra lateral",
+    "hideSidebar": "Ocultar barra lateral",
+    "newChat": "Nuevo chat"
+  },
+  "nav": {
+    "chat": "Chat",
+    "proofread": "Corrección",
+    "study": "Estudiar",
+    "hub": "ModelHub",
+    "downloading": {
+      "one": "Descargando {count}",
+      "other": "Descargando {count}"
+    },
+    "downloadingStatus": {
+      "one": "Descargando {count} · {percent}",
+      "other": "Descargando {count} · {percent}"
+    },
+    "downloads": "Descargas",
+    "settings": "Configuración"
+  },
+  "history": {
+    "loadError": "Error al cargar los chats",
+    "groups": {
+      "favorites": "Favoritos",
+      "today": "Hoy",
+      "thisWeek": "Esta semana",
+      "older": "Más antiguos"
+    },
+    "titleField": "Título del chat",
+    "favorite": "Favorito",
+    "addFavorite": "Añadir a favoritos",
+    "removeFavorite": "Quitar de favoritos",
+    "deleteChat": "Eliminar chat",
+    "rename": "Cambiar nombre",
+    "confirmDelete": "¿Seguro que quieres eliminar este chat?"
+  },
+  "route": {
+    "loading": "Cargando chat…",
+    "loadError": "Error al cargar el chat",
+    "notFound": "Chat no encontrado"
+  },
+  "messages": {
+    "edit": "editar",
+    "error": "Error",
+    "loadingModel": "Cargando modelo…"
+  },
+  "thinking": {
+    "active": "Pensando…",
+    "moment": "Pensó un momento",
+    "seconds": "Pensó durante {seconds} segundos"
+  },
+  "tools": {
+    "searching": "Buscando <term/>…",
+    "fetching": "Obteniendo <term/>…",
+    "calling": "Llamando a <name/>…",
+    "callingWith": "Llamando a <name/>: <preview/>…",
+    "searchResults": "Resultados de búsqueda para <term/>",
+    "webSearchResults": "Resultados de la búsqueda web",
+    "fetchResults": "Contenido obtenido de <url/>",
+    "webFetchResults": "Contenido web obtenido",
+    "rawResult": "Resultado sin procesar de la herramienta",
+    "error": "Error: {error}"
+  },
+  "download": {
+    "title": "Descargando modelo",
+    "progress": "{completed} / {total} ({percent})"
+  },
+  "composer": {
+    "editHint": "Pulsa ESC para cancelar la edición",
+    "placeholder": "Escribe un mensaje",
+    "label": "Mensaje",
+    "attach": "Adjuntar archivos",
+    "send": "Enviar mensaje",
+    "stop": "Detener",
+    "selectFilesFailed": "No se pudieron seleccionar los archivos"
+  },
+  "files": {
+    "noImages": "Este modelo no admite imágenes",
+    "remove": "Quitar {name}",
+    "readError": "Error al leer el archivo"
+  },
+  "drop": {
+    "hint": "Suelta archivos aquí o pégalos desde el portapapeles para añadirlos a tu mensaje"
+  },
+  "picker": {
+    "button": "Seleccionar modelo",
+    "loading": "Cargando…",
+    "none": "Selecciona un modelo",
+    "search": "Buscar modelo…",
+    "searchLabel": "Buscar modelo",
+    "list": "Modelos",
+    "empty": "No se encontraron modelos",
+    "notDownloaded": "No descargado"
+  },
+  "think": {
+    "label": "Pensar",
+    "enable": "Activar el razonamiento",
+    "disable": "Desactivar el razonamiento",
+    "level": "Nivel de razonamiento: {level}",
+    "levelMenu": "Nivel de razonamiento",
+    "off": "Desactivado",
+    "on": "Activado",
+    "levels": {
+      "low": "Bajo",
+      "medium": "Medio",
+      "high": "Alto",
+      "xhigh": "Muy alto",
+      "max": "Máximo"
+    }
+  },
+  "webSearch": {
+    "label": "Búsqueda web",
+    "enable": "Activar la búsqueda web",
+    "disable": "Desactivar la búsqueda web",
+    "signIn": "Iniciar sesión",
+    "withoutWebSearch": "Generar sin búsqueda web"
+  },
+  "copy": {
+    "failed": "Error al copiar",
+    "command": "Copiar el comando al portapapeles"
+  },
+  "readAloud": {
+    "read": "Leer en voz alta",
+    "stop": "Detener la lectura",
+    "preparing": "Preparando la lectura…",
+    "downloadingVoice": "Descargando la voz…",
+    "downloadingProgress": "Descargando la voz… {percent}",
+    "playing": "Leyendo en voz alta",
+    "unsupported": "La lectura en voz alta está disponible en inglés, francés y español.",
+    "nothingToRead": "Esta respuesta no tiene nada que leer en voz alta.",
+    "downloadTitle": "¿Descargar la voz?",
+    "needsVoice": {
+      "en": "Leer en inglés requiere la voz inglesa ({size}). Se descarga una sola vez desde Internet (archivos de GitHub y Hugging Face) y se queda en este equipo.",
+      "es": "Leer en español requiere la voz española ({size}). Se descarga una sola vez desde Internet (archivos de GitHub y Hugging Face) y se queda en este equipo.",
+      "fr": "Leer en francés requiere la voz francesa ({size}). Se descarga una sola vez desde Internet (archivos de GitHub y Hugging Face) y se queda en este equipo."
+    },
+    "downloadAndRead": "Descargar y leer",
+    "error": {
+      "noOutputDevice": "No se pudo leer en voz alta: no se encontró ninguna salida de audio.",
+      "runtimeUnavailable": "La lectura en voz alta no está disponible en este equipo.",
+      "downloadFailed": "No se pudo descargar la voz. Vuelve a intentarlo.",
+      "engineFailed": "No se pudo leer esta respuesta en voz alta."
+    }
+  },
+  "link": {
+    "open": "Abrir enlace",
+    "copy": "Copiar enlace"
+  },
+  "linkError": {
+    "open": "No se pudo abrir el navegador ({detail}). Ve a <url/>",
+    "copy": "No se pudo copiar el enlace: <url/>",
+    "copyLink": "Copiar enlace",
+    "dismiss": "Cerrar"
+  },
+  "dialog": {
+    "ok": "Aceptar"
+  },
+  "server": {
+    "connecting": "Conectando con Ollama…",
+    "checkFailed": "No se puede comprobar el servidor de Ollama",
+    "lost": "Ollama no responde.",
+    "builtinFailed": "El Ollama integrado no pudo iniciarse.",
+    "download": "Descargar desde ollama.com",
+    "runningAt": "Ollama se está ejecutando en {url}.",
+    "useAddress": "Usar esta dirección",
+    "start": "Iniciar Ollama",
+    "starting": "Iniciando…",
+    "startFailed": "No se pudo iniciar Ollama: {message}",
+    "notAuthorized": "La autenticación falló. Ollama no se inició.",
+    "noService": "No se encontró ningún servicio de Ollama. Inicia Ollama en una terminal con ollama serve.",
+    "noApp": "No se encontró la aplicación de Ollama. Inicia Ollama en una terminal con ollama serve.",
+    "address": "Dirección del servidor",
+    "addressHint": "Déjalo vacío para usar la variable de entorno OLLAMA_HOST, o http://localhost:11434 si no está definida."
+  },
+  "advice": {
+    "notInstalled": {
+      "title": "Ollama no está instalado",
+      "description": "ChatonLM chatea con los modelos que Ollama ejecuta en este equipo. Instala Ollama y haz clic en Reintentar. Si Ollama se ejecuta en un contenedor o en otro equipo, escribe su dirección abajo."
+    },
+    "notRunning": "Ollama no se está ejecutando",
+    "serviceStopped": "Ollama está instalado, pero su servicio está detenido. Inícialo en una terminal:",
+    "serviceStoppedStart": "Ollama está instalado, pero su servicio está detenido. Haz clic en Iniciar Ollama o inícialo en una terminal:",
+    "enableAtLogin": "Para que arranque automáticamente al iniciar sesión:",
+    "enableAtBoot": "Para iniciarlo automáticamente al arrancar el equipo:",
+    "notRunningHere": "Ollama no se está ejecutando en esta dirección",
+    "serveHost": "En una terminal, inicia el servidor de Ollama en esta dirección y mantenla abierta:",
+    "serve": "Inicia el servidor de Ollama en una terminal y mantenla abierta:",
+    "nothingListening": "No hay nada escuchando en {url}. Comprueba la dirección del servidor abajo.",
+    "serviceFailed": {
+      "title": "Ollama no pudo iniciarse",
+      "description": "El servicio de Ollama se detuvo con un error o se reinicia continuamente. Consulta su estado y sus registros para saber por qué:"
+    },
+    "serviceStarting": {
+      "title": "Ollama se está iniciando",
+      "description": "El servicio de Ollama se está iniciando. Si tarda más de unos segundos, consulta sus registros:"
+    },
+    "notResponding": "Ollama no responde",
+    "behindProxy": "{url} respondió con HTTP {status}: el servidor de Ollama que hay detrás no responde.",
+    "noResponseLogs": "No hay respuesta de {url}. Consulta los registros de Ollama:",
+    "noResponseAddress": "No hay respuesta de {url}. Comprueba la dirección del servidor abajo.",
+    "remoteUnreachable": {
+      "title": "No se puede contactar con el servidor de Ollama",
+      "description": "No hay respuesta de {url}. Comprueba que Ollama se está ejecutando en ese equipo y acepta conexiones de la red (OLLAMA_HOST=0.0.0.0)."
+    },
+    "connectionFailed": {
+      "title": "No se puede conectar con Ollama",
+      "https": "Hay algo escuchando en {url}, pero la conexión falló. Ollama solo admite HTTP sin cifrar: usa una dirección que empiece por http://.",
+      "address": "Hay algo escuchando en {url}, pero la conexión falló. Comprueba la dirección del servidor abajo."
+    },
+    "notOllama": {
+      "title": "No es un servidor de Ollama",
+      "withStatus": "{url} respondió con HTTP {status}, pero no es un servidor de Ollama. Comprueba la dirección del servidor abajo.",
+      "description": "{url} respondió, pero no es un servidor de Ollama. Comprueba la dirección del servidor abajo."
+    },
+    "accessDenied": {
+      "title": "Acceso denegado",
+      "description": "{url} denegó el acceso (HTTP {status}). Comprueba la dirección del servidor abajo."
+    },
+    "builtinStarting": {
+      "title": "Iniciando Ollama…",
+      "description": "ChatonLM está iniciando su Ollama integrado. Tarda unos segundos."
+    },
+    "builtinFailed": {
+      "title": "El Ollama integrado no pudo iniciarse",
+      "description": "Se detuvo con un error varias veces. Su registro puede indicar por qué:"
+    },
+    "running": {
+      "title": "Ollama se está ejecutando",
+      "description": "Conectado a Ollama {version} en {url}."
+    }
+  },
+  "database": {
+    "newer": {
+      "title": "ChatonLM necesita una actualización",
+      "description": "Tus chats se guardaron con una versión más reciente de ChatonLM. Actualiza ChatonLM para abrirlos; esta versión no los modifica."
+    },
+    "corrupt": {
+      "title": "ChatonLM no puede leer su base de datos",
+      "description": "El archivo que guarda tus chats y tu configuración está dañado. Puedes empezar de nuevo con una base de datos nueva: el archivo dañado se conserva al lado, con otro nombre."
+    },
+    "locked": {
+      "title": "La base de datos de ChatonLM está en uso",
+      "description": "Otro programa está usando el archivo que guarda tus chats y tu configuración. Ciérralo y haz clic en Reintentar."
+    },
+    "unavailable": {
+      "title": "ChatonLM no puede abrir su base de datos",
+      "description": "{message}. Comprueba que esta carpeta existe y que puedes escribir en ella, y haz clic en Reintentar."
+    },
+    "startFresh": "Usar una base de datos nueva",
+    "starting": "Iniciando…"
+  },
+  "adviceWindows": {
+    "appStopped": "Ollama está instalado, pero no se está ejecutando. Haz clic en Iniciar Ollama o abre Ollama desde el menú Inicio.",
+    "appStarting": "La aplicación de Ollama se está iniciando. Si tarda más de unos segundos, consulta su registro:"
+  }
+}

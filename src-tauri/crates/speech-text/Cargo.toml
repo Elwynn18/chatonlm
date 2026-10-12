@@ -1,0 +1,13 @@
+[package]
+name = "speech-text"
+version = "0.1.0"
+description = "Texte parlé pour la lecture à voix haute de ChatonLM : Markdown, langue, prétraitement (fr, en, es)"
+license = "MIT"
+edition = "2024"
+publish = false
+
+[dependencies]
+# Markdown (CommonMark + tableaux GFM) ; sans l'outil en ligne de commande ni le rendu HTML.
+pulldown-cmark = { version = "0.13", default-features = false }
+regex = "1"
+unicode-normalization = "0.1"

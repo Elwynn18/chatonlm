@@ -1,0 +1,9 @@
+#!/bin/sh
+# Faux pkexec : FAKE_PKEXEC=cancel (126), noagent (127), sinon exécute.
+printf '%s\n' "$*" | cut -c1-200 >> "$CHATONLM_TEST_ROOT/log/pkexec.log"
+case ${FAKE_PKEXEC:-} in
+cancel) echo "Error executing command as another user: Request dismissed" >&2; exit 126 ;;
+noagent) echo "Error executing command as another user: No authentication agent found." >&2; exit 127 ;;
+esac
+[ "$1" = --disable-internal-agent ] && shift
+exec "$@"

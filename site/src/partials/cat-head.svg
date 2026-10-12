@@ -1,0 +1,19 @@
+<path d="M256 182C282 182 300 172 316 152L370 90C384 74 408 80 410 102L424 246C434 272 438 294 438 312C438 388 356 440 256 440C156 440 74 388 74 312C74 294 78 272 88 246L102 102C104 80 128 74 142 90L196 152C212 172 230 182 256 182Z" fill="#F28A38"/>
+<path class="c-ear" d="M128 122L174 168C158 180 138 192 116 204Z" fill="#D9701F" stroke="#D9701F" stroke-width="12" stroke-linejoin="round"/>
+<path class="c-ear" d="M384 122L338 168C354 180 374 192 396 204Z" fill="#D9701F" stroke="#D9701F" stroke-width="12" stroke-linejoin="round"/>
+<path d="M230 204V232M256 204V242M282 204V232M92 300l30 6M92 332h28M420 300l-30 6M420 332h-28" fill="none" stroke="#D9701F" stroke-width="13" stroke-linecap="round"/>
+<ellipse cx="256" cy="386" rx="60" ry="40" fill="#FFF4E8"/>
+<g class="c-eyes">
+<ellipse cx="188" cy="318" rx="27" ry="33" fill="#FFF4E8"/>
+<ellipse cx="324" cy="318" rx="27" ry="33" fill="#FFF4E8"/>
+<g class="c-pupils">
+<ellipse cx="188" cy="320" rx="15" ry="21" fill="#2A1A10"/>
+<ellipse cx="324" cy="320" rx="15" ry="21" fill="#2A1A10"/>
+<circle cx="182" cy="311" r="5.500" fill="#FFF4E8"/>
+<circle cx="318" cy="311" r="5.500" fill="#FFF4E8"/>
+</g>
+</g>
+<path class="c-lids" d="M162 320q26 22 52 0M298 320q26 22 52 0" fill="none" stroke="#2A1A10" stroke-width="7" stroke-linecap="round"/>
+<path d="M243 364h26c5 0 6 4 3 8l-10 11c-3 3-9 3-12 0l-10-11c-3-4-2-8 3-8Z" fill="#B84A12"/>
+<path d="M256 384v8M256 392c-6 12-20 12-26 3M256 392c6 12 20 12 26 3" fill="none" stroke="#2A1A10" stroke-width="5" stroke-linecap="round"/>
+<path d="M190 384l-50-10M190 398l-48 8M322 384l50-10M322 398l48 8" fill="none" stroke="#2A1A10" stroke-opacity=".3" stroke-width="4" stroke-linecap="round"/>

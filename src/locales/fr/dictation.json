@@ -1,0 +1,120 @@
+{
+  "common": {
+    "tryAgain": "Réessayer",
+    "notInstalled": "{name} (non installé)"
+  },
+  "card": {
+    "title": "Dictée",
+    "description": "Appuyez sur un raccourci depuis n'importe quelle application pour dicter. Ce que vous dites est transcrit sur cet ordinateur, mis au propre par un modèle local, puis copié dans le presse-papiers.",
+    "remoteDescription": "Appuyez sur un raccourci depuis n'importe quelle application pour dicter. Ce que vous dites est transcrit sur cet ordinateur, mis au propre, puis copié dans le presse-papiers.",
+    "remoteNote": "La transcription est envoyée à votre serveur Ollama ({server}) pour être mise au propre.",
+    "loadFailed": "Impossible de charger les paramètres de la dictée.",
+    "downloadModel": "Télécharger un modèle de transcription",
+    "enable": "Activer la dictée"
+  },
+  "shortcut": {
+    "label": "Raccourci",
+    "description": "Démarre et arrête la dictée depuis n'importe quelle application.",
+    "turnOnFirst": "Activez la dictée pour utiliser le raccourci.",
+    "waiting": "En attente de votre bureau…",
+    "notSet": "Non défini",
+    "set": "Définir le raccourci",
+    "change": "Modifier…",
+    "bindCommand": "Associez cette commande à un raccourci dans les paramètres du système :"
+  },
+  "mode": {
+    "label": "Mode",
+    "description": "Bascule : appuyez sur le raccourci pour commencer, puis de nouveau pour arrêter. Appuyer pour parler : maintenez-le enfoncé pendant que vous parlez.",
+    "holdNeedsShortcut": "Le mode « Appuyer pour parler » nécessite le raccourci du système.",
+    "toggle": "Bascule",
+    "hold": "Appuyer pour parler"
+  },
+  "transcription": {
+    "title": "Transcription",
+    "model": {
+      "label": "Modèle de transcription",
+      "description": "Transforme votre voix en texte, sur cet ordinateur.",
+      "none": "Aucun",
+      "loading": "Chargement…",
+      "noneInstalled": "Aucun modèle de transcription installé",
+      "choose": "Choisir un modèle",
+      "unsupportedOption": "{name} (non pris en charge par ce processeur)",
+      "unsupported": "{name} ne peut pas fonctionner sur ce processeur (il lui manque : {features}). Choisissez un modèle Parakeet.",
+      "unavailableOption": "{name} (indisponible)",
+      "runtime": {
+        "missing": "{name} ne peut pas fonctionner : ONNX Runtime est absent ({detail}). Réinstallez ChatonLM, ou choisissez un modèle Whisper.",
+        "incompatible": "{name} ne peut pas fonctionner : l'ONNX Runtime trouvé n'est pas compatible ({detail}). Réinstallez ChatonLM, ou choisissez un modèle Whisper.",
+        "loadFailed": "{name} ne peut pas fonctionner : ONNX Runtime n'a pas pu être chargé ({detail}). Réinstallez ChatonLM, ou choisissez un modèle Whisper."
+      },
+      "manage": "Gérer les modèles de transcription",
+      "unreadable": "Impossible de lire les modèles de transcription : {error}"
+    },
+    "language": {
+      "label": "Langue",
+      "description": "La langue que vous parlez.",
+      "descriptionParakeet": "La langue que vous parlez. Parakeet détecte la langue automatiquement.",
+      "auto": "Détection automatique"
+    },
+    "dictionary": {
+      "label": "Dictionnaire",
+      "description": "Noms et mots à écrire exactement tels quels. Appuyez sur Entrée pour en ajouter un.",
+      "words": "Mots du dictionnaire",
+      "remove": "Retirer {word}",
+      "placeholder": "Ajouter un mot"
+    },
+    "autoCopy": {
+      "label": "Copier automatiquement dans le presse-papiers",
+      "description": "Si l'option est désactivée, copiez le texte depuis la notification ou depuis le dernier résultat ci-dessous."
+    }
+  },
+  "polish": {
+    "title": "Mise au propre",
+    "model": {
+      "label": "Modèle de mise au propre",
+      "description": "Un modèle d'Ollama met la transcription au propre : ponctuation, hésitations, reprises.",
+      "off": "Aucun",
+      "cloud": "{name} (les modèles cloud ne sont pas utilisés)",
+      "recommended": "Modèles recommandés",
+      "unreachable": "Ollama est injoignable. Ses modèles seront listés dès qu'il répondra.",
+      "loading": "Chargement des modèles…"
+    },
+    "instructions": {
+      "label": "Consignes",
+      "description": "Ce que le modèle de mise au propre doit faire de votre transcription.",
+      "reset": "Rétablir les consignes par défaut"
+    }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "showText": "Afficher le texte dans les notifications",
+    "description": "Si l'option est désactivée, la notification indique seulement que le texte a été copié."
+  },
+  "try": {
+    "label": "Essayer la dictée",
+    "turnOnFirst": "Activez la dictée pour l'essayer.",
+    "chooseModel": "Choisissez un modèle de transcription installé pour l'essayer.",
+    "stop": "Arrêter"
+  },
+  "phase": {
+    "recording": "À l'écoute…",
+    "transcribing": "Transcription…",
+    "polishing": "Mise au propre…"
+  },
+  "lastResult": {
+    "title": "Dernière dictée",
+    "copied": "Copié dans le presse-papiers",
+    "notCopied": "Non copié : sélectionnez le texte pour le copier",
+    "notPolished": "sans mise au propre",
+    "failed": "La dictée a échoué.",
+    "copyFailed": "Impossible de copier : {error}"
+  },
+  "download": {
+    "waiting": "En attente…",
+    "verifying": "Vérification…",
+    "progress": "{done} sur {total}"
+  },
+  "polishModels": {
+    "bestQuality": "Meilleure qualité, demande environ {size} de mémoire GPU",
+    "smallMachines": "Pour les petites machines, moins fiable"
+  }
+}

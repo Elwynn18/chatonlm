@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="{{lang}}" class="sans-js">
+  <head>
+    {{>head.html}}
+    <title>{{t:meta.contact.title}}</title>
+    <meta name="description" content="{{t:meta.contact.description}}" />
+    <meta property="og:title" content="{{t:meta.contact.title}}" />
+    <meta property="og:description" content="{{t:meta.contact.description}}" />
+    {{>head-index.html}}
+  </head>
+  <body class="page-texte">
+    {{>header.html}}
+    <main id="contenu" class="cadre">
+      <div class="deux-colonnes">
+        <div>
+          <h1>{{h:contact.title}}</h1>
+          <p class="chapo">{{t:contact.lead}}</p>
+          <br />
+          {{>contact-form.html}}
+        </div>
+        <div class="dessin" aria-hidden="true">
+          <svg viewBox="-20 -10 440 470" data-chaton>
+            <ellipse cx="200" cy="432" rx="190" ry="15" fill="#F0DCC5" />
+            {{>cat-body.svg}}
+            <ellipse cx="166" cy="416" rx="32" ry="17" fill="#FFF4E8" />
+            <ellipse cx="234" cy="416" rx="32" ry="17" fill="#FFF4E8" />
+            <path d="M158 412v10M174 412v10M226 412v10M242 412v10" stroke="#2A1A10" stroke-opacity=".28" stroke-width="3.500" stroke-linecap="round" />
+            <g transform="translate(31 -44) scale(.66)">{{>cat-head.svg}}</g>
+          </svg>
+        </div>
+      </div>
+    </main>
+    {{>footer.html}}
+  </body>
+</html>

@@ -1,0 +1,14 @@
+# Python 3.12. Versions of the environment that produced tts-models-v1.
+--extra-index-url https://download.pytorch.org/whl/cpu
+pocket-tts==3.3.0
+torch==2.14.1+cpu
+onnx==1.23.2
+onnxscript==0.7.2
+onnx-ir==1.0.0
+onnxruntime==1.28.0
+numpy==2.5.3
+safetensors==0.8.0
+tokenizers==0.23.2
+sentencepiece==0.2.2
+huggingface-hub==1.33.0
+ml_dtypes==0.6.0

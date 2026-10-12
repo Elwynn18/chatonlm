@@ -1,0 +1,72 @@
+{
+  "description": "Edit of message 1 in the chat filled by the \"attachments\" sequence (attachments 1 notes.txt and 2 red.png, answer 2): notes.txt kept, red.png removed, extra.md added. The answer is deleted, the edited message (same id) comes back with its attachments, then a new answer. Only the edit's events.",
+  "request": {
+    "chatId": "chat-1",
+    "streamId": "stream-1",
+    "content": "Describe this file instead.",
+    "model": "qwen3.5:0.8b",
+    "think": false,
+    "attachmentIds": [
+      "staged-1"
+    ],
+    "editMessageId": 1,
+    "keptAttachmentIds": [
+      1
+    ]
+  },
+  "events": [
+    {
+      "message": {
+        "attachments": [
+          {
+            "filename": "notes.txt",
+            "id": 1,
+            "kind": "text",
+            "mime": "text/plain",
+            "size": 13
+          },
+          {
+            "filename": "extra.md",
+            "id": 3,
+            "kind": "text",
+            "mime": "text/markdown",
+            "size": 18
+          }
+        ],
+        "content": "Describe this file instead.",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "createdAt": 1700000000000,
+      "messageId": 3,
+      "type": "replyStarted"
+    },
+    {
+      "text": "\"",
+      "type": "content"
+    },
+    {
+      "text": "Hi",
+      "type": "content"
+    },
+    {
+      "text": "!\"",
+      "type": "content"
+    },
+    {
+      "messageId": 3,
+      "type": "done"
+    }
+  ],
+  "error": null
+}

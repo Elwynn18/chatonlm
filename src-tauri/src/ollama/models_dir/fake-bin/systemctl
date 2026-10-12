@@ -1,0 +1,79 @@
+#!/bin/sh
+# Faux systemctl du banc : état dans $CHATONLM_TEST_ROOT/state, journal des appels.
+# FAKE_FAIL (mots séparés par des espaces) : stop start restart daemon-reload
+# crash-new (ne démarre pas sur un autre dossier de modèles) hide-home (le
+# processus ne voit pas les dossiers de l'hôte : /proc/<pid>/root vide).
+R=$CHATONLM_TEST_ROOT S=$CHATONLM_TEST_ROOT/state
+printf '%s\n' "$*" >> "$R/log/systemctl.log"
+fails() { case " ${FAKE_FAIL:-} " in *" $1 "*) return 0 ;; esac; return 1; }
+get() { if [ -f "$S/$1" ]; then cat "$S/$1"; else printf '%s\n' "$2"; fi; }
+dropins() { for f in "$R"/etc/systemd/system/ollama.service.d/*.conf; do [ -f "$f" ] && cat "$f"; done; }
+# OLLAMA_MODELS effectif : unité de base puis drop-ins dans l'ordre lexicographique.
+effective() {
+	v=$(get base_models /var/lib/ollama)
+	for f in "$R"/etc/systemd/system/ollama.service.d/*.conf; do
+		[ -f "$f" ] || continue
+		l=$(sed -n 's/^Environment="OLLAMA_MODELS=\(.*\)"$/\1/p' "$f" | tail -n 1)
+		[ -n "$l" ] && v=$(printf '%s' "$l" | sed 's/%%/%/g')
+	done
+	printf '%s\n' "$v"
+}
+# ProtectHome= effectif, de même.
+protect_home() {
+	v=$(get protect_home yes)
+	l=$(dropins | sed -n 's/^ProtectHome=//p' | tail -n 1)
+	[ -n "$l" ] && v=$l
+	printf '%s\n' "$v"
+}
+# BindPaths= effectifs, un par ligne (« BindPaths= » vide remet la liste à zéro).
+binds() {
+	dropins | awk '/^BindPaths=$/ { n = 0; next }
+		/^BindPaths="/ { v = substr($0, 12, length($0) - 12); gsub(/%%/, "%", v); b[n++] = v }
+		END { for (i = 0; i < n; i++) print b[i] }'
+}
+# Comme shell_maybe_quote() de systemd (SHELL_NEED_QUOTES, espaces).
+quote() { case $1 in *[[:space:]\"\\\`\$\*\?\[\'\(\)\<\>\|\&\;\!]*) printf '"%s"' "$1" ;; *) printf '%s' "$1" ;; esac; }
+start() {
+	fails start && exit 1
+	m=$(get loaded_models "$(get base_models /var/lib/ollama)")
+	if fails crash-new && [ "$m" != "$(get base_models /var/lib/ollama)" ]; then echo failed > "$S/active"; exit 0; fi
+	# Comme `ollama serve` : crée blobs/ (et manifests/) sous OLLAMA_MODELS.
+	if ! mkdir -p -- "$m/blobs" "$m/manifests" 2>/dev/null; then echo failed > "$S/active"; exit 0; fi
+	pid=$(( $(get pid 4000) + 1 )); echo "$pid" > "$S/pid"; echo active > "$S/active"
+	mkdir -p "$R/proc/$pid" "$R/empty"; printf 'HOME=/var/lib/ollama\0OLLAMA_MODELS=%s\0' "$m" > "$R/proc/$pid/environ"
+	# Vue du processus (/proc/<pid>/root) : l'hôte, ou rien.
+	if fails hide-home; then ln -sfn "$R/empty" "$R/proc/$pid/root"; else ln -sfn / "$R/proc/$pid/root"; fi
+}
+cmd=$1; shift
+case $cmd in
+show)
+	p=''
+	while [ $# -gt 0 ]; do case $1 in -p) p=$2; shift 2 ;; *) shift ;; esac; done
+	case $p in
+	LoadState) get load loaded ;;
+	DynamicUser) get dynamic no ;;
+	User) get user "$(id -un)" ;;
+	Group) get group "$(id -gn)" ;;
+	ProtectHome) get loaded_protect_home "$(get protect_home yes)" ;;
+	ProtectSystem) get protect_system full ;;
+	EnvironmentFiles) get envfiles '' ;;
+	# Une entrée par ligne, « source:destination:rbind » (forme de systemd < 256).
+	BindPaths) get loaded_binds '' | awk 'NF { print $0 ":" $0 ":rbind" }' ;;
+	BindReadOnlyPaths) echo ;;
+	MainPID) if [ "$(get active inactive)" = active ]; then get pid 0; else echo 0; fi ;;
+	Environment)
+		# HOME vide dans l'état : pas d'affectation (HOME de User=).
+		h=$(get home /var/lib/ollama)
+		m=$(quote "OLLAMA_MODELS=$(get loaded_models "$(get base_models /var/lib/ollama)")")
+		if [ -n "$h" ]; then printf '%s %s\n' "$(quote "HOME=$h")" "$m"; else printf '%s\n' "$m"; fi ;;
+	*) echo "fake systemctl: unknown property $p" >&2; exit 1 ;;
+	esac ;;
+is-active) get active inactive ;;
+stop) fails stop && exit 1; echo inactive > "$S/active" ;;
+daemon-reload)
+	fails daemon-reload && exit 1
+	effective > "$S/loaded_models"; protect_home > "$S/loaded_protect_home"; binds > "$S/loaded_binds" ;;
+start) start ;;
+restart) fails restart && exit 1; echo inactive > "$S/active"; start ;;
+*) echo "fake systemctl: unsupported command $cmd" >&2; exit 1 ;;
+esac

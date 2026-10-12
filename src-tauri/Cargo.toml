@@ -1,0 +1,212 @@
+[package]
+name = "chatonlm"
+version = "0.9.0"
+description = "Unofficial desktop chat client for Ollama"
+authors = ["Elwynn18 <216957512+Elwynn18@users.noreply.github.com>"]
+license = "MIT"
+repository = "https://github.com/Elwynn18/chatonlm"
+edition = "2024"
+# 1.91 : exigé par sonora (annulation d'écho du mode vocal).
+rust-version = "1.91"
+
+[lib]
+name = "chatonlm_lib"
+crate-type = ["rlib"]
+
+[workspace]
+# Outils de test ; src-tauri reste la racine (target/ et Cargo.lock ici).
+members = ["crates/fake-ollama", "crates/speech-text", "crates/windows-tray"]
+
+[features]
+# Essais de l'app réelle uniquement (scripts/e2e-build.sh) : embarque un serveur
+# W3C WebDriver sur 127.0.0.1 qui pilote la webview. Jamais dans un build normal.
+e2e = ["dep:tauri-plugin-webdriver"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+# Dictée : presse-papiers sans fenêtre au premier plan (Wayland par le
+# protocole data-control, X11 sinon), texte seulement.
+arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
+# Images des pièces jointes envoyées à Ollama (champ « images »).
+base64 = "0.22.1"
+# Dictée : capture du micro (ALSA, donc PipeWire par pipewire-alsa).
+cpal = "0.18.2"
+# Dictée : lecture des WAV (micro simulé des essais e2e, contrats). Déjà
+# dans l'arbre par transcribe-rs.
+hound = "3.5.1"
+# Flux de signaux du portail (StreamExt::next).
+futures-util = "0.3.34"
+# Mise à jour gardée sur disque (étape 18c) : sa signature minisign est
+# revérifiée à chaque démarrage et avant l'installation, comme le fait
+# tauri-plugin-updater après un téléchargement (fonction qu'il n'expose pas).
+# Même version que celle du greffon.
+minisign-verify = "0.2.5"
+# Notifications de la dictée (D-Bus org.freedesktop.Notifications).
+notify-rust = { version = "4.18.1", default-features = false, features = ["z"] }
+# Texte des PDF joints (processus enfant) : choisie sur un corpus comparé à
+# pdftotext (.tools/research/24-step11a-pdf.md). Lecture seule, sans images.
+oxidize-pdf = { version = "5.2.0", default-features = false, features = ["compression"] }
+# Dictée : ONNX Runtime de Parakeet chargé à l'exécution (build officiel de
+# Microsoft, packaging/onnxruntime.env : glibc ≥ 2.27), et non lié en
+# statique (binaires de pyke, glibc ≥ 2.38). « load-dynamic » active
+# `ort-sys/disable-linking` : rien n'est téléchargé ni lié à la compilation.
+# Même version que celle de transcribe-rs.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["load-dynamic"] }
+parking_lot = "0.12.5"
+# Nom d'un fichier collé (en-tête x-filename, encodeURIComponent).
+percent-encoding = "2.3.2"
+# Lecture à voix haute : bruit de l'échantillonnage de Pocket TTS (loi
+# normale par Box-Muller). Déjà dans l'arbre.
+rand = "0.10.3"
+# Règles du catalogue du ModelHub (quantifications, capacités, familles) :
+# sans retour arrière, temps linéaire sur des noms venus du réseau.
+regex = "1.13.1"
+# Client HTTP d'Ollama. TLS par rustls avec le moteur ring (installé au
+# démarrage) plutôt qu'aws-lc-rs, bibliothèque C aux licences multiples.
+# « gzip » : listes de Hugging Face (ModelHub), environ 5 Mo non compressées.
+reqwest = { version = "0.13.5", default-features = false, features = ["gzip", "json", "rustls-no-provider", "stream", "system-proxy"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+# Versions des mises à jour (comparées à celle de l'app). Déjà dans l'arbre.
+semver = "1.0.28"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+# Dictée : empreintes des modèles de transcription téléchargés. Déjà dans
+# l'arbre.
+sha2 = "0.10.9"
+# Mode vocal : annulation d'écho (AEC3 de WebRTC porté en Rust pur, sans
+# code C ni bibliothèque système ; BSD-3-Clause).
+sonora = { version = "0.2.0", default-features = false }
+# Lecture à voix haute : texte parlé, langue et prétraitement (crate du dépôt).
+speech-text = { path = "crates/speech-text" }
+# « image-png » : icône de la zone de notification et des notifications.
+tauri = { version = "2.12", features = ["image-png"] }
+# Sélecteur de fichiers natif (commande pick_files ; aucune permission
+# `dialog:*` donnée à la page). GTK 3 par défaut.
+tauri-plugin-dialog = "2.8.1"
+tauri-plugin-single-instance = "2.5"
+# Mises à jour (étape 18c) : vérification, téléchargement signé (minisign),
+# installation de l'AppImage (remplacée sur place) ou du .deb (pkexec). Sans
+# « zip » (archives .tar.gz de l'ancien format et Windows) : les paquets sont
+# publiés tels quels. TLS par rustls et ring, comme reqwest plus haut.
+tauri-plugin-updater = { version = "2.13.1", default-features = false, features = ["rustls-tls"] }
+# Version relue avant usage (.tools/audit) : épinglée exactement.
+tauri-plugin-webdriver = { version = "=0.2.3", optional = true }
+# Mise à jour .deb (étape 18c) : paquet vérifié écrit dans un dossier
+# temporaire à soi (0700) le temps de `pkexec dpkg -i`. Déjà dans l'arbre
+# (greffon des mises à jour, essais).
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+# Dictée : transcription locale, Parakeet (ONNX Runtime, voir `ort`) et
+# Whisper (whisper.cpp compilé par cmake).
+transcribe-rs = { version = "0.3.12", features = ["onnx", "whisper-cpp"] }
+# « macros » pour tokio::select! (moteur de chat) : sans elle, seul un build de
+# tout l'espace de travail compilait, grâce aux fonctionnalités de fake-ollama.
+# « process » : extraction des PDF dans un processus enfant.
+tokio = { version = "1.53.2", features = ["io-util", "macros", "net", "process", "sync", "time"] }
+ts-rs = "12.0.1"
+url = "2.5.8"
+uuid = { version = "1.27.0", features = ["v7"] }
+# Même version que celle de transcribe-rs : seulement pour faire taire les
+# journaux de whisper.cpp (une cinquantaine de lignes par chargement).
+whisper-rs = { version = "0.16.0", default-features = false }
+
+# Bureau Linux seulement (GTK, WebKitGTK, D-Bus) et limites POSIX : sans objet
+# sous Windows, dont les équivalents sont plus bas.
+[target.'cfg(target_os = "linux")'.dependencies]
+# Limites du processus d'extraction des PDF (setrlimit, prctl).
+libc = "0.2.190"
+# Dictée : raccourci global par le portail XDG GlobalShortcuts (KDE Plasma 6,
+# GNOME 48 et plus). Même exécuteur que zbus (async-io).
+ashpd = { version = "0.13.13", default-features = false, features = ["async-io", "global_shortcuts"] }
+# Icône de la zone de notification (StatusNotifierItem en pur D-Bus, sans
+# libappindicator).
+ksni = { version = "0.3.6", default-features = false, features = ["async-io"] }
+# Presse-papiers GTK (image collée, que WebKitGTK ne donne pas à la page) :
+# même version que celle de Tauri et wry.
+gtk = "0.18.2"
+# Menu contextuel natif de la webview, filtré (signal « context-menu ») : même
+# version que celle de wry, qui l'épingle exactement. « v2_34 » :
+# `terminate_web_process` (processus web arrêté à la fin de l'app).
+webkit2gtk = { version = "2.0.2", features = ["v2_34"] }
+# État du service systemd d'Ollama, lu par D-Bus (sans lancer systemctl).
+zbus = { version = "5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
+
+# Windows seulement. Versions déjà dans l'arbre par Tauri, wry et cpal.
+[target.'cfg(windows)'.dependencies]
+# Chemins rendus par `canonicalize` sans leur préfixe `\\?\`.
+dunce = "1.0.5"
+# Zone de notification : fonction de Tauri, activée par ce crate et jamais
+# ici (sous Linux, `ksni` sert à sa place). La CLI de Tauri lit les
+# fonctionnalités de `tauri` dans ce manifeste sans regarder la cible :
+# écrite ici, celle-ci lui ferait exiger libappindicator pour les paquets Linux.
+windows-tray = { path = "crates/windows-tray" }
+# Raccourcis globaux (RegisterHotKey), appelés du moteur seulement : aucune
+# permission n'est donnée à la page.
+tauri-plugin-global-shortcut = "2.4.1"
+# Menu contextuel et touches de navigateur de WebView2 : version de wry.
+webview2-com = "0.39"
+# API Win32 et WinRT : une ligne par fonctionnalité, avec son usage.
+windows = { version = "0.62.2", features = [
+  "Data_Xml_Dom",                        # notifications (toasts)
+  "Foundation_Collections",              # notifications
+  "UI_Notifications",                    # notifications
+  "Win32_Foundation",
+  "Win32_Globalization",                 # langue du bureau
+  "Win32_Graphics_Dxgi",                 # cartes graphiques (ModelHub)
+  "Win32_Graphics_Dxgi_Common",
+  "Win32_NetworkManagement_IpHelper",    # port local à l'écoute
+  "Win32_Networking_WinSock",
+  "Win32_Security",                      # signature de CreateJobObjectW
+  "Win32_Storage_FileSystem",            # type d'un fichier, renommages
+  "Win32_System_Com",                    # ShellExecuteW
+  "Win32_System_Console",                # arrêt d'Ollama, sorties de l'enfant PDF
+  "Win32_System_DataExchange",           # presse-papiers
+  "Win32_System_Diagnostics_Debug",      # SetErrorMode
+  "Win32_System_Diagnostics_ToolHelp",   # processus restés d'une session
+  "Win32_System_JobObjects",             # Ollama intégré, enfant PDF
+  "Win32_System_ProcessStatus",
+  "Win32_System_Registry",               # installation, variables d'utilisateur
+  "Win32_System_SystemInformation",      # mémoire
+  "Win32_System_Threading",              # processus, CREATE_NO_WINDOW
+  "Win32_UI_Input_KeyboardAndMouse",     # copie de la sélection (SendInput)
+  "Win32_UI_Shell",                      # ShellExecuteW, identifiant d'application
+  "Win32_UI_WindowsAndMessaging",
+] }
+# Registre sans `unsafe` (installation détectée, variables d'utilisateur).
+windows-registry = "0.6.1"
+
+# Moteurs de transcription : optimisés même en debug (tests, e2e), sinon une
+# dictée de quelques secondes prend une minute.
+[profile.dev.package.whisper-rs-sys]
+opt-level = 3
+[profile.dev.package.transcribe-rs]
+opt-level = 3
+[profile.dev.package.rustfft]
+opt-level = 3
+[profile.dev.package.ndarray]
+opt-level = 3
+# Empreinte des modèles téléchargés (650 Mo pour Parakeet).
+[profile.dev.package.sha2]
+opt-level = 3
+# Mode vocal : annulation d'écho, en continu pendant une séance (une trame
+# de 10 ms toutes les 10 ms).
+[profile.dev.package.sonora]
+opt-level = 3
+[profile.dev.package.sonora-aec3]
+opt-level = 3
+[profile.dev.package.sonora-common-audio]
+opt-level = 3
+[profile.dev.package.sonora-fft]
+opt-level = 3
+[profile.dev.package.sonora-simd]
+opt-level = 3
+
+[dev-dependencies]
+fake-ollama = { path = "crates/fake-ollama" }
+# « test » : app simulée (tauri::test) pour construire le greffon des mises à
+# jour dans les essais du module updater.
+tauri = { version = "2.12", features = ["image-png", "test"] }
+tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }

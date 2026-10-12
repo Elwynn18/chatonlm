@@ -1,0 +1,424 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * SPDX-FileCopyrightText: Ollama
+ * SPDX-FileCopyrightText: 2026 Elwynn18 and ChatonLM contributors
+ *
+ * Adapted from Ollama (https://github.com/ollama/ollama),
+ * file app/ui/app/src/index.css, commit 42e911bc3d05.
+ * Modified for ChatonLM: Tailwind sources limited to src/; dark variant from
+ * the "dark" class that useTheme sets on <html> (light, dark or system
+ * theme) instead of prefers-color-scheme, hence no light-only class; no
+ * KaTeX @import, as Streamdown already imports that stylesheet; fonts
+ * without "Segoe UI"; no animations for the onboarding and app connection
+ * screens, which ChatonLM does not have; typography rules without their
+ * opt-out guard (removed by vite.config.ts: same rendering, as ChatonLM never
+ * uses the opt-out class, and ~20 times faster style recalculation of long
+ * replies in WebKitGTK); animations of the Study tab (ChatonLM's own generated
+ * courses: cards, answers, level path, celebrations), used only through the
+ * motion-safe variant, so that none plays under prefers-reduced-motion;
+ * scrollbars of the official Windows app (styles injected there by
+ * app/cmd/app/webview.go, same commit) written here, applied on Windows only
+ * (data-platform attribute of <html>) and following the "dark" class;
+ * ChatonLM's own look instead of the official grays (a deliberate departure,
+ * for appearance only: layout and behavior are unchanged): the neutral and
+ * zinc scales, white and black are redefined as a warm scale (cream, sand,
+ * dark brown), with a ginger accent, rounder corners, warm shadows, warm
+ * colors for the replies (typography) and for the Windows scrollbars.
+ */
+
+/* Les classes ne sont cherchées que dans src/ (pas dans les scripts ni les docs). */
+@import "tailwindcss" source(".");
+/* Classes prose-* des réponses (StreamingMarkdownContent). Pas d'@import de
+   la feuille de KaTeX : Streamdown l'importe déjà (en double, ses 20
+   @font-face le seraient aussi). Les règles générées perdent leur garde
+   :not(:where(…)), trop lente dans WebKitGTK (greffon withoutNotProse de
+   vite.config.ts) : la classe d'exclusion de typography n'a donc aucun effet
+   ici, et scripts/check-bundle.mjs refuse son nom dans src/. */
+@plugin "@tailwindcss/typography";
+
+/* Thème clair, sombre ou système : classe « dark » sur <html>, posée par
+   useTheme (l'officiel ne suit que prefers-color-scheme). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-rounded: "SF Pro Rounded", ui-sans-serif, system-ui, sans-serif;
+
+  /* Direction visuelle de ChatonLM (écart voulu à l'officiel, pour l'apparence
+     seulement) : du crème au lieu du blanc et du gris, un brun très foncé au
+     lieu du noir, un seul accent, le roux du chaton. Les composants gardent
+     leurs classes neutral-*, zinc-*, white et black : ce sont ces échelles
+     qui changent. Valeurs sombres : règle « .dark » plus bas. Chaque couple
+     texte/fond employé est mesuré par scripts/theme-contrast.test.mjs (4,5:1 au moins). */
+  --color-white: #fffcf8; /* surface : fenêtre, cartes, zone de saisie */
+  --color-black: #2a1a10; /* encre */
+  --color-neutral-50: #fdf7ee; /* entre la surface et la surface 2 : fonds et survols discrets */
+  --color-neutral-100: #fbf1e4; /* surface 2 : barre latérale, survol */
+  --color-neutral-200: #f6e4d0; /* sable : bulle de l'utilisateur, pastilles */
+  --color-neutral-300: #e8d2ba;
+  --color-neutral-400: #9d8771; /* estompé : 3:1 sur les surfaces, jamais un texte à lire */
+  --color-neutral-500: #766352; /* texte secondaire : 4,5:1 jusque sur le sable */
+  --color-neutral-600: #6b5647;
+  --color-neutral-700: #4f3d31;
+  --color-neutral-800: #382820;
+  --color-neutral-900: #2a1a10; /* encre : texte, bouton principal */
+  --color-neutral-950: #1c110a;
+  --color-zinc-50: #fdf7ee;
+  --color-zinc-100: #fbf1e4;
+  --color-zinc-200: #f6e4d0;
+  --color-zinc-300: #e8d2ba;
+  --color-zinc-400: #9d8771;
+  --color-zinc-500: #766352;
+  --color-zinc-600: #6b5647;
+  --color-zinc-700: #4f3d31;
+  --color-zinc-800: #382820;
+  --color-zinc-900: #2a1a10;
+  --color-zinc-950: #1c110a;
+  /* Rouge des erreurs en texte (thème clair) : celui de la direction visuelle,
+     lisible jusque sur le sable, et ses deux tons plus foncés ; fonds et
+     bordures des erreurs tirés vers le pêche (le rose de Tailwind est froid
+     sur le crème). Les autres rouges restent ceux de Tailwind. */
+  --color-red-50: #fdeee8;
+  --color-red-100: #fbdcd2;
+  --color-red-200: #f5c2b4;
+  --color-red-600: #b3261e;
+  --color-red-700: #96201a;
+  --color-red-800: #7a1a15;
+  /* Vert doux et son texte (« convient », ajout d'une correction, « Saved »),
+     vert des états réussis en texte (« Installed ») ; son pendant sombre est
+     dans la règle « .dark ». */
+  --color-green-100: #dff0d8;
+  --color-green-700: #376f29;
+  --color-green-800: #2f5d22;
+  /* Roux en aplat (élément actif, jauge) : texte encre dessus, jamais blanc. */
+  --color-accent: #f28a38;
+  /* Roux lisible sur les surfaces du thème (texte, lien, icône active, anneau
+     de focus) : roux foncé en clair, roux en sombre. */
+  --color-accent-fg: #b84a12;
+
+  /* Formes rondes : 10 px (pastilles, petits boutons), 12 px (boutons,
+     champs, lignes de liste), 16 et 20 px (cartes, fenêtres). */
+  --radius-md: 0.625rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+
+  /* Ombres chaudes (encre), jamais grises. */
+  --shadow-sm:
+    0 1px 3px 0 rgb(42 26 16 / 0.1), 0 1px 2px -1px rgb(42 26 16 / 0.1);
+  --shadow-md:
+    0 4px 6px -1px rgb(42 26 16 / 0.1), 0 2px 4px -2px rgb(42 26 16 / 0.1);
+  --shadow-lg:
+    0 10px 15px -3px rgb(42 26 16 / 0.1), 0 4px 6px -4px rgb(42 26 16 / 0.1);
+  --shadow-xl:
+    0 20px 25px -5px rgb(42 26 16 / 0.12), 0 8px 10px -6px rgb(42 26 16 / 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgb(42 26 16 / 0.3);
+
+  /* Onglet Study : toujours par la variante motion-safe (rien sous
+     prefers-reduced-motion). */
+  --animate-study-card-in: study-card-in 280ms ease-out both;
+  --animate-study-reveal: study-reveal 240ms ease-out both;
+  --animate-study-pop: study-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-study-bounce: study-bounce 480ms ease-out both;
+  --animate-study-shake: study-shake 420ms ease-in-out both;
+  --animate-study-pulse: study-pulse 2.4s ease-in-out infinite;
+  --animate-study-flame: study-flame 1.6s ease-in-out infinite;
+  --animate-study-confetti: study-confetti 1.8s ease-in forwards;
+}
+
+@layer base {
+  :root {
+    color-scheme: light dark;
+  }
+
+  /* Fond de la page : celui de la fenêtre (sans lui, le blanc ou le gris du
+     système sous tout écran qui ne pose pas le sien). */
+  html {
+    background-color: var(--color-white);
+  }
+
+  html.dark {
+    background-color: var(--color-neutral-900);
+  }
+
+  /* Thème sombre : la même échelle lue à l'envers par les classes dark:*,
+     sauf les valeurs qui ne peuvent pas servir aux deux thèmes. Blanc = crème
+     (texte, bouton principal) ; 400 et 500, textes secondaires sur fond
+     sombre, plus clairs (4,5:1 au moins sur 900 et 800). */
+  .dark {
+    --color-white: #fff4e8;
+    --color-neutral-400: #cdb8a4;
+    --color-neutral-500: #a6917e;
+    --color-zinc-400: #cdb8a4;
+    --color-zinc-500: #a6917e;
+    --color-accent-fg: #f28a38;
+    --color-green-400: #a5d395; /* vert des états réussis, doux sur le brun */
+  }
+
+  /* Focus au clavier d'un élément qui n'a pas son propre anneau : 2 px de roux
+     lisible, décalé de 2 px (visible aussi sur un aplat roux), à la place de
+     l'anneau bleu du moteur. « outline-none » d'un composant le retire. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent-fg);
+    outline-offset: 2px;
+  }
+
+  /* Listes déroulantes : dessinées par la page, pas par le thème du système
+     (WebKitGTK peint sinon son propre fond gris, quelle que soit la couleur
+     demandée). Chevron en image de fond, clair ou sombre ; les composants
+     lui laissent sa place (pr-7). Même rendu sous Windows (WebView2). */
+  select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23766352' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 0.35rem center;
+    background-repeat: no-repeat;
+    background-size: 1.125rem;
+    text-overflow: ellipsis;
+  }
+
+  .dark select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23cdb8a4' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
+  }
+
+  /* Sélection de texte : roux, pas le bleu du système. */
+  ::selection {
+    background-color: rgb(242 138 56 / 0.35);
+  }
+
+  a[href],
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
+/* Barres de défilement de Windows (WebView2), comme l'officiel : fines, sans
+   flèches. Seulement sous Windows (attribut posé par src/lib/platform.ts) :
+   WebKitGTK applique aussi ces pseudo-éléments, et garde les barres de GTK.
+   Sombre selon la classe « dark » (thème choisi), pas prefers-color-scheme. */
+html[data-platform="windows"]::-webkit-scrollbar,
+html[data-platform="windows"] ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+html[data-platform="windows"]::-webkit-scrollbar-track,
+html[data-platform="windows"] ::-webkit-scrollbar-track,
+html[data-platform="windows"]::-webkit-scrollbar-corner,
+html[data-platform="windows"] ::-webkit-scrollbar-corner {
+  background: #fbf1e4;
+}
+
+html[data-platform="windows"]::-webkit-scrollbar-thumb,
+html[data-platform="windows"] ::-webkit-scrollbar-thumb {
+  background: #d9c3ab;
+  border-radius: 6px;
+}
+
+html[data-platform="windows"]::-webkit-scrollbar-thumb:hover,
+html[data-platform="windows"] ::-webkit-scrollbar-thumb:hover {
+  background: #bfa58c;
+}
+
+html[data-platform="windows"].dark::-webkit-scrollbar-track,
+html[data-platform="windows"].dark ::-webkit-scrollbar-track,
+html[data-platform="windows"].dark::-webkit-scrollbar-corner,
+html[data-platform="windows"].dark ::-webkit-scrollbar-corner {
+  background: #24160e;
+}
+
+html[data-platform="windows"].dark::-webkit-scrollbar-thumb,
+html[data-platform="windows"].dark ::-webkit-scrollbar-thumb {
+  background: #4f3d31;
+}
+
+html[data-platform="windows"].dark::-webkit-scrollbar-thumb:hover,
+html[data-platform="windows"].dark ::-webkit-scrollbar-thumb:hover {
+  background: #6b5647;
+}
+
+html[data-platform="windows"]::-webkit-scrollbar-button,
+html[data-platform="windows"] ::-webkit-scrollbar-button {
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+/* Réponses : le greffon typography fige les couleurs de la palette par
+   défaut de Tailwind (gris) dans ses variables ; celles du thème, hors de
+   toute couche pour passer avant prose-neutral et prose-invert. Liens en roux
+   lisible (souligné gardé). */
+.prose {
+  --tw-prose-body: var(--color-neutral-800);
+  --tw-prose-headings: var(--color-neutral-900);
+  --tw-prose-lead: var(--color-neutral-600);
+  --tw-prose-links: var(--color-accent-fg);
+  --tw-prose-bold: var(--color-neutral-900);
+  --tw-prose-counters: var(--color-neutral-500);
+  --tw-prose-bullets: var(--color-neutral-400);
+  --tw-prose-hr: var(--color-neutral-200);
+  --tw-prose-quotes: var(--color-neutral-900);
+  --tw-prose-quote-borders: var(--color-neutral-300);
+  --tw-prose-captions: var(--color-neutral-500);
+  --tw-prose-kbd: var(--color-neutral-900);
+  --tw-prose-kbd-shadows: 42 26 16;
+  --tw-prose-code: var(--color-neutral-900);
+  --tw-prose-pre-code: var(--color-neutral-200);
+  --tw-prose-pre-bg: var(--color-neutral-800);
+  --tw-prose-th-borders: var(--color-neutral-300);
+  --tw-prose-td-borders: var(--color-neutral-200);
+}
+
+.dark .prose {
+  --tw-prose-body: var(--color-neutral-200);
+  --tw-prose-headings: var(--color-white);
+  --tw-prose-lead: var(--color-neutral-400);
+  --tw-prose-bold: var(--color-white);
+  --tw-prose-counters: var(--color-neutral-400);
+  --tw-prose-bullets: var(--color-neutral-500);
+  --tw-prose-hr: var(--color-neutral-700);
+  --tw-prose-quotes: var(--color-neutral-100);
+  --tw-prose-quote-borders: var(--color-neutral-700);
+  --tw-prose-captions: var(--color-neutral-400);
+  --tw-prose-kbd: var(--color-white);
+  --tw-prose-kbd-shadows: 255 244 232;
+  --tw-prose-code: var(--color-white);
+  --tw-prose-pre-code: var(--color-neutral-300);
+  --tw-prose-pre-bg: var(--color-neutral-950);
+  --tw-prose-th-borders: var(--color-neutral-600);
+  --tw-prose-td-borders: var(--color-neutral-700);
+}
+
+/* Réponse rendue dans un aplat roux (réponse choisie d'un cours) : texte
+   encre dans les deux thèmes, quelle que soit la couleur que le rendu des
+   réponses donne à ses éléments en sombre ; code en ligne sur un voile encre. */
+.bg-accent .prose,
+.bg-accent .prose :is(p, li, strong, em, a, code, h1, h2, h3, h4) {
+  color: var(--color-neutral-900);
+}
+
+.bg-accent .prose code {
+  background-color: rgb(42 26 16 / 0.12);
+}
+
+/* messaging-style typing indicator animation */
+@keyframes typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+/* Onglet Study (propre à ChatonLM). */
+
+/* Carte suivante : glisse et apparaît. */
+@keyframes study-card-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Étape révélée (solution, « À retenir »), bulle du tuteur. */
+@keyframes study-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Coche d'un palier réussi, étoile gagnée. */
+@keyframes study-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Bonne réponse : petit rebond. */
+@keyframes study-bounce {
+  0%,
+  100% {
+    transform: none;
+  }
+  40% {
+    transform: translateY(-4px) scale(1.02);
+  }
+  70% {
+    transform: translateY(1px);
+  }
+}
+
+/* Mauvaise réponse : légère secousse. */
+@keyframes study-shake {
+  0%,
+  100% {
+    transform: none;
+  }
+  20%,
+  60% {
+    transform: translateX(-5px);
+  }
+  40%,
+  80% {
+    transform: translateX(5px);
+  }
+}
+
+/* Palier en cours : halo qui respire. */
+@keyframes study-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(242 138 56 / 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgb(242 138 56 / 0);
+  }
+}
+
+/* Flamme de la série de bonnes réponses. */
+@keyframes study-flame {
+  0%,
+  100% {
+    transform: scale(1) rotate(-4deg);
+  }
+  50% {
+    transform: scale(1.12) rotate(4deg);
+  }
+}
+
+/* Confettis : tombent en tournant, puis disparaissent. */
+@keyframes study-confetti {
+  0% {
+    opacity: 1;
+    transform: translateY(-10px) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(220px) rotate(540deg);
+  }
+}

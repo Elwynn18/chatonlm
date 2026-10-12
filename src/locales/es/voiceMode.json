@@ -1,0 +1,63 @@
+{
+  "button": {
+    "start": "Iniciar el modo de voz",
+    "title": "Modo de voz ({keys})"
+  },
+  "bar": {
+    "phase": {
+      "starting": "Preparando…",
+      "listening": "Escuchando…",
+      "transcribing": "Transcribiendo…",
+      "thinking": "Pensando…",
+      "loadingModel": "Cargando modelo…",
+      "downloadingModel": "Descargando modelo…",
+      "searching": "Buscando en la web…",
+      "speaking": "Leyendo en voz alta…",
+      "muted": "Micrófono apagado",
+      "paused": "En pausa — haz clic para reanudar",
+      "downloading": "Descargando los archivos del modo de voz…",
+      "downloadingProgress": "Descargando los archivos del modo de voz… {percent}"
+    },
+    "help": {
+      "handsFree": "<key>Espacio</key>: terminé · <key>Esc</key>: terminar",
+      "interrupt": "<key>Espacio</key>: interrumpir · <key>Esc</key>: terminar",
+      "pushToTalk": "Mantén <key>Espacio</key> para hablar · <key>Esc</key>: terminar",
+      "paused": "<key>Espacio</key>: reanudar · <key>Esc</key>: terminar"
+    },
+    "talk": {
+      "done": "Terminé",
+      "interrupt": "Interrumpir",
+      "hold": "Mantén pulsado para hablar",
+      "resume": "Volver a escuchar"
+    },
+    "mute": "Silenciar el micrófono",
+    "end": "Terminar",
+    "endLabel": "Terminar el modo de voz"
+  },
+  "notice": {
+    "unsupportedLanguage": "Esta respuesta no está en inglés, francés ni español: se escribe, pero no se lee en voz alta.",
+    "missingVoice": {
+      "en": "La voz inglesa no está descargada: esta respuesta se escribe, pero no se lee en voz alta.",
+      "es": "La voz española no está descargada: esta respuesta se escribe, pero no se lee en voz alta.",
+      "fr": "La voz francesa no está descargada: esta respuesta se escribe, pero no se lee en voz alta."
+    }
+  },
+  "download": {
+    "title": {
+      "one": "¿Descargar un archivo para el modo de voz?",
+      "other": "¿Descargar {count} archivos para el modo de voz?"
+    },
+    "intro": {
+      "one": "El modo de voz necesita este archivo. Se descarga una sola vez desde Internet y se queda en este equipo.",
+      "other": "El modo de voz necesita estos archivos. Se descargan una sola vez desde Internet y se quedan en este equipo."
+    },
+    "speechModel": "Reconocimiento de voz: {name} ({size})",
+    "voice": "Voz: {name} ({size})",
+    "confirm": "Descargar e iniciar",
+    "failed": "No se pudieron descargar los archivos del modo de voz. Vuelve a intentarlo.",
+    "cancelled": "Se detuvo la descarga de los archivos del modo de voz."
+  },
+  "errors": {
+    "noModel": "Elige un modelo con quien hablar."
+  }
+}

@@ -1,0 +1,183 @@
+{
+  "description": "Web search with an Ollama account linked to the server: a first answer made of thinking and a web_search call, its result, then a second answer that quotes it.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "What is the latest Ollama release?",
+    "model": "chatonlm-search",
+    "webSearch": true
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "What is the latest Ollama release?",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "type": "loading"
+    },
+    {
+      "type": "loaded"
+    },
+    {
+      "createdAt": 1700000000000,
+      "messageId": 2,
+      "type": "replyStarted"
+    },
+    {
+      "text": "The user wants a",
+      "type": "thinking"
+    },
+    {
+      "text": " web search.",
+      "type": "thinking"
+    },
+    {
+      "messageId": 2,
+      "toolCalls": [
+        {
+          "arguments": "{\"query\":\"What is the latest Ollama release?\"}",
+          "error": null,
+          "name": "web_search",
+          "result": null
+        }
+      ],
+      "type": "toolCalls"
+    },
+    {
+      "error": null,
+      "index": 0,
+      "messageId": 2,
+      "result": "{\"results\":[{\"title\":\"Result 1 for What is the latest Ollama release?\",\"url\":\"https://example.com/1?q=What+is+the+latest+Ollama+release%3F\",\"content\":\"Content 1 about What is the latest Ollama release?.\"},{\"title\":\"Result 2 for What is the latest Ollama release?\",\"url\":\"https://example.com/2?q=What+is+the+latest+Ollama+release%3F\",\"content\":\"Content 2 about What is the latest Ollama release?.\"}]}",
+      "type": "toolResult"
+    },
+    {
+      "createdAt": 1700000000000,
+      "messageId": 3,
+      "type": "replyStarted"
+    },
+    {
+      "text": "Found: {\"results",
+      "type": "content"
+    },
+    {
+      "text": "\":[{\"title\":\"Res",
+      "type": "content"
+    },
+    {
+      "text": "ult 1 for What i",
+      "type": "content"
+    },
+    {
+      "text": "s the latest Oll",
+      "type": "content"
+    },
+    {
+      "text": "ama release?\",\"u",
+      "type": "content"
+    },
+    {
+      "text": "rl\":\"https://exa",
+      "type": "content"
+    },
+    {
+      "text": "mple.com/1?q=Wha",
+      "type": "content"
+    },
+    {
+      "text": "t+is+the+latest+",
+      "type": "content"
+    },
+    {
+      "text": "Ollama+release%3",
+      "type": "content"
+    },
+    {
+      "text": "F\",\"content\":\"Co",
+      "type": "content"
+    },
+    {
+      "text": "ntent 1 about Wh",
+      "type": "content"
+    },
+    {
+      "text": "at is the latest",
+      "type": "content"
+    },
+    {
+      "text": " Ollama release?",
+      "type": "content"
+    },
+    {
+      "text": ".\"},{\"title\":\"Re",
+      "type": "content"
+    },
+    {
+      "text": "sult 2 for What ",
+      "type": "content"
+    },
+    {
+      "text": "is the latest Ol",
+      "type": "content"
+    },
+    {
+      "text": "lama release?\",\"",
+      "type": "content"
+    },
+    {
+      "text": "url\":\"https://ex",
+      "type": "content"
+    },
+    {
+      "text": "ample.com/2?q=Wh",
+      "type": "content"
+    },
+    {
+      "text": "at+is+the+latest",
+      "type": "content"
+    },
+    {
+      "text": "+Ollama+release%",
+      "type": "content"
+    },
+    {
+      "text": "3F\",\"content\":\"C",
+      "type": "content"
+    },
+    {
+      "text": "ontent 2 about W",
+      "type": "content"
+    },
+    {
+      "text": "hat is the lates",
+      "type": "content"
+    },
+    {
+      "text": "t Ollama release",
+      "type": "content"
+    },
+    {
+      "text": "?.\"}]}",
+      "type": "content"
+    },
+    {
+      "messageId": 3,
+      "type": "done"
+    }
+  ],
+  "error": null
+}

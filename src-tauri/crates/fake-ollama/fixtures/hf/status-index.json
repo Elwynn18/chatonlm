@@ -1,0 +1,76 @@
+{
+ "data": {
+  "id": "124692",
+  "type": "status_page",
+  "attributes": {
+   "aggregate_state": "operational",
+   "updated_at": "2026-10-05T14:18:10.255Z"
+  }
+ },
+ "included": [
+  {
+   "id": "84641",
+   "type": "status_page_resource",
+   "attributes": {
+    "public_name": "Huggingface Hub",
+    "status": "operational"
+   }
+  },
+  {
+   "id": "84642",
+   "type": "status_page_resource",
+   "attributes": {
+    "public_name": "Git Hosting and Serving",
+    "status": "operational"
+   }
+  },
+  {
+   "id": "8379104",
+   "type": "status_page_resource",
+   "attributes": {
+    "public_name": "Inference Endpoints UI",
+    "status": "operational"
+   }
+  },
+  {
+   "id": "8379105",
+   "type": "status_page_resource",
+   "attributes": {
+    "public_name": "Inference Endpoints API",
+    "status": "operational"
+   }
+  },
+  {
+   "id": "306621",
+   "type": "status_page_resource",
+   "attributes": {
+    "public_name": "Spaces Proxy",
+    "status": "operational"
+   }
+  },
+  {
+   "id": "8810148",
+   "type": "status_page_resource",
+   "attributes": {
+    "public_name": "AWS CDN",
+    "status": "operational"
+   }
+  },
+  {
+   "id": "8810143",
+   "type": "status_page_resource",
+   "attributes": {
+    "public_name": "Google cloud CDN",
+    "status": "operational"
+   }
+  },
+  {
+   "id": "8951453",
+   "type": "status_page_resource",
+   "attributes": {
+    "public_name": "Jobs",
+    "status": "operational"
+   }
+  }
+ ]
+}

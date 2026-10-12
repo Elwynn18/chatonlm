@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="{{lang}}" class="sans-js">
+  <head>
+    {{>head.html}}
+    <meta name="robots" content="noindex" />
+    <title>{{t:meta.not_found.title}}</title>
+  </head>
+  <body class="page-texte">
+    {{>header.html}}
+    <main id="contenu" class="cadre">
+      <div class="deux-colonnes">
+        <div class="prose">
+          <h1>{{h:not_found.title}}</h1>
+          <p class="chapo">{{t:not_found.text}}</p>
+          <br />
+          <p><a class="bouton" href="/{{lang}}/">{{t:not_found.back}}</a></p>
+        </div>
+        <div class="dessin" aria-hidden="true">
+          <svg class="chaton--dort" viewBox="0 150 560 330">
+            <ellipse cx="290" cy="452" rx="260" ry="15" fill="#F0DCC5" />
+            <path d="M150 440C120 330 200 232 320 232C440 232 520 310 508 400C504 432 480 446 440 446Z" fill="#F28A38" />
+            <path d="M300 244l-6 34M350 248l-2 36M400 262l4 34M446 290l12 30" fill="none" stroke="#D9701F" stroke-width="12" stroke-linecap="round" />
+            <path d="M500 404C520 452 430 462 330 446" fill="none" stroke="#F28A38" stroke-width="36" stroke-linecap="round" />
+            <path d="M500 404C520 452 430 462 330 446" fill="none" stroke="#D9701F" stroke-width="36" stroke-dasharray="11 30" stroke-dashoffset="-30" />
+            <ellipse cx="208" cy="358" rx="118" ry="112" fill="#D9701F" opacity=".5" />
+            <g transform="translate(26 152) scale(.66)">{{>cat-head.svg}}</g>
+            <ellipse cx="150" cy="440" rx="30" ry="14" fill="#FFF4E8" />
+            <ellipse cx="246" cy="440" rx="30" ry="14" fill="#FFF4E8" />
+          </svg>
+        </div>
+      </div>
+    </main>
+    {{>footer.html}}
+  </body>
+</html>

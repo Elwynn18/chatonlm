@@ -1,0 +1,12 @@
+<dialog class="fenetre-contact" data-dialogue aria-labelledby="dialogue-titre">
+      <svg class="guetteur" viewBox="60 60 392 330" aria-hidden="true">{{>cat-head.svg}}</svg>
+      {{>cat-paws.svg}}
+      <div class="fenetre-contact-corps">
+        <button class="fenetre-contact-fermer" type="button" data-fermer aria-label="{{t:contact.close}}">
+          <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2.400" stroke-linecap="round" aria-hidden="true"><path d="M4 4l10 10M14 4L4 14"/></svg>
+        </button>
+        <h2 id="dialogue-titre">{{h:contact.title}}</h2>
+        <p class="chapo">{{t:contact.lead}}</p>
+        {{>contact-form.html}}
+      </div>
+    </dialog>

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Faux chown : journalise ; FAKE_FAIL contient « chown » pour échouer.
+printf '%s\n' "$*" >> "$CHATONLM_TEST_ROOT/log/chown.log"
+case " ${FAKE_FAIL:-} " in *" chown "*) exit 1 ;; esac
+exit 0

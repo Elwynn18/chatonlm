@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="{{lang}}" class="sans-js">
+  <head>
+    {{>head.html}}
+    <title>{{t:meta.legal.title}}</title>
+    <meta name="description" content="{{t:meta.legal.description}}" />
+    <meta property="og:title" content="{{t:meta.legal.title}}" />
+    <meta property="og:description" content="{{t:meta.legal.description}}" />
+    {{>head-index.html}}
+  </head>
+  <body class="page-texte">
+    {{>header.html}}
+    <main id="contenu" class="cadre">
+      <article class="prose">
+        <h1>{{h:legal.title}}</h1>
+        <p class="chapo">{{t:legal.lead}}</p>
+        {{h:legal.body}}
+        <p class="discret">{{t:legal.updated}}</p>
+      </article>
+    </main>
+    {{>footer.html}}
+    {{>contact-dialog.html}}
+  </body>
+</html>

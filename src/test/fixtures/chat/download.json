@@ -1,0 +1,130 @@
+{
+  "description": "The model isn't installed: it is downloaded (progress of its largest layer, then done), loaded, then it answers.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "Say hello in one word.",
+    "model": "chatonlm-pull"
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "Say hello in one word.",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "completed": 0,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "completed": 504658657,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "completed": 1009317314,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "completed": 1513975971,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "completed": 2018634629,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "completed": 2523293286,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "completed": 3027951943,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "completed": 3532610601,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "completed": 4037269258,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "completed": 4541927915,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "completed": 5046586573,
+      "done": false,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "completed": 5046586573,
+      "done": true,
+      "total": 5046586573,
+      "type": "download"
+    },
+    {
+      "type": "loading"
+    },
+    {
+      "type": "loaded"
+    },
+    {
+      "createdAt": 1700000000000,
+      "messageId": 2,
+      "type": "replyStarted"
+    },
+    {
+      "text": "\"",
+      "type": "content"
+    },
+    {
+      "text": "Hi",
+      "type": "content"
+    },
+    {
+      "text": "!\"",
+      "type": "content"
+    },
+    {
+      "messageId": 2,
+      "type": "done"
+    }
+  ],
+  "error": null
+}

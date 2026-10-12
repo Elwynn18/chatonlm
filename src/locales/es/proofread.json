@@ -1,0 +1,60 @@
+{
+  "title": "Corrección",
+  "description": "Pega o escribe un texto y luego corrige sus errores o reformúlalo. El texto conserva su idioma y su sentido.",
+  "model": {
+    "label": "Modelo",
+    "sameAsChat": "El del chat ({model})",
+    "sameAsChatNone": "El del chat",
+    "notInstalled": "{name} (no instalado)",
+    "saveError": "No se pudo guardar el modelo: {message}"
+  },
+  "editor": {
+    "label": "Texto que corregir",
+    "placeholder": "Pega o escribe un texto que corregir"
+  },
+  "running": {
+    "correcting": "Corrigiendo…",
+    "rephrasing": "Reformulando…",
+    "progress": "Fragmento {current} de {total}",
+    "stopping": "Deteniendo…"
+  },
+  "review": {
+    "label": "Texto corregido",
+    "labelRephrased": "Texto reformulado",
+    "editHint": "Escribe o haz clic para editar el texto",
+    "deleted": "eliminado:",
+    "inserted": "añadido:",
+    "corrections": {
+      "one": "{count} corrección",
+      "other": "{count} correcciones"
+    },
+    "noMistakes": "No se encontraron errores",
+    "noMistakesPartial": "No hay errores en la parte corregida",
+    "noChange": "No se hizo ninguna corrección",
+    "rephrased": "Texto reformulado",
+    "rephrasedPartial": "Texto reformulado en parte",
+    "kept": "Algunos fragmentos se dejaron tal cual: la respuesta del modelo no parecía una corrección.",
+    "keptRephrase": "Algunos fragmentos se dejaron tal cual: la respuesta del modelo no parecía una reescritura del texto.",
+    "partial": "El resto del texto se dejó tal cual.",
+    "stopped": "Detenido: el resto del texto se dejó tal cual.",
+    "fromSelection": "Texto seleccionado en otra aplicación y corregido."
+  },
+  "saved": {
+    "note": "Tu texto se guardó aparte para mostrar la selección corregida.",
+    "restore": "Volver a tu texto"
+  },
+  "actions": {
+    "withKeys": "{action} ({keys})",
+    "correct": "Corregir",
+    "rephrase": "Reformular",
+    "stop": "Detener",
+    "undo": "Deshacer",
+    "redo": "Rehacer",
+    "copyFailed": "Error al copiar"
+  },
+  "error": {
+    "chooseModel": "Elegir un modelo",
+    "openHub": "Abrir ModelHub",
+    "tryAgain": "Volver a intentar"
+  }
+}

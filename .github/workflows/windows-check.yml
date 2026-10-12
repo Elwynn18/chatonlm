@@ -1,0 +1,106 @@
+# Contrôle de compilation de ChatonLM pour Windows (x86_64-pc-windows-msvc) :
+# `cargo check` de tout l'espace de travail sur un runner Windows, sans rien
+# construire ni publier. Sert à obtenir la liste réelle des erreurs.
+#
+# Lancement : à la main (workflow_dispatch) ou en poussant une branche win/**
+# (et non ci/** : packages.yml construirait aussi les paquets Linux). Aucun
+# secret. Les minutes d'un runner Windows coûtent plus cher que celles d'un
+# runner Linux : pas de lancement sur chaque commit.
+name: Windows (contrôle)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "win/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: cargo check (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Rust (rust-toolchain.toml)
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal
+          rustc --version --verbose
+          cargo --version
+          cmake --version | head -n 1
+          clang --version | head -n 1 || true
+
+      - name: Cache Cargo (restauration)
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            src-tauri/target
+          key: windows-check-${{ hashFiles('rust-toolchain.toml', 'src-tauri/Cargo.lock') }}
+          restore-keys: |
+            windows-check-
+
+      # Le contexte de Tauri exige le dossier du frontend à la compilation :
+      # une page vide suffit pour un contrôle.
+      - name: Frontend factice
+        run: |
+          mkdir -p dist
+          echo '<!doctype html><title>ChatonLM</title>' > dist/index.html
+
+      # --keep-going : toutes les erreurs, pas seulement celles du premier
+      # crate en échec. Le journal complet part en artefact.
+      - name: cargo check
+        id: check
+        run: |
+          set +e
+          cargo check --manifest-path src-tauri/Cargo.toml --workspace --all-targets --locked --keep-going 2>&1 | tee check.log
+          status="${PIPESTATUS[0]}"
+          {
+            echo "### cargo check : code de sortie $status"
+            echo
+            echo '```'
+            grep -E "^(error|warning: build failed)|could not compile|failed to run custom build" check.log | sort | uniq -c | sort -rn | head -n 80
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Cache Cargo (sauvegarde)
+        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            src-tauri/target
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+
+      - name: Journal
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-check-log
+          path: check.log
+          retention-days: 7

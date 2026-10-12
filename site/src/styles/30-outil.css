@@ -1,0 +1,260 @@
+/* chatonlm.com : pages des outils (src/pages/tool.html, une par outil). Elles
+   reprennent les pièces de l'accueil : la fenêtre dessinée arrêtée sur l'écran
+   de l'outil, le fil et ses perles pour les étapes, les questions, le chaton. */
+
+/* 1. Haut de page : ce que fait l'outil, et la fenêtre qui le montre */
+.outil-tete {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: clamp(28px, 5vw, 76px);
+  align-items: center;
+  padding-block: clamp(20px, 3.4vw, 44px) clamp(50px, 8vw, 100px);
+}
+.outil-tete-texte {
+  position: relative;
+  z-index: 2;
+}
+.outil-tete-texte > :not(h1),
+.outil-tete h1 > span {
+  animation: monte 0.7s var(--doux) backwards;
+}
+.outil-tete h1 > .surtitre {
+  animation-delay: 0.06s;
+}
+.outil-tete h1 > .outil-titre {
+  animation-delay: 0.12s;
+}
+.outil-tete .chapo {
+  animation-delay: 0.2s;
+  margin-bottom: 32px;
+}
+.outil-tete .actions {
+  animation-delay: 0.28s;
+}
+.outil-tete .scene .app {
+  animation: pose 0.8s var(--ressort) 0.15s backwards;
+}
+.retour {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--encre-2);
+  text-decoration: none;
+}
+.retour::before {
+  content: "←";
+}
+.retour:hover {
+  color: var(--encre);
+}
+/* Comme sur l'accueil, le titre de la page porte le surtitre et le grand titre. */
+.outil-tete h1 {
+  font: inherit;
+  letter-spacing: normal;
+  text-wrap: wrap;
+  margin: 26px 0;
+}
+.outil-tete h1 > span {
+  display: block;
+}
+.outil-titre {
+  font-family: var(--f-titre);
+  font-weight: 600;
+  font-size: clamp(48px, 6.8vw, 100px);
+  line-height: 0.92;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+  margin-top: 22px;
+}
+/* Ici la fenêtre est un décor : rien ne s'y clique ni ne s'y survole (le
+   chaton, lui, se hausse toujours quand le pointeur passe sur la scène). */
+.page-outil .app {
+  pointer-events: none;
+}
+
+/* 2. Les étapes : trois perles sur le fil */
+.etapes {
+  padding-block: clamp(40px, 7vw, 96px) clamp(64px, 9vw, 120px);
+}
+.etapes h2 {
+  margin-bottom: clamp(34px, 5vw, 60px);
+}
+.etapes-liste {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(22px, 3.4vw, 48px);
+  counter-reset: etape;
+}
+.etapes-liste::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  right: 0;
+  top: 9px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--laine);
+}
+.etapes-liste li {
+  position: relative;
+  padding-top: 50px;
+  counter-increment: etape;
+}
+.etapes-liste li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--laine);
+  box-shadow: 0 0 0 5px var(--creme);
+}
+.etapes-liste h3 {
+  margin-bottom: 10px;
+}
+.etapes-liste h3::before {
+  content: counter(etape) ". ";
+  color: var(--roux-fonce);
+}
+.etapes-liste p {
+  font-size: 17.5px;
+  color: var(--encre-2);
+}
+
+/* 3. Ce que l'outil sait faire */
+.faits {
+  background: var(--sable);
+  padding-block: clamp(60px, 9vw, 120px);
+}
+.faits h2 {
+  margin-bottom: clamp(30px, 4.4vw, 52px);
+}
+.faits-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.faits-liste li {
+  background: var(--surface);
+  border-radius: 22px;
+  padding: 26px 26px 28px;
+  box-shadow: 0 0 0 1.5px var(--trait);
+}
+.faits-liste h3 {
+  font-size: clamp(22px, 2vw, 27px);
+  margin-bottom: 10px;
+}
+.faits-liste p {
+  font-size: 17px;
+  color: var(--encre-2);
+}
+
+/* 4. Vie privée */
+.prive {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: clamp(30px, 6vw, 90px);
+  align-items: start;
+  padding-block: clamp(70px, 9vw, 120px) 0;
+}
+.prive .chapo {
+  margin-bottom: 22px;
+}
+
+/* Accueil : le lien de la description d'un outil vers sa page. */
+.outil-textes a {
+  color: var(--encre);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .outil-tete,
+  .prive {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .etapes-liste {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 30px;
+  }
+  .etapes-liste::before {
+    left: 9px;
+    right: auto;
+    top: 11px;
+    bottom: 0;
+    width: 5px;
+    height: auto;
+  }
+  .etapes-liste li {
+    padding: 0 0 0 46px;
+  }
+  .faits-liste {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (min-width: 620px) and (max-width: 900px) {
+  .faits-liste {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 5. Les six outils, reliés entre eux : la page en cours est marquée. */
+.autres {
+  padding-block: clamp(10px, 3vw, 40px) clamp(50px, 7vw, 90px);
+}
+.autres h2 {
+  font-size: clamp(30px, 3.6vw, 46px);
+  margin-bottom: 26px;
+}
+.autres ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.autres a {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 99px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--trait);
+  font-weight: 700;
+  color: var(--encre);
+  text-decoration: none;
+  transition: background-color 0.2s;
+}
+.autres a:hover {
+  background: var(--sable);
+}
+.autres a[aria-current="page"] {
+  background: var(--encre);
+  box-shadow: none;
+  color: var(--creme);
+}
+.autres svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.autres a[aria-current="page"] svg {
+  color: var(--roux);
+}

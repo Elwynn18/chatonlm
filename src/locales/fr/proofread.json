@@ -1,0 +1,60 @@
+{
+  "title": "Correction",
+  "description": "Collez ou tapez un texte, puis corrigez ses fautes ou reformulez-le. Le texte garde sa langue et son sens.",
+  "model": {
+    "label": "Modèle",
+    "sameAsChat": "Celui de la conversation ({model})",
+    "sameAsChatNone": "Celui de la conversation",
+    "notInstalled": "{name} (non installé)",
+    "saveError": "Impossible d'enregistrer le modèle : {message}"
+  },
+  "editor": {
+    "label": "Texte à corriger",
+    "placeholder": "Collez ou tapez un texte à corriger"
+  },
+  "running": {
+    "correcting": "Correction en cours…",
+    "rephrasing": "Reformulation…",
+    "progress": "Passage {current} sur {total}",
+    "stopping": "Arrêt en cours…"
+  },
+  "review": {
+    "label": "Texte corrigé",
+    "labelRephrased": "Texte reformulé",
+    "editHint": "Tapez ou cliquez pour modifier le texte",
+    "deleted": "supprimé :",
+    "inserted": "ajouté :",
+    "corrections": {
+      "one": "{count} correction",
+      "other": "{count} corrections"
+    },
+    "noMistakes": "Aucune faute trouvée",
+    "noMistakesPartial": "Aucune faute dans la partie corrigée",
+    "noChange": "Aucune correction apportée",
+    "rephrased": "Texte reformulé",
+    "rephrasedPartial": "Texte reformulé en partie",
+    "kept": "Certains passages ont été gardés tels quels : la réponse du modèle ne ressemblait pas à une correction.",
+    "keptRephrase": "Certains passages ont été gardés tels quels : la réponse du modèle ne ressemblait pas à une réécriture du texte.",
+    "partial": "Le reste du texte a été laissé tel quel.",
+    "stopped": "Arrêté : le reste du texte a été laissé tel quel.",
+    "fromSelection": "Texte sélectionné dans une autre application, puis corrigé."
+  },
+  "saved": {
+    "note": "Votre texte a été mis de côté pour montrer la sélection corrigée.",
+    "restore": "Revenir à votre texte"
+  },
+  "actions": {
+    "withKeys": "{action} ({keys})",
+    "correct": "Corriger",
+    "rephrase": "Reformuler",
+    "stop": "Arrêter",
+    "undo": "Annuler",
+    "redo": "Rétablir",
+    "copyFailed": "Échec de la copie"
+  },
+  "error": {
+    "chooseModel": "Choisir un modèle",
+    "openHub": "Ouvrir ModelHub",
+    "tryAgain": "Réessayer"
+  }
+}

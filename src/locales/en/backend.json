@@ -1,0 +1,339 @@
+{
+  "dialogs": {
+    "selectFiles": "Select Files",
+    "supportedFiles": "Supported Files",
+    "selectModelDirectory": "Select Model Directory"
+  },
+  "tray": {
+    "show": "Show ChatonLM",
+    "startDictation": "Start dictation",
+    "stopDictation": "Stop dictation",
+    "cancelDictation": "Cancel dictation",
+    "dictationSettings": "Dictation settings…",
+    "updateAvailable": "An update is available",
+    "restartToUpdate": "Restart to update",
+    "quit": "Quit ChatonLM",
+    "ready": "Ready",
+    "listening": "Listening…",
+    "transcribing": "Transcribing…",
+    "polishing": "Polishing…",
+    "hint": {
+      "summary": "ChatonLM is still running",
+      "body": "ChatonLM keeps running in the system tray so your shortcuts stay available. Use Quit in its menu to exit."
+    }
+  },
+  "notifications": {
+    "listening": "Listening…",
+    "pressAgain": "Press {trigger} again to stop",
+    "release": "Release {trigger} to stop",
+    "runAgain": "Run the shortcut again to stop",
+    "transcribing": "Transcribing…",
+    "copied": "Copied to clipboard",
+    "copiedRaw": "Copied to clipboard (not polished)",
+    "notCopied": "Could not copy to the clipboard",
+    "ready": "Transcription ready",
+    "readyRaw": "Transcription ready (not polished)",
+    "copy": "Copy",
+    "show": "Show",
+    "textHidden": "Text hidden",
+    "failed": "Dictation failed"
+  },
+  "shortcut": {
+    "description": "Start or stop dictation",
+    "proofreadDescription": "Correct selected text",
+    "noPortal": "Global shortcuts are not available on this desktop",
+    "refused": "The shortcut was not set",
+    "failed": "The desktop could not set the shortcut",
+    "failedWithError": "The desktop could not set the shortcut: {error}",
+    "lost": "The desktop stopped the shortcut",
+    "turnOnFirst": "Turn on dictation first",
+    "noneWanted": "Turn on a global shortcut first",
+    "notSet": "The shortcut is not set yet",
+    "cannotConfigure": "This desktop cannot change the shortcut from ChatonLM",
+    "settingsFailed": "Could not open the shortcut settings: {error}",
+    "taken": "{trigger} is already used by another app",
+    "registerFailed": "Windows could not set the shortcut: {error}",
+    "invalidKey": "Use a letter, a digit or a function key (F1 to F24)",
+    "needsModifier": "Add Ctrl, Alt or the Windows key",
+    "sameKeys": "The two shortcuts can't use the same keys",
+    "keys": {
+      "shift": "Shift",
+      "win": "Win"
+    }
+  },
+  "proofread": {
+    "selection": {
+      "correcting": "Correcting the selected text…",
+      "model": "Model: {model}",
+      "copied": "Corrected text copied",
+      "noMistakes": "No mistakes found",
+      "unchanged": "Text copied unchanged",
+      "kept": "Some parts were left unchanged: the model's answer did not look like a correction.",
+      "empty": "No text selected",
+      "emptyHint": "Select some text in any app, then use the shortcut again.",
+      "tooLong": "The selected text is too long",
+      "tooLongHint": "Select at most 100,000 characters.",
+      "noModel": "No model selected",
+      "noModelHint": "Choose a model on the Proofread page of ChatonLM.",
+      "failed": "Proofreading failed",
+      "unreadable": "Cannot read the selected text",
+      "unreadableTimeout": "The app that holds the selected text did not answer.",
+      "unreadableStopped": "Reading the selected text stopped unexpectedly.",
+      "unreadableUnsupported": "This desktop does not let ChatonLM read the selected text.",
+      "cloud": "Selected text not sent",
+      "cloudHint": "The chat model ({model}) runs outside this computer. To proofread with it, choose it on the Proofread page of ChatonLM.",
+      "stopped": "Proofreading stopped",
+      "stoppedHint": "Nothing was copied.",
+      "keysHeld": "Release the shortcut keys, then use the shortcut again.",
+      "copyBlocked": "Windows did not let ChatonLM copy the selected text."
+    },
+    "empty": "There is no text to correct",
+    "tooLong": "The text is too long: 100,000 characters at most",
+    "noModel": "Choose a model for proofreading",
+    "modelNotFound": "The model {model} is not installed",
+    "failed": "Proofreading failed: {detail}",
+    "failedRephrase": "Rephrasing failed: {detail}",
+    "timedOut": "the model took too long to answer",
+    "connectionLost": "the connection to Ollama was lost"
+  },
+  "study": {
+    "noModel": "Choose a model for your courses",
+    "modelNotFound": "The model {model} is not installed",
+    "failed": "Generation failed: {detail}",
+    "timedOut": "the model took too long to answer",
+    "connectionLost": "the connection to Ollama was lost",
+    "invalid": "The model's answers could not be used. Try again, or choose a larger model.",
+    "signedOut": "Web search requires an Ollama account",
+    "whichMeaning": "Which one do you mean?",
+    "topicTooLong": "The topic is too long: 300 characters at most",
+    "badDuration": "A course lasts 10, 20 or 30 minutes",
+    "tooManyDocuments": "3 documents at most",
+    "emptyTopic": "Enter a topic or add a document",
+    "unknownDocument": "This document is no longer available: add it again",
+    "imageDocument": "{name}: images can't be used as course documents",
+    "questionLength": "Ask a question of 1,000 characters at most",
+    "notFound": "course not found",
+    "unavailable": "This action is not available for this course right now",
+    "saveNotes": "Save notes",
+    "markdownFiles": "Markdown files",
+    "notes": {
+      "objectives": "Objectives",
+      "level": "Level {number}: {title}",
+      "keyPoints": "Key points",
+      "pitfall": "**Common mistake:** {text}",
+      "sources": "Sources"
+    }
+  },
+  "dictation": {
+    "disabled": "Dictation is turned off in Settings",
+    "noModel": "Choose a speech model in Settings",
+    "notInstalled": "Speech model not installed",
+    "noDatabase": "The database could not be opened",
+    "noMicrophone": "No microphone found",
+    "microphoneFailed": "Could not open the microphone: {error}",
+    "microphoneBlocked": "Windows is blocking the microphone. In Windows Settings › Privacy & security › Microphone, turn on Microphone access and Let desktop apps access your microphone.",
+    "recordingFailed": "Recording failed: {error}",
+    "noSpeech": "No speech detected",
+    "loadFailed": "Could not load the speech model: {error}",
+    "transcriptionFailed": "Transcription failed: {error}",
+    "cpuUnsupported": "This processor cannot run Whisper models (missing: {features}). Choose a Parakeet model in Settings.",
+    "runtimeUnavailable": "Parakeet can't run: ONNX Runtime could not be loaded ({detail}). Reinstall ChatonLM, or choose a Whisper model in Settings.",
+    "polish": {
+      "skipped": "Polish skipped: the model's answer did not look like your text",
+      "cloud": "Polish skipped: cloud models are not used for dictation",
+      "failed": "Polish failed: {detail}",
+      "tooLong": "the model took too long to answer"
+    },
+    "copyFailed": "Could not copy the text to the clipboard: {reason}",
+    "nothingToCopy": "Nothing to copy",
+    "voiceModeActive": "Voice mode is on: end it to dictate",
+    "models": {
+      "downloading": "This model is downloading: cancel the download first",
+      "stillDownloading": "This model is still downloading: try again in a moment"
+    }
+  },
+  "speechDownloads": {
+    "createFolder": "Could not create the model folder: {error}",
+    "failed": "Download failed: {error}",
+    "unreachable": "Download failed: can't connect to the download server",
+    "resumeRefused": "Download failed: the server refused to resume, try again",
+    "http": "Download failed: HTTP {status}",
+    "tooLarge": "Download failed: {file} is larger than expected",
+    "interrupted": "Download interrupted: {error}",
+    "connectionClosed": "the connection was closed",
+    "damaged": "{file} is damaged (checksum mismatch): download it again",
+    "checkFailed": "Could not check {file}: {error}",
+    "saveFailed": "Could not save {file}: {error}"
+  },
+  "readAloud": {
+    "runtimeUnavailable": "Reading aloud can't run: ONNX Runtime could not be loaded ({detail}). Reinstall ChatonLM."
+  },
+  "voiceMode": {
+    "dictationActive": "A dictation is in progress: finish it first",
+    "speechModelMissing": "Download a speech model first",
+    "voiceMissing": "Download a voice for reading aloud first",
+    "runtimeUnavailable": "Voice mode can't run: ONNX Runtime could not be loaded ({detail}). Reinstall ChatonLM.",
+    "listening": {
+      "detectionFailed": "Speech detection failed: {error}",
+      "microphoneLost": "The microphone stopped working: {error}"
+    }
+  },
+  "attachments": {
+    "fileTypeNotSupported": "File type not supported",
+    "fileTooLarge": "File too large",
+    "errorReadingFile": "Error reading file"
+  },
+  "chat": {
+    "emptyMessage": "the message is empty",
+    "noModel": "no model is selected",
+    "busy": "this chat is already waiting for an answer",
+    "webSearchSignedOut": "Web search requires an Ollama account",
+    "notFound": "chat not found: {id}",
+    "emptyTitle": "the title cannot be empty"
+  },
+  "errors": {
+    "connectionLost": "Connection lost",
+    "connectionLostDetail": "Connection lost: {error}",
+    "database": "database error: {error}",
+    "file": "file error: {error}",
+    "internal": "internal error: {error}",
+    "newerDatabase": "the database was created by a newer version of ChatonLM (schema {found}, supported {supported})",
+    "connectionFailed": "connection failed",
+    "requestFailed": "request failed",
+    "unknown": "error"
+  },
+  "downloads": {
+    "offline": "Unable to download model. Please check your internet connection to download the model for offline use.",
+    "sharded": "This version is split into several files, which Ollama can't download from Hugging Face yet. Choose another version.",
+    "unavailableVersion": "This version isn't available on Hugging Face. Choose another version.",
+    "notGguf": "This repository has no model file Ollama can use.",
+    "notFoundOrPrivate": "This model doesn't exist on Hugging Face, is private, or needs an account to download.",
+    "unreachable": "Can't reach Ollama. Make sure it's running, then try again.",
+    "timedOut": "Hugging Face didn't answer in time. Try again.",
+    "locationChanging": "the model location is being changed: try again once it's done",
+    "serverChanged": "Stopped: ChatonLM now uses another Ollama server. Download it again to use it there.",
+    "hfTimeout": "Hugging Face didn't answer in time",
+    "hfUnreachable": "can't reach Hugging Face: {error}",
+    "hfStatus": "Hugging Face answered with status {status}."
+  },
+  "ollama": {
+    "unreachable": "can't connect to Ollama",
+    "unreachableAt": "can't connect to Ollama at {address}",
+    "timeout": "Ollama didn't answer in time",
+    "requestFailed": "request to Ollama failed: {error}",
+    "http": "Ollama answered HTTP {status}: {message}",
+    "httpStatus": "Ollama answered HTTP {status}",
+    "unexpectedAnswer": "unexpected answer from Ollama: {error}",
+    "unexpectedModels": "unexpected model list from Ollama: {error}",
+    "unexpectedDetails": "unexpected model details from Ollama: {error}",
+    "unexpectedRecommendations": "unexpected model recommendations from Ollama: {error}",
+    "unexpectedLoaded": "unexpected list of loaded models from Ollama: {error}",
+    "unexpectedAccount": "unexpected account details from Ollama: {error}",
+    "modelNotFound": "model '{model}' not found",
+    "installedNotFound": "model not found",
+    "registryTimeout": "the model registry didn't answer in time",
+    "registryUnreachable": "can't reach the model registry: {error}"
+  },
+  "account": {
+    "noConnectUrl": "Failed to fetch connect URL"
+  },
+  "models": {
+    "cloudNotLoaded": "{model} runs on ollama.com: cloud models are not loaded on this computer"
+  },
+  "server": {
+    "address": {
+      "invalid": "invalid server address: {detail}",
+      "unsupportedScheme": "invalid server address: unsupported scheme {scheme}",
+      "credentials": "invalid server address: credentials are not supported",
+      "query": "invalid server address: query strings are not supported",
+      "portOnly": "invalid server address: {value} is not a host; for a port on this computer, enter localhost:{value}",
+      "invalidPort": "invalid server address: invalid port {port}"
+    }
+  },
+  "modelLocation": {
+    "browseFirst": "choose the folder with Browse first",
+    "busy": "the model location is already being changed",
+    "downloadsRunning": "wait for the model downloads to finish, then try again",
+    "systemServiceOnly": "ChatonLM can only change the folder of Ollama's system service",
+    "root": "the Ollama service runs as root: change its model location in a terminal",
+    "noPkexec": "pkexec is not installed",
+    "unusableFolder": "this folder can't hold models ({problem})",
+    "modelConflict": "the new folder already has another version of {model}: ChatonLM doesn't merge them (one of the two would be lost). Choose another folder, or remove one of them first",
+    "specialFile": "{path} is a symbolic link or a special file: ChatonLM can't move it. Move the models yourself, or choose another folder"
+  },
+  "ollamaHome": {
+    "busy": "the Ollama service is already being changed",
+    "root": "the Ollama service runs as root: ChatonLM won't change it"
+  },
+  "builtinOllama": {
+    "unavailable": "this build of ChatonLM doesn't include the built-in Ollama",
+    "noSystemd": "can't reach systemd",
+    "upgradeInProgress": "Ollama is being updated. Try again in a moment.",
+    "failed": {
+      "spawn": "can't start the built-in Ollama: {error}",
+      "notReady": "the built-in Ollama didn't answer within {seconds} seconds",
+      "crashed": "the built-in Ollama stopped unexpectedly several times in a row ({status})"
+    },
+    "exitCode": "exit code {code}",
+    "exitSignal": "stopped by signal {signal}",
+    "exitUnknown": "unknown exit status",
+    "notRunning": "the built-in Ollama isn't running",
+    "notRunningBecause": "the built-in Ollama isn't running: {reason}",
+    "modelsDirMissing": "the models folder {path} doesn't exist"
+  },
+  "links": {
+    "noXdgOpen": "xdg-open is not installed, so links can't be opened",
+    "noBrowser": "no application is set to open web links (xdg-open exited with 3)",
+    "noApplication": "no application is set to open this file (xdg-open exited with 3)",
+    "failed": "xdg-open exited with {code}",
+    "noAppWindows": "no app is set to open this",
+    "openFailed": "Windows could not open it (error {code})"
+  },
+  "menuEntry": {
+    "writeFailed": "Could not add ChatonLM to the applications menu: {error}",
+    "removeFailed": "Could not remove ChatonLM from the applications menu: {error}"
+  },
+  "updates": {
+    "notification": {
+      "summary": "Update available",
+      "body": "ChatonLM version {version} is ready to install"
+    },
+    "notReady": "No update is ready to install",
+    "installing": "The update is already being installed",
+    "nothingToDownload": "There is no update to download",
+    "readOnlyFolder": "ChatonLM cannot replace its AppImage in this folder. Move the AppImage to a folder of your own (for example ~/Applications), then start ChatonLM from there.",
+    "installFailed": "The update could not be installed: {error}",
+    "notConfigured": "The updater is not configured",
+    "signedForOtherVersion": "The update was signed for version {signed}, not {version}",
+    "unsignedVersion": "The update's signature doesn't name its version",
+    "signedForOtherFile": "The update was signed for another kind of package ({file})",
+    "notAppImage": "The downloaded update is not an AppImage",
+    "notDeb": "The downloaded update is not a .deb package",
+    "windows": {
+      "notInstaller": "The downloaded update is not a Windows installer",
+      "launchFailed": "The installer could not be started: {error}",
+      "blocked": "Windows did not allow the installer to run (security policy or antivirus)",
+      "notCompleted": "The installer did not finish. You can try again.",
+      "installFolderReadOnly": "ChatonLM cannot write to its installation folder. Install it again with its installer, in a folder of your own."
+    },
+    "errors": {
+      "noRelease": "The update server returned no release information",
+      "invalidRelease": "The update server sent invalid release information",
+      "timeout": "The update server did not respond in time",
+      "unreachable": "Cannot reach the update server: {error}",
+      "downloadStatus": "The update server refused the download (HTTP {status})",
+      "badSignature": "The update signature does not match ChatonLM's key",
+      "unexpected": "Unexpected error: {error}"
+    },
+    "deb": {
+      "pkexecMissing": "The system password prompt (pkexec) is not available",
+      "dismissed": "The password prompt was closed before the update could be installed",
+      "refused": "The system did not allow the update to be installed (wrong password, or no password prompt available)",
+      "failed": "dpkg could not install the update (code {code}): {output}",
+      "failedCode": "dpkg could not install the update (code {code})"
+    }
+  },
+  "startup": {
+    "newerDatabase": "update ChatonLM to open this database"
+  }
+}

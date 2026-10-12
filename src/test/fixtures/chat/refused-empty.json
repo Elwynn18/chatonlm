@@ -1,0 +1,13 @@
+{
+  "description": "A message made only of spaces is refused: the command fails, no event.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "   ",
+    "model": "qwen3:0.6b"
+  },
+  "events": [],
+  "error": {
+    "kind": "invalid",
+    "message": "the message is empty"
+  }
+}

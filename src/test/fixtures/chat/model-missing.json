@@ -1,0 +1,42 @@
+{
+  "description": "The model is gone when it is loaded (HTTP 404 from /api/generate, after /api/show found it): the send ends with that error, /api/chat is not asked.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "Say hello in one word.",
+    "model": "chatonlm-vanished"
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "Say hello in one word.",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "type": "loading"
+    },
+    {
+      "type": "loaded"
+    },
+    {
+      "kind": "modelMissing",
+      "message": "404 Not Found: model 'chatonlm-vanished' not found",
+      "type": "error"
+    }
+  ],
+  "error": null
+}

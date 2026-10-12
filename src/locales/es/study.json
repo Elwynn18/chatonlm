@@ -1,0 +1,321 @@
+{
+  "title": "Estudiar",
+  "stars": {
+    "one": "{count} estrella de 3",
+    "other": "{count} estrellas de 3"
+  },
+  "home": {
+    "description": "Elige cualquier tema: tu modelo escribe un curso corto con lecciones, ejemplos resueltos y preguntas, paso a paso.",
+    "inProgress": "En curso",
+    "completed": "Terminados",
+    "empty": "Aún no tienes cursos. ¿Qué te gustaría aprender hoy?",
+    "meta": "{level} · {minutes}",
+    "score": "Repaso final: {correct} / {total}",
+    "progress": "Niveles hechos",
+    "listError": "No se pudieron cargar tus cursos: {message}"
+  },
+  "model": {
+    "label": "Modelo",
+    "sameAsChat": "El del chat ({model})",
+    "sameAsChatNone": "El del chat",
+    "notInstalled": "{name} (no instalado)",
+    "saveError": "No se pudo guardar el modelo: {message}",
+    "small": "Los modelos pequeños cometen más errores en los cursos. Un modelo más grande da mejores lecciones."
+  },
+  "form": {
+    "label": "Nuevo curso",
+    "topic": "¿Qué quieres aprender?",
+    "topicPlaceholder": "La fotosíntesis, las listas en Python, la Revolución francesa…",
+    "characters": "{count}/{max}",
+    "level": "Nivel",
+    "duration": "Duración",
+    "minutes": {
+      "one": "{count} min",
+      "other": "{count} min"
+    },
+    "addDocument": "Añadir un documento",
+    "documents": "Documentos",
+    "fileError": "{name}: {error}",
+    "imageRefused": "Una imagen no puede servir para un curso: {name}",
+    "tooManyDocuments": "Un curso puede usar {count} documentos como máximo. Quita alguno para continuar.",
+    "webOn": "El curso usará la búsqueda web",
+    "create": "Crear el curso",
+    "creating": "Creando…",
+    "noModel": "Primero elige un modelo para tus cursos (arriba), o un modelo en el chat."
+  },
+  "levels": {
+    "beginner": "Descubrir",
+    "intermediate": "Tengo nociones",
+    "advanced": "Profundizar"
+  },
+  "status": {
+    "planning": "Preparando…",
+    "unclear": "Espera tu respuesta",
+    "planned": "Listo para empezar",
+    "failed": "No se pudo preparar",
+    "levels": {
+      "one": "{done} de {count} nivel",
+      "other": "{done} de {count} niveles"
+    }
+  },
+  "delete": {
+    "label": "Eliminar {title}",
+    "title": "¿Eliminar «{title}»?",
+    "message": "Se eliminarán el curso y tus respuestas."
+  },
+  "course": {
+    "loading": "Cargando el curso…",
+    "notFound": "Este curso ya no existe.",
+    "readError": "No se pudo abrir el curso: {message}",
+    "backHome": "Volver a los cursos"
+  },
+  "planning": {
+    "title": "Preparando tu curso…",
+    "steps": "Pasos",
+    "documents": {
+      "one": "Leyendo {count} documento",
+      "other": "Leyendo {count} documentos"
+    },
+    "web": "Buscando en la web",
+    "plan": "Escribiendo el plan",
+    "done": "listo"
+  },
+  "unclear": {
+    "fallback": "¿Qué quieres decir exactamente?",
+    "options": "Sentidos posibles",
+    "custom": "¿Otra cosa? Di lo que quieres decir:",
+    "useMeaning": "Usar este sentido",
+    "asIs": "Usar el tema tal cual"
+  },
+  "plan": {
+    "eyebrow": "El plan de tu curso",
+    "duration": {
+      "one": "Unos {count} min",
+      "other": "Unos {count} min"
+    },
+    "levelCount": {
+      "one": "{count} nivel",
+      "other": "{count} niveles"
+    },
+    "objectives": "Objetivos",
+    "levels": "Niveles",
+    "points": "Nociones",
+    "scope": "Se deja de lado: {scope}",
+    "start": "Empezar",
+    "newPlan": "Nuevo plan"
+  },
+  "sources": {
+    "title": "Fuentes"
+  },
+  "failed": {
+    "untitled": "Tus documentos",
+    "unknown": "No se pudo preparar el curso.",
+    "delete": "Eliminar este curso"
+  },
+  "error": {
+    "withoutWeb": "Continuar sin búsqueda web",
+    "signedIn": "Sesión iniciada.",
+    "openHub": "Abrir ModelHub",
+    "retry": "Reintentar"
+  },
+  "path": {
+    "label": "Recorrido del curso",
+    "levelNumber": "Nivel {number}",
+    "node": "Nivel {number}: {title}, {status}",
+    "nodeWithStars": "Nivel {number}: {title}, {status}, {stars}",
+    "passed": "Superado",
+    "review": "Para repasar",
+    "status": {
+      "passed": "superado",
+      "review": "para repasar",
+      "current": "en curso",
+      "locked": "bloqueado",
+      "open": "abierto",
+      "done": "terminado"
+    },
+    "writing": "En preparación…",
+    "finalNode": "Repaso final, {status}"
+  },
+  "reader": {
+    "progress": "Progreso del curso",
+    "progressText": "{done} de {total} pasos",
+    "timeLeft": {
+      "one": "Queda {count} min aprox.",
+      "other": "Quedan {count} min aprox."
+    },
+    "finished": "Terminado",
+    "streak": {
+      "one": "{count} respuesta correcta seguida",
+      "other": "{count} respuestas correctas seguidas"
+    },
+    "footer": "Generado por {model}. Puede equivocarse."
+  },
+  "menu": {
+    "label": "Opciones del curso",
+    "report": "Informar de un error en este nivel",
+    "saveNotes": "Guardar la ficha",
+    "delete": "Eliminar el curso"
+  },
+  "report": {
+    "title": "¿Informar de un error en este nivel?",
+    "message": "Este nivel se volverá a escribir y se borrarán tus respuestas en él.",
+    "confirm": "Reescribir el nivel"
+  },
+  "keys": {
+    "continue": "<kbd>Enter</kbd> para continuar",
+    "reveal": "<kbd>Enter</kbd> para mostrar el siguiente",
+    "check": "<kbd>Enter</kbd> para comprobar",
+    "choose": "<kbd>1</kbd>–<kbd>{count}</kbd> para elegir, <kbd>Enter</kbd> para comprobar"
+  },
+  "card": {
+    "continue": "Continuar",
+    "levelEyebrow": "Nivel {number} · {title}",
+    "part": "Parte {current} de {total}"
+  },
+  "intro": {
+    "eyebrow": "Tu curso",
+    "start": "Empecemos",
+    "resume": "Reanudar",
+    "timeLeft": {
+      "one": "Queda {count} minuto aproximadamente.",
+      "other": "Quedan {count} minutos aproximadamente."
+    },
+    "finished": "Terminaste este curso. Repásalo cuando quieras."
+  },
+  "tutor": {
+    "label": "Tutor",
+    "you": "Tú",
+    "simpler": "En palabras más sencillas",
+    "dontUnderstand": "No lo entiendo",
+    "stop": "Detener",
+    "stopped": "Detenido.",
+    "writing": "El tutor está escribiendo…"
+  },
+  "ask": {
+    "open": "Hacer una pregunta",
+    "openWithCount": {
+      "one": "Hacer una pregunta ({count} hecha)",
+      "other": "Hacer una pregunta ({count} hechas)"
+    },
+    "title": "Pregunta al tutor",
+    "close": "Cerrar",
+    "empty": "¿Algo no está claro en este nivel? Pregunta al tutor.",
+    "label": "Tu pregunta",
+    "placeholder": "Pregunta sobre este nivel…",
+    "send": "Preguntar"
+  },
+  "example": {
+    "title": "Ejemplo resuelto",
+    "tryFirst": "Inténtalo tú primero",
+    "show": "Ver la solución",
+    "nextStep": "Ver el paso siguiente",
+    "showAll": "Verlo todo",
+    "solution": "Solución",
+    "stepCount": "Paso {current} de {total}"
+  },
+  "recap": {
+    "title": "Para recordar",
+    "next": "Mostrar el punto siguiente",
+    "pitfall": "Error frecuente"
+  },
+  "remedy": {
+    "title": "Dicho de otra forma",
+    "try": "Probar preguntas nuevas"
+  },
+  "question": {
+    "practice": "Práctica — no cuenta",
+    "checkpoint": "Validación · {current} de {total}",
+    "check": "Comprobar",
+    "seeResult": "Ver mi resultado",
+    "true": "Verdadero",
+    "false": "Falso",
+    "blankTitle": "Completa la frase",
+    "yourAnswer": "Tu respuesta",
+    "orderList": "Elementos, en tu orden",
+    "moveUp": "Subir «{item}»",
+    "moveDown": "Bajar «{item}»",
+    "moveUpShort": "Subir",
+    "moveDownShort": "Bajar",
+    "choose": "Elegir…",
+    "expectedMark": "(respuesta correcta)",
+    "givenMark": "(tu respuesta)",
+    "itemRight": "correcto",
+    "itemWrong": "incorrecto"
+  },
+  "feedback": {
+    "correct": "¡Correcto!",
+    "incorrect": "No del todo.",
+    "praise": {
+      "great": "Buen trabajo.",
+      "exactly": "Exacto.",
+      "wellDone": "Bien hecho.",
+      "spotOn": "Diste en el clavo.",
+      "nice": "Muy bien.",
+      "perfect": "Perfecto."
+    },
+    "nudge": {
+      "notQuite": "Equivocarse también es aprender.",
+      "almost": "Veamos por qué.",
+      "goodTry": "Buen intento, aquí está la respuesta."
+    },
+    "spelling": "Casi: cuidado con la ortografía: {expected}",
+    "expected": "Respuesta correcta:",
+    "expectedOrder": "Orden correcto:",
+    "expectedPairs": "Parejas correctas:",
+    "pair": "<left/> → <right/>"
+  },
+  "result": {
+    "passed": "¡Nivel superado!",
+    "notYet": "Aún no superado",
+    "review": "Nivel para repasar",
+    "score": "{correct} / {total}",
+    "passedText": "Puedes pasar al siguiente paso.",
+    "reviewText": "Continuaste: este nivel queda marcado para repasar.",
+    "passMark": {
+      "one": "Necesitas {count} respuesta correcta para superar este nivel.",
+      "other": "Necesitas {count} respuestas correctas para superar este nivel."
+    },
+    "mistakes": "Tus errores, explicados",
+    "given": "Tu respuesta:",
+    "nextLevel": "Nivel siguiente",
+    "finalReview": "Repaso final",
+    "seeNewExplanation": "Ver la nueva explicación",
+    "explainDifferently": "Explicar de otra forma",
+    "reviewLesson": "Repasar la lección",
+    "continueAnyway": "Continuar de todos modos",
+    "skipHint": "«Continuar de todos modos» pasa al siguiente paso y marca este nivel para repasar.",
+    "preparingRemedy": "Preparando una nueva explicación…"
+  },
+  "wait": {
+    "level": "Preparando este nivel…",
+    "final": "Preparando el repaso final…"
+  },
+  "final": {
+    "eyebrow": "Último paso",
+    "title": "Repaso final",
+    "progress": "Repaso final · {current} de {total}"
+  },
+  "end": {
+    "title": "¡Curso terminado!",
+    "finalScore": {
+      "one": "<score>{count} / {total}</score> respuesta correcta en el repaso final",
+      "other": "<score>{count} / {total}</score> respuestas correctas en el repaso final"
+    },
+    "stars": {
+      "one": "{count} estrella de {total}",
+      "other": "{count} estrellas de {total}"
+    },
+    "time": {
+      "one": "{count} minuto dedicado",
+      "other": "{count} minutos dedicados"
+    },
+    "levels": "Tus niveles",
+    "best": "Mejor resultado: {correct} / {total}",
+    "keyPoints": "Para recordar",
+    "copyFailed": "Error al copiar",
+    "save": "Guardar en Markdown",
+    "saved": "Ficha guardada",
+    "missed": "Preguntas para repasar",
+    "further": "Ir más allá"
+  }
+}

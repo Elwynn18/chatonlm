@@ -1,0 +1,30 @@
+# Service du site chatonlm.com (formulaire de contact, téléchargements).
+# À copier dans /etc/systemd/system/chatonlm-site.service, puis
+# « systemctl daemon-reload » et « systemctl enable --now chatonlm-site ».
+[Unit]
+Description=Service du site chatonlm.com (contact, téléchargements)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Adapter le chemin de node au serveur (« command -v node »).
+ExecStart=/usr/bin/node /opt/chatonlm-site/service.mjs
+EnvironmentFile=/etc/chatonlm-site.env
+Restart=on-failure
+RestartSec=5
+
+# Compte sans droits, créé par systemd le temps du service ; rien à écrire sur le disque.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+# AF_UNIX et AF_NETLINK : résolution des noms par le système (smtp.gmail.com, api.github.com).
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

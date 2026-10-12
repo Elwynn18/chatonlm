@@ -1,0 +1,19 @@
+# Lu par Cargo depuis la racine (scripts/check.sh) comme depuis src-tauri
+# (tauri dev/build) : la configuration se cherche à partir du dossier courant.
+#
+# Types TypeScript générés par ts-rs pendant « cargo test » : écrits dans
+# src/bindings du frontend, avec des nombres JSON (et non des bigint) pour les
+# entiers 64 bits, comme les produit serde_json.
+#
+# Séquences d'événements du moteur de chat, écrites aussi pendant
+# « cargo test » (src/test/fixtures/chat) et rejouées par le simulateur des
+# tests du frontend.
+[env]
+TS_RS_EXPORT_DIR = { value = "src/bindings", relative = true }
+TS_RS_LARGE_INT = "number"
+CHATONLM_FIXTURES_DIR = { value = "src/test/fixtures", relative = true }
+#
+# whisper.cpp (whisper-rs-sys) compilé pour tout processeur x86-64 avec AVX2,
+# et non pour celui de la machine de compilation (-march=native, défaut de
+# ggml) : binaire portable des paquets. Les GGML_* sont transmises à cmake.
+GGML_NATIVE = "OFF"
