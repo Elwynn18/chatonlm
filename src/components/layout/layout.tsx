@@ -9,19 +9,17 @@
  * the original), no drag handlers, icons from Heroicons or drawn for ChatonLM,
  * notice shown at the top of the content area when a link can't be opened
  * (main is positioned for it); texts translated into English, Spanish and
- * French (src/i18n).
+ * French (src/i18n); the open state of the sidebar is kept in src/lib/sidebar.ts
+ * (same behaviour), so that the first-launch tour can open it.
  */
 
 import { PencilSquareIcon } from "@heroicons/react/24/outline";
 import { Link } from "@tanstack/react-router";
-import { type PropsWithChildren, type ReactNode, useState } from "react";
+import type { PropsWithChildren, ReactNode } from "react";
 import { SidebarToggleIcon } from "@/components/icons";
 import { LinkErrorNotice } from "@/components/LinkErrorNotice";
 import { useT } from "@/i18n";
-
-// Comme dans l'app officielle : barre fermée au lancement, état conservé d'une
-// page à l'autre pendant la session, mais pas d'un lancement à l'autre.
-let sessionSidebarOpen = false;
+import { setSidebarOpen, useSidebarOpen } from "@/lib/sidebar";
 
 export function SidebarLayout({
   sidebar,
@@ -32,15 +30,12 @@ export function SidebarLayout({
   title?: string;
 }>) {
   const t = useT();
-  const [sidebarOpen, setSidebarOpen] = useState(sessionSidebarOpen);
+  const sidebarOpen = useSidebarOpen();
   const toggleLabel = t(
     sidebarOpen ? "chat.layout.hideSidebar" : "chat.layout.showSidebar",
   );
 
-  const toggleSidebar = () => {
-    sessionSidebarOpen = !sidebarOpen;
-    setSidebarOpen(sessionSidebarOpen);
-  };
+  const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
   return (
     <div className="flex h-screen w-full overflow-hidden dark:bg-neutral-900">

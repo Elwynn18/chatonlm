@@ -6,20 +6,20 @@
   },
   "steps": {
     "chat": {
-      "title": "Chat with AI on your own computer",
-      "text": "ChatonLM runs open AI models on your computer, with Ollama. Ask a question, attach a file or an image: your conversations are stored on your computer."
+      "title": "Start a conversation here",
+      "text": "Write your message, attach a file or an image, and choose the model that answers. Your conversations are stored on your computer."
     },
     "hub": {
-      "title": "Pick a model in the ModelHub",
+      "title": "Get models in the ModelHub",
       "text": "A model is the AI you talk to. The ModelHub shows which ones fit your machine and downloads them in one click."
     },
     "tools": {
       "title": "Proofread and Study",
       "text": "Proofread corrects or rephrases your texts and shows every change. Study turns any topic into a short course, with lessons and exercises."
     },
-    "voice": {
-      "title": "Speak and listen",
-      "text": "Dictate in any app with a shortcut, have answers read aloud, or talk hands-free in voice mode. Everything is set up in Settings."
+    "settings": {
+      "title": "Make it yours in Settings",
+      "text": "Language, theme, dictation, reading aloud, voice mode and keyboard shortcuts are all set up here."
     }
   },
   "progress": "Step {step} of {total}",

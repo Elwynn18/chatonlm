@@ -7,6 +7,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "@/i18n";
+import { isTabKey } from "@/lib/shortcuts";
 
 /** Bouton d'une confirmation à plusieurs choix. */
 export interface DialogAction {
@@ -78,7 +79,7 @@ export function ConfirmDialog({
       if (event.key === "Escape") {
         event.preventDefault();
         onCancel();
-      } else if (event.key === "Tab") {
+      } else if (isTabKey(event)) {
         // Le focus reste dans la boîte.
         const buttons = [
           ...(ref.current?.querySelectorAll<HTMLElement>("button") ?? []),

@@ -159,6 +159,14 @@ export function isEscapeKey(event: KeyboardEvent): boolean {
   return event.key === "Escape";
 }
 
+/**
+ * Tab, avec ou sans Maj. WebKitGTK donne à Maj+Tab la touche « Unidentified »
+ * (ISO_Left_Tab) : seul le code physique dit alors que c'est Tab.
+ */
+export function isTabKey(event: KeyboardEvent): boolean {
+  return event.key === "Tab" || event.code === "Tab";
+}
+
 /** Ctrl+V : coller (la zone de saisie du chat prend d'abord le focus). */
 export function isPasteShortcut(event: KeyboardEvent): boolean {
   return (event.ctrlKey || event.metaKey) && event.key === "v";

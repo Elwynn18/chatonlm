@@ -53,7 +53,8 @@
  * picker failure; starting to edit a message ends it, and it can't start
  * during an edit; files dropped or pasted during it are ignored; the draft
  * of a new chat (text, staged files) goes to the composer of the chat
- * created by its first sentence, which gives it back at the end.
+ * created by its first sentence, which gives it back at the end; the
+ * composer carries a `data-tour` mark, shown by the first-launch tour.
  */
 
 import { ArrowUpIcon, StopIcon } from "@heroicons/react/20/solid";
@@ -639,6 +640,7 @@ export function ChatForm({
       )}
       <div
         ref={composerRef}
+        data-tour="composer"
         className={`relative mx-auto flex min-h-[88px] w-full max-w-[768px] flex-col items-center rounded-3xl bg-white pt-4 pb-2 transition-opacity duration-200 after:pointer-events-none after:absolute after:inset-0 after:rounded-3xl after:ring-[1.5px] after:ring-neutral-300 after:ring-inset dark:bg-neutral-800 dark:after:ring-white/10 ${isDisabled ? "opacity-50" : "opacity-100"}`}
       >
         {/* Voile qui bloque la zone ; seul Stop reste au-dessus (stopAboveVeil) */}

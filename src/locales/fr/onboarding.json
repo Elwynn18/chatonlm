@@ -6,20 +6,20 @@
   },
   "steps": {
     "chat": {
-      "title": "Discutez avec une IA sur votre ordinateur",
-      "text": "ChatonLM fait tourner des modèles d'IA ouverts sur votre ordinateur, avec Ollama. Posez une question, joignez un fichier ou une image : vos conversations sont enregistrées sur votre ordinateur."
+      "title": "Commencez une conversation ici",
+      "text": "Écrivez votre message, joignez un fichier ou une image, et choisissez le modèle qui répond. Vos conversations sont enregistrées sur votre ordinateur."
     },
     "hub": {
-      "title": "Choisissez un modèle dans le ModelHub",
+      "title": "Trouvez des modèles dans le ModelHub",
       "text": "Un modèle, c'est l'IA à qui vous parlez. Le ModelHub montre ceux qui conviennent à votre machine et les télécharge en un clic."
     },
     "tools": {
       "title": "Correction et Étudier",
       "text": "Correction corrige ou reformule vos textes et montre chaque changement. Étudier fait de n'importe quel sujet un cours court, avec leçons et exercices."
     },
-    "voice": {
-      "title": "Parlez et écoutez",
-      "text": "Dictez dans n'importe quelle application avec un raccourci, faites lire les réponses à voix haute, ou parlez les mains libres en mode vocal. Tout se règle dans les Paramètres."
+    "settings": {
+      "title": "Réglez l'app dans les Paramètres",
+      "text": "Langue, thème, dictée, lecture à voix haute, mode vocal et raccourcis clavier : tout se règle ici."
     }
   },
   "progress": "Étape {step} sur {total}",

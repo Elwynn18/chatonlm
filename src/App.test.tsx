@@ -94,25 +94,33 @@ describe("App and its settings", () => {
 });
 
 describe("App on its first run", () => {
-  it("shows the language choice and the introduction before the app", async () => {
+  it("asks for the language, then tours the app in that language", async () => {
     const { backend } = renderWholeApp({ firstRun: true });
 
     expect(await screen.findByText("Choose your language")).toBeTruthy();
-    // Rien de l'app derrière : pas de zone de saisie.
+    // Rien de l'app derrière : ni zone de saisie, ni visite.
     expect(document.querySelector("textarea")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     await userEvent.click(screen.getByRole("radio", { name: "Español" }));
     await userEvent.click(
       await screen.findByRole("button", { name: "Continuar" }),
     );
-    expect(await screen.findByText("Paso 1 de 4")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Omitir" }));
 
-    // L'app s'affiche, dans la langue choisie, qui est devenue le réglage.
+    // L'app s'affiche, avec la visite, dans la langue choisie.
+    const tour = await screen.findByRole("dialog");
+    expect(tour.textContent).toContain("Paso 1 de 4");
+    expect(screen.queryByText("Elige tu idioma")).toBeNull();
     await waitFor(() =>
       expect(document.querySelector("textarea")).toBeTruthy(),
     );
-    expect(screen.queryByText("Paso 1 de 4")).toBeNull();
+    expect(backend.settings).toMatchObject({
+      language: "es",
+      onboardingDone: false,
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Omitir" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.documentElement.lang).toBe("es");
     expect(backend.settings).toMatchObject({
       language: "es",
@@ -124,5 +132,6 @@ describe("App on its first run", () => {
     renderWholeApp();
     await waitFor(() => expect(composer()).toBeTruthy());
     expect(screen.queryByText("Choose your language")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

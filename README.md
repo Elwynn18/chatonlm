@@ -57,8 +57,9 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
   [Ollama](#ollama)).
 - **Updates** from Settings, signed and checked before they are installed.
 - **English, Spanish and French** interface: you choose the language on first
-  launch (the one of your system is proposed), before a four-step introduction
-  to the app, and can change it in Settings.
+  launch (the one of your system is proposed) and can change it in Settings.
+- **A guided tour on first launch**: four steps that open the main pages and
+  point at what each one is for. You can skip it at any time.
 - Light and dark themes, a tray icon, and keyboard shortcuts (listed in
   Settings › Keyboard shortcuts).
 - **The same tools on Windows and Linux.**
@@ -233,8 +234,9 @@ are transcribed locally.
 ChatonLM itself connects only to:
 
 - **Hugging Face** (huggingface.co and its status page), when you open
-  ModelHub (model lists, model cards, file sizes) and when you download a
-  speech recognition model or a voice;
+  ModelHub (model lists, model cards, file sizes; the first-launch tour opens
+  it at its second step) and when you download a speech recognition model or
+  a voice;
 - **ollama.com**, to check that a model name typed in the model picker exists,
   and to show your account picture once you are signed in;
 - **ollama.com or Hugging Face**, whichever the model came from, to check

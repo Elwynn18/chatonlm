@@ -31,7 +31,9 @@
  * another conversation is opened; so is ChatonLM's own voice mode (state,
  * levels, transcribed sentences), which ends when the page of its
  * conversation is no longer shown; while the keys of a system-wide shortcut
- * are being recorded (Windows), the app shortcuts handled here stay quiet.
+ * are being recorded (Windows), the app shortcuts handled here stay quiet;
+ * ChatonLM's own first-launch tour (onboarding/Tour.tsx) is shown from here
+ * until it is finished or skipped, the app under it being inert meanwhile.
  */
 
 import type { QueryClient } from "@tanstack/react-query";
@@ -43,9 +45,11 @@ import {
 } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { ModelPreloader } from "@/components/ModelPreloader";
+import { Tour } from "@/components/onboarding/Tour";
 import { useDictationEvents } from "@/hooks/useDictation";
 import { useDownloadEvents } from "@/hooks/useDownloads";
 import { useReadAloudEvents } from "@/hooks/useReadAloud";
+import { useSettings } from "@/hooks/useSettings";
 import { useShortcutsEvents } from "@/hooks/useShortcuts";
 import { useVoiceModeEvents } from "@/hooks/useVoiceMode";
 import { navigablePath } from "@/lib/dictation";
@@ -84,6 +88,9 @@ let navigateRequests = 0;
 function RootComponent() {
   const navigate = useNavigate();
   const router = useRouter();
+  // Visite guidée du premier démarrage, tant qu'elle n'est ni finie ni
+  // passée : l'app dessous ne répond pas (ni clic, ni focus).
+  const touring = useSettings().settings?.onboardingDone === false;
   // Téléchargements du ModelHub suivis de toute page, barre latérale fermée
   // comprise : leur fin relit le sélecteur de modèles.
   useDownloadEvents();
@@ -237,11 +244,14 @@ function RootComponent() {
   }, []);
 
   return (
-    <div>
-      {/* Option « Preload the chosen model » : au démarrage et au choix. */}
-      <ModelPreloader />
-      <Outlet />
-    </div>
+    <>
+      <div inert={touring}>
+        {/* Option « Preload the chosen model » : au démarrage et au choix. */}
+        <ModelPreloader />
+        <Outlet />
+      </div>
+      {touring && <Tour />}
+    </>
   );
 }
 

@@ -52,6 +52,20 @@ describe("ConfirmDialog", () => {
     expect(document.activeElement).toBe(cancel);
   });
 
+  it("keeps Shift+Tab inside the dialog as WebKitGTK sends it", () => {
+    renderDialog();
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    const ok = screen.getByRole("button", { name: "OK" });
+    expect(document.activeElement).toBe(ok);
+    // Maj+Tab de WebKitGTK : touche « Unidentified », code « Tab ».
+    const leftTab = { key: "Unidentified", code: "Tab", shiftKey: true };
+    // Faux si la touche a été prise (action native empêchée).
+    expect(fireEvent.keyDown(ok, leftTab)).toBe(false);
+    expect(document.activeElement).toBe(cancel);
+    expect(fireEvent.keyDown(cancel, leftTab)).toBe(false);
+    expect(document.activeElement).toBe(ok);
+  });
+
   it("offers several choices after Cancel, the last one focused", async () => {
     const leave = vi.fn();
     const move = vi.fn();

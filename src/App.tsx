@@ -1,9 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { DatabaseProblem } from "@/bindings/DatabaseProblem";
 import { DatabaseProblemScreen } from "@/components/DatabaseProblemScreen";
-import { Onboarding } from "@/components/Onboarding";
+import { LanguageStep } from "@/components/onboarding/LanguageStep";
 import { ServerGate } from "@/components/ServerGate";
 import { useSettings } from "@/hooks/useSettings";
 import { useTheme } from "@/hooks/useTheme";
@@ -67,6 +67,8 @@ function ProblemWindow({
 function MainApp() {
   const t = useT();
   const { settings, error } = useSettings();
+  // Langue choisie à ce lancement (premier démarrage).
+  const [languageChosen, setLanguageChosen] = useState(false);
   const ready = settings !== undefined || error !== null;
   useTheme(settings?.theme);
   // Après les effets de mise en page du thème : pas de flash au premier rendu.
@@ -82,9 +84,13 @@ function MainApp() {
     );
   }
   if (!settings) return null;
-  // Premier démarrage : langue et présentation, avant tout le reste (même
-  // l'écran d'un Ollama absent, qui s'écrit dans la langue choisie).
-  if (!settings.onboardingDone) return <Onboarding />;
+  // Premier démarrage : la langue avant tout le reste (même l'écran d'un
+  // Ollama absent, qui s'écrit dans la langue choisie) ; la visite guidée
+  // suit dans l'app (route racine). Redemandée à chaque lancement tant que
+  // la visite n'est ni finie ni passée.
+  if (settings.onboardingDone === false && !languageChosen) {
+    return <LanguageStep onDone={() => setLanguageChosen(true)} />;
+  }
 
   return (
     <ServerGate>

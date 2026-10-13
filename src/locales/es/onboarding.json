@@ -6,20 +6,20 @@
   },
   "steps": {
     "chat": {
-      "title": "Chatea con una IA en tu propio equipo",
-      "text": "ChatonLM ejecuta modelos de IA abiertos en tu equipo, con Ollama. Haz una pregunta, adjunta un archivo o una imagen: tus conversaciones se guardan en tu equipo."
+      "title": "Empieza una conversación aquí",
+      "text": "Escribe tu mensaje, adjunta un archivo o una imagen y elige el modelo que responde. Tus conversaciones se guardan en tu equipo."
     },
     "hub": {
-      "title": "Elige un modelo en el ModelHub",
+      "title": "Consigue modelos en el ModelHub",
       "text": "Un modelo es la IA con la que hablas. El ModelHub muestra los que se adaptan a tu equipo y los descarga con un clic."
     },
     "tools": {
       "title": "Corrección y Estudiar",
       "text": "Corrección corrige o reformula tus textos y muestra cada cambio. Estudiar convierte cualquier tema en un curso breve, con lecciones y ejercicios."
     },
-    "voice": {
-      "title": "Habla y escucha",
-      "text": "Dicta en cualquier aplicación con un atajo, haz que las respuestas se lean en voz alta o habla con las manos libres en el modo de voz. Todo se ajusta en Configuración."
+    "settings": {
+      "title": "Ajusta la app en Configuración",
+      "text": "Idioma, tema, dictado, lectura en voz alta, modo de voz y atajos de teclado: todo se ajusta aquí."
     }
   },
   "progress": "Paso {step} de {total}",
