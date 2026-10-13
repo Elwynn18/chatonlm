@@ -15,6 +15,7 @@ import enChat from "@/locales/en/chat.json";
 import enCommon from "@/locales/en/common.json";
 import enDictation from "@/locales/en/dictation.json";
 import enHub from "@/locales/en/hub.json";
+import enOnboarding from "@/locales/en/onboarding.json";
 import enProofread from "@/locales/en/proofread.json";
 import enSettings from "@/locales/en/settings.json";
 import enStudy from "@/locales/en/study.json";
@@ -23,6 +24,7 @@ import esChat from "@/locales/es/chat.json";
 import esCommon from "@/locales/es/common.json";
 import esDictation from "@/locales/es/dictation.json";
 import esHub from "@/locales/es/hub.json";
+import esOnboarding from "@/locales/es/onboarding.json";
 import esProofread from "@/locales/es/proofread.json";
 import esSettings from "@/locales/es/settings.json";
 import esStudy from "@/locales/es/study.json";
@@ -31,6 +33,7 @@ import frChat from "@/locales/fr/chat.json";
 import frCommon from "@/locales/fr/common.json";
 import frDictation from "@/locales/fr/dictation.json";
 import frHub from "@/locales/fr/hub.json";
+import frOnboarding from "@/locales/fr/onboarding.json";
 import frProofread from "@/locales/fr/proofread.json";
 import frSettings from "@/locales/fr/settings.json";
 import frStudy from "@/locales/fr/study.json";
@@ -47,6 +50,7 @@ const en = {
   settings: enSettings,
   dictation: enDictation,
   hub: enHub,
+  onboarding: enOnboarding,
   proofread: enProofread,
   study: enStudy,
   voiceMode: enVoiceMode,
@@ -62,6 +66,7 @@ const catalogs: Record<Lang, Catalog> = {
     settings: esSettings,
     dictation: esDictation,
     hub: esHub,
+    onboarding: esOnboarding,
     proofread: esProofread,
     study: esStudy,
     voiceMode: esVoiceMode,
@@ -72,6 +77,7 @@ const catalogs: Record<Lang, Catalog> = {
     settings: frSettings,
     dictation: frDictation,
     hub: frHub,
+    onboarding: frOnboarding,
     proofread: frProofread,
     study: frStudy,
     voiceMode: frVoiceMode,

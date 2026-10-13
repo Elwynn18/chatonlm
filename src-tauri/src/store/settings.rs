@@ -91,6 +91,9 @@ pub struct Settings {
     pub study_model: String,
     /// Lire chaque nouvelle réponse à voix haute pendant qu'elle s'écrit.
     pub auto_read: bool,
+    /// Premier démarrage (choix de la langue, présentation de l'app) terminé
+    /// ou passé ; « Reset to defaults » n'y touche pas.
+    pub onboarding_done: bool,
 }
 
 /// Mise à jour partielle : seuls les champs présents changent.
@@ -127,6 +130,28 @@ pub struct SettingsPatch {
     pub study_model: Option<String>,
     #[ts(optional)]
     pub auto_read: Option<bool>,
+    #[ts(optional)]
+    pub onboarding_done: Option<bool>,
+}
+
+/// `CHATONLM_ONBOARDING` : `show` remontre le premier démarrage au prochain
+/// lancement, `skip` le passe (essais de l'app, installation préparée pour
+/// quelqu'un). Toute autre valeur : rien ne change.
+pub fn onboarding_override(value: Option<&str>) -> Option<bool> {
+    match value?.trim() {
+        "show" => Some(false),
+        "skip" => Some(true),
+        _ => None,
+    }
+}
+
+/// Enregistre que le premier démarrage est fait (ou à refaire).
+pub fn set_onboarding_done(connection: &Connection, done: bool) -> AppResult<()> {
+    connection.execute(
+        "UPDATE settings SET onboarding_done = ?1 WHERE id = 1",
+        params![done],
+    )?;
+    Ok(())
 }
 
 pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Settings> {
@@ -135,7 +160,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
             "SELECT server_url, context_length, theme, selected_model, window_width, window_height,
                     web_search_enabled, keep_alive, preload_model, language,
                     proofread_model, proofread_shortcut, study_model, auto_read,
-                    proofread_paste
+                    proofread_paste, onboarding_done
              FROM settings WHERE id = 1",
             [],
             |row| {
@@ -155,6 +180,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
                     row.get::<_, String>(12)?,
                     row.get::<_, bool>(13)?,
                     row.get::<_, bool>(14)?,
+                    row.get::<_, bool>(15)?,
                 ))
             },
         )
@@ -176,6 +202,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         study_model,
         auto_read,
         proofread_paste,
+        onboarding_done,
     ) = row;
     let language = LanguageChoice::parse(&language)
         .ok_or_else(|| AppError::Internal(format!("unknown language in database: {language}")))?;
@@ -197,6 +224,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         proofread_paste,
         study_model,
         auto_read,
+        onboarding_done,
     })
 }
 
@@ -322,6 +350,12 @@ pub fn update(
             params![enabled],
         )?;
     }
+    if let Some(done) = patch.onboarding_done {
+        transaction.execute(
+            "UPDATE settings SET onboarding_done = ?1 WHERE id = 1",
+            params![done],
+        )?;
+    }
     if let Some(model) = &patch.study_model {
         transaction.execute(
             "UPDATE settings SET study_model = ?1 WHERE id = 1",
@@ -384,8 +418,53 @@ mod tests {
                 proofread_paste: true,
                 study_model: String::new(),
                 auto_read: false,
+                onboarding_done: false,
             }
         );
+    }
+
+    /// Premier démarrage : à faire sur une base neuve, enregistré une fois
+    /// fait, et les autres réglages n'y touchent pas.
+    #[test]
+    fn the_first_run_is_recorded_once_done() {
+        let store = store();
+        assert!(!store.blocking(|c| get(c, None)).unwrap().onboarding_done);
+        let patch = SettingsPatch {
+            onboarding_done: Some(true),
+            ..SettingsPatch::default()
+        };
+        assert!(
+            store
+                .blocking(|c| update(c, patch, None))
+                .unwrap()
+                .onboarding_done
+        );
+        let patch = SettingsPatch {
+            language: Some(LanguageChoice::Es),
+            ..SettingsPatch::default()
+        };
+        assert!(
+            store
+                .blocking(|c| update(c, patch, None))
+                .unwrap()
+                .onboarding_done
+        );
+        assert!(store.blocking(|c| get(c, None)).unwrap().onboarding_done);
+    }
+
+    #[test]
+    fn the_environment_shows_or_skips_the_first_run() {
+        assert_eq!(onboarding_override(None), None);
+        assert_eq!(onboarding_override(Some("")), None);
+        assert_eq!(onboarding_override(Some("1")), None);
+        assert_eq!(onboarding_override(Some("skip")), Some(true));
+        assert_eq!(onboarding_override(Some(" show\n")), Some(false));
+
+        let store = store();
+        store.blocking(|c| set_onboarding_done(c, true)).unwrap();
+        assert!(store.blocking(|c| get(c, None)).unwrap().onboarding_done);
+        store.blocking(|c| set_onboarding_done(c, false)).unwrap();
+        assert!(!store.blocking(|c| get(c, None)).unwrap().onboarding_done);
     }
 
     #[test]

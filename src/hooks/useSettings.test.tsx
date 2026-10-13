@@ -36,6 +36,7 @@ const SAVED: Settings = {
   proofreadPaste: true,
   studyModel: "",
   autoRead: false,
+  onboardingDone: true,
 };
 
 function newClient() {

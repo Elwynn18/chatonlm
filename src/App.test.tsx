@@ -1,5 +1,5 @@
 // L'app entière (base vérifiée, réglages, ServerGate, routeur de l'app) face au
-// simulateur : écran d'erreur des réglages.
+// simulateur : écran d'erreur des réglages, premier démarrage.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -10,6 +10,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { settingsKey } from "@/hooks/useSettings";
 import { fakeBackend } from "@/test/backend";
@@ -29,13 +30,20 @@ afterEach(() => {
   document.documentElement.style.colorScheme = "";
 });
 
-/** App entière ; `broken` : get_settings échoue dès le départ. */
-function renderWholeApp({ broken = false }: { broken?: boolean } = {}) {
+/**
+ * App entière ; `broken` : get_settings échoue dès le départ ; `firstRun` :
+ * installation neuve (premier démarrage pas encore fait).
+ */
+function renderWholeApp({
+  broken = false,
+  firstRun = false,
+}: { broken?: boolean; firstRun?: boolean } = {}) {
   const simulator = installSimulator({
     handlers: { database_problem: () => null },
   });
   const backend = fakeBackend(simulator);
   if (broken) backend.settingsErrors.get = BROKEN;
+  if (firstRun) backend.settings.onboardingDone = false;
   const client = new QueryClient({
     defaultOptions: { queries: { networkMode: "always", retry: false } },
   });
@@ -82,5 +90,39 @@ describe("App and its settings", () => {
 
     expect(screen.queryByText(SETTINGS_ERROR)).toBeNull();
     expect(composer()).toBeTruthy();
+  });
+});
+
+describe("App on its first run", () => {
+  it("shows the language choice and the introduction before the app", async () => {
+    const { backend } = renderWholeApp({ firstRun: true });
+
+    expect(await screen.findByText("Choose your language")).toBeTruthy();
+    // Rien de l'app derrière : pas de zone de saisie.
+    expect(document.querySelector("textarea")).toBeNull();
+
+    await userEvent.click(screen.getByRole("radio", { name: "Español" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Continuar" }),
+    );
+    expect(await screen.findByText("Paso 1 de 4")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Omitir" }));
+
+    // L'app s'affiche, dans la langue choisie, qui est devenue le réglage.
+    await waitFor(() =>
+      expect(document.querySelector("textarea")).toBeTruthy(),
+    );
+    expect(screen.queryByText("Paso 1 de 4")).toBeNull();
+    expect(document.documentElement.lang).toBe("es");
+    expect(backend.settings).toMatchObject({
+      language: "es",
+      onboardingDone: true,
+    });
+  });
+
+  it("goes straight to the app once the first run is done", async () => {
+    renderWholeApp();
+    await waitFor(() => expect(composer()).toBeTruthy());
+    expect(screen.queryByText("Choose your language")).toBeNull();
   });
 });

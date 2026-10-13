@@ -210,6 +210,10 @@ export async function withApp(
       LANGUAGE: "",
       LC_ALL: "",
       LC_MESSAGES: "",
+      // Premier démarrage (langue, présentation de l'app) passé : chaque
+      // essai part de données neuves et le verrait. L'essai qui le regarde
+      // donne une valeur vide.
+      CHATONLM_ONBOARDING: "skip",
       ...env,
       TAURI_WEBDRIVER_PORT: String(port),
     },

@@ -1,5 +1,5 @@
 # Lance ChatonLM tel qu'il est dans un commit (par défaut le dernier).
-#   scripts/demo.sh [--build-only] [--real [--reset]] [commit]
+#   scripts/demo.sh [--build-only] [--onboarding] [--real [--reset]] [commit]
 # Le code du commit est extrait dans .tools/demo-src : les modifications en
 # cours dans le dépôt ne changent pas l'app pendant un essai. Fermer la fenêtre
 # arrête tout.
@@ -14,6 +14,9 @@
 # soi-même, avec ses modèles) et contacte ollama.com comme l'app installée.
 # Seules ses données restent dans le projet : .tools/real-data (ignoré par
 # git), gardé d'un lancement à l'autre ; --reset le vide avant de lancer.
+# --onboarding : montre le premier démarrage (choix de la langue, présentation
+# de l'app), même avec des données qui ont déjà servi ; sans lui, --real le
+# montre seulement à des données neuves, et la démonstration jamais.
 # Raccourci de la dictée : jamais par le portail du bureau avant
 # l'empaquetage (sans fichier .desktop installé, KDE le rangerait sous
 # l'application qui a lancé ChatonLM) ; lier scripts/dictate.sh à la place.
@@ -30,13 +33,15 @@ chatonlm_guard "$root"
 build_only=false
 real=false
 reset=false
+onboarding=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --build-only) build_only=true ;;
     --real) real=true ;;
     --reset) reset=true ;;
+    --onboarding) onboarding=true ;;
     -*)
-      echo "Usage : $0 [--build-only] [--real [--reset]] [commit]" >&2
+      echo "Usage : $0 [--build-only] [--onboarding] [--real [--reset]] [commit]" >&2
       exit 2
       ;;
     *) break ;;
@@ -124,6 +129,7 @@ if $real; then
   # transcription, envoi, premier son).
   echo "Mesures du mode vocal : lignes chatonlm-voice-timing ci-dessous."
   exec env -u CHATONLM_SEED_DEMO -u CHATONLM_REGISTRY_URL -u CHATONLM_OLLAMA_COM_URL \
+    CHATONLM_ONBOARDING="$($onboarding && echo show || true)" \
     CHATONLM_DATA_DIR="$data" TMPDIR="$root/.tools/tmp" \
     CHATONLM_NO_GLOBAL_SHORTCUTS=1 CHATONLM_VOICE_TIMINGS=1 "$binary"
 fi
@@ -148,5 +154,6 @@ fi
 
 echo "Données de démonstration : $data"
 echo "Faux serveur Ollama : $url"
-CHATONLM_DATA_DIR="$data" OLLAMA_HOST="$url" CHATONLM_SEED_DEMO=1 \
+CHATONLM_ONBOARDING="$($onboarding && echo show || echo skip)" \
+  CHATONLM_DATA_DIR="$data" OLLAMA_HOST="$url" CHATONLM_SEED_DEMO=1 \
   TMPDIR="$root/.tools/tmp" "$binary"

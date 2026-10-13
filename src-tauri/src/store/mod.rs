@@ -47,6 +47,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0018_shortcut_keys.sql"),
     include_str!("../../migrations/0019_study_pause.sql"),
     include_str!("../../migrations/0020_proofread_paste.sql"),
+    include_str!("../../migrations/0021_onboarding.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.
@@ -676,6 +677,35 @@ mod tests {
         assert!(updated.proofread_shortcut);
         let again = store.blocking(|c| settings::get(c, None)).unwrap();
         assert!(!again.proofread_paste);
+    }
+
+    /// Base de la version 20 (avant le premier démarrage) : une installation
+    /// qui a déjà servi (modèle choisi ou conversation) ne le verra pas, une
+    /// installation jamais utilisée le verra.
+    #[test]
+    fn a_version_20_database_sees_the_first_run_only_if_never_used() {
+        let migrated = |setup: &str| {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("chatonlm.sqlite");
+            let connection = Connection::open(&path).unwrap();
+            for sql in &MIGRATIONS[..20] {
+                connection.execute_batch(sql).unwrap();
+            }
+            connection.pragma_update(None, "user_version", 20).unwrap();
+            connection.execute_batch(setup).unwrap();
+            drop(connection);
+            let store = Store::open(&path).unwrap();
+            assert_eq!(version(&store), MIGRATIONS.len() as i64);
+            store.blocking(|c| settings::get(c, None)).unwrap()
+        };
+
+        assert!(!migrated("").onboarding_done);
+        let chosen = migrated("UPDATE settings SET selected_model = 'gemma3:4b' WHERE id = 1;");
+        assert!(chosen.onboarding_done);
+        assert_eq!(chosen.selected_model, "gemma3:4b");
+        let chatted =
+            migrated("INSERT INTO chats (id, created_at, updated_at) VALUES ('0199-a', 1, 1);");
+        assert!(chatted.onboarding_done);
     }
 
     #[test]

@@ -17,4 +17,4 @@ proofreadModel?: string, proofreadShortcut?: boolean, proofreadPaste?: boolean,
 /**
  * Chaîne vide = modèle du chat.
  */
-studyModel?: string, autoRead?: boolean, };
+studyModel?: string, autoRead?: boolean, onboardingDone?: boolean, };

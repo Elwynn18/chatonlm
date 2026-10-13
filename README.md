@@ -56,8 +56,9 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
   computer when there is one, and its own copy otherwise (see
   [Ollama](#ollama)).
 - **Updates** from Settings, signed and checked before they are installed.
-- **English, Spanish and French** interface, following the system language
-  or chosen in Settings.
+- **English, Spanish and French** interface: you choose the language on first
+  launch (the one of your system is proposed), before a four-step introduction
+  to the app, and can change it in Settings.
 - Light and dark themes, a tray icon, and keyboard shortcuts (listed in
   Settings › Keyboard shortcuts).
 - **The same tools on Windows and Linux.**

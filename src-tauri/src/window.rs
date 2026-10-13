@@ -303,6 +303,7 @@ mod tests {
             proofread_paste: true,
             study_model: String::new(),
             auto_read: false,
+            onboarding_done: true,
         }
     }
 

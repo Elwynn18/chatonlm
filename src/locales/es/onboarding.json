@@ -1,0 +1,34 @@
+{
+  "language": {
+    "title": "Elige tu idioma",
+    "description": "Puedes cambiarlo en cualquier momento en Configuración.",
+    "group": "Idioma"
+  },
+  "steps": {
+    "chat": {
+      "title": "Chatea con una IA en tu propio equipo",
+      "text": "ChatonLM ejecuta modelos de IA abiertos en tu equipo, con Ollama. Haz una pregunta, adjunta un archivo o una imagen: tus conversaciones se guardan en tu equipo."
+    },
+    "hub": {
+      "title": "Elige un modelo en el ModelHub",
+      "text": "Un modelo es la IA con la que hablas. El ModelHub muestra los que se adaptan a tu equipo y los descarga con un clic."
+    },
+    "tools": {
+      "title": "Corrección y Estudiar",
+      "text": "Corrección corrige o reformula tus textos y muestra cada cambio. Estudiar convierte cualquier tema en un curso breve, con lecciones y ejercicios."
+    },
+    "voice": {
+      "title": "Habla y escucha",
+      "text": "Dicta en cualquier aplicación con un atajo, haz que las respuestas se lean en voz alta o habla con las manos libres en el modo de voz. Todo se ajusta en Configuración."
+    }
+  },
+  "progress": "Paso {step} de {total}",
+  "actions": {
+    "continue": "Continuar",
+    "back": "Atrás",
+    "next": "Siguiente",
+    "skip": "Omitir",
+    "start": "Empezar"
+  },
+  "error": "ChatonLM no pudo guardar tu elección: {error}"
+}

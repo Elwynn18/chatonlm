@@ -15,7 +15,7 @@ use ts_rs::TS;
 
 use crate::error::{AppError, AppResult};
 use crate::i18n::{self, t};
-use crate::store::{self, Store, chats};
+use crate::store::{self, Store, chats, settings};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -67,6 +67,15 @@ impl Startup {
                 // Réponses interrompues par un arrêt brutal de l'app.
                 if let Err(error) = store.blocking(|c| chats::repair(c)) {
                     eprintln!("chatonlm: cannot repair interrupted answers: {error}");
+                }
+                // Premier démarrage montré de nouveau ou passé d'office
+                // (`CHATONLM_ONBOARDING`), avant que la page lise les
+                // réglages ; aussi pour une base recréée après coup.
+                if let Some(done) = settings::onboarding_override(
+                    std::env::var("CHATONLM_ONBOARDING").ok().as_deref(),
+                ) && let Err(error) = store.blocking(|c| settings::set_onboarding_done(c, done))
+                {
+                    eprintln!("chatonlm: CHATONLM_ONBOARDING ignored: {error}");
                 }
                 Some(store)
             }

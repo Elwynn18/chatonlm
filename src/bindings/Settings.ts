@@ -69,4 +69,9 @@ studyModel: string,
 /**
  * Lire chaque nouvelle réponse à voix haute pendant qu'elle s'écrit.
  */
-autoRead: boolean, };
+autoRead: boolean, 
+/**
+ * Premier démarrage (choix de la langue, présentation de l'app) terminé
+ * ou passé ; « Reset to defaults » n'y touche pas.
+ */
+onboardingDone: boolean, };

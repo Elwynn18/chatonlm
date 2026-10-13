@@ -1997,6 +1997,7 @@ mod tests {
             proofread_paste: true,
             study_model: String::new(),
             auto_read: false,
+            onboarding_done: true,
         };
         let server = Server::from_settings(&settings);
         assert_eq!(

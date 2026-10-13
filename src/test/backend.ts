@@ -532,6 +532,7 @@ export function fakeBackend(
       proofreadPaste: true,
       studyModel: "",
       autoRead: false,
+      onboardingDone: true,
     },
     settingsErrors: { get: null, update: null },
     details: new Map<string, ModelDetails | AppError>(

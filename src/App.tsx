@@ -3,6 +3,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { useEffect } from "react";
 import type { DatabaseProblem } from "@/bindings/DatabaseProblem";
 import { DatabaseProblemScreen } from "@/components/DatabaseProblemScreen";
+import { Onboarding } from "@/components/Onboarding";
 import { ServerGate } from "@/components/ServerGate";
 import { useSettings } from "@/hooks/useSettings";
 import { useTheme } from "@/hooks/useTheme";
@@ -81,6 +82,9 @@ function MainApp() {
     );
   }
   if (!settings) return null;
+  // Premier démarrage : langue et présentation, avant tout le reste (même
+  // l'écran d'un Ollama absent, qui s'écrit dans la langue choisie).
+  if (!settings.onboardingDone) return <Onboarding />;
 
   return (
     <ServerGate>
