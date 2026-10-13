@@ -16,6 +16,7 @@ function chat(id: string, ageMs: number, extra: Partial<ChatInfo> = {}) {
     createdAt: at,
     updatedAt: at,
     favorite: false,
+    source: null,
     ...extra,
   } satisfies ChatInfo;
 }

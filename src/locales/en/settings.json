@@ -7,6 +7,7 @@
     "dictation": "Dictation",
     "readAloud": "Read aloud",
     "voiceMode": "Voice mode",
+    "easyLink": "Easy Link",
     "shortcuts": "Keyboard shortcuts"
   },
   "loadFailed": "Failed to load settings",
@@ -348,6 +349,101 @@
         "description": "Replies are read aloud with the voice of their language: English, French or Spanish.",
         "link": "Manage voices in the ModelHub"
       }
+    }
+  },
+  "easyLink": {
+    "loadFailed": "Couldn't read the Easy Link settings: {message}",
+    "intro": {
+      "description": "Talk to your local models from Telegram or Discord, on your phone for example: connect a bot to ChatonLM, link your account, then write to the bot as you would in a chat.",
+      "keepOpen": {
+        "label": "ChatonLM must stay open",
+        "description": "The bot only replies while ChatonLM is running on this computer. When you close the window, ChatonLM keeps running in the system tray."
+      },
+      "privacy": {
+        "label": "Privacy",
+        "description": "Your models still run on this computer, but the messages you exchange with the bot pass through the servers of Telegram or Discord."
+      }
+    },
+    "platforms": {
+      "telegram": "Telegram",
+      "discord": "Discord"
+    },
+    "setup": {
+      "intro": "No bot is connected. To create one:",
+      "telegram": {
+        "step1": "In Telegram, open @BotFather.",
+        "open": "Open BotFather",
+        "step2": "Send <code>/newbot</code> and answer its questions.",
+        "step3": "Paste the token it gives you below."
+      },
+      "discord": {
+        "step1": "Open the Discord Developer Portal and create an application.",
+        "open": "Open the Developer Portal",
+        "step2": "In its “Bot” tab, select “Reset Token”.",
+        "step3": "Paste the token below.",
+        "step4": "Once the bot is connected, invite it to one of your servers with the link ChatonLM gives you: Discord only lets you write privately to a bot you share a server with."
+      }
+    },
+    "token": {
+      "label": "{platform} bot token"
+    },
+    "connect": {
+      "button": "Connect",
+      "checking": "Checking…"
+    },
+    "bot": {
+      "unknownName": "Bot name not known yet",
+      "token": "Token •••• {hint}",
+      "enable": "Enable the {platform} bot",
+      "remove": "Remove bot",
+      "removeTitle": "Remove the {platform} bot?",
+      "removeText": "ChatonLM forgets its token and unlinks its accounts. The chats stay in the history."
+    },
+    "link": {
+      "off": "Turned off",
+      "connecting": "Connecting…",
+      "connected": "Connected"
+    },
+    "problem": {
+      "unauthorized": "{platform} refused this token. Remove the bot, then connect it again with a new token.",
+      "conflict": "Another app is already using this bot, or a webhook is set on it. Close that app, or create a bot just for ChatonLM.",
+      "network": "Can't reach {platform}. ChatonLM tries again on its own.",
+      "refused": "{platform} refused the connection."
+    },
+    "invite": {
+      "description": "Discord only lets you write privately to a bot you share a server with. Invite the bot to one of your servers, then send it a direct message. If the bot doesn't answer, allow direct messages from the members of that server in its privacy settings.",
+      "button": "Invite the bot to a server"
+    },
+    "accounts": {
+      "title": "Linked accounts",
+      "empty": "No account is linked yet.",
+      "unnamed": "Unnamed account",
+      "linkedOn": "Linked on {date}",
+      "unlink": "Unlink"
+    },
+    "pairing": {
+      "start": "Link an account",
+      "codeLabel": "Linking code: {code}",
+      "expires": "Valid until {time}.",
+      "telegram": "Open the bot in Telegram with the button below, or send it this code.",
+      "openTelegram": "Open in Telegram",
+      "discord": "Send this code to the bot in a direct message."
+    },
+    "commands": {
+      "title": "Bot commands",
+      "intro": "Send these commands to the bot, like any other message.",
+      "new": "Start a new chat",
+      "stop": "Stop the reply",
+      "models": "List the installed models",
+      "model": "Choose the model",
+      "modelName": "name",
+      "load": "Load the model into memory",
+      "unload": "Unload the model from memory",
+      "status": "Show the status",
+      "web": "Turn web search on or off",
+      "help": "Show this list",
+      "discord": "On Discord, commands can also start with “!”, for example <code>!models</code>.",
+      "media": "You can also send a photo, if the model can see images, or a voice message: it is transcribed by the speech model of dictation you have installed."
     }
   },
   "account": {

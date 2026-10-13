@@ -1,3 +1,4 @@
+import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -12,6 +13,13 @@ import {
   dictationInfo,
   dictationStatus,
   dictationToggle,
+  easyLinkCancelPairing,
+  easyLinkConnect,
+  easyLinkDisconnect,
+  easyLinkPair,
+  easyLinkSetEnabled,
+  easyLinkState,
+  easyLinkUnlink,
   getDictationSettings,
   getSettings,
   getThinkPref,
@@ -31,6 +39,8 @@ import {
   hubResumeDownload,
   hubSearch,
   isAppError,
+  listenChatsUpdated,
+  listenEasyLink,
   modelDetails,
   modelExistsUpstream,
   outdatedModels,
@@ -297,5 +307,62 @@ describe("dictation commands", () => {
       ["speech_delete_model", { id: "whisper-tiny" }],
       ["quit_app", {}],
     ]);
+  });
+});
+
+describe("Easy Link commands", () => {
+  const state = { bots: [], accounts: [], pairing: null };
+
+  it("names the seven commands of the backend, arguments in camelCase, each giving the state", async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((command, args) => {
+      calls.push([command, args]);
+      return state;
+    });
+    await expect(easyLinkState()).resolves.toEqual(state);
+    await expect(easyLinkConnect("telegram", "123:abc")).resolves.toEqual(
+      state,
+    );
+    await expect(easyLinkSetEnabled("telegram", false)).resolves.toEqual(state);
+    await expect(easyLinkPair("discord")).resolves.toEqual(state);
+    await expect(easyLinkCancelPairing()).resolves.toEqual(state);
+    await expect(easyLinkUnlink(7)).resolves.toEqual(state);
+    await expect(easyLinkDisconnect("discord")).resolves.toEqual(state);
+    expect(calls).toEqual([
+      ["easy_link_state", {}],
+      ["easy_link_connect", { platform: "telegram", token: "123:abc" }],
+      ["easy_link_set_enabled", { platform: "telegram", enabled: false }],
+      ["easy_link_pair", { platform: "discord" }],
+      ["easy_link_cancel_pairing", {}],
+      ["easy_link_unlink", { accountId: 7 }],
+      ["easy_link_disconnect", { platform: "discord" }],
+    ]);
+  });
+
+  it("a refused token rejects with the error of the backend", async () => {
+    const refused = { kind: "invalid", message: "This token was refused" };
+    mockIPC(() => {
+      throw refused;
+    });
+    await expect(easyLinkConnect("telegram", "bad")).rejects.toBe(refused);
+  });
+
+  it("listens to “easy-link” and “chats-updated”, giving their payloads", async () => {
+    mockIPC(() => null, { shouldMockEvents: true });
+    const states: unknown[] = [];
+    const chats: unknown[] = [];
+    const stopStates = await listenEasyLink((value) => states.push(value));
+    const stopChats = await listenChatsUpdated((value) => chats.push(value));
+    await emit("easy-link", state);
+    await emit("chats-updated", { chatId: "c1" });
+    expect(states).toEqual([state]);
+    expect(chats).toEqual([{ chatId: "c1" }]);
+    // Désinscrit : plus rien n'arrive.
+    stopStates();
+    stopChats();
+    await emit("easy-link", state);
+    await emit("chats-updated", { chatId: "c2" });
+    expect(states).toHaveLength(1);
+    expect(chats).toHaveLength(1);
   });
 });

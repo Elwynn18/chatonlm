@@ -6,6 +6,7 @@ use ts_rs::TS;
 
 use crate::error::{AppError, AppResult};
 use crate::i18n::t;
+use crate::store::easy_link::Platform;
 
 /// Longueur maximale de l'extrait du premier message, affiché dans
 /// l'historique tant que la conversation n'a pas de titre.
@@ -28,6 +29,9 @@ pub struct ChatInfo {
     pub updated_at: i64,
     /// Rangée dans « Favorites », en tête de l'historique (propre à ChatonLM).
     pub favorite: bool,
+    /// Messagerie d'où vient la conversation (Easy Link, propre à ChatonLM) ;
+    /// absente : écrite dans l'app.
+    pub source: Option<Platform>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -160,7 +164,7 @@ pub fn list(connection: &Connection) -> AppResult<Vec<ChatInfo>> {
                 (SELECT m.content FROM messages m
                  WHERE m.chat_id = c.id AND m.role = 'user'
                  ORDER BY m.id LIMIT 1),
-                c.favorite
+                c.favorite, c.source
          FROM chats c
          ORDER BY c.updated_at DESC, c.id DESC",
     )?;
@@ -172,6 +176,11 @@ pub fn list(connection: &Connection) -> AppResult<Vec<ChatInfo>> {
             updated_at: row.get(3)?,
             user_excerpt: excerpt(&row.get::<_, Option<String>>(4)?.unwrap_or_default()),
             favorite: row.get(5)?,
+            // Valeur inconnue (base d'une version plus récente) : sans marque.
+            source: row
+                .get::<_, Option<String>>(6)?
+                .and_then(|source| easy_link::Platform::parse(&source))
+                .map(Platform::from),
         })
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
@@ -344,6 +353,15 @@ pub fn create(connection: &Connection, now: i64) -> AppResult<String> {
         params![id, now],
     )?;
     Ok(id)
+}
+
+/// Marque une conversation ouverte par un bot d'Easy Link.
+pub fn set_source(connection: &Connection, id: &str, source: Platform) -> AppResult<()> {
+    connection.execute(
+        "UPDATE chats SET source = ?2 WHERE id = ?1",
+        params![id, source.as_str()],
+    )?;
+    Ok(())
 }
 
 /// Ajoute un message de l'utilisateur et ses pièces jointes (dans l'ordre),

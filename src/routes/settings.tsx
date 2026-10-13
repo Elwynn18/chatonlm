@@ -11,8 +11,9 @@
  * the Ollama account card, focused; "dictation": the dictation cards,
  * scrolled into view and focused, again on each navigation that is not a
  * mere change of tab; "readAloud": the reading aloud of replies, ChatonLM's
- * own; "voiceMode": the voice mode, ChatonLM's own; "shortcuts": the keyboard
- * shortcuts, ChatonLM's own),
+ * own; "voiceMode": the voice mode, ChatonLM's own; "easyLink": the Telegram
+ * and Discord bots, ChatonLM's own; "shortcuts": the keyboard shortcuts,
+ * ChatonLM's own),
  * any other value read as "general" by the page; a "card" search parameter
  * ("updates": the Updates card of General, scrolled into view and focused
  * the same way, from the system tray); the
@@ -44,7 +45,7 @@ export interface SettingsSearch {
  * Type du paramètre pour la navigation. Le routeur garde aussi les
  * paramètres bruts : la page compare elle-même la valeur (« general »,
  * « models », « account », « dictation », « readAloud », « voiceMode »,
- * « shortcuts »).
+ * « easyLink », « shortcuts »).
  */
 export function validateSettingsSearch(
   raw: Record<string, unknown>,
@@ -56,6 +57,7 @@ export function validateSettingsSearch(
     raw.section === "dictation" ||
     raw.section === "readAloud" ||
     raw.section === "voiceMode" ||
+    raw.section === "easyLink" ||
     raw.section === "shortcuts"
       ? { section: raw.section }
       : {}),

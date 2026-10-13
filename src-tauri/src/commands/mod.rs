@@ -7,6 +7,7 @@ pub mod attachments;
 pub mod chats;
 pub mod desktop;
 pub mod dictation;
+pub mod easy_link;
 pub mod hub;
 pub mod models;
 pub mod models_dir;

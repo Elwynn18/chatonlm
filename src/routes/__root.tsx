@@ -33,7 +33,10 @@
  * conversation is no longer shown; while the keys of a system-wide shortcut
  * are being recorded (Windows), the app shortcuts handled here stay quiet;
  * ChatonLM's own first-launch tour (onboarding/Tour.tsx) is shown from here
- * until it is finished or skipped, the app under it being inert meanwhile.
+ * until it is finished or skipped, the app under it being inert meanwhile;
+ * ChatonLM's own Easy Link (Telegram and Discord bots) is followed here: its
+ * state, and the chats the backend creates or changes for a bot, read again
+ * by the history and by the page of that chat.
  */
 
 import type { QueryClient } from "@tanstack/react-query";
@@ -46,8 +49,10 @@ import {
 import { useEffect } from "react";
 import { ModelPreloader } from "@/components/ModelPreloader";
 import { Tour } from "@/components/onboarding/Tour";
+import { useChatsEvents } from "@/hooks/useChats";
 import { useDictationEvents } from "@/hooks/useDictation";
 import { useDownloadEvents } from "@/hooks/useDownloads";
+import { useEasyLinkEvents } from "@/hooks/useEasyLink";
 import { useReadAloudEvents } from "@/hooks/useReadAloud";
 import { useSettings } from "@/hooks/useSettings";
 import { useShortcutsEvents } from "@/hooks/useShortcuts";
@@ -104,6 +109,11 @@ function RootComponent() {
   // Mode vocal : état, niveaux, phrases ; fin quand sa page n'est plus
   // affichée.
   useVoiceModeEvents();
+  // Easy Link : état des bots et des comptes liés (onglet des réglages).
+  useEasyLinkEvents();
+  // Conversation créée ou modifiée par le moteur (message reçu par un bot) :
+  // historique et conversation relus, quelle que soit la page.
+  useChatsEvents();
 
   // Page demandée par le moteur (menu de la zone de notification, action
   // « Show » de la correction de la sélection) : les réglages, le ModelHub

@@ -69,6 +69,7 @@ const SCREENS = [
     "dictation",
     "readAloud",
     "voiceMode",
+    "easyLink",
     "shortcuts",
   ].map(settingsTab),
 ];

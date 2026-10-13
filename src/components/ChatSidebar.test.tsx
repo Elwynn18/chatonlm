@@ -1,6 +1,8 @@
 // Barre latérale de l'historique, dans l'app (vraies routes) face au
 // simulateur : affichée aussi sur le ModelHub et les réglages, rubrique
-// « Favorites », boutons étoile et poubelle de chaque ligne, menu contextuel.
+// « Favorites », boutons étoile et poubelle de chaque ligne, menu contextuel ;
+// signe des conversations venues d'un bot (Easy Link) et relecture quand le
+// moteur en crée ou en modifie une (« chats-updated »).
 
 import {
   act,
@@ -13,6 +15,7 @@ import {
 import { onlineManager } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { setLanguage } from "@/i18n";
 import { listChats } from "@/lib/ipc";
 import { fakeBackend, type StoredChat } from "@/test/backend";
 import { renderApp } from "@/test/renderApp";
@@ -635,5 +638,111 @@ describe("row buttons", () => {
 
     await waitFor(() => expect(app.path()).toBe("/c/new"));
     await waitFor(() => expect(row("today")).toBeNull());
+  });
+});
+
+describe("chats from a bot (Easy Link)", () => {
+  const sign = (id: string) => within(rowOf(id)).queryByTestId("chat-source");
+
+  it("carry a sign named after their messenger, before the title; the others don't", async () => {
+    setup("/c/new", [
+      { ...stored("from-telegram", 2 * 60_000), source: "telegram" },
+      { ...stored("from-discord", 3 * 60_000), source: "discord" },
+    ]);
+    await openHistory();
+    const telegram = within(rowOf("from-telegram")).getByRole("img", {
+      name: "Telegram chat",
+    });
+    expect(telegram).toBe(sign("from-telegram"));
+    expect(telegram.title).toBe("Telegram chat");
+    // Une icône estompée, pas un texte ; elle ne rétrécit pas le titre à
+    // rien et ne s'écrase pas.
+    expect(classes(telegram)).toEqual(
+      expect.arrayContaining(["text-neutral-500", "flex-none"]),
+    );
+    expect(telegram.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
+      "true",
+    );
+    expect(sign("from-discord")?.getAttribute("aria-label")).toBe(
+      "Discord chat",
+    );
+    // Dans le lien, avant le titre, qui garde sa troncature et reste seul
+    // à décrire les boutons de la ligne.
+    const link = within(rowOf("from-telegram")).getByRole("link");
+    const title = link.querySelector("span.truncate")!;
+    expect(link.firstElementChild).toBe(telegram);
+    expect(telegram.nextElementSibling).toBe(title);
+    expect(title.textContent).toBe("Chat from-telegram");
+    expect(
+      document.getElementById(
+        star("from-telegram").getAttribute("aria-describedby")!,
+      ),
+    ).toBe(title);
+    // Le faux moteur dit d'où vient chaque conversation, comme le vrai.
+    expect((await listChats()).map((chat) => [chat.id, chat.source])).toEqual([
+      ["today", null],
+      ["from-telegram", "telegram"],
+      ["from-discord", "discord"],
+      ["older", null],
+    ]);
+    // Conversations de l'app : rien ne change.
+    expect(sign("today")).toBeNull();
+    expect(sign("older")).toBeNull();
+    expect(within(rowOf("today")).getByRole("link").children).toHaveLength(1);
+
+    act(() => setLanguage("fr"));
+    expect(sign("from-telegram")?.getAttribute("aria-label")).toBe(
+      "Conversation Telegram",
+    );
+    expect(sign("from-discord")?.title).toBe("Conversation Discord");
+    act(() => setLanguage("es"));
+    expect(sign("from-telegram")?.title).toBe("Chat de Telegram");
+  });
+
+  it("a chat the backend creates for a bot appears at once, from any page", async () => {
+    const { simulator, backend } = setup("/settings");
+    await openHistory();
+    await waitFor(() => expect(simulator.listening("chats-updated")).toBe(1));
+    const lists = simulator.callsTo("list_chats").length;
+    backend.chats.set("from-bot", {
+      ...stored("from-bot", 0),
+      source: "telegram",
+    });
+    // Sans évènement, la page ne sait rien.
+    await settle();
+    expect(row("from-bot")).toBeNull();
+    await simulator.emitEvent("chats-updated", { chatId: "from-bot" });
+    await waitFor(() => expect(row("from-bot")).toBeTruthy());
+    expect(simulator.callsTo("list_chats")).toHaveLength(lists + 1);
+    expect(history()).toEqual([
+      ["Today", ["from-bot", "today"]],
+      ["Older", ["older"]],
+    ]);
+    expect(sign("from-bot")?.title).toBe("Telegram chat");
+  });
+
+  it("the open chat is read again when the backend changes it", async () => {
+    const { simulator, backend } = setup("/c/today");
+    await openHistory();
+    await waitFor(() => expect(simulator.listening("chats-updated")).toBe(1));
+    await waitFor(() =>
+      expect(simulator.callsTo("get_chat")).toEqual([{ id: "today" }]),
+    );
+    backend.chats.get("today")!.title = "Renamed by the bot";
+    // Une autre conversation : celle qui est ouverte n'est pas relue.
+    await simulator.emitEvent("chats-updated", { chatId: "older" });
+    await waitFor(() =>
+      expect(within(rowOf("today")).getByRole("link").textContent).toBe(
+        "Renamed by the bot",
+      ),
+    );
+    expect(simulator.callsTo("get_chat")).toEqual([{ id: "today" }]);
+    await simulator.emitEvent("chats-updated", { chatId: "today" });
+    await waitFor(() =>
+      expect(simulator.callsTo("get_chat")).toEqual([
+        { id: "today" },
+        { id: "today" },
+      ]),
+    );
   });
 });

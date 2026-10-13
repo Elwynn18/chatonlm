@@ -516,6 +516,7 @@ describe("Settings tabs", () => {
       ["Dictation", "/settings?section=dictation"],
       ["Read aloud", "/settings?section=readAloud"],
       ["Voice mode", "/settings?section=voiceMode"],
+      ["Easy Link", "/settings?section=easyLink"],
       ["Keyboard shortcuts", "/settings?section=shortcuts"],
     ]);
     expect(currentTabs()).toEqual(["General"]);
@@ -530,6 +531,7 @@ describe("Settings tabs", () => {
     Models: () => screen.findByTestId("models-settings"),
     Account: () => screen.findByTestId("ollama-account"),
     Dictation: () => screen.findByTestId("dictation"),
+    "Easy Link": () => screen.findByTestId("easy-link-settings"),
   };
 
   it.each([
@@ -537,6 +539,7 @@ describe("Settings tabs", () => {
     ["/settings?section=models", "Models"],
     ["/settings?section=account", "Account"],
     ["/settings?section=dictation", "Dictation"],
+    ["/settings?section=easyLink", "Easy Link"],
     ["/settings?section=other", "General"],
   ] as const)("%s opens %s", async (path, name) => {
     setup({}, path);
@@ -545,7 +548,16 @@ describe("Settings tabs", () => {
   });
 
   it("types the section of each tab, and nothing else", () => {
-    for (const section of ["general", "models", "account", "dictation"]) {
+    for (const section of [
+      "general",
+      "models",
+      "account",
+      "dictation",
+      "readAloud",
+      "voiceMode",
+      "easyLink",
+      "shortcuts",
+    ]) {
       expect(validateSettingsSearch({ section })).toEqual({ section });
     }
     expect(validateSettingsSearch({ section: "other" })).toEqual({});
@@ -734,6 +746,7 @@ describe("Settings in other languages", () => {
       "Dictée",
       "Lecture à voix haute",
       "Mode vocal",
+      "Easy Link",
       "Raccourcis clavier",
     ]);
     expect(screen.getByLabelText("Adresse du serveur")).toBeTruthy();

@@ -73,6 +73,9 @@ import type { VoiceModeState } from "@/bindings/VoiceModeState";
 import type { VoiceModeUtterance } from "@/bindings/VoiceModeUtterance";
 import type { Platform } from "@/bindings/Platform";
 import type { ShortcutKeys } from "@/bindings/ShortcutKeys";
+import type { ChatsUpdated } from "@/bindings/ChatsUpdated";
+import type { EasyLinkPlatform } from "@/bindings/EasyLinkPlatform";
+import type { EasyLinkState } from "@/bindings/EasyLinkState";
 
 /** Problème rencontré à l'ouverture de la base au démarrage, ou null. */
 export function databaseProblem(): Promise<DatabaseProblem | null> {
@@ -473,6 +476,20 @@ export function setChatFavorite(id: string, favorite: boolean): Promise<void> {
 
 export function deleteChat(id: string): Promise<void> {
   return invoke<void>("delete_chat", { id });
+}
+
+/**
+ * Événement du moteur quand il crée ou modifie une conversation hors de la
+ * page (message reçu par un bot d'Easy Link).
+ */
+export const CHATS_UPDATED_EVENT = "chats-updated";
+
+export function listenChatsUpdated(
+  onChange: (update: ChatsUpdated) => void,
+): Promise<UnlistenFn> {
+  return listen<ChatsUpdated>(CHATS_UPDATED_EVENT, (event) =>
+    onChange(event.payload),
+  );
 }
 
 // ModelHub (src-tauri/src/commands/hub.rs). Les problèmes de Hugging Face
@@ -1207,6 +1224,76 @@ export function listenUpdateStatus(
   onChange: (status: UpdateStatus) => void,
 ): Promise<UnlistenFn> {
   return listen<UpdateStatus>(UPDATE_STATUS_EVENT, (event) =>
+    onChange(event.payload),
+  );
+}
+
+// Easy Link (propre à ChatonLM) : bots Telegram et Discord tenus par le
+// moteur ; la page règle et montre leur état. Chaque commande renvoie l'état
+// d'après ; le jeton d'un bot ne revient jamais.
+
+/** Bots (Telegram, puis Discord), comptes liés et code d'appairage en cours. */
+export function easyLinkState(): Promise<EasyLinkState> {
+  return invoke<EasyLinkState>("easy_link_state");
+}
+
+/**
+ * Vérifie le jeton auprès de la messagerie, l'enregistre et active le bot ;
+ * rejette (message du moteur, déjà traduit) si le jeton est refusé ou la
+ * messagerie injoignable.
+ */
+export function easyLinkConnect(
+  platform: EasyLinkPlatform,
+  token: string,
+): Promise<EasyLinkState> {
+  return invoke<EasyLinkState>("easy_link_connect", { platform, token });
+}
+
+/** Oublie le jeton du bot et délie les comptes de cette messagerie. */
+export function easyLinkDisconnect(
+  platform: EasyLinkPlatform,
+): Promise<EasyLinkState> {
+  return invoke<EasyLinkState>("easy_link_disconnect", { platform });
+}
+
+/** Active ou désactive un bot, sans oublier son jeton ni ses comptes. */
+export function easyLinkSetEnabled(
+  platform: EasyLinkPlatform,
+  enabled: boolean,
+): Promise<EasyLinkState> {
+  return invoke<EasyLinkState>("easy_link_set_enabled", { platform, enabled });
+}
+
+/**
+ * Nouveau code d'appairage (six chiffres, dix minutes) pour cette
+ * messagerie ; il remplace celui en cours, quel qu'il soit.
+ */
+export function easyLinkPair(
+  platform: EasyLinkPlatform,
+): Promise<EasyLinkState> {
+  return invoke<EasyLinkState>("easy_link_pair", { platform });
+}
+
+/** Abandonne le code d'appairage en cours. */
+export function easyLinkCancelPairing(): Promise<EasyLinkState> {
+  return invoke<EasyLinkState>("easy_link_cancel_pairing");
+}
+
+/** Délie un compte : le bot ne lui répond plus. */
+export function easyLinkUnlink(accountId: number): Promise<EasyLinkState> {
+  return invoke<EasyLinkState>("easy_link_unlink", { accountId });
+}
+
+/**
+ * Événement du moteur à chaque changement d'Easy Link : état d'une liaison,
+ * compte lié par un bot, code consommé ou expiré.
+ */
+export const EASY_LINK_EVENT = "easy-link";
+
+export function listenEasyLink(
+  onChange: (state: EasyLinkState) => void,
+): Promise<UnlistenFn> {
+  return listen<EasyLinkState>(EASY_LINK_EVENT, (event) =>
     onChange(event.payload),
   );
 }

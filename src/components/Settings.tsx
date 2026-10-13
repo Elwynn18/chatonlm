@@ -7,7 +7,7 @@
  * file app/ui/app/src/components/Settings.tsx, commit 42e911bc3d05.
  * Modified for ChatonLM: tabs instead of one page (settings/SettingsTabs.tsx,
  * the "section" search parameter): General (default), Models, Account,
- * Dictation, Read aloud, Voice mode and Keyboard shortcuts; changing tab replaces the history entry and leaves the focus on
+ * Dictation, Read aloud, Voice mode, Easy Link and Keyboard shortcuts; changing tab replaces the history entry and leaves the focus on
  * the tab. General: one card with the interface language (ChatonLM's own row,
  * first: System, English, Español, Français, each language written in
  * itself; the whole app switches at once, without reloading), server address,
@@ -57,7 +57,10 @@
  * to defaults" in the same write. Voice mode: ChatonLM's own cards
  * (settings/VoiceMode.tsx: taking turns, pause, interrupting by speaking,
  * thinking, voice instructions, links to dictation and voices), untouched
- * by "Reset to defaults".
+ * by "Reset to defaults". Easy Link: ChatonLM's own cards
+ * (settings/EasyLink.tsx: the Telegram and Discord bots that let one talk to
+ * the local models from a messenger, their linked accounts, the commands of
+ * the bots), untouched by "Reset to defaults".
  */
 
 import {
@@ -75,6 +78,7 @@ import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import type { Theme } from "@/bindings/Theme";
 import { AddressField } from "@/components/AddressField";
 import { Dictation } from "@/components/settings/Dictation";
+import { EasyLink } from "@/components/settings/EasyLink";
 import { MenuEntryRow } from "@/components/settings/MenuEntry";
 import { ModelLocation } from "@/components/settings/ModelLocation";
 import { Models } from "@/components/settings/Models";
@@ -145,6 +149,7 @@ function tabOf(section: unknown): SettingsTab {
     section === "dictation" ||
     section === "readAloud" ||
     section === "voiceMode" ||
+    section === "easyLink" ||
     section === "shortcuts"
     ? section
     : "general";
@@ -345,6 +350,13 @@ export function Settings({
           <div className="mx-auto max-w-4xl min-w-0">
             {/* Réglages à part (table du mode vocal) : Reset n'y touche pas. */}
             <VoiceMode onSaved={showSavedConfirmation} />
+          </div>
+        )}
+
+        {tab === "easyLink" && (
+          <div className="mx-auto max-w-4xl min-w-0">
+            {/* Bots et comptes liés à part : Reset (General) n'y touche pas. */}
+            <EasyLink onSaved={showSavedConfirmation} />
           </div>
         )}
 

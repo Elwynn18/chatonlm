@@ -15,9 +15,12 @@
  * hover or keyboard focus, star and delete buttons at the right of each chat
  * (star always shown for a favorite), the delete button opening the same
  * confirmation as the context menu; texts, group titles and the date of an
- * untitled chat translated into English, Spanish and French (src/i18n).
+ * untitled chat translated into English, Spanish and French (src/i18n); a
+ * chat that comes from a Telegram or Discord bot (ChatonLM's own Easy Link)
+ * has a small sign before its title, named after its messenger.
  */
 
+import { LinkIcon } from "@heroicons/react/20/solid";
 import { StarIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { StarIcon as FilledStarIcon } from "@heroicons/react/24/solid";
 import { useQueryClient } from "@tanstack/react-query";
@@ -31,6 +34,7 @@ import {
   useState,
 } from "react";
 import type { ChatInfo } from "@/bindings/ChatInfo";
+import type { EasyLinkPlatform } from "@/bindings/EasyLinkPlatform";
 import { AppNavigation, type AppSection } from "@/components/AppSidebar";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ContextMenu } from "@/components/ContextMenu";
@@ -61,6 +65,26 @@ const GROUP_TITLES: Record<ChatGroupId, TKey> = {
 
 const ACTION_CLASS =
   "pointer-events-auto flex size-6 items-center justify-center rounded-md outline-none hover:bg-neutral-300 focus-visible:ring-2 focus-visible:ring-accent-fg dark:hover:bg-neutral-700";
+
+/**
+ * Signe d'une conversation venue d'un bot d'Easy Link, nommé d'après sa
+ * messagerie (« Telegram chat »).
+ */
+function ChatSource({ source }: { source: EasyLinkPlatform }) {
+  const t = useT();
+  const name = t(`chat.history.source.${source}`);
+  return (
+    <span
+      role="img"
+      data-testid="chat-source"
+      aria-label={name}
+      title={name}
+      className="mr-1.5 flex-none text-neutral-500"
+    >
+      <LinkIcon aria-hidden="true" className="size-3.5" />
+    </span>
+  );
+}
 
 interface ChatSidebarProps {
   /** Conversation affichée, surlignée (aucune hors du chat). */
@@ -319,6 +343,10 @@ export function ChatSidebar({
                           }`}
                           draggable={false}
                         >
+                          {/* Venue d'un bot (Easy Link) : signe générique,
+                              pas le logo d'une marque ; hors du titre, qui
+                              garde sa troncature et décrit seul les boutons. */}
+                          {chat.source && <ChatSource source={chat.source} />}
                           <span
                             id={`${titleIds}-${chat.id}`}
                             className="truncate font-sans text-sm"

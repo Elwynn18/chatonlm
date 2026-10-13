@@ -64,6 +64,16 @@ try {
       await driver.waitFor("[data-testid=new-chat]", { timeoutMs: 10000 });
       const settings = await driver.invoke("get_settings");
       assert.equal(settings.theme, "system");
+      // Easy Link, qui n'avait pas pu démarrer sans base, démarre avec la
+      // base retrouvée, sans relancer l'app.
+      const easyLink = await driver.invoke("easy_link_state");
+      assert.deepEqual(
+        easyLink.bots.map((bot) => [bot.platform, bot.configured]),
+        [
+          ["telegram", false],
+          ["discord", false],
+        ],
+      );
     },
   );
 } finally {

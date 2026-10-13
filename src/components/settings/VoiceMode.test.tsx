@@ -43,7 +43,7 @@ const instructions = () =>
   screen.findByLabelText<HTMLTextAreaElement>("Voice instructions");
 
 describe("Voice mode settings", () => {
-  it("is a tab of the settings, before Keyboard shortcuts", async () => {
+  it("is a tab of the settings, before Easy Link and Keyboard shortcuts", async () => {
     setup();
     await screen.findByTestId("voice-mode-settings");
     const tab = screen.getByTestId("settings-tab-voiceMode");
@@ -53,7 +53,11 @@ describe("Voice mode settings", () => {
     const tabs = [
       ...screen.getByTestId("settings-tabs").querySelectorAll("a"),
     ].map((link) => link.textContent);
-    expect(tabs.slice(-2)).toEqual(["Voice mode", "Keyboard shortcuts"]);
+    expect(tabs.slice(-3)).toEqual([
+      "Voice mode",
+      "Easy Link",
+      "Keyboard shortcuts",
+    ]);
   });
 
   it("taking turns and the pause: chosen, saved at once", async () => {

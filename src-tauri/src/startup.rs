@@ -226,6 +226,8 @@ pub async fn recover_database(
         // Base retrouvée : sa langue remplace celle du bureau.
         i18n::apply(&app, i18n::saved(Some(&store)));
         app.manage(store);
+        // Easy Link n'a pas pu démarrer sans base : il démarre maintenant.
+        crate::easy_link::setup(&app);
     }
     Ok(startup.problem())
 }

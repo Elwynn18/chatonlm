@@ -119,7 +119,7 @@ async fn recommended(store: &Store) -> AppResult<Vec<String>> {
 /// contexte et durée réglés (le message suivant ne recharge pas le modèle).
 /// Refusé pour un modèle distant (nom cloud, ou `/api/show` qui le dit) :
 /// rien à charger ici.
-async fn load(store: &Store, model: &str) -> AppResult<()> {
+pub(crate) async fn load(store: &Store, model: &str) -> AppResult<()> {
     let settings = app_settings(store).await?;
     let base = &settings.effective_server_url;
     if models::is_cloud_name(model)

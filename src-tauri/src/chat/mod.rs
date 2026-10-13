@@ -77,7 +77,12 @@
 //!   consigne vocale (réglage, sinon celle par défaut) part en premier
 //!   message `system` de chaque requête `/api/chat` de l'envoi, tours
 //!   d'outils compris, sans jamais être enregistrée ; l'observateur reçoit
-//!   la demande avec chaque événement (lecture de la réponse, séance).
+//!   la demande avec chaque événement (lecture de la réponse, séance) ;
+//! - envoi d'un bot d'Easy Link ([`Origin::Remote`], propre à ChatonLM) : même
+//!   moteur et même historique, mais ses événements vont au bot et non à la
+//!   page ; l'observateur ne les voit pas (une réponse destinée à une
+//!   messagerie n'est pas lue à voix haute sur l'ordinateur), et un
+//!   rechargement de la page ne l'arrête pas.
 
 pub(crate) mod pull;
 pub mod stream;
@@ -319,6 +324,7 @@ type Observer = Box<dyn Fn(&str, &ChatEvent, Option<&VoiceSend>) + Send + Sync>;
 
 struct Running {
     stream_id: String,
+    origin: Origin,
     cancel: watch::Sender<bool>,
     finished: watch::Receiver<bool>,
 }
@@ -342,6 +348,7 @@ impl ChatEngine {
         &self,
         chat_id: &str,
         stream_id: &str,
+        origin: Origin,
     ) -> AppResult<(watch::Receiver<bool>, watch::Sender<bool>)> {
         let mut running = self.running.lock();
         if running.contains_key(chat_id) {
@@ -353,6 +360,7 @@ impl ChatEngine {
             chat_id.to_owned(),
             Running {
                 stream_id: stream_id.to_owned(),
+                origin,
                 cancel,
                 finished,
             },
@@ -386,8 +394,18 @@ impl ChatEngine {
         !self.running.lock().is_empty()
     }
 
-    /// Demande l'arrêt de tous les flux (page rechargée, fermeture,
-    /// redémarrage d'Ollama par Settings > Model location).
+    /// Demande l'arrêt des flux de la page (page rechargée : ils n'ont plus de
+    /// destinataire). Ceux d'un bot d'Easy Link continuent.
+    pub fn cancel_page(&self) {
+        for running in self.running.lock().values() {
+            if running.origin == Origin::Page {
+                let _ = running.cancel.send(true);
+            }
+        }
+    }
+
+    /// Demande l'arrêt de tous les flux (fermeture, redémarrage d'Ollama par
+    /// Settings > Model location).
     pub fn cancel_all(&self) {
         for running in self.running.lock().values() {
             let _ = running.cancel.send(true);
@@ -481,6 +499,16 @@ impl Server {
     }
 }
 
+/// D'où vient un envoi.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Origin {
+    /// La page de l'app.
+    Page,
+    /// Un bot d'Easy Link : ni observateur, ni arrêt au rechargement de la
+    /// page.
+    Remote,
+}
+
 /// Envoie un message (ou en modifie un) et transmet la réponse. Erreur
 /// seulement si l'envoi est refusé d'emblée (message vide, pièce jointe
 /// inconnue, message modifié inconnu, conversation occupée...) ; sinon la fin
@@ -492,6 +520,22 @@ pub async fn send(
     server: Server,
     request: SendRequest,
     events: &Channel<ChatEvent>,
+) -> AppResult<()> {
+    let sink = |event: ChatEvent| {
+        let _ = events.send(event);
+    };
+    send_to(store, engine, staging, server, request, Origin::Page, &sink).await
+}
+
+/// [`send`], avec le destinataire des événements au choix (`sink`).
+pub async fn send_to(
+    store: &Store,
+    engine: &ChatEngine,
+    staging: &Staging,
+    server: Server,
+    request: SendRequest,
+    origin: Origin,
+    sink: &(dyn Fn(ChatEvent) + Send + Sync),
 ) -> AppResult<()> {
     // Comme l'officiel : un message fait seulement d'espaces est refusé, les
     // autres sont enregistrés et envoyés tels quels. Un texte est requis même
@@ -512,8 +556,10 @@ pub async fn send(
     let observed: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let voice = request.voice.clone();
     let emit = |event: ChatEvent| {
-        engine.observe(observed.get().map(String::as_str), &event, voice.as_ref());
-        let _ = events.send(event);
+        if origin == Origin::Page {
+            engine.observe(observed.get().map(String::as_str), &event, voice.as_ref());
+        }
+        sink(event);
     };
     // Envoi vocal : consigne vocale réglée (vide : par défaut), envoyée en
     // message système avec chaque requête, jamais enregistrée (écart à
@@ -535,7 +581,7 @@ pub async fn send(
         }
     };
     let _ = observed.set(chat_id.clone());
-    let (mut cancel, finish) = engine.begin(&chat_id, &request.stream_id)?;
+    let (mut cancel, finish) = engine.begin(&chat_id, &request.stream_id, origin)?;
     // Modification vérifiée avant toute écriture (`chatId` présent, vérifié
     // par `edit`), puis revérifiée dans la transaction qui l'écrit. Après
     // `begin` : un arrêt demandé pendant la vérification n'est pas perdu.
@@ -565,6 +611,7 @@ pub async fn send(
         store,
         engine,
         emit: &emit,
+        origin,
     };
     let prompt = Prompt {
         content: request.content,
@@ -666,6 +713,7 @@ struct Conversation<'a, E: Fn(ChatEvent)> {
     store: &'a Store,
     engine: &'a ChatEngine,
     emit: &'a E,
+    origin: Origin,
 }
 
 impl<E: Fn(ChatEvent)> Conversation<'_, E> {
@@ -909,6 +957,9 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
     ) -> Result<Option<ModelDetails>, Outcome> {
         match show(base, model, cancel).await {
             Shown::Found(details) => return Ok(Some(details)),
+            // Un bot d'Easy Link ne fait jamais télécharger un modèle :
+            // /api/chat dira qu'il est absent.
+            Shown::Missing if self.origin == Origin::Remote => return Ok(None),
             Shown::Missing => {}
             Shown::Unknown => return Ok(None),
             Shown::Unreachable => return Err(unreachable(base)),
@@ -1265,7 +1316,7 @@ fn needs_loading(
 /// Images envoyées au modèle : oui, sauf si ses capacités connues (liste non
 /// vide) ne comptent pas « vision ». Voir le contrat
 /// `contract_images_and_vision`.
-fn accepts_images(details: Option<&ModelDetails>) -> bool {
+pub(crate) fn accepts_images(details: Option<&ModelDetails>) -> bool {
     details.is_none_or(|details| {
         details.capabilities.is_empty() || details.capabilities.iter().any(|c| c == "vision")
     })

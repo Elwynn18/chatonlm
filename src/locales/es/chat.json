@@ -38,6 +38,10 @@
     },
     "titleField": "Título del chat",
     "favorite": "Favorito",
+    "source": {
+      "telegram": "Chat de Telegram",
+      "discord": "Chat de Discord"
+    },
     "addFavorite": "Añadir a favoritos",
     "removeFavorite": "Quitar de favoritos",
     "deleteChat": "Eliminar chat",

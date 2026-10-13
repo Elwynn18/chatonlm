@@ -44,6 +44,10 @@
 // Système : app_platform répond `platform` (« linux » par défaut) ; un essai
 // d'un écran sous Windows appelle aussi setPlatform (src/lib/platform.ts), que
 // main.tsx appelle dans l'app.
+// Easy Link : faux moteur de src/test/easyLink.ts (backend.easyLink) : deux
+// bots sans jeton, aucun compte lié, pas de code d'appairage. Une
+// conversation venue d'un bot porte sa messagerie (`source`, rendue par
+// list_chats ; null pour une conversation de l'app).
 // Pour les tests seulement.
 
 import type { AccountStatus } from "@/bindings/AccountStatus";
@@ -57,6 +61,7 @@ import type { HiddenHome } from "@/bindings/HiddenHome";
 import type { MenuEntryStatus } from "@/bindings/MenuEntryStatus";
 import type { ChatEvent } from "@/bindings/ChatEvent";
 import type { ChatInfo } from "@/bindings/ChatInfo";
+import type { EasyLinkPlatform } from "@/bindings/EasyLinkPlatform";
 import type { Message } from "@/bindings/Message";
 import type { ModelDetails } from "@/bindings/ModelDetails";
 import type { ModelInfo } from "@/bindings/ModelInfo";
@@ -77,6 +82,7 @@ import type { ServiceStart } from "@/bindings/ServiceStart";
 import type { UpdateStatus } from "@/bindings/UpdateStatus";
 import type { Platform } from "@/lib/platform";
 import { type FakeDictation, fakeDictation } from "@/test/dictation";
+import { type FakeEasyLink, fakeEasyLink } from "@/test/easyLink";
 import { canonicalModel, type FakeHub, fakeHub } from "@/test/hub";
 import { type FakeProofread, fakeProofread } from "@/test/proofread";
 import {
@@ -216,10 +222,14 @@ export interface FakeFile {
 type FakeEntry = FakeFile | { error: string };
 
 /**
- * Conversation enregistrée : celle de get_chat, plus son rang de favori
- * (list_chats seulement ; absent : non favorite).
+ * Conversation enregistrée : celle de get_chat, plus son rang de favori et
+ * la messagerie d'où elle vient (list_chats seulement ; absents : non
+ * favorite, conversation de l'app).
  */
-export type StoredChat = Chat & { favorite?: boolean };
+export type StoredChat = Chat & {
+  favorite?: boolean;
+  source?: EasyLinkPlatform | null;
+};
 
 export function modelInfo(model: string): ModelInfo {
   return {
@@ -420,6 +430,8 @@ export interface FakeBackend {
   tts: FakeTts;
   /** Faux moteur du mode conversation vocale (voice_mode_*). */
   voiceMode: FakeVoiceMode;
+  /** Faux moteur d'Easy Link (easy_link_*). */
+  easyLink: FakeEasyLink;
 }
 
 /** Service système de la plupart des machines, pkexec présent. */
@@ -472,7 +484,8 @@ export function defaultFolderCheck(path: string): FolderCheck {
  * (src/test/proofread.ts), study_* (src/test/study.ts), read_aloud,
  * read_aloud_stop, read_aloud_state et voice_* (src/test/tts.ts),
  * voice_mode_*, get_voice_mode_settings et update_voice_mode_settings
- * (src/test/voiceMode.ts), ollama_runtime,
+ * (src/test/voiceMode.ts), easy_link_* (src/test/easyLink.ts),
+ * ollama_runtime,
  * set_ollama_source, start_ollama_service, restart_builtin_ollama,
  * open_builtin_folder, open_builtin_log, menu_entry_status,
  * set_menu_entry, update_status, app_versions, check_for_updates,
@@ -505,7 +518,13 @@ export function fakeBackend(
 ): FakeBackend {
   const backend: Omit<
     FakeBackend,
-    "hub" | "dictation" | "proofread" | "study" | "tts" | "voiceMode"
+    | "hub"
+    | "dictation"
+    | "proofread"
+    | "study"
+    | "tts"
+    | "voiceMode"
+    | "easyLink"
   > & {
     hub?: FakeHub;
     dictation?: FakeDictation;
@@ -513,6 +532,7 @@ export function fakeBackend(
     study?: FakeStudy;
     tts?: FakeTts;
     voiceMode?: FakeVoiceMode;
+    easyLink?: FakeEasyLink;
   } = {
     settings: {
       serverUrl: "",
@@ -610,6 +630,7 @@ export function fakeBackend(
     dictation: backend.dictation,
     tts: backend.tts,
   });
+  backend.easyLink = fakeEasyLink(simulator);
   simulator.handle("quit_app", () => null);
   simulator.handle("app_platform", () => backend.platform);
   simulator.handle("menu_entry_status", () => ({ ...backend.menuEntry }));
@@ -1080,7 +1101,7 @@ export function fakeBackend(
   simulator.handle("get_chat", (args: Args): Chat => {
     const chat = backend.chats.get(args.id as string);
     if (!chat) throw { kind: "notFound", message: "chat not found" };
-    // Sans le favori, que seul list_chats donne.
+    // Sans le favori ni la messagerie, que seul list_chats donne.
     const { id, title, createdAt, updatedAt, messages } = chat;
     return { id, title, createdAt, updatedAt, messages };
   });
@@ -1096,6 +1117,7 @@ export function fakeBackend(
         createdAt: chat.createdAt,
         updatedAt: chat.updatedAt,
         favorite: chat.favorite ?? false,
+        source: chat.source ?? null,
       })),
   );
   // Date d'activité inchangée, comme le moteur.

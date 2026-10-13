@@ -129,6 +129,7 @@ if $real; then
   # transcription, envoi, premier son).
   echo "Mesures du mode vocal : lignes chatonlm-voice-timing ci-dessous."
   exec env -u CHATONLM_SEED_DEMO -u CHATONLM_REGISTRY_URL -u CHATONLM_OLLAMA_COM_URL \
+    -u CHATONLM_TELEGRAM_URL -u CHATONLM_DISCORD_URL \
     CHATONLM_ONBOARDING="$($onboarding && echo show || true)" \
     CHATONLM_DATA_DIR="$data" TMPDIR="$root/.tools/tmp" \
     CHATONLM_NO_GLOBAL_SHORTCUTS=1 CHATONLM_VOICE_TIMINGS=1 "$binary"

@@ -54,7 +54,7 @@ describe("Read aloud settings", () => {
     expect(tab.textContent).toBe("Read aloud");
     expect(tab.getAttribute("aria-current")).toBe("page");
     expect(tab.getAttribute("href")).toBe("/settings?section=readAloud");
-    // Six onglets : à la ligne dans une fenêtre étroite ou au zoom maximal,
+    // Huit onglets : à la ligne dans une fenêtre étroite ou au zoom maximal,
     // sans déborder de la page.
     expect(screen.getByTestId("settings-tabs").className.split(" ")).toEqual(
       expect.arrayContaining(["flex-wrap", "max-w-full"]),

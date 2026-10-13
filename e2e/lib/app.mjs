@@ -35,6 +35,10 @@ const DROPPED_ENV = [
   // s'en sert.
   "CHATONLM_E2E_VOICE_MIC",
   "CHATONLM_VOICE_TIMINGS",
+  // Easy Link : messageries, données par un test qui s'en sert (faux
+  // serveurs).
+  "CHATONLM_TELEGRAM_URL",
+  "CHATONLM_DISCORD_URL",
 ];
 
 /**
@@ -203,6 +207,11 @@ export async function withApp(
       // Mode conversation vocale sans micro : jamais celui de la machine ; un
       // test du mode vocal donne son faux micro (liste de WAV en JSON).
       CHATONLM_E2E_VOICE_MIC: "none",
+      // Easy Link : Telegram et Discord fermés (aucun jeton ne part vers les
+      // vraies messageries) ; un test d'Easy Link donne ses faux serveurs
+      // (startFakeMessenger).
+      CHATONLM_TELEGRAM_URL: "http://127.0.0.1:1",
+      CHATONLM_DISCORD_URL: "http://127.0.0.1:1",
       // Interface en anglais (langue « System » des essais), quelle que soit
       // la langue du bureau du développeur ; un test des langues donne la
       // sienne (LANG, LANGUAGE).

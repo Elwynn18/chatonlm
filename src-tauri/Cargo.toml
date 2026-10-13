@@ -15,7 +15,7 @@ crate-type = ["rlib"]
 
 [workspace]
 # Outils de test ; src-tauri reste la racine (target/ et Cargo.lock ici).
-members = ["crates/fake-ollama", "crates/speech-text", "crates/windows-tray"]
+members = ["crates/easy-link", "crates/fake-ollama", "crates/speech-text", "crates/windows-tray"]
 
 [features]
 # Essais de l'app réelle uniquement (scripts/e2e-build.sh) : embarque un serveur
@@ -37,6 +37,9 @@ cpal = "0.18.2"
 # dans l'arbre par transcribe-rs.
 hound = "3.5.1"
 # Flux de signaux du portail (StreamExt::next).
+# Easy Link : protocoles des bots Telegram et Discord, dans un crate à part
+# (essais rapides, sans Tauri).
+easy-link = { path = "crates/easy-link" }
 futures-util = "0.3.34"
 # Mise à jour gardée sur disque (étape 18c) : sa signature minisign est
 # revérifiée à chaque démarrage et avant l'installation, comme le fait
@@ -69,6 +72,9 @@ regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["gzip", "json", "rustls-no-provider", "stream", "system-proxy"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+# Easy Link : racines du système pour la passerelle WebSocket de Discord,
+# comme reqwest les prend déjà pour HTTPS. Déjà dans l'arbre par reqwest.
+rustls-platform-verifier = "0.7.1"
 # Versions des mises à jour (comparées à celle de l'app). Déjà dans l'arbre.
 semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -205,8 +211,13 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.sonora-simd]
 opt-level = 3
+# Easy Link : décodage d'un message vocal (une minute en moins de 0,1 s
+# optimisé, près d'une seconde sinon).
+[profile.dev.package.opus-pure]
+opt-level = 3
 
 [dev-dependencies]
+easy-link = { path = "crates/easy-link", features = ["fake"] }
 fake-ollama = { path = "crates/fake-ollama" }
 # « test » : app simulée (tauri::test) pour construire le greffon des mises à
 # jour dans les essais du module updater.

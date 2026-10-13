@@ -89,6 +89,13 @@ export function formatDateTime(lang: Lang, date: Date | number): string {
   );
 }
 
+/** Heure courte, sans la date : « 18:40 », « 6:40 PM ». */
+export function formatTime(lang: Lang, date: Date | number): string {
+  return localized(
+    new Intl.DateTimeFormat(lang, { timeStyle: "short" }).format(date),
+  );
+}
+
 /** Durée relative : « il y a 3 jours », « hace 2 horas ». */
 export function formatRelative(
   lang: Lang,

@@ -7,6 +7,7 @@
     "dictation": "Dictado",
     "readAloud": "Lectura en voz alta",
     "voiceMode": "Modo de voz",
+    "easyLink": "Easy Link",
     "shortcuts": "Atajos de teclado"
   },
   "loadFailed": "No se pudo cargar la configuración",
@@ -348,6 +349,101 @@
         "description": "Las respuestas se leen con la voz de su idioma: inglés, francés o español.",
         "link": "Gestionar las voces en el ModelHub"
       }
+    }
+  },
+  "easyLink": {
+    "loadFailed": "No se pudo leer la configuración de Easy Link: {message}",
+    "intro": {
+      "description": "Habla con tus modelos locales desde Telegram o Discord, por ejemplo en tu teléfono: conecta un bot a ChatonLM, vincula tu cuenta y escríbele al bot como en un chat.",
+      "keepOpen": {
+        "label": "ChatonLM debe seguir abierto",
+        "description": "El bot solo responde mientras ChatonLM está en marcha en este ordenador. Al cerrar la ventana, ChatonLM sigue funcionando en la bandeja del sistema."
+      },
+      "privacy": {
+        "label": "Privacidad",
+        "description": "Tus modelos siguen ejecutándose en este ordenador, pero los mensajes que intercambias con el bot pasan por los servidores de Telegram o de Discord."
+      }
+    },
+    "platforms": {
+      "telegram": "Telegram",
+      "discord": "Discord"
+    },
+    "setup": {
+      "intro": "No hay ningún bot conectado. Para crear uno:",
+      "telegram": {
+        "step1": "En Telegram, abre @BotFather.",
+        "open": "Abrir BotFather",
+        "step2": "Envía <code>/newbot</code> y responde a sus preguntas.",
+        "step3": "Pega aquí abajo el token que te da."
+      },
+      "discord": {
+        "step1": "Abre el portal de desarrolladores de Discord y crea una aplicación.",
+        "open": "Abrir el portal de desarrolladores",
+        "step2": "En su pestaña «Bot», elige «Reset Token».",
+        "step3": "Pega el token aquí abajo.",
+        "step4": "Cuando el bot esté conectado, invítalo a uno de tus servidores con el enlace que te dará ChatonLM: Discord solo permite escribir en privado a un bot con el que compartes un servidor."
+      }
+    },
+    "token": {
+      "label": "Token del bot de {platform}"
+    },
+    "connect": {
+      "button": "Conectar",
+      "checking": "Comprobando…"
+    },
+    "bot": {
+      "unknownName": "Nombre del bot aún desconocido",
+      "token": "Token •••• {hint}",
+      "enable": "Activar el bot de {platform}",
+      "remove": "Quitar el bot",
+      "removeTitle": "¿Quitar el bot de {platform}?",
+      "removeText": "ChatonLM olvida su token y desvincula sus cuentas. Los chats se quedan en el historial."
+    },
+    "link": {
+      "off": "Desactivado",
+      "connecting": "Conectando…",
+      "connected": "Conectado"
+    },
+    "problem": {
+      "unauthorized": "{platform} ha rechazado este token. Quita el bot y vuelve a conectarlo con un token nuevo.",
+      "conflict": "Otra aplicación ya está usando este bot, o tiene un webhook configurado. Cierra esa aplicación o crea un bot solo para ChatonLM.",
+      "network": "No se puede contactar con {platform}. ChatonLM lo vuelve a intentar automáticamente.",
+      "refused": "{platform} ha rechazado la conexión."
+    },
+    "invite": {
+      "description": "Discord solo permite escribir en privado a un bot con el que compartes un servidor. Invita el bot a uno de tus servidores y luego envíale un mensaje directo. Si el bot no responde, permite los mensajes directos de los miembros de ese servidor en sus ajustes de privacidad.",
+      "button": "Invitar el bot a un servidor"
+    },
+    "accounts": {
+      "title": "Cuentas vinculadas",
+      "empty": "Todavía no hay ninguna cuenta vinculada.",
+      "unnamed": "Cuenta sin nombre",
+      "linkedOn": "Vinculada el {date}",
+      "unlink": "Desvincular"
+    },
+    "pairing": {
+      "start": "Vincular una cuenta",
+      "codeLabel": "Código de vinculación: {code}",
+      "expires": "Hora de caducidad: {time}.",
+      "telegram": "Abre el bot en Telegram con el botón de abajo o envíale este código.",
+      "openTelegram": "Abrir en Telegram",
+      "discord": "Envía este código al bot por mensaje directo."
+    },
+    "commands": {
+      "title": "Comandos del bot",
+      "intro": "Envía estos comandos al bot, como cualquier otro mensaje.",
+      "new": "Empezar un chat nuevo",
+      "stop": "Detener la respuesta",
+      "models": "Ver los modelos instalados",
+      "model": "Elegir el modelo",
+      "modelName": "nombre",
+      "load": "Cargar el modelo en memoria",
+      "unload": "Liberar el modelo de la memoria",
+      "status": "Ver el estado",
+      "web": "Activar o desactivar la búsqueda web",
+      "help": "Ver esta lista",
+      "discord": "En Discord, los comandos también pueden empezar por «!», por ejemplo <code>!models</code>.",
+      "media": "También puedes enviar una foto, si el modelo sabe ver imágenes, o un mensaje de voz: lo transcribe el modelo de transcripción del dictado que tengas instalado."
     }
   },
   "account": {

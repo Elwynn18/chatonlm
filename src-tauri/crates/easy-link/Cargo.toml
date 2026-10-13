@@ -1,0 +1,39 @@
+[package]
+name = "easy-link"
+version = "0.1.0"
+description = "Easy Link de ChatonLM : protocoles des bots Telegram et Discord, texte des messages, faux serveurs d'essai"
+license = "MIT"
+edition = "2024"
+publish = false
+
+[features]
+# Faux serveurs Telegram et Discord (essais de l'app, e2e) : jamais dans un
+# build normal.
+fake = ["dep:axum", "tokio/rt-multi-thread", "tokio/signal"]
+
+[[bin]]
+name = "fake-messengers"
+required-features = ["fake"]
+
+[dependencies]
+axum = { version = "0.8.9", features = ["ws"], optional = true }
+futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
+# Messages vocaux : conteneur OGG puis décodeur Opus, tous deux en Rust pur
+# (ni code C, ni bibliothèque système ; `ogg` ne tire que `byteorder`). Le
+# décodeur a été choisi sur essais contre libopus : voir `src/voice.rs`.
+ogg = "0.9.2"
+opus-pure = "0.2.2"
+# Mêmes choix que l'app : rustls avec ring, sans fournisseur par défaut.
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-no-provider"] }
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.2", features = ["macros", "net", "sync", "time"] }
+# Discord : la passerelle est un WebSocket. TLS par rustls, configuration
+# donnée par l'app (pas de racines embarquées ici).
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "handshake", "__rustls-tls"] }
+url = "2.5.8"
+
+[dev-dependencies]
+# Les essais du crate se servent de ses propres faux serveurs.
+easy-link = { path = ".", features = ["fake"] }
+tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread", "time"] }

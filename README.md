@@ -52,6 +52,8 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
   want.
 - **Models settings**: keep models loaded for as long as you want, preload the
   chosen model, see loaded models and unload them.
+- **Easy Link**: talk to your models from your phone, through your own
+  Telegram or Discord bot (see [Easy Link](#easy-link)).
 - **Built-in Ollama**: no setup needed. ChatonLM uses the Ollama of your
   computer when there is one, and its own copy otherwise (see
   [Ollama](#ollama)).
@@ -91,6 +93,35 @@ written and saved as usual.
   (Parakeet or Whisper) and the voice of your language (English, French or
   Spanish). When one is missing, ChatonLM offers to download it, with its
   size, then starts.
+
+## Easy Link
+
+Easy Link connects a Telegram or Discord bot that you create to the models of
+your computer: you write to the bot from your phone, and your model answers.
+The conversations are saved in ChatonLM like the others, marked with a small
+icon.
+
+- **Set up in Settings › Easy Link**: create a bot (with @BotFather on
+  Telegram, or in the Discord developer portal), paste its token, then link
+  your account with the 6-digit pairing code that ChatonLM shows. Only linked
+  accounts are answered; you can link several and unlink them at any time.
+- **Commands**: `/new`, `/stop`, `/models`, `/model`, `/load`, `/unload`,
+  `/status`, `/web on` and `/web off`, `/help` (on Discord, `!models` also
+  works). Models cannot be downloaded or deleted from the bot, and settings
+  cannot be changed.
+- **Photos and voice messages**: a photo goes to a model that can see; a voice
+  message is transcribed on your computer by the speech recognition model of
+  Dictation, then sent as text.
+- **Web search**, with `/web on`, if your Ollama account is connected.
+- **ChatonLM must be running** on your computer (it keeps running in the tray
+  when you close the window). Nothing is hosted elsewhere, and no port is
+  opened on your computer.
+- **On Discord**, the bot answers private messages only, and Discord lets you
+  write to a bot only if you share a server with it: ChatonLM gives you the
+  link that invites your bot to one of your servers.
+
+Your messages and the answers travel through the servers of Telegram or
+Discord (see [Privacy](#privacy)).
 
 ## Install
 
@@ -244,7 +275,12 @@ ChatonLM itself connects only to:
   selected in a chat, and for all of them when you open the Installed tab of
   ModelHub. Only the name of the model is sent;
 - **GitHub** (github.com), to check for and download updates, and to download
-  the model files of a voice.
+  the model files of a voice;
+- **Telegram** (api.telegram.org) **or Discord** (discord.com and its file
+  servers), only if you connect a bot in Settings › Easy Link, and only while
+  it is turned on: the messages, photos and voice messages you send to your
+  bot, and the answers of your model, go through that service. The token of
+  your bot is stored in the database of ChatonLM, on your computer.
 
 Everything else goes through your Ollama server: chats, model downloads,
 your Ollama account and web search (handled by Ollama and ollama.com). If

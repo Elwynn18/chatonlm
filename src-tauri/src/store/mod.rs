@@ -9,6 +9,7 @@ pub mod builtin_ollama;
 pub mod chats;
 pub mod desktop;
 pub mod dictation;
+pub mod easy_link;
 pub mod model_prefs;
 pub mod settings;
 pub mod study;
@@ -48,6 +49,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0019_study_pause.sql"),
     include_str!("../../migrations/0020_proofread_paste.sql"),
     include_str!("../../migrations/0021_onboarding.sql"),
+    include_str!("../../migrations/0022_easy_link.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.
@@ -74,6 +76,7 @@ impl Store {
     fn open_with(path: &Path, busy_timeout: Duration) -> AppResult<Self> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
+            restrict_to_owner(dir);
         }
         // Tenu jusqu'à la fin des migrations, relâché en sortant.
         let _opening = lock_openings(path, OPENING_WAIT);
@@ -114,6 +117,19 @@ impl Store {
         f(&mut self.connection.lock())
     }
 }
+
+/// Réserve le dossier de la base au compte de l'utilisateur (0700) : elle
+/// garde les conversations et, depuis Easy Link, le jeton d'un bot. Sans
+/// effet si le système le refuse (la base s'ouvre quand même). Sous Windows,
+/// `%LOCALAPPDATA%` est déjà propre au compte.
+#[cfg(unix)]
+fn restrict_to_owner(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+}
+
+#[cfg(not(unix))]
+fn restrict_to_owner(_dir: &Path) {}
 
 /// Attente maximale d'un verrou de SQLite tenu par une autre connexion (autre
 /// fenêtre, autre programme) : les requêtes sont courtes. Une ouverture en
@@ -706,6 +722,60 @@ mod tests {
         let chatted =
             migrated("INSERT INTO chats (id, created_at, updated_at) VALUES ('0199-a', 1, 1);");
         assert!(chatted.onboarding_done);
+    }
+
+    /// Le dossier de la base (conversations, jeton d'un bot d'Easy Link) n'est
+    /// lisible que par son propriétaire, même créé plus ouvert.
+    #[cfg(unix)]
+    #[test]
+    fn the_database_folder_is_kept_for_its_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("db");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+        Store::open(&folder.join("chatonlm.sqlite")).unwrap();
+        let mode = std::fs::metadata(&folder).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+    }
+
+    /// Easy Link : une base de la version 21 gagne les deux bots, sans jeton,
+    /// et ses conversations restent celles de l'app (sans origine).
+    #[test]
+    fn a_version_21_database_gains_easy_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        let connection = Connection::open(&path).unwrap();
+        for sql in &MIGRATIONS[..21] {
+            connection.execute_batch(sql).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 21).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO chats (id, created_at, updated_at) VALUES ('0199-a', 1, 1);",
+            )
+            .unwrap();
+        drop(connection);
+        let store = Store::open(&path).unwrap();
+        assert_eq!(version(&store), MIGRATIONS.len() as i64);
+        store
+            .blocking(|c| {
+                let bots = easy_link::bots(c)?;
+                assert_eq!(bots.len(), 2);
+                assert!(bots.iter().all(|bot| bot.token.is_empty() && !bot.enabled));
+                assert!(easy_link::accounts(c)?.is_empty());
+                let listed = chats::list(c)?;
+                assert_eq!(listed.len(), 1);
+                assert_eq!(listed[0].source, None);
+                // Une conversation ouverte par un bot porte sa messagerie.
+                chats::set_source(c, "0199-a", easy_link::Platform::Discord)?;
+                assert_eq!(
+                    chats::list(c)?[0].source,
+                    Some(easy_link::Platform::Discord)
+                );
+                Ok(())
+            })
+            .unwrap();
     }
 
     #[test]
