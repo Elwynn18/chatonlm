@@ -5,10 +5,12 @@
 //! fichiers), avec les refus du vrai service que l'app doit savoir traiter :
 //! jeton inconnu, HTML illisible, message vide ou trop long, message inchangé.
 //! En plus du pilotage commun : `GET /fake/requests` (toutes les requêtes
-//! reçues) et `POST /fake/fail` avec `{"method", "status", "body"}` (comme
-//! [`FakeTelegram::fail_next`]).
+//! reçues), `POST /fake/fail` avec `{"method", "status", "body"}` (comme
+//! [`FakeTelegram::fail_next`]), `POST /fake/block` avec `{"user"}` (comme
+//! [`FakeTelegram::block`]) et `POST /fake/hold` avec `{"method", "held"}`
+//! (comme [`FakeTelegram::hold`]).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -80,6 +82,10 @@ struct Journal {
     failures: Mutex<Vec<(String, u16, Value)>>,
     /// Contenu actuel des messages du bot, par conversation et identifiant.
     messages: Mutex<HashMap<(String, i64), Written>>,
+    /// Comptes qui ont bloqué le bot.
+    blocked: Mutex<HashSet<String>>,
+    /// Méthodes dont les requêtes attendent avant leur réponse.
+    held: watch::Sender<HashSet<String>>,
 }
 
 impl Journal {
@@ -94,6 +100,8 @@ impl Journal {
             requests: Mutex::default(),
             failures: Mutex::default(),
             messages: Mutex::default(),
+            blocked: Mutex::default(),
+            held: watch::Sender::new(HashSet::new()),
         }
     }
 
@@ -183,6 +191,26 @@ impl Journal {
         let (_, status, body) = failures.remove(position);
         Some((status, body))
     }
+
+    fn block(&self, user: &str) {
+        self.blocked.lock().unwrap().insert(user.to_owned());
+    }
+
+    fn hold(&self, method: &str, held: bool) {
+        self.held.send_modify(|methods| {
+            if held {
+                methods.insert(method.to_owned());
+            } else {
+                methods.remove(method);
+            }
+        });
+    }
+
+    /// Attend que `method` ne soit plus retenue.
+    async fn wait_released(&self, method: &str) {
+        let mut held = self.held.subscribe();
+        let _ = held.wait_for(|methods| !methods.contains(method)).await;
+    }
 }
 
 impl FakeTelegram {
@@ -242,6 +270,20 @@ impl FakeTelegram {
         self.journal.fail_next(method, status, body);
     }
 
+    /// Le compte `user` bloque le bot : toute écriture dans sa conversation
+    /// privée (`sendMessage`, `editMessageText`, `sendChatAction`) est
+    /// refusée (403), comme chez Telegram.
+    pub fn block(&self, user: &str) {
+        self.journal.block(user);
+    }
+
+    /// `held` : les requêtes à cette méthode, notées dès leur arrivée,
+    /// attendent avant leur réponse ; `false` les laisse repartir. Sert à
+    /// retenir l'app à un endroit précis.
+    pub fn hold(&self, method: &str, held: bool) {
+        self.journal.hold(method, held);
+    }
+
     /// Arrête le serveur. Les attentes longues en cours sont réveillées, et le
     /// serveur est abandonné au bout d'une seconde si un client garde sa
     /// connexion ouverte.
@@ -258,6 +300,7 @@ impl FakeTelegram {
     fn release(&mut self) {
         self.journal.stopping.store(true, Ordering::SeqCst);
         self.journal.wake();
+        self.journal.held.send_replace(HashSet::new());
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -286,6 +329,8 @@ fn router(journal: Arc<Journal>) -> Router {
         .route("/fake/sent", get(fake_sent))
         .route("/fake/requests", get(fake_requests))
         .route("/fake/fail", post(fake_fail))
+        .route("/fake/block", post(fake_block))
+        .route("/fake/hold", post(fake_hold))
         .with_state(journal)
 }
 
@@ -318,8 +363,16 @@ async fn method(
     let body: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
     let request = json!({ "method": method, "body": body });
     journal.requests.lock().unwrap().push(request);
+    journal.wait_released(&method).await;
     if let Some((status, body)) = journal.take_failure(&method) {
         return reply(status, body);
+    }
+    let writes = matches!(
+        method.as_str(),
+        "sendMessage" | "editMessageText" | "sendChatAction"
+    );
+    if writes && chat(&body).is_some_and(|chat| journal.blocked.lock().unwrap().contains(&chat)) {
+        return refuse(403, "Forbidden: bot was blocked by the user");
     }
     match method.as_str() {
         "getMe" => ok(json!({
@@ -565,6 +618,32 @@ async fn fake_fail(State(journal): State<Arc<Journal>>, Json(failure): Json<Valu
         );
     };
     journal.fail_next(method, status as u16, failure["body"].clone());
+    Json(json!({ "ok": true })).into_response()
+}
+
+async fn fake_block(State(journal): State<Arc<Journal>>, Json(block): Json<Value>) -> Response {
+    let user = match &block["user"] {
+        Value::Number(user) => user.to_string(),
+        Value::String(user) if !user.is_empty() => user.clone(),
+        _ => {
+            return reply(
+                400,
+                json!({ "ok": false, "description": "user is required" }),
+            );
+        }
+    };
+    journal.block(&user);
+    Json(json!({ "ok": true })).into_response()
+}
+
+async fn fake_hold(State(journal): State<Arc<Journal>>, Json(hold): Json<Value>) -> Response {
+    let (Some(method), Some(held)) = (hold["method"].as_str(), hold["held"].as_bool()) else {
+        return reply(
+            400,
+            json!({ "ok": false, "description": "method and held are required" }),
+        );
+    };
+    journal.hold(method, held);
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -994,6 +1073,116 @@ mod tests {
             ]
         );
         fake.stop().await;
+    }
+
+    #[tokio::test]
+    async fn a_user_who_blocked_the_bot_refuses_every_write() {
+        let fake = FakeTelegram::start().await;
+        let (_, sent) = call(
+            &fake,
+            "sendMessage",
+            json!({ "chat_id": 7, "text": "bonjour" }),
+        )
+        .await;
+        let id = sent["result"]["message_id"].as_i64().unwrap();
+        fake.block("7");
+        let blocked = http()
+            .post(format!("{}/fake/block", fake.url()))
+            .json(&json!({ "user": 8 }))
+            .send()
+            .await
+            .unwrap();
+        assert!(blocked.status().is_success());
+
+        let refusal = json!({
+            "ok": false, "error_code": 403, "description": "Forbidden: bot was blocked by the user"
+        });
+        for chat in [json!(7), json!("8")] {
+            for (method, body) in [
+                ("sendMessage", json!({ "chat_id": chat, "text": "encore" })),
+                (
+                    "editMessageText",
+                    json!({ "chat_id": chat, "message_id": id, "text": "modifié" }),
+                ),
+                (
+                    "sendChatAction",
+                    json!({ "chat_id": chat, "action": "typing" }),
+                ),
+            ] {
+                assert_eq!(
+                    call(&fake, method, body).await,
+                    (403, refusal.clone()),
+                    "{method}"
+                );
+            }
+        }
+        // Les autres conversations écrivent ; les refus ne sont pas au journal
+        // de ce que le bot a fait, seulement à celui des requêtes.
+        let (_, other) = call(
+            &fake,
+            "sendMessage",
+            json!({ "chat_id": 9, "text": "salut" }),
+        )
+        .await;
+        assert_eq!(other["ok"], true);
+        assert_eq!(fake.sent().len(), 2);
+        assert_eq!(fake.requests().len(), 8);
+        fake.stop().await;
+    }
+
+    #[tokio::test]
+    async fn a_held_method_answers_once_let_go() {
+        let fake = FakeTelegram::start().await;
+        fake.hold("getFile", true);
+        let url = format!("{}/bot{TOKEN}/getFile", fake.url());
+        let waiting = tokio::spawn(async move {
+            let response = http()
+                .post(url)
+                .json(&json!({ "file_id": PHOTO }))
+                .send()
+                .await
+                .unwrap();
+            response.json::<Value>().await.unwrap()
+        });
+        // Notée dès son arrivée, la requête attend ; les autres méthodes
+        // répondent.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while fake.requests().is_empty() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "requête jamais reçue"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(call(&fake, "getMe", json!({})).await.0, 200);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!waiting.is_finished());
+
+        let released = http()
+            .post(format!("{}/fake/hold", fake.url()))
+            .json(&json!({ "method": "getFile", "held": false }))
+            .send()
+            .await
+            .unwrap();
+        assert!(released.status().is_success());
+        let reply = tokio::time::timeout(Duration::from_secs(5), waiting)
+            .await
+            .expect("relâchée")
+            .unwrap();
+        assert_eq!(reply["result"]["file_path"], PHOTO_PATH);
+
+        // L'arrêt du serveur relâche aussi ce qui est retenu.
+        fake.hold("getMe", true);
+        let url = format!("{}/bot{TOKEN}/getMe", fake.url());
+        let waiting = tokio::spawn(async move { http().post(url).send().await.ok() });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::timeout(Duration::from_secs(3), fake.stop())
+            .await
+            .expect("arrêté");
+        tokio::time::timeout(Duration::from_secs(3), waiting)
+            .await
+            .expect("relâchée par l'arrêt")
+            .unwrap();
     }
 
     #[tokio::test]

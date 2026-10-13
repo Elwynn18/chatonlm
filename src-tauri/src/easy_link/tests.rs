@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 use serde_json::{Value, json};
 
 use super::*;
-use crate::chat::ChatEvent;
+use crate::chat::{self, ChatEvent, Origin, SendRequest, Server};
 use crate::store::chats;
 use crate::store::settings::{self, SettingsPatch};
 
@@ -30,6 +30,9 @@ struct TestHost {
     /// Lancé une fois, au prochain accès au moteur (un essai agit juste avant
     /// le départ d'un envoi).
     on_engine: Arc<Mutex<Option<Hook>>>,
+    /// Lancé une fois, à la prochaine annonce de l'état (un essai y retient
+    /// la tâche qui l'annonce).
+    on_changed: Arc<Mutex<Option<Hook>>>,
 }
 
 impl Host for TestHost {
@@ -43,6 +46,10 @@ impl Host for TestHost {
     }
 
     fn changed(&self, state: &EasyLinkState) {
+        let hook = self.on_changed.lock().take();
+        if let Some(hook) = hook {
+            hook();
+        }
         self.states.lock().push(state.clone());
     }
 
@@ -67,6 +74,7 @@ struct Bench {
     heard: Arc<Mutex<Result<String, HearError>>>,
     gate: Arc<tokio::sync::watch::Sender<bool>>,
     on_engine: Arc<Mutex<Option<Hook>>>,
+    on_changed: Arc<Mutex<Option<Hook>>>,
     /// Événements vus par l'observateur du moteur de chat.
     observed: Arc<Mutex<usize>>,
 }
@@ -98,9 +106,11 @@ async fn bench(model: &str) -> Bench {
         heard: Arc::new(Mutex::new(Err(HearError::NoModel))),
         gate: Arc::new(tokio::sync::watch::channel(true).0),
         on_engine: Arc::default(),
+        on_changed: Arc::default(),
     };
     let (updated, heard) = (Arc::clone(&host.updated), Arc::clone(&host.heard));
     let (gate, on_engine) = (Arc::clone(&host.gate), Arc::clone(&host.on_engine));
+    let on_changed = Arc::clone(&host.on_changed);
     let urls = Urls {
         telegram: telegram.url(),
         discord: discord.url(),
@@ -115,6 +125,7 @@ async fn bench(model: &str) -> Bench {
         heard,
         gate,
         on_engine,
+        on_changed,
         observed,
     }
 }
@@ -200,6 +211,33 @@ impl Bench {
             self.told().iter().any(|text| text.contains(part))
         })
         .await;
+    }
+
+    /// Photo sans légende d'`ANA` au bot Telegram.
+    fn photo(&self) {
+        self.telegram
+            .message(json!({ "user": ANA, "name": "Ana", "text": "", "image": true }));
+    }
+
+    /// Messages du bot qui contiennent `part`.
+    fn told_count(&self, part: &str) -> usize {
+        self.told()
+            .iter()
+            .filter(|text| text.contains(part))
+            .count()
+    }
+
+    /// Requêtes reçues par le faux Telegram pour ces méthodes.
+    fn telegram_calls(&self, methods: &[&str]) -> usize {
+        self.telegram
+            .requests()
+            .iter()
+            .filter(|request| {
+                request["method"]
+                    .as_str()
+                    .is_some_and(|method| methods.contains(&method))
+            })
+            .count()
     }
 
     fn account(&self) -> crate::store::easy_link::Account {
@@ -1019,4 +1057,308 @@ async fn a_failed_last_write_is_told() {
             .any(|text| text.contains("could not be written here in full")),
         "{told:?}"
     );
+}
+
+/// Une écoute remplacée (le même bot relié de nouveau) peut encore avoir des
+/// annonces en route : elles n'écrivent plus rien, ni la liaison montrée, ni
+/// le nom du bot.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_announcements_of_a_replaced_listener_change_nothing() {
+    let bench = bench("qwen3:0.6b").await;
+    // Première écoute : le bot porte encore son ancien nom ; sa réception
+    // marche, tombe, puis revient.
+    let old_me = json!({
+        "ok": true,
+        "result": {
+            "id": 424_242, "is_bot": true, "first_name": "ChatonLM test",
+            "username": "chatonlm_old_bot"
+        }
+    });
+    for _ in 0..2 {
+        bench.telegram.fail_next("getMe", 200, old_me.clone());
+    }
+    bench
+        .telegram
+        .fail_next("getUpdates", 200, json!({ "ok": true, "result": [] }));
+    bench.telegram.fail_next(
+        "getUpdates",
+        502,
+        json!({ "ok": false, "error_code": 502, "description": "Bad Gateway" }),
+    );
+    // Sa première annonce (connectée) reste en route : les deux suivantes
+    // (coupée, connectée) attendent derrière elle, dans l'app.
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    *bench.on_changed.lock() = Some(Box::new(move || {
+        tokio::task::block_in_place(|| {
+            let _ = held.recv_timeout(Duration::from_secs(20));
+        });
+    }));
+    bench
+        .service
+        .connect(Platform::Telegram, fake_telegram::TOKEN)
+        .await
+        .unwrap();
+    // Réception, coupure, reprise, puis attente longue : trois annonces.
+    let polls = || bench.telegram_calls(&["getUpdates"]);
+    wait_until("trois annonces", || polls() >= 4).await;
+    assert!(bench.on_changed.lock().is_none(), "annonce non retenue");
+    assert_eq!(bench.link_of(Platform::Telegram), EasyLinkLink::Connected);
+
+    // Le bot, renommé entre-temps, est relié de nouveau.
+    bench
+        .service
+        .connect(Platform::Telegram, fake_telegram::TOKEN)
+        .await
+        .unwrap();
+    wait_until("nouvelle écoute annoncée", || {
+        bench
+            .service
+            .shared()
+            .host
+            .states
+            .lock()
+            .last()
+            .is_some_and(|state| state.bots[0].link == EasyLinkLink::Connected)
+    })
+    .await;
+    // Les annonces de l'ancienne écoute passent enfin.
+    release.send(()).unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let bot = &bench.state().bots[0];
+    assert_eq!(bot.link, EasyLinkLink::Connected);
+    assert_eq!(bot.name, "chatonlm_test_bot");
+    let saved = bench
+        .store
+        .blocking(|c| saved::bot(c, Platform::Telegram))
+        .unwrap();
+    assert_eq!(saved.bot_name, "chatonlm_test_bot");
+}
+
+/// La conversation du compte a déjà un envoi en cours, lancé depuis la page :
+/// le moteur de chat refuse le message du bot, qui le dit. Rien ne part au
+/// modèle, et la photo jointe attend le message suivant.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_conversation_busy_in_the_app_refuses_the_message_and_keeps_its_photo() {
+    let bench = bench("chatonlm-vision").await;
+    bench.telegram_linked().await;
+    bench.say("hello");
+    bench.wait_answered(1).await;
+    let chat_id = bench.account().chat_id.expect("conversation du compte");
+
+    // Depuis la page, une réponse lente dans la même conversation.
+    let page = {
+        let (service, store, chat_id) = (bench.service.clone(), bench.store.clone(), chat_id);
+        tokio::spawn(async move {
+            let settings = crate::ollama::target::request_settings(&store)
+                .await
+                .unwrap();
+            let request = SendRequest {
+                chat_id: Some(chat_id),
+                stream_id: "page".into(),
+                content: "from the page".into(),
+                model: "chatonlm-markdown-slow".into(),
+                think: None,
+                attachment_ids: None,
+                edit_message_id: None,
+                kept_attachment_ids: None,
+                web_search: None,
+                voice: None,
+            };
+            chat::send_to(
+                &store,
+                &service.shared().host.engine,
+                &Staging::default(),
+                Server::from_settings(&settings),
+                request,
+                Origin::Page,
+                &|_| {},
+            )
+            .await
+        })
+    };
+    wait_until("réponse de la page en cours", || {
+        bench.ollama.chat_requests().len() == 2
+    })
+    .await;
+
+    bench.telegram.message(json!({
+        "user": ANA, "name": "Ana", "text": "what is this?", "image": true
+    }));
+    bench
+        .wait_told("this chat is already waiting for an answer")
+        .await;
+    bench.wait_told("Photo received").await;
+    wait_until("libre", || !bench.busy()).await;
+    assert_eq!(bench.ollama.chat_requests().len(), 2);
+    let account = bench.account().id;
+    assert_eq!(
+        bench
+            .service
+            .shared()
+            .pending
+            .lock()
+            .get(&account)
+            .map(Vec::len),
+        Some(1)
+    );
+
+    // La réponse de la page finit (ici, arrêtée) : le message suivant emporte
+    // la photo.
+    bench.service.shared().host.engine.cancel("page");
+    page.await.unwrap().unwrap();
+    bench.say("and now?");
+    bench.wait_answered(3).await;
+    let request = &bench.ollama.chat_requests()[2];
+    let last = request["messages"].as_array().unwrap().last().unwrap();
+    assert_eq!(last["content"], "and now?");
+    assert_eq!(last["images"].as_array().map(Vec::len), Some(1));
+    assert!(bench.service.shared().pending.lock().is_empty());
+}
+
+/// Le destinataire bloque le bot pendant une réponse : la messagerie refuse
+/// toute écriture. La réponse s'arrête dans le moteur de chat, et le bot
+/// n'essaie plus d'écrire.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_recipient_who_blocks_the_bot_stops_the_answer_being_written() {
+    let bench = bench("chatonlm-markdown-slow").await;
+    bench.telegram_linked().await;
+    let before = bench.told().len();
+    bench.say("write slowly");
+    wait_until("réponse commencée", || bench.told().len() > before).await;
+    let writes = || bench.telegram_calls(&["sendMessage", "editMessageText"]);
+    bench.telegram.block(ANA);
+    let (blocked_at, started) = (writes(), std::time::Instant::now());
+    wait_until("réponse arrêtée", || !bench.busy()).await;
+    // Bien avant la fin naturelle de la réponse (8 s environ).
+    assert!(started.elapsed() < Duration::from_secs(4));
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Une seule écriture refusée, qui a révélé le blocage, puis plus rien.
+    assert_eq!(writes(), blocked_at + 1);
+    // La partie reçue reste dans l'historique de l'app.
+    let listed = bench.store.blocking(|c| chats::list(c)).unwrap();
+    let chat = bench
+        .store
+        .blocking(|c| chats::get(c, &listed[0].id))
+        .unwrap();
+    assert_eq!(chat.messages.len(), 2);
+    assert!(!chat.messages[1].content.is_empty());
+}
+
+/// Le destinataire bloque le bot juste après son message : la réponse (ici
+/// coupée par une erreur du modèle) ne peut pas s'écrire, et le bot n'essaie
+/// pas d'écrire la note qui dirait l'erreur.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_bot_blocked_before_its_answer_writes_no_final_note() {
+    let bench = bench("chatonlm-error").await;
+    bench.telegram_linked().await;
+    let writes = || bench.telegram_calls(&["sendMessage", "editMessageText"]);
+    let before = writes();
+    bench.say("hello");
+    bench.telegram.block(ANA);
+    bench.wait_answered(1).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Une seule écriture tentée : la réponse, refusée.
+    assert_eq!(writes(), before + 1);
+}
+
+/// Plus de photos sans légende que le plafond d'un message (4, `MAX_IMAGES`)
+/// : celles en trop sont refusées, y compris dans un album dont les photos
+/// sont téléchargées en même temps ; les quatre gardées partent avec le
+/// message suivant.
+#[tokio::test(flavor = "multi_thread")]
+async fn photos_beyond_the_limit_are_refused_and_four_go_with_the_next_message() {
+    let bench = bench("chatonlm-vision").await;
+    bench.telegram_linked().await;
+    let downloads = || bench.telegram_calls(&["getFile"]);
+    let kept = || {
+        bench
+            .service
+            .shared()
+            .pending
+            .lock()
+            .values()
+            .map(Vec::len)
+            .sum::<usize>()
+    };
+
+    // Album de cinq photos : toutes passent le premier contrôle avant
+    // qu'aucune ne soit gardée (téléchargements retenus).
+    bench.telegram.hold("getFile", true);
+    for _ in 0..5 {
+        bench.photo();
+    }
+    wait_until("cinq téléchargements en cours", || downloads() == 5).await;
+    bench.telegram.hold("getFile", false);
+    bench.wait_told("4 photos at most per message").await;
+    bench.wait_told("Photo received").await;
+    wait_until("quatre photos gardées", || kept() == 4).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(bench.told_count("at most"), 1, "{:?}", bench.told());
+    assert_eq!(bench.told_count("Photo received"), 1, "{:?}", bench.told());
+
+    // Une sixième, seule : refusée sans être téléchargée.
+    bench.photo();
+    wait_until("second refus", || bench.told_count("at most") == 2).await;
+    assert_eq!(downloads(), 5);
+    assert_eq!(kept(), 4);
+
+    bench.say("what are these?");
+    bench.wait_answered(1).await;
+    let message = &bench.ollama.chat_requests()[0]["messages"][0];
+    assert_eq!(message["content"], "what are these?");
+    assert_eq!(message["images"].as_array().map(Vec::len), Some(4));
+    assert_eq!(kept(), 0);
+}
+
+/// Fermeture de l'app pendant qu'une réponse s'écrit, dans l'ordre de
+/// `stop_services` : Easy Link s'arrête, puis le moteur de chat arrête les
+/// réponses en cours, celle du bot comprise. Une photo arrivée pendant la
+/// réponse n'est pas annoncée au moment de fermer.
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_the_app_while_an_answer_is_written_stops_it() {
+    let bench = bench("chatonlm-markdown-slow").await;
+    bench.telegram_linked().await;
+    let before = bench.told().len();
+    bench.say("write slowly");
+    wait_until("réponse commencée", || bench.told().len() > before).await;
+    // Le faux Ollama n'a pas de modèle lent qui voie : le compte passe à un
+    // modèle qui voit pendant la réponse, pour que la photo soit gardée.
+    let account = bench.account().id;
+    bench
+        .store
+        .blocking(move |c| saved::set_model(c, account, "chatonlm-vision"))
+        .unwrap();
+    bench.photo();
+    wait_until("photo gardée", || {
+        !bench.service.shared().pending.lock().is_empty()
+    })
+    .await;
+    assert!(bench.busy(), "réponse finie avant l'arrivée de la photo");
+
+    let started = std::time::Instant::now();
+    bench.service.shutdown();
+    bench
+        .service
+        .shared()
+        .host
+        .engine
+        .stop_all(Duration::from_secs(1))
+        .await;
+    wait_until("réponse arrêtée", || !bench.busy()).await;
+    // Bien avant la fin naturelle de la réponse (8 s environ).
+    assert!(started.elapsed() < Duration::from_secs(4));
+    // La partie reçue est enregistrée.
+    let listed = bench.store.blocking(|c| chats::list(c)).unwrap();
+    let chat = bench
+        .store
+        .blocking(|c| chats::get(c, &listed[0].id))
+        .unwrap();
+    assert_eq!(chat.messages.len(), 2);
+    assert!(!chat.messages[1].content.is_empty());
+    // Plus rien n'est écouté ni servi.
+    assert_eq!(bench.link_of(Platform::Telegram), EasyLinkLink::Off);
+    bench.say("are you there?");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(bench.ollama.chat_requests().len(), 1);
+    assert_eq!(bench.told_count("Photo received"), 0, "{:?}", bench.told());
 }
