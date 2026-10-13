@@ -58,6 +58,10 @@ const MESSAGE_MAX: usize = 300;
 /// 41 250).
 const INTERVAL_MAX: u64 = 86_400_000;
 
+/// Plus longue attente acceptée du retour du quota d'ouvertures de session,
+/// en millisecondes (Discord le compte sur 24 h).
+const RESET_MAX: u64 = 86_400_000;
+
 /// Reprises manquées de suite avant d'abandonner la session : son adresse
 /// peut ne plus répondre, et Discord l'oublie de toute façon.
 const RESUME_ATTEMPTS: u32 = 5;
@@ -370,8 +374,11 @@ impl Client {
         // révoque le jeton d'un bot qui insiste.
         let limit = &answer["session_start_limit"];
         if limit["remaining"].as_u64() == Some(0) {
+            // Borné : une valeur folle ne doit pas arrêter le bot pour toujours.
             let wait = limit["reset_after"].as_u64().unwrap_or(60_000);
-            return Err(Problem::RateLimited(Duration::from_millis(wait)));
+            return Err(Problem::RateLimited(Duration::from_millis(
+                wait.min(RESET_MAX),
+            )));
         }
         answer["url"]
             .as_str()
@@ -673,7 +680,7 @@ struct Listener<'a> {
     identity: Option<Identity>,
     /// Coupure déjà dite à l'app, pas encore suivie de `Connected`.
     announced: bool,
-    /// Reprises manquées de suite, sans même joindre la passerelle.
+    /// Reprises de suite sans `RESUMED`, celle en cours comprise.
     missed_resumes: u32,
 }
 
@@ -761,6 +768,15 @@ impl Listener<'_> {
         };
         let limit = Instant::now() + if quiet { timing.quiet } else { timing.connect };
 
+        // Une reprise compte comme manquée dès son début, que la passerelle
+        // soit injoignable ou qu'elle ne reprenne pas la session : seuls
+        // `READY` et `RESUMED` remettent le compte à zéro.
+        if self.session.is_some() {
+            self.missed_resumes += 1;
+            if self.missed_resumes > RESUME_ATTEMPTS {
+                self.forget_session();
+            }
+        }
         let client = self.client;
         let resumed = self.session.as_ref().map(|session| session.url.clone());
         let opening = async {
@@ -779,17 +795,8 @@ impl Listener<'_> {
         let mut socket = match opened {
             Ok(socket) => socket,
             Err(Problem::Unauthorized) => return lost(Problem::Unauthorized, Then::Never),
-            Err(problem) => {
-                if self.session.is_some() {
-                    self.missed_resumes += 1;
-                    if self.missed_resumes >= RESUME_ATTEMPTS {
-                        self.forget_session();
-                    }
-                }
-                return lost(problem, Then::Retry);
-            }
+            Err(problem) => return lost(problem, Then::Retry),
         };
-        self.missed_resumes = 0;
 
         // Battements : `None` avant Hello.
         let mut interval: Option<Duration> = None;
@@ -902,10 +909,12 @@ impl Listener<'_> {
                     let event = match payload["t"].as_str() {
                         Some("READY") => {
                             ready_at = Some(Instant::now());
+                            self.missed_resumes = 0;
                             self.ready(data)
                         }
                         Some("RESUMED") => {
                             ready_at = Some(Instant::now());
+                            self.missed_resumes = 0;
                             // Sans coupure annoncée, l'app n'a rien à savoir.
                             let identity = self.identity.clone().filter(|_| self.announced);
                             identity.map(Event::Connected)
@@ -1259,12 +1268,15 @@ mod tests {
         client.typing("942").await.unwrap();
 
         let nobody = json!({"parse": []});
+        // `SUPPRESS_EMBEDS` : Discord ne va lire aucune adresse du texte.
+        let flags = 1 << 2;
         let edit = json!({
             "kind": "edit",
             "channel": "942",
             "id": id,
             "text": "Hello **you**",
             "allowedMentions": nobody,
+            "flags": flags,
         });
         assert_eq!(
             fake.sent(),
@@ -1275,6 +1287,7 @@ mod tests {
                     "id": id,
                     "text": "Hello @everyone",
                     "allowedMentions": nobody,
+                    "flags": flags,
                 }),
                 edit.clone(),
                 edit,
@@ -1896,6 +1909,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_resume_that_never_succeeds_is_given_up_for_a_new_session() {
+        use axum::extract::ws::{CloseFrame as WsClose, Message as WsMessage};
+
+        // Passerelle qui ferme (4000) chaque session juste après l'avoir
+        // ouverte, puis chaque reprise sans jamais dire `RESUMED` : le socket
+        // s'ouvre à chaque essai, aucune reprise n'aboutit.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let ops = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = ops.clone();
+        let address = move || async move { Json(json!({"url": format!("ws://{addr}/gateway")})) };
+        let gateway = move |upgrade: WebSocketUpgrade| {
+            let log = log.clone();
+            async move {
+                upgrade.on_upgrade(move |mut socket| async move {
+                    let hello = json!({"op": 10, "d": {"heartbeat_interval": 60_000}});
+                    let _ = socket.send(WsMessage::Text(hello.to_string().into())).await;
+                    while let Some(Ok(WsMessage::Text(text))) = socket.recv().await {
+                        let op =
+                            serde_json::from_str::<Value>(&text).unwrap_or_default()["op"].as_u64();
+                        log.lock().unwrap().push(op);
+                        if op == Some(2) {
+                            let ready = json!({"op": 0, "t": "READY", "s": 1, "d": {
+                                "session_id": "session-1",
+                                "resume_gateway_url": format!("ws://{addr}/gateway"),
+                                "user": {"id": "424242", "username": "chatonlm-test"},
+                                "application": {"id": "424242"},
+                            }});
+                            let _ = socket.send(WsMessage::Text(ready.to_string().into())).await;
+                        }
+                        if matches!(op, Some(2 | 6)) {
+                            let close = WsClose {
+                                code: CLOSE_RESUMABLE,
+                                reason: "".into(),
+                            };
+                            let _ = socket.send(WsMessage::Close(Some(close))).await;
+                            return;
+                        }
+                    }
+                })
+            }
+        };
+        let router = Router::new()
+            .route("/gateway/bot", get(address))
+            .route("/gateway/", get(gateway));
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+
+        let mut listening = listen(&client_at(&format!("http://{addr}"), TOKEN));
+        listening.connected().await;
+        let identified = |ops: &[Option<u64>]| -> Vec<usize> {
+            (0..ops.len()).filter(|&at| ops[at] == Some(2)).collect()
+        };
+        until("une nouvelle session", || {
+            identified(&ops.lock().unwrap()).len() >= 2
+        })
+        .await;
+        // Cinq reprises jointes puis manquées, puis une nouvelle session.
+        let ops = ops.lock().unwrap().clone();
+        let second = identified(&ops)[1];
+        let resumes = ops[..second].iter().filter(|op| **op == Some(6)).count();
+        assert_eq!(resumes, RESUME_ATTEMPTS as usize, "{ops:?}");
+        listening.stop.send(true).unwrap();
+        listening.ended().await;
+    }
+
+    #[tokio::test]
     async fn a_spent_session_quota_waits_for_its_return() {
         let spent = || async {
             Json(json!({
@@ -1911,6 +1992,24 @@ mod tests {
         );
         // L'attente demandée (deux minutes), pas celle d'une reprise (20 ms).
         listening.silent().await;
+        listening.stop.send(true).unwrap();
+        listening.ended().await;
+    }
+
+    #[tokio::test]
+    async fn a_quota_back_in_more_than_a_day_is_waited_one_day_at_most() {
+        let spent = || async {
+            Json(json!({
+                "url": "ws://127.0.0.1:9/gateway",
+                "session_start_limit": {"total": 1000, "remaining": 0, "reset_after": u64::MAX},
+            }))
+        };
+        let base = serve(Router::new().route("/gateway/bot", get(spent))).await;
+        let mut listening = listen(&client_at(&base, TOKEN));
+        assert_eq!(
+            listening.next().await,
+            Event::Disconnected(Problem::RateLimited(Duration::from_secs(86_400)))
+        );
         listening.stop.send(true).unwrap();
         listening.ended().await;
     }

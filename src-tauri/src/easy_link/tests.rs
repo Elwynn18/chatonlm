@@ -15,6 +15,9 @@ use crate::chat::ChatEvent;
 use crate::store::chats;
 use crate::store::settings::{self, SettingsPatch};
 
+/// Action d'un essai au prochain accès au moteur de chat.
+type Hook = Box<dyn FnOnce() + Send>;
+
 /// L'app, pour les essais : son moteur de chat, et ce qu'elle a annoncé.
 struct TestHost {
     engine: ChatEngine,
@@ -24,10 +27,18 @@ struct TestHost {
     heard: Arc<Mutex<Result<String, HearError>>>,
     /// Faux : la transcription attend (un essai agit pendant la préparation).
     gate: Arc<tokio::sync::watch::Sender<bool>>,
+    /// Lancé une fois, au prochain accès au moteur (un essai agit juste avant
+    /// le départ d'un envoi).
+    on_engine: Arc<Mutex<Option<Hook>>>,
 }
 
 impl Host for TestHost {
     fn engine(&self) -> &ChatEngine {
+        // Hors du verrou : l'action peut elle-même passer par le moteur.
+        let hook = self.on_engine.lock().take();
+        if let Some(hook) = hook {
+            hook();
+        }
         &self.engine
     }
 
@@ -55,6 +66,7 @@ struct Bench {
     updated: Arc<Mutex<Vec<String>>>,
     heard: Arc<Mutex<Result<String, HearError>>>,
     gate: Arc<tokio::sync::watch::Sender<bool>>,
+    on_engine: Arc<Mutex<Option<Hook>>>,
     /// Événements vus par l'observateur du moteur de chat.
     observed: Arc<Mutex<usize>>,
 }
@@ -85,9 +97,10 @@ async fn bench(model: &str) -> Bench {
         updated: Arc::default(),
         heard: Arc::new(Mutex::new(Err(HearError::NoModel))),
         gate: Arc::new(tokio::sync::watch::channel(true).0),
+        on_engine: Arc::default(),
     };
     let (updated, heard) = (Arc::clone(&host.updated), Arc::clone(&host.heard));
-    let gate = Arc::clone(&host.gate);
+    let (gate, on_engine) = (Arc::clone(&host.gate), Arc::clone(&host.on_engine));
     let urls = Urls {
         telegram: telegram.url(),
         discord: discord.url(),
@@ -101,6 +114,7 @@ async fn bench(model: &str) -> Bench {
         updated,
         heard,
         gate,
+        on_engine,
         observed,
     }
 }
@@ -583,12 +597,26 @@ async fn a_message_delivered_long_after_is_not_served() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(bench.told().len(), before + 1, "{:?}", bench.told());
     assert!(bench.ollama.chat_requests().is_empty());
-    // Un inconnu, lui, ne reçoit rien pour un vieux message.
+}
+
+/// L'horloge du PC avance : le code d'appairage paraît envoyé il y a dix
+/// minutes, il lie quand même le compte (l'ancienneté ne vaut que pour un
+/// compte lié).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pairing_code_that_looks_old_still_links_the_account() {
+    let bench = bench("qwen3:0.6b").await;
+    bench
+        .service
+        .connect(Platform::Telegram, fake_telegram::TOKEN)
+        .await
+        .unwrap();
+    let state = bench.service.pair(Platform::Telegram).await.unwrap();
+    let code = state.pairing.unwrap().code;
     bench.telegram.message(json!({
-        "user": "2002", "name": "Eve", "text": "hello", "age": 600
+        "user": ANA, "name": "Ana", "text": format!("/start {code}"), "age": 600
     }));
-    tokio::time::sleep(Duration::from_millis(400)).await;
-    assert_eq!(bench.told().len(), before + 1);
+    wait_until("compte lié", || bench.state().accounts.len() == 1).await;
+    bench.wait_told("Your account is linked").await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -812,6 +840,50 @@ async fn stop_or_unlink_during_the_transcription_sends_nothing_to_the_model() {
     assert!(bench.store.blocking(|c| chats::list(c)).unwrap().is_empty());
 }
 
+/// La fermeture de l'app pendant la préparation (ici la transcription d'un
+/// message vocal) n'envoie rien au modèle.
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_the_app_during_the_transcription_sends_nothing_to_the_model() {
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram_linked().await;
+    *bench.heard.lock() = Ok("sent while closing".into());
+    bench.gate.send_replace(false);
+    bench
+        .telegram
+        .message(json!({ "user": ANA, "name": "Ana", "text": "", "voice": true }));
+    wait_until("préparation en cours", || bench.busy()).await;
+    bench.service.shutdown();
+    bench.gate.send_replace(true);
+    wait_until("libre", || !bench.busy()).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(bench.ollama.chat_requests().is_empty());
+    assert!(bench.store.blocking(|c| chats::list(c)).unwrap().is_empty());
+}
+
+/// Un arrêt arrivé entre la relecture du compte et le départ de l'envoi (le
+/// moteur de chat ne connaît pas encore le flux) n'est pas perdu : rien ne
+/// part au modèle, rien n'est écrit dans la messagerie.
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_just_before_the_sending_starts_sends_nothing_to_the_model() {
+    let bench = bench("chatonlm-markdown-slow").await;
+    bench.telegram_linked().await;
+    let before = bench.told().len();
+    let account = bench.state().accounts[0].id;
+    // Premier accès au moteur : celui de l'envoi, avant `begin`. L'arrêt y
+    // est demandé, puis l'envoi retenu un instant : le premier tic de la
+    // réponse passe avant que le moteur ne connaisse le flux.
+    let service = bench.service.clone();
+    *bench.on_engine.lock() = Some(Box::new(move || {
+        service.shared().stop_answer(account);
+        tokio::task::block_in_place(|| std::thread::sleep(Duration::from_millis(100)));
+    }));
+    bench.say("write slowly");
+    wait_until("arrêt demandé", || bench.on_engine.lock().is_none()).await;
+    wait_until("libre", || !bench.busy()).await;
+    assert!(bench.ollama.chat_requests().is_empty());
+    assert_eq!(bench.told().len(), before, "{:?}", bench.told());
+}
+
 /// Délier un compte arrête sa réponse en cours.
 #[tokio::test(flavor = "multi_thread")]
 async fn unlinking_stops_the_answer_being_written() {
@@ -871,6 +943,42 @@ async fn an_album_with_a_caption_goes_to_the_model_whole() {
         bench.told()
     );
     assert!(bench.service.shared().pending.lock().is_empty());
+}
+
+/// Une photo sans légende arrivée pendant une réponse, après la jointure des
+/// photos à son message, est annoncée à la fin de la réponse, puis jointe au
+/// message suivant.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_photo_arriving_during_an_answer_is_announced_when_it_ends() {
+    let bench = bench("chatonlm-markdown-slow").await;
+    bench.telegram_linked().await;
+    let before = bench.told().len();
+    bench.say("write slowly");
+    wait_until("réponse commencée", || bench.told().len() > before).await;
+    // Le faux Ollama n'a pas de modèle lent qui voie : le compte passe à un
+    // modèle qui voit pendant la réponse, pour que la photo soit gardée.
+    let account = bench.account().id;
+    bench
+        .store
+        .blocking(move |c| saved::set_model(c, account, "chatonlm-vision"))
+        .unwrap();
+    bench
+        .telegram
+        .message(json!({ "user": ANA, "name": "Ana", "text": "", "image": true }));
+    wait_until("photo gardée", || {
+        !bench.service.shared().pending.lock().is_empty()
+    })
+    .await;
+    assert!(bench.busy(), "réponse finie avant l'arrivée de la photo");
+    bench.wait_told("Photo received").await;
+    assert!(!bench.busy());
+
+    bench.say("what is this?");
+    bench.wait_answered(2).await;
+    let request = &bench.ollama.chat_requests()[1];
+    let last = request["messages"].as_array().unwrap().last().unwrap();
+    assert_eq!(last["content"], "what is this?");
+    assert_eq!(last["images"].as_array().map(Vec::len), Some(1));
 }
 
 /// La dernière écriture échoue (ici, chaque modification est refusée) : le

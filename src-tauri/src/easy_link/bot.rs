@@ -19,9 +19,9 @@ use crate::ollama::{models, running};
 use crate::store::easy_link::{self as saved, Account, Platform};
 use crate::store::{chats, model_prefs, now_ms};
 
-/// Un message plus ancien que cela à son arrivée (remis par la messagerie
-/// après une absence de l'app) n'est plus servi : y répondre des heures après
-/// surprendrait. Le compte lié en est prévenu.
+/// Un message d'un compte lié plus ancien que cela à son arrivée (remis par la
+/// messagerie après une absence de l'app) n'est plus servi : y répondre des
+/// heures après surprendrait. Le compte en est prévenu.
 const STALE_SECS: i64 = 5 * 60;
 
 /// Attente acceptée avant de redire un texte du bot refusé pour « trop de
@@ -82,10 +82,9 @@ pub(super) async fn handle<H: Host>(
     else {
         return;
     };
+    // Un inconnu n'est pas soumis à l'ancienneté : sur un PC dont l'horloge
+    // avance, son code d'appairage, daté par la messagerie, paraîtrait ancien.
     let Some(account) = account else {
-        if stale {
-            return;
-        }
         return stranger(shared, messenger, platform, &incoming).await;
     };
     if stale {
@@ -524,12 +523,40 @@ async fn answer<H: Host>(
         }
     }
     let stream_id = format!("{STREAM_PREFIX}{}:{}", account.id, uuid::Uuid::now_v7());
-    let Some(_busy) = Busy::claim(shared, account.id, &stream_id) else {
+    let Some(busy) = Busy::claim(shared, account.id, &stream_id) else {
         return {
             let text = t!("easyLink.bot.busy", p = p);
             say(messenger, channel, &text).await
         };
     };
+    let account_id = account.id;
+    respond(shared, messenger, account, &incoming, &stream_id).await;
+    drop(busy);
+    // Photo sans légende arrivée pendant la réponse (album complété après la
+    // jointure) : gardée sans invite tant que le compte était occupé, elle
+    // est annoncée maintenant.
+    let waiting = shared
+        .pending
+        .lock()
+        .get(&account_id)
+        .is_some_and(|files| !files.is_empty());
+    if waiting && !shared.closed() {
+        let text = t!("easyLink.bot.imagePending");
+        say(messenger, channel, &text).await;
+    }
+}
+
+/// Réponse d'un compte occupé : préparation (messages vocaux, photos), envoi
+/// au moteur de chat, écriture dans la messagerie.
+async fn respond<H: Host>(
+    shared: &Arc<Shared<H>>,
+    messenger: &Messenger,
+    account: Account,
+    incoming: &Incoming,
+    stream_id: &str,
+) {
+    let channel = incoming.channel.as_str();
+    let p = prefix(account.platform);
     let _ = messenger.typing(channel).await;
 
     let settings = match crate::ollama::target::request_settings(&shared.store).await {
@@ -634,8 +661,9 @@ async fn answer<H: Host>(
     }
     let files = attached;
 
-    // Pendant la préparation (transcription, photos), le compte a pu être
-    // délié, ou demander `/stop` ou `/new` : son état est relu avant l'envoi.
+    // Pendant la préparation (transcription, photos), l'app a pu se fermer,
+    // et le compte être délié ou demander `/stop` ou `/new` : son état est
+    // relu avant l'envoi.
     let fresh = {
         let (platform, user) = (account.platform, account.user_id.clone());
         shared
@@ -645,7 +673,7 @@ async fn answer<H: Host>(
             .ok()
             .flatten()
     };
-    let Some(account) = fresh.filter(|_| !shared.stopped(account.id)) else {
+    let Some(account) = fresh.filter(|_| !(shared.stopped(account.id) || shared.closed())) else {
         shared.staging.unstage(&files);
         return;
     };
@@ -661,7 +689,7 @@ async fn answer<H: Host>(
     };
     let request = SendRequest {
         chat_id: account.chat_id.clone(),
-        stream_id: stream_id.clone(),
+        stream_id: stream_id.to_owned(),
         content,
         model,
         think,
@@ -677,8 +705,15 @@ async fn answer<H: Host>(
     // les requêtes à la messagerie.
     let sending = {
         let shared = Arc::clone(shared);
+        let (account_id, stream_id) = (account.id, stream_id.to_owned());
         tauri::async_runtime::spawn(async move {
-            let sink = move |event: ChatEvent| {
+            let sink = |event: ChatEvent| {
+                // Arrêt demandé entre la relecture du compte et `begin` : le
+                // moteur, qui ne connaissait pas encore le flux, l'apprend
+                // ici, avant toute requête au modèle.
+                if matches!(event, ChatEvent::UserMessage { .. }) && shared.stopped(account_id) {
+                    shared.host.engine().cancel(&stream_id);
+                }
                 let _ = events.send(event);
             };
             chat::send_to(
@@ -737,7 +772,7 @@ async fn answer<H: Host>(
                 // Le destinataire a bloqué le bot, ou l'arrêt a été demandé
                 // avant que le moteur ne connaisse ce flux : redemandé ici.
                 if relay.gone() || shared.stopped(account.id) {
-                    shared.host.engine().cancel(&stream_id);
+                    shared.host.engine().cancel(stream_id);
                 }
                 if typed.elapsed() >= TYPING_EVERY && !relay.wrote_within(TYPING_EVERY) {
                     typed = Instant::now();

@@ -14,7 +14,8 @@
 //! - `GET /fake/sent` rend, dans l'ordre, ce que le bot a fait :
 //!   `[{"kind": "send" | "edit" | "typing", "channel": "…", "id": "…",
 //!   "text": "…"}]` (`id` et `text` absents pour `typing` ; `text` tel que
-//!   reçu, et pour Telegram `"parseMode"`).
+//!   reçu, et pour Telegram `"parseMode"`, pour Discord `"allowedMentions"`
+//!   et `"flags"`).
 //!
 //! Un seul jeton est accepté ([`telegram::TOKEN`], [`discord::TOKEN`]) ; tout
 //! autre reçoit le refus de la vraie messagerie.

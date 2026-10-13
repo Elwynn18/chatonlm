@@ -188,8 +188,8 @@ impl FakeDiscord {
     }
 
     /// Ce que le bot a fait, dans l'ordre (même JSON que `GET /fake/sent`) ;
-    /// un envoi ou une modification porte aussi `"allowedMentions"`, tel que
-    /// reçu (`null` s'il manquait).
+    /// un envoi ou une modification porte aussi `"allowedMentions"` et
+    /// `"flags"`, tels que reçus (`null` s'ils manquaient).
     pub fn sent(&self) -> Vec<serde_json::Value> {
         self.shared.sent.lock().unwrap().clone()
     }
@@ -529,9 +529,9 @@ async fn gateway_bot(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> R
     .into_response()
 }
 
-/// Texte d'un envoi ou d'une modification et mentions permises, ou le refus
-/// de Discord (code HTTP, message, code d'erreur).
-fn content(body: &Bytes) -> Result<(String, Value), (StatusCode, &'static str, u32)> {
+/// Texte d'un envoi ou d'une modification, mentions permises et drapeaux, ou
+/// le refus de Discord (code HTTP, message, code d'erreur).
+fn content(body: &Bytes) -> Result<(String, Value, Value), (StatusCode, &'static str, u32)> {
     let Ok(body) = serde_json::from_slice::<Value>(body) else {
         return Err((StatusCode::BAD_REQUEST, "400: Bad Request", 0));
     };
@@ -546,7 +546,11 @@ fn content(body: &Bytes) -> Result<(String, Value), (StatusCode, &'static str, u
             50006,
         ));
     }
-    Ok((content.to_owned(), body["allowed_mentions"].clone()))
+    Ok((
+        content.to_owned(),
+        body["allowed_mentions"].clone(),
+        body["flags"].clone(),
+    ))
 }
 
 async fn send(
@@ -558,7 +562,7 @@ async fn send(
     if let Some(response) = unwelcome(&headers).or_else(|| shared.failure("send")) {
         return response;
     }
-    let (text, mentions) = match content(&body) {
+    let (text, mentions, flags) = match content(&body) {
         Ok(content) => content,
         Err((status, message, code)) => return refusal(status, message, code),
     };
@@ -574,6 +578,7 @@ async fn send(
         "id": id,
         "text": text,
         "allowedMentions": mentions,
+        "flags": flags,
     }));
     Json(json!({"id": id, "channel_id": channel, "content": text})).into_response()
 }
@@ -590,7 +595,7 @@ async fn edit(
     if shared.posted.lock().unwrap().get(&id) != Some(&channel) {
         return refusal(StatusCode::NOT_FOUND, "Unknown Message", 10008);
     }
-    let (text, mentions) = match content(&body) {
+    let (text, mentions, flags) = match content(&body) {
         Ok(content) => content,
         Err((status, message, code)) => return refusal(status, message, code),
     };
@@ -600,6 +605,7 @@ async fn edit(
         "id": id,
         "text": text,
         "allowedMentions": mentions,
+        "flags": flags,
     }));
     Json(json!({"id": id, "channel_id": channel, "content": text})).into_response()
 }
