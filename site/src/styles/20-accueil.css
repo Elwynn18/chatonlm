@@ -287,6 +287,10 @@ main {
 .sans-js .outil-textes strong {
   display: inline;
 }
+/* Sous les six outils : Easy Link, qui n'a pas d'onglet. */
+.outils-plus {
+  margin-top: 14px;
+}
 /* Défilement automatique : un filet se remplit sous l'outil montré. */
 .onglets--auto .onglet[aria-pressed="true"]::after {
   content: "";
