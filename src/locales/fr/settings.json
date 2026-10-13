@@ -380,8 +380,13 @@
       },
       "proofread": {
         "label": "Corriger le texte sélectionné",
-        "description": "Corrige le texte sélectionné dans n'importe quelle application et copie le résultat : appuyez sur Ctrl+V pour remplacer la sélection.",
-        "off": "Activez le raccourci pour choisir ses touches."
+        "description": "Corrige le texte sélectionné dans n'importe quelle application.",
+        "off": "Activez le raccourci pour choisir ses touches.",
+        "paste": {
+          "label": "Remplacer la sélection",
+          "description": "ChatonLM colle le texte corrigé à la place de la sélection. Désactivé, le texte corrigé est seulement copié : appuyez sur Ctrl+V pour le coller.",
+          "askHint": "La première fois, votre bureau demande d'autoriser ChatonLM à envoyer la touche de collage."
+        }
       },
       "waiting": "En attente de votre bureau…",
       "notSet": "Non défini",

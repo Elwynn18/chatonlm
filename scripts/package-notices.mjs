@@ -62,7 +62,7 @@ export const ONNXRUNTIME_DIR = ".tools/runtimes/onnxruntime";
 export const OLLAMA_DIR = ".tools/runtimes/ollama";
 
 /**
- * Licences livrées par Ollama dans lib/ollama (archive 0.40.0), exigées :
+ * Licences livrées par Ollama dans lib/ollama (archives 0.40.0 à 0.40.3), exigées :
  * nom du fichier → ce qu'il couvre. Un fichier de plus dans une autre
  * version est livré aussi, sans description.
  */

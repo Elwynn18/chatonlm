@@ -159,48 +159,89 @@ const FIT_COLORS: Record<HubFit, string> = {
 };
 
 /**
- * Pastille de compatibilité (« Fits your GPU · 5.0 GB ») ; machine inconnue
- * (serveur distant) : la taille seule, en gris ; machine pas encore lue
- * (`gpu` null) : rien, pour ne pas montrer un texte qui changerait aussitôt.
+ * Pastille de compatibilité (« Fits your GPU ») ; rien pour une machine
+ * inconnue (serveur distant : `fit` null), ni tant que la machine n'est pas
+ * lue (`gpu` null), pour ne pas montrer un texte qui changerait aussitôt. Les
+ * tailles sont dites à côté, par Footprint.
  */
 export function FitPill({
   fit,
-  size,
   gpu,
   title,
 }: {
   fit: HubFit | null;
-  /** Taille montrée après le texte ; null : pas de taille. */
-  size: number | null;
   gpu: boolean | null;
   title?: string;
 }) {
   const t = useT();
-  if (gpu === null || (fit === null && size === null)) return null;
-  const sizeText = size === null ? null : formatBytes(t, size);
-  const text =
-    fit === null
-      ? sizeText
-      : sizeText
-        ? `${fitLabel(t, fit, gpu)} · ${sizeText}`
-        : fitLabel(t, fit, gpu);
+  if (gpu === null || fit === null) return null;
   return (
     <span
-      data-fit={fit ?? "unknown"}
+      data-fit={fit}
       title={title}
-      className={`inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
-        fit === null
-          ? "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
-          : FIT_COLORS[fit]
-      }`}
+      className={`inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${FIT_COLORS[fit]}`}
     >
-      {fit !== null && (
-        <span
-          aria-hidden="true"
-          className="h-1.5 w-1.5 rounded-full bg-current opacity-80"
-        />
+      <span
+        aria-hidden="true"
+        className="h-1.5 w-1.5 rounded-full bg-current opacity-80"
+      />
+      {fitLabel(t, fit, gpu)}
+    </span>
+  );
+}
+
+/**
+ * Les deux poids d'un modèle, dits à part : ce qu'il faut télécharger (la
+ * place prise sur le disque), puis la mémoire qu'il lui faut pour tourner
+ * (« VRAM » avec une carte graphique, « Memory » sans). La mémoire n'est
+ * pas montrée tant qu'elle n'est pas connue (serveur distant, machine pas
+ * encore lue). `estimated` : chiffres estimés (cartes des listes).
+ */
+export function Footprint({
+  download,
+  memory,
+  gpu,
+  memoryHint,
+  estimated = false,
+}: {
+  /** Octets à télécharger ; null : inconnu, rien n'est montré. */
+  download: number | null;
+  /** Mémoire nécessaire, en octets ; null : inconnue. */
+  memory: number | null;
+  gpu: boolean | null;
+  /** Précision de la mémoire (contexte compté) ; à défaut, le texte commun. */
+  memoryHint?: string;
+  estimated?: boolean;
+}) {
+  const t = useT();
+  if (download === null) return null;
+  const hint = (text: string) =>
+    estimated ? `${text}\n${t("hub.footprint.estimated")}` : text;
+  const value =
+    "font-medium text-neutral-700 tabular-nums dark:text-neutral-200";
+  return (
+    <span
+      data-testid="footprint"
+      className="inline-flex flex-wrap items-center gap-x-1.5 text-xs text-neutral-500 dark:text-neutral-400"
+    >
+      <span title={hint(t("hub.footprint.downloadHint"))}>
+        {t("hub.footprint.download")}{" "}
+        <span className={value}>{formatBytes(t, download)}</span>
+      </span>
+      {memory !== null && gpu !== null && (
+        <>
+          <span aria-hidden="true">·</span>
+          <span
+            title={hint(
+              memoryHint ??
+                t(gpu ? "hub.footprint.vramHint" : "hub.footprint.memoryHint"),
+            )}
+          >
+            {t(gpu ? "hub.footprint.vram" : "hub.footprint.memory")}{" "}
+            <span className={value}>{formatBytes(t, memory)}</span>
+          </span>
+        </>
       )}
-      {text}
     </span>
   );
 }

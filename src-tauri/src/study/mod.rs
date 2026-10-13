@@ -17,6 +17,7 @@ mod engine;
 mod generate;
 mod grade;
 mod notes;
+pub(crate) mod passage;
 mod prompts;
 mod repair;
 mod request;
@@ -458,6 +459,12 @@ pub struct Course {
     pub created_at: i64,
     pub updated_at: i64,
     pub finished_at: Option<i64>,
+    /// Génération mise en pause par l'apprenant (`study_pause`) : plus rien
+    /// n'est écrit pour ce cours jusqu'à la reprise.
+    pub paused: bool,
+    /// Au moment de la lecture (`study_get`), la file écrit une partie d'un
+    /// autre cours : celles de ce cours attendent leur tour.
+    pub queue_busy: bool,
 }
 
 /// Ligne de la liste des cours (page d'accueil de l'onglet).
@@ -475,6 +482,13 @@ pub struct CourseSummary {
     /// Paliers réussis ou passés.
     pub levels_done: u32,
     pub levels_total: u32,
+    /// Paliers écrits (prêts à être lus).
+    pub levels_ready: u32,
+    /// Des parties restent à écrire (en file, en cours, ou retenues par la
+    /// pause) ; faux si une partie en échec attend `study_retry`.
+    pub pending: bool,
+    /// Génération mise en pause par l'apprenant.
+    pub paused: bool,
     /// Bonnes réponses du bilan (cours fini).
     pub final_correct: Option<u32>,
     pub final_total: Option<u32>,

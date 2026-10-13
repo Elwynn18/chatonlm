@@ -8,6 +8,7 @@ pub mod detect;
 pub mod host;
 pub mod models;
 pub mod models_dir;
+pub mod outdated;
 pub mod registry;
 pub mod running;
 pub mod target;

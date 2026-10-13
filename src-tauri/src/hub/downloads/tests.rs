@@ -15,7 +15,7 @@ use crate::hub::errors::english::{
 };
 use crate::hub::installed;
 
-use HubDownloadState::{Cancelled, Done, Downloading, Failed, Finishing, Queued, Starting};
+use HubDownloadState::{Cancelled, Done, Downloading, Failed, Finishing, Paused, Queued, Starting};
 
 /// Attente maximale d'un état, sur le faux serveur.
 const WAIT: Duration = Duration::from_secs(5);
@@ -686,7 +686,7 @@ async fn contract_hub_download_from_hugging_face() {
     let hf = names::DEFAULT_HF_URL;
     let model = "hf.co/bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M";
     let name = parse_hf_name(model).unwrap();
-    let Manifest::Found { total } = manifest::fetch(hf, &name, Duration::from_secs(15)).await
+    let Manifest::Found { total, .. } = manifest::fetch(hf, &name, Duration::from_secs(15)).await
     else {
         panic!("no manifest for {model}");
     };
@@ -727,4 +727,254 @@ async fn contract_hub_download_from_hugging_face() {
         smol.repo.as_deref(),
         Some("bartowski/SmolLM2-135M-Instruct-GGUF")
     );
+}
+
+/// Pause : la requête est fermée, la progression reste, le suivant de la
+/// file démarre ; la reprise repart en file, à sa place, et va au bout. La
+/// fin de la tâche arrêtée ne touche pas l'entrée reprise.
+#[tokio::test]
+async fn a_download_can_be_paused_and_resumed() {
+    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+    let options = Options {
+        max_running: 1,
+        ..at(&fake.url())
+    };
+    let (downloads, recorder) = hub(options);
+    let slow = "chatonlm-pull-slow";
+    let next = "hf.co/chatonlm/Next-stall-GGUF:Q4_K_M";
+    downloads.download(&fake.url(), ask(slow)).unwrap();
+    downloads.download(&fake.url(), ask(next)).unwrap();
+    wait_until("some progress", WAIT, || {
+        let download = entry(&downloads, slow);
+        download.state == Downloading && download.completed > 0
+    })
+    .await;
+    assert_eq!(entry(&downloads, next).state, Queued);
+
+    downloads.pause(slow);
+    let paused = entry(&downloads, slow);
+    assert_eq!(paused.state, Paused);
+    // Progression gardée, sans débit ni date de fin ; ce n'est pas un échec.
+    assert!(paused.completed > 0 && paused.total > 0, "{paused:?}");
+    assert_eq!(
+        (paused.bytes_per_second, paused.finished_at, paused.error),
+        (None, None, None)
+    );
+    wait_until("the closed request", WAIT, || fake.disconnects() == 1).await;
+    // La place est libre : le suivant démarre ; une pause n'est pas une
+    // activité (rien qu'un redémarrage d'Ollama couperait).
+    wait_until("the next download", WAIT, || {
+        entry(&downloads, next).state == Downloading
+    })
+    .await;
+    // En pause, il ne se retire pas de la liste ; une seconde pause, ou une
+    // pause d'un inconnu, ne change rien.
+    downloads.dismiss(slow);
+    downloads.pause(slow);
+    downloads.pause("nobody");
+    assert_eq!(entry(&downloads, slow).state, Paused);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // La fin de la tâche arrêtée n'a pas « arrêté » l'entrée.
+    assert_eq!(entry(&downloads, slow).state, Paused);
+
+    // Reprise : en file tant que la place est prise, puis nouveau pull.
+    downloads.resume(slow).unwrap();
+    assert_eq!(entry(&downloads, slow).state, Queued);
+    downloads.pause(next);
+    assert_eq!(entry(&downloads, next).state, Paused);
+    let done = finished_within(&downloads, slow, Duration::from_secs(15)).await;
+    assert_eq!(done.state, Done);
+    assert_eq!(done.completed, done.total);
+    assert_eq!(fake.pulled_names(), [slow, next, slow]);
+    let states = recorder.states(slow);
+    assert!(
+        states.windows(2).any(|pair| pair == [Downloading, Paused]),
+        "{states:?}"
+    );
+    assert!(
+        states.windows(2).any(|pair| pair == [Paused, Queued])
+            || states.windows(2).any(|pair| pair == [Paused, Starting]),
+        "{states:?}"
+    );
+    assert_eq!(states.last(), Some(&Done));
+
+    // Seul un téléchargement en pause reste : plus d'activité ; il s'arrête
+    // comme un autre, puis se retire.
+    assert!(!downloads.any_active());
+    downloads.cancel(next);
+    assert_eq!(entry(&downloads, next).state, Cancelled);
+    downloads.dismiss(next);
+    assert_eq!(downloads.list().len(), 1);
+    // Reprendre ce qui n'est pas en pause : rien.
+    downloads.resume(slow).unwrap();
+    downloads.resume("nobody").unwrap();
+    assert_eq!(entry(&downloads, slow).state, Done);
+}
+
+/// En file : la pause ne ferme aucune requête ; une nouvelle demande du même
+/// modèle le reprend au lieu de le remplacer.
+#[tokio::test]
+async fn a_queued_download_can_be_paused_and_asked_again() {
+    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+    let options = Options {
+        max_running: 1,
+        ..at(&fake.url())
+    };
+    let (downloads, _) = hub(options);
+    let first = "hf.co/chatonlm/First-stall-GGUF:Q4_K_M";
+    let second = "hf.co/chatonlm/Second-stall-GGUF:Q4_K_M";
+    let third = "hf.co/chatonlm/Third-stall-GGUF:Q4_K_M";
+    for model in [first, second, third] {
+        downloads.download(&fake.url(), ask(model)).unwrap();
+    }
+    wait_until("the first download", WAIT, || {
+        entry(&downloads, first).state == Downloading
+    })
+    .await;
+    downloads.pause(second);
+    assert_eq!(entry(&downloads, second).state, Paused);
+    // Le premier s'arrête : le troisième part, pas celui en pause.
+    downloads.cancel(first);
+    wait_until("the third download", WAIT, || {
+        entry(&downloads, third).state == Downloading
+    })
+    .await;
+    assert_eq!(entry(&downloads, second).state, Paused);
+    assert_eq!(fake.pulled_names(), [first, third]);
+    // Redemandé (bouton Download de la fiche) : repris, à sa place.
+    downloads.download(&fake.url(), ask(second)).unwrap();
+    assert_eq!(entry(&downloads, second).state, Queued);
+    let names: Vec<_> = downloads.list().into_iter().map(|d| d.model).collect();
+    assert_eq!(names, [first, second, third]);
+    downloads.cancel(second);
+    downloads.cancel(third);
+}
+
+/// « Download first » : le téléchargement passe en tête et démarre tout de
+/// suite ; les places prises, le dernier en cours retourne en file et
+/// reprend plus tard.
+#[tokio::test]
+async fn a_download_can_be_put_first() {
+    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+    let (downloads, _) = hub(at(&fake.url()));
+    let [a, b, c, d] =
+        ["A", "B", "C", "D"].map(|name| format!("hf.co/chatonlm/{name}-stall-GGUF:Q4_K_M"));
+    for model in [&a, &b, &c, &d] {
+        downloads.download(&fake.url(), ask(model)).unwrap();
+    }
+    wait_until("two downloads", WAIT, || {
+        entry(&downloads, &a).state == Downloading && entry(&downloads, &b).state == Downloading
+    })
+    .await;
+    let order = |downloads: &HubDownloads| -> Vec<(String, HubDownloadState)> {
+        downloads
+            .list()
+            .into_iter()
+            .map(|download| (download.model, download.state))
+            .collect()
+    };
+
+    // D, en file, passe en premier : B (le dernier en cours) retourne en
+    // file, sa requête fermée ; A continue.
+    downloads.prioritize(&d).unwrap();
+    wait_until("the prioritized download", WAIT, || {
+        entry(&downloads, &d).state == Downloading
+    })
+    .await;
+    assert_eq!(
+        order(&downloads),
+        [
+            (d.clone(), Downloading),
+            (a.clone(), Downloading),
+            (b.clone(), Queued),
+            (c.clone(), Queued),
+        ]
+    );
+    wait_until("the closed request", WAIT, || fake.disconnects() == 1).await;
+    assert_eq!(fake.pulled_names().len(), 3);
+    assert_eq!(fake.pulled_names()[2], d);
+    // B garde sa progression affichée, sans débit.
+    assert_eq!(entry(&downloads, &b).bytes_per_second, None);
+
+    // Déjà en cours : en tête seulement, sans rien arrêter.
+    downloads.prioritize(&a).unwrap();
+    assert_eq!(
+        order(&downloads)
+            .iter()
+            .map(|(model, _)| model.as_str())
+            .collect::<Vec<_>>(),
+        [a.as_str(), d.as_str(), b.as_str(), c.as_str()]
+    );
+    assert_eq!(entry(&downloads, &a).state, Downloading);
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert_eq!(fake.disconnects(), 1);
+
+    // En pause : repris et premier ; cette fois D, le dernier en cours,
+    // retourne en file.
+    downloads.pause(&c);
+    downloads.prioritize(&c).unwrap();
+    wait_until("the resumed download", WAIT, || {
+        entry(&downloads, &c).state == Downloading
+    })
+    .await;
+    assert_eq!(
+        order(&downloads),
+        [
+            (c.clone(), Downloading),
+            (a.clone(), Downloading),
+            (d.clone(), Queued),
+            (b.clone(), Queued),
+        ]
+    );
+    // Une place se libère : le premier de la file repart (D, puis B).
+    downloads.cancel(&a);
+    wait_until("the requeued download", WAIT, || {
+        entry(&downloads, &d).state == Downloading
+    })
+    .await;
+    assert_eq!(entry(&downloads, &b).state, Queued);
+    // Inconnu ou fini : rien.
+    downloads.prioritize("nobody").unwrap();
+    downloads.prioritize(&a).unwrap();
+    assert_eq!(entry(&downloads, &a).state, Cancelled);
+    for model in [&b, &c, &d] {
+        downloads.cancel(model);
+    }
+}
+
+/// Verrou d'un changement de dossier, propre à l'essai ci-dessous (celui de
+/// [`CHANGING`] sert à un autre essai, lancé en même temps).
+static MOVING: crate::ollama::models_dir::OperationLock =
+    crate::ollama::models_dir::OperationLock::new();
+
+fn moving() -> bool {
+    MOVING.is_held()
+}
+
+/// Pendant un changement du dossier des modèles, rien ne reprend ; un
+/// changement de serveur arrête aussi ce qui est en pause.
+#[tokio::test]
+async fn paused_downloads_follow_the_location_and_the_target() {
+    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+    let model = "hf.co/chatonlm/Held-stall-GGUF:Q4_K_M";
+    let (downloads, _) = hub(Options {
+        location_changing: moving,
+        ..at(&fake.url())
+    });
+    downloads.download(&fake.url(), ask(model)).unwrap();
+    downloads.pause(model);
+    let guard = MOVING.try_acquire().unwrap();
+    for refused in [downloads.resume(model), downloads.prioritize(model)] {
+        let Err(AppError::Invalid(message)) = refused else {
+            panic!("expected a refusal");
+        };
+        assert_eq!(message, LOCATION_CHANGING);
+    }
+    assert_eq!(entry(&downloads, model).state, Paused);
+    drop(guard);
+
+    downloads.retarget("http://127.0.0.1:9");
+    let stopped = entry(&downloads, model);
+    assert_eq!(stopped.state, Failed);
+    assert_eq!(stopped.error.as_deref(), Some(SERVER_CHANGED));
 }

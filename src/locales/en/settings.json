@@ -380,8 +380,13 @@
       },
       "proofread": {
         "label": "Correct selected text",
-        "description": "Corrects the text selected in any app and copies the result: press Ctrl+V to replace the selection.",
-        "off": "Turn on the shortcut to choose its keys."
+        "description": "Corrects the text selected in any app.",
+        "off": "Turn on the shortcut to choose its keys.",
+        "paste": {
+          "label": "Replace the selection",
+          "description": "ChatonLM pastes the corrected text over the selection. Turned off, the corrected text is only copied: press Ctrl+V to paste it.",
+          "askHint": "The first time, your desktop asks to let ChatonLM send the paste keystroke."
+        }
       },
       "waiting": "Waiting for your desktop…",
       "notSet": "Not set",

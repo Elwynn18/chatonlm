@@ -1,13 +1,17 @@
 //! Raccourci global « Correct selected text » (propre à ChatonLM) : sélection
 //! primaire lue sans focus (data-control), corrigée par [`super::run`],
-//! copiée dans le presse-papiers, notification avec l'action « Show » (page
-//! Proofread, [`super::Proofreader::last_selection`]). Ctrl+V remplace
-//! ensuite la sélection : pas de collage automatique.
+//! copiée dans le presse-papiers, puis collée à la place de la sélection
+//! (réglage `proofread_paste`, activé par défaut : Ctrl+V envoyé par
+//! [`Clipboard::paste`]) ; notification avec l'action « Show » (page
+//! Proofread, [`super::Proofreader::last_selection`]). Réglage coupé, ou
+//! collage impossible (bureau sans portail RemoteDesktop, autorisation
+//! refusée) : la notification dit de coller par Ctrl+V.
 //!
 //! Le résultat est toujours copié, même sans faute trouvée : Ctrl+V ne colle
-//! jamais un vieux contenu du presse-papiers. Rien n'est copié si la
-//! correction échoue ou si elle est arrêtée : un appui pendant une
-//! correction en cours l'arrête.
+//! jamais un vieux contenu du presse-papiers. Rien n'est collé quand le
+//! texte n'a pas changé. Rien n'est copié ni collé si la correction échoue
+//! ou si elle est arrêtée : un appui pendant une correction en cours
+//! l'arrête.
 //!
 //! Modèle repris du chat (aucun choisi sur la page Proofread) : un modèle
 //! cloud ou distant n'est jamais utilisé, la sélection (de n'importe quelle
@@ -29,7 +33,9 @@ use super::{
     model_of,
 };
 use crate::chat::Server;
-use crate::dictation::clipboard::{BoxFuture, Clipboard, SelectionError, SystemClipboard};
+use crate::dictation::clipboard::{
+    BoxFuture, Clipboard, PasteError, SelectionError, SystemClipboard,
+};
 use crate::dictation::notify::{self, Action, DesktopNotifier, Notice, Notifier, Offer};
 use crate::i18n::t;
 use crate::ollama::models;
@@ -43,6 +49,8 @@ pub(crate) struct Prepared {
     pub model: Option<String>,
     /// Modèle repris du chat : aucun n'est choisi sur la page Proofread.
     pub from_chat: bool,
+    /// Coller le texte corrigé à la place de la sélection (réglage).
+    pub paste: bool,
 }
 
 /// L'app vue par la correction de la sélection (remplacée dans les tests).
@@ -100,6 +108,9 @@ pub struct Selection {
     /// Notificateur du bureau, à configurer au démarrage (identité, clic sur
     /// « Show ») ; absent dans les tests.
     desktop: Option<Arc<DesktopNotifier>>,
+    /// Presse-papiers du système, à qui donner au démarrage le fichier de
+    /// l'autorisation de coller ; absent dans les tests.
+    system_clipboard: Option<Arc<SystemClipboard>>,
     /// Numéro de la dernière correction.
     jobs: AtomicU64,
     /// Arrêt de la correction en cours (`None` : aucune). Changé sous ce
@@ -117,13 +128,15 @@ impl Default for Selection {
 impl Selection {
     pub fn new() -> Self {
         let notifier = Arc::new(DesktopNotifier::new(Action::Show));
+        let clipboard = Arc::new(SystemClipboard::default());
         let services = Services {
-            clipboard: Arc::new(SystemClipboard::default()),
+            clipboard: clipboard.clone(),
             notifier: notifier.clone(),
             corrector: Arc::new(Engine),
         };
         Self {
             desktop: Some(notifier),
+            system_clipboard: Some(clipboard),
             ..Self::with_services(services)
         }
     }
@@ -132,6 +145,7 @@ impl Selection {
         Self {
             services,
             desktop: None,
+            system_clipboard: None,
             jobs: AtomicU64::new(0),
             current: Mutex::new(None),
         }
@@ -231,6 +245,7 @@ impl Selection {
         if cancel.is_cancelled() {
             return stopped();
         }
+        let paste = prepared.paste;
 
         // Affichée jusqu'au résultat : la correction d'un long texte dure.
         let progress = format!(
@@ -262,7 +277,8 @@ impl Selection {
 
         let corrected = outcome.text();
         let kept = outcome.results.iter().flatten().any(|result| result.kept);
-        let summary = if corrected != text {
+        let changed = corrected != text;
+        let summary = if changed {
             t!("proofread.selection.copied")
         } else if kept {
             t!("proofread.selection.unchanged")
@@ -285,6 +301,17 @@ impl Selection {
         }
         // Copie échouée : le résultat reste visible par « Show ».
         let notice = match self.services.clipboard.copy(corrected).await {
+            // Texte changé : collé à la place de la sélection (Ctrl+V envoyé
+            // à l'application au premier plan). Sinon, le presse-papiers et
+            // la raison : Ctrl+V reste à faire.
+            Ok(()) if paste && changed => match self.services.clipboard.paste().await {
+                Ok(()) => Notice::lasting(t!("proofread.selection.pasted"), body),
+                Err(error) => {
+                    body.push_str("\n\n");
+                    body.push_str(&notify::escape(&not_pasted(error)));
+                    Notice::lasting(summary, body)
+                }
+            },
             Ok(()) => Notice::lasting(summary, body),
             Err(reason) => Notice::lasting(
                 t!("notifications.notCopied"),
@@ -303,6 +330,16 @@ async fn runs_elsewhere(base: &str, model: &str) -> bool {
         || models::show(base, model)
             .await
             .is_ok_and(|details| details.remote)
+}
+
+/// Pourquoi le texte corrigé n'a pas été collé, et quoi faire, dans la
+/// langue de l'interface.
+fn not_pasted(error: PasteError) -> String {
+    match error {
+        PasteError::Unsupported => t!("proofread.selection.pasteUnsupported"),
+        PasteError::Refused => t!("proofread.selection.pasteRefused"),
+        PasteError::Other(reason) => t!("proofread.selection.pasteFailed", reason = reason),
+    }
 }
 
 /// Raison d'une sélection illisible, dans la langue de l'interface ; seul le
@@ -371,18 +408,28 @@ impl Host for AppHost {
                 server: Server::from_settings(&settings),
                 model: model_of(&settings),
                 from_chat: settings.proofread_model.is_empty(),
+                paste: settings.proofread_paste,
             })
         })
     }
 }
 
+/// Fichier, dans les données de l'app, de l'autorisation de coller donnée
+/// par le bureau (jeton du portail RemoteDesktop, Linux).
+const PASTE_TOKEN_FILE: &str = "paste.token";
+
 /// Démarrage de l'app : identité des notifications (icône écrite par la
 /// dictée) et clic sur « Show » (fenêtre montrée, page Proofread qui charge
-/// la dernière correction ; nouvelle demande à chaque clic).
+/// la dernière correction ; nouvelle demande à chaque clic) ; fichier de
+/// l'autorisation de coller.
 pub fn setup(app: &AppHandle) {
     let Some(selection) = app.try_state::<Selection>() else {
         return;
     };
+    if let (Some(clipboard), Ok(data)) = (&selection.system_clipboard, crate::paths::data_dir(app))
+    {
+        clipboard.set_paste_token_file(data.join(PASTE_TOKEN_FILE));
+    }
     let Some(notifier) = &selection.desktop else {
         return;
     };
@@ -434,6 +481,9 @@ mod tests {
         hangs: AtomicBool,
         copies: Mutex<Vec<String>>,
         copy_error: Mutex<Option<String>>,
+        /// Ce que le presse-papiers contenait à chaque collage demandé.
+        pastes: Mutex<Vec<Option<String>>>,
+        paste_error: Mutex<Option<PasteError>>,
     }
 
     impl FakeClipboard {
@@ -443,6 +493,8 @@ mod tests {
                 hangs: AtomicBool::new(false),
                 copies: Mutex::new(Vec::new()),
                 copy_error: Mutex::new(None),
+                pastes: Mutex::new(Vec::new()),
+                paste_error: Mutex::new(None),
             }
         }
     }
@@ -469,6 +521,15 @@ mod tests {
                 selection
             })
         }
+
+        fn paste(&self) -> BoxFuture<Result<(), PasteError>> {
+            self.pastes.lock().push(self.copies.lock().last().cloned());
+            let result = match self.paste_error.lock().clone() {
+                Some(error) => Err(error),
+                None => Ok(()),
+            };
+            Box::pin(async move { result })
+        }
     }
 
     #[derive(Default)]
@@ -490,6 +551,8 @@ mod tests {
         model: Option<&'static str>,
         from_chat: bool,
         url: Option<String>,
+        /// Réglage « coller à la place de la sélection ».
+        paste: bool,
     }
 
     impl FakeHost {
@@ -499,6 +562,7 @@ mod tests {
                 model: Some(model),
                 from_chat: true,
                 url,
+                paste: false,
             }
         }
     }
@@ -507,6 +571,7 @@ mod tests {
         fn prepare(&self) -> BoxFuture<Result<Prepared, String>> {
             let model = self.model.map(str::to_owned);
             let from_chat = self.from_chat;
+            let paste = self.paste;
             let url = self
                 .url
                 .clone()
@@ -520,6 +585,7 @@ mod tests {
                     },
                     model,
                     from_chat,
+                    paste,
                 })
             })
         }
@@ -685,10 +751,18 @@ mod tests {
         }
     }
 
+    /// Réglage « coller » coupé : le presse-papiers seul.
     const MODEL: FakeHost = FakeHost {
         model: Some("gemma3:4b"),
         from_chat: false,
         url: None,
+        paste: false,
+    };
+
+    /// Réglage par défaut : le texte corrigé est collé.
+    const PASTING: FakeHost = FakeHost {
+        paste: true,
+        ..MODEL
     };
 
     #[tokio::test]
@@ -1091,6 +1165,7 @@ mod tests {
                 model: Some(model),
                 from_chat: false,
                 url: url.clone(),
+                paste: false,
             })
             .await;
             assert_eq!(rig.corrector.calls.lock().len(), 1, "{model}");
@@ -1119,6 +1194,118 @@ mod tests {
         task.abort();
         let _ = task.await;
         assert!(rig.idle());
+    }
+
+    /// Réglage par défaut : le texte corrigé, une fois dans le
+    /// presse-papiers, est collé à la place de la sélection.
+    #[tokio::test]
+    async fn the_corrected_selection_is_pasted_over_the_selection() {
+        let rig = Rig::new("I recieve teh letter.");
+        rig.press(&PASTING).await;
+        let corrected = "I recieve the letter.";
+        assert_eq!(rig.copies(), [corrected]);
+        // Collé après la copie : c'est le texte corrigé qui est collé.
+        assert_eq!(*rig.clipboard.pastes.lock(), [Some(corrected.to_owned())]);
+        let last = rig.last();
+        assert_eq!(last.summary, "Corrected text pasted");
+        assert_eq!(last.body, corrected);
+        assert!(last.last);
+        // « Show » reste offert.
+        assert_eq!(
+            last.copy,
+            Some(Offer {
+                session: 1,
+                text: corrected.into()
+            })
+        );
+
+        // Réglage coupé : copié, jamais collé.
+        let rig = Rig::new("I recieve teh letter.");
+        rig.press(&MODEL).await;
+        assert!(rig.clipboard.pastes.lock().is_empty());
+        assert_eq!(rig.last().summary, "Corrected text copied");
+    }
+
+    /// Rien à remplacer : pas de collage (le texte reste sélectionné tel
+    /// quel), le presse-papiers comme avant.
+    #[tokio::test]
+    async fn an_unchanged_selection_is_not_pasted() {
+        for (selected, summary) in [
+            ("All good here.", "No mistakes found"),
+            ("KEEP teh text", "Text copied unchanged"),
+        ] {
+            let rig = Rig::new(selected);
+            rig.press(&PASTING).await;
+            assert_eq!(rig.copies(), [selected], "{selected}");
+            assert!(rig.clipboard.pastes.lock().is_empty(), "{selected}");
+            assert_eq!(rig.last().summary, summary, "{selected}");
+        }
+    }
+
+    /// Collage impossible : le texte corrigé reste dans le presse-papiers et
+    /// la notification dit pourquoi, et de coller par Ctrl+V.
+    #[tokio::test]
+    async fn a_failed_paste_says_to_paste_by_hand() {
+        for (error, reason) in [
+            (
+                PasteError::Unsupported,
+                "This desktop does not let ChatonLM paste for you: press Ctrl+V.",
+            ),
+            (
+                PasteError::Refused,
+                "Pasting was not allowed: press Ctrl+V.",
+            ),
+            (
+                PasteError::Other("no <reply>".into()),
+                "Pasting failed (no &lt;reply&gt;): press Ctrl+V.",
+            ),
+        ] {
+            let rig = Rig::new("teh text");
+            *rig.clipboard.paste_error.lock() = Some(error.clone());
+            rig.press(&PASTING).await;
+            assert_eq!(rig.copies(), ["the text"], "{error:?}");
+            assert_eq!(rig.clipboard.pastes.lock().len(), 1, "{error:?}");
+            let last = rig.last();
+            assert_eq!(last.summary, "Corrected text copied", "{error:?}");
+            assert_eq!(last.body, format!("the text\n\n{reason}"), "{error:?}");
+        }
+    }
+
+    /// Copie échouée, correction en échec ou arrêtée : rien n'est collé (ce
+    /// serait un vieux contenu du presse-papiers).
+    #[tokio::test]
+    async fn nothing_is_pasted_without_a_corrected_text_in_the_clipboard() {
+        let rig = Rig::new("teh text");
+        *rig.clipboard.copy_error.lock() = Some("clipboard busy".into());
+        rig.press(&PASTING).await;
+        assert!(rig.clipboard.pastes.lock().is_empty());
+        assert_eq!(rig.last().summary, "Could not copy to the clipboard");
+
+        let rig = Rig::new("teh text");
+        *rig.corrector.error.lock() =
+            Some((ProofreadErrorCode::ModelNotFound, "model crashed".into()));
+        rig.press(&PASTING).await;
+        assert!(rig.clipboard.pastes.lock().is_empty());
+        assert!(rig.copies().is_empty());
+
+        let gate = Arc::new(Notify::new());
+        let corrector = FakeCorrector {
+            gate: Some(gate),
+            stoppable: true,
+            ..FakeCorrector::default()
+        };
+        let rig = Arc::new(Rig::with_corrector("teh text", corrector));
+        let task = {
+            let rig = rig.clone();
+            tokio::spawn(async move { rig.press(&PASTING).await })
+        };
+        while rig.corrector.calls.lock().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        rig.selection.cancel();
+        task.await.unwrap();
+        assert!(rig.clipboard.pastes.lock().is_empty());
+        assert!(rig.copies().is_empty());
     }
 
     #[tokio::test]

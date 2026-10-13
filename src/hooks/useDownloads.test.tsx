@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HubDownload } from "@/bindings/HubDownload";
 import { hubInstalledKey } from "@/hooks/useHub";
 import { modelsKey } from "@/hooks/useModels";
+import { outdatedKey } from "@/hooks/useOutdatedModels";
 import { fakeBackend } from "@/test/backend";
 import { renderHub } from "@/test/renderHub";
 import { installSimulator, type Simulator } from "@/test/simulator";
@@ -129,6 +130,39 @@ describe("useDownloads", () => {
     client.setQueryData(modelsKey, []);
     await simulator.emitEvent("hub-downloads", [done]);
     expect(client.getQueryState(modelsKey)?.isInvalidated).toBe(false);
+  });
+
+  it("a model downloaded again is no longer stale, at once and in every check kept", async () => {
+    const { simulator, client } = setup();
+    await waitFor(() => expect(simulator.listening("hub-downloads")).toBe(1));
+    const other = "qwen3:0.6b";
+    // Vérification de la conversation (nom du sélecteur) et de la liste des
+    // installés (nom de /api/tags).
+    const chat = [...outdatedKey, "x", "chat"];
+    const list = [...outdatedKey, "x", "installed"];
+    const untouched = [other];
+    client.setQueryData(chat, ["gemma4"]);
+    client.setQueryData(list, [other, "gemma4:latest"]);
+    client.setQueryData([...outdatedKey, "x", "other"], untouched);
+    const gemma = { model: "Gemma4:latest", repo: null, label: null };
+
+    // En cours, en échec, arrêté : toujours périmé.
+    for (const state of ["downloading", "failed", "cancelled"] as const) {
+      await simulator.emitEvent("hub-downloads", [
+        download({ ...gemma, state }),
+      ]);
+      await waitFor(() => expect(probe()).toBe(`${state}:0`));
+      expect(client.getQueryData(chat)).toEqual(["gemma4"]);
+    }
+
+    await simulator.emitEvent("hub-downloads", [
+      download({ ...gemma, state: "done", completed: 100, finishedAt: 9 }),
+    ]);
+    await waitFor(() => expect(probe()).toBe("done:100"));
+    expect(client.getQueryData(chat)).toEqual([]);
+    expect(client.getQueryData(list)).toEqual([other]);
+    // Une vérification qui ne le citait pas garde sa réponse telle quelle.
+    expect(client.getQueryData([...outdatedKey, "x", "other"])).toBe(untouched);
   });
 
   it("stops listening when unmounted", async () => {

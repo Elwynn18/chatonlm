@@ -119,8 +119,10 @@ whisper-rs = { version = "0.16.0", default-features = false }
 # Limites du processus d'extraction des PDF (setrlimit, prctl).
 libc = "0.2.190"
 # Dictée : raccourci global par le portail XDG GlobalShortcuts (KDE Plasma 6,
-# GNOME 48 et plus). Même exécuteur que zbus (async-io).
-ashpd = { version = "0.13.13", default-features = false, features = ["async-io", "global_shortcuts"] }
+# GNOME 48 et plus). Même exécuteur que zbus (async-io). Correction de la
+# sélection : Ctrl+V envoyé par le portail RemoteDesktop (son module se sert
+# du type des flux de « screencast », d'où cette fonction aussi).
+ashpd = { version = "0.13.13", default-features = false, features = ["async-io", "global_shortcuts", "remote_desktop", "screencast"] }
 # Icône de la zone de notification (StatusNotifierItem en pur D-Bus, sans
 # libappindicator).
 ksni = { version = "0.3.6", default-features = false, features = ["async-io"] }

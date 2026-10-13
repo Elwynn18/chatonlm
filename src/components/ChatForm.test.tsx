@@ -739,7 +739,7 @@ describe("ChatForm: Tab order", () => {
 
   // Ordre natif, pas le cycle de l'officiel : celui-ci ne sort jamais de la
   // zone de saisie (piège clavier), la barre latérale devient inatteignable.
-  it("follows the document order through +, Think, the picker, voice mode and Send", async () => {
+  it("follows the document order through +, Think, web search, the picker, voice mode and Send", async () => {
     const { textarea } = renderForm({ details: [ON_OFF] });
     const toggle = await thinkToggle();
     await userEvent.type(textarea, "Hello");
@@ -751,13 +751,19 @@ describe("ChatForm: Tab order", () => {
     expect(document.activeElement).toBe(uploadButton());
     await tab();
     expect(document.activeElement).toBe(toggle);
+    // Grisée pour ce modèle sans outils, la recherche web garde le focus :
+    // sa raison se lit au clavier.
+    await tab();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Web search" }),
+    );
     await tab();
     expect(document.activeElement).toBe(picker());
     await tab();
     expect(document.activeElement).toBe(voiceButton);
     await tab();
     expect(document.activeElement).toBe(sendButton);
-    for (let i = 0; i < 5; i++) await shiftTab();
+    for (let i = 0; i < 6; i++) await shiftTab();
     expect(document.activeElement).toBe(textarea);
   });
 
@@ -808,6 +814,8 @@ describe("ChatForm: Tab order", () => {
     await tab();
     await tab();
     expect(document.activeElement).toBe(pill);
+    // Puis la recherche web (grisée : ce modèle n'a pas d'outils).
+    await tab();
     await tab();
     expect(document.activeElement).toBe(picker());
   });
@@ -848,17 +856,33 @@ describe("ChatForm: web search", () => {
     expect(settings.webSearchEnabled).toBe(false);
   });
 
-  it("no globe for a model without tools, or with unknown details", async () => {
-    renderForm({ details: [ON_OFF] });
+  it("a model without tools keeps the globe, greyed out, saying why; unknown details show none", async () => {
+    const first = renderForm({ details: [ON_OFF], webSearchEnabled: true });
     await thinkToggle();
-    expect(globe()).toBeNull();
+    const button = await screen.findByRole("button", { name: "Web search" });
+    const why = "Web search isn't available: this model can't use tools.";
+    expect(button.title).toBe(why);
+    expect(button.getAttribute("aria-description")).toBe(why);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    // Ni bascule ni état « activé » : il ne fait rien, mais garde le focus.
+    expect(button.getAttribute("aria-pressed")).toBeNull();
+    expect(button.className).toContain("cursor-not-allowed");
+    expect(button.className).not.toContain("bg-accent");
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(button);
+    await settle();
+    expect(first.settings.webSearchEnabled).toBe(true);
+    // Le réglage reste, mais rien ne part avec la recherche web.
+    await send(first.textarea);
+    expect(first.onSubmit.mock.lastCall?.[5]).toBe(false);
+    // État du nuage demandé seulement pour un modèle qui sait chercher.
+    expect(first.commands).not.toContain("cloud_status");
     cleanup();
 
     const { commands } = renderForm();
     await waitFor(() => expect(picker().textContent).toBe(QWEN));
     await settle();
     expect(globe()).toBeNull();
-    // État du nuage demandé seulement pour un modèle qui sait chercher.
     expect(commands).not.toContain("cloud_status");
   });
 

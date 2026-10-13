@@ -15,7 +15,7 @@ import type { HubRepo } from "@/bindings/HubRepo";
 import { CopyButton } from "@/components/CopyButton";
 import { ExternalLink } from "@/components/ExternalLink";
 import { DownloadProgress } from "@/components/hub/DownloadProgress";
-import { FitPill } from "@/components/hub/ModelBits";
+import { FitPill, Footprint } from "@/components/hub/ModelBits";
 import {
   CARD,
   PRIMARY_BUTTON,
@@ -262,9 +262,15 @@ function VersionOption({
               />
             </span>
           )}
-          <span className="ml-auto flex-none text-sm text-neutral-600 tabular-nums dark:text-neutral-300">
-            {formatBytes(t, quant.downloadSize)}
-          </span>
+        </span>
+        {/* Les deux poids, dits à part : à télécharger, puis en mémoire. */}
+        <span className="mt-1 block">
+          <Footprint
+            download={quant.downloadSize}
+            memory={quant.issue ? null : quant.memory}
+            gpu={gpu}
+            memoryHint={memoryHint}
+          />
         </span>
         <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-500 dark:text-neutral-400">
           {quant.issue ? (
@@ -272,12 +278,7 @@ function VersionOption({
           ) : (
             <>
               {t(`hub.tiers.${quant.tier}`)}
-              <FitPill
-                fit={quant.fit}
-                size={null}
-                gpu={gpu}
-                title={memoryHint}
-              />
+              <FitPill fit={quant.fit} gpu={gpu} title={memoryHint} />
             </>
           )}
         </span>
@@ -304,7 +305,7 @@ function DownloadArea({
   const t = useT();
   const { downloads } = useDownloads();
   const download = findDownload(downloads, model);
-  const { start, cancel } = useDownloadActions();
+  const { start, cancel, resume } = useDownloadActions();
   const openInChat = useUseInChat();
   const [chatError, setChatError] = useState<string | null>(null);
   const label = displayTag(quant.label);
@@ -319,7 +320,30 @@ function DownloadArea({
     start.mutate({ model, repo: repoId, label: quant.label });
 
   let action;
-  if (download && isActiveDownload(download)) {
+  if (download?.state === "paused") {
+    // En pause (onglet Downloads) : où il en est, Resume, Cancel.
+    action = (
+      <div className="flex flex-col gap-3">
+        <DownloadProgress download={download} name={label} />
+        <button
+          type="button"
+          className={`${PRIMARY_BUTTON} w-full`}
+          disabled={resume.isPending}
+          onClick={() => resume.mutate(model)}
+        >
+          {t("hub.actions.resume")}
+        </button>
+        <button
+          type="button"
+          className={`${SECONDARY_BUTTON} w-full`}
+          disabled={cancel.isPending}
+          onClick={() => cancel.mutate(model)}
+        >
+          {t("common.actions.cancel")}
+        </button>
+      </div>
+    );
+  } else if (download && isActiveDownload(download)) {
     action = (
       <div className="flex flex-col gap-3">
         <DownloadProgress download={download} name={label} />

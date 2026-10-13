@@ -1,6 +1,7 @@
 // Résultats du lecteur de cours (onglet Study) : résultat d'un essai
 // (réussi : célébration brève, étoiles qui apparaissent une à une,
-// confettis ; manqué : erreurs expliquées, « Explain differently », « Review
+// confettis ; manqué : erreurs expliquées, « Explain differently » (attente
+// du nouvel essai ; cours mis en pause entre-temps : « Resume »), « Review
 // the lesson », puis « Continue anyway » après deux essais manqués) et fin
 // du cours (grande célébration, score du bilan, étoiles et meilleur score
 // par palier, temps passé, fiche « Key points » à copier ou enregistrer,
@@ -19,6 +20,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import type { Course } from "@/bindings/Course";
 import type { Level } from "@/bindings/Level";
+import { GenerationStatus } from "@/components/study/GenerationStatus";
 import { Sources } from "@/components/study/Sources";
 import { CardShell, KeyHint } from "@/components/study/cardKit";
 import { Preparing } from "@/components/study/LessonCards";
@@ -220,7 +222,14 @@ export function ResultCard({
               : t("study.result.passMark", { count: passMark })}
         </p>
       </div>
-      {remedyBusy && latest && (
+      {/* Cours mis en pause après la demande : dit ici (l'en-tête
+          l'annonce déjà), avec « Resume ». */}
+      {remedyBusy && latest && course.paused && (
+        <div className="mt-4">
+          <GenerationStatus course={course} hint emphasis live={false} />
+        </div>
+      )}
+      {remedyBusy && latest && !course.paused && (
         <div className="mt-4">
           <Preparing text={t("study.result.preparingRemedy")} />
         </div>

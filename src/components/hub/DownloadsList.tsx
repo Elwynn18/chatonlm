@@ -1,6 +1,9 @@
-// Onglet Downloads du ModelHub : téléchargements actifs (dans l'ordre de
-// demande), puis terminés (le plus récent d'abord) ; progression et Cancel,
-// Use in chat et Dismiss, échec avec Try again (et, si la clé d'Ollama est
+// Onglet Downloads du ModelHub : téléchargements pas encore finis (dans
+// l'ordre de la file, ceux en pause à leur place), puis terminés (le plus
+// récent d'abord) ; progression, Pause ou Resume, « Download first » pour un
+// téléchargement en file (il démarre tout de suite, le dernier en cours
+// retournant en file), Cancel ; Use in chat et Dismiss, échec avec Try again
+// (et, si la clé d'Ollama est
 // cachée à son service, « Fix in Settings › General »). Un modèle téléchargé puis
 // supprimé (absent des installés relus depuis sa fin) n'est plus « Installed » :
 // « No longer installed », Download again. Sous eux, section « Speech
@@ -38,7 +41,7 @@ import { isActiveSpeechDownload } from "@/lib/dictation";
 import { useHubInstalled, useUseInChat } from "@/hooks/useHub";
 import { useT } from "@/i18n";
 import { formatBytes } from "@/i18n/format";
-import { familyOf, isActiveDownload, repoParams } from "@/lib/hub";
+import { familyOf, isPendingDownload, repoParams } from "@/lib/hub";
 import { errorMessage } from "@/lib/ipc";
 import { displayTag, parseModelName } from "@/lib/modelNames";
 
@@ -81,9 +84,9 @@ export function DownloadsList() {
       </EmptyState>
     );
   }
-  const active = downloads.filter(isActiveDownload);
+  const active = downloads.filter(isPendingDownload);
   const finished = downloads
-    .filter((download) => !isActiveDownload(download))
+    .filter((download) => !isPendingDownload(download))
     .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0));
   const installedNames = new Set(
     (installed.data ?? []).map((model) => model.model.toLowerCase()),
@@ -190,23 +193,28 @@ function DownloadRow({
   removed: boolean;
 }) {
   const t = useT();
-  const { start, cancel, dismiss } = useDownloadActions();
+  const { start, cancel, dismiss, pause, resume, prioritize } =
+    useDownloadActions();
   const openInChat = useUseInChat();
   const [chatError, setChatError] = useState<string | null>(null);
   const name = parseModelName(download.model);
   const repo = download.repo ?? name.repo;
   const tag = download.label ?? name.tag;
-  const active = isActiveDownload(download);
+  // Pas encore fini : en file, en cours ou en pause.
+  const active = isPendingDownload(download);
+  const paused = download.state === "paused";
+  // Tout est reçu, Ollama vérifie : plus rien à mettre en pause.
+  const pausable = active && !paused && download.state !== "finishing";
   const retry = () =>
     start.mutate({
       model: download.model,
       repo: download.repo,
       label: download.label,
     });
-  const error =
-    chatError ??
-    (start.isError ? errorMessage(start.error) : null) ??
-    (cancel.isError ? errorMessage(cancel.error) : null);
+  const failed = [start, cancel, pause, resume, prioritize].find(
+    (action) => action.isError,
+  );
+  const error = chatError ?? (failed ? errorMessage(failed.error) : null);
 
   const title = repo ? (
     <Link
@@ -262,6 +270,36 @@ function DownloadRow({
           )}
         </div>
         <div className="flex flex-none flex-wrap items-center justify-end gap-1.5">
+          {download.state === "queued" && (
+            <button
+              type="button"
+              className={SECONDARY_BUTTON}
+              disabled={prioritize.isPending}
+              onClick={() => prioritize.mutate(download.model)}
+            >
+              {t("hub.actions.downloadFirst")}
+            </button>
+          )}
+          {pausable && (
+            <button
+              type="button"
+              className={SECONDARY_BUTTON}
+              disabled={pause.isPending}
+              onClick={() => pause.mutate(download.model)}
+            >
+              {t("hub.actions.pause")}
+            </button>
+          )}
+          {paused && (
+            <button
+              type="button"
+              className={PRIMARY_BUTTON}
+              disabled={resume.isPending}
+              onClick={() => resume.mutate(download.model)}
+            >
+              {t("hub.actions.resume")}
+            </button>
+          )}
           {active && (
             <button
               type="button"

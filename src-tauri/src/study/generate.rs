@@ -72,9 +72,13 @@ fn web_query(snapshot: &Snapshot) -> String {
 const PLAN_LEAD: usize = sources::SOURCE_CHARS / 3;
 
 impl Job<'_> {
+    /// Cours à l'instant où le travail démarre ; `None` : supprimé, ou mis
+    /// en pause entre la mise en file et ce démarrage (rien à écrire : la
+    /// reprise remettra la partie en file).
     async fn load(&self) -> AppResult<Option<Snapshot>> {
         let course = self.course.to_owned();
-        self.store.call(move |c| db::load_full(c, &course)).await
+        let snapshot = self.store.call(move |c| db::load_full(c, &course)).await?;
+        Ok(snapshot.filter(|snapshot| !snapshot.row.paused))
     }
 
     /// Change la ligne du cours si le travail n'est pas arrêté et que

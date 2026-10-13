@@ -8,6 +8,12 @@
 //! le nouveau plan d'un cours retire ses parties de la file et arrête celle
 //! en cours. Les flux (« I don't understand », « Ask a question ») partent
 //! aussitôt, hors file.
+//!
+//! Pause d'un cours (`set_paused`, enregistrée) : sa partie en cours est
+//! arrêtée (elle sera refaite), ses parties quittent la file et n'y
+//! reviennent pas tant qu'il n'est pas repris ; les autres cours continuent.
+//! Une demande de l'apprenant qui exige une génération (nouvel essai, palier
+//! refait, nouveau plan, précision du sujet, « Retry ») reprend le cours.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -222,8 +228,12 @@ impl StudyEngine {
 
     /// Met en file ce qui manque à un cours : plan en préparation, palier 0
     /// d'un plan prêt, tous les paliers en attente d'un cours commencé,
-    /// nouveaux essais demandés, bilan (paliers tous prêts).
+    /// nouveaux essais demandés, bilan (paliers tous prêts). Rien pour un
+    /// cours en pause.
     fn resume(&self, ctx: &Ctx, snapshot: &Snapshot) {
+        if snapshot.row.paused {
+            return;
+        }
         let course = snapshot.row.id.as_str();
         match snapshot.row.status {
             CourseStatus::Planning => self.enqueue(ctx, course, Part::Plan),
@@ -317,7 +327,17 @@ impl StudyEngine {
             ctx.changed(course);
         }
         self.resume(ctx, &snapshot);
-        Ok(data::assemble(snapshot))
+        let mut read = data::assemble(snapshot);
+        // Partie d'un autre cours en cours d'écriture : celles de ce cours
+        // attendent (la page le dit plutôt que « en cours d'écriture »).
+        read.queue_busy = self
+            .shared
+            .queue
+            .lock()
+            .running
+            .as_ref()
+            .is_some_and(|(other, _, cancel)| other != course && !cancel.is_cancelled());
+        Ok(read)
     }
 
     /// Parties « en cours » sans travail dans la file ni en cours (travail
@@ -414,6 +434,7 @@ impl StudyEngine {
             created_at: now,
             updated_at: now,
             finished_at: None,
+            paused: false,
         };
         let id = row.id.clone();
         ctx.store.call(move |c| db::insert(c, &row, &rows)).await?;
@@ -449,6 +470,7 @@ impl StudyEngine {
                 clarify.meaning = meaning;
                 row.status = CourseStatus::Planning;
                 row.error = None;
+                row.paused = false;
                 Ok(())
             })?;
             Ok(())
@@ -480,6 +502,7 @@ impl StudyEngine {
                 row.plan = None;
                 row.final_quiz = None;
                 row.error = None;
+                row.paused = false;
                 Ok(())
             })?;
             db::put_levels(c, &id, &[])?;
@@ -500,6 +523,40 @@ impl StudyEngine {
                 Ok(())
             })?;
             Ok(())
+        })
+        .await
+    }
+
+    /// Met en pause (`true`) ou reprend (`false`) la génération d'un cours.
+    /// Pause : enregistrée d'abord (plus rien de ce cours n'entre en file,
+    /// un travail qui démarre s'arrête là), puis sa partie en cours est
+    /// arrêtée et ses parties quittent la file ; enfin ce qui était « en
+    /// cours » redevient « en attente » (le travail arrêté n'écrit plus
+    /// rien). Reprise : ce qui manque revient en file.
+    pub async fn set_paused(&self, ctx: &Ctx, course: &str, paused: bool) -> AppResult<()> {
+        self.ready(&ctx.store).await?;
+        if !paused {
+            return self
+                .change(ctx, course, |c, snapshot| unpause(c, &snapshot.row.id))
+                .await;
+        }
+        let id = course.to_owned();
+        ctx.store
+            .call(move |c| {
+                db::update_row(c, &id, |row| {
+                    row.paused = true;
+                    Ok(())
+                })
+            })
+            .await?
+            .ok_or_else(not_found)?;
+        self.cancel(course, None);
+        self.change(ctx, course, |c, snapshot| {
+            let mut parts: Vec<Part> = (0..snapshot.levels.len())
+                .flat_map(|index| [Part::Level(index), Part::Remedy(index)])
+                .collect();
+            parts.push(Part::Final);
+            reset_stale(c, &snapshot.row.id, &parts)
         })
         .await
     }
@@ -558,7 +615,7 @@ impl StudyEngine {
                 level.remedy_error = None;
                 Ok(())
             })?;
-            Ok(())
+            unpause(c, &snapshot.row.id)
         })
         .await
     }
@@ -608,7 +665,7 @@ impl StudyEngine {
                 Ok(())
             })?;
             db::delete_answers(c, &snapshot.row.id, &format!("L{index}-"))?;
-            Ok(())
+            unpause(c, &snapshot.row.id)
         })
         .await
     }
@@ -618,6 +675,7 @@ impl StudyEngine {
     pub async fn retry(&self, ctx: &Ctx, course: &str, without_web: bool) -> AppResult<()> {
         self.change(ctx, course, move |c, snapshot| {
             let id = snapshot.row.id.clone();
+            unpause(c, &id)?;
             if snapshot.row.status == CourseStatus::Failed {
                 db::update_row(c, &id, |row| {
                     row.status = CourseStatus::Planning;
@@ -911,6 +969,13 @@ impl StudyEngine {
         Ok(())
     }
 
+    /// Met une partie en file sans rien vérifier, comme une demande partie
+    /// juste avant une pause et arrivée juste après.
+    #[cfg(test)]
+    pub(crate) fn enqueue_unchecked(&self, ctx: &Ctx, course: &str, part: Part) {
+        self.enqueue(ctx, course, part);
+    }
+
     #[cfg(test)]
     pub(crate) fn queued(&self) -> Vec<(String, Part)> {
         let queue = self.shared.queue.lock();
@@ -1056,6 +1121,16 @@ async fn work(shared: Arc<Shared>, ctx: Ctx) {
             ),
         }
     }
+}
+
+/// Reprend un cours en pause (sans effet sinon) : dans le changement d'une
+/// demande qui exige une génération, ce qui manque revient alors en file.
+fn unpause(connection: &rusqlite::Connection, course: &str) -> AppResult<()> {
+    db::update_row(connection, course, |row| {
+        row.paused = false;
+        Ok(())
+    })?;
+    Ok(())
 }
 
 /// Remet en attente les parties `parts`, si elles sont toujours « en

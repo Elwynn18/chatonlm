@@ -57,6 +57,11 @@ proofreadModel: string,
  */
 proofreadShortcut: boolean, 
 /**
+ * Ce raccourci colle le texte corrigé à la place de la sélection (sinon
+ * il le laisse dans le presse-papiers) ; activé par défaut.
+ */
+proofreadPaste: boolean, 
+/**
  * Modèle des cours (onglet Study) ; vide = celui du chat
  * (`selected_model`). « Reset to defaults » n'y touche pas.
  */

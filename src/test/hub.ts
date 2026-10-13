@@ -133,6 +133,7 @@ function demo(
       likes: fields.likes,
       lastModified: fields.lastModified,
       estimatedSize: null,
+      estimatedMemory: null,
       fit: null,
     },
   };
@@ -488,6 +489,8 @@ export interface FakeHub {
 export interface HubHost {
   /** Modèles installés (list_models), du plus récent au plus ancien. */
   models: string[];
+  /** Modèles dont le registre a une version plus récente (outdated_models). */
+  outdated: Set<string>;
 }
 
 const ACTIVE: HubDownload["state"][] = [
@@ -499,6 +502,17 @@ const ACTIVE: HubDownload["state"][] = [
 
 function lower(text: string) {
   return text.trim().toLowerCase();
+}
+
+/**
+ * Nom comme Ollama le résout : sans la casse, « :latest » s'il n'a pas
+ * d'étiquette (cherchée après le dernier « / »).
+ */
+export function canonicalModel(name: string): string {
+  const model = lower(name);
+  return model.slice(model.lastIndexOf("/") + 1).includes(":")
+    ? model
+    : `${model}:latest`;
 }
 
 /**
@@ -539,8 +553,12 @@ export function fakeHub(simulator: Simulator, host: HubHost): FakeHub {
       download.completed = download.total;
       download.bytesPerSecond = null;
       download.finishedAt = Date.now();
-      if (!host.models.some((name) => lower(name) === lower(model))) {
-        host.models.unshift(download.model);
+      const same = (name: string) =>
+        canonicalModel(name) === canonicalModel(model);
+      if (!host.models.some(same)) host.models.unshift(download.model);
+      // Téléchargé de nouveau : c'est la version du registre.
+      for (const name of [...host.outdated]) {
+        if (same(name)) host.outdated.delete(name);
       }
       promote();
       await hub.emit();
@@ -620,6 +638,9 @@ export function fakeHub(simulator: Simulator, host: HubHost): FakeHub {
     const parameters = model.parameters ?? 0;
     const size = 0.64 * parameters * (model.capabilities.vision ? 1.3 : 1);
     model.estimatedSize = Math.round(size);
+    model.estimatedMemory = hub.hardware
+      ? Math.round(memoryFor(size, parameters))
+      : null;
     model.fit = fitFor(memoryFor(size, parameters));
     return model;
   }
@@ -868,6 +889,7 @@ export function fakeHub(simulator: Simulator, host: HubHost): FakeHub {
     };
     const recommended = detail.quants.find((q) => q.recommended);
     if (recommended) detail.model.estimatedSize = recommended.downloadSize;
+    if (recommended) detail.model.estimatedMemory = recommended.memory;
     if (recommended) detail.model.fit = recommended.fit;
     return { repo: detail, status: state };
   });
@@ -906,6 +928,12 @@ export function fakeHub(simulator: Simulator, host: HubHost): FakeHub {
       (d) => lower(d.model) === lower(request.model),
     );
     if (existing && ACTIVE.includes(existing.state)) return null;
+    // En pause : repris, à sa place.
+    if (existing?.state === "paused") {
+      existing.state = "queued";
+      promote();
+      return null;
+    }
     if (existing) hub.downloads.splice(hub.downloads.indexOf(existing), 1);
     const running = hub.downloads.filter(
       (d) => d.state !== "queued" && ACTIVE.includes(d.state),
@@ -929,10 +957,70 @@ export function fakeHub(simulator: Simulator, host: HubHost): FakeHub {
     failure("hub_cancel_download");
     const model = args.model as string;
     const download = hub.downloads.find((d) => lower(d.model) === lower(model));
-    if (download && ACTIVE.includes(download.state)) {
+    if (
+      download &&
+      (ACTIVE.includes(download.state) || download.state === "paused")
+    ) {
       download.state = "cancelled";
       download.bytesPerSecond = null;
       download.finishedAt = Date.now();
+      promote();
+    }
+    return null;
+  });
+
+  // Comme le moteur : en file ou en cours (pas pendant « finishing ») → en
+  // pause, progression gardée, le suivant démarre.
+  simulator.handle("hub_pause_download", (args: Args) => {
+    failure("hub_pause_download");
+    const model = args.model as string;
+    const download = hub.downloads.find((d) => lower(d.model) === lower(model));
+    if (
+      download &&
+      ["queued", "starting", "downloading"].includes(download.state)
+    ) {
+      download.state = "paused";
+      download.bytesPerSecond = null;
+      promote();
+    }
+    return null;
+  });
+
+  simulator.handle("hub_resume_download", (args: Args) => {
+    failure("hub_resume_download");
+    const model = args.model as string;
+    const download = hub.downloads.find((d) => lower(d.model) === lower(model));
+    if (download?.state === "paused") {
+      download.state = "queued";
+      promote();
+    }
+    return null;
+  });
+
+  // En tête de la file, démarré tout de suite : le dernier en cours (hors
+  // « finishing ») retourne en file si les deux places sont prises.
+  simulator.handle("hub_prioritize_download", (args: Args) => {
+    failure("hub_prioritize_download");
+    const model = args.model as string;
+    const download = hub.downloads.find((d) => lower(d.model) === lower(model));
+    if (
+      !download ||
+      !(ACTIVE.includes(download.state) || download.state === "paused")
+    ) {
+      return null;
+    }
+    hub.downloads.splice(hub.downloads.indexOf(download), 1);
+    hub.downloads.unshift(download);
+    if (download.state === "paused") download.state = "queued";
+    if (download.state === "queued") {
+      const running = hub.downloads.filter(
+        (d) => d.state !== "queued" && ACTIVE.includes(d.state),
+      );
+      const last = running.filter((d) => d.state !== "finishing").at(-1);
+      if (running.length >= 2 && last) {
+        last.state = "queued";
+        last.bytesPerSecond = null;
+      }
       promote();
     }
     return null;
@@ -947,7 +1035,10 @@ export function fakeHub(simulator: Simulator, host: HubHost): FakeHub {
     failure("hub_dismiss_download");
     const model = args.model as string;
     const index = hub.downloads.findIndex(
-      (d) => lower(d.model) === lower(model) && !ACTIVE.includes(d.state),
+      (d) =>
+        lower(d.model) === lower(model) &&
+        !ACTIVE.includes(d.state) &&
+        d.state !== "paused",
     );
     if (index !== -1) hub.downloads.splice(index, 1);
     return null;

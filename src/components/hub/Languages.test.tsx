@@ -364,7 +364,7 @@ describe("ModelHub in the pseudo-language: no text left in English", () => {
 });
 
 describe("ModelHub in French and Spanish", () => {
-  it("Discover in French: titles, plurals, fit chips with sizes", async () => {
+  it("Discover in French: titles, plurals, fit chips and sizes", async () => {
     renderHub("/hub");
     await screen.findByRole("heading", { name: "Trending" });
     await screen.findByTestId("machine");
@@ -383,14 +383,20 @@ describe("ModelHub in French and Spanish", () => {
     expect(
       within(families).getByRole("link", { name: /gpt-oss/ }).textContent,
     ).toContain("1 modèle");
-    // Texte des éléments normalisé par testing-library (espaces insécables
-    // comprises) : le texte cherché s'écrit avec des espaces simples.
+    expect(screen.getAllByText("Tient sur votre GPU").length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getAllByText("En partie sur le CPU").length).toBeGreaterThan(
+      0,
+    );
+    // Les deux poids, dits à part, aux formats de la langue.
+    const weights = screen
+      .getAllByTestId("footprint")
+      .map((element) => element.textContent);
+    expect(weights).toContain(`Téléchargement 7,5${NBSP}Go·VRAM 13${NBSP}Go`);
     expect(
-      screen.getAllByText("Tient sur votre GPU · 7,5 Go").length,
-    ).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText("En partie sur le CPU · 16 Go").length,
-    ).toBeGreaterThan(0);
+      weights.some((text) => /^Téléchargement 16\sGo·VRAM /.test(text)),
+    ).toBe(true);
     expect(
       screen.getByRole("textbox", {
         name: "Rechercher des modèles sur Hugging Face",

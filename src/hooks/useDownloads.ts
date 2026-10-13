@@ -3,8 +3,9 @@
 // moteur (liste complète à chaque changement), dans le cache de React Query.
 // Un seul écouteur, monté avec l'app (useDownloadEvents, route racine) : la
 // fin d'un téléchargement est vue de toute page, barre latérale fermée
-// comprise, et le sélecteur de modèles et la liste des installés sont relus.
-// useDownloads ne fait que lire le cache.
+// comprise, et le sélecteur de modèles et la liste des installés sont relus ;
+// un modèle qui vient d'être téléchargé n'est plus périmé
+// (useOutdatedModels). useDownloads ne fait que lire le cache.
 
 import {
   type QueryClient,
@@ -16,11 +17,15 @@ import { useEffect } from "react";
 import type { HubDownload } from "@/bindings/HubDownload";
 import { hubInstalledKey } from "@/hooks/useHub";
 import { modelsKey } from "@/hooks/useModels";
+import { forgetOutdated } from "@/hooks/useOutdatedModels";
 import {
   hubCancelDownload,
   hubDismissDownload,
   hubDownload,
   hubDownloads,
+  hubPauseDownload,
+  hubPrioritizeDownload,
+  hubResumeDownload,
   listenHubDownloads,
 } from "@/lib/ipc";
 import { sameModel } from "@/lib/modelNames";
@@ -49,7 +54,7 @@ export function applyDownloads(
   const previous =
     queryClient.getQueryData<HubDownload[]>(hubDownloadsKey) ?? NONE;
   queryClient.setQueryData(hubDownloadsKey, downloads);
-  const finished = downloads.some(
+  const finished = downloads.filter(
     (download) =>
       download.state === "done" &&
       !previous.some(
@@ -59,7 +64,11 @@ export function applyDownloads(
           before.finishedAt === download.finishedAt,
       ),
   );
-  if (finished) {
+  if (finished.length > 0) {
+    // Tout de suite, sans attendre la relecture des modèles : la bannière
+    // « A newer version is available » ne revient pas entre les deux.
+    for (const download of finished)
+      forgetOutdated(queryClient, download.model);
     void queryClient.invalidateQueries({ queryKey: modelsKey });
     void queryClient.invalidateQueries({ queryKey: hubInstalledKey });
   }
@@ -122,8 +131,9 @@ export function findDownload(
 }
 
 /**
- * Lancer, arrêter, retirer : la liste est relue après chaque commande (le
- * moteur émet aussi l'événement).
+ * Lancer, arrêter, retirer, mettre en pause, reprendre, faire passer en
+ * premier : la liste est relue après chaque commande (le moteur émet aussi
+ * l'événement).
  */
 export function useDownloadActions() {
   const queryClient = useQueryClient();
@@ -138,5 +148,17 @@ export function useDownloadActions() {
     mutationFn: hubDismissDownload,
     onSettled: refresh,
   });
-  return { start, cancel, dismiss };
+  const pause = useMutation({
+    mutationFn: hubPauseDownload,
+    onSettled: refresh,
+  });
+  const resume = useMutation({
+    mutationFn: hubResumeDownload,
+    onSettled: refresh,
+  });
+  const prioritize = useMutation({
+    mutationFn: hubPrioritizeDownload,
+    onSettled: refresh,
+  });
+  return { start, cancel, dismiss, pause, resume, prioritize };
 }

@@ -1,7 +1,8 @@
 // Fonctions pures du lecteur de cours (onglet Study) : paramètres d'adresse,
 // suite des cartes et carte suivante, reprise d'une position, progression,
 // temps restant, étoiles, série, variantes, étapes d'une solution, phrase à
-// trou, taille d'un modèle, temps passé.
+// trou, taille d'un modèle, temps passé, écriture d'un cours (ce qui
+// s'écrit, pause, file occupée, échec) et clés des textes lus à voix haute.
 
 import { describe, expect, it } from "vitest";
 import type { Answered } from "@/bindings/Answered";
@@ -15,11 +16,13 @@ import {
   courseProgress,
   currentStreak,
   finalScore,
+  generationOf,
   isSmallModel,
   levelStars,
   missedQuestions,
   nextCard,
   parameterBillions,
+  passageKey,
   resolvePosition,
   secondsLeft,
   solutionSteps,
@@ -479,5 +482,176 @@ describe("StudyClock", () => {
     clock.setActive(true);
     now = 10_500;
     expect(clock.elapsed()).toBe(7000);
+  });
+});
+
+describe("generationOf", () => {
+  /** Cours commencé de 20 min (quatre paliers), le premier seul écrit. */
+  const started = () =>
+    standaloneStudy().seed({ minutes: 20, readyLevels: 1, finalReady: false });
+  const stage = (course: Course) => generationOf(course).writing;
+
+  it("a plan being prepared is the part being written", () => {
+    const course = standaloneStudy().seed({ status: "planning" });
+    expect(generationOf(course)).toEqual({
+      writing: { kind: "plan" },
+      waiting: false,
+      pending: true,
+      paused: false,
+      failed: null,
+      ready: 0,
+      total: 0,
+    });
+  });
+
+  it("before Start, only the first level is written: lesson, then questions", () => {
+    const course = standaloneStudy().seed({
+      status: "planned",
+      readyLevels: 0,
+    });
+    expect(stage(course)).toEqual({ kind: "level", level: 0, stage: "lesson" });
+    expect(generationOf(course)).toMatchObject({ pending: true, ready: 0 });
+    // Leçon enregistrée par le moteur : les questions suivent.
+    course.levels[0].state = "generating";
+    course.levels[0].lesson = standaloneStudy().seed().levels[0].lesson;
+    expect(stage(course)).toEqual({
+      kind: "level",
+      level: 0,
+      stage: "questions",
+    });
+    // Premier palier écrit : plus rien avant « Start », bien que les
+    // paliers suivants ne soient pas écrits.
+    const ready = standaloneStudy().seed({ status: "planned" });
+    expect(generationOf(ready)).toMatchObject({
+      writing: null,
+      pending: false,
+      ready: 1,
+      total: 4,
+    });
+  });
+
+  it("once started: levels in order, then the final review", () => {
+    const course = started();
+    // Rien de « generating » entre deux parties : la suivante part aussitôt.
+    expect(stage(course)).toEqual({ kind: "level", level: 1, stage: "lesson" });
+    course.levels[2].state = "generating";
+    expect(stage(course)).toEqual({ kind: "level", level: 2, stage: "lesson" });
+    expect(generationOf(course)).toMatchObject({
+      pending: true,
+      ready: 1,
+      total: 4,
+    });
+    for (const level of course.levels) level.state = "ready";
+    expect(stage(course)).toEqual({ kind: "final" });
+    course.finalQuiz = { ...course.finalQuiz!, state: "ready" };
+    expect(generationOf(course)).toMatchObject({
+      writing: null,
+      pending: false,
+      failed: null,
+      ready: 4,
+    });
+  });
+
+  it("a requested new attempt comes first", () => {
+    const course = started();
+    course.levels[0].remedy = "pending";
+    expect(stage(course)).toEqual({ kind: "remedy", level: 0 });
+    course.levels[0].remedy = "failed";
+    expect(generationOf(course).failed).toEqual({ kind: "remedy", level: 0 });
+    expect(stage(course)).toEqual({ kind: "level", level: 1, stage: "lesson" });
+  });
+
+  it("a paused course writes nothing, whatever is left", () => {
+    const course = started();
+    course.paused = true;
+    expect(generationOf(course)).toMatchObject({
+      writing: null,
+      waiting: false,
+      pending: true,
+      paused: true,
+    });
+    // Tout est écrit, ou un échec arrête tout : la pause ne retient rien
+    // (rien à reprendre).
+    const written = standaloneStudy().seed({ minutes: 10, paused: true });
+    expect(generationOf(written)).toMatchObject({
+      pending: false,
+      paused: false,
+    });
+    for (const level of course.levels) level.state = "ready";
+    course.levels[1].state = "failed";
+    expect(generationOf(course)).toMatchObject({
+      pending: false,
+      paused: false,
+      failed: { kind: "level", level: 1 },
+    });
+  });
+
+  it("another course written first: waiting, unless a part of this one is being written", () => {
+    const course = started();
+    course.queueBusy = true;
+    expect(generationOf(course)).toMatchObject({
+      writing: null,
+      waiting: true,
+      pending: true,
+    });
+    course.levels[1].state = "generating";
+    expect(generationOf(course)).toMatchObject({
+      writing: { kind: "level", level: 1, stage: "lesson" },
+      waiting: false,
+    });
+    const planning = standaloneStudy().seed({ status: "planning" });
+    planning.queueBusy = true;
+    expect(generationOf(planning)).toMatchObject({
+      writing: null,
+      waiting: true,
+    });
+  });
+
+  it("a failed level holds the final review back: nothing left to write until Retry", () => {
+    const course = started();
+    for (const level of course.levels) level.state = "ready";
+    course.levels[3].state = "failed";
+    expect(generationOf(course)).toMatchObject({
+      writing: null,
+      pending: false,
+      failed: { kind: "level", level: 3 },
+      ready: 3,
+    });
+    // Un autre palier reste à écrire : lui d'abord.
+    course.levels[2].state = "pending";
+    expect(generationOf(course)).toMatchObject({
+      writing: { kind: "level", level: 2 },
+      pending: true,
+    });
+    const final = started();
+    for (const level of final.levels) level.state = "ready";
+    final.finalQuiz = { ...final.finalQuiz!, state: "failed" };
+    expect(generationOf(final)).toMatchObject({
+      writing: null,
+      pending: false,
+      failed: { kind: "final" },
+    });
+  });
+
+  it("nothing is written for an unclear topic or a failed plan", () => {
+    for (const status of ["unclear", "failed"] as const) {
+      expect(generationOf(standaloneStudy().seed({ status }))).toMatchObject({
+        writing: null,
+        pending: false,
+        failed: null,
+      });
+    }
+  });
+});
+
+describe("passageKey", () => {
+  it("names the texts read aloud the way the engine reads them (study/passage.rs)", () => {
+    expect(passageKey.section(0, 2)).toBe("L0:s2");
+    expect(passageKey.example(1)).toBe("L1:example");
+    expect(passageKey.solution(1)).toBe("L1:solution");
+    expect(passageKey.recap(3)).toBe("L3:recap");
+    expect(passageKey.remedy(2, 1)).toBe("L2:a1:explain");
+    expect(passageKey.explain(0, 4)).toBe("L0:explain4");
+    expect(passageKey.ask(5, 0)).toBe("L5:ask0");
   });
 });

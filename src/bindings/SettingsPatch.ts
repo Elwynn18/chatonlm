@@ -13,7 +13,7 @@ serverUrl?: string, contextLength?: number, theme?: Theme, selectedModel?: strin
 /**
  * Chaîne vide = modèle du chat.
  */
-proofreadModel?: string, proofreadShortcut?: boolean, 
+proofreadModel?: string, proofreadShortcut?: boolean, proofreadPaste?: boolean, 
 /**
  * Chaîne vide = modèle du chat.
  */

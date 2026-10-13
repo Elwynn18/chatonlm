@@ -3,9 +3,10 @@
 // « read-aloud », une seule lecture dans l'app) et les téléchargements des
 // voix (« voice-downloads ») sont émis par le moteur à chaque changement ;
 // un seul écouteur, monté avec l'app (useReadAloudEvents, route racine), les
-// verse dans le cache : le bouton de chaque réponse, les réglages et le
-// ModelHub les voient. Il arrête aussi la lecture quand l'utilisateur ouvre
-// une autre conversation.
+// verse dans le cache : le bouton de chaque réponse et de chaque texte d'un
+// cours, les réglages et le ModelHub les voient. Il arrête aussi la lecture
+// quand l'utilisateur ouvre une autre conversation (celle d'un texte d'un
+// cours s'arrête quand sa carte quitte l'écran : components/study).
 
 import {
   type QueryClient,
@@ -24,6 +25,7 @@ import {
   readAloud,
   readAloudState,
   readAloudStop,
+  readAloudStudy,
   voiceCancelDownload,
   voiceDeleteModel,
   voiceDismissDownload,
@@ -31,7 +33,14 @@ import {
   voiceDownloads,
   voiceModels,
 } from "@/lib/ipc";
-import { chatOfPath, IDLE, leavesChat } from "@/lib/readAloud";
+import {
+  chatOfPath,
+  IDLE,
+  leavesChat,
+  type ReadAloudTarget,
+  readsHiddenPassage,
+  showStudyPassage,
+} from "@/lib/readAloud";
 
 export const readAloudKey = ["readAloud", "state"] as const;
 export const voiceModelsKey = ["voice", "models"] as const;
@@ -60,13 +69,42 @@ function countEvent(queryClient: QueryClient, key: QueryKey) {
   counts.set(name, (counts.get(name) ?? 0) + 1);
 }
 
-/** Applique un état de la lecture reçu du moteur. */
+/** Arrête la lecture (texte de cours qui n'est plus montré). */
+function stopHiddenReading() {
+  readAloudStop().catch((error: unknown) =>
+    console.error("Failed to stop reading aloud:", error),
+  );
+}
+
+/**
+ * Applique un état de la lecture reçu du moteur ; la lecture d'un texte de
+ * cours qui n'est plus à l'écran (carte quittée avant que le moteur ne
+ * réponde) est arrêtée.
+ */
 export function applyReadAloudState(
   queryClient: QueryClient,
   state: ReadAloudState,
 ) {
   countEvent(queryClient, readAloudKey);
   queryClient.setQueryData(readAloudKey, state);
+  if (readsHiddenPassage(state)) stopHiddenReading();
+}
+
+/**
+ * Texte d'un cours montré avec son bouton de lecture, tant que le composant
+ * est monté ; s'il quitte l'écran pendant sa lecture (carte suivante, autre
+ * page), elle s'arrête.
+ */
+export function useShownStudyPassage(courseId: string, passage: string) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const hide = showStudyPassage(courseId, passage);
+    return () => {
+      hide();
+      const state = queryClient.getQueryData<ReadAloudState>(readAloudKey);
+      if (state && readsHiddenPassage(state)) stopHiddenReading();
+    };
+  }, [queryClient, courseId, passage]);
 }
 
 /** Une voix a-t-elle fini de se télécharger depuis `previous` ? */
@@ -179,18 +217,22 @@ export function useReadAloud(): ReadAloudState {
   return data ?? IDLE;
 }
 
-/** Lire une réponse (accord de téléchargement compris), arrêter la lecture. */
+/**
+ * Lire une réponse ou un texte d'un cours (accord de téléchargement
+ * compris), arrêter la lecture.
+ */
 export function useReadAloudActions() {
   const read = useMutation({
     mutationFn: ({
-      chatId,
-      messageId,
+      target,
       download,
     }: {
-      chatId: string;
-      messageId: number;
+      target: ReadAloudTarget;
       download: boolean;
-    }) => readAloud(chatId, messageId, download),
+    }) =>
+      target.kind === "message"
+        ? readAloud(target.chatId, target.messageId, download)
+        : readAloudStudy(target.courseId, target.passage, download),
   });
   const stop = useMutation({ mutationFn: readAloudStop });
   return { read, stop };

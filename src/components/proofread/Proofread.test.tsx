@@ -179,6 +179,74 @@ describe("Proofread page", () => {
     expect(button("Rephrase").title).toBe("Rephrase (Ctrl+Shift+Enter)");
   });
 
+  it("a cross clears the text, by the native editing, and leaves when there is none", async () => {
+    const user = userEvent.setup();
+    setup();
+    await screen.findByTestId("proofread");
+    const cross = () =>
+      screen.queryByRole("button", { name: "Clear the text" });
+    expect(cross()).toBeNull();
+    await user.click(editor());
+    // Des espaces seuls se vident aussi.
+    await user.keyboard(" ");
+    expect(cross()?.title).toBe("Clear the text");
+    await user.paste(TEXT);
+    const native = nativeEditing();
+    try {
+      await user.click(cross()!);
+      expect(editor().value).toBe("");
+      // Tout le texte, effacé par l'édition native : Ctrl+Z le retrouve.
+      expect(native.calls).toEqual(["delete"]);
+    } finally {
+      native.restore();
+    }
+    expect(document.activeElement).toBe(editor());
+    expect(cross()).toBeNull();
+    expect(button("Correct").disabled).toBe(true);
+
+    // Sans édition native (jsdom) : la valeur est posée.
+    await user.paste(TEXT);
+    await user.click(cross()!);
+    expect(editor().value).toBe("");
+    expect(document.activeElement).toBe(editor());
+  });
+
+  it("the cross clears a review too, and is hidden while a correction runs", async () => {
+    const user = userEvent.setup();
+    const { fake } = setup();
+    await typeText(user);
+    const cross = () =>
+      screen.queryByRole("button", { name: "Clear the text" });
+    await user.click(button("Correct"));
+    await screen.findByRole("button", { name: "Stop" });
+    expect(cross()).toBeNull();
+    await fake.lastJob().finish();
+    await screen.findByTestId("proofread-review");
+
+    await user.click(cross()!);
+    expect(screen.queryByTestId("proofread-review")).toBeNull();
+    expect(editor().value).toBe("");
+    expect(document.activeElement).toBe(editor());
+    expect(cross()).toBeNull();
+    // Plus rien à rétablir ni à annuler.
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Redo" })).toBeNull();
+  });
+
+  it("the cross clears the error shown under the text", async () => {
+    const user = userEvent.setup();
+    const { fake } = setup((backend) => {
+      backend.settings.selectedModel = "";
+    });
+    await typeText(user);
+    await user.click(button("Correct"));
+    await fake.lastJob().finish();
+    expect(screen.getByRole("alert")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Clear the text" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(editor().value).toBe("");
+  });
+
   it("corrects passage by passage: started, streamed passage, pending ones dimmed, then the review with marks", async () => {
     const user = userEvent.setup();
     const { simulator, fake } = setup();

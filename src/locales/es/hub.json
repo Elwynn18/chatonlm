@@ -97,6 +97,15 @@
     "partial": "Parcialmente en la CPU",
     "tooLarge": "Demasiado grande"
   },
+  "footprint": {
+    "download": "Descarga",
+    "vram": "VRAM",
+    "memory": "Memoria",
+    "downloadHint": "Tamaño de los archivos que se descargan y espacio que ocupan en el disco.",
+    "vramHint": "Memoria gráfica que el modelo necesita para funcionar, contexto incluido.",
+    "memoryHint": "Memoria que el modelo necesita para funcionar, contexto incluido.",
+    "estimated": "Estimación para la versión recomendada: la ficha del modelo da los tamaños exactos."
+  },
   "installedBadge": "Instalado",
   "status": {
     "earlier": "anteriormente",
@@ -200,12 +209,18 @@
     "browse": "Explorar modelos",
     "viewOnHuggingFace": "Ver en Hugging Face",
     "deleteNamed": "Eliminar {name}",
-    "deleteConfirm": "¿Eliminar {name}?"
+    "deleteConfirm": "¿Eliminar {name}?",
+    "update": "Actualizar",
+    "updateNamed": "Actualizar {name}",
+    "pause": "Pausar",
+    "resume": "Reanudar",
+    "downloadFirst": "Descargar primero"
   },
   "downloadState": {
     "failed": "La descarga falló.",
     "installed": "Instalado",
     "noLongerInstalled": "Ya no está instalado",
+    "paused": "En pausa",
     "cancelled": "Descarga cancelada"
   },
   "downloads": {
@@ -217,7 +232,8 @@
     "empty": "Aún no hay modelos",
     "modified": "Modificado {time}",
     "embedding": "Embedding",
-    "deleteText": "Esto elimina el modelo de Ollama. Puedes volver a descargarlo más tarde."
+    "deleteText": "Esto elimina el modelo de Ollama. Puedes volver a descargarlo más tarde.",
+    "updateAvailable": "Actualización disponible"
   },
   "speech": {
     "title": "Modelos de transcripción",

@@ -149,7 +149,8 @@ describe("Course plan", () => {
     );
     expect(plan.textContent).toContain("A short course about Rome.");
     expect(plan.textContent).toContain("Discover");
-    expect(plan.textContent).toContain("About 20 min");
+    // Une durée d'étude, pas une attente.
+    expect(plan.textContent).toContain("About 20 min of study");
     expect(plan.textContent).toContain("4 levels");
     expect(
       within(plan)

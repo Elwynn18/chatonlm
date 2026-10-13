@@ -147,25 +147,72 @@ pub fn family_of(repo: &Repo) -> Option<&'static Family> {
     )
 }
 
-/// Place d'un modèle de taille `size` dans la machine, cache estimé sans
-/// en-tête.
-fn list_fit(repo: &Repo, parameters: Option<u64>, size: u64, hardware: &HubHardware) -> HubFit {
+/// Mémoire nécessaire à un modèle de taille `size` dans la machine (cache
+/// estimé sans en-tête), et sa place.
+fn list_fit(
+    repo: &Repo,
+    parameters: Option<u64>,
+    size: u64,
+    hardware: &HubHardware,
+) -> (u64, HubFit) {
     let context = fit::model_context(
         hardware.context,
         repo.context_length,
         repo.capabilities.vision,
     );
     let kv = fit::kv_cache(None, parameters, repo.architecture.as_deref(), context);
-    fit::level(fit::memory(size, kv, context), hardware)
+    let memory = fit::memory(size, kv, context);
+    (memory, fit::level(memory, hardware))
 }
 
-/// Carte d'un dépôt (listes : taille estimée d'après les paramètres).
+/// Taille à télécharger d'une carte des listes, où Hugging Face ne donne pas
+/// la taille des fichiers : celle de la version que la fiche conseillerait
+/// à cette machine ([`quant::recommended`] : la meilleure qui tient, sinon
+/// Q4_K_M ou la plus proche), estimée d'après son libellé
+/// ([`quant::estimated_size`]), projecteur de vision compris. Dépôt sans
+/// version téléchargeable connue, ou restreint : l'estimation d'une Q4_K_M
+/// ([`fit::list_size`]). `None` sans nombre de paramètres.
+fn list_size(repo: &Repo, parameters: Option<u64>, hardware: Option<&HubHardware>) -> Option<u64> {
+    let known = parameters.filter(|&p| p > 0)?;
+    let files = repo.file_entries();
+    let mut versions = quant::inventory(&repo.id, &files);
+    for version in &mut versions {
+        version.size = quant::estimated_size(version.quant.as_deref(), known);
+    }
+    let vision = repo.capabilities.vision;
+    let download = |index: usize| {
+        let model: u64 = versions[index].size;
+        let projector = if vision {
+            quant::estimated_projector_size(&files, model).unwrap_or(0)
+        } else {
+            0
+        };
+        model.saturating_add(projector)
+    };
+    let chosen = if repo.gated {
+        None
+    } else {
+        quant::recommended(&versions, |index| {
+            hardware.is_some_and(|hardware| {
+                list_fit(repo, parameters, download(index), hardware).1 == HubFit::Fits
+            })
+        })
+    };
+    match chosen {
+        Some(index) => Some(download(index)),
+        None => fit::list_size(parameters, vision),
+    }
+}
+
+/// Carte d'un dépôt (listes : taille et mémoire estimées, voir
+/// [`list_size`]).
 pub fn model(repo: &Repo, hardware: Option<&HubHardware>) -> HubModel {
     let parameters = parameters(repo);
-    let estimated_size = fit::list_size(parameters, repo.capabilities.vision);
-    let fit = hardware
+    let estimated_size = list_size(repo, parameters, hardware);
+    let (estimated_memory, fit) = hardware
         .zip(estimated_size)
-        .map(|(hardware, size)| list_fit(repo, parameters, size, hardware));
+        .map(|(hardware, size)| list_fit(repo, parameters, size, hardware))
+        .unzip();
     HubModel {
         id: repo.id.clone(),
         author: repo.author.clone(),
@@ -182,6 +229,7 @@ pub fn model(repo: &Repo, hardware: Option<&HubHardware>) -> HubModel {
         likes: repo.likes,
         last_modified: repo.last_modified.clone(),
         estimated_size,
+        estimated_memory,
         fit,
     }
 }
@@ -439,6 +487,7 @@ pub fn repo_view(
     if let Some(index) = chosen {
         quants[index].recommended = true;
         card.estimated_size = Some(quants[index].download_size);
+        card.estimated_memory = quants[index].memory;
         card.fit = quants[index].fit;
     }
     HubRepo {
@@ -953,6 +1002,193 @@ mod tests {
                 .iter()
                 .all(|q| q.model.is_none() && !q.recommended)
         );
+    }
+
+    /// Dépôt dont une liste ne connaît que les noms de fichiers.
+    fn listed(id: &str, total: u64, files: &[&str]) -> Repo {
+        Repo {
+            total: Some(total),
+            files: files
+                .iter()
+                .map(|name| RepoFile {
+                    name: (*name).to_owned(),
+                    size: None,
+                })
+                .collect(),
+            ..repo(id)
+        }
+    }
+
+    /// Cas signalé : `google/gemma-4-12B-it-qat-q4_0-gguf` (relevé le 12 oct.
+    /// 2026 : modèle 6 975 879 296 octets, projecteur 175 115 616) était
+    /// estimé comme une Q4_K_M avec 30 % de projecteur (9,2 Gio) alors que sa
+    /// seule version, Q4_0, en pèse 6,7.
+    #[test]
+    fn a_card_is_sized_from_the_version_the_repository_really_has() {
+        let gemma = Repo {
+            capabilities: HubCapabilities {
+                vision: true,
+                ..HubCapabilities::default()
+            },
+            architecture: Some("gemma4".into()),
+            context_length: Some(262_144),
+            ..listed(
+                "google/gemma-4-12B-it-qat-q4_0-gguf",
+                11_907_350_576,
+                &[
+                    "gemma-4-12b-it-qat-q4_0.gguf",
+                    "mmproj-gemma-4-12b-it-qat-q4_0.gguf",
+                ],
+            )
+        };
+        let real: u64 = 6_975_879_296 + 175_115_616;
+        let card = model(&gemma, None);
+        // Q4_0 (0,595 octet par paramètre) et son projecteur, lui aussi Q4_0.
+        let size = card.estimated_size.unwrap();
+        assert_eq!(size, 11_907_350_576 * 595 / 1000 + 460_000_000 * 595 / 1000);
+        assert!(size.abs_diff(real) * 100 < real * 5, "{size} for {real}");
+        // Machine inconnue : ni mémoire ni place.
+        assert_eq!((card.estimated_memory, card.fit), (None, None));
+        // L'ancienne estimation, gardée pour un dépôt sans version connue.
+        let old = fit::list_size(Some(11_907_350_576), true).unwrap();
+        assert!(old > real + real / 3);
+
+        // Seule version Q8_0 : sa taille, pas celle d'une Q4_K_M.
+        let q8 = listed("lab/Tiny-8B-GGUF", 8_000_000_000, &["Tiny-8B-Q8_0.gguf"]);
+        assert_eq!(model(&q8, None).estimated_size, Some(8_520_000_000));
+        // Sans projecteur dans le dépôt, la vision n'ajoute rien ; un
+        // projecteur sans la capacité non plus (comme la fiche).
+        let flagged = Repo {
+            capabilities: HubCapabilities {
+                vision: true,
+                ..HubCapabilities::default()
+            },
+            ..q8.clone()
+        };
+        assert_eq!(model(&flagged, None).estimated_size, Some(8_520_000_000));
+        let blind = listed(
+            "lab/Tiny-8B-GGUF",
+            8_000_000_000,
+            &["Tiny-8B-Q8_0.gguf", "mmproj-F16.gguf"],
+        );
+        assert_eq!(model(&blind, None).estimated_size, Some(8_520_000_000));
+    }
+
+    /// La carte annonce la version que la fiche conseillera à cette machine,
+    /// avec la mémoire qu'elle demande.
+    #[test]
+    fn a_card_follows_the_version_its_page_recommends() {
+        let total = 8_953_803_264;
+        let names = [
+            "Qwen3.5-9B-BF16.gguf",
+            "Qwen3.5-9B-Q8_0.gguf",
+            "Qwen3.5-9B-Q6_K.gguf",
+            "Qwen3.5-9B-Q5_K_M.gguf",
+            "Qwen3.5-9B-Q4_K_M.gguf",
+            "Qwen3.5-9B-Q3_K_M.gguf",
+        ];
+        let qwen = listed("unsloth/Qwen3.5-9B-GGUF", total, &names);
+        let size_of = |label: &str| quant::estimated_size(Some(label), total);
+        // Machine inconnue (serveur distant) : Q4_K_M.
+        let remote = model(&qwen, None);
+        assert_eq!(remote.estimated_size, Some(size_of("Q4_K_M")));
+        assert_eq!((remote.estimated_memory, remote.fit), (None, None));
+        // 24 Gio : la meilleure tient.
+        let large = model(&qwen, Some(&machine(24)));
+        assert_eq!(large.estimated_size, Some(size_of("Q8_0")));
+        assert_eq!(large.fit, Some(HubFit::Fits));
+        // Mémoire : poids, cache de contexte et marge.
+        let memory = large.estimated_memory.unwrap();
+        assert!(memory > size_of("Q8_0") + (512 << 20), "{memory}");
+        assert!(memory < size_of("Q8_0") + (2 << 30), "{memory}");
+        // 8 Gio : Q8_0 ne tient plus, une version moins lourde tient.
+        let medium = model(&qwen, Some(&machine(8)));
+        let chosen = medium.estimated_size.unwrap();
+        assert!(chosen < size_of("Q8_0") && chosen >= size_of("Q4_K_M"));
+        assert_eq!(medium.fit, Some(HubFit::Fits));
+        // 4 Gio : rien ne tient, Q4_K_M annoncée avec sa vraie place.
+        let small = model(&qwen, Some(&machine(4)));
+        assert_eq!(small.estimated_size, Some(size_of("Q4_K_M")));
+        assert_eq!(small.fit, Some(HubFit::Partial));
+        assert!(small.estimated_memory.unwrap() > 4 << 30);
+
+        // Restreint, ou sans version téléchargeable (dossier découpé seul) :
+        // l'estimation d'une Q4_K_M.
+        let fallback = fit::list_size(Some(total), false);
+        let gated = Repo {
+            gated: true,
+            ..qwen.clone()
+        };
+        assert_eq!(model(&gated, None).estimated_size, fallback);
+        let sharded = listed(
+            "unsloth/Qwen3.5-9B-GGUF",
+            total,
+            &[
+                "BF16/Qwen3.5-9B-BF16-00001-of-00002.gguf",
+                "BF16/Qwen3.5-9B-BF16-00002-of-00002.gguf",
+            ],
+        );
+        assert_eq!(model(&sharded, None).estimated_size, fallback);
+        // Sans nombre de paramètres (ni annoncé, ni dans le nom) : rien.
+        let unknown = Repo {
+            total: None,
+            ..listed("lab/Mystery-GGUF", 1, &["Mystery-Q4_K_M.gguf"])
+        };
+        assert_eq!(model(&unknown, Some(&machine(24))).estimated_size, None);
+        assert_eq!(model(&unknown, Some(&machine(24))).fit, None);
+    }
+
+    /// Liste et fiche d'un même dépôt réel (`unsloth/Qwen3.5-9B-GGUF`) : la
+    /// carte, qui ne connaît que les noms, est à 5 % de la fiche, qui connaît
+    /// les tailles, pour la même machine.
+    #[test]
+    fn a_card_and_its_page_agree() {
+        let mut detail = quantized("unsloth/Qwen3.5-9B-GGUF", "Qwen/Qwen3.5-9B");
+        detail.capabilities.vision = true;
+        detail.total = Some(8_953_803_264);
+        detail.context_length = Some(262_144);
+        detail.files = [
+            ("Qwen3.5-9B-BF16.gguf", 17_920_697_312u64),
+            ("Qwen3.5-9B-Q8_0.gguf", 9_527_502_048),
+            ("Qwen3.5-9B-Q6_K.gguf", 7_458_301_152),
+            ("Qwen3.5-9B-Q5_K_M.gguf", 6_577_841_376),
+            ("Qwen3.5-9B-Q4_K_M.gguf", 5_680_522_464),
+            ("mmproj-BF16.gguf", 921_705_024),
+            ("mmproj-F16.gguf", 918_166_080),
+            ("mmproj-F32.gguf", 1_824_062_016),
+        ]
+        .into_iter()
+        .map(|(name, size)| RepoFile {
+            name: name.into(),
+            size: Some(size),
+        })
+        .collect();
+        let names_only = Repo {
+            files: detail
+                .files
+                .iter()
+                .map(|file| RepoFile {
+                    name: file.name.clone(),
+                    size: None,
+                })
+                .collect(),
+            ..detail.clone()
+        };
+        for hardware in [None, Some(machine(24)), Some(machine(6))] {
+            let card = model(&names_only, hardware.as_ref());
+            let page = repo_view(&detail, None, hardware.as_ref(), vec![]).model;
+            let (listed, exact) = (card.estimated_size.unwrap(), page.estimated_size.unwrap());
+            assert!(
+                listed.abs_diff(exact) * 100 < exact * 5,
+                "{hardware:?}: {listed} for {exact}"
+            );
+            assert_eq!(card.fit, page.fit, "{hardware:?}");
+            // La fiche donne la mémoire de la version conseillée.
+            assert_eq!(page.estimated_memory.is_some(), hardware.is_some());
+            if let (Some(listed), Some(exact)) = (card.estimated_memory, page.estimated_memory) {
+                assert!(listed.abs_diff(exact) * 100 < exact * 5);
+            }
+        }
     }
 
     #[test]

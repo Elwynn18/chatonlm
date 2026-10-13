@@ -19,6 +19,16 @@
 //! - Annulation : en file → `Cancelled` ; en cours → `Cancelled` tout de
 //!   suite, requête fermée (Ollama garde les morceaux `-partial`, un nouveau
 //!   pull reprend).
+//! - Pause (propre à ChatonLM, hors contrat) : en file ou en cours → `Paused`,
+//!   requête fermée, progression gardée à l'écran ; le suivant de la file
+//!   démarre. Reprise → `Queued` à sa place : Ollama repart des morceaux
+//!   reçus. Rien pendant `Finishing` (tout est reçu). Un téléchargement en
+//!   pause ne compte pas comme une activité (`any_active`) et n'est pas
+//!   gardé d'une session à l'autre (comme toute la file).
+//! - Priorité (« Download first », comme « Download now » de Steam) : le
+//!   téléchargement passe en tête de la file et démarre tout de suite ; si
+//!   les places sont prises, le dernier en cours (hors `Finishing`) retourne
+//!   en file, requête fermée, et reprendra de ses morceaux.
 //! - Serveur figé à la demande : si la cible change (`ollama::target`),
 //!   les téléchargements vers l'ancienne s'arrêtent (`Failed`, message
 //!   explicite ; un nouveau clic tire vers la nouvelle cible).
@@ -163,6 +173,11 @@ fn running(state: HubDownloadState) -> bool {
     active(state) && state != HubDownloadState::Queued
 }
 
+/// Pas encore fini : en file, en cours ou en pause.
+fn pending(state: HubDownloadState) -> bool {
+    active(state) || state == HubDownloadState::Paused
+}
+
 /// Même modèle pour Ollama, qui résout les noms sans la casse.
 fn same(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
@@ -209,7 +224,8 @@ impl HubDownloads {
 
     /// Demande un téléchargement depuis le serveur `server`. Nom invalide, ou
     /// changement de dossier des modèles en cours : refus ; déjà en cours ou
-    /// en file : rien ; terminé, échoué ou arrêté : remplacé (en fin de file).
+    /// en file : rien ; en pause : repris ; terminé, échoué ou arrêté :
+    /// remplacé (en fin de file).
     pub fn download(&self, server: &str, request: HubDownloadRequest) -> AppResult<()> {
         let model = request.model.trim().to_owned();
         if !valid_name(&model) {
@@ -234,6 +250,12 @@ impl HubDownloads {
             .position(|entry| same(&entry.download.model, &model))
         {
             if active(state.entries[index].download.state) {
+                return Ok(());
+            }
+            if state.entries[index].download.state == HubDownloadState::Paused {
+                state.entries[index].download.state = HubDownloadState::Queued;
+                inner.pump(&mut state);
+                inner.emit_now(&mut state);
                 return Ok(());
             }
             state.entries.remove(index);
@@ -265,8 +287,8 @@ impl HubDownloads {
         Ok(())
     }
 
-    /// Arrête un téléchargement en file ou en cours (requête fermée) ;
-    /// inconnu ou déjà fini : rien.
+    /// Arrête un téléchargement en file, en cours (requête fermée) ou en
+    /// pause ; inconnu ou déjà fini : rien.
     pub fn cancel(&self, model: &str) {
         let inner = &self.inner;
         let mut state = inner.state.lock();
@@ -274,7 +296,7 @@ impl HubDownloads {
             .entries
             .iter_mut()
             .find(|entry| same(&entry.download.model, model.trim()))
-            .filter(|entry| active(entry.download.state))
+            .filter(|entry| pending(entry.download.state))
         else {
             return;
         };
@@ -283,13 +305,115 @@ impl HubDownloads {
         inner.emit_now(&mut state);
     }
 
-    /// Retire un téléchargement terminé, échoué ou arrêté (pas un actif).
+    /// Met en pause un téléchargement en file ou en cours (requête fermée :
+    /// Ollama garde les morceaux reçus) ; sa progression reste affichée et le
+    /// suivant de la file démarre. Sans effet pendant `Finishing` (tout est
+    /// reçu), sur un inconnu ou sur un téléchargement fini.
+    pub fn pause(&self, model: &str) {
+        let inner = &self.inner;
+        let mut state = inner.state.lock();
+        let Some(entry) = state
+            .entries
+            .iter_mut()
+            .find(|entry| same(&entry.download.model, model.trim()))
+            .filter(|entry| {
+                matches!(
+                    entry.download.state,
+                    HubDownloadState::Queued
+                        | HubDownloadState::Starting
+                        | HubDownloadState::Downloading
+                )
+            })
+        else {
+            return;
+        };
+        inner.halt(entry, HubDownloadState::Paused);
+        inner.pump(&mut state);
+        inner.emit_now(&mut state);
+    }
+
+    /// Reprend un téléchargement en pause : de nouveau en file, à sa place
+    /// (il démarre s'il y a de la place, et repart des morceaux reçus).
+    /// Changement de dossier des modèles en cours : refus. Pas en pause :
+    /// rien.
+    pub fn resume(&self, model: &str) -> AppResult<()> {
+        let inner = &self.inner;
+        let mut state = inner.state.lock();
+        if state.closed {
+            return Ok(());
+        }
+        let Some(index) = state.entries.iter().position(|entry| {
+            same(&entry.download.model, model.trim())
+                && entry.download.state == HubDownloadState::Paused
+        }) else {
+            return Ok(());
+        };
+        if (inner.options.location_changing)() {
+            return Err(AppError::Invalid(errors::location_changing()));
+        }
+        state.entries[index].download.state = HubDownloadState::Queued;
+        inner.pump(&mut state);
+        inner.emit_now(&mut state);
+        Ok(())
+    }
+
+    /// Fait passer un téléchargement en premier : il prend la tête de la
+    /// file et démarre tout de suite (en pause : repris). Si toutes les
+    /// places sont prises, le dernier téléchargement en cours (hors
+    /// `Finishing`) retourne en file, requête fermée : il reprendra de ses
+    /// morceaux à la première place libre. Déjà en cours : il passe seulement
+    /// en tête. Inconnu ou fini : rien ; reprise refusée pendant un
+    /// changement de dossier des modèles.
+    pub fn prioritize(&self, model: &str) -> AppResult<()> {
+        let inner = &self.inner;
+        let mut state = inner.state.lock();
+        if state.closed {
+            return Ok(());
+        }
+        let Some(index) = state.entries.iter().position(|entry| {
+            same(&entry.download.model, model.trim()) && pending(entry.download.state)
+        }) else {
+            return Ok(());
+        };
+        let paused = state.entries[index].download.state == HubDownloadState::Paused;
+        if paused && (inner.options.location_changing)() {
+            return Err(AppError::Invalid(errors::location_changing()));
+        }
+        let mut entry = state.entries.remove(index);
+        if paused {
+            entry.download.state = HubDownloadState::Queued;
+        }
+        let waiting = entry.download.state == HubDownloadState::Queued;
+        state.entries.insert(0, entry);
+        let busy = state
+            .entries
+            .iter()
+            .filter(|entry| running(entry.download.state))
+            .count();
+        if waiting
+            && busy >= inner.options.max_running
+            && let Some(last) = state.entries.iter_mut().rev().find(|entry| {
+                matches!(
+                    entry.download.state,
+                    HubDownloadState::Starting | HubDownloadState::Downloading
+                )
+            })
+        {
+            inner.halt(last, HubDownloadState::Queued);
+        }
+        inner.pump(&mut state);
+        inner.emit_now(&mut state);
+        Ok(())
+    }
+
+    /// Retire un téléchargement terminé, échoué ou arrêté (ni un actif, ni
+    /// un téléchargement en pause : il s'arrête d'abord).
     pub fn dismiss(&self, model: &str) {
         let inner = &self.inner;
         let mut state = inner.state.lock();
         let before = state.entries.len();
         state.entries.retain(|entry| {
-            !(same(&entry.download.model, model.trim()) && !active(entry.download.state))
+            !(same(&entry.download.model, model.trim()) && !pending(entry.download.state))
         });
         if state.entries.len() != before {
             inner.emit_now(&mut state);
@@ -297,14 +421,14 @@ impl HubDownloads {
     }
 
     /// La cible des requêtes est maintenant `server` : les téléchargements en
-    /// file ou en cours vers un autre serveur s'arrêtent (requête fermée),
-    /// en échec avec un message qui le dit.
+    /// file, en cours ou en pause vers un autre serveur s'arrêtent (requête
+    /// fermée), en échec avec un message qui le dit.
     pub fn retarget(&self, server: &str) {
         let inner = &self.inner;
         let mut state = inner.state.lock();
         let mut changed = false;
         for entry in &mut state.entries {
-            if active(entry.download.state) && entry.server != server {
+            if pending(entry.download.state) && entry.server != server {
                 finish_entry(entry, End::Failed(errors::server_changed()));
                 changed = true;
             }
@@ -363,6 +487,19 @@ fn finish_entry(entry: &mut Entry, end: End) {
 }
 
 impl Inner {
+    /// Arrête la tâche d'une entrée sans la finir : l'entrée passe à `state`
+    /// (en pause, ou de nouveau en file), garde sa progression, et change de
+    /// numéro : la fin de l'ancienne tâche ne la concerne plus.
+    fn halt(&self, entry: &mut Entry, state: HubDownloadState) {
+        if let Some(cancel) = entry.cancel.take() {
+            let _ = cancel.send(true);
+        }
+        entry.id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        entry.download.state = state;
+        entry.download.bytes_per_second = None;
+        entry.rate = Rate::default();
+    }
+
     /// Démarre les téléchargements en file, dans l'ordre, tant qu'il y a de la
     /// place.
     fn pump(self: &Arc<Self>, state: &mut State) {
@@ -499,7 +636,7 @@ impl Task {
                 checked = manifest::fetch(&hf_url, &name, timeout) => checked,
             };
             match checked {
-                Manifest::Found { total } => {
+                Manifest::Found { total, .. } => {
                     self.inner.change(self.id, |entry| {
                         entry.download.total = total;
                         Change::Progress

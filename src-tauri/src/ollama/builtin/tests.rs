@@ -717,9 +717,20 @@ async fn shutdown_gives_up_on_a_stop_that_never_ends() {
     assert!(builtin.is_closed());
 }
 
+/// Version d'Ollama épinglée pour les paquets (`OLLAMA_VERSION` de
+/// `packaging/ollama.env`) : celle que `scripts/fetch-ollama.sh` extrait.
+fn pinned_version() -> &'static str {
+    include_str!("../../../../packaging/ollama.env")
+        .lines()
+        .find_map(|line| line.strip_prefix("OLLAMA_VERSION="))
+        .expect("OLLAMA_VERSION in packaging/ollama.env")
+        .trim()
+}
+
 /// Le vrai Ollama intégré (`.tools/runtimes/ollama`, `scripts/fetch-ollama.sh`),
-/// sur un port libre, données sous `.tools/tmp` : prêt, version livrée, clé
-/// dans son HOME privé, puis arrêté sans reste. Passé sans lui.
+/// sur un port libre, données sous `.tools/tmp` : prêt, version livrée (celle
+/// qui est épinglée), clé dans son HOME privé, puis arrêté sans reste. Passé
+/// sans lui.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "contrat : Ollama intégré réel (scripts/fetch-ollama.sh)"]
 async fn contract_the_real_builtin_ollama_starts_and_stops() {
@@ -733,16 +744,17 @@ async fn contract_the_real_builtin_ollama_starts_and_stops() {
     let mut config = Config::new(Some(bin), dir.path());
     config.timing.ready_timeout = Duration::from_secs(60);
     let builtin = Builtin::new(config.clone());
-    assert_eq!(builtin.version().as_deref(), Some("0.40.0"));
+    let pinned = pinned_version();
+    assert_eq!(builtin.version().as_deref(), Some(pinned));
     builtin
         .ensure_started(&config.default_models_dir())
         .unwrap();
     let snapshot = builtin.wait_ready(Duration::from_secs(70)).await;
     let log = std::fs::read_to_string(&config.log).unwrap_or_default();
     assert_eq!(snapshot.state, BuiltinState::Running, "{snapshot:?}\n{log}");
-    assert_eq!(snapshot.version.as_deref(), Some("0.40.0"));
+    assert_eq!(snapshot.version.as_deref(), Some(pinned));
     let url = snapshot.url.unwrap();
-    assert!(matches!(client::probe(&url).await, Probe::Ollama { version } if version == "0.40.0"));
+    assert!(matches!(client::probe(&url).await, Probe::Ollama { version } if version == pinned));
     // Sa clé est dans son HOME privé.
     assert!(config.home().join(".ollama/id_ed25519").exists());
     let pid = snapshot.pid.unwrap();

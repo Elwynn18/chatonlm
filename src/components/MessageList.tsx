@@ -256,10 +256,11 @@ function MessageActions({
   content: RefObject<HTMLElement | null>;
 }) {
   const state = useReadAloud();
+  const source = { kind: "message", messageId } as const;
   const visible =
     finished ||
-    phaseFor(state, messageId) !== "idle" ||
-    errorFor(state, messageId) !== null;
+    phaseFor(state, source) !== "idle" ||
+    errorFor(state, source) !== null;
   // Le focus est dans la barre (pas parti ailleurs dans la page).
   const focused = useRef(false);
 
@@ -300,8 +301,7 @@ function MessageActions({
     >
       {finished && copy}
       <ReadAloudButton
-        chatId={chatId}
-        messageId={messageId}
+        target={{ kind: "message", chatId, messageId }}
         className="z-10 text-neutral-500 dark:text-neutral-400"
       />
     </div>
@@ -485,7 +485,9 @@ function AssistantMessage({
           {/* Annonces de la lecture à voix haute : région là avant elle
               (hors du texte copié). */}
           {chatId !== undefined && message.id > 0 && (
-            <ReadAloudStatus messageId={message.id} />
+            <ReadAloudStatus
+              source={{ kind: "message", messageId: message.id }}
+            />
           )}
         </div>
 

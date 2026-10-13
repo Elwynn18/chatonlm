@@ -34,13 +34,17 @@
 //! `/fake/requests`).
 //! Le serveur sert aussi de registre (`CHATONLM_REGISTRY_URL` de l'app) :
 //! `HEAD /v2/library/<nom>/manifests/<étiquette>` répond 200 avec
-//! `ollama-content-digest` pour `chatonlm-*`, `gemma4`, `qwen3.5` et `llama3.2`,
-//! 404 sinon (voir `manifest`) ; l'espace `chatonlm` imite le registre de
-//! Hugging Face (`CHATONLM_HF_URL` de l'app pointé sur ce serveur : manifestes
-//! et refus des mêmes noms `hf.co/chatonlm/...`). Ce que le serveur a reçu se
+//! `ollama-content-digest` et `ollama-push-time` pour `chatonlm-*`, `gemma4`,
+//! `qwen3.5` et `llama3.2`, 404 sinon (voir `manifest`) ; l'espace `chatonlm`
+//! imite le registre de Hugging Face (`CHATONLM_HF_URL` de l'app pointé sur ce
+//! serveur : manifestes et refus des mêmes noms `hf.co/chatonlm/...`).
+//! `POST /fake/publish {"model": "<nom>"}` y publie une nouvelle version d'un
+//! modèle : celui qui est installé devient périmé (autre empreinte, date de
+//! publication récente) jusqu'à son prochain téléchargement. Ce que le serveur a reçu se
 //! lit sur `GET /fake/requests` (chat), `GET /fake/pulls`, `GET /fake/deletes`,
-//! `GET /fake/web` (recherche web), `GET /fake/loads` et `GET
-//! /fake/disconnects`.
+//! `GET /fake/web` (recherche web), `GET /fake/loads`, `GET
+//! /fake/disconnects` et `GET /fake/manifests` (requêtes reçues par le
+//! registre).
 //!
 //! Compte et recherche web (le serveur joue aussi ollama.com) : compte délié au
 //! départ, relié ou délié par `POST /fake/account {"signedIn": bool}` ;

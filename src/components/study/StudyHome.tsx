@@ -2,7 +2,9 @@
 // cours (réglage `studyModel`, vide = celui du chat) et un avertissement
 // discret pour un petit modèle ; puis le formulaire d'un nouveau cours
 // (sujet, niveau, durée, documents, recherche web) et les cours, en cours
-// puis terminés (jamais dans l'historique de la barre latérale).
+// puis terminés (jamais dans l'historique de la barre latérale) ; un cours
+// encore en cours d'écriture, ou dont l'écriture est en pause, le dit, avec
+// ses paliers déjà écrits.
 //
 // Documents : sélecteur natif puis zone de préparation, comme les pièces
 // jointes du chat (useComposerFiles) ; une image ou plus de trois documents
@@ -588,6 +590,15 @@ function CourseRow({
                 count: total,
                 done: course.levelsDone,
               });
+  // Écriture du cours : en pause, ou encore en cours (le plan en
+  // préparation est déjà dit par « Preparing… »), et paliers déjà écrits.
+  const writing = !course.pending
+    ? null
+    : course.paused
+      ? t("study.generation.paused")
+      : course.status !== "planning"
+        ? t("study.path.writing")
+        : null;
   return (
     <li
       data-testid="study-course"
@@ -623,6 +634,20 @@ function CourseRow({
             </span>
           ) : (
             <span>{status}</span>
+          )}
+          {writing && (
+            <span data-testid="study-course-writing">
+              {writing}
+              {total > 0 && (
+                <>
+                  {" "}
+                  {t("study.generation.ready", {
+                    count: course.levelsReady,
+                    total,
+                  })}
+                </>
+              )}
+            </span>
           )}
         </span>
         {total > 0 && (

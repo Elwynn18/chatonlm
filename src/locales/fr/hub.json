@@ -97,6 +97,15 @@
     "partial": "En partie sur le CPU",
     "tooLarge": "Trop grand"
   },
+  "footprint": {
+    "download": "Téléchargement",
+    "vram": "VRAM",
+    "memory": "Mémoire",
+    "downloadHint": "Taille des fichiers à télécharger, et place qu'ils prennent sur le disque.",
+    "vramHint": "Mémoire graphique nécessaire au modèle pour tourner, contexte compris.",
+    "memoryHint": "Mémoire nécessaire au modèle pour tourner, contexte compris.",
+    "estimated": "Estimation pour la version conseillée : la fiche du modèle donne les tailles exactes."
+  },
   "installedBadge": "Installé",
   "status": {
     "earlier": "plus tôt",
@@ -200,12 +209,18 @@
     "browse": "Parcourir les modèles",
     "viewOnHuggingFace": "Voir sur Hugging Face",
     "deleteNamed": "Supprimer {name}",
-    "deleteConfirm": "Supprimer {name} ?"
+    "deleteConfirm": "Supprimer {name} ?",
+    "update": "Mettre à jour",
+    "updateNamed": "Mettre à jour {name}",
+    "pause": "Mettre en pause",
+    "resume": "Reprendre",
+    "downloadFirst": "Télécharger en premier"
   },
   "downloadState": {
     "failed": "Le téléchargement a échoué.",
     "installed": "Installé",
     "noLongerInstalled": "N'est plus installé",
+    "paused": "En pause",
     "cancelled": "Annulé"
   },
   "downloads": {
@@ -217,7 +232,8 @@
     "empty": "Aucun modèle pour l'instant",
     "modified": "Modifié {time}",
     "embedding": "Embedding",
-    "deleteText": "Le modèle sera retiré d'Ollama. Vous pourrez le télécharger de nouveau plus tard."
+    "deleteText": "Le modèle sera retiré d'Ollama. Vous pourrez le télécharger de nouveau plus tard.",
+    "updateAvailable": "Mise à jour disponible"
   },
   "speech": {
     "title": "Modèles de transcription",

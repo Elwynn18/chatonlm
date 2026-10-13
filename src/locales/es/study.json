@@ -90,8 +90,8 @@
   "plan": {
     "eyebrow": "El plan de tu curso",
     "duration": {
-      "one": "Unos {count} min",
-      "other": "Unos {count} min"
+      "one": "Unos {count} min de estudio",
+      "other": "Unos {count} min de estudio"
     },
     "levelCount": {
       "one": "{count} nivel",
@@ -140,8 +140,8 @@
     "progress": "Progreso del curso",
     "progressText": "{done} de {total} pasos",
     "timeLeft": {
-      "one": "Queda {count} min aprox.",
-      "other": "Quedan {count} min aprox."
+      "one": "Queda {count} min de estudio aprox.",
+      "other": "Quedan {count} min de estudio aprox."
     },
     "finished": "Terminado",
     "streak": {
@@ -177,8 +177,8 @@
     "start": "Empecemos",
     "resume": "Reanudar",
     "timeLeft": {
-      "one": "Queda {count} minuto aproximadamente.",
-      "other": "Quedan {count} minutos aproximadamente."
+      "one": "Queda {count} minuto de estudio aproximadamente.",
+      "other": "Quedan {count} minutos de estudio aproximadamente."
     },
     "finished": "Terminaste este curso. Repásalo cuando quieras."
   },
@@ -287,8 +287,40 @@
     "preparingRemedy": "Preparando una nueva explicación…"
   },
   "wait": {
-    "level": "Preparando este nivel…",
-    "final": "Preparando el repaso final…"
+    "level": "Este nivel aún no está escrito.",
+    "final": "El repaso final aún no está escrito.",
+    "finalAfterLevels": "Se escribe después del último nivel."
+  },
+  "generation": {
+    "plan": "Escribiendo el plan del curso…",
+    "level": "Escribiendo el nivel {number} de {total}…",
+    "remedy": "Escribiendo una nueva explicación para el nivel {number}…",
+    "final": "Escribiendo el repaso final…",
+    "waiting": "En espera: antes se escribe otro curso…",
+    "paused": "Escritura en pausa",
+    "complete": "Todo el curso está escrito.",
+    "ready": {
+      "one": "{count} nivel listo de {total}",
+      "other": "{count} niveles listos de {total}"
+    },
+    "stage": {
+      "lesson": "Paso 1 de 2: la lección",
+      "questions": "Paso 2 de 2: las preguntas"
+    },
+    "failed": {
+      "level": "No se pudo escribir el nivel {number}.",
+      "remedy": "No se pudo escribir la nueva explicación del nivel {number}.",
+      "final": "No se pudo escribir el repaso final."
+    },
+    "hint": {
+      "first": "Podrás empezar en cuanto el primer nivel esté listo. Los siguientes se escriben mientras estudias.",
+      "start": "El primer nivel está listo: ya puedes empezar. Los siguientes se escriben mientras estudias.",
+      "paused": "No se escribe nada más de este curso hasta que lo reanudes."
+    },
+    "pause": "Pausar",
+    "resume": "Reanudar",
+    "pauseTitle": "Pausar la escritura de este curso",
+    "resumeTitle": "Reanudar la escritura de este curso"
   },
   "final": {
     "eyebrow": "Último paso",
@@ -317,5 +349,9 @@
     "saved": "Ficha guardada",
     "missed": "Preguntas para repasar",
     "further": "Ir más allá"
+  },
+  "readAloud": {
+    "nothingToRead": "Este texto no tiene nada que leer en voz alta.",
+    "engineFailed": "No se pudo leer este texto en voz alta."
   }
 }

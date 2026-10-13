@@ -301,6 +301,69 @@ describe("Keyboard shortcuts tab", () => {
   });
 });
 
+describe("Replace the selection", () => {
+  const pasteSwitch = () =>
+    screen.getByRole<HTMLButtonElement>("switch", {
+      name: "Replace the selection",
+    });
+
+  it("is on by default, says what it does, and saves the setting", async () => {
+    const user = userEvent.setup();
+    const { simulator } = setup();
+    await screen.findByTestId("shortcut-proofread");
+    expect(pasteSwitch().getAttribute("aria-checked")).toBe("true");
+    const described = document.getElementById(
+      pasteSwitch().getAttribute("aria-describedby")!,
+    )!;
+    // Linux : le bureau demandera une fois l'autorisation.
+    expect(described.textContent).toBe(
+      "ChatonLM pastes the corrected text over the selection. Turned off, the corrected text is only copied: press Ctrl+V to paste it. The first time, your desktop asks to let ChatonLM send the paste keystroke.",
+    );
+    // Le raccourci lui-même ne promet plus un Ctrl+V à faire.
+    expect(
+      document.getElementById(
+        proofreadSwitch().getAttribute("aria-describedby")!,
+      )!.textContent,
+    ).toBe("Corrects the text selected in any app.");
+
+    await user.click(pasteSwitch());
+    await waitFor(() =>
+      expect(pasteSwitch().getAttribute("aria-checked")).toBe("false"),
+    );
+    await user.click(pasteSwitch());
+    await waitFor(() =>
+      expect(pasteSwitch().getAttribute("aria-checked")).toBe("true"),
+    );
+    expect(
+      simulator
+        .callsTo("update_settings")
+        .map((call) => call.patch as SettingsPatch),
+    ).toEqual([{ proofreadPaste: false }, { proofreadPaste: true }]);
+    // Sans effet sur le raccourci lui-même (aucune liaison demandée).
+    expect(proofreadSwitch().getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("a failed save is shown under its own line, the switch unchanged", async () => {
+    const user = userEvent.setup();
+    setup((backend) => {
+      backend.settingsErrors.update = {
+        kind: "internal",
+        message: "disk full",
+      };
+    });
+    await screen.findByTestId("shortcut-proofread");
+    await user.click(pasteSwitch());
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("Couldn't save this setting: disk full");
+    expect(pasteSwitch().getAttribute("aria-checked")).toBe("true");
+    // Sous sa ligne, pas sous celle du raccourci.
+    expect(
+      alert.compareDocumentPosition(screen.getByTestId("shortcut-proofread")) &
+        Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+  });
+});
+
 describe("Keyboard shortcuts in other languages", () => {
   it("has no hard-coded text, in each state", async () => {
     const { fake } = setup((backend) => {

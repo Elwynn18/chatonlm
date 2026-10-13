@@ -5,8 +5,9 @@
  *
  * Adapted from Ollama (https://github.com/ollama/ollama),
  * file app/ui/app/src/components/ModelPicker.tsx, commit 42e911bc3d05.
- * Modified for ChatonLM: no stale-model check, no cloud models; the selected
- * model keeps its state during a search; Escape is consumed so that it never
+ * Modified for ChatonLM: the stale-model check is made by the banner itself
+ * (StaleModelBanner.tsx, src/hooks/useOutdatedModels.ts), not by the picker;
+ * no cloud models; the selected model keeps its state during a search; Escape is consumed so that it never
  * reaches the rest of the app; typed close handle instead of a method added
  * to the DOM node; a typed name is looked up in the registry 300 ms after the
  * last keystroke (src/hooks/useModels.ts), not at each one; long names are

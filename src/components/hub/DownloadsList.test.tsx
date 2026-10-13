@@ -1,5 +1,6 @@
-// Onglet Downloads face au simulateur : ordre, états, Cancel, Use in chat,
-// Dismiss, Try again ; barre latérale : entrée ModelHub et indicateur.
+// Onglet Downloads face au simulateur : ordre, états, Cancel, Pause, Resume,
+// Download first, Use in chat, Dismiss, Try again ; barre latérale : entrée
+// ModelHub et indicateur.
 
 import {
   act,
@@ -118,12 +119,140 @@ describe("Downloads", () => {
         .getAllByRole("button")
         .map((button) => button.textContent);
     expect(rows().map(buttons)).toEqual([
-      ["Cancel"],
-      ["Cancel"],
+      ["Pause", "Cancel"],
+      ["Download first", "Pause", "Cancel"],
       ["Try again", "Dismiss"],
       ["Use in chat", "Dismiss"],
       ["Try again", "Dismiss"],
     ]);
+  });
+
+  it("Pause keeps what is received and lets the next one start; Resume queues it again", async () => {
+    const { simulator } = renderHub("/hub/downloads", ({ hub }) => {
+      hub.downloads.push(
+        entry(QWEN, {
+          state: "downloading",
+          completed: 2 * GIB,
+          total: 5 * GIB,
+          bytesPerSecond: 50 * 1024 ** 2,
+        }),
+        entry(PHI, { state: "downloading", completed: GIB, total: 4 * GIB }),
+        entry(GEMMA, { state: "queued" }),
+      );
+    });
+    await screen.findAllByTestId("download");
+    const states = () =>
+      rows().map((element) => element.getAttribute("data-state"));
+    const buttons = (element: HTMLElement) =>
+      within(element)
+        .getAllByRole("button")
+        .map((button) => button.textContent);
+
+    await userEvent.click(
+      within(row("Qwen3.5-9B")).getByRole("button", { name: "Pause" }),
+    );
+    // En pause à sa place, avec ce qui est reçu ; le suivant de la file part.
+    await waitFor(() =>
+      expect(states()).toEqual(["paused", "downloading", "starting"]),
+    );
+    expect(simulator.callsTo("hub_pause_download")).toEqual([{ model: QWEN }]);
+    const paused = row("Qwen3.5-9B");
+    expect(paused.textContent).toContain("Paused · 2.0 GB of 5.0 GB");
+    const bar = within(paused).getByRole("progressbar");
+    expect(bar.getAttribute("aria-valuenow")).toBe("40");
+    expect(bar.getAttribute("aria-valuetext")).toBe(
+      "Paused · 2.0 GB of 5.0 GB",
+    );
+    expect(buttons(paused)).toEqual(["Resume", "Cancel"]);
+    // Il ne compte plus parmi les téléchargements actifs de la barre latérale.
+    expect(screen.getByTestId("active-downloads").textContent).toBe("2");
+
+    await userEvent.click(
+      within(paused).getByRole("button", { name: "Resume" }),
+    );
+    await waitFor(() =>
+      expect(states()).toEqual(["queued", "downloading", "starting"]),
+    );
+    expect(simulator.callsTo("hub_resume_download")).toEqual([{ model: QWEN }]);
+    expect(buttons(row("Qwen3.5-9B"))).toEqual([
+      "Download first",
+      "Pause",
+      "Cancel",
+    ]);
+  });
+
+  it("Download first starts a queued download at once, the last running one going back to the queue", async () => {
+    const { simulator } = renderHub("/hub/downloads", ({ hub }) => {
+      hub.downloads.push(
+        entry(QWEN, { state: "downloading", completed: GIB, total: 5 * GIB }),
+        entry(PHI, { state: "downloading", completed: GIB, total: 4 * GIB }),
+        entry(GEMMA, { state: "queued" }),
+      );
+    });
+    await screen.findAllByTestId("download");
+    await userEvent.click(
+      within(row("gemma-4-12B")).getByRole("button", {
+        name: "Download first",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        rows().map((element) => [
+          element.querySelector("a")?.textContent,
+          element.getAttribute("data-state"),
+        ]),
+      ).toEqual([
+        ["gemma-4-12B-it-qat-q4_0", "starting"],
+        ["Qwen3.5-9B", "downloading"],
+        ["Phi-4-mini-reasoning", "queued"],
+      ]),
+    );
+    expect(simulator.callsTo("hub_prioritize_download")).toEqual([
+      { model: GEMMA },
+    ]);
+    // Retourné en file, il garde ce qu'il a reçu à l'écran.
+    expect(
+      within(row("Phi-4-mini-reasoning"))
+        .getByRole("progressbar")
+        .getAttribute("aria-valuetext"),
+    ).toBe("Waiting…");
+  });
+
+  it("a download being checked can't be paused; a refused action is reported", async () => {
+    const { hub } = renderHub("/hub/downloads", ({ hub }) => {
+      hub.downloads.push(
+        entry(QWEN, { state: "finishing", completed: GIB, total: GIB }),
+        entry(PHI, { state: "paused", completed: GIB, total: 4 * GIB }),
+      );
+    });
+    await screen.findAllByTestId("download");
+    expect(
+      within(row("Qwen3.5-9B")).queryByRole("button", { name: "Pause" }),
+    ).toBeNull();
+    hub.failures.set("hub_resume_download", {
+      kind: "invalid",
+      message: "The models folder is being changed.",
+    });
+    await userEvent.click(
+      within(row("Phi-4-mini-reasoning")).getByRole("button", {
+        name: "Resume",
+      }),
+    );
+    expect(
+      (await within(row("Phi-4-mini-reasoning")).findByRole("alert"))
+        .textContent,
+    ).toBe("The models folder is being changed.");
+    // Un téléchargement en pause s'arrête comme un autre.
+    await userEvent.click(
+      within(row("Phi-4-mini-reasoning")).getByRole("button", {
+        name: "Cancel",
+      }),
+    );
+    await waitFor(() =>
+      expect(row("Phi-4-mini-reasoning").getAttribute("data-state")).toBe(
+        "cancelled",
+      ),
+    );
   });
 
   it("Cancel, Dismiss and Try again call the backend", async () => {

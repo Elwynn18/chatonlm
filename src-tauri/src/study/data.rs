@@ -177,6 +177,8 @@ pub struct CourseRow {
     pub created_at: i64,
     pub updated_at: i64,
     pub finished_at: Option<i64>,
+    /// Génération mise en pause par l'apprenant.
+    pub paused: bool,
 }
 
 /// Source enregistrée (`course_sources`), texte compris.
@@ -291,6 +293,37 @@ pub fn is_finished(snapshot: &Snapshot) -> bool {
                 .all(|question| snapshot.answers.contains_key(&question.id))
     });
     final_done && levels_done(&snapshot.levels, &snapshot.answers)
+}
+
+/// Partie à écrire : en attente ou en cours (pas en échec, ni prête).
+fn unwritten(state: GenState) -> bool {
+    matches!(state, GenState::Pending | GenState::Generating)
+}
+
+/// Le cours a-t-il encore des parties à écrire (en file, en cours, ou
+/// retenues par une pause) ? Comme la file : le plan en préparation, le
+/// palier 0 d'un plan prêt, puis tous les paliers, les nouveaux essais
+/// demandés et le bilan d'un cours commencé. Une partie en échec n'en est
+/// pas (elle attend `study_retry`), ni le bilan qu'elle retient.
+pub fn pending(snapshot: &Snapshot) -> bool {
+    let levels = &snapshot.levels;
+    match snapshot.row.status {
+        CourseStatus::Planning => true,
+        CourseStatus::Planned => levels.first().is_some_and(|level| unwritten(level.state)),
+        CourseStatus::Active | CourseStatus::Finished => {
+            let failed = levels.iter().any(|level| level.state == GenState::Failed);
+            levels
+                .iter()
+                .any(|level| unwritten(level.state) || level.remedy.is_some_and(unwritten))
+                || (!failed
+                    && snapshot
+                        .row
+                        .final_quiz
+                        .as_ref()
+                        .is_some_and(|final_quiz| unwritten(final_quiz.state)))
+        }
+        CourseStatus::Unclear | CourseStatus::Failed => false,
+    }
 }
 
 /// Mots d'un texte (lecture estimée à 180 mots par minute).
@@ -445,6 +478,9 @@ pub fn assemble(snapshot: Snapshot) -> Course {
         created_at: row.created_at,
         updated_at: row.updated_at,
         finished_at: row.finished_at,
+        paused: row.paused,
+        // Connu de la file seule (`StudyEngine::get`).
+        queue_busy: false,
     }
 }
 
@@ -506,6 +542,13 @@ pub fn summary(snapshot: &Snapshot) -> CourseSummary {
         status: row.status,
         levels_done,
         levels_total: row.plan.as_ref().map_or(0, |plan| plan.levels.len() as u32),
+        levels_ready: snapshot
+            .levels
+            .iter()
+            .filter(|level| level.state == GenState::Ready)
+            .count() as u32,
+        pending: pending(snapshot),
+        paused: row.paused,
         final_correct,
         final_total,
         created_at: row.created_at,
@@ -721,7 +764,65 @@ pub mod tests {
             created_at: 1,
             updated_at: 1,
             finished_at: None,
+            paused: false,
         }
+    }
+
+    /// Ce que la liste des cours dit de la génération : paliers prêts, reste
+    /// à écrire (comme la file : palier 0 seul avant « Start », rien après un
+    /// échec tant qu'il n'est pas relancé), pause.
+    #[test]
+    fn the_list_tells_what_is_left_to_write() {
+        let plan = Plan {
+            title: "T".into(),
+            kind: StudyKind::Concept,
+            summary: String::new(),
+            objectives: Vec::new(),
+            levels: Vec::new(),
+            scope: String::new(),
+            further: Vec::new(),
+        };
+        let mut snapshot = Snapshot {
+            row: row(10),
+            levels: Vec::new(),
+            answers: BTreeMap::new(),
+            sources: Vec::new(),
+        };
+        // Plan en préparation.
+        assert!(pending(&snapshot));
+        snapshot.row.status = CourseStatus::Failed;
+        assert!(!pending(&snapshot));
+        // Plan prêt : seul le palier 0 est écrit avant « Start ».
+        snapshot.row.status = CourseStatus::Planned;
+        snapshot.row.plan = Some(plan);
+        snapshot.row.final_quiz = Some(FinalData::default());
+        snapshot.levels = vec![LevelData::default(), LevelData::default()];
+        assert!(pending(&snapshot));
+        snapshot.levels[0] = level(0, 1);
+        assert!(!pending(&snapshot));
+        let listed = summary(&snapshot);
+        assert_eq!((listed.levels_ready, listed.pending), (1, false));
+        // Commencé : le palier 1 puis le bilan restent à écrire.
+        snapshot.row.status = CourseStatus::Active;
+        snapshot.row.paused = true;
+        let listed = summary(&snapshot);
+        assert_eq!(
+            (listed.levels_ready, listed.pending, listed.paused),
+            (1, true, true)
+        );
+        snapshot.levels[1].state = GenState::Generating;
+        assert!(pending(&snapshot));
+        // Palier en échec : plus rien n'avance sans « Retry », bilan compris.
+        snapshot.levels[1].state = GenState::Failed;
+        assert!(!pending(&snapshot));
+        snapshot.levels[1] = level(1, 1);
+        assert!(pending(&snapshot), "bilan à écrire");
+        snapshot.levels[0].remedy = Some(GenState::Failed);
+        snapshot.row.final_quiz.as_mut().unwrap().state = GenState::Ready;
+        assert!(!pending(&snapshot));
+        snapshot.levels[0].remedy = Some(GenState::Pending);
+        assert!(pending(&snapshot), "nouvel essai demandé");
+        assert_eq!(summary(&snapshot).levels_ready, 2);
     }
 
     #[test]

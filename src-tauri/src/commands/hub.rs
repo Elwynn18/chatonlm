@@ -110,6 +110,34 @@ pub async fn hub_cancel_download(
     Ok(())
 }
 
+/// Met en pause un téléchargement en file ou en cours.
+#[tauri::command]
+pub async fn hub_pause_download(
+    downloads: State<'_, HubDownloads>,
+    model: String,
+) -> AppResult<()> {
+    downloads.pause(&model);
+    Ok(())
+}
+
+/// Reprend un téléchargement en pause.
+#[tauri::command]
+pub async fn hub_resume_download(
+    downloads: State<'_, HubDownloads>,
+    model: String,
+) -> AppResult<()> {
+    downloads.resume(&model)
+}
+
+/// Fait passer un téléchargement en premier : il démarre tout de suite.
+#[tauri::command]
+pub async fn hub_prioritize_download(
+    downloads: State<'_, HubDownloads>,
+    model: String,
+) -> AppResult<()> {
+    downloads.prioritize(&model)
+}
+
 /// Téléchargements en cours, en file et terminés (jusqu'à `hub_dismiss_download`).
 #[tauri::command]
 pub async fn hub_downloads(downloads: State<'_, HubDownloads>) -> AppResult<Vec<HubDownload>> {

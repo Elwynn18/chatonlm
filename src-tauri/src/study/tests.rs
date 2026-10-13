@@ -1073,6 +1073,285 @@ async fn a_level_reported_as_wrong_is_written_again() {
     bench.idle().await;
 }
 
+/// Pause d'un cours : sa partie en cours d'écriture est arrêtée aussitôt
+/// (requête abandonnée), ses parties quittent la file et n'y reviennent ni
+/// à la lecture du cours ni dans une nouvelle session ; l'autre cours est
+/// écrit jusqu'au bout ; la reprise refait la partie arrêtée.
+#[tokio::test]
+async fn a_paused_course_is_not_written_until_resumed() {
+    let bench = Bench::new("chatonlm-study").await;
+    let paused = bench.create("Photosynthesis", 10).await;
+    let other = bench.create("Fractions", 10).await;
+    bench.until(&paused, level_ready(0)).await;
+    bench.until(&other, level_ready(0)).await;
+    bench.idle().await;
+    // Modèle lent, le temps de lancer le palier 1 du premier cours.
+    set_models(&bench.store, None, "", "chatonlm-study-slow");
+    let lessons = bench.requests_with("Write level 2").len();
+    bench.engine.start(&bench.ctx, &paused).await.unwrap();
+    let started = std::time::Instant::now();
+    while bench.engine.running() != Some((paused.clone(), generate::Part::Level(1)))
+        || bench.requests_with("Write level 2").len() == lessons
+    {
+        assert!(started.elapsed() < WAIT);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    set_models(&bench.store, None, "", "chatonlm-study");
+    bench.engine.start(&bench.ctx, &other).await.unwrap();
+    assert_eq!(
+        bench.course(&paused).await.levels[1].state,
+        GenState::Generating
+    );
+    // L'autre cours attend son tour, et sa page le sait.
+    assert!(
+        bench
+            .engine
+            .get(&bench.ctx, &other)
+            .await
+            .unwrap()
+            .queue_busy
+    );
+    assert!(
+        !bench
+            .engine
+            .get(&bench.ctx, &paused)
+            .await
+            .unwrap()
+            .queue_busy
+    );
+    let (disconnects, events) = (bench.fake.disconnects(), bench.events.count(&paused));
+
+    bench
+        .engine
+        .set_paused(&bench.ctx, &paused, true)
+        .await
+        .unwrap();
+    // Aussitôt : plus rien de ce cours n'est en cours ni en file, et la page
+    // l'apprend.
+    let course = bench.course(&paused).await;
+    assert!(course.paused);
+    assert_eq!(course.levels[1].state, GenState::Pending);
+    assert!(bench.events.count(&paused) > events);
+    assert!(bench.engine.queued().iter().all(|(id, _)| *id != paused));
+    assert_ne!(
+        bench.engine.running().map(|(id, _)| id),
+        Some(paused.clone())
+    );
+    let abandoned = async {
+        while bench.fake.disconnects() == disconnects {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(5), abandoned)
+        .await
+        .unwrap();
+
+    // L'autre cours continue jusqu'au bilan ; celui en pause n'avance pas.
+    bench.until(&other, final_ready).await;
+    bench.idle().await;
+    let course = bench.course(&paused).await;
+    assert_eq!(course.levels[1].state, GenState::Pending);
+    assert_eq!(course.levels[1].lesson, None);
+    assert_eq!(
+        course.final_quiz.as_ref().map(|quiz| quiz.state),
+        Some(GenState::Pending)
+    );
+    // Le lire ne relance rien, pas plus qu'une nouvelle session (la pause
+    // est enregistrée).
+    assert!(bench.engine.get(&bench.ctx, &paused).await.unwrap().paused);
+    assert!(bench.engine.idle());
+    let engine = StudyEngine::default();
+    assert!(engine.get(&bench.ctx, &paused).await.unwrap().paused);
+    assert!(engine.idle() && engine.queued().is_empty());
+    let listed = engine.list(&bench.store).await.unwrap();
+    let row = listed.iter().find(|row| row.id == paused).unwrap();
+    assert_eq!((row.paused, row.pending, row.levels_ready), (true, true, 1));
+
+    // Reprise : le palier arrêté est refait, puis le bilan.
+    let lessons = bench.requests_with("Write level 2").len();
+    engine.set_paused(&bench.ctx, &paused, false).await.unwrap();
+    let course = bench.until(&paused, final_ready).await;
+    assert!(!course.paused);
+    assert!(level_ready(1)(&course));
+    assert_eq!(bench.requests_with("Write level 2").len(), lessons + 1);
+    let started = std::time::Instant::now();
+    while !engine.idle() {
+        assert!(started.elapsed() < WAIT);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let listed = engine.list(&bench.store).await.unwrap();
+    let row = listed.iter().find(|row| row.id == paused).unwrap();
+    assert_eq!(
+        (row.paused, row.pending, row.levels_ready),
+        (false, false, 2)
+    );
+    // Cours inconnu.
+    assert!(matches!(
+        engine.set_paused(&bench.ctx, "nope", true).await,
+        Err(AppError::NotFound(_))
+    ));
+    assert!(matches!(
+        engine.set_paused(&bench.ctx, "nope", false).await,
+        Err(AppError::NotFound(_))
+    ));
+}
+
+/// Partie mise en file au moment même de la pause (demande lue juste avant,
+/// arrivée juste après) : le travail qui démarre voit la pause et n'écrit
+/// rien, ni ne demande rien au modèle.
+#[tokio::test]
+async fn a_part_queued_as_the_course_is_paused_is_not_written() {
+    let bench = Bench::new("chatonlm-study").await;
+    let id = bench.create("Photosynthesis", 10).await;
+    bench.until(&id, level_ready(0)).await;
+    bench.idle().await;
+    bench
+        .engine
+        .set_paused(&bench.ctx, &id, true)
+        .await
+        .unwrap();
+    bench.engine.start(&bench.ctx, &id).await.unwrap();
+    let requests = bench.fake.chat_requests().len();
+    for part in [generate::Part::Level(1), generate::Part::Final] {
+        bench.engine.enqueue_unchecked(&bench.ctx, &id, part);
+    }
+    bench.idle().await;
+    let course = bench.course(&id).await;
+    assert_eq!(course.levels[1].state, GenState::Pending);
+    assert_eq!(bench.fake.chat_requests().len(), requests);
+    // Plan d'un cours en pause (modèle lent : arrêté avant d'être écrit) :
+    // pas écrit non plus.
+    set_models(&bench.store, None, "", "chatonlm-study-slow");
+    let planning = bench.create("Fractions", 10).await;
+    bench
+        .engine
+        .set_paused(&bench.ctx, &planning, true)
+        .await
+        .unwrap();
+    bench.idle().await;
+    set_models(&bench.store, None, "", "chatonlm-study");
+    let requests = bench.fake.chat_requests().len();
+    bench
+        .engine
+        .enqueue_unchecked(&bench.ctx, &planning, generate::Part::Plan);
+    bench.idle().await;
+    assert_eq!(bench.course(&planning).await.status, CourseStatus::Planning);
+    assert_eq!(bench.fake.chat_requests().len(), requests);
+    bench
+        .engine
+        .set_paused(&bench.ctx, &planning, false)
+        .await
+        .unwrap();
+    bench.until(&planning, level_ready(0)).await;
+    bench.idle().await;
+}
+
+/// Une demande de l'apprenant qui exige une génération reprend un cours en
+/// pause (il ne reste jamais bloqué en silence) : nouveau plan, palier
+/// refait, nouvel essai, « Retry », précision du sujet. « Start » ne demande
+/// rien à écrire tout de suite : la pause tient.
+#[tokio::test]
+async fn a_request_that_needs_writing_resumes_a_paused_course() {
+    let bench = Bench::new("chatonlm-study").await;
+    let id = bench.create("Photosynthesis", 10).await;
+    bench.until(&id, level_ready(0)).await;
+    bench.idle().await;
+    let pause = || async {
+        bench
+            .engine
+            .set_paused(&bench.ctx, &id, true)
+            .await
+            .unwrap();
+        assert!(bench.course(&id).await.paused);
+    };
+
+    // Nouveau plan.
+    pause().await;
+    let plans = bench.requests_with("Design the plan").len();
+    bench.engine.replan(&bench.ctx, &id).await.unwrap();
+    let course = bench
+        .until(&id, |c| {
+            c.status == CourseStatus::Planned && level_ready(0)(c)
+        })
+        .await;
+    assert!(!course.paused);
+    assert_eq!(bench.requests_with("Design the plan").len(), plans + 1);
+    bench.idle().await;
+
+    // « Start » : la pause tient, rien n'est écrit.
+    pause().await;
+    bench.engine.start(&bench.ctx, &id).await.unwrap();
+    bench.idle().await;
+    let course = bench.course(&id).await;
+    assert!(course.paused);
+    assert_eq!(course.levels[1].state, GenState::Pending);
+
+    // Palier refait (« Report a mistake ») : tout ce qui manque est écrit.
+    bench.engine.regenerate(&bench.ctx, &id, 0).await.unwrap();
+    let course = bench
+        .until(&id, |c| level_ready(0)(c) && final_ready(c))
+        .await;
+    assert!(!course.paused);
+    bench.idle().await;
+
+    // Nouvel essai (« Explain differently »).
+    for question in &course.levels[0].attempts[0].questions {
+        bench.answer(&id, question, false).await.unwrap();
+    }
+    pause().await;
+    bench.engine.remedy(&bench.ctx, &id, 0).await.unwrap();
+    let course = bench
+        .until(&id, |c| {
+            c.levels[0].attempts.len() == 2 && c.levels[0].remedy.is_none()
+        })
+        .await;
+    assert!(!course.paused);
+    bench.idle().await;
+
+    // « Retry » d'un palier en échec.
+    let course_id = id.clone();
+    bench
+        .store
+        .call(move |c| {
+            db::update_level(c, &course_id, 1, |level| {
+                *level = stored::LevelData {
+                    state: GenState::Failed,
+                    ..stored::LevelData::default()
+                };
+                Ok(())
+            })
+        })
+        .await
+        .unwrap();
+    pause().await;
+    bench.engine.retry(&bench.ctx, &id, false).await.unwrap();
+    let course = bench.until(&id, level_ready(1)).await;
+    assert!(!course.paused);
+    bench.idle().await;
+
+    // Précision d'un sujet ambigu.
+    set_models(&bench.store, None, "", "chatonlm-study-unclear");
+    let unclear = bench.create("Java", 10).await;
+    bench
+        .until(&unclear, |c| c.status == CourseStatus::Unclear)
+        .await;
+    bench
+        .engine
+        .set_paused(&bench.ctx, &unclear, true)
+        .await
+        .unwrap();
+    bench
+        .engine
+        .clarify(&bench.ctx, &unclear, None)
+        .await
+        .unwrap();
+    let course = bench
+        .until(&unclear, |c| c.status == CourseStatus::Planned)
+        .await;
+    assert!(!course.paused);
+    bench.idle().await;
+}
+
 fn bench_answers_cleared(course: &Course) -> bool {
     course.answers.keys().all(|key| !key.starts_with("L0-"))
 }

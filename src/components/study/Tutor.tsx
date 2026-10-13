@@ -4,7 +4,9 @@
 // l'apprenant à droite, la réponse du tuteur à gauche, en flux). « Stop » ou
 // Échap arrête un flux ; Échap ferme aussi le panneau des questions. Une
 // réponse finie est enregistrée par le moteur et revient par la relecture du
-// cours ; une réponse arrêtée n'est pas gardée.
+// cours ; une réponse arrêtée n'est pas gardée. Une réponse enregistrée se
+// lit à voix haute (StudyReadAloud, sous sa bulle), comme une réponse du
+// chat ; pas une réponse encore en flux.
 
 import {
   ChatBubbleLeftRightIcon,
@@ -22,6 +24,7 @@ import {
 } from "react";
 import type { Course } from "@/bindings/Course";
 import type { Level } from "@/bindings/Level";
+import { StudyReadAloud } from "@/components/study/StudyReadAloud";
 import {
   BUTTON,
   LearnerBubble,
@@ -42,7 +45,7 @@ import {
 } from "@/hooks/useStudy";
 import { useT } from "@/i18n";
 import { overlayOpen } from "@/lib/overlay";
-import { MAX_QUESTION_CHARS } from "@/lib/study";
+import { MAX_QUESTION_CHARS, passageKey } from "@/lib/study";
 
 /** Échap pendant un flux : arrêt (sinon `onIdle`, s'il est donné). */
 function useEscape(
@@ -112,13 +115,25 @@ export function ExplainBlock({
   const key = explainKey(course.id, level.index, section);
   const stream = useStudyStream(key);
   useEscape(stream, key);
-  const saved = level.explains.filter((explain) => explain.section === section);
+  // Avec leur rang dans le palier (clé du texte lu à voix haute).
+  const saved = level.explains
+    .map((explain, index) => ({ explain, index }))
+    .filter(({ explain }) => explain.section === section);
   const live = liveStream(stream, saved.length);
   const running = isStreaming(stream);
   return (
     <div className="mt-5 flex flex-col gap-3">
-      {saved.map((explain, index) => (
-        <TutorBubble key={index} testId="study-explain">
+      {saved.map(({ explain, index }) => (
+        <TutorBubble
+          key={index}
+          testId="study-explain"
+          actions={
+            <StudyReadAloud
+              courseId={course.id}
+              passage={passageKey.explain(level.index, index)}
+            />
+          }
+        >
           <p className="mb-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
             {t("study.tutor.simpler")}
           </p>
@@ -306,7 +321,15 @@ export function AskPanel({ course, level }: { course: Course; level: Level }) {
         {level.asks.map((ask, index) => (
           <div key={index} className="flex flex-col gap-2">
             <LearnerBubble>{ask.question}</LearnerBubble>
-            <TutorBubble testId="study-ask-answer">
+            <TutorBubble
+              testId="study-ask-answer"
+              actions={
+                <StudyReadAloud
+                  courseId={course.id}
+                  passage={passageKey.ask(level.index, index)}
+                />
+              }
+            >
               <Markdown content={ask.answer} />
             </TutorBubble>
           </div>

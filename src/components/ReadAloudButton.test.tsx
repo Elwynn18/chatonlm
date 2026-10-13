@@ -33,6 +33,9 @@ afterEach(() => {
 });
 
 const MODEL = "qwen3:0.6b";
+
+/** Réponse nommée par l'état de la lecture. */
+const answer = (messageId: number) => ({ kind: "message", messageId }) as const;
 const FIRST = "Hello there. How can I help?";
 const SECOND = "Paris is the capital of France.";
 const THIRD = "Paris est la capitale de la France.";
@@ -212,7 +215,7 @@ describe("Read aloud button", () => {
     setup((backend) => {
       backend.tts.install(VOICE_EN);
       backend.tts.state = {
-        messageId: 2,
+        source: { kind: "message", messageId: 2 },
         phase: "playing",
         percent: null,
         error: null,
@@ -507,7 +510,7 @@ describe("Read aloud and the response being written", () => {
     expect(region?.getAttribute("role")).toBe("status");
     expect(region?.textContent).toBe("");
 
-    await backend.tts.setState({ messageId: 4, phase: "preparing" });
+    await backend.tts.setState({ source: answer(4), phase: "preparing" });
     await waitFor(() => expect(region?.textContent).toBe("Preparing to read…"));
     expect(
       reply().closest(".mb-8")!.querySelector("[data-read-aloud-status]"),
@@ -533,7 +536,7 @@ describe("Read aloud and the response being written", () => {
     // Lecture automatique en erreur avant la fin de la réponse : le bouton
     // et l'erreur, tout de suite.
     await backend.tts.setState({
-      messageId: 4,
+      source: answer(4),
       phase: "idle",
       error: "noOutputDevice",
     });
@@ -544,7 +547,7 @@ describe("Read aloud and the response being written", () => {
 
     // Lue de nouveau, puis finie pendant la lecture : Copier s'ajoute, le
     // bouton de lecture reste le même (focus gardé).
-    await backend.tts.setState({ messageId: 4, phase: "playing" });
+    await backend.tts.setState({ source: answer(4), phase: "playing" });
     await waitFor(() => expect(actions()).not.toBeNull());
     const button = within(actions() as HTMLElement).getByRole("button", {
       name: "Stop reading",
@@ -583,7 +586,7 @@ describe("Read aloud and the response being written", () => {
         .closest(".mb-8")!
         .querySelector("[data-role=actions]");
     expect(toolActions()).toBeNull();
-    await tts.setState({ messageId: 4, phase: "playing" });
+    await tts.setState({ source: answer(4), phase: "playing" });
     await waitFor(() => expect(toolActions()).not.toBeNull());
     expect(
       within(toolActions() as HTMLElement)
@@ -593,7 +596,11 @@ describe("Read aloud and the response being written", () => {
     await tts.end();
     await waitFor(() => expect(toolActions()).toBeNull());
     // Lecture automatique en erreur : le bouton et l'erreur restent.
-    await tts.setState({ messageId: 4, phase: "idle", error: "engineFailed" });
+    await tts.setState({
+      source: answer(4),
+      phase: "idle",
+      error: "engineFailed",
+    });
     await waitFor(() => expect(toolActions()).not.toBeNull());
     expect(toolActions()!.textContent).toContain(
       "Couldn't read this response aloud.",

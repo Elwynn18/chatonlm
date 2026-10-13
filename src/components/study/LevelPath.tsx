@@ -109,11 +109,13 @@ function PathNode({
   const stars = levelStars(course, level.index);
   const locked = level.status === "locked";
   // Palier en cours d'écriture, ou nouvel essai demandé (en file, puis en
-  // cours d'écriture : le moteur le met d'abord à « pending »).
+  // cours d'écriture : le moteur le met d'abord à « pending ») ; rien ne
+  // s'écrit pour un cours en pause.
   const writing =
-    level.state === "generating" ||
-    level.remedy === "pending" ||
-    level.remedy === "generating";
+    !course.paused &&
+    (level.state === "generating" ||
+      level.remedy === "pending" ||
+      level.remedy === "generating");
   const done = levelDone(level);
   // Au milieu du nom lu : en minuscules (les pastilles ont leur majuscule).
   const status = t(`study.path.status.${level.status}`);

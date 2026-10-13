@@ -15,6 +15,19 @@ title: string, topic: string, level: StudyLevel, minutes: number, status: Course
  */
 levelsDone: number, levelsTotal: number, 
 /**
+ * Paliers écrits (prêts à être lus).
+ */
+levelsReady: number, 
+/**
+ * Des parties restent à écrire (en file, en cours, ou retenues par la
+ * pause) ; faux si une partie en échec attend `study_retry`.
+ */
+pending: boolean, 
+/**
+ * Génération mise en pause par l'apprenant.
+ */
+paused: boolean, 
+/**
  * Bonnes réponses du bilan (cours fini).
  */
 finalCorrect: number | null, finalTotal: number | null, createdAt: number, updatedAt: number, finishedAt: number | null, };

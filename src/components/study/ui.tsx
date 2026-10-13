@@ -82,17 +82,20 @@ export function TutorAvatar() {
 }
 
 /**
- * Bulle du tuteur, à gauche, avec son avatar ; `label` : nom lu par les
- * lecteurs d'écran (« Tutor »).
+ * Bulle du tuteur, à gauche, avec son avatar ; nom lu par les lecteurs
+ * d'écran : « Tutor ». `actions` : sous la bulle, comme sous une réponse du
+ * chat (lecture à voix haute).
  */
 export function TutorBubble({
   children,
   testId,
   busy = false,
+  actions,
 }: {
   children: ReactNode;
   testId?: string;
   busy?: boolean;
+  actions?: ReactNode;
 }) {
   const t = useT();
   return (
@@ -102,13 +105,16 @@ export function TutorBubble({
       className="flex items-start gap-2.5 motion-safe:animate-study-reveal"
     >
       <TutorAvatar />
-      <div
-        role="group"
-        aria-label={t("study.tutor.label")}
-        aria-busy={busy || undefined}
-        className="min-w-0 flex-1 rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-2.5 text-sm dark:bg-neutral-700/60"
-      >
-        {children}
+      <div className="min-w-0 flex-1">
+        <div
+          role="group"
+          aria-label={t("study.tutor.label")}
+          aria-busy={busy || undefined}
+          className="rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-2.5 text-sm dark:bg-neutral-700/60"
+        >
+          {children}
+        </div>
+        {actions && <div className="mt-1 pl-3">{actions}</div>}
       </div>
     </div>
   );

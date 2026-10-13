@@ -17,6 +17,13 @@
 // du faux serveur : la bonne option contient « Right », vrai/faux vaut vrai,
 // le trou attend « right », ordre et association à remettre en place.
 //
+// Écriture d'un palier montrée par `writeLevel` (« generating », leçon
+// absente puis enregistrée avant les questions, comme le moteur). Pause
+// (study_pause) : enregistrée dans le cours, ce qui était « generating »
+// redevient « pending » ; une demande qui exige une génération
+// (study_remedy, study_regenerate, study_retry, study_replan,
+// study_clarify) reprend le cours.
+//
 // Flux (study_explain, study_ask) : rien n'est livré tout seul ; le test
 // les fait avancer par `step()` ou `finish()` (deux `delta`, puis `done`,
 // réponse enregistrée) ; après study_stream_cancel, `finish()` livre
@@ -93,6 +100,8 @@ export interface SeedOptions {
   error?: StudyError | null;
   sources?: Course["sources"];
   updatedAt?: number;
+  /** Génération en pause. */
+  paused?: boolean;
 }
 
 export interface FakeStudy {
@@ -121,6 +130,15 @@ export interface FakeStudy {
   finishPlan(courseId: string): Promise<void>;
   failPlan(courseId: string, error: StudyError): Promise<void>;
   readyLevel(courseId: string, level: number): Promise<void>;
+  /**
+   * Palier en cours d'écriture : sa leçon (`lesson`), puis ses questions
+   * (leçon enregistrée).
+   */
+  writeLevel(
+    courseId: string,
+    level: number,
+    stage: "lesson" | "questions",
+  ): Promise<void>;
   failLevel(courseId: string, level: number, error: StudyError): Promise<void>;
   /** Nouvel essai demandé prêt. */
   finishRemedy(courseId: string, level: number): Promise<void>;
@@ -254,6 +272,10 @@ function summaryOf(course: Course): CourseSummary {
     status: course.status,
     levelsDone: done,
     levelsTotal: course.plan?.levels.length ?? 0,
+    levelsReady: course.levels.filter((level) => level.state === "ready")
+      .length,
+    pending: pendingOf(course),
+    paused: course.paused,
     finalCorrect: finished
       ? final.filter((q) => course.answers[q.id]?.correct).length
       : null,
@@ -262,6 +284,31 @@ function summaryOf(course: Course): CourseSummary {
     updatedAt: course.updatedAt,
     finishedAt: course.finishedAt,
   };
+}
+
+const unwritten = (state: Level["state"] | null | undefined) =>
+  state === "pending" || state === "generating";
+
+/** Des parties restent à écrire (comme `study::data::pending` du moteur). */
+function pendingOf(course: Course): boolean {
+  const levels = course.levels;
+  switch (course.status) {
+    case "planning":
+      return true;
+    case "planned":
+      return unwritten(levels[0]?.state);
+    case "active":
+    case "finished":
+      return (
+        levels.some(
+          (level) => unwritten(level.state) || unwritten(level.remedy),
+        ) ||
+        (!levels.some((level) => level.state === "failed") &&
+          unwritten(course.finalQuiz?.state))
+      );
+    default:
+      return false;
+  }
 }
 
 function invalid(message: string): AppError {
@@ -361,6 +408,8 @@ export function fakeStudy(
         createdAt: at,
         updatedAt: at,
         finishedAt: null,
+        paused: options.paused ?? false,
+        queueBusy: false,
       };
       fake.courses.set(id, course);
       if (status === "planning") return course;
@@ -458,6 +507,16 @@ export function fakeStudy(
     async readyLevel(courseId, level) {
       await fake.update(courseId, (course) => writeLevel(course, level));
     },
+    async writeLevel(courseId, level, stage) {
+      await fake.update(courseId, (course) => {
+        course.levels[level] = {
+          ...emptyLevel(level),
+          status: course.levels[level].status,
+          state: "generating",
+          lesson: stage === "questions" ? makeLesson(level) : null,
+        };
+      });
+    },
     async failLevel(courseId, level, error) {
       await fake.update(courseId, (course) => {
         course.levels[level].state = "failed";
@@ -519,6 +578,13 @@ export function fakeStudy(
     course.error = null;
     course.clarify = null;
     course.levels = Array.from({ length: count }, (_, i) => emptyLevel(i));
+    // Comme le moteur : le bilan attend dès que le plan est prêt.
+    course.finalQuiz = {
+      state: "pending",
+      error: null,
+      questions: [],
+      estimatedSeconds: 0,
+    };
     if (course.web) {
       course.sources = [
         ...course.sources.filter((source) => source.kind !== "web"),
@@ -725,6 +791,7 @@ export function fakeStudy(
       if (choice) course.topic = `${course.topic} (${choice})`;
       course.clarify = null;
       course.status = "planning";
+      course.paused = false;
       if (fake.auto) {
         writePlan(course);
         writeLevel(course, 0);
@@ -742,6 +809,7 @@ export function fakeStudy(
       course.status = "planning";
       course.plan = null;
       course.levels = [];
+      course.paused = false;
       if (fake.auto) {
         writePlan(course);
         writeLevel(course, 0);
@@ -756,6 +824,29 @@ export function fakeStudy(
     return change(course, () => {
       course.status = "active";
       if (fake.auto) generateAll(course);
+    });
+  });
+
+  simulator.handle("study_pause", (args: Args) => {
+    failure("study_pause");
+    const course = target(args);
+    const paused = args.paused as boolean;
+    if (typeof paused !== "boolean") {
+      throw simulator.fail(
+        `study_pause: bad arguments ${JSON.stringify(args)}`,
+      );
+    }
+    return change(course, () => {
+      course.paused = paused;
+      if (!paused) return;
+      // La partie en cours est arrêtée : elle sera refaite à la reprise.
+      for (const level of course.levels) {
+        if (level.state === "generating") level.state = "pending";
+        if (level.remedy === "generating") level.remedy = "pending";
+      }
+      if (course.finalQuiz?.state === "generating") {
+        course.finalQuiz = { ...course.finalQuiz, state: "pending" };
+      }
     });
   });
 
@@ -808,6 +899,7 @@ export function fakeStudy(
       throw invalid("no failed attempt");
     }
     return change(course, () => {
+      course.paused = false;
       if (fake.auto) addAttempt(course, i);
       else level.remedy = "pending";
     });
@@ -845,6 +937,7 @@ export function fakeStudy(
       }
       skipped.get(course.id)?.delete(i);
       course.levels[i] = emptyLevel(i);
+      course.paused = false;
       if (fake.auto) writeLevel(course, i);
     });
   });
@@ -853,6 +946,7 @@ export function fakeStudy(
     failure("study_retry");
     const course = target(args);
     return change(course, () => {
+      course.paused = false;
       if (args.withoutWeb) {
         course.web = false;
         course.sources = course.sources.filter((s) => s.kind !== "web");

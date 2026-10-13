@@ -3,8 +3,15 @@
 // understand » sous chacune), exemple résolu (« Try it yourself first » : le
 // problème, puis la solution révélée étape par étape, ou d'un coup), « À
 // retenir » (cartes révélées une à une, puis le piège fréquent), explication
-// autrement d'un nouvel essai, attentes (palier ou bilan en préparation, ou
-// en échec). Entrée : action principale (étape suivante, puis « Continue »).
+// autrement d'un nouvel essai, attentes (palier ou bilan pas encore écrit :
+// ce qui s'écrit, paliers prêts, « Resume » si le cours est en pause ; ou en
+// échec). Entrée : action principale (étape suivante, puis « Continue »).
+//
+// Lecture à voix haute (StudyReadAloud, comme sous une réponse du chat) :
+// sous le texte d'une section (lue avec son titre et l'accroche), sous
+// l'énoncé de l'exemple, sous sa solution et sous les « à retenir » une fois
+// entièrement révélés (rien n'est lu avant d'être montré), sous
+// l'explication d'un nouvel essai.
 
 import {
   ArrowPathIcon,
@@ -15,7 +22,9 @@ import {
 import { useState } from "react";
 import type { Course } from "@/bindings/Course";
 import type { Level } from "@/bindings/Level";
+import { GenerationStatus } from "@/components/study/GenerationStatus";
 import { StudyErrorNotice } from "@/components/study/StudyErrorNotice";
+import { StudyReadAloud } from "@/components/study/StudyReadAloud";
 import { CardShell, KeyHint } from "@/components/study/cardKit";
 import { ExplainBlock } from "@/components/study/Tutor";
 import {
@@ -28,7 +37,12 @@ import {
 import { levelEyebrow } from "@/components/study/texts";
 import { useCardKeys } from "@/hooks/useCardKeys";
 import { useT } from "@/i18n";
-import { roundMinutes, secondsLeft, solutionSteps } from "@/lib/study";
+import {
+  passageKey,
+  roundMinutes,
+  secondsLeft,
+  solutionSteps,
+} from "@/lib/study";
 
 /** Bouton « Continue » d'une carte (Entrée aussi). */
 export function ContinueButton({
@@ -147,6 +161,12 @@ export function SectionCard({
         })}
       </p>
       <Markdown content={part?.body ?? ""} />
+      <div className="mt-2">
+        <StudyReadAloud
+          courseId={course.id}
+          passage={passageKey.section(level.index, section)}
+        />
+      </div>
       <ExplainBlock course={course} level={level} section={section} />
     </CardShell>
   );
@@ -213,6 +233,12 @@ export function ExampleCard({
           {t("study.example.tryFirst")}
         </p>
         <Markdown content={example.problem} />
+        <div className="mt-1">
+          <StudyReadAloud
+            courseId={course.id}
+            passage={passageKey.example(level.index)}
+          />
+        </div>
       </div>
       {shown > 0 && (
         <div className="mt-4" data-testid="study-solution">
@@ -238,6 +264,14 @@ export function ExampleCard({
               </li>
             ))}
           </ol>
+          {all && (
+            <div className="mt-2">
+              <StudyReadAloud
+                courseId={course.id}
+                passage={passageKey.solution(level.index)}
+              />
+            </div>
+          )}
         </div>
       )}
     </CardShell>
@@ -334,6 +368,14 @@ export function RecapCard({
           </div>
         </div>
       )}
+      {all && (
+        <div className="mt-2">
+          <StudyReadAloud
+            courseId={course.id}
+            passage={passageKey.recap(level.index)}
+          />
+        </div>
+      )}
     </CardShell>
   );
 }
@@ -365,14 +407,25 @@ export function RemedyCard({
       }
       hint={onNext && <KeyHint k="study.keys.continue" />}
     >
-      <TutorBubble testId="study-remedy-text">
+      <TutorBubble
+        testId="study-remedy-text"
+        actions={
+          <StudyReadAloud
+            courseId={course.id}
+            passage={passageKey.remedy(level.index, attempt)}
+          />
+        }
+      >
         <Markdown content={explanation} />
       </TutorBubble>
     </CardShell>
   );
 }
 
-/** Palier pas encore prêt : préparation en cours, ou échec et « Retry ». */
+/**
+ * Palier pas encore écrit : où en est l'écriture du cours (et « Resume » s'il
+ * est en pause), ou échec et « Retry ».
+ */
 export function LevelWaitCard({
   course,
   level,
@@ -391,7 +444,12 @@ export function LevelWaitCard({
       {level.state === "failed" && level.error ? (
         <StudyErrorNotice courseId={course.id} error={level.error} />
       ) : (
-        <Preparing text={t("study.wait.level")} />
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-neutral-700 dark:text-neutral-300">
+            {t("study.wait.level")}
+          </p>
+          <GenerationStatus course={course} hint emphasis />
+        </div>
       )}
     </CardShell>
   );
@@ -410,7 +468,15 @@ export function FinalWaitCard({ course }: { course: Course }) {
       {quiz?.state === "failed" && quiz.error ? (
         <StudyErrorNotice courseId={course.id} error={quiz.error} />
       ) : (
-        <Preparing text={t("study.wait.final")} />
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-neutral-700 dark:text-neutral-300">
+            {t("study.wait.final")}
+            {course.levels.some((level) => level.state !== "ready") && (
+              <> {t("study.wait.finalAfterLevels")}</>
+            )}
+          </p>
+          <GenerationStatus course={course} hint emphasis />
+        </div>
       )}
     </CardShell>
   );

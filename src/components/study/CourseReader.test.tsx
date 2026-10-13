@@ -113,8 +113,9 @@ describe("Lesson cards", () => {
     await open();
     expect(screen.getByTestId("study-intro")).toBeTruthy();
     expect(heading()).toBe("Course on Photosynthesis");
+    // Une durée d'étude, pas une attente.
     expect(screen.getByTestId("study-intro").textContent).toContain(
-      "About 7 minutes to go.",
+      "About 7 minutes of study to go.",
     );
     await user.click(button("Let's start"));
     expect(heading()).toBe("Heading 1.1");
@@ -929,10 +930,10 @@ describe("Level path and progress", () => {
     expect(nodes[0].getAttribute("aria-current")).toBe("step");
     const bar = screen.getByRole("progressbar", { name: "Course progress" });
     expect(bar.getAttribute("aria-valuetext")).toBe("10 of 45 steps");
-    expect(screen.getByText("About 11 min left")).toBeTruthy();
+    expect(screen.getByText("About 11 min of study left")).toBeTruthy();
   });
 
-  it("a level not written yet: Preparing, then its first card; a failed one: the error and Retry", async () => {
+  it("a level not written yet: said so, then its first card; a failed one: the error and Retry", async () => {
     const user = userEvent.setup();
     const { simulator, study, open } = setup(
       { readyLevels: 1 },
@@ -946,11 +947,11 @@ describe("Level path and progress", () => {
     );
     await open();
     expect(screen.getByTestId("study-level-wait").textContent).toContain(
-      "Preparing this level…",
+      "This level isn't written yet.",
     );
     act(() => setLanguage("fr"));
     expect(screen.getByTestId("study-level-wait").textContent).toContain(
-      "Préparation de ce palier…",
+      "Ce palier n'est pas encore écrit.",
     );
     act(() => setLanguage("en"));
     await study.failLevel("c1", 1, {
@@ -1141,7 +1142,7 @@ describe("Final review and end", () => {
     expect(sentence()).toBe("1 / 3 respuesta correcta en el repaso final");
   });
 
-  it("the final review not written yet: Preparing", async () => {
+  it("the final review not written yet: said so", async () => {
     const { open } = setup(
       { finalReady: false },
       async (s, course) => {
@@ -1155,7 +1156,7 @@ describe("Final review and end", () => {
     );
     await open();
     expect(screen.getByTestId("study-final-wait").textContent).toContain(
-      "Preparing the final review…",
+      "The final review isn't written yet.",
     );
   });
 });
@@ -1523,7 +1524,7 @@ describe("Reader in other languages", () => {
     expect(screen.getByTestId("study-streak").textContent).toBe(
       "33 bonnes réponses d'affilée",
     );
-    expect(screen.getByText("Encore 4 min environ")).toBeTruthy();
+    expect(screen.getByText("Encore 4 min d'étude environ")).toBeTruthy();
     // Le nom suit le total (« 0 étapes » au début serait faux).
     expect(
       screen.getByRole("progressbar").getAttribute("aria-valuetext"),

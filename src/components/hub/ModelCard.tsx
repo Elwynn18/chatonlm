@@ -6,6 +6,7 @@ import type { HubModel } from "@/bindings/HubModel";
 import {
   CapabilityIcons,
   FitPill,
+  Footprint,
   InstalledBadge,
   ModelAvatar,
   TrustLine,
@@ -77,7 +78,7 @@ export function ModelCard({
         <CapabilityIcons capabilities={model.capabilities} />
       </div>
 
-      {/* Chiffres puis pastille, toujours sur deux lignes : même pied pour
+      {/* Chiffres, pastille puis poids, chacun sur sa ligne : même pied pour
           toutes les cartes de la grille. */}
       <div className="mt-auto flex flex-col items-start gap-2 pt-4 text-xs text-neutral-500 dark:text-neutral-400">
         <span className="flex items-center gap-3">
@@ -97,7 +98,13 @@ export function ModelCard({
           </span>
           {updated && <span title={t("hub.card.lastUpdated")}>{updated}</span>}
         </span>
-        <FitPill fit={model.fit} size={model.estimatedSize} gpu={gpu} />
+        <FitPill fit={model.fit} gpu={gpu} />
+        <Footprint
+          download={model.estimatedSize}
+          memory={model.estimatedMemory}
+          gpu={gpu}
+          estimated
+        />
       </div>
     </Link>
   );

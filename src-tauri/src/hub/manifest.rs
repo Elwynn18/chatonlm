@@ -5,9 +5,12 @@
 //! d'empreinte : seuls le statut 200 et un JSON avec `layers` comptent
 //! (`34-modelhub-ollama-hf.md` § 2 et § 10, `35-modelhub-hf-api.md` § 2.4).
 //!
-//! Sert à deux choses : connaître la taille exacte d'un téléchargement (couches
-//! et configuration, projecteur de vision compris) et refuser tout de suite une
-//! version que le registre ne servira pas (400, 401), avec un texte lisible.
+//! Sert à trois choses : connaître la taille exacte d'un téléchargement (couches
+//! et configuration, projecteur de vision compris), refuser tout de suite une
+//! version que le registre ne servira pas (400, 401), avec un texte lisible, et
+//! savoir si un modèle installé est celui du registre (`ollama::outdated`) :
+//! Ollama écrit sur le disque les octets reçus, l'empreinte qu'il donne dans
+//! `/api/tags` est donc le SHA-256 de cette réponse.
 //!
 //! Limite assumée : ces requêtes ne passent pas par `hub::hf::Hf` et ignorent
 //! le quota partagé après une réponse 429 du catalogue (contrat § 3) ; un 429
@@ -18,6 +21,7 @@
 use std::time::Duration;
 
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use url::Url;
 
 use super::errors;
@@ -35,8 +39,9 @@ const MAX_BODY: usize = 256 * 1024;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Manifest {
     /// 200 et un manifeste lisible : octets à télécharger (couches et
-    /// configuration, comme la taille sur le disque d'Ollama).
-    Found { total: u64 },
+    /// configuration, comme la taille sur le disque d'Ollama) et empreinte de
+    /// la réponse (SHA-256 en hexadécimal, celle d'Ollama pour ce manifeste).
+    Found { total: u64, digest: String },
     /// 400 ou 401 : cette version ne se téléchargera pas ; texte lisible.
     Refused(String),
     /// Autre statut (404, 429, 5xx) ou réponse illisible (page HTML d'un
@@ -122,6 +127,7 @@ fn read(status: reqwest::StatusCode, body: &[u8]) -> Manifest {
                     .chain(manifest.config.as_ref())
                     .map(|blob| blob.size)
                     .sum(),
+                digest: format!("{:x}", Sha256::digest(body)),
             },
             Err(_) => Manifest::Unexpected,
         },
@@ -184,6 +190,30 @@ mod tests {
         parse_hf_name(model).unwrap()
     }
 
+    fn total_of(manifest: Manifest) -> u64 {
+        match manifest {
+            Manifest::Found { total, .. } => total,
+            other => panic!("expected a manifest, got {other:?}"),
+        }
+    }
+
+    /// L'empreinte est celle des octets reçus, comme Ollama la calcule pour
+    /// le manifeste qu'il écrit (`manifest/manifest.go`) : elle change avec
+    /// le moindre octet, espaces compris.
+    #[test]
+    fn the_digest_is_the_one_of_the_bytes_received() {
+        let ok = reqwest::StatusCode::OK;
+        let digest = |body: &str| match read(ok, body.as_bytes()) {
+            Manifest::Found { digest, .. } => digest,
+            other => panic!("expected a manifest, got {other:?}"),
+        };
+        assert_eq!(
+            digest(r#"{"layers":[]}"#),
+            "c824a9aa7d2e3471306648c6d4baa1abbcb97ff0276181ab4722ca27127cdba0"
+        );
+        assert_ne!(digest(r#"{"layers":[]}"#), digest(r#"{"layers": []}"#));
+    }
+
     #[test]
     fn hugging_face_hosts() {
         for model in [
@@ -231,10 +261,8 @@ mod tests {
             "layers":[{"digest":"sha256:6f5d","mediaType":"application/vnd.ollama.image.model","size":5966095584},
             {"digest":"sha256:8536","mediaType":"application/vnd.ollama.image.projector","size":921705024}]}"#;
         assert_eq!(
-            read(ok, ud.as_bytes()),
-            Manifest::Found {
-                total: 5_966_095_584 + 921_705_024 + 481
-            }
+            total_of(read(ok, ud.as_bytes())),
+            5_966_095_584 + 921_705_024 + 481
         );
         // unsloth/gemma-3-4b-it-GGUF:Q4_K_M : modèle, gabarit, projecteur,
         // paramètres.
@@ -245,10 +273,8 @@ mod tests {
             {"digest":"sha256:7311","mediaType":"application/vnd.ollama.image.projector","size":851251328},
             {"digest":"sha256:39bf","mediaType":"application/vnd.ollama.image.params","size":201}]}"#;
         assert_eq!(
-            read(ok, vision.as_bytes()),
-            Manifest::Found {
-                total: 2_489_894_016 + 476 + 851_251_328 + 201 + 629
-            }
+            total_of(read(ok, vision.as_bytes())),
+            2_489_894_016 + 476 + 851_251_328 + 201 + 629
         );
         let bad = reqwest::StatusCode::BAD_REQUEST;
         for (sample, shown) in [
@@ -303,12 +329,7 @@ mod tests {
         };
         // Le faux registre refuse une requête sans l'en-tête Accept.
         let vision = "hf.co/chatonlm/Eye-vision-GGUF:Q4_K_M";
-        assert_eq!(
-            fetch(vision).await,
-            Manifest::Found {
-                total: fake_ollama::hf_total(vision)
-            }
-        );
+        assert_eq!(total_of(fetch(vision).await), fake_ollama::hf_total(vision));
         for (model, shown) in [
             ("hf.co/chatonlm/Big-sharded-GGUF:Q8_0", SHARDED),
             (

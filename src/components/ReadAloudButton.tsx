@@ -1,6 +1,8 @@
-// Bouton « Read aloud » d'une réponse (propre à ChatonLM, sur le modèle de
-// CopyButton.tsx) : lit la réponse à voix haute, une seule lecture dans
-// l'app (en lancer une arrête la précédente). Au repos : haut-parleur ;
+// Bouton « Read aloud » d'une réponse ou d'un texte d'un cours (propre à
+// ChatonLM, sur le modèle de CopyButton.tsx) : lit le texte à voix haute,
+// une seule lecture dans l'app (en lancer une arrête la précédente ; l'état
+// du moteur nomme le texte lu : seul son bouton montre « Stop »). Au repos :
+// haut-parleur ;
 // pendant la préparation ou le téléchargement de la voix : roue et texte
 // (« Preparing to read… », progression) ; pendant la lecture : carré
 // « Stop reading ». Le même bouton arrête la préparation et la lecture.
@@ -13,7 +15,7 @@
 // suivante. Le texte montré décrit le bouton (aria-describedby).
 //
 // Annonces : les étapes et les erreurs de la lecture par ReadAloudStatus,
-// région présente sous chaque réponse avant que la lecture ne commence
+// région présente sous chaque texte avant que la lecture ne commence
 // (une région née déjà remplie n'est pas toujours lue, et la lecture
 // automatique commence sans bouton) ; les refus d'un clic par la région du
 // bouton.
@@ -26,55 +28,53 @@ import {
 } from "@heroicons/react/24/outline";
 import { useId, useState } from "react";
 import type { ReadAloudOutcome } from "@/bindings/ReadAloudOutcome";
+import type { ReadAloudSource } from "@/bindings/ReadAloudSource";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useReadAloud, useReadAloudActions } from "@/hooks/useReadAloud";
-import { type TFunction, useT } from "@/i18n";
+import { useT } from "@/i18n";
 import { formatBytes, formatPercent } from "@/i18n/format";
 import { errorMessage } from "@/lib/ipc";
 import {
   errorFor,
   needsVoiceText,
   phaseFor,
+  type ReadAloudBlocked,
+  readAloudBlockedText,
   readAloudErrorText,
+  type ReadAloudTarget,
+  sourceOf,
 } from "@/lib/readAloud";
 
 type NeedsVoice = Extract<ReadAloudOutcome, { kind: "needsVoice" }>;
 
-/** Réponse que le moteur refuse de lire (bouton inactif). */
-type Blocked = "unsupportedLanguage" | "nothingToRead";
-
-function blockedText(t: TFunction, blocked: Blocked): string {
-  return blocked === "unsupportedLanguage"
-    ? t("chat.readAloud.unsupported")
-    : t("chat.readAloud.nothingToRead");
-}
-
 export function ReadAloudButton({
-  chatId,
-  messageId,
+  target,
   className = "",
 }: {
-  chatId: string;
-  messageId: number;
+  /** Texte à lire : réponse d'une conversation, ou passage d'un cours. */
+  target: ReadAloudTarget;
   className?: string;
 }) {
   const t = useT();
   const state = useReadAloud();
   const { read, stop } = useReadAloudActions();
   const [asking, setAsking] = useState<NeedsVoice | null>(null);
-  const [blocked, setBlocked] = useState<Blocked | null>(null);
+  const [blocked, setBlocked] = useState<ReadAloudBlocked | null>(null);
   // Commande refusée par le moteur (texte du moteur, déjà traduit).
   const [failure, setFailure] = useState<string | null>(null);
   const problemId = useId();
-  const phase = phaseFor(state, messageId);
-  const error = errorFor(state, messageId);
+  const source = sourceOf(target);
+  const blockedText = (reason: ReadAloudBlocked) =>
+    readAloudBlockedText(t, reason, target.kind);
+  const phase = phaseFor(state, source);
+  const error = errorFor(state, source);
   const busy = phase === "preparing" || phase === "downloading";
   const running = phase !== "idle";
 
   const start = (download: boolean) => {
     setFailure(null);
     read
-      .mutateAsync({ chatId, messageId, download })
+      .mutateAsync({ target, download })
       .then((outcome) => {
         if (outcome.kind === "needsVoice") setAsking(outcome);
         else if (outcome.kind !== "started") setBlocked(outcome.kind);
@@ -106,8 +106,9 @@ export function ReadAloudButton({
         ? t("chat.readAloud.preparing")
         : null;
   // Refus d'un clic (le plus récent), sinon erreur de la dernière lecture.
-  const refusal = failure ?? (blocked ? blockedText(t, blocked) : null);
-  const problem = refusal ?? (error ? readAloudErrorText(t, error) : null);
+  const refusal = failure ?? (blocked ? blockedText(blocked) : null);
+  const problem =
+    refusal ?? (error ? readAloudErrorText(t, error, target.kind) : null);
   const shownProblem = progress ? null : problem;
 
   // Mêmes dimensions que Copier (taille « md »).
@@ -119,7 +120,7 @@ export function ReadAloudButton({
         data-read-aloud={phase}
         className={`flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg px-1 py-0.5 text-xs hover:bg-neutral-100 aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-transparent dark:hover:bg-neutral-800 dark:aria-disabled:hover:bg-transparent ${className}`}
         onClick={onClick}
-        title={blocked ? blockedText(t, blocked) : label}
+        title={blocked ? blockedText(blocked) : label}
         aria-label={label}
         // La raison montrée à côté (refus, erreur) décrit le bouton.
         aria-describedby={shownProblem ? problemId : undefined}
@@ -185,15 +186,16 @@ export function ReadAloudButton({
 }
 
 /**
- * Annonce de la lecture d'une réponse (étape, erreur), pour les lecteurs
- * d'écran : région présente sous chaque réponse enregistrée, vide au repos,
- * avant que la lecture ne commence (lecture automatique comprise).
+ * Annonce de la lecture d'un texte (étape, erreur), pour les lecteurs
+ * d'écran : région présente sous chaque réponse enregistrée et près de
+ * chaque texte d'un cours, vide au repos, avant que la lecture ne commence
+ * (lecture automatique comprise).
  */
-export function ReadAloudStatus({ messageId }: { messageId: number }) {
+export function ReadAloudStatus({ source }: { source: ReadAloudSource }) {
   const t = useT();
   const state = useReadAloud();
-  const phase = phaseFor(state, messageId);
-  const error = errorFor(state, messageId);
+  const phase = phaseFor(state, source);
+  const error = errorFor(state, source);
   // L'étape (sans chaque pourcentage), sinon l'erreur de la lecture finie.
   const text =
     phase === "downloading"
@@ -203,7 +205,7 @@ export function ReadAloudStatus({ messageId }: { messageId: number }) {
         : phase === "playing"
           ? t("chat.readAloud.playing")
           : error
-            ? readAloudErrorText(t, error)
+            ? readAloudErrorText(t, error, source.kind)
             : "";
   return (
     <span className="sr-only" role="status" data-read-aloud-status="">

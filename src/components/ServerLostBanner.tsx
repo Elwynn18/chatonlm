@@ -1,17 +1,12 @@
 import { useState } from "react";
+import {
+  BANNER_BOX as BOX,
+  BANNER_ERROR as ERROR,
+  BANNER_PRIMARY as PRIMARY,
+  BANNER_SECONDARY as SECONDARY,
+} from "@/components/bannerStyles";
 import { useT } from "@/i18n";
 import { errorMessage, openBuiltinLog } from "@/lib/ipc";
-
-const BOX =
-  "mx-auto w-full max-w-[768px] rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200";
-
-const PRIMARY =
-  "min-w-20 rounded-full bg-neutral-900 px-3 py-1 text-sm font-medium text-white outline-none hover:bg-neutral-700 focus-visible:ring-2 focus-visible:ring-accent-fg disabled:opacity-60 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200";
-
-const SECONDARY =
-  "rounded-full border border-neutral-300 px-3 py-1 text-sm font-medium text-neutral-800 outline-none hover:bg-neutral-100 focus-visible:ring-2 focus-visible:ring-accent-fg dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-700";
-
-const ERROR = "mt-1.5 text-xs break-words text-red-600 dark:text-red-400";
 
 /**
  * Ollama ne répond plus pendant la session : bandeau au-dessus de la zone de

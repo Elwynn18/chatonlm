@@ -5,6 +5,8 @@ import { translator } from "@/i18n";
 import {
   activeText,
   downloadPercent,
+  isActiveDownload,
+  isPendingDownload,
   familyOf,
   filtersFromParams,
   fitLabel,
@@ -123,6 +125,40 @@ describe("formats", () => {
 
   it("active states have their own text", () => {
     expect(activeText(en, download({ state: "queued" }))).toBe("Waiting…");
+    // En pause : ce qui est reçu est dit, sans débit ni temps restant.
+    expect(
+      activeText(
+        en,
+        download({
+          state: "paused",
+          completed: 2 * 1024 ** 3,
+          total: 5 * 1024 ** 3,
+          bytesPerSecond: 50 * 1024 ** 2,
+        }),
+      ),
+    ).toBe("Paused · 2.0 GB of 5.0 GB");
+    expect(activeText(en, download({ state: "paused", total: 0 }))).toBe(
+      "Paused",
+    );
+    expect(activeText(fr, download({ state: "paused", total: 0 }))).toBe(
+      "En pause",
+    );
+    expect(activeText(es, download({ state: "paused", total: 0 }))).toBe(
+      "En pausa",
+    );
+    expect(isPendingDownload(download({ state: "paused" }))).toBe(true);
+    expect(isActiveDownload(download({ state: "paused" }))).toBe(false);
+    for (const state of [
+      "queued",
+      "starting",
+      "downloading",
+      "finishing",
+    ] as const) {
+      expect(isPendingDownload(download({ state }))).toBe(true);
+    }
+    for (const state of ["done", "failed", "cancelled"] as const) {
+      expect(isPendingDownload(download({ state }))).toBe(false);
+    }
     expect(activeText(en, download({ state: "starting" }))).toBe("Starting…");
     expect(activeText(en, download({ state: "finishing" }))).toBe("Finishing…");
     expect(activeText(fr, download({ state: "queued" }))).toBe("En attente…");

@@ -1,11 +1,13 @@
 //! Texte sélectionné sous Windows : Ctrl+C simulé (`SendInput`) dans
 //! l'application au premier plan, lu dans le presse-papiers, dont l'ancien
-//! texte est ensuite remis (voir `selection.rs`).
+//! texte est ensuite remis (voir `selection.rs`). Le texte corrigé y est
+//! ensuite collé de la même façon ([`paste`] : Ctrl+V simulé).
 //!
 //! Limites : `SendInput` n'atteint pas une fenêtre lancée en administrateur
-//! (rien n'est alors copié : « No text selected ») ; un ancien contenu qui
-//! n'est pas du texte (image, fichiers) n'est pas remis ; dans un terminal,
-//! Ctrl+C interrompt le programme en cours au lieu de copier.
+//! (rien n'est alors copié : « No text selected » ; rien n'est collé) ; un
+//! ancien contenu qui n'est pas du texte (image, fichiers) n'est pas remis ;
+//! dans un terminal, Ctrl+C interrompt le programme en cours au lieu de
+//! copier.
 
 use std::thread;
 use std::time::Instant;
@@ -18,9 +20,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 
 use super::selection::{
-    COPY_WAIT, KeyStroke, MODIFIERS, RELEASE_WAIT, STEP, captured, copy_chord, restores,
+    COPY_WAIT, KeyStroke, MODIFIERS, RELEASE_WAIT, STEP, captured, copy_chord, paste_chord,
+    restores,
 };
-use super::{SelectionError, selection_error};
+use super::{PasteError, SelectionError, selection_error};
 use crate::i18n::t;
 
 /// Essais d'un accès au presse-papiers qu'une autre application tient.
@@ -101,6 +104,20 @@ fn retried<T>(mut access: impl FnMut() -> Result<T, arboard::Error>) -> Result<T
             }
             result => return result,
         }
+    }
+}
+
+/// Colle le presse-papiers dans l'application au premier plan (Ctrl+V
+/// simulé), une fois les modificateurs relâchés : avec Alt encore tenu, le
+/// collage deviendrait Ctrl+Alt+V. Bloquant (fil à part).
+pub(super) fn paste() -> Result<(), PasteError> {
+    if !wait_released() {
+        return Err(PasteError::Other(t!("proofread.selection.keysHeld")));
+    }
+    if send(&paste_chord()) {
+        Ok(())
+    } else {
+        Err(PasteError::Refused)
     }
 }
 

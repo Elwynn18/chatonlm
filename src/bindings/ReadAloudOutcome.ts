@@ -2,6 +2,6 @@
 import type { VoiceLanguage } from "./VoiceLanguage";
 
 /**
- * Réponse de la commande `read_aloud`.
+ * Réponse des commandes `read_aloud` et `read_aloud_study`.
  */
 export type ReadAloudOutcome = { "kind": "started" } | { "kind": "needsVoice", modelId: string, language: VoiceLanguage, bytes: number, } | { "kind": "unsupportedLanguage" } | { "kind": "nothingToRead" };

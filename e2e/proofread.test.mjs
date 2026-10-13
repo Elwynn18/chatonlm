@@ -231,6 +231,32 @@ try {
       await delay(400); // transition de la barre latérale
       await driver.screenshot(".tools/shots/proofread-empty.png");
 
+      // Croix : vide la zone par l'édition native, Ctrl+Z (vraie touche)
+      // retrouve donc le texte.
+      const cross =
+        "[data-testid=proofread] button[aria-label='Clear the text']";
+      assert.equal(await exists(driver, cross), false, "croix sans texte");
+      await setText(driver, TEXT);
+      await driver.click(await driver.waitFor(cross));
+      await waitUntil(
+        async () => (await editorValue(driver)) === "",
+        "zone vidée par la croix",
+      );
+      assert.equal(await exists(driver, cross), false, "croix une fois vidé");
+      assert.equal(
+        await driver.execute(
+          "return document.activeElement === document.querySelector(arguments[0])",
+          [EDITOR],
+        ),
+        true,
+        "focus dans la zone après la croix",
+      );
+      await pressKeys("ctrl+z");
+      await waitUntil(
+        async () => (await editorValue(driver)) === TEXT,
+        "texte retrouvé par Ctrl+Z après la croix",
+      );
+
       // Correct par Ctrl+Entrée (vraies touches), depuis la zone de texte.
       await setText(driver, TEXT);
       await pressKeys("ctrl+enter");

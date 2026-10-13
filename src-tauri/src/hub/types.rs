@@ -113,8 +113,13 @@ pub struct HubModel {
     pub likes: u64,
     /// Date ISO 8601.
     pub last_modified: Option<String>,
-    /// Taille estimée de la version recommandée (octets, projecteur compris).
+    /// Taille à télécharger de la version recommandée (octets, projecteur
+    /// compris) : estimée dans les listes, exacte sur la fiche.
     pub estimated_size: Option<u64>,
+    /// Mémoire nécessaire à cette version pour le contexte de la machine
+    /// (poids, cache de contexte, marge) ; `None` : machine ou taille
+    /// inconnue.
+    pub estimated_memory: Option<u64>,
     /// `None` : machine inconnue (serveur distant) ou taille inconnue.
     pub fit: Option<HubFit>,
 }
@@ -374,6 +379,9 @@ pub enum HubDownloadState {
     Downloading,
     /// Octets reçus ; Ollama vérifie et écrit le manifeste.
     Finishing,
+    /// En pause : requête fermée, morceaux reçus gardés par Ollama, reprise à
+    /// la demande.
+    Paused,
     Done,
     Failed,
     Cancelled,

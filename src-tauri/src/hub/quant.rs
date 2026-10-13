@@ -358,6 +358,155 @@ pub fn projector_size(files: &[FileEntry]) -> Option<u64> {
         .or_else(|| projectors.iter().map(|f| f.size).min())
 }
 
+/// Octets par paramètre d'une version selon son libellé, en millièmes :
+/// médianes de la taille du fichier sur `gguf.total`, relevées le 12 oct.
+/// 2026 sur une centaine de dépôts GGUF populaires de Hugging Face (une
+/// vingtaine de fichiers par libellé courant ; Q4_K_M : 0,61 à 0,67).
+const DENSITIES: &[(&str, u64)] = &[
+    ("F32", 4000),
+    ("BF16", 2000),
+    ("F16", 2000),
+    ("Q8_0", 1065),
+    ("UD-Q8_K_XL", 1160),
+    ("Q6_K", 830),
+    ("Q6_K_L", 880),
+    ("UD-Q6_K", 845),
+    ("UD-Q6_K_XL", 925),
+    ("Q5_K_M", 725),
+    ("Q5_K_S", 700),
+    ("Q5_K_L", 755),
+    ("Q5_0", 705),
+    ("Q5_1", 760),
+    ("UD-Q5_K_S", 720),
+    ("UD-Q5_K_M", 765),
+    ("UD-Q5_K_XL", 765),
+    ("Q4_K_M", 630),
+    ("Q4_K_L", 665),
+    ("Q4_K_S", 590),
+    ("Q4_0", 595),
+    ("Q4_1", 645),
+    ("IQ4_NL", 595),
+    ("IQ4_XS", 570),
+    ("UD-Q4_K_S", 600),
+    ("UD-Q4_K_M", 640),
+    ("UD-Q4_K_XL", 650),
+    ("UD-IQ4_NL", 520),
+    ("UD-IQ4_XS", 515),
+    ("MXFP4", 630),
+    ("MXFP4_MOE", 630),
+    ("Q3_K_L", 535),
+    ("Q3_K_M", 505),
+    ("Q3_K_S", 455),
+    ("UD-Q3_K_M", 480),
+    ("UD-Q3_K_XL", 510),
+    ("IQ3_M", 470),
+    ("IQ3_S", 440),
+    ("IQ3_XS", 445),
+    ("IQ3_XXS", 385),
+    ("UD-IQ3_S", 430),
+    ("UD-IQ3_XXS", 420),
+    ("Q2_K", 400),
+    ("Q2_K_L", 420),
+    ("UD-Q2_K_XL", 395),
+    ("Q2_0", 270),
+    ("IQ2_M", 375),
+    ("IQ2_S", 345),
+    ("IQ2_XS", 325),
+    ("IQ2_XXS", 315),
+    ("UD-IQ2_M", 380),
+    ("UD-IQ2_XXS", 340),
+    ("IQ1_M", 285),
+    ("IQ1_S", 270),
+    ("TQ1_0", 225),
+];
+
+/// Densité d'un libellé absent de [`DENSITIES`], d'après son début.
+const DENSITY_FAMILIES: &[(&str, u64)] = &[
+    ("F32", 4000),
+    ("BF16", 2000),
+    ("F16", 2000),
+    ("Q8", 1065),
+    ("Q6", 830),
+    ("Q5", 725),
+    ("Q4", 630),
+    ("IQ4", 595),
+    ("MXFP4", 630),
+    ("NVFP4", 630),
+    ("Q3", 505),
+    ("IQ3", 445),
+    ("Q2", 400),
+    ("IQ2", 345),
+    ("TQ2", 290),
+    ("IQ1", 280),
+    ("TQ1", 225),
+    ("Q1", 225),
+];
+
+/// Densité prise sans libellé reconnu : celle de Q4_K_M.
+const DEFAULT_DENSITY: u64 = 630;
+
+/// Paramètres supposés d'un projecteur de vision : la médiane relevée (un
+/// `mmproj` F16 pèse 0,92 Go).
+const PROJECTOR_PARAMETERS: u64 = 460_000_000;
+
+/// Octets par paramètre d'une version d'après son libellé d'affichage, en
+/// millièmes : le libellé exact, sinon le même sans `UD-`, sinon sa famille
+/// (`Q5…`, `IQ3…`) ; sans libellé reconnu, la densité de Q4_K_M.
+pub fn density(label: Option<&str>) -> u64 {
+    let Some(label) = label else {
+        return DEFAULT_DENSITY;
+    };
+    let exact = |label: &str| {
+        DENSITIES
+            .iter()
+            .find(|(name, _)| *name == label)
+            .map(|&(_, density)| density)
+    };
+    let base = label.strip_prefix("UD-").unwrap_or(label);
+    exact(label)
+        .or_else(|| exact(base))
+        .or_else(|| {
+            DENSITY_FAMILIES
+                .iter()
+                .find(|(prefix, _)| base.starts_with(prefix))
+                .map(|&(_, density)| density)
+        })
+        .unwrap_or(DEFAULT_DENSITY)
+}
+
+/// Taille estimée d'une version dont on ne connaît que le libellé (listes,
+/// où Hugging Face ne donne pas la taille des fichiers).
+pub fn estimated_size(label: Option<&str>, parameters: u64) -> u64 {
+    u64::try_from(u128::from(parameters) * u128::from(density(label)) / 1000).unwrap_or(u64::MAX)
+}
+
+/// Taille estimée du projecteur de vision que le registre ajoutera, d'après
+/// les seuls noms des fichiers : celui que [`projector_size`] retiendrait
+/// (F16, sinon BF16, sinon le plus léger d'après son libellé ; sans libellé :
+/// F16, le cas courant), plafonnée à la moitié de `model_size` (un petit
+/// modèle a un petit projecteur) ; `None` sans projecteur.
+pub fn estimated_projector_size(files: &[FileEntry], model_size: u64) -> Option<u64> {
+    let labels: Vec<Option<String>> = files
+        .iter()
+        .filter(|file| is_projector(file.path))
+        .map(|file| display_label(file.path))
+        .collect();
+    if labels.is_empty() {
+        return None;
+    }
+    let has = |quant: &str| labels.iter().any(|label| label.as_deref() == Some(quant));
+    let per_parameter = if has("F16") || has("BF16") {
+        2000
+    } else {
+        labels
+            .iter()
+            .map(|label| label.as_deref().map_or(2000, |label| density(Some(label))))
+            .min()
+            .unwrap_or(2000)
+    };
+    Some((PROJECTOR_PARAMETERS * per_parameter / 1000).min(model_size / 2))
+}
+
 /// Versions conseillées dans l'ordre de préférence, avec leurs équivalents
 /// `UD-…_XL` d'unsloth.
 const PREFERRED: [[&str; 2]; 4] = [
@@ -479,6 +628,94 @@ mod tests {
         ("params", 178),
         ("template", 1482),
     ];
+
+    /// Densités relevées : libellé exact, variante `UD-`, famille, défaut.
+    #[test]
+    fn a_label_tells_the_bytes_per_parameter() {
+        for (label, expected) in [
+            ("Q4_K_M", 630),
+            ("Q4_0", 595),
+            ("Q8_0", 1065),
+            ("BF16", 2000),
+            ("F32", 4000),
+            ("UD-Q4_K_XL", 650),
+            ("UD-IQ2_XXS", 340),
+            // Sans entrée `UD-` : celle du libellé de base.
+            ("UD-Q3_K_S", 455),
+            ("UD-TQ1_0", 225),
+            // Par famille.
+            ("Q4_0_4_4", 630),
+            ("Q5_K_XL", 725),
+            ("IQ3_XS_V2", 445),
+            ("NVFP4", 630),
+            // Inconnu : comme une Q4_K_M.
+            ("WEIRD", 630),
+        ] {
+            assert_eq!(density(Some(label)), expected, "{label}");
+        }
+        assert_eq!(density(None), 630);
+        // Du plus lourd au plus léger pour une même famille.
+        let order = [
+            "F32", "F16", "Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M", "Q3_K_M", "Q2_K",
+        ];
+        assert!(
+            order
+                .windows(2)
+                .all(|pair| density(Some(pair[0])) > density(Some(pair[1])))
+        );
+        assert_eq!(estimated_size(Some("Q4_0"), 10_000_000_000), 5_950_000_000);
+        assert_eq!(estimated_size(None, 8_000_000_000), 5_040_000_000);
+        assert_eq!(estimated_size(Some("F32"), u64::MAX), u64::MAX);
+    }
+
+    /// Tailles réelles de `unsloth/Qwen3.5-9B-GGUF` : chaque estimation est à
+    /// 6 % près de la taille du fichier (8,95 milliards de paramètres).
+    #[test]
+    fn estimates_are_close_to_real_files() {
+        for &(file, real) in QWEN35_9B {
+            if !is_gguf(file) || is_auxiliary(file) {
+                continue;
+            }
+            let label = display_label(file);
+            let estimate = estimated_size(label.as_deref(), 8_950_000_000);
+            assert!(
+                estimate.abs_diff(real) * 100 < real * 6,
+                "{file}: {estimate} for {real}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_projector_is_estimated_from_the_file_names() {
+        let big = 20_000_000_000;
+        let of = |names: &[&str], model: u64| {
+            let list: Vec<(&str, u64)> = names.iter().map(|&name| (name, 0)).collect();
+            estimated_projector_size(&files(&list), model)
+        };
+        // Sans projecteur.
+        assert_eq!(of(&["model-Q4_K_M.gguf", "README.md"], big), None);
+        // F16 ou BF16 : celui que le registre prend (0,92 Go, relevé :
+        // 918 166 080 pour Qwen3.5-9B).
+        for names in [
+            &["mmproj-F32.gguf", "mmproj-F16.gguf", "mmproj-Q8_0.gguf"][..],
+            &["mmproj-BF16.gguf", "mmproj-Q4_0.gguf"],
+            // Sans libellé : F16, le cas courant.
+            &["model.mmproj.gguf"],
+        ] {
+            assert_eq!(of(names, big), Some(920_000_000), "{names:?}");
+        }
+        // Sinon le plus léger (gemma-4-12B QAT : 175 115 616 réels).
+        assert_eq!(
+            of(&["mmproj-gemma-4-12b-it-qat-q4_0.gguf"], big),
+            Some(273_700_000)
+        );
+        assert_eq!(
+            of(&["mmproj-Q8_0.gguf", "mmproj-F32.gguf"], big),
+            Some(489_900_000)
+        );
+        // Petit modèle : la moitié de sa taille au plus.
+        assert_eq!(of(&["mmproj-F16.gguf"], 600_000_000), Some(300_000_000));
+    }
 
     fn version<'a>(versions: &'a [Version], file: &str) -> &'a Version {
         versions

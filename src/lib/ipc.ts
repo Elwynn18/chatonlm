@@ -338,6 +338,16 @@ export function modelExistsUpstream(model: string): Promise<boolean> {
 }
 
 /**
+ * Parmi `models`, les modèles installés dont le registre (ollama.com,
+ * Hugging Face) a une version plus récente, dans l'ordre reçu. Rejette comme
+ * listModels (Ollama injoignable...) ; un registre injoignable ne signale
+ * rien.
+ */
+export function outdatedModels(models: string[]): Promise<string[]> {
+  return invoke<string[]>("outdated_models", { models });
+}
+
+/**
  * Modèles en mémoire (/api/ps), dans l'ordre d'Ollama. Rejette comme
  * listModels (Ollama injoignable...).
  */
@@ -514,6 +524,27 @@ export function hubDownload(request: HubDownloadRequest): Promise<void> {
 /** Arrête un téléchargement en cours ou en file. */
 export function hubCancelDownload(model: string): Promise<void> {
   return invoke<void>("hub_cancel_download", { model });
+}
+
+/**
+ * Met en pause un téléchargement en file ou en cours : Ollama garde ce qui
+ * est reçu, la reprise repart de là.
+ */
+export function hubPauseDownload(model: string): Promise<void> {
+  return invoke<void>("hub_pause_download", { model });
+}
+
+/** Reprend un téléchargement en pause (de nouveau en file, à sa place). */
+export function hubResumeDownload(model: string): Promise<void> {
+  return invoke<void>("hub_resume_download", { model });
+}
+
+/**
+ * Fait passer un téléchargement en premier : il démarre tout de suite, le
+ * dernier en cours retournant en file si les places sont prises.
+ */
+export function hubPrioritizeDownload(model: string): Promise<void> {
+  return invoke<void>("hub_prioritize_download", { model });
 }
 
 /** Téléchargements en cours, en file et terminés, dans l'ordre de demande. */
@@ -852,6 +883,15 @@ export function studyDelete(courseId: string): Promise<void> {
   return invoke<void>("study_delete", { courseId });
 }
 
+/**
+ * Met en pause (`paused`) ou reprend la génération d'un cours : en pause,
+ * sa partie en cours d'écriture est arrêtée et plus rien n'est écrit pour
+ * lui (les autres cours continuent) ; enregistré par le moteur.
+ */
+export function studyPause(courseId: string, paused: boolean): Promise<void> {
+  return invoke<void>("study_pause", { courseId, paused });
+}
+
 /** Événement du moteur à chaque changement d'un cours (study::UPDATED_EVENT). */
 export const STUDY_UPDATED_EVENT = "study-updated";
 
@@ -918,6 +958,22 @@ export function readAloud(
   return invoke<ReadAloudOutcome>("read_aloud", {
     chatId,
     messageId,
+    download,
+  });
+}
+
+/**
+ * Lit le passage `passage` du cours `courseId` (onglet Study ; clés dans
+ * src-tauri/src/study/passage.rs), comme `readAloud`.
+ */
+export function readAloudStudy(
+  courseId: string,
+  passage: string,
+  download: boolean,
+): Promise<ReadAloudOutcome> {
+  return invoke<ReadAloudOutcome>("read_aloud_study", {
+    courseId,
+    passage,
     download,
   });
 }

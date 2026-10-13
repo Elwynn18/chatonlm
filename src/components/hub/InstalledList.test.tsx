@@ -1,5 +1,6 @@
 // Onglet Installed face au simulateur : lignes, Use in chat, suppression
-// confirmée (focus rendu), suppressions rapprochées, échecs, liste vide.
+// confirmée (focus rendu), suppressions rapprochées, échecs, liste vide,
+// modèles dont le registre a une version plus récente (Update).
 
 import {
   act,
@@ -223,6 +224,103 @@ describe("Installed", () => {
     expect(await screen.findByText("No models yet")).toBeTruthy();
     await userEvent.click(screen.getByRole("link", { name: "Browse models" }));
     await waitFor(() => expect(app.path()).toBe("/hub"));
+  });
+
+  it("a model with a newer version in the registry is marked and offers Update", async () => {
+    const { simulator } = renderHub("/hub/installed", ({ backend }) => {
+      backend.models.unshift(SMOL);
+      backend.outdated.add("qwen3:0.6b");
+    });
+    await screen.findByRole("heading", { name: /models ·/ });
+    const qwen = () => row("0.6b");
+    expect(await within(qwen()).findByText("Update available")).toBeTruthy();
+    expect(
+      within(qwen()).getByRole("button", { name: "Update qwen3:0.6b" })
+        .textContent,
+    ).toBe("Update");
+    // Tous les installés sont demandés, en une fois ; les autres lignes
+    // n'offrent rien.
+    expect(simulator.callsTo("outdated_models")).toEqual([
+      { models: [SMOL, "qwen3:0.6b", "qwen3.5:0.8b"] },
+    ]);
+    expect(screen.getAllByText("Update available")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /^Update / })).toHaveLength(1);
+  });
+
+  it("Update downloads the model again: progress, then nothing more to update", async () => {
+    const { simulator, hub } = renderHub("/hub/installed", ({ backend }) => {
+      backend.outdated.add("qwen3:0.6b");
+      backend.outdated.add("qwen3.5:0.8b");
+    });
+    await screen.findByRole("heading", { name: /models ·/ });
+    const qwen = () => row("0.6b");
+    await userEvent.click(
+      await within(qwen()).findByRole("button", { name: "Update qwen3:0.6b" }),
+    );
+    expect(simulator.callsTo("hub_download")).toEqual([
+      { request: { model: "qwen3:0.6b", repo: null, label: null } },
+    ]);
+    // En cours : progression dans la ligne, Cancel, plus de pastille ni de
+    // suppression possible.
+    const bar = await within(qwen()).findByRole("progressbar");
+    expect(bar.getAttribute("aria-label")).toBe("Downloading qwen3:0.6b");
+    expect(within(qwen()).queryByText("Update available")).toBeNull();
+    expect(
+      within(qwen()).queryByRole("button", { name: /^Update / }),
+    ).toBeNull();
+    expect(within(qwen()).getByRole("button", { name: "Cancel" })).toBeTruthy();
+    expect(
+      within(qwen()).getByRole("button", { name: "Delete qwen3:0.6b" }),
+    ).toHaveProperty("disabled", true);
+    await hub.progress("qwen3:0.6b", 300, { total: 1200 });
+    await waitFor(() => expect(bar.getAttribute("aria-valuenow")).toBe("25"));
+
+    await hub.finish("qwen3:0.6b");
+    await waitFor(() =>
+      expect(within(qwen()).queryByRole("progressbar")).toBeNull(),
+    );
+    expect(within(qwen()).queryByText("Update available")).toBeNull();
+    expect(
+      within(qwen()).queryByRole("button", { name: /^Update / }),
+    ).toBeNull();
+    expect(
+      within(qwen()).getByRole("button", { name: "Delete qwen3:0.6b" }),
+    ).toHaveProperty("disabled", false);
+    // L'autre modèle périmé le reste.
+    expect(
+      await within(row("0.8b")).findByRole("button", {
+        name: "Update qwen3.5:0.8b",
+      }),
+    ).toBeTruthy();
+    expect(rows()).toHaveLength(2);
+  });
+
+  it("an update can be cancelled, or fail: Update is offered again", async () => {
+    const { simulator, hub } = renderHub("/hub/installed", ({ backend }) => {
+      backend.outdated.add("qwen3:0.6b");
+    });
+    await screen.findByRole("heading", { name: /models ·/ });
+    const qwen = () => row("0.6b");
+    const update = () =>
+      within(qwen()).findByRole("button", { name: "Update qwen3:0.6b" });
+    await userEvent.click(await update());
+    await userEvent.click(
+      await within(qwen()).findByRole("button", { name: "Cancel" }),
+    );
+    expect(simulator.callsTo("hub_cancel_download")).toEqual([
+      { model: "qwen3:0.6b" },
+    ]);
+    // Arrêté : la pastille et Update reviennent, sans erreur.
+    await userEvent.click(await update());
+    expect(within(qwen()).queryByRole("alert")).toBeNull();
+    await within(qwen()).findByRole("progressbar");
+    await hub.fail("qwen3:0.6b", "Connection lost");
+    expect((await within(qwen()).findByRole("alert")).textContent).toBe(
+      "Connection lost",
+    );
+    expect(within(qwen()).getByText("Update available")).toBeTruthy();
+    expect(await update()).toHaveProperty("disabled", false);
+    expect(simulator.callsTo("hub_download")).toHaveLength(2);
   });
 
   it("Ollama unreachable: the error and Retry", async () => {

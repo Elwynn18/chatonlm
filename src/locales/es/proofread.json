@@ -50,6 +50,7 @@
     "stop": "Detener",
     "undo": "Deshacer",
     "redo": "Rehacer",
+    "clear": "Borrar el texto",
     "copyFailed": "Error al copiar"
   },
   "error": {

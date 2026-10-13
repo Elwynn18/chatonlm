@@ -1,8 +1,10 @@
 // Faux moteur de la lecture à voix haute pour le simulateur (tests vitest
 // seulement) : catalogue des voix (tts/models.rs : une par langue), leurs
 // téléchargements en mémoire et l'état de la lecture (une seule à la fois).
-// Comme le moteur, read_aloud répond selon la langue « détectée » de la
-// réponse (`languages`, anglais par défaut) : autre langue →
+// Comme le moteur, read_aloud (réponse d'une conversation) et
+// read_aloud_study (passage d'un cours, nommé par l'état : `source`)
+// répondent selon la langue « détectée » du texte (`languages` par réponse,
+// `passages` par passage d'un cours, anglais par défaut) : autre langue →
 // unsupportedLanguage, rien à lire → nothingToRead, ONNX Runtime absent →
 // started puis l'erreur runtimeUnavailable, voix absente → needsVoice (sauf
 // avec l'accord ou une voix déjà en téléchargement : la voix est mise en
@@ -16,6 +18,7 @@
 
 import type { AppError } from "@/bindings/AppError";
 import type { ReadAloudError } from "@/bindings/ReadAloudError";
+import type { ReadAloudSource } from "@/bindings/ReadAloudSource";
 import type { ReadAloudState } from "@/bindings/ReadAloudState";
 import type { SpeechDownload } from "@/bindings/SpeechDownload";
 import type { VoiceLanguage } from "@/bindings/VoiceLanguage";
@@ -102,6 +105,8 @@ export interface FakeTts {
   downloads: SpeechDownload[];
   /** Langue de chaque réponse, par identifiant (anglais sinon). */
   languages: Map<number, FakeReading>;
+  /** Langue de chaque passage d'un cours, par clé (anglais sinon). */
+  passages: Map<string, FakeReading>;
   /** Erreur (panne) renvoyée par une commande, par nom. */
   failures: Map<string, AppError>;
   /** Marque des voix du catalogue comme installées. */
@@ -111,8 +116,8 @@ export interface FakeTts {
   /** La lecture en cours passe en playing (premier son). */
   play(): Promise<void>;
   /**
-   * Fin de la lecture (au repos) ; avec une erreur, la réponse lue reste
-   * nommée (service.rs `finish`).
+   * Fin de la lecture (au repos) ; avec une erreur, le texte lu reste
+   * nommé (service.rs `finish`).
    */
   end(error?: ReadAloudError): Promise<void>;
   /** Émet la liste des téléchargements (« voice-downloads »). */
@@ -136,7 +141,7 @@ function invalid(message: string): AppError {
 }
 
 const IDLE: ReadAloudState = {
-  messageId: null,
+  source: null,
   phase: "idle",
   percent: null,
   error: null,
@@ -149,6 +154,7 @@ export function fakeTts(simulator: Simulator): FakeTts {
     voices: voiceCatalog(),
     downloads: [],
     languages: new Map(),
+    passages: new Map(),
     failures: new Map(),
     install(...ids) {
       for (const id of ids) voice(id).installed = true;
@@ -238,13 +244,35 @@ export function fakeTts(simulator: Simulator): FakeTts {
     failure("read_aloud_state");
     return tts.state;
   });
+  /** Langue « détectée » du texte que nomme `source`. */
+  function readingOf(source: ReadAloudSource | null): FakeReading {
+    if (source?.kind === "study")
+      return tts.passages.get(source.passage) ?? "en";
+    return tts.languages.get(source?.messageId ?? 0) ?? "en";
+  }
+
   simulator.handle("read_aloud", (args: Args) => {
     failure("read_aloud");
     const messageId = args.messageId as number;
     if (typeof args.chatId !== "string" || typeof messageId !== "number") {
       throw simulator.fail(`read_aloud: bad arguments ${JSON.stringify(args)}`);
     }
-    const reading = tts.languages.get(messageId) ?? "en";
+    return read({ kind: "message", messageId }, args.download === true);
+  });
+  simulator.handle("read_aloud_study", (args: Args) => {
+    failure("read_aloud_study");
+    const { courseId, passage } = args;
+    if (typeof courseId !== "string" || typeof passage !== "string") {
+      throw simulator.fail(
+        `read_aloud_study: bad arguments ${JSON.stringify(args)}`,
+      );
+    }
+    return read({ kind: "study", courseId, passage }, args.download === true);
+  });
+
+  /** Lecture de `source`, comme le moteur (service.rs `read`). */
+  function read(source: ReadAloudSource, download: boolean) {
+    const reading = readingOf(source);
     if (reading === "other") return { kind: "unsupportedLanguage" };
     if (reading === "empty") return { kind: "nothingToRead" };
     const found = tts.voices.find((v) => v.language === reading);
@@ -252,7 +280,7 @@ export function fakeTts(simulator: Simulator): FakeTts {
     // Sans ONNX Runtime : ni dialogue ni téléchargement, l'erreur aussitôt.
     if (found.runtimeProblem !== null) {
       tts.state = {
-        messageId,
+        source,
         phase: "idle",
         percent: null,
         error: "runtimeUnavailable",
@@ -263,7 +291,7 @@ export function fakeTts(simulator: Simulator): FakeTts {
     const downloading = tts.downloads.some(
       (d) => d.id === found.id && ACTIVE.includes(d.state),
     );
-    if (!found.installed && args.download !== true && !downloading) {
+    if (!found.installed && !download && !downloading) {
       return {
         kind: "needsVoice",
         modelId: found.id,
@@ -273,20 +301,20 @@ export function fakeTts(simulator: Simulator): FakeTts {
     }
     // Une seule lecture : la précédente s'arrête, celle-ci commence.
     if (found.installed) {
-      tts.state = { messageId, phase: "preparing", percent: null, error: null };
+      tts.state = { source, phase: "preparing", percent: null, error: null };
     } else {
       enqueue(found);
       emitLater("voice-downloads");
-      tts.state = { messageId, phase: "downloading", percent: 0, error: null };
+      tts.state = { source, phase: "downloading", percent: 0, error: null };
     }
     emitLater("read-aloud");
     return { kind: "started" };
-  });
+  }
   simulator.handle("read_aloud_stop", () => {
     failure("read_aloud_stop");
     // Téléchargement attendu par la lecture : annulé avec elle.
     if (tts.state.phase === "downloading") {
-      const reading = tts.languages.get(tts.state.messageId ?? 0) ?? "en";
+      const reading = readingOf(tts.state.source);
       const voice = tts.voices.find((v) => v.language === reading);
       const download = tts.downloads.find((d) => d.id === voice?.id);
       if (download && ACTIVE.includes(download.state)) {

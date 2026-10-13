@@ -17,6 +17,7 @@ pub const VK_MENU: u16 = 0x12;
 pub const VK_LWIN: u16 = 0x5B;
 pub const VK_RWIN: u16 = 0x5C;
 pub const VK_C: u16 = 0x43;
+pub const VK_V: u16 = 0x56;
 
 /// Modificateurs qui doivent être relâchés avant le Ctrl+C simulé : le
 /// raccourci global vient d'être pressé, et avec Alt encore tenu la copie
@@ -44,6 +45,18 @@ pub fn copy_chord() -> [KeyStroke; 4] {
         stroke(VK_CONTROL, true),
         stroke(VK_C, true),
         stroke(VK_C, false),
+        stroke(VK_CONTROL, false),
+    ]
+}
+
+/// Ctrl+V : Ctrl pressé, V pressé, V relâché, Ctrl relâché (le texte corrigé,
+/// déjà dans le presse-papiers, remplace la sélection).
+pub fn paste_chord() -> [KeyStroke; 4] {
+    let stroke = |key, down| KeyStroke { key, down };
+    [
+        stroke(VK_CONTROL, true),
+        stroke(VK_V, true),
+        stroke(VK_V, false),
         stroke(VK_CONTROL, false),
     ]
 }
@@ -86,6 +99,20 @@ mod tests {
         // Aucun des modificateurs attendus n'est la touche copiée.
         assert!(!MODIFIERS.contains(&VK_C));
         assert!(MODIFIERS.contains(&VK_MENU) && MODIFIERS.contains(&VK_CONTROL));
+    }
+
+    #[test]
+    fn the_paste_chord_is_control_v() {
+        assert_eq!(
+            paste_chord().map(|stroke| (stroke.key, stroke.down)),
+            [
+                (VK_CONTROL, true),
+                (VK_V, true),
+                (VK_V, false),
+                (VK_CONTROL, false)
+            ]
+        );
+        assert!(!MODIFIERS.contains(&VK_V));
     }
 
     #[test]

@@ -300,6 +300,7 @@ mod tests {
             effective_language: crate::i18n::Lang::En,
             proofread_model: String::new(),
             proofread_shortcut: false,
+            proofread_paste: true,
             study_model: String::new(),
             auto_read: false,
         }

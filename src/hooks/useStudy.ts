@@ -69,8 +69,9 @@ export function storeAnswer(
 
 /**
  * Nouvel essai demandé (« Explain differently ») : en file dans le moteur
- * (`pending`) dès la réponse de la commande ; montré tout de suite, avant la
- * relecture du cours (le bouton ne revient pas entre les deux).
+ * (`pending`) dès la réponse de la commande, qui reprend aussi un cours en
+ * pause ; montré tout de suite, avant la relecture du cours (le bouton ne
+ * revient pas entre les deux).
  */
 export function storeRemedyRequested(
   client: QueryClient,
@@ -81,6 +82,7 @@ export function storeRemedyRequested(
     course
       ? {
           ...course,
+          paused: false,
           levels: course.levels.map((item) =>
             item.index === level
               ? { ...item, remedy: "pending", remedyError: null }

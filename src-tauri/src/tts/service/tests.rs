@@ -171,14 +171,46 @@ fn rig() -> Rig {
 
 const CHAT: &str = "chat-a";
 
+fn message(message_id: i64) -> ReadAloudSource {
+    ReadAloudSource::Message { message_id }
+}
+
+/// Texte d'un cours.
+fn passage(course: &str, passage: &str) -> ReadAloudSource {
+    ReadAloudSource::Study {
+        course_id: course.into(),
+        passage: passage.into(),
+    }
+}
+
+/// Réponse que nomme l'état (`None` : aucune, ou un texte d'un cours).
+fn message_of(state: &ReadAloudState) -> Option<i64> {
+    match state.source {
+        Some(ReadAloudSource::Message { message_id }) => Some(message_id),
+        _ => None,
+    }
+}
+
 impl Rig {
     fn read(&self, message_id: i64, markdown: &str, download: bool) -> ReadAloudOutcome {
+        self.read_from(message(message_id), markdown, None, download)
+    }
+
+    /// Lit `source` ; `fallback` : langue de repli du texte.
+    fn read_from(
+        &self,
+        source: ReadAloudSource,
+        markdown: &str,
+        fallback: Option<VoiceLanguage>,
+        download: bool,
+    ) -> ReadAloudOutcome {
         let queued = self.queued.clone();
         let downloading = self.downloading.clone();
         self.read_aloud
             .read(
-                message_id,
+                source,
                 markdown,
+                fallback,
                 download,
                 &move |_| downloading.load(Ordering::Relaxed),
                 &move |id| {
@@ -202,7 +234,7 @@ impl Rig {
             .states
             .lock()
             .iter()
-            .map(|state| (state.message_id, state.phase))
+            .map(|state| (message_of(state), state.phase))
             .collect()
     }
 
@@ -323,7 +355,7 @@ fn without_onnx_runtime_nothing_is_downloaded() {
     assert!(rig.queued.lock().is_empty());
     let state = rig.read_aloud.state();
     assert_eq!(
-        (state.message_id, state.phase, state.error),
+        (message_of(&state), state.phase, state.error),
         (
             Some(7),
             ReadAloudPhase::Idle,
@@ -377,7 +409,7 @@ fn a_new_reading_waits_for_the_engine_of_the_stopping_one() {
     wait("the first reading", || playing(&rig));
     rig.read(2, "Second.", false);
     wait("the second reading", || {
-        rig.read_aloud.state().message_id == Some(2) && playing(&rig)
+        message_of(&rig.read_aloud.state()) == Some(2) && playing(&rig)
     });
     // Le moteur de la première lecture est repris, pas rechargé.
     assert_eq!(rig.loads(), 1);
@@ -458,7 +490,7 @@ fn stop_silences_at_once() {
     wait("the reading", || playing(&rig));
     assert_eq!(rig.read_aloud.stop(), None);
     assert!(idle(&rig));
-    assert_eq!(rig.read_aloud.state().message_id, None);
+    assert_eq!(message_of(&rig.read_aloud.state()), None);
     assert!(rig.log.output_stops.load(Ordering::Relaxed) >= 1);
 }
 
@@ -470,12 +502,94 @@ fn a_new_reading_replaces_the_current_one() {
     wait("the first reading", || playing(&rig));
     rig.read(2, "Second.", false);
     wait("the second reading", || {
-        rig.read_aloud.state().message_id == Some(2) && playing(&rig)
+        message_of(&rig.read_aloud.state()) == Some(2) && playing(&rig)
     });
     // La fin de la première lecture ne remet pas l'état au repos.
     std::thread::sleep(Duration::from_millis(30));
-    assert_eq!(rig.read_aloud.state().message_id, Some(2));
+    assert_eq!(message_of(&rig.read_aloud.state()), Some(2));
     rig.read_aloud.stop();
+}
+
+/// Texte d'un cours : même moteur, même lecture unique ; l'état nomme le
+/// texte lu (seul son bouton montre « Stop »), et la lecture s'arrête si son
+/// cours est supprimé ou refait, pas celle d'un autre cours ni d'une réponse.
+#[test]
+fn a_course_text_is_read_and_named_by_the_state() {
+    let rig = rig();
+    rig.hold.store(true, Ordering::Relaxed);
+    let lesson = passage("course-a", "L0:s1");
+    assert_eq!(
+        rig.read_from(lesson.clone(), "A lesson.", None, false),
+        ReadAloudOutcome::Started
+    );
+    wait("the reading", || playing(&rig));
+    assert_eq!(rig.read_aloud.state().source, Some(lesson.clone()));
+    assert_eq!(rig.spoken(), ["A lesson."]);
+    // Ni une réponse supprimée, ni un autre cours ne l'arrêtent.
+    rig.read_aloud.stop_if_reading(&[0, 7]);
+    rig.read_aloud.stop_if_reading_course("course-b");
+    assert_eq!(rig.read_aloud.state().source, Some(lesson.clone()));
+    rig.read_aloud.stop_if_reading_course("course-a");
+    assert!(idle(&rig));
+    assert_eq!(rig.read_aloud.state().source, None);
+
+    // Une seule lecture : une réponse remplace le texte du cours, et
+    // l'inverse ; la suppression d'un cours n'arrête pas une réponse.
+    rig.read_from(lesson.clone(), "A lesson.", None, false);
+    wait("the lesson again", || playing(&rig));
+    rig.read(7, "An answer.", false);
+    wait("the answer", || {
+        message_of(&rig.read_aloud.state()) == Some(7) && playing(&rig)
+    });
+    rig.read_aloud.stop_if_reading_course("course-a");
+    assert_eq!(message_of(&rig.read_aloud.state()), Some(7));
+    let other = passage("course-a", "L0:recap");
+    rig.read_from(other.clone(), "Key points.", None, false);
+    wait("the other text", || {
+        rig.read_aloud.state().source == Some(other.clone()) && playing(&rig)
+    });
+    assert_eq!(rig.loads(), 1);
+    rig.read_aloud.stop();
+
+    // En erreur, l'état garde le texte concerné (texte montré à côté de son
+    // bouton).
+    rig.hold.store(false, Ordering::Relaxed);
+    rig.broken.store(true, Ordering::Relaxed);
+    rig.read_from(lesson.clone(), "A lesson.", None, false);
+    wait("the failure", || {
+        idle(&rig) && rig.read_aloud.state().error.is_some()
+    });
+    assert_eq!(rig.read_aloud.state().source, Some(lesson));
+}
+
+/// Texte trop court pour trahir sa langue : celle du cours (`fallback`),
+/// pas celle de l'interface ; une réponse garde celle de l'interface.
+#[test]
+fn a_short_course_text_is_read_in_the_language_of_its_course() {
+    let rig = rig();
+    rig.read_from(
+        passage("course-a", "L0:s0"),
+        "OK.",
+        Some(VoiceLanguage::Fr),
+        false,
+    );
+    wait("the reading", || rig.spoken().len() == 1 && idle(&rig));
+    rig.read(7, "OK.", false);
+    wait("the answer", || rig.spoken().len() == 2 && idle(&rig));
+    assert_eq!(
+        *rig.log.languages.lock(),
+        [VoiceLanguage::Fr, VoiceLanguage::En]
+    );
+    // Un texte dont la langue se reconnaît garde la sienne.
+    let french = "Pour corriger l'erreur, ouvre le fichier de configuration et relance le serveur, puis vérifie que la page se recharge.";
+    rig.read_from(
+        passage("course-a", "L0:s1"),
+        french,
+        Some(VoiceLanguage::Es),
+        false,
+    );
+    wait("the french text", || rig.spoken().len() >= 3 && idle(&rig));
+    assert_eq!(rig.log.languages.lock().last(), Some(&VoiceLanguage::Fr));
 }
 
 #[test]
@@ -486,7 +600,7 @@ fn a_voice_is_downloaded_then_the_answer_is_read() {
     assert_eq!(*rig.queued.lock(), ["pocket-tts-en"]);
     let state = rig.read_aloud.state();
     assert_eq!(
-        (state.message_id, state.phase, state.percent),
+        (message_of(&state), state.phase, state.percent),
         (Some(7), ReadAloudPhase::Downloading, Some(0))
     );
     // Un autre téléchargement ne compte pas.
@@ -530,7 +644,7 @@ fn a_failed_download_ends_the_reading_with_an_error() {
     wait("the end of the reading", || idle(&rig));
     let state = rig.read_aloud.state();
     assert_eq!(
-        (state.message_id, state.error),
+        (message_of(&state), state.error),
         (Some(7), Some(ReadAloudError::DownloadFailed))
     );
     assert!(rig.spoken().is_empty());
@@ -576,7 +690,7 @@ fn engine_and_output_failures_are_reported() {
         });
         assert_eq!(rig.read_aloud.state().error, Some(expected));
         // L'erreur reste attachée à sa réponse.
-        assert_eq!(rig.read_aloud.state().message_id, Some(7));
+        assert_eq!(message_of(&rig.read_aloud.state()), Some(7));
         assert!(rig.spoken().is_empty());
     }
 }
@@ -673,7 +787,7 @@ fn a_reading_started_by_hand_gets_no_text_from_the_reply() {
     // envoie plus rien.
     rig.read(7, "An old answer.", false);
     wait("the old answer", || {
-        rig.read_aloud.state().message_id == Some(7) && playing(&rig)
+        message_of(&rig.read_aloud.state()) == Some(7) && playing(&rig)
     });
     rig.observe(content("More words. "));
     rig.observe(done(42));
@@ -752,9 +866,9 @@ fn the_next_tool_turn_moves_the_reading_to_its_message() {
     rig.observe(reply_started(41));
     rig.observe(content(&"Searching the web. ".repeat(30)));
     wait("the reading", || playing(&rig));
-    assert_eq!(rig.read_aloud.state().message_id, Some(41));
+    assert_eq!(message_of(&rig.read_aloud.state()), Some(41));
     rig.observe(reply_started(42));
-    assert_eq!(rig.read_aloud.state().message_id, Some(42));
+    assert_eq!(message_of(&rig.read_aloud.state()), Some(42));
     rig.read_aloud.stop();
 }
 

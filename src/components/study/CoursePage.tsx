@@ -4,8 +4,17 @@
 // (« Start », « New plan », « Delete »), échec (action selon le code de
 // l'erreur), puis le lecteur (cours commencé ou fini). Le cours est relu à
 // chaque « study-updated » (useStudyEvents, gabarit de l'onglet).
+//
+// Pendant la préparation et sur le plan, l'écriture du cours est dite en
+// texte (GenerationStatus : ce qui s'écrit, paliers prêts, « on peut
+// commencer dès que le premier palier est prêt », « Pause » / « Resume ») ;
+// la durée du plan est un temps d'étude, pas une attente.
 
-import { ArrowPathIcon, CheckCircleIcon } from "@heroicons/react/20/solid";
+import {
+  ArrowPathIcon,
+  CheckCircleIcon,
+  PauseIcon,
+} from "@heroicons/react/20/solid";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
@@ -13,6 +22,7 @@ import type { AppError } from "@/bindings/AppError";
 import type { Course } from "@/bindings/Course";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CourseReader } from "@/components/study/CourseReader";
+import { GenerationStatus } from "@/components/study/GenerationStatus";
 import { Sources } from "@/components/study/Sources";
 import { StudyErrorNotice } from "@/components/study/StudyErrorNotice";
 import {
@@ -185,13 +195,19 @@ function Planning({ course }: { course: Course }) {
         {steps.map((step) => (
           <li
             key={step.key}
-            aria-busy={!step.done || undefined}
+            // En pause : plus rien n'avance (dit par l'état, dessous).
+            aria-busy={(!step.done && !course.paused) || undefined}
             className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300"
           >
             {step.done ? (
               <CheckCircleIcon
                 aria-hidden="true"
                 className="h-4 w-4 text-emerald-600 dark:text-emerald-400"
+              />
+            ) : course.paused ? (
+              <PauseIcon
+                aria-hidden="true"
+                className="h-4 w-4 text-neutral-500"
               />
             ) : (
               <ArrowPathIcon
@@ -206,6 +222,9 @@ function Planning({ course }: { course: Course }) {
           </li>
         ))}
       </ol>
+      <div className="ml-11">
+        <GenerationStatus course={course} hint omitPlan />
+      </div>
       <div className="ml-11">
         <button type="button" className={BUTTON} onClick={remove}>
           {t("common.actions.cancel")}
@@ -409,6 +428,7 @@ function PlanView({
         )}
         <Sources sources={course.sources} />
       </article>
+      <GenerationStatus course={course} hint />
       <div className="flex flex-wrap items-center gap-2">
         <button
           ref={startRef}

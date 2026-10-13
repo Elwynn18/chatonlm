@@ -1,6 +1,7 @@
-//! Lecture à voix haute des réponses (fonction propre à ChatonLM, absente de
-//! l'app officielle) : Pocket TTS de Kyutai exporté en ONNX (rapport 57),
-//! prétraitement du texte par langue, sortie audio par cpal.
+//! Lecture à voix haute des réponses et des textes des cours (fonction propre
+//! à ChatonLM, absente de l'app officielle) : Pocket TTS de Kyutai exporté en
+//! ONNX (rapport 57), prétraitement du texte par langue, sortie audio par
+//! cpal.
 //!
 //! - `models` : catalogue des voix (une par langue), téléchargées à la demande
 //!   par la file générique de `dictation::downloads` (dossier `voice-models`).
@@ -56,6 +57,23 @@ impl VoiceLanguage {
     }
 }
 
+/// Ce qu'une lecture lit (une seule à la fois dans l'app) : l'état le nomme,
+/// pour que seul son bouton montre « Stop ».
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export)]
+pub enum ReadAloudSource {
+    /// Réponse enregistrée d'une conversation.
+    Message { message_id: i64 },
+    /// Texte d'un cours (onglet Study) : `passage` est la clé du texte dans
+    /// le cours (voir `study::passage`).
+    Study { course_id: String, passage: String },
+}
+
 /// Étape de la lecture en cours.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -89,9 +107,9 @@ pub enum ReadAloudError {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct ReadAloudState {
-    /// Réponse lue (ou en préparation) ; en `Idle`, celle de l'erreur, sinon
+    /// Texte lu (ou en préparation) ; en `Idle`, celui de l'erreur, sinon
     /// `None`.
-    pub message_id: Option<i64>,
+    pub source: Option<ReadAloudSource>,
     pub phase: ReadAloudPhase,
     /// Progression du téléchargement (0 à 100) en `Downloading`.
     pub percent: Option<u8>,
@@ -102,7 +120,7 @@ pub struct ReadAloudState {
 impl ReadAloudState {
     pub fn idle() -> Self {
         Self {
-            message_id: None,
+            source: None,
             phase: ReadAloudPhase::Idle,
             percent: None,
             error: None,
@@ -110,15 +128,15 @@ impl ReadAloudState {
     }
 }
 
-/// Réponse de la commande `read_aloud`.
+/// Réponse des commandes `read_aloud` et `read_aloud_study`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export)]
 pub enum ReadAloudOutcome {
     /// Lecture lancée : suivre `READ_ALOUD_EVENT`.
     Started,
-    /// La voix de la langue de la réponse manque : demander l'accord, puis
-    /// rappeler `read_aloud` avec `download = true`.
+    /// La voix de la langue du texte manque : demander l'accord, puis
+    /// rappeler la commande avec `download = true`.
     NeedsVoice {
         #[serde(rename = "modelId")]
         #[ts(rename = "modelId")]

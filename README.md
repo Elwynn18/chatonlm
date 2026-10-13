@@ -30,7 +30,9 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
   with the + button, by drag and drop, or by pasting.
 - **ModelHub**: browse open models from Hugging Face, see which ones fit your
   graphics card and memory, then download them into Ollama in one click.
-  Installed models and downloads have their own tabs.
+  Installed models and downloads have their own tabs. When a newer version of
+  an installed model is published, ChatonLM says so and updates it in one
+  click.
 - **Ollama account and web search**: sign in to your ollama.com account
   through your Ollama server, then let models search the web, as in the
   official app.
@@ -43,7 +45,8 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
   with the model hands-free: ChatonLM transcribes what you say, sends it, reads
   the answer aloud and listens again. Everything runs on your computer.
 - **Proofread**: correct or rephrase a text in the app, or the text selected
-  in any app with a global shortcut.
+  in any app with a global shortcut, which puts the corrected text in its
+  place.
 - **Study**: pick a topic, and your model writes a short course with lessons,
   worked examples and quizzes, from your own documents and the web if you
   want.
@@ -159,6 +162,12 @@ sudo apt install ./chatonlm_*_amd64.deb
   Plasma 6 or GNOME 48 and later; on other desktops, bind
   `chatonlm --dictate` and `chatonlm --proofread` to keys in your desktop's
   own shortcut settings.
+- **Replacing the selected text** after a correction. On Linux, ChatonLM
+  sends the paste keystroke through the desktop's RemoteDesktop portal (KDE
+  Plasma, GNOME), which asks for your permission the first time; on other
+  desktops the corrected text is copied, and you paste it with Ctrl+V. On
+  Windows, it can't reach an app started as administrator. Turn it off in
+  Settings › Keyboard shortcuts to only copy the corrected text.
 - **Tray icon**: the notification area on Windows; on Linux, built into KDE
   Plasma and most desktops, while GNOME needs the AppIndicator extension.
   Without a tray, closing the window quits ChatonLM.
@@ -174,7 +183,7 @@ ChatonLM talks to an Ollama server, and finds one on its own:
   for your password to start the service), or **Use the built-in Ollama
   instead**. It never starts the built-in one silently in this case.
 - **Ollama isn't installed**: ChatonLM starts the copy it includes (Ollama
-  0.40.0, processor and Vulkan). It listens only on 127.0.0.1, on a private
+  0.40.3, processor and Vulkan). It listens only on 127.0.0.1, on a private
   port, so only apps on your computer can reach it, and it stops when you
   quit ChatonLM.
 - **You entered a server address** (Settings › General › Server address, or
@@ -227,6 +236,10 @@ ChatonLM itself connects only to:
   speech recognition model or a voice;
 - **ollama.com**, to check that a model name typed in the model picker exists,
   and to show your account picture once you are signed in;
+- **ollama.com or Hugging Face**, whichever the model came from, to check
+  whether a newer version of an installed model is available: for the model
+  selected in a chat, and for all of them when you open the Installed tab of
+  ModelHub. Only the name of the model is sent;
 - **GitHub** (github.com), to check for and download updates, and to download
   the model files of a voice.
 
@@ -338,7 +351,7 @@ folder of the installation on Windows.
 - The interface follows, and partly adapts, the official
   [Ollama](https://github.com/ollama/ollama) app (MIT License, Copyright (c)
   Ollama); the adapted files are listed in THIRD_PARTY_LICENSES, part 1.
-- The packages include [Ollama](https://github.com/ollama/ollama) 0.40.0 (MIT)
+- The packages include [Ollama](https://github.com/ollama/ollama) 0.40.3 (MIT)
   and [ONNX Runtime](https://github.com/microsoft/onnxruntime) 1.28.3 (MIT),
   unmodified. The built-in Ollama also contains the GNU OpenMP library
   (libgomp), under the GPL 3 with the GCC Runtime Library Exception.

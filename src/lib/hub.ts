@@ -96,6 +96,11 @@ export function isActiveDownload(download: HubDownload): boolean {
   );
 }
 
+/** Téléchargement pas encore fini : en file, en cours ou en pause. */
+export function isPendingDownload(download: HubDownload): boolean {
+  return isActiveDownload(download) || download.state === "paused";
+}
+
 /** Pourcentage entier d'un téléchargement ; 0 si le total est inconnu. */
 export function downloadPercent(completed: number, total: number): number {
   if (total <= 0) return 0;
@@ -126,11 +131,19 @@ export function progressText(t: TFunction, download: HubDownload): string {
   return parts.join(" · ");
 }
 
-/** Ligne d'état d'un téléchargement actif. */
+/** Ligne d'état d'un téléchargement actif ou en pause. */
 export function activeText(t: TFunction, download: HubDownload): string {
   switch (download.state) {
     case "queued":
       return t("hub.progress.waiting");
+    case "paused":
+      // « Paused · 2.1 GB of 5.0 GB » : ce qui est déjà reçu est gardé.
+      return download.total > 0
+        ? `${t("hub.downloadState.paused")} · ${t("hub.progress.ofTotal", {
+            completed: formatBytes(t, download.completed),
+            total: formatBytes(t, download.total),
+          })}`
+        : t("hub.downloadState.paused");
     case "starting":
       return download.completed > 0
         ? progressText(t, download)

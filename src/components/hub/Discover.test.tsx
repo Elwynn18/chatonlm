@@ -54,6 +54,10 @@ const card = (name: string) =>
     .getAllByTestId("model-card")
     .find((element) => element.querySelector("h4")?.textContent === name)!;
 
+/** Les poids dits sur une carte (« Download 7.5 GB·VRAM 9.0 GB »). */
+const footprint = (element: HTMLElement) =>
+  within(element).getByTestId("footprint").textContent;
+
 const cardNames = () =>
   screen
     .getAllByTestId("model-card")
@@ -97,7 +101,20 @@ describe("Discover: home", () => {
     expect(within(qwen).getByText("9.7B")).toBeTruthy();
     expect(within(qwen).getByText("256K")).toBeTruthy();
     expect(within(qwen).getByText("1.9M")).toBeTruthy();
-    expect(within(qwen).getByText("Fits your GPU · 7.5 GB")).toBeTruthy();
+    // La place, puis les deux poids dits à part : à télécharger, en mémoire.
+    expect(within(qwen).getByText("Fits your GPU")).toBeTruthy();
+    expect(footprint(qwen)).toBe("Download 7.5 GB·VRAM 13 GB");
+    const [download, memory] = within(qwen)
+      .getByTestId("footprint")
+      .querySelectorAll("[title]");
+    expect(download.getAttribute("title")).toBe(
+      "Size of the files to download, and the space they take on the disk.\n" +
+        "Estimated for the recommended version: the model page gives the exact sizes.",
+    );
+    expect(memory.getAttribute("title")).toBe(
+      "Graphics memory the model needs to run, context included.\n" +
+        "Estimated for the recommended version: the model page gives the exact sizes.",
+    );
     expect(
       within(qwen)
         .getAllByRole("img")
@@ -140,9 +157,25 @@ describe("Discover: home", () => {
     expect(
       screen.queryByRole("heading", { name: "Best for your machine" }),
     ).toBeNull();
-    const pill = card("Qwen3.5-9B").querySelector("[data-fit]")!;
-    expect(pill.getAttribute("data-fit")).toBe("unknown");
-    expect(pill.textContent).toBe("7.5 GB");
+    // Ni pastille ni mémoire : seule la taille à télécharger est connue.
+    expect(card("Qwen3.5-9B").querySelector("[data-fit]")).toBeNull();
+    expect(footprint(card("Qwen3.5-9B"))).toBe("Download 7.5 GB");
+  });
+
+  it("without a graphics card: the memory is the computer's, not VRAM", async () => {
+    renderHub("/hub", ({ hub }) => {
+      hub.hardware = { ...hub.hardware!, gpus: [] };
+    });
+    await home();
+    const qwen = card("Qwen3.5-9B");
+    await within(qwen).findByText("Fits in memory");
+    expect(footprint(qwen)).toBe("Download 7.5 GB·Memory 13 GB");
+    expect(
+      within(qwen)
+        .getByTestId("footprint")
+        .querySelectorAll("[title]")[1]
+        .getAttribute("title"),
+    ).toContain("Memory the model needs to run, context included.");
   });
 
   it("reads the catalog and the machine again when the server or the context length changes", async () => {

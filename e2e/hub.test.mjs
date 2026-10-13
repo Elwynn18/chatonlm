@@ -942,6 +942,100 @@ try {
       ["Try again", "Dismiss"],
     );
 
+    // Pause : la requête est fermée, la ligne garde ce qui est reçu ;
+    // Resume lance un nouveau pull (Ollama repart de ses morceaux).
+    const stateOf = (repo) =>
+      driver.execute(
+        `const row = [...document.querySelectorAll("[data-testid=download]")]
+           .find((r) => r.querySelector("[title]")?.title.includes(arguments[0]));
+         return row?.getAttribute("data-state") ?? null;`,
+        [repo],
+      );
+    const inRow = (repo, label) =>
+      driver.execute(
+        `const row = [...document.querySelectorAll("[data-testid=download]")]
+           .find((r) => r.querySelector("[title]")?.title.includes(arguments[0]));
+         const button = [...(row?.querySelectorAll("button") ?? [])]
+           .find((b) => b.textContent.trim() === arguments[1]);
+         button?.click();
+         return button !== undefined;`,
+        [repo, label],
+      );
+    const held = "hf.co/chatonlm/Held-Stall-GGUF:Q4_K_M";
+    const closedBefore = await fake.disconnects();
+    const pullsBefore = (await fake.pulls()).length;
+    await download(held);
+    await waitUntil(
+      async () => (await stateOf("Held-Stall")) === "downloading",
+      "téléchargement à mettre en pause",
+    );
+    assert.ok(await inRow("Held-Stall", "Pause"), "bouton Pause");
+    await waitUntil(
+      async () => (await stateOf("Held-Stall")) === "paused",
+      "téléchargement en pause",
+    );
+    await waitUntil(
+      async () => (await fake.disconnects()) === closedBefore + 1,
+      "requête fermée par la pause",
+    );
+    assert.match(
+      await driver.execute(
+        `return document.querySelector("[data-testid=download][data-state=paused] [role=progressbar]")
+           .getAttribute("aria-valuetext")`,
+      ),
+      /^Paused · \d+(\.\d)? (B|KB|MB|GB) of 1\.1 GB$/,
+    );
+    assert.deepEqual(
+      await textsOf(driver, "[data-testid=download][data-state=paused] button"),
+      ["Resume", "Cancel"],
+    );
+    assert.equal(
+      await exists(driver, "[data-testid=active-downloads]"),
+      false,
+      "une pause n'est pas un téléchargement actif",
+    );
+    await shoot(driver, "downloads-paused");
+    assert.ok(await inRow("Held-Stall", "Resume"), "bouton Resume");
+    await waitUntil(
+      async () => (await stateOf("Held-Stall")) === "downloading",
+      "téléchargement repris",
+    );
+    assert.equal((await fake.pulls()).length, pullsBefore + 2, "nouveau pull");
+
+    // Download first : le téléchargement en file démarre tout de suite, le
+    // dernier en cours retourne en file (deux à la fois).
+    await download("hf.co/chatonlm/Second-Stall-GGUF:Q4_K_M");
+    await download("hf.co/chatonlm/Third-Stall-GGUF:Q4_K_M");
+    await waitUntil(
+      async () =>
+        (await stateOf("Second-Stall")) === "downloading" &&
+        (await stateOf("Third-Stall")) === "queued",
+      "deux en cours, un en file",
+    );
+    assert.ok(await inRow("Third-Stall", "Download first"), "Download first");
+    await waitUntil(
+      async () =>
+        (await stateOf("Third-Stall")) === "downloading" &&
+        (await stateOf("Second-Stall")) === "queued" &&
+        (await stateOf("Held-Stall")) === "downloading",
+      "téléchargement passé en premier",
+    );
+    assert.equal(
+      await driver.execute(
+        `return document.querySelector("[data-testid=download]").querySelector("[title]").title`,
+      ),
+      "hf.co/chatonlm/Third-Stall-GGUF:Q4_K_M",
+      "le téléchargement prioritaire est en tête de la liste",
+    );
+    for (const repo of ["Third-Stall", "Held-Stall", "Second-Stall"]) {
+      assert.ok(await inRow(repo, "Cancel"), `Cancel de ${repo}`);
+      await waitUntil(
+        async () => (await stateOf(repo)) === "cancelled",
+        `${repo} arrêté`,
+      );
+      assert.ok(await inRow(repo, "Dismiss"), `Dismiss de ${repo}`);
+    }
+
     // Manifestes refusés par le registre : message lisible, aucun pull.
     const refused = {
       "hf.co/chatonlm/Tiny-Badtag-GGUF:Q4_K_M":

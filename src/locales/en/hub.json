@@ -97,6 +97,15 @@
     "partial": "Runs partly on CPU",
     "tooLarge": "Too large"
   },
+  "footprint": {
+    "download": "Download",
+    "vram": "VRAM",
+    "memory": "Memory",
+    "downloadHint": "Size of the files to download, and the space they take on the disk.",
+    "vramHint": "Graphics memory the model needs to run, context included.",
+    "memoryHint": "Memory the model needs to run, context included.",
+    "estimated": "Estimated for the recommended version: the model page gives the exact sizes."
+  },
   "installedBadge": "Installed",
   "status": {
     "earlier": "earlier",
@@ -200,12 +209,18 @@
     "browse": "Browse models",
     "viewOnHuggingFace": "View on Hugging Face",
     "deleteNamed": "Delete {name}",
-    "deleteConfirm": "Delete {name}?"
+    "deleteConfirm": "Delete {name}?",
+    "update": "Update",
+    "updateNamed": "Update {name}",
+    "pause": "Pause",
+    "resume": "Resume",
+    "downloadFirst": "Download first"
   },
   "downloadState": {
     "failed": "The download failed.",
     "installed": "Installed",
     "noLongerInstalled": "No longer installed",
+    "paused": "Paused",
     "cancelled": "Cancelled"
   },
   "downloads": {
@@ -217,7 +232,8 @@
     "empty": "No models yet",
     "modified": "Modified {time}",
     "embedding": "Embedding",
-    "deleteText": "This removes the model from Ollama. You can download it again later."
+    "deleteText": "This removes the model from Ollama. You can download it again later.",
+    "updateAvailable": "Update available"
   },
   "speech": {
     "title": "Speech models",

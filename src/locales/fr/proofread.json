@@ -50,6 +50,7 @@
     "stop": "Arrêter",
     "undo": "Annuler",
     "redo": "Rétablir",
+    "clear": "Effacer le texte",
     "copyFailed": "Échec de la copie"
   },
   "error": {

@@ -74,9 +74,32 @@ export function displayTag(tag: string): string {
 }
 
 /**
+ * Nom court à citer dans une phrase : « SmolLM2-135M-Instruct:Q4_K_M » pour
+ * un modèle de Hugging Face, le nom tel quel sinon (« qwen3:0.6b »).
+ */
+export function shortModelName(model: string): string {
+  const name = parseModelName(model);
+  if (!name.repo) return model.trim();
+  return name.tag ? `${name.title}:${displayTag(name.tag)}` : name.title;
+}
+
+/**
  * Deux noms désignent-ils le même modèle ? Ollama résout les noms sans tenir
  * compte de la casse.
  */
 export function sameModel(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * Nom avec son étiquette, `latest` à défaut comme Ollama le résout
+ * (« gemma4 » → « gemma4:latest ») : le sélecteur montre les noms sans
+ * `:latest`, /api/tags les donne avec. L'étiquette se cherche après le
+ * dernier « / » (un hôte peut porter un port).
+ */
+export function withTag(model: string): string {
+  const name = model.trim();
+  return name.slice(name.lastIndexOf("/") + 1).includes(":")
+    ? name
+    : `${name}:latest`;
 }

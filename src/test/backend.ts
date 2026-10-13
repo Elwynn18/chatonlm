@@ -77,7 +77,7 @@ import type { ServiceStart } from "@/bindings/ServiceStart";
 import type { UpdateStatus } from "@/bindings/UpdateStatus";
 import type { Platform } from "@/lib/platform";
 import { type FakeDictation, fakeDictation } from "@/test/dictation";
-import { type FakeHub, fakeHub } from "@/test/hub";
+import { canonicalModel, type FakeHub, fakeHub } from "@/test/hub";
 import { type FakeProofread, fakeProofread } from "@/test/proofread";
 import {
   type Args,
@@ -274,6 +274,14 @@ export interface FakeBackend {
   recommended: string[];
   /** Modèles présents au registre (model_exists_upstream). */
   upstream: Set<string>;
+  /**
+   * Modèles installés dont le registre a une version plus récente
+   * (outdated_models, comparés sans la casse, `:latest` implicite) ; un
+   * modèle téléchargé de nouveau par hub.finish() en sort.
+   */
+  outdated: Set<string>;
+  /** outdated_models rejette cette erreur (Ollama injoignable). */
+  outdatedError: AppError | null;
   /** Conversations enregistrées, par identifiant. */
   chats: Map<string, StoredChat>;
   /** État renvoyé par server_status (celui de la cible). */
@@ -521,6 +529,7 @@ export function fakeBackend(
       effectiveLanguage: "en",
       proofreadModel: "",
       proofreadShortcut: false,
+      proofreadPaste: true,
       studyModel: "",
       autoRead: false,
     },
@@ -534,6 +543,8 @@ export function fakeBackend(
     models: [...models],
     recommended: [...recommended],
     upstream: new Set(upstream),
+    outdated: new Set(),
+    outdatedError: null,
     chats: new Map(),
     serverState: "running",
     service: null,
@@ -946,6 +957,13 @@ export function fakeBackend(
   simulator.handle("model_exists_upstream", (args: Args) =>
     backend.upstream.has(args.model as string),
   );
+  simulator.handle("outdated_models", (args: Args) => {
+    if (backend.outdatedError) throw backend.outdatedError;
+    const stale = [...backend.outdated].map(canonicalModel);
+    return (args.models as string[]).filter((model) =>
+      stale.includes(canonicalModel(model)),
+    );
+  });
   simulator.handle("model_details", (args: Args) => {
     const model = args.model as string;
     const found = backend.details.get(model);

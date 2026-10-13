@@ -90,8 +90,8 @@
   "plan": {
     "eyebrow": "Your course plan",
     "duration": {
-      "one": "About {count} min",
-      "other": "About {count} min"
+      "one": "About {count} min of study",
+      "other": "About {count} min of study"
     },
     "levelCount": {
       "one": "{count} level",
@@ -140,8 +140,8 @@
     "progress": "Course progress",
     "progressText": "{done} of {total} steps",
     "timeLeft": {
-      "one": "About {count} min left",
-      "other": "About {count} min left"
+      "one": "About {count} min of study left",
+      "other": "About {count} min of study left"
     },
     "finished": "Completed",
     "streak": {
@@ -177,8 +177,8 @@
     "start": "Let's start",
     "resume": "Resume",
     "timeLeft": {
-      "one": "About {count} minute to go.",
-      "other": "About {count} minutes to go."
+      "one": "About {count} minute of study to go.",
+      "other": "About {count} minutes of study to go."
     },
     "finished": "You completed this course. Review it whenever you like."
   },
@@ -287,8 +287,40 @@
     "preparingRemedy": "Preparing a new explanation…"
   },
   "wait": {
-    "level": "Preparing this level…",
-    "final": "Preparing the final review…"
+    "level": "This level isn't written yet.",
+    "final": "The final review isn't written yet.",
+    "finalAfterLevels": "It's written after the last level."
+  },
+  "generation": {
+    "plan": "Writing the course plan…",
+    "level": "Writing level {number} of {total}…",
+    "remedy": "Writing a new explanation for level {number}…",
+    "final": "Writing the final review…",
+    "waiting": "Waiting for another course to be written first…",
+    "paused": "Writing paused",
+    "complete": "The whole course is written.",
+    "ready": {
+      "one": "{count} of {total} levels ready",
+      "other": "{count} of {total} levels ready"
+    },
+    "stage": {
+      "lesson": "Step 1 of 2: the lesson",
+      "questions": "Step 2 of 2: the questions"
+    },
+    "failed": {
+      "level": "Level {number} couldn't be written.",
+      "remedy": "The new explanation for level {number} couldn't be written.",
+      "final": "The final review couldn't be written."
+    },
+    "hint": {
+      "first": "You can start as soon as the first level is ready. The next levels are written while you study.",
+      "start": "The first level is ready: you can start. The next levels are written while you study.",
+      "paused": "Nothing more is written for this course until you resume."
+    },
+    "pause": "Pause",
+    "resume": "Resume",
+    "pauseTitle": "Pause the writing of this course",
+    "resumeTitle": "Resume the writing of this course"
   },
   "final": {
     "eyebrow": "Last step",
@@ -317,5 +349,9 @@
     "saved": "Notes saved",
     "missed": "Questions to look at again",
     "further": "Go further"
+  },
+  "readAloud": {
+    "nothingToRead": "There's nothing to read aloud in this text.",
+    "engineFailed": "Couldn't read this text aloud."
   }
 }

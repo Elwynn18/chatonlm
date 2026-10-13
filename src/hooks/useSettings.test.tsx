@@ -33,6 +33,7 @@ const SAVED: Settings = {
   effectiveLanguage: "en",
   proofreadModel: "",
   proofreadShortcut: false,
+  proofreadPaste: true,
   studyModel: "",
   autoRead: false,
 };

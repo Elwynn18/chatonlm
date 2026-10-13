@@ -1,6 +1,6 @@
-// Fonctions pures de la lecture à voix haute : réponse à qui revient l'état
-// et l'erreur, titre d'une voix, conversation tirée du chemin et changement
-// de conversation.
+// Fonctions pures de la lecture à voix haute : réponse ou texte d'un cours à
+// qui revient l'état et l'erreur, titre d'une voix, conversation tirée du
+// chemin et changement de conversation.
 
 import { describe, expect, it } from "vitest";
 import type { ReadAloudState } from "@/bindings/ReadAloudState";
@@ -12,6 +12,10 @@ import {
   leavesChat,
   needsVoiceText,
   phaseFor,
+  readAloudBlockedText,
+  readAloudErrorText,
+  sameSource,
+  sourceOf,
   voiceTitle,
 } from "@/lib/readAloud";
 
@@ -20,31 +24,87 @@ const state = (patch: Partial<ReadAloudState>): ReadAloudState => ({
   ...patch,
 });
 
+const answer = (messageId: number) => ({ kind: "message", messageId }) as const;
+const passage = (courseId: string, key: string) =>
+  ({ kind: "study", courseId, passage: key }) as const;
+
 describe("reading state of each response", () => {
   it("the phase belongs to the response being read only", () => {
-    const playing = state({ messageId: 4, phase: "playing" });
-    expect(phaseFor(playing, 4)).toBe("playing");
-    expect(phaseFor(playing, 2)).toBe("idle");
-    expect(phaseFor(IDLE, 4)).toBe("idle");
+    const playing = state({ source: answer(4), phase: "playing" });
+    expect(phaseFor(playing, answer(4))).toBe("playing");
+    expect(phaseFor(playing, answer(2))).toBe("idle");
+    expect(phaseFor(IDLE, answer(4))).toBe("idle");
   });
 
   it("an error at rest belongs to the response the engine names with it", () => {
-    const failed = state({ messageId: 4, error: "noOutputDevice" });
-    expect(errorFor(failed, 4)).toBe("noOutputDevice");
-    expect(errorFor(failed, 2)).toBeNull();
+    const failed = state({ source: answer(4), error: "noOutputDevice" });
+    expect(errorFor(failed, answer(4))).toBe("noOutputDevice");
+    expect(errorFor(failed, answer(2))).toBeNull();
     // Une autre lecture commence : plus d'erreur nulle part.
-    const next = state({ messageId: 2, phase: "preparing" });
-    expect(errorFor(next, 4)).toBeNull();
-    expect(errorFor(next, 2)).toBeNull();
+    const next = state({ source: answer(2), phase: "preparing" });
+    expect(errorFor(next, answer(4))).toBeNull();
+    expect(errorFor(next, answer(2))).toBeNull();
   });
 
   it("no error while a reading runs", () => {
     expect(
       errorFor(
-        state({ messageId: 4, phase: "playing", error: "engineFailed" }),
-        4,
+        state({ source: answer(4), phase: "playing", error: "engineFailed" }),
+        answer(4),
       ),
     ).toBeNull();
+  });
+});
+
+describe("reading state of a course text", () => {
+  it("the phase and the error belong to that passage of that course only", () => {
+    const lesson = passage("course-1", "L0:s1");
+    const playing = state({ source: lesson, phase: "playing" });
+    expect(phaseFor(playing, passage("course-1", "L0:s1"))).toBe("playing");
+    expect(phaseFor(playing, passage("course-1", "L0:s2"))).toBe("idle");
+    expect(phaseFor(playing, passage("course-2", "L0:s1"))).toBe("idle");
+    // Ni une réponse, quel que soit son numéro, ni l'inverse.
+    expect(phaseFor(playing, answer(0))).toBe("idle");
+    expect(
+      phaseFor(state({ source: answer(4), phase: "playing" }), lesson),
+    ).toBe("idle");
+    const failed = state({ source: lesson, error: "engineFailed" });
+    expect(errorFor(failed, lesson)).toBe("engineFailed");
+    expect(errorFor(failed, passage("course-1", "L0:recap"))).toBeNull();
+    expect(errorFor(failed, answer(4))).toBeNull();
+  });
+
+  it("a target names its text the way the engine does", () => {
+    expect(
+      sourceOf({ kind: "message", chatId: "chat-1", messageId: 4 }),
+    ).toEqual({ kind: "message", messageId: 4 });
+    expect(
+      sourceOf({ kind: "study", courseId: "course-1", passage: "L0:s1" }),
+    ).toEqual({ kind: "study", courseId: "course-1", passage: "L0:s1" });
+    expect(sameSource(null, null)).toBe(false);
+  });
+
+  it("a course text is not called a response", () => {
+    const t = translator("en");
+    expect(readAloudErrorText(t, "engineFailed")).toBe(
+      "Couldn't read this response aloud.",
+    );
+    expect(readAloudErrorText(t, "engineFailed", "study")).toBe(
+      "Couldn't read this text aloud.",
+    );
+    // Les autres erreurs ne parlent pas du texte : les mêmes.
+    expect(readAloudErrorText(t, "noOutputDevice", "study")).toBe(
+      readAloudErrorText(t, "noOutputDevice"),
+    );
+    expect(readAloudBlockedText(t, "nothingToRead")).toBe(
+      "There's nothing to read aloud in this response.",
+    );
+    expect(readAloudBlockedText(t, "nothingToRead", "study")).toBe(
+      "There's nothing to read aloud in this text.",
+    );
+    expect(readAloudBlockedText(t, "unsupportedLanguage", "study")).toBe(
+      "Reading aloud is available in English, French and Spanish.",
+    );
   });
 });
 

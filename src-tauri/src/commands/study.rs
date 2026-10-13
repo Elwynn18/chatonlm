@@ -16,6 +16,7 @@ use crate::study::{
     AnswerValue, Answered, Course, CourseSummary, Ctx, NewCourse, StudyEngine, StudyStreamEvent,
     UPDATED_EVENT,
 };
+use crate::tts::ReadAloud;
 
 /// Base et évènements `study-updated` vers la page.
 fn ctx(app: &AppHandle, store: &Store) -> Ctx {
@@ -82,9 +83,12 @@ pub async fn study_replan(
     app: AppHandle,
     store: State<'_, Store>,
     engine: State<'_, StudyEngine>,
+    read_aloud: State<'_, ReadAloud>,
     course_id: String,
 ) -> AppResult<()> {
-    engine.replan(&ctx(&app, &store), &course_id).await
+    engine.replan(&ctx(&app, &store), &course_id).await?;
+    read_aloud.stop_if_reading_course(&course_id);
+    Ok(())
 }
 
 /// Commence le cours (plan prêt) : génération des paliers suivants et du
@@ -97,6 +101,25 @@ pub async fn study_start(
     course_id: String,
 ) -> AppResult<()> {
     engine.start(&ctx(&app, &store), &course_id).await
+}
+
+/// Met en pause (`paused`) ou reprend la génération d'un cours. En pause, sa
+/// partie en cours d'écriture est arrêtée (refaite à la reprise) et ses
+/// parties ne sont plus écrites ; les autres cours continuent. Enregistré :
+/// la pause survit au redémarrage. Une demande qui exige une génération
+/// (`study_remedy`, `study_regenerate`, `study_retry`, `study_replan`,
+/// `study_clarify`) reprend le cours.
+#[tauri::command]
+pub async fn study_pause(
+    app: AppHandle,
+    store: State<'_, Store>,
+    engine: State<'_, StudyEngine>,
+    course_id: String,
+    paused: bool,
+) -> AppResult<()> {
+    engine
+        .set_paused(&ctx(&app, &store), &course_id, paused)
+        .await
 }
 
 /// Corrige et enregistre la réponse à une question ; une question déjà
@@ -157,17 +180,22 @@ pub async fn study_skip(
 
 /// Refait un palier (« Report a mistake ») : leçon, questions, essais,
 /// explications et questions posées remplacés, réponses du palier effacées.
+/// La lecture à voix haute d'un texte du cours s'arrête (il est peut-être
+/// de l'ancienne leçon).
 #[tauri::command]
 pub async fn study_regenerate(
     app: AppHandle,
     store: State<'_, Store>,
     engine: State<'_, StudyEngine>,
+    read_aloud: State<'_, ReadAloud>,
     course_id: String,
     level: u32,
 ) -> AppResult<()> {
     engine
         .regenerate(&ctx(&app, &store), &course_id, level)
-        .await
+        .await?;
+    read_aloud.stop_if_reading_course(&course_id);
+    Ok(())
 }
 
 /// Relance les parties en échec (plan, paliers, nouvel essai, bilan) ;
@@ -306,13 +334,16 @@ async fn pick_save_path(window: &WebviewWindow, name: String) -> Option<std::pat
         .and_then(|path| path.into_path().ok())
 }
 
-/// Supprime un cours (génération arrêtée).
+/// Supprime un cours (génération arrêtée, comme la lecture à voix haute
+/// d'un de ses textes).
 #[tauri::command]
 pub async fn study_delete(
     app: AppHandle,
     store: State<'_, Store>,
     engine: State<'_, StudyEngine>,
+    read_aloud: State<'_, ReadAloud>,
     course_id: String,
 ) -> AppResult<()> {
+    read_aloud.stop_if_reading_course(&course_id);
     engine.delete(&ctx(&app, &store), &course_id).await
 }

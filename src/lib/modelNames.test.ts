@@ -4,7 +4,9 @@ import {
   isHuggingFaceName,
   parseModelName,
   sameModel,
+  shortModelName,
   withoutGgufSuffix,
+  withTag,
 } from "./modelNames";
 
 describe("model names", () => {
@@ -73,5 +75,32 @@ describe("model names", () => {
     expect(sameModel("qwen3:0.6b", "qwen3:1.7b")).toBe(false);
     expect(isHuggingFaceName("hf.co/a/b:c")).toBe(true);
     expect(isHuggingFaceName("qwen3:0.6b")).toBe(false);
+  });
+
+  it("adds the latest tag Ollama implies, after the last slash only", () => {
+    expect(withTag("gemma4")).toBe("gemma4:latest");
+    expect(withTag(" someone/model \n")).toBe("someone/model:latest");
+    expect(withTag("hf.co/a/b-GGUF")).toBe("hf.co/a/b-GGUF:latest");
+    // Le port d'un hôte n'est pas une étiquette.
+    expect(withTag("localhost:5000/team/model")).toBe(
+      "localhost:5000/team/model:latest",
+    );
+    for (const tagged of [
+      "qwen3:0.6b",
+      "gemma4:latest",
+      "hf.co/a/b-GGUF:Q4_K_M",
+      "localhost:5000/team/model:v2",
+    ]) {
+      expect(withTag(tagged)).toBe(tagged);
+    }
+  });
+
+  it("shortens a Hugging Face name to quote it, and keeps the others", () => {
+    expect(
+      shortModelName("hf.co/bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M"),
+    ).toBe("SmolLM2-135M-Instruct:Q4_K_M");
+    expect(shortModelName("hf.co/a/Model-GGUF")).toBe("Model");
+    expect(shortModelName(" qwen3:0.6b ")).toBe("qwen3:0.6b");
+    expect(shortModelName("someone/model")).toBe("someone/model");
   });
 });

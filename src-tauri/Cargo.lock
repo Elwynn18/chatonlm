@@ -108,6 +108,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "serde",
+ "serde_repr",
  "zbus",
 ]
 
@@ -1467,6 +1468,7 @@ dependencies = [
  "axum",
  "futures-util",
  "serde_json",
+ "sha2",
  "tokio",
 ]
 

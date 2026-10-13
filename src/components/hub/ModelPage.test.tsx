@@ -90,6 +90,21 @@ describe("Model page", () => {
     expect(q8.closest("label")?.textContent).toContain("Recommended");
     expect(q8.closest("label")?.textContent).toContain("High quality");
     expect(q8.closest("label")?.textContent).toContain("Fits your GPU");
+    // Les deux poids de chaque version, dits à part ; la mémoire précise le
+    // contexte compté.
+    const weights = (radio: HTMLInputElement) =>
+      within(radio.closest("label")!).getByTestId("footprint");
+    expect(weights(q8).textContent).toBe("Download 10 GB·VRAM 16 GB");
+    expect(
+      weights(q8).querySelectorAll("[title]")[1].getAttribute("title"),
+    ).toMatch(/^Needs about 16 GB of memory with a \d+K context\.$/);
+    expect(
+      weights(q8).querySelectorAll("[title]")[0].getAttribute("title"),
+    ).toBe(
+      "Size of the files to download, and the space they take on the disk.",
+    );
+    // Version indisponible : sa taille seule.
+    expect(weights(bf16).textContent).toMatch(/^Download \d+ GB$/);
     expect(downloadButton().textContent).toBe("Download · 10 GB");
     expect(ollamaName()).toBe(Q8);
 
@@ -263,6 +278,30 @@ describe("Model page", () => {
       await screen.findByRole("button", { name: /^Download · / }),
     ).toBeTruthy();
     expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("a download paused elsewhere shows where it stopped, Resume and Cancel", async () => {
+    const { simulator, hub } = renderHub(QWEN);
+    await page();
+    await userEvent.click(downloadButton());
+    await hub.progress(Q8, 4 * GIB, { total: 10 * GIB });
+    // Mis en pause depuis l'onglet Downloads.
+    await hub.setState(Q8, "paused");
+    const bar = await screen.findByRole("progressbar");
+    await waitFor(() =>
+      expect(bar.getAttribute("aria-valuetext")).toBe(
+        "Paused · 4.0 GB of 10 GB",
+      ),
+    );
+    expect(bar.getAttribute("aria-valuenow")).toBe("40");
+    expect(screen.queryByRole("button", { name: /^Download · / })).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Resume" }));
+    expect(simulator.callsTo("hub_resume_download")).toEqual([{ model: Q8 }]);
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Resume" })).toBeNull(),
+    );
+    expect(screen.getByRole("progressbar")).toBeTruthy();
   });
 
   it("a failure shows the message, Try again downloads again", async () => {

@@ -1,5 +1,7 @@
 // Progression d'un téléchargement du ModelHub : barre (ARIA progressbar,
 // comme Downloading.tsx) et ligne « 2.1 GB of 5.0 GB · 48 MB/s · 1 min left ».
+// En pause : barre arrêtée où elle en était, estompée, « Paused · 2.1 GB of
+// 5.0 GB ».
 
 import type { HubDownload } from "@/bindings/HubDownload";
 import { useT } from "@/i18n";
@@ -33,7 +35,7 @@ export function DownloadProgress({
         <div
           className={`absolute inset-y-0 left-0 rounded-full bg-accent transition-[width] duration-300 ${
             waiting ? "w-1/4 animate-pulse opacity-40" : ""
-          }`}
+          } ${download.state === "paused" ? "opacity-40" : ""}`}
           style={waiting ? undefined : { width: `${percent}%` }}
         />
       </div>

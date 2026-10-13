@@ -24,12 +24,16 @@ import {
   hubHardware,
   hubHome,
   hubInstalled,
+  hubPauseDownload,
+  hubPrioritizeDownload,
   hubReadme,
   hubRepo,
+  hubResumeDownload,
   hubSearch,
   isAppError,
   modelDetails,
   modelExistsUpstream,
+  outdatedModels,
   quitApp,
   recommendedModels,
   setThinkPref,
@@ -119,6 +123,20 @@ describe("model commands", () => {
       ["model_exists_upstream", { model: "llama3.2" }],
     ]);
   });
+
+  it("asks which installed models have a newer version in the registry", async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((command, args) => {
+      calls.push([command, args]);
+      return ["qwen3:0.6b"];
+    });
+    await expect(outdatedModels(["qwen3:0.6b", "gemma4"])).resolves.toEqual([
+      "qwen3:0.6b",
+    ]);
+    expect(calls).toEqual([
+      ["outdated_models", { models: ["qwen3:0.6b", "gemma4"] }],
+    ]);
+  });
 });
 
 describe("think commands", () => {
@@ -205,6 +223,9 @@ describe("ModelHub commands", () => {
     await hubHardware();
     await hubDownload(request);
     await hubCancelDownload("hf.co/a/b:Q4_K_M");
+    await hubPauseDownload("hf.co/a/b:Q4_K_M");
+    await hubResumeDownload("hf.co/a/b:Q4_K_M");
+    await hubPrioritizeDownload("hf.co/a/b:Q4_K_M");
     await hubDownloads();
     await hubDismissDownload("hf.co/a/b:Q4_K_M");
     await hubInstalled();
@@ -218,6 +239,9 @@ describe("ModelHub commands", () => {
       ["hub_hardware", {}],
       ["hub_download", { request }],
       ["hub_cancel_download", { model: "hf.co/a/b:Q4_K_M" }],
+      ["hub_pause_download", { model: "hf.co/a/b:Q4_K_M" }],
+      ["hub_resume_download", { model: "hf.co/a/b:Q4_K_M" }],
+      ["hub_prioritize_download", { model: "hf.co/a/b:Q4_K_M" }],
       ["hub_downloads", {}],
       ["hub_dismiss_download", { model: "hf.co/a/b:Q4_K_M" }],
       ["hub_installed", {}],

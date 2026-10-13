@@ -50,6 +50,7 @@
     "stop": "Stop",
     "undo": "Undo",
     "redo": "Redo",
+    "clear": "Clear the text",
     "copyFailed": "Copy failed"
   },
   "error": {

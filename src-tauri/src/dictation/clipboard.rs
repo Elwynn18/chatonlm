@@ -13,8 +13,13 @@
 //! Chaque lecture de la sélection a son propre fil, abandonné au bout de
 //! [`SELECTION_TIMEOUT`] (une application figée qui détient la sélection ne
 //! bloque ni les copies, ni la lecture suivante).
+//!
+//! Collage ([`Clipboard::paste`], correction de la sélection) : Ctrl+V envoyé
+//! à l'application au premier plan, par le portail RemoteDesktop du bureau
+//! sous Linux (`portal.rs`), par `SendInput` sous Windows (`windows.rs`).
 
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::mpsc;
 use std::thread;
@@ -25,6 +30,8 @@ use tokio::sync::oneshot;
 
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "linux")]
+mod portal;
 pub mod selection;
 #[cfg(windows)]
 mod windows;
@@ -55,6 +62,19 @@ pub enum SelectionError {
     Other(String),
 }
 
+/// Pourquoi le presse-papiers n'a pas pu être collé dans l'application au
+/// premier plan ; l'appelant dit alors de coller à la main.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PasteError {
+    /// Le bureau n'offre pas de quoi envoyer des touches (pas de portail
+    /// RemoteDesktop).
+    Unsupported,
+    /// L'autorisation demandée par le bureau a été refusée.
+    Refused,
+    /// Autre échec : détail technique (en anglais).
+    Other(String),
+}
+
 /// Destination du texte dicté, source du texte sélectionné (le vrai
 /// presse-papiers, ou un faux).
 pub trait Clipboard: Send + Sync {
@@ -66,6 +86,12 @@ pub trait Clipboard: Send + Sync {
     fn selection(&self) -> BoxFuture<Result<String, SelectionError>> {
         Box::pin(async { Err(SelectionError::Unsupported) })
     }
+
+    /// Colle le presse-papiers dans l'application au premier plan (Ctrl+V
+    /// simulé) : le texte sélectionné y est remplacé.
+    fn paste(&self) -> BoxFuture<Result<(), PasteError>> {
+        Box::pin(async { Err(PasteError::Unsupported) })
+    }
 }
 
 type Request = (String, oneshot::Sender<Result<(), String>>);
@@ -74,9 +100,20 @@ type Request = (String, oneshot::Sender<Result<(), String>>);
 #[derive(Default)]
 pub struct SystemClipboard {
     requests: Mutex<Option<mpsc::Sender<Request>>>,
+    /// Fichier où le jeton du portail RemoteDesktop est gardé (Linux) :
+    /// donné au démarrage de l'app ; sans lui, l'autorisation du bureau est
+    /// redemandée à chaque session. Jamais lu sous Windows.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    paste_token: Mutex<Option<PathBuf>>,
 }
 
 impl SystemClipboard {
+    /// Fichier (dans les données de l'app) où garder l'autorisation de
+    /// coller donnée par le bureau.
+    pub fn set_paste_token_file(&self, path: PathBuf) {
+        *self.paste_token.lock() = Some(path);
+    }
+
     fn sender(&self) -> Result<mpsc::Sender<Request>, String> {
         let mut requests = self.requests.lock();
         if let Some(sender) = requests.as_ref() {
@@ -108,6 +145,28 @@ impl Clipboard for SystemClipboard {
 
     fn selection(&self) -> BoxFuture<Result<String, SelectionError>> {
         Box::pin(read_with_timeout(read_selection, SELECTION_TIMEOUT))
+    }
+
+    #[cfg(target_os = "linux")]
+    fn paste(&self) -> BoxFuture<Result<(), PasteError>> {
+        let token = self.paste_token.lock().clone();
+        Box::pin(async move { portal::paste(token.as_deref()).await })
+    }
+
+    #[cfg(windows)]
+    fn paste(&self) -> BoxFuture<Result<(), PasteError>> {
+        Box::pin(async {
+            let (reply, answer) = oneshot::channel();
+            thread::Builder::new()
+                .name("chatonlm-paste".into())
+                .spawn(move || {
+                    let _ = reply.send(windows::paste());
+                })
+                .map_err(|error| PasteError::Other(error.to_string()))?;
+            answer
+                .await
+                .map_err(|_| PasteError::Other("the paste thread stopped".into()))?
+        })
     }
 }
 

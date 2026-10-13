@@ -3,7 +3,10 @@
 // bureau choisit les touches (portail GlobalShortcuts) : la dictée (son
 // interrupteur est dans l'onglet Dictation, lien quand elle est coupée) et
 // « Correct selected text » (interrupteur `proofreadShortcut`, coupé par
-// défaut ; sa première liaison ouvre la boîte du bureau). Chacun montre son
+// défaut ; sa première liaison ouvre la boîte du bureau ; sous lui,
+// « Replace the selection » : interrupteur `proofreadPaste`, activé par
+// défaut, le texte corrigé est collé à la place de la sélection au lieu
+// d'être seulement copié). Chacun montre son
 // état : touches liées et « Change… » (boîte du bureau), attente du bureau,
 // refus (« Set shortcut »), échec (« Try again »), ou la commande à lier
 // soi-même quand le portail manque. Sous Windows (`chooser` « app » dans le
@@ -21,6 +24,7 @@
 
 import {
   ArrowPathIcon,
+  ClipboardDocumentCheckIcon,
   DocumentCheckIcon,
   MicrophoneIcon,
 } from "@heroicons/react/20/solid";
@@ -41,6 +45,7 @@ import {
 } from "@/hooks/useShortcuts";
 import { type TKey, useT } from "@/i18n";
 import { errorMessage, type GlobalShortcutId } from "@/lib/ipc";
+import { isWindows } from "@/lib/platform";
 import {
   SHORTCUT_GROUPS,
   SHORTCUTS,
@@ -136,7 +141,21 @@ export function Shortcuts({ onSaved }: { onSaved: () => void }) {
     dictation: useId(),
     proofread: useId(),
     proofreadDescription: useId(),
+    paste: useId(),
+    pasteDescription: useId(),
     app: useId(),
+  };
+  // Échec de l'enregistrement de « Replace the selection ».
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  const togglePaste = async (proofreadPaste: boolean) => {
+    setPasteError(null);
+    try {
+      await setSettings({ proofreadPaste });
+    } catch (cause) {
+      setPasteError(errorMessage(cause));
+      return;
+    }
+    onSaved();
   };
 
   const toggle = async (proofreadShortcut: boolean) => {
@@ -242,6 +261,40 @@ export function Shortcuts({ onSaved }: { onSaved: () => void }) {
               describedBy={ids.proofreadDescription}
               disabled={!settings}
               onChange={(checked) => void toggle(checked)}
+            />
+          </div>
+
+          <div className="flex items-start justify-between gap-4">
+            <Row
+              icon={ClipboardDocumentCheckIcon}
+              label={
+                <span id={ids.paste}>
+                  {t("settings.shortcuts.global.proofread.paste.label")}
+                </span>
+              }
+              description={
+                <>
+                  {t("settings.shortcuts.global.proofread.paste.description")}
+                  {/* Linux : le bureau demande une fois l'autorisation
+                      d'envoyer la touche (portail RemoteDesktop). */}
+                  {!isWindows() && (
+                    <>
+                      {" "}
+                      {t("settings.shortcuts.global.proofread.paste.askHint")}
+                    </>
+                  )}
+                </>
+              }
+              descriptionId={ids.pasteDescription}
+            >
+              <RowError message={pasteError} />
+            </Row>
+            <Switch
+              label={t("settings.shortcuts.global.proofread.paste.label")}
+              checked={settings?.proofreadPaste ?? true}
+              describedBy={ids.pasteDescription}
+              disabled={!settings}
+              onChange={(checked) => void togglePaste(checked)}
             />
           </div>
 

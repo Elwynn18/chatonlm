@@ -9,7 +9,9 @@ use crate::i18n::t;
 use crate::store::Store;
 use crate::store::chats::{self, Role};
 use crate::tts::models::{self, VoiceModelInfo};
-use crate::tts::{ReadAloud, ReadAloudOutcome, ReadAloudState, VoiceDownloads};
+use crate::tts::{
+    ReadAloud, ReadAloudOutcome, ReadAloudSource, ReadAloudState, VoiceDownloads, VoiceLanguage,
+};
 
 /// Catalogue des voix, avec celles qui sont installées (et ONNX Runtime
 /// chargé la première fois, bloquant).
@@ -127,14 +129,65 @@ pub async fn read_aloud(
     let Some(markdown) = content else {
         return Ok(ReadAloudOutcome::NothingToRead);
     };
-    // ONNX Runtime chargé la première fois (bloquant) avant la lecture.
+    let source = ReadAloudSource::Message { message_id };
+    start_reading(&read_aloud, &voices, source, &markdown, None, download).await
+}
+
+/// Lit le passage `passage` du cours `course_id` (onglet Study ; texte relu
+/// en base, clés dans `study::passage`), comme `read_aloud` : une seule
+/// lecture dans l'app, voix absente → `NeedsVoice` sauf avec `download`. La
+/// langue du cours sert de repli quand le texte ne trahit pas la sienne.
+#[tauri::command]
+pub async fn read_aloud_study(
+    store: State<'_, Store>,
+    read_aloud: State<'_, ReadAloud>,
+    voices: State<'_, VoiceDownloads>,
+    course_id: String,
+    passage: String,
+    download: bool,
+) -> AppResult<ReadAloudOutcome> {
+    let (course, key) = (course_id.clone(), passage.clone());
+    let found = store
+        .call(move |connection| crate::study::passage::load(connection, &course, &key))
+        .await?;
+    let Some((markdown, language)) = found else {
+        return Ok(ReadAloudOutcome::NothingToRead);
+    };
+    let fallback = match language {
+        crate::i18n::Lang::En => VoiceLanguage::En,
+        crate::i18n::Lang::Es => VoiceLanguage::Es,
+        crate::i18n::Lang::Fr => VoiceLanguage::Fr,
+    };
+    let source = ReadAloudSource::Study { course_id, passage };
+    start_reading(
+        &read_aloud,
+        &voices,
+        source,
+        &markdown,
+        Some(fallback),
+        download,
+    )
+    .await
+}
+
+/// Lance la lecture de `markdown` (ONNX Runtime chargé la première fois,
+/// bloquant, avant la lecture).
+async fn start_reading(
+    read_aloud: &ReadAloud,
+    voices: &VoiceDownloads,
+    source: ReadAloudSource,
+    markdown: &str,
+    fallback: Option<VoiceLanguage>,
+    download: bool,
+) -> AppResult<ReadAloudOutcome> {
     tauri::async_runtime::spawn_blocking(crate::dictation::onnx::ensure)
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?
         .ok();
     read_aloud.read(
-        message_id,
-        &markdown,
+        source,
+        markdown,
+        fallback,
         download,
         &|id| voices.is_active(id),
         &|id| voices.download(id),

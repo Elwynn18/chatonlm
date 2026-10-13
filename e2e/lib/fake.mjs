@@ -27,7 +27,8 @@ async function spawnFake(mode, port) {
 
 /**
  * Démarre le faux serveur ; `port` 0 = port libre. Renvoie
- * { url, port, disconnects, pulls, deletes, pause, resume, stop }.
+ * { url, port, disconnects, pulls, deletes, manifests, install, publish,
+ * pause, resume, stop }.
  */
 export async function startFake(mode = "ollama", port = 0) {
   const { child, exited, url } = await spawnFake(mode, port);
@@ -51,6 +52,41 @@ export async function startFake(mode = "ollama", port = 0) {
     async deletes() {
       const response = await fetch(new URL("/fake/deletes", url));
       return response.json();
+    },
+    /**
+     * Requêtes reçues par le registre, dans l'ordre :
+     * « HEAD /v2/library/gemma4/manifests/latest ».
+     */
+    async manifests() {
+      const response = await fetch(new URL("/fake/manifests", url));
+      return response.json();
+    },
+    /**
+     * Télécharge `model` sur le serveur, sans l'app (modèle installé avant
+     * le test) ; attend la fin du flux.
+     */
+    async install(model) {
+      const response = await fetch(new URL("/api/pull", url), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model }),
+      });
+      const lines = await response.text();
+      if (!lines.includes('"status":"success"')) {
+        throw new Error(`pull de ${model} sans succès : ${lines.slice(-300)}`);
+      }
+    },
+    /**
+     * Publie une nouvelle version de `model` au registre : le modèle installé
+     * devient périmé jusqu'à son prochain téléchargement.
+     */
+    async publish(model) {
+      const response = await fetch(new URL("/fake/publish", url), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model }),
+      });
+      if (!response.ok) throw new Error(`publication de ${model} refusée`);
     },
     /**
      * Fige le serveur (SIGSTOP) : les connexions restent ouvertes mais rien

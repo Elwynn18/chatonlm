@@ -42,8 +42,10 @@ pub fn model_context(machine: u32, model: Option<u32>, vision: bool) -> u32 {
     context
 }
 
-/// Taille estimée dans les listes : 0,64 octet par paramètre (Q4_K_M, 0,60 à
-/// 0,67 mesurés, 35 § 2.2), +30 % pour un modèle de vision (projecteur).
+/// Taille estimée d'un dépôt dont on ne connaît aucune version
+/// téléchargeable (les autres : `catalog::model`, d'après le libellé de la
+/// version conseillée) : 0,64 octet par paramètre (Q4_K_M, 0,60 à 0,67
+/// mesurés, 35 § 2.2), +30 % pour un modèle de vision (projecteur).
 pub fn list_size(parameters: Option<u64>, vision: bool) -> Option<u64> {
     let parameters = u128::from(parameters.filter(|&p| p > 0)?);
     let size = if vision {

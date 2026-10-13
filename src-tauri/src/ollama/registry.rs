@@ -1,12 +1,16 @@
 //! Registre des modèles d'Ollama (ollama.com) : un nom tapé dans le sélecteur
-//! existe-t-il en ligne ? Comme l'app officielle (`app/ui/ui.go:540-591`,
-//! `checkModelUpstream`) : HEAD de son manifeste, vrai seulement avec
-//! l'en-tête `ollama-content-digest`.
+//! existe-t-il en ligne, et quelle version le registre en a-t-il
+//! ([`upstream`], pour les modèles installés périmés : `ollama::outdated`) ?
+//! Comme l'app officielle (`app/ui/ui.go:540-591`, `checkModelUpstream`) :
+//! HEAD de son manifeste, présent seulement avec l'en-tête
+//! `ollama-content-digest` (empreinte du manifeste) ; `ollama-push-time` donne
+//! la date de publication.
 //!
 //! Écart voulu : un nom `hf.co/<auteur>/<dépôt>[:<étiquette>]` est vérifié au
 //! registre de Hugging Face (`hub::manifest`, GET avec l'en-tête `Accept`,
 //! 200 et un manifeste avec `layers`), qui n'envoie pas
-//! `ollama-content-digest` ; l'officiel le demande à ollama.com, qui répond
+//! `ollama-content-digest` (l'empreinte est alors celle des octets reçus,
+//! sans date de publication) ; l'officiel le demande à ollama.com, qui répond
 //! toujours 404 (`34-modelhub-ollama-hf.md` § 10).
 
 use std::time::Duration;
@@ -75,32 +79,56 @@ pub(crate) fn manifest_path(model: &str) -> Option<String> {
         .then_some(path)
 }
 
+/// Version d'un modèle que le registre annonce.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Upstream {
+    /// Empreinte du manifeste : SHA-256 en hexadécimal minuscule, sans
+    /// préfixe (la forme de `/api/tags`).
+    pub digest: String,
+    /// Date de publication, en secondes depuis 1970, si le registre la donne
+    /// (jamais celui de Hugging Face).
+    pub push_time: Option<i64>,
+}
+
 /// Vrai si `model` existe au registre `registry` : HEAD de son manifeste,
 /// réponse 200 avec un en-tête `ollama-content-digest` non vide. Nom invalide :
 /// faux, sans requête ; autre statut : faux ; échec réseau : erreur (que
 /// l'interface prend pour un « non »). Un nom `hf.co/...` est demandé au
 /// registre de Hugging Face (`names::hf_url`).
 pub async fn model_exists(registry: &str, model: &str) -> AppResult<bool> {
-    model_exists_in(registry, &names::hf_url(), model).await
+    Ok(upstream(registry, model).await?.is_some())
 }
 
-/// [`model_exists`], avec l'adresse de Hugging Face `hf_url` : nom `hf.co/...`
-/// invalide → faux sans requête ; manifeste 200 lisible → vrai ; refus
-/// (400, 401), autre statut ou réponse illisible → faux ; pas de réponse →
-/// erreur.
-async fn model_exists_in(registry: &str, hf_url: &str, model: &str) -> AppResult<bool> {
+/// Version de `model` au registre `registry` (Hugging Face pour un nom
+/// `hf.co/...`, voir [`model_exists`]) ; `None` s'il n'y est pas.
+pub async fn upstream(registry: &str, model: &str) -> AppResult<Option<Upstream>> {
+    upstream_in(registry, &names::hf_url(), model).await
+}
+
+/// [`upstream`], avec l'adresse de Hugging Face `hf_url` : nom `hf.co/...`
+/// invalide → rien, sans requête ; manifeste 200 lisible → son empreinte ;
+/// refus (400, 401), autre statut ou réponse illisible → rien ; pas de
+/// réponse → erreur.
+pub(crate) async fn upstream_in(
+    registry: &str,
+    hf_url: &str,
+    model: &str,
+) -> AppResult<Option<Upstream>> {
     if manifest::is_hugging_face(model) {
         let Some(name) = parse_hf_name(model) else {
-            return Ok(false);
+            return Ok(None);
         };
         return match manifest::fetch(hf_url, &name, TIMEOUT).await {
-            Manifest::Found { .. } => Ok(true),
-            Manifest::Refused(_) | Manifest::Unexpected => Ok(false),
+            Manifest::Found { digest, .. } => Ok(Some(Upstream {
+                digest,
+                push_time: None,
+            })),
+            Manifest::Refused(_) | Manifest::Unexpected => Ok(None),
             Manifest::Unreachable(message) => Err(AppError::Ollama(message)),
         };
     }
     let Some(path) = manifest_path(model) else {
-        return Ok(false);
+        return Ok(None);
     };
     let url = Url::parse(&format!("{registry}/v2/{path}"))
         // i18n-ignore : adresse fixe (ou celle des essais).
@@ -108,17 +136,40 @@ async fn model_exists_in(registry: &str, hf_url: &str, model: &str) -> AppResult
     // Proxy du système permis (sauf vers la machine locale), même agent.
     let client = client::client(&url, Some(TIMEOUT)).map_err(failed)?;
     let response = client.head(url).send().await.map_err(failed)?;
-    Ok(found(response.status(), response.headers()))
+    Ok(announced(response.status(), response.headers()))
 }
 
 /// Réponse d'un manifeste présent : 200 avec un `ollama-content-digest` non
-/// vide.
-fn found(status: reqwest::StatusCode, headers: &reqwest::header::HeaderMap) -> bool {
-    status == reqwest::StatusCode::OK
-        && headers
-            .get("ollama-content-digest")
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| !value.trim().is_empty())
+/// vide ; `ollama-push-time` (secondes depuis 1970) s'il est lisible et
+/// positif, comme l'officiel l'ignore sinon.
+fn announced(
+    status: reqwest::StatusCode,
+    headers: &reqwest::header::HeaderMap,
+) -> Option<Upstream> {
+    if status != reqwest::StatusCode::OK {
+        return None;
+    }
+    let header = |name: &str| headers.get(name)?.to_str().ok().map(str::trim);
+    let digest = normalize_digest(header("ollama-content-digest")?);
+    if digest.is_empty() {
+        return None;
+    }
+    Some(Upstream {
+        digest,
+        push_time: header("ollama-push-time")
+            .and_then(|value| value.parse::<i64>().ok())
+            .filter(|time| *time > 0),
+    })
+}
+
+/// Empreinte comparable : sans espaces autour, sans préfixe `sha256:`, en
+/// minuscules.
+pub(crate) fn normalize_digest(digest: &str) -> String {
+    let digest = digest.trim();
+    digest
+        .strip_prefix("sha256:")
+        .unwrap_or(digest)
+        .to_ascii_lowercase()
 }
 
 fn failed(error: reqwest::Error) -> AppError {
@@ -195,6 +246,7 @@ mod tests {
     fn only_a_200_with_a_digest_is_a_model() {
         use reqwest::StatusCode;
         use reqwest::header::{HeaderMap, HeaderValue};
+        let found = |status, headers: &HeaderMap| announced(status, headers).is_some();
         let with = |digest: &'static str| {
             let mut headers = HeaderMap::new();
             headers.insert("ollama-content-digest", HeaderValue::from_static(digest));
@@ -212,6 +264,45 @@ mod tests {
         ] {
             assert!(!found(status, &with(digest)), "{status}");
         }
+    }
+
+    /// Empreinte et date de publication d'une réponse du registre (en-têtes
+    /// relevés sur ollama.com) ; une date absente, illisible ou nulle est
+    /// ignorée, comme dans l'officiel.
+    #[test]
+    fn the_digest_and_the_push_time_are_read() {
+        use reqwest::StatusCode;
+        use reqwest::header::{HeaderMap, HeaderValue};
+        let digest = "7df6b6e09427a769808717c0a93cadc4ae99ed4eb8bf5ca557c90846becea435";
+        let with = |digest: &'static str, time: Option<&'static str>| {
+            let mut headers = HeaderMap::new();
+            headers.insert("ollama-content-digest", HeaderValue::from_static(digest));
+            if let Some(time) = time {
+                headers.insert("ollama-push-time", HeaderValue::from_static(time));
+            }
+            announced(StatusCode::OK, &headers).unwrap()
+        };
+        assert_eq!(
+            with(digest, Some("1748483614")),
+            Upstream {
+                digest: digest.to_owned(),
+                push_time: Some(1_748_483_614),
+            }
+        );
+        for time in [None, Some(""), Some("soon"), Some("0"), Some("-5")] {
+            assert_eq!(with(digest, time).push_time, None, "{time:?}");
+        }
+        // Empreinte ramenée à la forme de /api/tags.
+        assert_eq!(
+            with(
+                " sha256:7DF6B6E09427A769808717C0A93CADC4AE99ED4EB8BF5CA557C90846BECEA435 ",
+                None
+            )
+            .digest,
+            digest
+        );
+        assert_eq!(normalize_digest("sha256:AB12"), "ab12");
+        assert_eq!(normalize_digest(" ab12\n"), "ab12");
     }
 
     #[tokio::test]
@@ -279,7 +370,11 @@ mod tests {
         let ollama = FakeOllama::start(Mode::ollama()).await.unwrap();
         let exists = |model: &'static str| {
             let (registry, hf) = (ollama.url(), hf.url());
-            async move { model_exists_in(&registry, &hf, model).await }
+            async move {
+                upstream_in(&registry, &hf, model)
+                    .await
+                    .map(|found| found.is_some())
+            }
         };
         for model in [
             "hf.co/chatonlm/Tiny-GGUF:Q4_K_M",
@@ -312,7 +407,7 @@ mod tests {
         let url = hf.url();
         hf.stop().await;
         let Err(AppError::Ollama(message)) =
-            model_exists_in(&ollama.url(), &url, "hf.co/chatonlm/Tiny-GGUF:Q4_K_M").await
+            upstream_in(&ollama.url(), &url, "hf.co/chatonlm/Tiny-GGUF:Q4_K_M").await
         else {
             panic!("expected an error");
         };
@@ -324,6 +419,20 @@ mod tests {
     #[ignore = "registre ollama.com : accès au réseau"]
     async fn contract_with_the_ollama_registry() {
         assert!(model_exists(DEFAULT_REGISTRY, "qwen3:0.6b").await.unwrap());
+        // Empreinte à la forme de /api/tags, et date de publication.
+        let found = upstream(DEFAULT_REGISTRY, "qwen3:0.6b")
+            .await
+            .unwrap()
+            .expect("a manifest");
+        assert_eq!(found.digest.len(), 64);
+        assert!(
+            found
+                .digest
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        );
+        // Publié après le 1er janvier 2025.
+        assert!(found.push_time.is_some_and(|time| time > 1_735_689_600));
         assert!(
             !model_exists(DEFAULT_REGISTRY, "chatonlm-does-not-exist-xyz")
                 .await
@@ -339,15 +448,18 @@ mod tests {
         let hf = names::DEFAULT_HF_URL;
         let model = "hf.co/bartowski/SmolLM2-135M-Instruct-GGUF";
         let at = |tag: &str| format!("{model}:{tag}");
+        let found = upstream_in(DEFAULT_REGISTRY, hf, &at("Q4_K_M"))
+            .await
+            .unwrap()
+            .expect("a manifest");
+        // Empreinte des octets reçus, jamais de date de publication.
+        assert_eq!(found.digest.len(), 64);
+        assert_eq!(found.push_time, None);
         assert!(
-            model_exists_in(DEFAULT_REGISTRY, hf, &at("Q4_K_M"))
+            upstream_in(DEFAULT_REGISTRY, hf, &at("bf16"))
                 .await
                 .unwrap()
-        );
-        assert!(
-            !model_exists_in(DEFAULT_REGISTRY, hf, &at("bf16"))
-                .await
-                .unwrap()
+                .is_none()
         );
     }
 }

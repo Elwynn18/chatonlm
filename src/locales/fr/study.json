@@ -90,8 +90,8 @@
   "plan": {
     "eyebrow": "Le plan de votre cours",
     "duration": {
-      "one": "Environ {count} min",
-      "other": "Environ {count} min"
+      "one": "Environ {count} min d'étude",
+      "other": "Environ {count} min d'étude"
     },
     "levelCount": {
       "one": "{count} palier",
@@ -140,8 +140,8 @@
     "progress": "Avancement du cours",
     "progressText": "{done} sur {total} étapes",
     "timeLeft": {
-      "one": "Encore {count} min environ",
-      "other": "Encore {count} min environ"
+      "one": "Encore {count} min d'étude environ",
+      "other": "Encore {count} min d'étude environ"
     },
     "finished": "Terminé",
     "streak": {
@@ -177,8 +177,8 @@
     "start": "C'est parti",
     "resume": "Reprendre",
     "timeLeft": {
-      "one": "Encore {count} minute environ.",
-      "other": "Encore {count} minutes environ."
+      "one": "Encore {count} minute d'étude environ.",
+      "other": "Encore {count} minutes d'étude environ."
     },
     "finished": "Vous avez terminé ce cours. Revoyez-le quand vous voulez."
   },
@@ -287,8 +287,40 @@
     "preparingRemedy": "Préparation d'une nouvelle explication…"
   },
   "wait": {
-    "level": "Préparation de ce palier…",
-    "final": "Préparation du bilan final…"
+    "level": "Ce palier n'est pas encore écrit.",
+    "final": "Le bilan final n'est pas encore écrit.",
+    "finalAfterLevels": "Il est écrit après le dernier palier."
+  },
+  "generation": {
+    "plan": "Écriture du plan du cours…",
+    "level": "Écriture du palier {number} sur {total}…",
+    "remedy": "Écriture d'une nouvelle explication pour le palier {number}…",
+    "final": "Écriture du bilan final…",
+    "waiting": "En attente : un autre cours est écrit d'abord…",
+    "paused": "Écriture en pause",
+    "complete": "Tout le cours est écrit.",
+    "ready": {
+      "one": "{count} palier prêt sur {total}",
+      "other": "{count} paliers prêts sur {total}"
+    },
+    "stage": {
+      "lesson": "Étape 1 sur 2 : la leçon",
+      "questions": "Étape 2 sur 2 : les questions"
+    },
+    "failed": {
+      "level": "Le palier {number} n'a pas pu être écrit.",
+      "remedy": "La nouvelle explication du palier {number} n'a pas pu être écrite.",
+      "final": "Le bilan final n'a pas pu être écrit."
+    },
+    "hint": {
+      "first": "Vous pourrez commencer dès que le premier palier sera prêt. Les suivants sont écrits pendant que vous étudiez.",
+      "start": "Le premier palier est prêt : vous pouvez commencer. Les suivants sont écrits pendant que vous étudiez.",
+      "paused": "Plus rien n'est écrit pour ce cours tant que vous ne reprenez pas."
+    },
+    "pause": "Pause",
+    "resume": "Reprendre",
+    "pauseTitle": "Mettre en pause l'écriture de ce cours",
+    "resumeTitle": "Reprendre l'écriture de ce cours"
   },
   "final": {
     "eyebrow": "Dernière étape",
@@ -317,5 +349,9 @@
     "saved": "Fiche enregistrée",
     "missed": "Questions à revoir",
     "further": "Aller plus loin"
+  },
+  "readAloud": {
+    "nothingToRead": "Il n'y a rien à lire à voix haute dans ce texte.",
+    "engineFailed": "Impossible de lire ce texte à voix haute."
   }
 }

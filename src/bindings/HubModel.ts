@@ -52,9 +52,16 @@ downloads: number, likes: number,
  */
 lastModified: string | null, 
 /**
- * Taille estimée de la version recommandée (octets, projecteur compris).
+ * Taille à télécharger de la version recommandée (octets, projecteur
+ * compris) : estimée dans les listes, exacte sur la fiche.
  */
 estimatedSize: number | null, 
+/**
+ * Mémoire nécessaire à cette version pour le contexte de la machine
+ * (poids, cache de contexte, marge) ; `None` : machine ou taille
+ * inconnue.
+ */
+estimatedMemory: number | null, 
 /**
  * `None` : machine inconnue (serveur distant) ou taille inconnue.
  */

@@ -6,7 +6,8 @@
  * Adapted from Ollama (https://github.com/ollama/ollama),
  * file app/ui/app/src/components/ChatForm.tsx, commit 42e911bc3d05.
  * Modified for ChatonLM: no cloud models; web search button for models that
- * can use tools (cloud status read only for such a model), without the
+ * can use tools (cloud status read only for such a model; for a model known
+ * not to use tools the button stays, greyed out, and says why), without the
  * "Web search requires an Ollama account" banner nor any account read: a
  * search without an account ends with that error in the chat, whose
  * "Generate without web search" (or "Retry" once signed in) asks the chat
@@ -29,6 +30,10 @@
  * official Tab cycle never leaves the message area, a keyboard trap);
  * labelled send button; Escape stops a reply only when nothing else (model
  * picker, Think menu, menu, rename field, dialog) has already used it; the
+ * "A newer version of ... is available" banner (StaleModelBanner.tsx) is
+ * shown here, above the form, where the selected model is known (the
+ * official app shows it from Chat.tsx), unless the chat view has its own
+ * banner to show (Ollama unreachable, error of a new chat); the
  * message field never takes the focus from another field, a menu or a
  * dialog (nor, when a reply ends, from any other control), also takes it on
  * mount during a reply, and leaves Space to the focused button; Stop stays
@@ -76,6 +81,7 @@ import { DropOverlay } from "@/components/DropOverlay";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { Logo } from "@/components/Logo";
 import { ModelPicker, type ModelPickerHandle } from "@/components/ModelPicker";
+import { StaleModelBanner } from "@/components/StaleModelBanner";
 import { ThinkButton } from "@/components/ThinkButton";
 import { VoiceModeBar } from "@/components/VoiceModeBar";
 import { VoiceModeButton } from "@/components/VoiceModeButton";
@@ -87,7 +93,7 @@ import {
   useComposerFiles,
 } from "@/hooks/useComposerFiles";
 import { useFileDrop } from "@/hooks/useFileDrop";
-import { useHasTools, useHasVision } from "@/hooks/useModelCapabilities";
+import { useHasVision, useToolsSupport } from "@/hooks/useModelCapabilities";
 import { useSelectedModel } from "@/hooks/useModels";
 import { useSettings } from "@/hooks/useSettings";
 import { useThink } from "@/hooks/useThink";
@@ -261,7 +267,8 @@ export function ChatForm({
   // coupé ; réglage persistant.
   const { settings, setSettings } = useSettings();
   const webSearchEnabled = settings?.webSearchEnabled ?? false;
-  const supportsWebSearch = useHasTools(selected?.model ?? null);
+  const toolsSupport = useToolsSupport(selected?.model ?? null);
+  const supportsWebSearch = toolsSupport === true;
   const { cloudDisabled } = useCloudStatus({ enabled: supportsWebSearch });
   const webSearchUsable = supportsWebSearch && !cloudDisabled;
   const { settings: voiceSettings } = useVoiceModeSettings({
@@ -608,7 +615,14 @@ export function ChatForm({
       {chatId === "new" && <Logo />}
       {/* Drop zone overlay */}
       {dragging && <DropOverlay />}
-      {banner && <div className="pb-2">{banner}</div>}
+      {banner ? (
+        <div className="pb-2">{banner}</div>
+      ) : (
+        <StaleModelBanner
+          model={selected?.info ?? null}
+          isStreaming={isStreaming}
+        />
+      )}
       {/* File upload error message */}
       {pickerError !== null && (
         <div className="mx-auto w-full max-w-[768px] px-5">
@@ -723,8 +737,15 @@ export function ChatForm({
                       }}
                     />
                   )}
+                {/* Modèle qui ne sait pas appeler d'outils : bouton gardé,
+                    grisé, avec la raison (il ne disparaît plus sans rien
+                    dire en changeant de modèle). */}
                 <WebSearchButton
-                  isVisible={supportsWebSearch && cloudDisabled === false}
+                  isVisible={
+                    (supportsWebSearch && cloudDisabled === false) ||
+                    toolsSupport === false
+                  }
+                  isUnavailable={toolsSupport === false}
                   isActive={webSearchEnabled}
                   onToggle={() => setWebSearch(!webSearchEnabled)}
                 />

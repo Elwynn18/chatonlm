@@ -43,6 +43,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
+use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -107,7 +108,8 @@ pub struct FakeOllama {
 /// téléchargement), de chargements lents ou de requêtes web lentes abandonnés
 /// par le client avant leur fin (annulation). Aussi lisibles en HTTP :
 /// `GET /fake/requests`, `GET /fake/pulls`, `GET /fake/deletes`,
-/// `GET /fake/web`, `GET /fake/loads`, `GET /fake/disconnects`. Garde aussi
+/// `GET /fake/web`, `GET /fake/loads`, `GET /fake/disconnects`,
+/// `GET /fake/manifests` (requêtes reçues par le registre). Garde aussi
 /// les modèles de scénario téléchargés sur ce serveur (voir [`pull`]), les
 /// modèles enregistrés supprimés, les modèles en mémoire (voir [`generate`]),
 /// l'état du compte et celui du cloud.
@@ -128,6 +130,8 @@ pub struct Journal {
     disconnects: AtomicUsize,
     /// Du plus récent au plus ancien.
     pulled: Mutex<Vec<Pulled>>,
+    /// Nouvelles versions publiées au registre (voir [`Journal::publish`]).
+    published: Mutex<Vec<Published>>,
     /// Modèles enregistrés (`fixtures/tags.json`) supprimés.
     deleted: Mutex<Vec<String>>,
     /// Modèles en mémoire (`/api/ps`), aucun au départ.
@@ -146,7 +150,25 @@ struct Pulled {
     /// couches et la configuration pour `hf.co/chatonlm/...`.
     size: u64,
     capabilities: &'static [&'static str],
+    /// Révision du registre au moment du téléchargement.
+    revision: u64,
 }
+
+/// Nouvelle version d'un modèle publiée au registre.
+#[derive(Clone)]
+struct Published {
+    /// Nom du modèle, sans `:latest`.
+    name: String,
+    /// 1 à la première publication, puis 2...
+    revision: u64,
+    /// Secondes depuis 1970.
+    time: u64,
+}
+
+/// Date de publication (`ollama-push-time`) d'un modèle jamais republié :
+/// avant la date des modèles installés (`modified_at`), comme un modèle
+/// téléchargé après sa publication.
+const REGISTRY_PUSH_TIME: u64 = 1_748_483_614;
 
 /// `llama3:latest` et `llama3` désignent le même modèle, comme chez Ollama.
 fn base_name(model: &str) -> &str {
@@ -191,6 +213,7 @@ impl Journal {
     /// installé à la casse près est remplacé, comme Ollama réutilise le sien).
     fn add_pulled(&self, model: &str, size: u64, capabilities: &'static [&'static str]) {
         let name = base_name(model).to_owned();
+        let revision = self.revision(&name);
         let mut pulled = self.pulled.lock().unwrap();
         pulled.retain(|p| !same_model(&p.name, &name));
         pulled.insert(
@@ -199,8 +222,54 @@ impl Journal {
                 name,
                 size,
                 capabilities,
+                revision,
             },
         );
+    }
+
+    /// Révision de `model` au registre : 0 tant que rien n'a été publié.
+    fn revision(&self, model: &str) -> u64 {
+        let published = self.published.lock().unwrap();
+        published
+            .iter()
+            .find(|p| same_model(&p.name, model))
+            .map_or(0, |p| p.revision)
+    }
+
+    /// Date de publication de `model` au registre.
+    fn push_time(&self, model: &str) -> u64 {
+        let published = self.published.lock().unwrap();
+        published
+            .iter()
+            .find(|p| same_model(&p.name, model))
+            .map_or(REGISTRY_PUSH_TIME, |p| p.time)
+    }
+
+    /// Publie une nouvelle version de `model` au registre : son manifeste
+    /// change d'empreinte et sa date de publication devient maintenant ; un
+    /// modèle déjà installé garde l'ancienne jusqu'à son prochain
+    /// téléchargement. Rend la nouvelle révision.
+    fn publish(&self, model: &str) -> u64 {
+        let name = base_name(model.trim()).to_owned();
+        let time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs());
+        let mut published = self.published.lock().unwrap();
+        match published.iter_mut().find(|p| same_model(&p.name, &name)) {
+            Some(entry) => {
+                entry.revision += 1;
+                entry.time = time;
+                entry.revision
+            }
+            None => {
+                published.push(Published {
+                    name,
+                    revision: 1,
+                    time,
+                });
+                1
+            }
+        }
     }
 
     fn is_deleted(&self, model: &str) -> bool {
@@ -296,6 +365,13 @@ impl FakeOllama {
         self.journal
             .account_unavailable
             .store(unavailable, Ordering::SeqCst);
+    }
+
+    /// Publie une nouvelle version de `model` au registre (comme
+    /// `POST /fake/publish`) : le modèle installé devient périmé, jusqu'à son
+    /// prochain téléchargement.
+    pub fn publish(&self, model: &str) {
+        self.journal.publish(model);
     }
 
     /// Coupe le cloud du serveur, ou le rétablit (comme `POST /fake/cloud`).
@@ -1296,7 +1372,8 @@ async fn pull(State(journal): State<Arc<Journal>>, body: String) -> Response {
     if let Some((repo, tag)) = hf_chatonlm(&model) {
         return hf_pull(journal.clone(), &model, &repo, &tag);
     }
-    match model.as_str() {
+    // `<nom>:latest` est le même modèle, comme chez Ollama.
+    match base_name(&model) {
         "chatonlm-pull" => pulled(full_pull_lines(10), delay, PULL_TOTAL),
         "chatonlm-pull-slow" => pulled(full_pull_lines(44), Duration::from_millis(100), PULL_TOTAL),
         "chatonlm-pull-small" => {
@@ -1644,8 +1721,9 @@ fn hf_pull(journal: Arc<Journal>, model: &str, repo: &str, tag: &str) -> Respons
 /// manifeste Docker v2 (comme Ollama l'envoie ; 400 sinon, pour que les tests
 /// prouvent qu'il part). Refus exacts du registre (voir [`hf_refusal`]) ;
 /// `html` : page HTML en 200 (CDN en panne) ; sinon 200 et le manifeste JSON
-/// (couches de [`hf_layers`], sans en-tête d'empreinte, comme Hugging Face).
-fn hf_manifest(headers: &HeaderMap, repo: &str, tag: &str) -> Response {
+/// (couches de [`hf_layers`], sans en-tête d'empreinte, comme Hugging Face),
+/// à la révision `revision` (voir [`Journal::publish`]).
+fn hf_manifest(headers: &HeaderMap, repo: &str, tag: &str, revision: u64) -> Response {
     let accepted = headers
         .get(header::ACCEPT)
         .and_then(|value| value.to_str().ok())
@@ -1674,9 +1752,25 @@ fn hf_manifest(headers: &HeaderMap, repo: &str, tag: &str) -> Response {
     {
         return not_ollama_page().into_response();
     }
-    let vision = matches!(scenario, HfScenario::Pull { vision: true, .. });
+    json(StatusCode::OK, hf_manifest_body(repo, tag, revision))
+}
+
+/// Manifeste JSON d'un `hf.co/chatonlm/<dépôt>:<étiquette>` téléchargeable,
+/// à la révision `revision` du registre (une nouvelle version change la
+/// configuration, donc les octets du manifeste).
+fn hf_manifest_body(repo: &str, tag: &str, revision: u64) -> String {
+    let vision = matches!(
+        hf_scenario(repo, tag),
+        HfScenario::Pull { vision: true, .. }
+    );
     let (layers, (config, config_size)) = hf_layers(repo, tag, vision);
-    let body = serde_json::json!({
+    let config = if revision == 0 {
+        config
+    } else {
+        let seed = format!("{repo}:{tag}/config@{revision}").to_ascii_lowercase();
+        format!("sha256:{}", fake_digest(&seed))
+    };
+    serde_json::json!({
         "schemaVersion": 2,
         "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
         "config": {
@@ -1692,8 +1786,24 @@ fn hf_manifest(headers: &HeaderMap, repo: &str, tag: &str) -> Response {
                 "size": size,
             }))
             .collect::<Vec<_>>(),
-    });
-    json(StatusCode::OK, body.to_string())
+    })
+    .to_string()
+}
+
+/// Empreinte du manifeste de `model` (nom sans `:latest`) à la révision
+/// `revision` : celle que le registre annonce, et celle de `/api/tags` une
+/// fois le modèle téléchargé. Pour un `hf.co/chatonlm/...`, le SHA-256 du
+/// manifeste servi, comme Ollama le calcule sur les octets qu'il écrit.
+fn manifest_digest(model: &str, revision: u64) -> String {
+    if let Some((repo, tag)) = hf_chatonlm(model) {
+        let body = hf_manifest_body(&repo, &tag, revision);
+        return format!("{:x}", Sha256::digest(body.as_bytes()));
+    }
+    if revision == 0 {
+        fake_digest(model)
+    } else {
+        fake_digest(&format!("{model}@{revision}"))
+    }
 }
 
 /// `DELETE /api/delete {"model"}` : un modèle téléchargé sur ce serveur, ou
@@ -2186,6 +2296,26 @@ fn fake_switch(body: &str, field: &str, target: &AtomicBool) -> Response {
     }
 }
 
+/// `POST /fake/publish {"model": "<nom>"}` : publie une nouvelle version du
+/// modèle au registre (voir [`Journal::publish`]) ; 200 et
+/// `{"revision": n}`, 400 sans nom.
+fn fake_publish(journal: &Journal, body: &str) -> Response {
+    let request: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+    match request["model"].as_str().map(str::trim) {
+        Some(model) if !model.is_empty() => {
+            let revision = journal.publish(model);
+            json(
+                StatusCode::OK,
+                serde_json::json!({ "revision": revision }).to_string(),
+            )
+        }
+        _ => json(
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({ "error": "expected {\"model\": string}" }).to_string(),
+        ),
+    }
+}
+
 /// Raisonnement de `chatonlm-longthink` : 60 paragraphes Markdown numérotés
 /// (« Step 1: … » à « Step 60: … »), pour voir quelle partie l'aperçu montre.
 fn long_thinking() -> String {
@@ -2398,7 +2528,7 @@ fn tags(journal: &Journal, installed: bool) -> String {
                 "model": name,
                 "modified_at": "2026-10-04T12:00:00.000000000+02:00",
                 "size": pulled.size,
-                "digest": fake_digest(&pulled.name),
+                "digest": manifest_digest(&pulled.name, pulled.revision),
                 "details": {
                     "parent_model": "",
                     "format": "gguf",
@@ -2476,10 +2606,13 @@ fn in_registry(namespace: &str, name: &str) -> bool {
 }
 
 /// Registre (`CHATONLM_REGISTRY_URL` de l'app) : `HEAD` ou `GET
-/// /v2/<espace>/<nom>/manifests/<étiquette>` → 200 avec l'en-tête
-/// `ollama-content-digest` pour les modèles de [`in_registry`], 404 sinon,
-/// comme ollama.com ; espace `chatonlm` : registre de Hugging Face (voir
-/// [`hf_manifest`], `CHATONLM_HF_URL` de l'app). Requête journalisée.
+/// /v2/<espace>/<nom>/manifests/<étiquette>` → 200 avec les en-têtes
+/// `ollama-content-digest` (empreinte du manifeste, voir [`manifest_digest`])
+/// et `ollama-push-time` (date de publication) pour les modèles de
+/// [`in_registry`], 404 sinon, comme ollama.com ; espace `chatonlm` : registre
+/// de Hugging Face (voir [`hf_manifest`], `CHATONLM_HF_URL` de l'app). Une
+/// version publiée par [`Journal::publish`] change l'empreinte et la date.
+/// Requête journalisée.
 async fn manifest(
     State(journal): State<Arc<Journal>>,
     method: Method,
@@ -2492,7 +2625,8 @@ async fn manifest(
         .unwrap()
         .push(format!("{method} /v2/{namespace}/{name}/manifests/{tag}"));
     if namespace.eq_ignore_ascii_case("chatonlm") {
-        return hf_manifest(&headers, &name, &tag);
+        let revision = journal.revision(&format!("hf.co/chatonlm/{name}:{tag}"));
+        return hf_manifest(&headers, &name, &tag, revision);
     }
     if !in_registry(&namespace, &name) {
         return json(
@@ -2504,13 +2638,23 @@ async fn manifest(
         "schemaVersion": 2,
         "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
     });
+    // Nom du modèle comme `/api/tags` le garde : sans `:latest`.
+    let model = if tag == "latest" {
+        name.clone()
+    } else {
+        format!("{name}:{tag}")
+    };
     (
         [
             (
                 header::CONTENT_TYPE.as_str(),
                 "application/vnd.docker.distribution.manifest.v2+json".to_owned(),
             ),
-            ("ollama-content-digest", fake_digest(&name)),
+            (
+                "ollama-content-digest",
+                manifest_digest(&model, journal.revision(&model)),
+            ),
+            ("ollama-push-time", journal.push_time(&model).to_string()),
         ],
         body.to_string(),
     )
@@ -2622,6 +2766,21 @@ fn router(mode: Mode, journal: Arc<Journal>) -> Router {
                     post(
                         |State(journal): State<Arc<Journal>>, body: String| async move {
                             fake_switch(&body, "disabled", &journal.cloud_disabled)
+                        },
+                    ),
+                )
+                .route(
+                    "/fake/manifests",
+                    get(|State(journal): State<Arc<Journal>>| async move {
+                        let seen = journal.manifests.lock().unwrap().clone();
+                        json(StatusCode::OK, serde_json::json!(seen).to_string())
+                    }),
+                )
+                .route(
+                    "/fake/publish",
+                    post(
+                        |State(journal): State<Arc<Journal>>, body: String| async move {
+                            fake_publish(&journal, &body)
                         },
                     ),
                 )
@@ -3971,6 +4130,172 @@ mod tests {
     ) -> (u16, serde_json::Value) {
         let (status, body) = http_full(addr, method, path, body).await;
         (status, serde_json::from_slice(&body).expect("JSON body"))
+    }
+
+    /// Empreinte et date de publication annoncées par le registre pour un
+    /// modèle de l'espace `library`.
+    async fn registry_version(journal: &Arc<Journal>, name: &str, tag: &str) -> (String, u64) {
+        let path = Path(("library".to_owned(), name.to_owned(), tag.to_owned()));
+        let response = manifest(State(journal.clone()), Method::HEAD, HeaderMap::new(), path).await;
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .unwrap_or_else(|| panic!("{name} header"))
+                .to_str()
+                .unwrap()
+                .to_owned()
+        };
+        (
+            header("ollama-content-digest"),
+            header("ollama-push-time").parse().expect("seconds"),
+        )
+    }
+
+    /// Empreinte d'un modèle installé (`/api/tags`).
+    fn installed_digest(journal: &Journal, model: &str) -> String {
+        let tags: serde_json::Value = serde_json::from_str(&tags(journal, true)).unwrap();
+        tags["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["name"] == model)
+            .unwrap_or_else(|| panic!("{model} is not installed"))["digest"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
+
+    /// Une version publiée change l'empreinte et la date du registre ; le
+    /// modèle installé garde la sienne jusqu'à son prochain téléchargement,
+    /// qui prend celle du registre.
+    #[tokio::test]
+    async fn a_published_version_makes_the_installed_model_older_than_the_registry() {
+        let journal = Arc::new(Journal::default());
+        pull_lines(&journal, "chatonlm-pull").await;
+        let first = installed_digest(&journal, "chatonlm-pull:latest");
+        // Jamais republié : même empreinte, publié avant la date des modèles
+        // installés (le 4 octobre 2026).
+        assert_eq!(
+            registry_version(&journal, "chatonlm-pull", "latest").await,
+            (first.clone(), REGISTRY_PUSH_TIME)
+        );
+        // Une étiquette est un autre modèle.
+        assert_ne!(
+            registry_version(&journal, "chatonlm-pull", "v2").await.0,
+            first
+        );
+
+        assert_eq!(journal.publish(" chatonlm-pull:latest "), 1);
+        let (second, pushed) = registry_version(&journal, "chatonlm-pull", "latest").await;
+        assert_ne!(second, first);
+        assert_eq!(second.len(), 64);
+        // Publié maintenant : après le 4 octobre 2026.
+        assert!(pushed > 1_791_100_000, "{pushed}");
+        assert_eq!(installed_digest(&journal, "chatonlm-pull:latest"), first);
+        // Les autres modèles ne bougent pas.
+        assert_eq!(
+            registry_version(&journal, "chatonlm-pull-small", "latest")
+                .await
+                .1,
+            REGISTRY_PUSH_TIME
+        );
+
+        // Sous son nom complet, comme l'app le demande pour une mise à jour.
+        let (status, lines, _) = pull_lines(&journal, "chatonlm-pull:latest").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(lines.last().unwrap()["status"], "success");
+        assert_eq!(installed_digest(&journal, "chatonlm-pull:latest"), second);
+        // Toujours une seule entrée.
+        assert_eq!(tag_names(&journal, false), ["chatonlm-pull:latest"]);
+        assert_eq!(journal.publish("CHATONLM-PULL"), 2);
+        let third = registry_version(&journal, "chatonlm-pull", "latest")
+            .await
+            .0;
+        assert!(third != second && third != first);
+        assert_eq!(installed_digest(&journal, "chatonlm-pull:latest"), second);
+    }
+
+    /// Modèle de Hugging Face : son empreinte dans `/api/tags` est le SHA-256
+    /// du manifeste que le registre sert (Ollama écrit les octets reçus) ; une
+    /// version publiée change ce manifeste.
+    #[tokio::test]
+    async fn a_hugging_face_model_has_the_digest_of_its_manifest() {
+        let journal = Arc::new(Journal::default());
+        let model = "hf.co/chatonlm/Tiny-GGUF:Q4_K_M";
+        let served = |journal: &Arc<Journal>| {
+            let journal = journal.clone();
+            async move {
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    header::ACCEPT,
+                    "application/vnd.docker.distribution.manifest.v2+json"
+                        .parse()
+                        .unwrap(),
+                );
+                let path = Path((
+                    "chatonlm".to_owned(),
+                    "Tiny-GGUF".to_owned(),
+                    "Q4_K_M".to_owned(),
+                ));
+                let response = manifest(State(journal), Method::GET, headers, path).await;
+                assert_eq!(response.status(), StatusCode::OK);
+                assert!(response.headers().get("ollama-content-digest").is_none());
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                format!("{:x}", Sha256::digest(&body))
+            }
+        };
+        pull_lines(&journal, model).await;
+        let first = served(&journal).await;
+        assert_eq!(installed_digest(&journal, model), first);
+
+        journal.publish(model);
+        let second = served(&journal).await;
+        assert_ne!(second, first);
+        assert_eq!(installed_digest(&journal, model), first);
+        pull_lines(&journal, model).await;
+        assert_eq!(installed_digest(&journal, model), second);
+    }
+
+    /// `POST /fake/publish` : la bascule des tests de l'app réelle.
+    #[tokio::test]
+    async fn a_version_can_be_published_over_http() {
+        let fake = FakeOllama::start(Mode::ollama()).await.expect("server");
+        let addr = fake.addr();
+        let publish = |body: &'static str| http_json(addr, "POST", "/fake/publish", body);
+        assert_eq!(
+            publish(r#"{"model":"chatonlm-pull"}"#).await,
+            (200, serde_json::json!({ "revision": 1 }))
+        );
+        assert_eq!(
+            publish(r#"{"model":"chatonlm-pull:latest"}"#).await.1["revision"],
+            2
+        );
+        for body in ["{}", r#"{"model":""}"#, r#"{"model":3}"#, "nope"] {
+            assert_eq!(publish(body).await.0, 400, "{body}");
+        }
+        assert_eq!(fake.journal.revision("chatonlm-pull"), 2);
+        fake.publish("chatonlm-pull");
+        assert_eq!(fake.journal.revision("chatonlm-pull"), 3);
+        // Journal du registre, lisible par les tests de l'app réelle.
+        assert_eq!(
+            http_json(addr, "GET", "/fake/manifests", "").await,
+            (200, serde_json::json!([]))
+        );
+        http_full(
+            addr,
+            "HEAD",
+            "/v2/library/chatonlm-pull/manifests/latest",
+            "",
+        )
+        .await;
+        assert_eq!(
+            http_json(addr, "GET", "/fake/manifests", "").await.1,
+            serde_json::json!(["HEAD /v2/library/chatonlm-pull/manifests/latest"])
+        );
+        fake.stop().await;
     }
 
     #[tokio::test]

@@ -7,7 +7,10 @@
 #     BindShortcuts avec un ou plusieurs raccourcis, ConfigureShortcuts,
 #     signaux Activated, Deactivated et ShortcutsChanged déclenchés par le
 #     test) et registre des applications hors bac à sable
-#     (org.freedesktop.host.portal.Registry) ;
+#     (org.freedesktop.host.portal.Registry) ; avec l'option
+#     « remoteDesktop », portail RemoteDesktop (CreateSession, SelectDevices,
+#     Start, NotifyKeyboardKeysym) : les touches que l'app envoie (Ctrl+V du
+#     texte corrigé) sont notées, sans rien taper nulle part ;
 #   - org.kde.StatusNotifierWatcher : inscription de l'icône de la zone de
 #     notification, que le test pilote ensuite (Activate, menu dbusmenu).
 # Les noms sont pris avant le lancement de l'app : le bus n'active donc pas les
@@ -27,7 +30,11 @@
 #                           "trigger": "Ctrl+Alt+D",
 #                           "triggers": {"proofread": "Ctrl+Alt+C", ...},
 #                           (touche par identifiant, « trigger » sinon)
-#                           "configureTrigger": "Ctrl+Alt+F"}}
+#                           "configureTrigger": "Ctrl+Alt+F",
+#                           "remoteDesktop": "ok"|"cancel"}}
+#                           (absent : pas de portail RemoteDesktop, comme un
+#                           bureau qui n'envoie pas de touches ; « cancel » :
+#                           autorisation refusée à Start)
 # Entrée : une commande JSON par ligne, {"seq": n, "cmd": "...", ...} :
 #   activated / deactivated {"id"}   signal du portail (toutes les sessions
 #                                    ouvertes, même horodatage : comme KDE,
@@ -54,7 +61,10 @@
 # "close-notification", "register-app", "create-session", "bind" (session,
 # shortcuts : [[id, {description, preferred_trigger}], …], ids, et
 # « answered » : touches répondues, {id: touche}, absent sans réponse),
-# "configure", "close-session", "item-registered", "reply" avec le même
+# "configure", "close-session", "rd-select" (session, types, persistMode,
+# restoreToken reçu ou null), "rd-start" (session, granted, token rendu),
+# "rd-key" (keysym, state : 1 pressée, 0 relâchée),
+# "item-registered", "reply" avec le même
 # « seq » qu'une commande : {"result": ...} ou {"error": "..."}).
 # Codes de sortie : 0 fin (entrée fermée) ; 3 hors de la session virtuelle
 # (refusé avant toute connexion au bus) ; 1 autre erreur. Appelé par
@@ -400,8 +410,92 @@ def on_property(connection, sender, path, interface, name):
     if name == "version":
         if interface == GLOBAL_SHORTCUTS:
             return GLib.Variant("u", portal_options.get("version", 2))
+        if interface == REMOTE_DESKTOP:
+            return GLib.Variant("u", 2)
+        return GLib.Variant("u", 1)
+    if name == "AvailableDeviceTypes":
+        # Clavier seulement.
         return GLib.Variant("u", 1)
     return None
+
+
+# --- Portail RemoteDesktop (collage du texte corrigé) ---------------------
+
+REMOTE_DESKTOP = "org.freedesktop.portal.RemoteDesktop"
+REMOTE_DESKTOP_XML = """
+<node>
+  <interface name="org.freedesktop.portal.RemoteDesktop">
+    <method name="CreateSession">
+      <arg type="a{sv}" direction="in"/><arg type="o" direction="out"/>
+    </method>
+    <method name="SelectDevices">
+      <arg type="o" direction="in"/><arg type="a{sv}" direction="in"/>
+      <arg type="o" direction="out"/>
+    </method>
+    <method name="Start">
+      <arg type="o" direction="in"/><arg type="s" direction="in"/>
+      <arg type="a{sv}" direction="in"/><arg type="o" direction="out"/>
+    </method>
+    <method name="NotifyKeyboardKeysym">
+      <arg type="o" direction="in"/><arg type="a{sv}" direction="in"/>
+      <arg type="i" direction="in"/><arg type="u" direction="in"/>
+    </method>
+    <property name="AvailableDeviceTypes" type="u" access="read"/>
+    <property name="version" type="u" access="read"/>
+  </interface>
+</node>"""
+
+# Jetons d'autorisation rendus par Start : « rd-token-1 », « rd-token-2 »…
+rd_tokens = {"count": 0}
+
+
+def on_remote_desktop(connection, sender, path, interface, method, parameters, invocation):
+    args = parameters.unpack()
+    if method == "CreateSession":
+        (opts,) = args
+        request = f"{PORTAL_PATH}/request/{escaped(sender)}/{token(opts, 'handle_token')}"
+        session = f"{PORTAL_PATH}/session/{escaped(sender)}/{token(opts, 'session_handle_token')}"
+        node = Gio.DBusNodeInfo.new_for_xml(SESSION_XML)
+        object_id = bus.register_object(session, node.interfaces[0], on_session, on_property, None)
+        sessions[session] = (sender, object_id)
+        emit("create-session", session=session, sender=sender, portal="remote-desktop")
+        invocation.return_value(GLib.Variant("(o)", (request,)))
+        respond(sender, request, 0, {"session_handle": GLib.Variant("s", session)})
+    elif method == "SelectDevices":
+        session, opts = args
+        request = f"{PORTAL_PATH}/request/{escaped(sender)}/{token(opts, 'handle_token')}"
+        emit(
+            "rd-select",
+            session=session,
+            types=opts.get("types"),
+            persistMode=opts.get("persist_mode"),
+            restoreToken=opts.get("restore_token"),
+        )
+        invocation.return_value(GLib.Variant("(o)", (request,)))
+        respond(sender, request, 0, {})
+    elif method == "Start":
+        session, parent, opts = args
+        request = f"{PORTAL_PATH}/request/{escaped(sender)}/{token(opts, 'handle_token')}"
+        invocation.return_value(GLib.Variant("(o)", (request,)))
+        if portal_options.get("remoteDesktop") == "cancel":
+            emit("rd-start", session=session, granted=False, token=None)
+            respond(sender, request, 1, {})
+            return
+        rd_tokens["count"] += 1
+        granted = f"rd-token-{rd_tokens['count']}"
+        emit("rd-start", session=session, granted=True, token=granted)
+        respond(
+            sender,
+            request,
+            0,
+            {"devices": GLib.Variant("u", 1), "restore_token": GLib.Variant("s", granted)},
+        )
+    elif method == "NotifyKeyboardKeysym":
+        session, opts, keysym, state = args
+        emit("rd-key", session=session, keysym=keysym, state=state)
+        invocation.return_value(None)
+    else:
+        invocation.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method)
 
 
 def signal_all(name, shortcut_id):
@@ -719,6 +813,13 @@ if options.get("notifications"):
     own("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
         NOTIFICATIONS_XML, on_notifications)
 if portal_options is not None:
+    if portal_options.get("remoteDesktop"):
+        # Même objet que GlobalShortcuts, interface à part ; inscrite avant
+        # la prise du nom : présente dès que le portail répond.
+        rd_node = Gio.DBusNodeInfo.new_for_xml(REMOTE_DESKTOP_XML)
+        bus.register_object(
+            PORTAL_PATH, rd_node.interfaces[0], on_remote_desktop, on_property, None
+        )
     own("org.freedesktop.portal.Desktop", PORTAL_PATH, PORTAL_XML, on_portal, on_property)
 if options.get("watcher"):
     node = Gio.DBusNodeInfo.new_for_xml(WATCHER_XML)

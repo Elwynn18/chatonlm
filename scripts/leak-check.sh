@@ -24,11 +24,14 @@ runtime_dir="/run/user/$(id -u)"
 # Chemins qui ne doivent jamais apparaître hors du projet. ~/.cache/ms-playwright
 # n'en fait plus partie : un autre projet de l'utilisateur l'utilise. Il reste
 # surveillé (signature « playwright » plus bas) : signalé SUSPECT dès qu'il
-# change, acquittable par « ack » tant qu'il ne change plus.
+# change, acquittable par « ack » tant qu'il ne change plus. De même pour les
+# dossiers de l'app publiée (identifiant sans « .dev »), installée et utilisée
+# sur la machine de développement : signature « chatonlm ». Un essai qui y
+# écrirait reste donc signalé ; les dossiers de la version de développement,
+# que rien d'autre que le projet ne crée, restent interdits.
 forbidden=(
-  "$HOME/.local/share/$app_id" "$HOME/.local/share/$app_id.dev"
-  "$HOME/.config/$app_id" "$HOME/.config/$app_id.dev"
-  "$HOME/.cache/$app_id" "$HOME/.cache/$app_id.dev"
+  "$HOME/.local/share/$app_id.dev" "$HOME/.config/$app_id.dev"
+  "$HOME/.cache/$app_id.dev"
   "$HOME/.cache/tauri" "$HOME/.local/state/gh"
   "$HOME/.gitconfig" "$HOME/.rustup" "$HOME/.nvm" "$HOME/.npm" "$HOME/.node-gyp"
   "$runtime_dir/dbus-1" "$runtime_dir/at-spi/bus"

@@ -1,8 +1,9 @@
 //! Service de lecture : une lecture à la fois, état envoyé à la page à chaque
 //! changement (`READ_ALOUD_EVENT`).
 //!
-//! - `read` : lit une réponse enregistrée (bouton) ; voix absente : accord
-//!   demandé, puis téléchargement et lecture à la fin ;
+//! - `read` : lit un texte enregistré (bouton d'une réponse, ou d'un texte
+//!   d'un cours) ; voix absente : accord demandé, puis téléchargement et
+//!   lecture à la fin ;
 //! - `observe` : lecture automatique de la réponse d'un envoi pendant sa
 //!   génération (événements du moteur de chat, si le réglage est actif ; les
 //!   autres conversations sont ignorées) ; un nouvel envoi arrête toute
@@ -35,7 +36,10 @@ use std::time::{Duration, Instant};
 use parking_lot::{Condvar, Mutex, MutexGuard};
 
 use super::text::{self, Segmenter};
-use super::{ReadAloudError, ReadAloudOutcome, ReadAloudPhase, ReadAloudState, VoiceLanguage};
+use super::{
+    ReadAloudError, ReadAloudOutcome, ReadAloudPhase, ReadAloudSource, ReadAloudState,
+    VoiceLanguage,
+};
 use crate::chat::{ChatEvent, VoiceSend};
 use crate::dictation::downloads::{SpeechDownload, SpeechDownloadState};
 use crate::error::AppResult;
@@ -257,9 +261,9 @@ struct Shared {
 
 struct Session {
     id: u64,
-    /// Réponse lue (change d'un tour d'outils à l'autre en lecture
+    /// Texte lu (la réponse change d'un tour d'outils à l'autre en lecture
     /// automatique).
-    message_id: i64,
+    source: ReadAloudSource,
     stop: Arc<AtomicBool>,
     input: mpsc::Sender<Input>,
     /// Sortie ouverte par le fil, coupée par `stop`.
@@ -405,16 +409,18 @@ impl ReadAloud {
         self.inner.preload_language(language);
     }
 
-    /// Lit la réponse `message_id` (son Markdown). Voix absente et pas
-    /// d'accord (`download` faux) : `NeedsVoice`, rien ne démarre, sauf si la
-    /// voix est déjà en téléchargement (`downloading`) : la lecture l'attend.
-    /// Avec l'accord, `queue` lance son téléchargement et la lecture suit.
-    /// ONNX Runtime indisponible : erreur sous la réponse, rien n'est
-    /// téléchargé.
+    /// Lit le texte `source` (son Markdown) ; `fallback` : langue du texte
+    /// quand rien ne la trahit (celle d'un cours), sinon celle de
+    /// l'interface. Voix absente et pas d'accord (`download` faux) :
+    /// `NeedsVoice`, rien ne démarre, sauf si la voix est déjà en
+    /// téléchargement (`downloading`) : la lecture l'attend. Avec l'accord,
+    /// `queue` lance son téléchargement et la lecture suit. ONNX Runtime
+    /// indisponible : erreur sous le texte, rien n'est téléchargé.
     pub fn read(
         &self,
-        message_id: i64,
+        source: ReadAloudSource,
         markdown: &str,
+        fallback: Option<VoiceLanguage>,
         download: bool,
         downloading: &dyn Fn(&str) -> bool,
         queue: &dyn Fn(&str) -> AppResult<()>,
@@ -426,14 +432,15 @@ impl ReadAloud {
         if spoken.trim().is_empty() {
             return Ok(ReadAloudOutcome::NothingToRead);
         }
-        let Some((language, voice)) = text::choose_language(&spoken, (backend.interface)())
+        let fallback = fallback.unwrap_or_else(|| (backend.interface)());
+        let Some((language, voice)) = text::choose_language(&spoken, fallback)
             .and_then(|language| Some((language, (backend.voice)(language)?)))
         else {
             return Ok(ReadAloudOutcome::UnsupportedLanguage);
         };
         if !(backend.runtime)() {
             self.inner
-                .fail_now(message_id, ReadAloudError::RuntimeUnavailable);
+                .fail_now(source, ReadAloudError::RuntimeUnavailable);
             return Ok(ReadAloudOutcome::Started);
         }
         let already = !voice.installed && downloading(voice.id);
@@ -458,7 +465,7 @@ impl ReadAloud {
         let mut shared = self.inner.shared.lock();
         let (_, input) = self.inner.start(
             &mut shared,
-            message_id,
+            source,
             Some(language),
             waiting,
             Some(phase),
@@ -488,14 +495,28 @@ impl ReadAloud {
     /// Arrête la lecture si elle lit l'une des réponses `messages` (leur
     /// conversation est supprimée).
     pub fn stop_if_reading(&self, messages: &[i64]) {
+        self.stop_if(|source| {
+            matches!(source, ReadAloudSource::Message { message_id } if messages.contains(message_id))
+        });
+    }
+
+    /// Arrête la lecture si elle lit un texte du cours `course` (supprimé,
+    /// plan ou palier refait).
+    pub fn stop_if_reading_course(&self, course: &str) {
+        self.stop_if(|source| {
+            matches!(source, ReadAloudSource::Study { course_id, .. } if course_id == course)
+        });
+    }
+
+    fn stop_if(&self, concerned: impl Fn(&ReadAloudSource) -> bool) {
         let reading = self
             .inner
             .shared
             .lock()
             .session
             .as_ref()
-            .map(|session| session.message_id);
-        if reading.is_some_and(|id| messages.contains(&id)) {
+            .is_some_and(|session| concerned(&session.source));
+        if reading {
             self.stop();
         }
     }
@@ -632,22 +653,28 @@ impl ReadAloud {
                             let fallback = voiced.hint.unwrap_or_else(|| (backend.interface)());
                             (chat.to_owned(), fallback)
                         });
-                    let (id, _) =
-                        self.inner
-                            .start(&mut shared, *message_id, None, None, None, voice);
+                    let source = ReadAloudSource::Message {
+                        message_id: *message_id,
+                    };
+                    let (id, _) = self
+                        .inner
+                        .start(&mut shared, source, None, None, None, voice);
                     if let Some(follow) = shared.follow.as_mut() {
                         follow.session = Some(id);
                     }
                 } else if current {
                     // Tour d'outils suivant : la fin du message précédent est
                     // lue, puis ce message-ci.
+                    let source = ReadAloudSource::Message {
+                        message_id: *message_id,
+                    };
                     let Shared { state, session, .. } = &mut *shared;
                     if let Some(session) = session.as_mut() {
                         let _ = session.input.send(Input::NextMessage);
-                        session.message_id = *message_id;
+                        session.source = source.clone();
                     }
                     if state.phase != ReadAloudPhase::Idle {
-                        state.message_id = Some(*message_id);
+                        state.source = Some(source);
                     }
                 }
             }
@@ -739,13 +766,13 @@ impl Inner {
         drop(delivery);
     }
 
-    /// Erreur immédiate sous la réponse `message_id` (la lecture en cours
+    /// Erreur immédiate sous le texte `source` (la lecture en cours
     /// s'arrête).
-    fn fail_now(&self, message_id: i64, error: ReadAloudError) {
+    fn fail_now(&self, source: ReadAloudSource, error: ReadAloudError) {
         let mut shared = self.shared.lock();
         Inner::halt(&mut shared);
         shared.state = ReadAloudState {
-            message_id: Some(message_id),
+            source: Some(source),
             error: Some(error),
             ..ReadAloudState::idle()
         };
@@ -759,7 +786,7 @@ impl Inner {
     fn start(
         self: &Arc<Self>,
         shared: &mut Shared,
-        message_id: i64,
+        source: ReadAloudSource,
         language: Option<VoiceLanguage>,
         waiting: Option<(&'static str, VoiceLanguage)>,
         phase: Option<ReadAloudPhase>,
@@ -772,7 +799,7 @@ impl Inner {
         Inner::halt(shared);
         shared.session = Some(Session {
             id,
-            message_id,
+            source: source.clone(),
             stop: stop.clone(),
             input: input.clone(),
             output: output.clone(),
@@ -782,7 +809,7 @@ impl Inner {
         });
         if let Some(phase) = phase {
             shared.state = ReadAloudState {
-                message_id: Some(message_id),
+                source: Some(source.clone()),
                 phase,
                 percent: waiting.map(|_| 0),
                 error: None,
@@ -810,7 +837,7 @@ impl Inner {
             eprintln!("chatonlm: cannot start reading aloud: {error}");
             shared.session = None;
             shared.state = ReadAloudState {
-                message_id: Some(message_id),
+                source: Some(source),
                 error: Some(ReadAloudError::EngineFailed),
                 ..ReadAloudState::idle()
             };
@@ -825,16 +852,16 @@ impl Inner {
     /// État de la lecture `id` si elle est encore la lecture en cours.
     fn set_phase(&self, id: u64, phase: ReadAloudPhase) {
         let mut shared = self.shared.lock();
-        let Some((message_id, voice_chat)) = shared
+        let Some((source, voice_chat)) = shared
             .session
             .as_ref()
             .filter(|session| session.id == id)
-            .map(|session| (session.message_id, session.voice_chat.clone()))
+            .map(|session| (session.source.clone(), session.voice_chat.clone()))
         else {
             return;
         };
         let state = ReadAloudState {
-            message_id: Some(message_id),
+            source: Some(source),
             phase,
             percent: None,
             error: None,
@@ -859,16 +886,16 @@ impl Inner {
     }
 
     /// Fin de la lecture `id` (si elle est encore en cours) ; en erreur,
-    /// l'état garde la réponse concernée.
+    /// l'état garde le texte concerné.
     fn finish(&self, id: u64, end: Result<(), ReadingEnd>) {
         let mut shared = self.shared.lock();
-        let Some((message_id, voice_chat, aside)) = shared
+        let Some((source, voice_chat, aside)) = shared
             .session
             .as_ref()
             .filter(|session| session.id == id)
             .map(|session| {
                 (
-                    session.message_id,
+                    session.source.clone(),
                     session.voice_chat.clone(),
                     session.aside,
                 )
@@ -883,7 +910,7 @@ impl Inner {
         };
         shared.session = None;
         shared.state = ReadAloudState {
-            message_id: error.is_some().then_some(message_id),
+            source: error.is_some().then_some(source),
             error,
             ..ReadAloudState::idle()
         };

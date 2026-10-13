@@ -29,10 +29,12 @@ export function useHasVision(model: string | null): boolean | null {
 }
 
 /**
- * Le modèle sait-il appeler des outils (recherche web) ? Non tant que ses
- * capacités ne sont pas connues, comme l'officiel.
+ * Le modèle sait-il appeler des outils (recherche web) ? null quand on ne le
+ * sait pas : aucun modèle, détails pas encore lus ou illisibles (modèle pas
+ * encore téléchargé...), serveur trop ancien pour annoncer ses capacités
+ * (liste vide).
  */
-export function useHasTools(model: string | null): boolean {
+export function useToolsSupport(model: string | null): boolean | null {
   const name = model ?? "";
   const { data } = useQuery({
     queryKey: modelDetailsKey(name),
@@ -40,5 +42,16 @@ export function useHasTools(model: string | null): boolean {
     enabled: name !== "",
     staleTime: Infinity,
   });
-  return data?.capabilities.includes("tools") ?? false;
+  if (!data || data.capabilities.length === 0) {
+    return null;
+  }
+  return data.capabilities.includes("tools");
+}
+
+/**
+ * Le modèle sait-il appeler des outils (recherche web) ? Non tant que ses
+ * capacités ne sont pas connues, comme l'officiel.
+ */
+export function useHasTools(model: string | null): boolean {
+  return useToolsSupport(model) === true;
 }

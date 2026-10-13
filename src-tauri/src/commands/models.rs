@@ -4,6 +4,7 @@ use crate::chat::stream::Think;
 use crate::error::{AppError, AppResult};
 use crate::i18n::t;
 use crate::ollama::models::{self, ModelDetails, ModelInfo};
+use crate::ollama::outdated;
 use crate::ollama::registry;
 use crate::ollama::running::{self, RunningModel};
 use crate::store::settings::Settings;
@@ -32,6 +33,18 @@ pub async fn recommended_models(store: State<'_, Store>) -> AppResult<Vec<String
 #[tauri::command]
 pub async fn model_exists_upstream(model: String) -> AppResult<bool> {
     registry::model_exists(&registry::registry_url(), &model).await
+}
+
+/// Parmi `models`, les modèles installés dont le registre (ollama.com,
+/// Hugging Face) a une version plus récente. Rejette si Ollama ne répond
+/// pas ; un registre injoignable ne signale rien.
+#[tauri::command]
+pub async fn outdated_models(
+    store: State<'_, Store>,
+    models: Vec<String>,
+) -> AppResult<Vec<String>> {
+    let server = server_url(&store).await?;
+    outdated::outdated(&server, &registry::registry_url(), &models).await
 }
 
 /// Réglage du raisonnement mémorisé pour ce modèle (`null` : aucun).

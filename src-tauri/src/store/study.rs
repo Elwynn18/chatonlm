@@ -1,6 +1,7 @@
 //! Cours générés (onglet Study) : tables `courses`, `course_sources`,
-//! `course_levels` et `course_answers` (migration 0012). Les contenus
-//! générés sont en JSON (types de `study::data`).
+//! `course_levels` et `course_answers` (migration 0012 ; pause de la
+//! génération : 0019). Les contenus générés sont en JSON (types de
+//! `study::data`).
 //!
 //! Chaque changement passe par une lecture puis une écriture dans le même
 //! appel ([`update_row`], [`update_level`]) : sous le verrou de la
@@ -106,7 +107,8 @@ fn optional_json<T: DeserializeOwned>(text: Option<String>) -> AppResult<Option<
 }
 
 const COLUMNS: &str = "id, topic, level, minutes, language, model, web, status, error, clarify, \
-                       plan, final, position, elapsed_ms, created_at, updated_at, finished_at";
+                       plan, final, position, elapsed_ms, created_at, updated_at, finished_at, \
+                       paused";
 
 /// Colonnes lues telles quelles (converties ensuite, hors de rusqlite).
 type RawRow = (
@@ -127,6 +129,7 @@ type RawRow = (
     i64,
     i64,
     Option<i64>,
+    bool,
 );
 
 fn raw(row: &Row<'_>) -> rusqlite::Result<RawRow> {
@@ -148,6 +151,7 @@ fn raw(row: &Row<'_>) -> rusqlite::Result<RawRow> {
         row.get(14)?,
         row.get(15)?,
         row.get(16)?,
+        row.get(17)?,
     ))
 }
 
@@ -170,6 +174,7 @@ fn convert(raw: RawRow) -> AppResult<CourseRow> {
         created_at,
         updated_at,
         finished_at,
+        paused,
     ) = raw;
     Ok(CourseRow {
         id,
@@ -189,6 +194,7 @@ fn convert(raw: RawRow) -> AppResult<CourseRow> {
         created_at,
         updated_at,
         finished_at,
+        paused,
     })
 }
 
@@ -198,7 +204,8 @@ pub fn insert(connection: &Connection, row: &CourseRow, sources: &[SourceRow]) -
         transaction.execute(
             &format!(
                 "INSERT INTO courses ({COLUMNS}) VALUES \
-             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)"
+             (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
+              ?18)"
             ),
             params![
                 row.id,
@@ -218,6 +225,7 @@ pub fn insert(connection: &Connection, row: &CourseRow, sources: &[SourceRow]) -
                 row.created_at,
                 row.updated_at,
                 row.finished_at,
+                row.paused,
             ],
         )?;
         insert_sources(transaction, &row.id, sources)?;
@@ -252,7 +260,7 @@ fn write_row(connection: &Connection, row: &CourseRow) -> AppResult<()> {
     connection.execute(
         "UPDATE courses SET topic = ?2, model = ?3, web = ?4, status = ?5, error = ?6,
                 clarify = ?7, plan = ?8, final = ?9, position = ?10, elapsed_ms = ?11,
-                updated_at = ?12, finished_at = ?13
+                updated_at = ?12, finished_at = ?13, paused = ?14
          WHERE id = ?1",
         params![
             row.id,
@@ -268,6 +276,7 @@ fn write_row(connection: &Connection, row: &CourseRow) -> AppResult<()> {
             row.elapsed_ms,
             row.updated_at,
             row.finished_at,
+            row.paused,
         ],
     )?;
     Ok(())
@@ -609,6 +618,7 @@ mod tests {
         );
         assert_eq!(snapshot.sources[0].source.title, "notes.md");
         assert!(snapshot.levels.is_empty() && snapshot.answers.is_empty());
+        assert!(!snapshot.row.paused);
         assert_eq!(store.blocking(|c| load(c, "nope")).unwrap(), None);
 
         store
@@ -634,6 +644,7 @@ mod tests {
                 update_row(c, "c1", |row| {
                     row.status = CourseStatus::Active;
                     row.final_quiz = Some(FinalData::default());
+                    row.paused = true;
                     Ok(())
                 })
             })
@@ -648,6 +659,14 @@ mod tests {
         assert_eq!(snapshot.row.status, CourseStatus::Active);
         assert_eq!(snapshot.row.final_quiz, Some(FinalData::default()));
         assert!(snapshot.row.updated_at > 1);
+        // La pause est enregistrée, et rendue par un nouveau cours créé en
+        // pause comme par un changement.
+        assert!(snapshot.row.paused);
+        let mut paused = course_row(10);
+        paused.id = "c2".into();
+        paused.paused = true;
+        store.blocking(|c| insert(c, &paused, &[])).unwrap();
+        assert!(store.blocking(|c| row(c, "c2")).unwrap().unwrap().paused);
     }
 
     #[test]

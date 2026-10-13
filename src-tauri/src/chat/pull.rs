@@ -238,7 +238,7 @@ pub(crate) async fn known_size(
         read = manifest::fetch(hf_url, &name, timeout) => read,
     };
     Ok(match read {
-        Manifest::Found { total } => Some(total),
+        Manifest::Found { total, .. } => Some(total),
         Manifest::Refused(_) | Manifest::Unexpected | Manifest::Unreachable(_) => None,
     })
 }

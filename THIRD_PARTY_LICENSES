@@ -53,6 +53,7 @@ Files (ChatonLM path <- Ollama path : copied | adapted | translated to Rust):
   src/components/settings/ModelLocation.tsx <- app/ui/app/src/components/Settings.tsx : adapted
   src/components/settings/OllamaAccount.tsx <- app/ui/app/src/components/Settings.tsx : adapted
   src/components/settings/Slider.tsx <- app/ui/app/src/components/ui/slider.tsx : adapted
+  src/components/StaleModelBanner.tsx <- app/ui/app/src/components/DisplayStale.tsx : adapted
   src/components/StreamingMarkdownContent.tsx <- app/ui/app/src/components/StreamingMarkdownContent.tsx : adapted
   src/components/StreamingMarkdownContent.test.tsx <- app/ui/app/src/components/StreamingMarkdownContent.test.tsx : adapted
   src/components/ThinkButton.tsx <- app/ui/app/src/components/ThinkButton.tsx : adapted
@@ -67,6 +68,8 @@ Files (ChatonLM path <- Ollama path : copied | adapted | translated to Rust):
   src/hooks/useModels.ts <- app/ui/app/src/hooks/useModels.ts : adapted
   src/hooks/useModels.ts <- app/ui/app/src/hooks/useSelectedModel.ts : adapted
   src/hooks/useModels.ts <- app/ui/app/src/hooks/useFeaturedModels.ts : adapted
+  src/hooks/useOutdatedModels.ts <- app/ui/app/src/hooks/useChats.ts : adapted
+  src/hooks/useOutdatedModels.ts <- app/ui/app/src/components/ModelPicker.tsx : adapted
   src/hooks/useRenameChat.ts <- app/ui/app/src/hooks/useRenameChat.ts : adapted
   src/lib/chatGroups.ts <- app/ui/app/src/components/ChatSidebar.tsx : adapted
   src/lib/clipboard.test.ts <- app/ui/app/src/utils/clipboard.test.ts : adapted
@@ -752,8 +755,8 @@ chatonlm_<version>_amd64.AppImage-sources.tar.
 
 == Part 5. Built-in Ollama ==
 
-Program:  Ollama 0.40.0, https://github.com/ollama/ollama, official build
-          for Linux (ollama-linux-amd64.tar.zst of the v0.40.0 release),
+Program:  Ollama 0.40.3, https://github.com/ollama/ollama, official build
+          for Linux (ollama-linux-amd64.tar.zst of the v0.40.3 release),
           shipped unmodified in /usr/lib/chatonlm/ollama (in the AppImage:
           usr/libexec/chatonlm/ollama) and run as a separate program,
           without its CUDA, ROCm and MLX libraries

@@ -13,7 +13,9 @@
 // texte final (la touche y arrive, le curseur au point cliqué, la vue au
 // même endroit), remplacé par insertText pour que le Ctrl+Z natif de la
 // zone retrouve le texte d'avant. Copier une partie de la revue donne son
-// texte final, sans les mots supprimés.
+// texte final, sans les mots supprimés. Une croix, en haut à droite du
+// volet tant qu'il a du texte (hors travail en cours), le vide : par
+// l'édition native elle aussi, Ctrl+Z retrouve donc le texte effacé.
 //
 // « Show » (sélection corrigée par le raccourci global) met de côté ce que
 // la page contenait : une remarque « Back to your text » le rétablit.
@@ -90,9 +92,15 @@ const BUTTON =
   "inline-flex flex-none items-center gap-1.5 rounded-lg border border-zinc-950/10 bg-white px-3 py-1 text-sm/6 font-medium text-zinc-950 shadow-sm outline-none hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-accent-fg disabled:cursor-default disabled:opacity-50 dark:border-white/15 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800";
 const PRIMARY_BUTTON =
   "inline-flex flex-none items-center gap-1.5 rounded-lg border border-zinc-700/90 bg-zinc-800 px-3 py-1 text-sm/6 font-medium text-white shadow-sm outline-none hover:bg-zinc-700 focus-visible:ring-2 focus-visible:ring-accent-fg disabled:cursor-default disabled:opacity-50 dark:border-white/10 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200";
-/** Même police, mêmes marges en édition et en revue : le texte ne bouge pas. */
+/**
+ * Même police, mêmes marges en édition et en revue : le texte ne bouge pas.
+ * Marge droite plus large : la croix qui vide le volet ne couvre aucun mot.
+ */
 const TEXT =
-  "h-full w-full overflow-y-auto p-4 text-sm/7 break-words whitespace-pre-wrap text-neutral-900 dark:text-neutral-100";
+  "h-full w-full overflow-y-auto p-4 pr-12 text-sm/7 break-words whitespace-pre-wrap text-neutral-900 dark:text-neutral-100";
+/** Croix qui vide le volet, dans son coin. */
+const CLEAR_BUTTON =
+  "absolute top-2.5 right-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-neutral-500 outline-none hover:bg-neutral-100 hover:text-neutral-800 focus-visible:ring-2 focus-visible:ring-accent-fg dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100";
 const LINK_BUTTON =
   "rounded-md font-medium underline underline-offset-2 outline-none hover:text-red-800 focus-visible:ring-2 focus-visible:ring-accent-fg dark:hover:text-red-200";
 
@@ -205,6 +213,27 @@ export function Proofread() {
     }
     return area;
   }, []);
+
+  /**
+   * Croix : vide le volet. Depuis la revue, le texte final passe d'abord en
+   * édition ; l'effacement se fait par l'édition native (Ctrl+Z retrouve le
+   * texte), la valeur étant posée à défaut.
+   */
+  const clearText = useCallback(() => {
+    const area =
+      getProofreadState().phase === "review"
+        ? editFinalText(null)
+        : textareaRef.current;
+    if (!area) return;
+    area.focus({ preventScroll: true });
+    area.select();
+    try {
+      document.execCommand("delete");
+    } catch {
+      // Pas d'execCommand : valeur posée ci-dessous.
+    }
+    flushSync(() => setDraft(""));
+  }, [editFinalText]);
 
   // En capture, avant la garde de navigation et l'annuler/rétablir des
   // champs de la route racine (écouteurs de document) : Retour arrière et
@@ -385,6 +414,17 @@ export function Proofread() {
               >
                 <ProofreadText views={views} />
               </div>
+            )}
+            {phase !== "running" && text !== "" && (
+              <button
+                type="button"
+                className={CLEAR_BUTTON}
+                aria-label={t("proofread.actions.clear")}
+                title={t("proofread.actions.clear")}
+                onClick={clearText}
+              >
+                <XMarkIcon aria-hidden="true" className="h-4 w-4" />
+              </button>
             )}
           </div>
 

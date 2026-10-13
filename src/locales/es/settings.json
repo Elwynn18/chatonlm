@@ -380,8 +380,13 @@
       },
       "proofread": {
         "label": "Corregir el texto seleccionado",
-        "description": "Corrige el texto seleccionado en cualquier aplicación y copia el resultado: pulsa Ctrl+V para reemplazar la selección.",
-        "off": "Activa el atajo para elegir sus teclas."
+        "description": "Corrige el texto seleccionado en cualquier aplicación.",
+        "off": "Activa el atajo para elegir sus teclas.",
+        "paste": {
+          "label": "Reemplazar la selección",
+          "description": "ChatonLM pega el texto corregido sobre la selección. Desactivado, el texto corregido solo se copia: pulsa Ctrl+V para pegarlo.",
+          "askHint": "La primera vez, tu escritorio pide permiso para que ChatonLM envíe la tecla de pegado."
+        }
       },
       "waiting": "Esperando a tu escritorio…",
       "notSet": "Sin definir",

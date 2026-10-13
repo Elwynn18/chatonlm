@@ -2,8 +2,9 @@
 // embarqué, CSP de production). Le faux serveur joue aussi ollama.com
 // (CHATONLM_OLLAMA_COM_URL : page de connexion, image du compte) ; un faux
 // xdg-open note les liens ouverts :
-// - globe pour un modèle « tools » (chatonlm-search), absent sans cette
-//   capacité (chatonlm-plain) ou quand le serveur a coupé le cloud ;
+// - globe pour un modèle « tools » (chatonlm-search), grisé avec sa raison
+//   sans cette capacité (chatonlm-plain), absent quand le serveur a coupé le
+//   cloud ;
 // - envoi avec recherche sans compte : arrêt avant toute requête à
 //   /api/chat, erreur « Web search requires an Ollama account » avec deux
 //   choix : « Generate without web search » coupe le globe et relance le
@@ -304,8 +305,25 @@ try {
       );
       await driver.execute(WATCH_PAGE);
       await useModel(driver, "chatonlm-plain");
-      // Sans capacité « tools » : pas de globe.
-      assert.equal(await globe(driver), null);
+      // Sans capacité « tools » : globe gardé, grisé, qui dit pourquoi ; un
+      // clic ne change rien.
+      assert.deepEqual(await waitUntil(() => globe(driver), "globe grisé"), {
+        pressed: null,
+        title: "Web search isn't available: this model can't use tools.",
+      });
+      assert.equal(
+        await driver.execute(
+          `const button = document.querySelector("button[aria-label='Web search']");
+           button.click();
+           return button.getAttribute("aria-disabled");`,
+        ),
+        "true",
+      );
+      assert.equal(
+        (await driver.invoke("get_settings")).webSearchEnabled,
+        false,
+      );
+      await driver.screenshot(".tools/shots/web-search-unavailable.png");
 
       await useModel(driver, "chatonlm-search");
       assert.deepEqual(await waitUntil(() => globe(driver), "globe"), {

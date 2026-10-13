@@ -4,7 +4,11 @@
 // d'un modèle de Hugging Face. Chaque ligne a sa propre suppression : deux
 // suppressions rapprochées gardent chacune son état et son échec. Après
 // confirmation, le focus va au titre de la liste (la ligne va disparaître) ;
-// Cancel le rend à la corbeille.
+// Cancel le rend à la corbeille. Un modèle dont le registre a une version plus
+// récente (useOutdatedModels, demandé à l'ouverture de l'onglet) porte la
+// pastille « Update available » et un bouton Update, qui le met en file dans
+// les téléchargements : la ligne montre alors la progression, avec Cancel
+// (et Resume si la mise à jour a été mise en pause dans l'onglet Downloads).
 
 import { CubeIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { Link } from "@tanstack/react-router";
@@ -12,6 +16,7 @@ import { useRef, useState } from "react";
 import type { HubCapabilities } from "@/bindings/HubCapabilities";
 import type { HubInstalled } from "@/bindings/HubInstalled";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DownloadProgress } from "@/components/hub/DownloadProgress";
 import { CapabilityIcons, ModelAvatar } from "@/components/hub/ModelBits";
 import { CommandError, EmptyState } from "@/components/hub/Status";
 import {
@@ -23,12 +28,23 @@ import {
   SECONDARY_BUTTON,
   SKELETON,
 } from "@/components/hub/styles";
+import {
+  findDownload,
+  useDownloadActions,
+  useDownloads,
+} from "@/hooks/useDownloads";
 import { useDeleteModel, useHubInstalled, useUseInChat } from "@/hooks/useHub";
+import { listsModel, useOutdatedModels } from "@/hooks/useOutdatedModels";
 import { useT } from "@/i18n";
 import { formatBytes, formatTimeAgo } from "@/i18n/format";
-import { familyOf, repoParams } from "@/lib/hub";
+import { familyOf, isPendingDownload, repoParams } from "@/lib/hub";
 import { errorMessage } from "@/lib/ipc";
-import { displayTag, parseModelName } from "@/lib/modelNames";
+import {
+  displayTag,
+  parseModelName,
+  shortModelName as shortName,
+  withTag,
+} from "@/lib/modelNames";
 
 /** Capacités d'Ollama (/api/tags) en drapeaux des icônes. */
 function capabilitiesOf(model: HubInstalled): HubCapabilities {
@@ -41,17 +57,21 @@ function capabilitiesOf(model: HubInstalled): HubCapabilities {
   };
 }
 
-/** Nom court d'un modèle installé (« SmolLM2-135M-Instruct:Q4_K_M »). */
-function shortName(model: string): string {
-  const name = parseModelName(model);
-  if (!name.repo) return model.trim();
-  return name.tag ? `${name.title}:${displayTag(name.tag)}` : name.title;
-}
+/** Pastille « Update available » : vert doux du thème (celui de « Fits »). */
+const UPDATE_CHIP =
+  "inline-flex flex-none items-center rounded-md bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-500/10 dark:text-green-400";
 
 export function InstalledList() {
   const t = useT();
   const installed = useHubInstalled();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // Version : la date du manifeste, qui change à chaque téléchargement.
+  const outdated = useOutdatedModels(
+    (installed.data ?? []).map((model) => ({
+      model: model.model,
+      version: model.modifiedAt ?? "",
+    })),
+  );
 
   if (installed.isPending) return <InstalledSkeleton />;
   if (installed.isError) {
@@ -92,6 +112,7 @@ export function InstalledList() {
           <InstalledRow
             key={model.model}
             model={model}
+            outdated={listsModel(outdated, model.model)}
             onDeleting={() => headingRef.current?.focus()}
           />
         ))}
@@ -102,15 +123,26 @@ export function InstalledList() {
 
 function InstalledRow({
   model,
+  outdated,
   onDeleting,
 }: {
   model: HubInstalled;
+  /** Le registre a une version plus récente. */
+  outdated: boolean;
   /** Suppression confirmée : le focus quitte la ligne, qui va disparaître. */
   onDeleting: () => void;
 }) {
   const t = useT();
   const openInChat = useUseInChat();
   const remove = useDeleteModel();
+  const { downloads } = useDownloads();
+  const { start, cancel, resume } = useDownloadActions();
+  // Nom que la file des téléchargements garde : avec son étiquette.
+  const target = withTag(model.model);
+  const download = findDownload(downloads, target);
+  // Mise à jour en file, en cours, ou mise en pause (onglet Downloads).
+  const updating = download !== null && isPendingDownload(download);
+  const held = download?.state === "paused";
   const [confirming, setConfirming] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const name = parseModelName(model.model);
@@ -129,7 +161,16 @@ function InstalledRow({
       : "",
   ].filter(Boolean);
   const deleting = remove.isPending;
-  const message = remove.isError ? errorMessage(remove.error) : chatError;
+  // Mise à jour refusée par la file, ou en échec (tant que le modèle reste
+  // périmé : un échec plus ancien ne concerne plus une version à jour).
+  const updateError = start.isError
+    ? errorMessage(start.error)
+    : outdated && download?.state === "failed"
+      ? download.error
+      : null;
+  const message = remove.isError
+    ? errorMessage(remove.error)
+    : (chatError ?? updateError);
   return (
     <li
       data-testid="installed-model"
@@ -168,6 +209,11 @@ function InstalledRow({
                 {t("hub.installed.embedding")}
               </span>
             )}
+            {outdated && !updating && (
+              <span className={UPDATE_CHIP}>
+                {t("hub.installed.updateAvailable")}
+              </span>
+            )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-neutral-500 dark:text-neutral-400">
             {name.publisher && (
@@ -186,6 +232,44 @@ function InstalledRow({
         </div>
         <CapabilityIcons capabilities={capabilitiesOf(model)} />
         <div className="flex flex-none items-center gap-1">
+          {updating ? (
+            <>
+              {held && (
+                <button
+                  type="button"
+                  className={PRIMARY_BUTTON}
+                  disabled={resume.isPending}
+                  onClick={() => resume.mutate(target)}
+                >
+                  {t("hub.actions.resume")}
+                </button>
+              )}
+              <button
+                type="button"
+                className={SECONDARY_BUTTON}
+                disabled={cancel.isPending}
+                onClick={() => cancel.mutate(target)}
+              >
+                {t("common.actions.cancel")}
+              </button>
+            </>
+          ) : (
+            outdated && (
+              <button
+                type="button"
+                className={PRIMARY_BUTTON}
+                aria-label={t("hub.actions.updateNamed", {
+                  name: shortName(model.model),
+                })}
+                disabled={deleting || start.isPending}
+                onClick={() =>
+                  start.mutate({ model: target, repo: null, label: null })
+                }
+              >
+                {t("hub.actions.update")}
+              </button>
+            )
+          )}
           {!embedding && (
             <button
               type="button"
@@ -208,13 +292,18 @@ function InstalledRow({
               name: shortName(model.model),
             })}
             title={t("common.actions.delete")}
-            disabled={deleting}
+            disabled={deleting || updating}
             onClick={() => setConfirming(true)}
           >
             <TrashIcon aria-hidden="true" className="h-5 w-5" />
           </button>
         </div>
       </div>
+      {updating && (
+        <div className="mt-3">
+          <DownloadProgress download={download} name={shortName(model.model)} />
+        </div>
+      )}
       {message && (
         <p
           role="alert"

@@ -45,6 +45,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0016_read_aloud.sql"),
     include_str!("../../migrations/0017_voice_mode.sql"),
     include_str!("../../migrations/0018_shortcut_keys.sql"),
+    include_str!("../../migrations/0019_study_pause.sql"),
+    include_str!("../../migrations/0020_proofread_paste.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.
@@ -585,6 +587,95 @@ mod tests {
             store.blocking(|c| voice_mode::get(c)).unwrap(),
             voice_mode::VoiceModeSettings::default()
         );
+    }
+
+    /// Base laissée par la version 0.9.0 (schéma 18) : la migration 0019
+    /// ajoute la pause des cours ; un cours déjà là n'est pas en pause et
+    /// garde son contenu.
+    #[test]
+    fn a_version_18_database_gains_the_course_pause() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        let connection = Connection::open(&path).unwrap();
+        for sql in &MIGRATIONS[..18] {
+            connection.execute_batch(sql).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 18).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO courses (id, topic, level, minutes, language, status,
+                                      created_at, updated_at)
+                 VALUES ('course-1', 'Kept', 'beginner', 20, 'fr', 'planning', 1, 2);",
+            )
+            .unwrap();
+        drop(connection);
+
+        let store = Store::open(&path).unwrap();
+        assert_eq!(version(&store), MIGRATIONS.len() as i64);
+        let row = store
+            .blocking(|c| study::row(c, "course-1"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.topic, "Kept");
+        assert!(!row.paused);
+        store
+            .blocking(|c| {
+                study::update_row(c, "course-1", |row| {
+                    row.paused = true;
+                    Ok(())
+                })
+            })
+            .unwrap();
+        let row = store
+            .blocking(|c| study::row(c, "course-1"))
+            .unwrap()
+            .unwrap();
+        assert!(row.paused);
+        // Valeur impossible refusée par la base elle-même.
+        assert!(
+            store
+                .blocking(|c| Ok(c.execute("UPDATE courses SET paused = 2", [])?))
+                .is_err()
+        );
+    }
+
+    /// Base laissée par la version 0.9.0 (schéma 18) : la migration 0020
+    /// ajoute « coller à la place de la sélection », activé, sans toucher aux
+    /// autres réglages ; il s'enregistre ensuite comme les autres.
+    #[test]
+    fn a_version_18_database_gains_the_paste_setting() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        let connection = Connection::open(&path).unwrap();
+        for sql in &MIGRATIONS[..18] {
+            connection.execute_batch(sql).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 18).unwrap();
+        connection
+            .execute_batch(
+                "UPDATE settings SET proofread_shortcut = 1, proofread_model = 'gemma3:4b'
+                 WHERE id = 1;",
+            )
+            .unwrap();
+        drop(connection);
+
+        let store = Store::open(&path).unwrap();
+        assert_eq!(version(&store), MIGRATIONS.len() as i64);
+        let saved = store.blocking(|c| settings::get(c, None)).unwrap();
+        assert!(saved.proofread_paste);
+        assert!(saved.proofread_shortcut);
+        assert_eq!(saved.proofread_model, "gemma3:4b");
+        let patch = settings::SettingsPatch {
+            proofread_paste: Some(false),
+            ..settings::SettingsPatch::default()
+        };
+        let updated = store
+            .blocking(move |c| settings::update(c, patch, None))
+            .unwrap();
+        assert!(!updated.proofread_paste);
+        assert!(updated.proofread_shortcut);
+        let again = store.blocking(|c| settings::get(c, None)).unwrap();
+        assert!(!again.proofread_paste);
     }
 
     #[test]

@@ -105,7 +105,9 @@ try {
     );
     const state = await driver.invoke("read_aloud_state");
     assert.equal(state.phase, "playing");
-    assert.equal(typeof state.messageId, "number");
+    // L'état nomme le texte lu : ici une réponse de la conversation.
+    assert.equal(state.source?.kind, "message");
+    assert.equal(typeof state.source.messageId, "number");
     await clickLast(driver, "button[data-read-aloud]");
     await waitUntil(
       async () => (await phases(driver))[0] === "idle",
@@ -191,7 +193,7 @@ try {
       [MESSAGE_COPY],
     );
     assert.equal(copies, 0, "la réponse s'écrit encore");
-    const first = (await driver.invoke("read_aloud_state")).messageId;
+    const first = (await driver.invoke("read_aloud_state")).source?.messageId;
     assert.equal(typeof first, "number");
     // Nouvel envoi (après la fin de la réponse) : la lecture passe à la
     // nouvelle réponse.
@@ -208,7 +210,7 @@ try {
     await waitUntil(
       async () => {
         const state = await driver.invoke("read_aloud_state");
-        return state.phase !== "idle" && state.messageId > first;
+        return state.phase !== "idle" && state.source?.messageId > first;
       },
       "lecture de la nouvelle réponse",
       30000,

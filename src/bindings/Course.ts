@@ -30,4 +30,14 @@ position: string, elapsedMs: number,
  * Durée estimée du cours entier (plan : durée visée ; ensuite, somme
  * des paliers générés et du bilan).
  */
-estimatedSeconds: number, createdAt: number, updatedAt: number, finishedAt: number | null, };
+estimatedSeconds: number, createdAt: number, updatedAt: number, finishedAt: number | null, 
+/**
+ * Génération mise en pause par l'apprenant (`study_pause`) : plus rien
+ * n'est écrit pour ce cours jusqu'à la reprise.
+ */
+paused: boolean, 
+/**
+ * Au moment de la lecture (`study_get`), la file écrit une partie d'un
+ * autre cours : celles de ce cours attendent leur tour.
+ */
+queueBusy: boolean, };

@@ -127,6 +127,24 @@ export const END = "end";
 
 export const sectionKey = (level: number, section: number) =>
   `L${level}:s${section}`;
+
+/**
+ * Clés des textes d'un cours lus à voix haute (le moteur relit le texte en
+ * base : src-tauri/src/study/passage.rs) : section d'une leçon (la clé de sa
+ * carte : titre, accroche du palier en tête de la première, texte), énoncé
+ * et solution de l'exemple, « à retenir » et piège, explication autrement
+ * d'un essai, explication plus simple et réponse du tuteur (par leur rang
+ * dans le palier).
+ */
+export const passageKey = {
+  section: sectionKey,
+  example: (level: number) => `L${level}:example`,
+  solution: (level: number) => `L${level}:solution`,
+  recap: (level: number) => `L${level}:recap`,
+  remedy: (level: number, attempt: number) => `L${level}:a${attempt}:explain`,
+  explain: (level: number, index: number) => `L${level}:explain${index}`,
+  ask: (level: number, index: number) => `L${level}:ask${index}`,
+};
 export const levelStartKey = (level: number) => sectionKey(level, 0);
 export const finalKey = (index: number) => `final:q${index}`;
 
@@ -406,6 +424,93 @@ export function secondsLeft(course: Course): number {
     seconds += finalCount(course.minutes) * UNGENERATED_FINAL_QUESTION_SECONDS;
   }
   return seconds;
+}
+
+/** Partie d'un cours écrite par le modèle (génération en arrière-plan). */
+export type CoursePart =
+  | { kind: "plan" }
+  /** Palier : sa leçon d'abord, puis ses questions (`stage`). */
+  | { kind: "level"; level: number; stage: "lesson" | "questions" }
+  /** Nouvel essai demandé (« Explain differently »). */
+  | { kind: "remedy"; level: number }
+  | { kind: "final" };
+
+/** Où en est l'écriture d'un cours. */
+export interface Generation {
+  /**
+   * Partie en cours d'écriture : celle que le moteur dit « generating »,
+   * sinon la première qui attend (elle part aussitôt la précédente écrite) ;
+   * null si rien ne s'écrit (tout est écrit, pause, échec, ou tour d'un
+   * autre cours : `waiting`).
+   */
+  writing: CoursePart | null;
+  /** Des parties restent à écrire, mais la file écrit un autre cours. */
+  waiting: boolean;
+  /** Des parties restent à écrire (en cours, en file, ou retenues par la pause). */
+  pending: boolean;
+  /**
+   * La pause retient des parties à écrire (un cours en pause dont tout est
+   * écrit, ou qu'un échec arrête, n'a rien à reprendre).
+   */
+  paused: boolean;
+  /** Première partie en échec (elle attend « Retry »). */
+  failed: CoursePart | null;
+  /** Paliers écrits, sur ceux du plan (0 avant le plan). */
+  ready: number;
+  total: number;
+}
+
+const levelPart = (level: Level): CoursePart => ({
+  kind: "level",
+  level: level.index,
+  stage: level.lesson ? "questions" : "lesson",
+});
+
+/**
+ * Où en est l'écriture d'un cours, d'après ce que le moteur en dit (états
+ * des parties, pause, file occupée par un autre cours). Comme la file du
+ * moteur : le plan ; avant « Start », le premier palier seulement ; ensuite
+ * les nouveaux essais demandés, les paliers dans l'ordre, puis le bilan (une
+ * fois tous les paliers écrits : un palier en échec le retient).
+ */
+export function generationOf(course: Course): Generation {
+  const levels = course.levels;
+  const quiz = course.finalQuiz;
+  // Parties que la file écrit pour ce cours, dans son ordre, et leur état.
+  const parts: [CoursePart, Level["state"]][] = [];
+  if (course.status === "planning") {
+    // Le moteur ne dit pas si le plan attend son tour ou s'écrit.
+    parts.push([{ kind: "plan" }, "pending"]);
+  } else if (course.status === "planned") {
+    if (levels.length > 0) parts.push([levelPart(levels[0]), levels[0].state]);
+  } else if (course.status === "active" || course.status === "finished") {
+    for (const level of levels) {
+      if (level.remedy) {
+        parts.push([{ kind: "remedy", level: level.index }, level.remedy]);
+      }
+    }
+    for (const level of levels) parts.push([levelPart(level), level.state]);
+    const held =
+      quiz?.state === "pending" &&
+      levels.some((level) => level.state === "failed");
+    if (quiz && !held) parts.push([{ kind: "final" }, quiz.state]);
+  }
+  const first = (state: Level["state"]) =>
+    parts.find(([, partState]) => partState === state)?.[0] ?? null;
+  const generating = first("generating");
+  const queued = first("pending");
+  const pending = generating !== null || queued !== null;
+  const active = pending && !course.paused;
+  const waiting = active && course.queueBusy && generating === null;
+  return {
+    writing: active && !waiting ? (generating ?? queued) : null,
+    waiting,
+    pending,
+    paused: pending && course.paused,
+    failed: first("failed"),
+    ready: levels.filter((level) => level.state === "ready").length,
+    total: course.plan?.levels.length ?? 0,
+  };
 }
 
 /** Minutes arrondies, une au moins (« About 3 min left »). */

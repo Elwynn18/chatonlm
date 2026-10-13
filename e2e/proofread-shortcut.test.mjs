@@ -37,7 +37,16 @@
 // - dictée liée puis correction activée : pendant la boîte du bureau
 //   (restée ouverte) puis après son refus, l'ancienne session reste et
 //   Ctrl+Alt+D bascule encore la dictée, une seule fois par appui ; seule la
-//   correction « Unavailable » ; correction coupée ensuite : rien à relier.
+//   correction « Unavailable » ; correction coupée ensuite : rien à relier ;
+// - collage à la place de la sélection (réglage `proofreadPaste`, activé par
+//   défaut) par le portail RemoteDesktop du faux bureau : session ouverte
+//   pour le clavier seul, autorisation gardée (`persist_mode` 2), Ctrl+V
+//   envoyé (Ctrl, v, pressés puis relâchés dans l'ordre inverse) après la
+//   copie, session fermée, « Corrected text pasted » ; le jeton rendu sert
+//   à la correction suivante ; texte déjà correct : rien de collé ;
+//   autorisation refusée : « Corrected text copied » et la raison ; réglage
+//   coupé : aucune session ; bureau sans ce portail (les autres scénarios) :
+//   le presse-papiers et « press Ctrl+V ».
 //
 // Dépend du faux serveur de l'agent R1 : `chatonlm-proofread` (« teh » →
 // « the », « recieve » → « receive »…) et `chatonlm-proofread-slow`.
@@ -67,6 +76,13 @@ const MODEL = "chatonlm-proofread";
 const SLOW = "chatonlm-proofread-slow";
 const CORRECTING = "Correcting the selected text…";
 const CORRECTED = "Corrected text copied";
+const PASTED = "Corrected text pasted";
+/** Bureau sans portail RemoteDesktop : dit sous le texte corrigé. */
+const NO_PASTE =
+  "This desktop does not let ChatonLM paste for you: press Ctrl+V.";
+/** Keysyms X11 de Ctrl gauche et de « v ». */
+const XK_CONTROL_L = 0xffe3;
+const XK_V = 0x76;
 const STOPPED = "Proofreading stopped";
 const PROGRESS = `Model: ${MODEL}\nRun the shortcut again to stop`;
 const OTHER = "Held by another app";
@@ -192,6 +208,12 @@ try {
         await desk.waitFor((e) => e.event === "item-registered");
         assert.equal(await listenEvents(driver), true);
 
+        // Première ouverture : coller à la place de la sélection est le
+        // réglage par défaut.
+        assert.equal(
+          (await driver.invoke("get_settings")).proofreadPaste,
+          true,
+        );
         // Coupé par défaut : rien de lié.
         let s = await shortcuts(driver);
         assert.deepEqual(s.dictation, DISABLED);
@@ -201,9 +223,12 @@ try {
         assert.deepEqual(binds(desk), []);
 
         // Activé : « proofread » seul, touche proposée, description.
+        // Collage coupé ici : le presse-papiers seul (le collage a son
+        // scénario, plus bas).
         await settings(driver, {
           proofreadShortcut: true,
           proofreadModel: MODEL,
+          proofreadPaste: false,
         });
         let bind = await desk.waitFor((e) => e.event === "bind");
         assert.deepEqual(bind.shortcuts, [
@@ -576,6 +601,8 @@ try {
           (e) => e.event === "notify" && e.summary === CORRECTED,
           { timeoutMs: 30000 },
         );
+        // Collage coupé au scénario 1 (réglage gardé d'un lancement à
+        // l'autre) : le presse-papiers seul.
         assert.equal(first.body, "I receive the parcel.");
         assert.equal((await readClipboard()).text, "I receive the parcel.");
         assert.equal(await visible(driver), false);
@@ -589,6 +616,25 @@ try {
         );
         assert.equal(await visible(driver), false);
         assert.equal((await dictationStatus(driver)).phase, "idle");
+
+        // Collage demandé sur ce bureau sans portail RemoteDesktop : le
+        // presse-papiers, et la raison sous le texte corrigé.
+        await settings(driver, { proofreadPaste: true });
+        assert.equal(
+          await runInstance(["--proofread"], "proofread-nopaste"),
+          0,
+        );
+        const corrections = await poll(
+          () => hidden.notifications().filter((n) => n.summary === CORRECTED),
+          (list) => list.length === 3,
+          { what: "troisième correction", timeoutMs: 30000 },
+        );
+        assert.equal(
+          corrections.at(-1).body,
+          `I receive the parcel.\n\n${NO_PASTE}`,
+        );
+        assert.equal((await readClipboard()).text, "I receive the parcel.");
+        await settings(driver, { proofreadPaste: false });
         // Relance sans argument : la fenêtre se montre.
         assert.equal(await runInstance([], "proofread-third"), 0);
         await waitVisible(driver, true);
@@ -828,6 +874,129 @@ try {
     );
   } finally {
     await partial.stop();
+  }
+
+  // 5. Texte corrigé collé à la place de la sélection (portail RemoteDesktop).
+  const pasting = await startDesktopServices({
+    notifications: true,
+    watcher: true,
+    portal: {
+      version: 2,
+      triggers: { proofread: "Ctrl+Alt+C" },
+      remoteDesktop: "ok",
+    },
+  });
+  try {
+    await withApp(
+      binary,
+      { name: "proofread-paste", env, quit: "command" },
+      async (driver) => {
+        await driver.waitFor("[data-testid=new-chat]");
+        // Coupé par les scénarios précédents (réglage gardé) : rétabli.
+        await settings(driver, {
+          proofreadShortcut: true,
+          proofreadModel: MODEL,
+          proofreadPaste: true,
+        });
+        await waitShortcuts(
+          driver,
+          (x) => x.proofread.state === "bound",
+          "correction liée",
+        );
+        const of = (name) => pasting.events.filter((e) => e.event === name);
+        const keys = () => of("rd-key").map((e) => [e.keysym, e.state]);
+        const CHORD = [
+          [XK_CONTROL_L, 1],
+          [XK_V, 1],
+          [XK_V, 0],
+          [XK_CONTROL_L, 0],
+        ];
+
+        // Appui : corrigé, copié, puis Ctrl+V envoyé par le portail.
+        let held = await holdSelection("I recieve teh letter.");
+        let final;
+        try {
+          ({ final } = await pressProofread(pasting, PASTED));
+        } finally {
+          await held.release();
+        }
+        assert.equal(final.body, "I receive the letter.");
+        assert.deepEqual(final.actions, [["show", "Show"]]);
+        assert.equal((await readClipboard()).text, "I receive the letter.");
+        assert.deepEqual(keys(), CHORD);
+        // Clavier seul, autorisation gardée jusqu'à révocation, pas de jeton
+        // la première fois.
+        assert.deepEqual(
+          of("rd-select").map((e) => [e.types, e.persistMode, e.restoreToken]),
+          [[1, 2, null]],
+        );
+        assert.deepEqual(
+          of("rd-start").map((e) => [e.granted, e.token]),
+          [[true, "rd-token-1"]],
+        );
+        // Les touches partent dans la session autorisée, fermée ensuite.
+        const session = of("rd-start")[0].session;
+        assert.ok(of("rd-key").every((e) => e.session === session));
+        await pasting.waitFor(
+          (e) => e.event === "close-session" && e.session === session,
+        );
+
+        // Correction suivante : le jeton rendu évite la boîte du bureau.
+        held = await holdSelection("See teh team.");
+        try {
+          ({ final } = await pressProofread(pasting, PASTED));
+        } finally {
+          await held.release();
+        }
+        assert.equal(final.body, "See the team.");
+        assert.deepEqual(
+          of("rd-select").map((e) => e.restoreToken),
+          [null, "rd-token-1"],
+        );
+        assert.deepEqual(keys(), [...CHORD, ...CHORD]);
+
+        // Texte déjà correct : rien à remplacer, aucune session.
+        held = await holdSelection("The letter is here.");
+        try {
+          await pressProofread(pasting, "No mistakes found");
+        } finally {
+          await held.release();
+        }
+        assert.equal(of("rd-select").length, 2);
+
+        // Autorisation refusée : le presse-papiers, et la raison.
+        await pasting.command("portal-options", { remoteDesktop: "cancel" });
+        held = await holdSelection("I recieve teh parcel.");
+        try {
+          ({ final } = await pressProofread(pasting, CORRECTED));
+        } finally {
+          await held.release();
+        }
+        assert.equal(
+          final.body,
+          "I receive the parcel.\n\nPasting was not allowed: press Ctrl+V.",
+        );
+        assert.equal((await readClipboard()).text, "I receive the parcel.");
+        assert.equal(of("rd-start").at(-1).granted, false);
+        assert.deepEqual(keys(), [...CHORD, ...CHORD]);
+        await pasting.command("portal-options", { remoteDesktop: "ok" });
+
+        // Réglage coupé : copié seulement, le portail n'est pas sollicité.
+        await settings(driver, { proofreadPaste: false });
+        const asked = of("rd-select").length;
+        held = await holdSelection("I recieve teh letter.");
+        try {
+          ({ final } = await pressProofread(pasting, CORRECTED));
+        } finally {
+          await held.release();
+        }
+        assert.equal(final.body, "I receive the letter.");
+        assert.equal(of("rd-select").length, asked);
+        assert.deepEqual(keys(), [...CHORD, ...CHORD]);
+      },
+    );
+  } finally {
+    await pasting.stop();
   }
 } finally {
   await fake.stop();

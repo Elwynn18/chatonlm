@@ -404,8 +404,9 @@ const focusTextarea = (driver) =>
 
 /**
  * Ordre de Tab depuis la zone de saisie (texte tapé : Send actif) : « + »,
- * `think` (nom du bouton Think), globe de la recherche web (modèle « tools »,
- * `webSearch`), sélecteur, mode vocal, Send, puis sortie de la zone ; Tab finit par
+ * `think` (nom du bouton Think), globe de la recherche web (`webSearch` :
+ * modèle dont les capacités sont connues, grisé sans « tools »), sélecteur,
+ * mode vocal, Send, puis sortie de la zone ; Tab finit par
  * revenir à la zone de saisie en passant par le reste de la page. Maj+Tab
  * depuis la zone de saisie en sort aussi.
  */
@@ -713,7 +714,9 @@ try {
       assert.equal((await requestsOf("chatonlm-levels")).at(-1).think, "high");
       // Ordre de Tab avec la pilule des niveaux.
       await typeMessage(driver, "Tab order.");
-      await checkTabOrder(driver, "Thinking level: High");
+      // Modèle sans la capacité « tools » : le globe reste, grisé, et garde
+      // le focus (sa raison se lit au clavier).
+      await checkTabOrder(driver, "Thinking level: High", { webSearch: true });
       await driver.clear(await driver.find("textarea[aria-label='Message']"));
 
       // chatonlm-levels-off : Off en plus, défaut Low ; Off choisi au clic :
@@ -909,14 +912,15 @@ try {
         "Échap dans le menu a arrêté la réponse",
       );
       assert.equal(await fake.disconnects(), abandoned);
-      // Tab depuis le menu : fermé, focus au contrôle suivant.
+      // Tab depuis le menu : fermé, focus au contrôle suivant (le globe,
+      // grisé pour ce modèle sans outils, garde le focus).
       await openLevelMenu(driver);
       await pressKeys("tab");
       await waitUntil(
         async () => (await levelMenu(driver)) === null,
         "menu fermé par Tab",
       );
-      assert.equal((await focused(driver)).name, "Select model");
+      assert.equal((await focused(driver)).name, "Web search");
       // Échap suivante (aucun menu ouvert) : arrête la réponse.
       await pressKeys("escape");
       await driver.waitFor("button[aria-label='Send message']");
