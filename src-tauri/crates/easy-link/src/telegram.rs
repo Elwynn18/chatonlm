@@ -15,8 +15,13 @@ pub const DEFAULT_URL: &str = "https://api.telegram.org";
 /// lecture de la mise en forme.
 pub const TEXT_LIMIT: usize = 4000;
 
-/// Délai de `getMe`, raccourci dans les essais (serveur muet).
-const IDENTITY_TIMEOUT: Duration = if cfg!(test) {
+/// Délai de `getMe`, raccourci dans les essais (serveur muet). Sous Windows,
+/// le refus d'un port fermé de la machine n'arrive qu'après environ 2 s (la
+/// pile réseau réessaie) : l'essai d'une connexion refusée y prendrait ce
+/// refus pour un délai dépassé.
+const IDENTITY_TIMEOUT: Duration = if cfg!(all(test, windows)) {
+    Duration::from_secs(3)
+} else if cfg!(test) {
     Duration::from_millis(300)
 } else {
     Duration::from_secs(15)

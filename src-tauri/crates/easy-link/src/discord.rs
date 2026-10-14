@@ -1894,7 +1894,14 @@ mod tests {
                 Event::Disconnected(Problem::Network(_))
             ));
             // Des essais manqués (20, 40, 80, 80 ms…) : pas un mot de plus.
-            sleep(Duration::from_millis(500)).await;
+            // Sous Windows, chaque essai attend environ 2 s le refus du port
+            // fermé : les cinq reprises manquées y prennent plus de 10 s.
+            sleep(Duration::from_millis(if cfg!(windows) {
+                15_000
+            } else {
+                500
+            }))
+            .await;
             listening.silent().await;
 
             let fake = FakeDiscord::start_on(addr).await.unwrap();
