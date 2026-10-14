@@ -193,7 +193,8 @@
     "busy": "este chat ya está esperando una respuesta",
     "webSearchSignedOut": "La búsqueda web requiere una cuenta de Ollama",
     "notFound": "chat no encontrado: {id}",
-    "emptyTitle": "el título no puede estar vacío"
+    "emptyTitle": "el título no puede estar vacío",
+    "loopStopped": "El modelo repetía sin parar el mismo texto, así que se detuvo su respuesta."
   },
   "errors": {
     "connectionLost": "Conexión perdida",

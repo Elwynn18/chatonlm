@@ -516,6 +516,7 @@ describe("recorded sequences", () => {
       "existing-chat",
       "http-error",
       "loading",
+      "loop-stopped",
       "model-error",
       "model-missing",
       "new-chat-thinking",

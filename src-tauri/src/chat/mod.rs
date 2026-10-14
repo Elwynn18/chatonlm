@@ -85,6 +85,7 @@
 //!   rechargement de la page ne l'arrête pas.
 
 pub(crate) mod pull;
+pub(crate) mod repetition;
 pub mod stream;
 pub(crate) mod tools;
 
@@ -109,6 +110,7 @@ use crate::store::chats::{self, Chat, Message, Reply, Role, ToolCall, Turn};
 use crate::store::settings::Settings;
 use crate::store::{Store, model_prefs, now_ms};
 use crate::tts::VoiceLanguage;
+use repetition::LoopWatch;
 use stream::{Line, LineBuffer, StreamToolCall, Think};
 use tools::{AllowedUrls, Executed};
 
@@ -222,6 +224,9 @@ pub enum ChatErrorKind {
     Model,
     /// Recherche web demandée sans compte ollama.com relié au serveur.
     WebSearchSignedOut,
+    /// Réponse arrêtée : le modèle répétait mot pour mot le même passage
+    /// (propre à ChatonLM, voir `repetition.rs`).
+    Loop,
     /// Erreur de ChatonLM (base de données...).
     Internal,
 }
@@ -606,6 +611,7 @@ pub async fn send_to(
         last_save: Instant::now(),
         think_off: false,
         always_thinks_noted: false,
+        loops: LoopWatch::default(),
     };
     let conversation = Conversation {
         store,
@@ -670,6 +676,8 @@ struct ReplyWriter {
     /// modèle ne peut pas le couper (retenu une fois, `model_traits`).
     think_off: bool,
     always_thinks_noted: bool,
+    /// Boucle sûre du modèle dans la réponse du tour (propre à ChatonLM).
+    loops: LoopWatch,
 }
 
 impl ReplyWriter {
@@ -679,6 +687,7 @@ impl ReplyWriter {
         self.previous = self.message_id.take().or(self.previous);
         self.reply = Reply::default();
         self.last_save = Instant::now();
+        self.loops = LoopWatch::default();
     }
 }
 
@@ -1072,6 +1081,14 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
                         understood = true;
                         if let Err(error) = self.take(reply, &thinking, &content).await {
                             return Err(error.into());
+                        }
+                        // Boucle sûre : flux abandonné (Ollama arrête alors
+                        // la génération), réponse reçue gardée.
+                        if reply.loops.push(&thinking, &content).is_some() {
+                            return Err(Outcome::Failed(
+                                ChatErrorKind::Loop,
+                                t!("chat.loopStopped"),
+                            ));
                         }
                         calls.extend(tool_calls);
                         if done {
@@ -2504,6 +2521,48 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(150)).await;
         assert_eq!(fake.disconnects(), 0);
         assert!(fake.pull_requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_model_repeating_itself_is_stopped() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let (store, engine) = (Store::open_in_memory().unwrap(), ChatEngine::default());
+        let (channel, recorder) = recorder();
+        let server = Server {
+            url: fake.url(),
+            context_length: 0,
+            keep_alive: 0,
+        };
+        let request = request(None, "chatonlm-repeat", None);
+        // Sans garde, le faux modèle ne s'arrête jamais.
+        let staging = Staging::default();
+        let sending = send(&store, &engine, &staging, server, request, &channel);
+        tokio::time::timeout(WAIT, sending)
+            .await
+            .expect("the loop was not stopped")
+            .unwrap();
+        let events = recorder.events();
+        assert_one_final(&events);
+        let last = events.last().unwrap();
+        assert_eq!(last["type"], json!("error"));
+        assert_eq!(last["kind"], json!("loop"));
+        assert_eq!(
+            last["message"],
+            json!("The model kept repeating the same text, so its reply was stopped.")
+        );
+        // Raisonnement reçu gardé, clos ; arrêté peu après le début de la
+        // boucle (300 copies envoyées par le faux serveur, sans fin).
+        let chat = saved(&store, &recorder.chat_id());
+        let reply = &chat.messages[1];
+        let paragraph = "Wait, let me check the link count of the directory again.";
+        let copies = reply.thinking.matches(paragraph).count();
+        assert!((4..60).contains(&copies), "{copies} copies");
+        assert!(reply.thinking_ended_at.is_some());
+        // Flux abandonné par ChatonLM : Ollama arrête la génération.
+        wait_until(Duration::from_secs(2), "flux abandonné", || {
+            fake.disconnects() == 1
+        })
+        .await;
     }
 
     /// Événements de téléchargement reçus, en (total, completed, done).
@@ -4757,6 +4816,22 @@ mod tests {
                     "loaded",
                     "replyStarted",
                     "content",
+                    "error",
+                ][..],
+            ),
+            (
+                "loop-stopped",
+                "The model repeats the same paragraph word for word while thinking: ChatonLM stops the reply.",
+                Target::Ollama,
+                ask(hello, "chatonlm-repeat", None),
+                None,
+                &[
+                    "chatCreated",
+                    "userMessage",
+                    "loading",
+                    "loaded",
+                    "replyStarted",
+                    "thinking",
                     "error",
                 ][..],
             ),

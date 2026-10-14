@@ -193,7 +193,8 @@
     "busy": "cette conversation attend déjà une réponse",
     "webSearchSignedOut": "La recherche web nécessite un compte Ollama",
     "notFound": "conversation introuvable : {id}",
-    "emptyTitle": "le titre ne peut pas être vide"
+    "emptyTitle": "le titre ne peut pas être vide",
+    "loopStopped": "Le modèle répétait sans fin le même texte : sa réponse a été arrêtée."
   },
   "errors": {
     "connectionLost": "Connexion perdue",

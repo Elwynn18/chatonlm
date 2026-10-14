@@ -193,7 +193,8 @@
     "busy": "this chat is already waiting for an answer",
     "webSearchSignedOut": "Web search requires an Ollama account",
     "notFound": "chat not found: {id}",
-    "emptyTitle": "the title cannot be empty"
+    "emptyTitle": "the title cannot be empty",
+    "loopStopped": "The model kept repeating the same text, so its reply was stopped."
   },
   "errors": {
     "connectionLost": "Connection lost",

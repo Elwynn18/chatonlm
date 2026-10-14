@@ -61,7 +61,8 @@
   "thinking": {
     "active": "Thinking...",
     "moment": "Thought for a moment",
-    "seconds": "Thought for {seconds} seconds"
+    "seconds": "Thought for {seconds} seconds",
+    "ruminating": "The model has been thinking for a long time and seems to be going in circles."
   },
   "tools": {
     "searching": "Searching for <term/>…",

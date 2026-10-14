@@ -27,7 +27,10 @@
  * `voice` (a reply still being written is stopped first, then the sentence
  * is sent only if the voice mode still waits for it; a send refused at once
  * is reported to the voice mode, which listens again; the chat created by
- * the first sentence of a new chat keeps the voice mode).
+ * the first sentence of a new chat keeps the voice mode); a reply stopped
+ * because the model repeated itself word for word offers Retry (the last
+ * message sent again, as an edit), and a thinking that seems to go in
+ * circles shows a banner with Stop above the composer (both ChatonLM's own).
  */
 
 import { useNavigate } from "@tanstack/react-router";
@@ -40,8 +43,10 @@ import {
   type VoiceSubmit,
 } from "@/components/ChatForm";
 import { ErrorMessage } from "@/components/ErrorMessage";
+import { LoopErrorActions } from "@/components/LoopErrorActions";
 import { MessageList } from "@/components/MessageList";
 import { OllamaHomeLink } from "@/components/settings/OllamaHome";
+import { RuminationBanner } from "@/components/RuminationBanner";
 import { ServerLostBanner } from "@/components/ServerLostBanner";
 import { useAccount } from "@/hooks/useAccount";
 import { WebSearchErrorActions } from "@/components/WebSearchErrorActions";
@@ -57,6 +62,7 @@ import {
 import { useServerHealth } from "@/hooks/useServerHealth";
 import { adoptVoiceModeChat, voiceModeSnapshot } from "@/hooks/useVoiceMode";
 import { voiceModeReplyFailed } from "@/lib/ipc";
+import { isRuminating } from "@/lib/rumination";
 import {
   activeStream,
   clearError,
@@ -236,6 +242,15 @@ function ChatView({ chatId }: { chatId: string }) {
     [saved, live],
   );
   const isStreaming = active !== null;
+  // Raisonnement en cours qui semble tourner en rond : bandeau avec Stop.
+  const lastReply = active?.replies.at(-1);
+  const ruminating = useMemo(
+    () =>
+      lastReply !== undefined &&
+      lastReply.thinkingEndedAt === null &&
+      isRuminating(lastReply.thinking),
+    [lastReply],
+  );
   const formRef = useRef<ChatFormHandle>(null);
   // Message en cours de modification : lui et les suivants sont estompés.
   const [editing, setEditing] = useState<Message | null>(null);
@@ -268,6 +283,11 @@ function ChatView({ chatId }: { chatId: string }) {
           : undefined
       }
       signedIn={isAuthenticated}
+      retryDisabled={isStreaming || !health.healthy}
+    />
+  ) : error?.kind === "loop" ? (
+    <LoopErrorActions
+      onRetry={lastSent ? () => formRef.current?.retry(lastSent) : undefined}
       retryDisabled={isStreaming || !health.healthy}
     />
   ) : (
@@ -307,12 +327,17 @@ function ChatView({ chatId }: { chatId: string }) {
           isStreaming={isStreaming}
           isDisabled={!health.healthy}
           banner={
-            !health.healthy && (
+            !health.healthy ? (
               <ServerLostBanner
                 onRetry={health.retry}
                 starting={health.starting}
                 failed={health.failed}
               />
+            ) : (
+              ruminating &&
+              active && (
+                <RuminationBanner onStop={() => cancel(active.streamId)} />
+              )
             )
           }
           onSubmit={(

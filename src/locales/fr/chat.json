@@ -61,7 +61,8 @@
   "thinking": {
     "active": "Réflexion…",
     "moment": "A réfléchi un instant",
-    "seconds": "A réfléchi pendant {seconds} secondes"
+    "seconds": "A réfléchi pendant {seconds} secondes",
+    "ruminating": "Le modèle réfléchit depuis longtemps et semble tourner en rond."
   },
   "tools": {
     "searching": "Recherche de <term/>…",

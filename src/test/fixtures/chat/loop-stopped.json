@@ -1,0 +1,223 @@
+{
+  "description": "The model repeats the same paragraph word for word while thinking: ChatonLM stops the reply.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "Say hello in one word.",
+    "model": "chatonlm-repeat"
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "Say hello in one word.",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "type": "loading"
+    },
+    {
+      "type": "loaded"
+    },
+    {
+      "createdAt": 1700000000000,
+      "messageId": 2,
+      "type": "replyStarted"
+    },
+    {
+      "text": "Step 1: the question ask",
+      "type": "thinking"
+    },
+    {
+      "text": "s for detail number 1.\n\n",
+      "type": "thinking"
+    },
+    {
+      "text": "Step 2: the question ask",
+      "type": "thinking"
+    },
+    {
+      "text": "s for detail number 2.\n\n",
+      "type": "thinking"
+    },
+    {
+      "text": "Step 3: the question ask",
+      "type": "thinking"
+    },
+    {
+      "text": "s for detail number 3.\n\n",
+      "type": "thinking"
+    },
+    {
+      "text": "Step 4: the question ask",
+      "type": "thinking"
+    },
+    {
+      "text": "s for detail number 4.\n\n",
+      "type": "thinking"
+    },
+    {
+      "text": "Step 5: the question ask",
+      "type": "thinking"
+    },
+    {
+      "text": "s for detail number 5.\n\n",
+      "type": "thinking"
+    },
+    {
+      "text": "Wait, let me check the l",
+      "type": "thinking"
+    },
+    {
+      "text": "ink count of the directo",
+      "type": "thinking"
+    },
+    {
+      "text": "ry again.\n\nWait, let me ",
+      "type": "thinking"
+    },
+    {
+      "text": "check the link count of ",
+      "type": "thinking"
+    },
+    {
+      "text": "the directory again.\n\nWa",
+      "type": "thinking"
+    },
+    {
+      "text": "it, let me check the lin",
+      "type": "thinking"
+    },
+    {
+      "text": "k count of the directory",
+      "type": "thinking"
+    },
+    {
+      "text": " again.\n\nWait, let me ch",
+      "type": "thinking"
+    },
+    {
+      "text": "eck the link count of th",
+      "type": "thinking"
+    },
+    {
+      "text": "e directory again.\n\nWait",
+      "type": "thinking"
+    },
+    {
+      "text": ", let me check the link ",
+      "type": "thinking"
+    },
+    {
+      "text": "count of the directory a",
+      "type": "thinking"
+    },
+    {
+      "text": "gain.\n\nWait, let me chec",
+      "type": "thinking"
+    },
+    {
+      "text": "k the link count of the ",
+      "type": "thinking"
+    },
+    {
+      "text": "directory again.\n\nWait, ",
+      "type": "thinking"
+    },
+    {
+      "text": "let me check the link co",
+      "type": "thinking"
+    },
+    {
+      "text": "unt of the directory aga",
+      "type": "thinking"
+    },
+    {
+      "text": "in.\n\nWait, let me check ",
+      "type": "thinking"
+    },
+    {
+      "text": "the link count of the di",
+      "type": "thinking"
+    },
+    {
+      "text": "rectory again.\n\nWait, le",
+      "type": "thinking"
+    },
+    {
+      "text": "t me check the link coun",
+      "type": "thinking"
+    },
+    {
+      "text": "t of the directory again",
+      "type": "thinking"
+    },
+    {
+      "text": ".\n\nWait, let me check th",
+      "type": "thinking"
+    },
+    {
+      "text": "e link count of the dire",
+      "type": "thinking"
+    },
+    {
+      "text": "ctory again.\n\nWait, let ",
+      "type": "thinking"
+    },
+    {
+      "text": "me check the link count ",
+      "type": "thinking"
+    },
+    {
+      "text": "of the directory again.\n",
+      "type": "thinking"
+    },
+    {
+      "text": "\nWait, let me check the ",
+      "type": "thinking"
+    },
+    {
+      "text": "link count of the direct",
+      "type": "thinking"
+    },
+    {
+      "text": "ory again.\n\nWait, let me",
+      "type": "thinking"
+    },
+    {
+      "text": " check the link count of",
+      "type": "thinking"
+    },
+    {
+      "text": " the directory again.\n\nW",
+      "type": "thinking"
+    },
+    {
+      "text": "ait, let me check the li",
+      "type": "thinking"
+    },
+    {
+      "text": "nk count of the director",
+      "type": "thinking"
+    },
+    {
+      "kind": "loop",
+      "message": "The model kept repeating the same text, so its reply was stopped.",
+      "type": "error"
+    }
+  ],
+  "error": null
+}

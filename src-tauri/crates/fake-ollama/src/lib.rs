@@ -473,6 +473,8 @@ const CHAT_SCENARIOS: &[&str] = &[
     "chatonlm-slow",
     "chatonlm-slowthink",
     "chatonlm-longthink",
+    "chatonlm-repeat",
+    "chatonlm-ruminate",
     "chatonlm-fast",
     "chatonlm-cut",
     "chatonlm-truncated",
@@ -767,6 +769,12 @@ fn voice_reply(journal: Arc<Journal>, model: &str, request: &serde_json::Value) 
 ///   retirer ;
 /// - `chatonlm-wait` : aucune réponse, pas même les en-têtes (comme Ollama
 ///   pendant le chargement du modèle) ;
+/// - `chatonlm-repeat` : raisonnement qui finit par répéter mot pour mot le
+///   même paragraphe (voir [`repeating_thinking`]), puis seulement des lignes
+///   vides, jamais de fin (ChatonLM doit l'arrêter de lui-même) ;
+/// - `chatonlm-ruminate` : raisonnement qui ressasse sans se répéter mot pour
+///   mot (voir [`ruminating_thinking`]), environ 8 s, puis seulement des
+///   lignes vides, jamais de fin ;
 /// - `chatonlm-hang` : en-têtes envoyés, puis seulement des lignes vides (toutes
 ///   les 100 ms, pour remarquer un client parti), jamais de réponse ;
 /// - `chatonlm-stall` : deux lignes de réponse, puis seulement des lignes vides
@@ -911,6 +919,17 @@ async fn chat(State(journal): State<Arc<Journal>>, body: String) -> Response {
             ndjson(journal, answer(), quick, End::Close)
         }
         "chatonlm-wait" => wait(journal).await,
+        model @ "chatonlm-repeat" => {
+            let mut thinking = reasoned_reply_lines(model, &repeating_thinking(), "", 24);
+            // Sans la ligne `done` : le modèle ne s'arrête jamais.
+            thinking.pop();
+            ndjson(journal, thinking, Duration::from_millis(2), End::Stall)
+        }
+        model @ "chatonlm-ruminate" => {
+            let mut thinking = reasoned_reply_lines(model, &ruminating_thinking(), "", 96);
+            thinking.pop();
+            ndjson(journal, thinking, Duration::from_millis(15), End::Stall)
+        }
         "chatonlm-hang" => ndjson(journal, Vec::new(), quick, End::Stall),
         "chatonlm-stall" => ndjson(journal, first(2), quick, End::Stall),
         model @ "chatonlm-markdown" => ndjson(
@@ -2321,6 +2340,38 @@ fn fake_publish(journal: &Journal, body: &str) -> Response {
 fn long_thinking() -> String {
     (1..=60)
         .map(|step| format!("Step {step}: checking one more detail before answering.\n\n"))
+        .collect()
+}
+
+/// Raisonnement de `chatonlm-repeat` : quelques paragraphes variés, puis le
+/// même paragraphe 300 fois (une vraie boucle de modèle).
+fn repeating_thinking() -> String {
+    let mut thinking: String = (1..=5)
+        .map(|step| format!("Step {step}: the question asks for detail number {step}.\n\n"))
+        .collect();
+    thinking.push_str(&"Wait, let me check the link count of the directory again.\n\n".repeat(300));
+    thinking
+}
+
+/// Raisonnement de `chatonlm-ruminate` : 600 paragraphes qui reviennent sur
+/// les mêmes vérifications, chacun différent (comme Qwen le 14 oct. 2026 :
+/// « Need maybe if… »), environ 6 000 mots.
+fn ruminating_thinking() -> String {
+    const SUBJECTS: [&str; 5] = ["test0", "test1", "test2", "test3", "the link"];
+    const CHECKS: [&str; 4] = [
+        "the permissions are right",
+        "the size matches",
+        "the date can be set",
+        "the link count is two",
+    ];
+    (0..600)
+        .map(|i| {
+            format!(
+                "Need maybe if {} after step {i}: check that {} once more.\n\n",
+                SUBJECTS[i % SUBJECTS.len()],
+                CHECKS[i % CHECKS.len()],
+            )
+        })
         .collect()
 }
 

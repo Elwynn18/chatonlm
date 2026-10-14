@@ -182,11 +182,12 @@ export interface ChatFormHandle {
    * Renvoie `message` (enregistré) à l'identique, en modification, avec le
    * modèle et le Think de la zone de saisie, sans toucher à ce qu'elle
    * contient ; le réglage de la recherche web prend la valeur `webSearch`
-   * (demandée comme pour un envoi : modèle `tools`, nuage non coupé). Le
+   * (demandée comme pour un envoi : modèle `tools`, nuage non coupé ;
+   * absente, le réglage actuel est gardé). Le
    * focus revient à la zone de saisie. Sans effet pendant une réponse,
    * Ollama perdu ou sans modèle.
    */
-  retry: (message: Message, options: { webSearch: boolean }) => void;
+  retry: (message: Message, options?: { webSearch?: boolean }) => void;
 }
 
 /**
@@ -400,7 +401,10 @@ export function ChatForm({
         setKept(message.attachments);
         discard();
       },
-      retry: (message: Message, { webSearch }: { webSearch: boolean }) => {
+      retry: (
+        message: Message,
+        { webSearch = webSearchEnabled }: { webSearch?: boolean } = {},
+      ) => {
         if (isStreaming || isDisabled || !selected) return;
         if (webSearch !== webSearchEnabled) setWebSearch(webSearch);
         // Comme un envoi : images retirées pour un modèle sans vision.
