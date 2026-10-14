@@ -18,7 +18,7 @@ Facts:
 - Hardware: a graphics card makes models faster but is not required.
 - Interface languages: English, French and Spanish.
 - Engine: ChatonLM includes the Ollama engine, unmodified, and uses an existing Ollama installation and its models when there is one. ChatonLM is an independent project, not affiliated with Ollama.
-- Privacy: conversations, attachments, voice and settings stay on the user's computer. The app goes online only to browse and download models and voices, to check for signed updates and, if enabled, for web search.
+- Privacy: conversations, attachments, voice and settings stay on the user's computer. The app goes online only to browse and download models and voices, to check for signed updates and newer versions of installed models and, if enabled, for web search and Easy Link (messages to the user's own Telegram or Discord bot, which go through that service).
 - Designed in France.
 
 ## Pages
