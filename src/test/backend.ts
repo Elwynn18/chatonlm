@@ -48,6 +48,9 @@
 // bots sans jeton, aucun compte lié, pas de code d'appairage. Une
 // conversation venue d'un bot porte sa messagerie (`source`, rendue par
 // list_chats ; null pour une conversation de l'app).
+// Contexte (propre à ChatonLM) : les événements context et compacted
+// rejoués mettent à jour la conversation enregistrée ; compact_chat la
+// compacte selon backend.compaction.
 // Pour les tests seulement.
 
 import type { AccountStatus } from "@/bindings/AccountStatus";
@@ -56,6 +59,8 @@ import type { AppError } from "@/bindings/AppError";
 import type { AttachmentKind } from "@/bindings/AttachmentKind";
 import type { Chat } from "@/bindings/Chat";
 import type { CloudStatus } from "@/bindings/CloudStatus";
+import type { Compaction } from "@/bindings/Compaction";
+import type { ContextUsage } from "@/bindings/ContextUsage";
 import type { FolderCheck } from "@/bindings/FolderCheck";
 import type { HiddenHome } from "@/bindings/HiddenHome";
 import type { MenuEntryStatus } from "@/bindings/MenuEntryStatus";
@@ -224,9 +229,12 @@ type FakeEntry = FakeFile | { error: string };
 /**
  * Conversation enregistrée : celle de get_chat, plus son rang de favori et
  * la messagerie d'où elle vient (list_chats seulement ; absents : non
- * favorite, conversation de l'app).
+ * favorite, conversation de l'app). Contexte et compactages facultatifs
+ * (absents : taille inconnue, aucun compactage).
  */
-export type StoredChat = Chat & {
+export type StoredChat = Omit<Chat, "context" | "compactions"> & {
+  context?: ContextUsage | null;
+  compactions?: Compaction[];
   favorite?: boolean;
   source?: EasyLinkPlatform | null;
 };
@@ -294,6 +302,11 @@ export interface FakeBackend {
   outdatedError: AppError | null;
   /** Conversations enregistrées, par identifiant. */
   chats: Map<string, StoredChat>;
+  /**
+   * Issue de compact_chat (propre à ChatonLM) : résumé et jetons comptés
+   * ensuite (taille gardée, si elle est connue) ; `error` : refus renvoyé.
+   */
+  compaction: { summary: string; used: number; error: AppError | null };
   /** État renvoyé par server_status (celui de la cible). */
   serverState: ServerState;
   /** Service systemd d'Ollama renvoyé par server_status (null : aucun). */
@@ -470,6 +483,7 @@ export function defaultFolderCheck(path: string): FolderCheck {
  * cloud_status, get_settings, update_settings, list_models,
  * recommended_models, model_exists_upstream, model_details, get_think_pref,
  * set_think_pref, server_status, get_chat, list_chats, set_chat_favorite,
+ * compact_chat (backend.compaction),
  * pick_files,
  * stage_paths, stage_bytes, stage_clipboard_image, unstage, les commandes
  * hub_* (src/test/hub.ts), get_models_location, pick_models_folder,
@@ -567,6 +581,11 @@ export function fakeBackend(
     outdated: new Set(),
     outdatedError: null,
     chats: new Map(),
+    compaction: {
+      summary: "The user asked for a greeting.",
+      used: 200,
+      error: null,
+    },
     serverState: "running",
     service: null,
     runtime: machineRuntime(),
@@ -736,7 +755,15 @@ export function fakeBackend(
       }
       case "loading":
       case "loaded":
-        // Chargement du modèle : rien d'enregistré.
+      case "compacting":
+        // Chargement du modèle, compactage commencé : rien d'enregistré.
+        break;
+      case "context":
+        chat.context = { used: event.used, size: event.size };
+        break;
+      case "compacted":
+        chat.compactions = [...(chat.compactions ?? []), event.compaction];
+        chat.context = event.context;
         break;
       default:
         // Fin, quelle qu'elle soit : raisonnement clos, réponse partielle
@@ -1103,7 +1130,40 @@ export function fakeBackend(
     if (!chat) throw { kind: "notFound", message: "chat not found" };
     // Sans le favori ni la messagerie, que seul list_chats donne.
     const { id, title, createdAt, updatedAt, messages } = chat;
-    return { id, title, createdAt, updatedAt, messages };
+    return {
+      id,
+      title,
+      createdAt,
+      updatedAt,
+      messages,
+      context: chat.context ?? null,
+      compactions: chat.compactions ?? [],
+    };
+  });
+  // Compactage manuel : tout ce qui suit le dernier compactage, résumé par
+  // backend.compaction ; refus comme le moteur quand il n'y a rien à
+  // compacter.
+  simulator.handle("compact_chat", (args: Args): Compaction => {
+    const chat = backend.chats.get(args.chatId as string);
+    if (!chat) throw { kind: "notFound", message: "chat not found" };
+    if (backend.compaction.error) throw backend.compaction.error;
+    const covered = chat.compactions?.at(-1)?.throughMessageId ?? 0;
+    const last = chat.messages.at(-1);
+    if (!last || last.id <= covered) {
+      throw invalid("there is nothing new to compact in this chat");
+    }
+    const compaction: Compaction = {
+      id: Math.max(0, ...(chat.compactions ?? []).map((c) => c.id)) + 1,
+      throughMessageId: last.id,
+      summary: backend.compaction.summary,
+      automatic: false,
+      createdAt: Date.now(),
+    };
+    chat.compactions = [...(chat.compactions ?? []), compaction];
+    if (chat.context) {
+      chat.context = { used: backend.compaction.used, size: chat.context.size };
+    }
+    return compaction;
   });
   simulator.handle("list_chats", (): ChatInfo[] =>
     [...backend.chats.values()]

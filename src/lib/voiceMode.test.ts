@@ -46,6 +46,9 @@ function stream(extra: Partial<LiveStream> = {}): LiveStream {
     replies: [],
     download: null,
     loading: false,
+    compacting: false,
+    context: undefined,
+    compactions: [],
     finished: false,
     ...extra,
   };

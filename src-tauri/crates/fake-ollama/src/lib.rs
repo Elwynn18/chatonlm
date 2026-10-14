@@ -475,6 +475,7 @@ const CHAT_SCENARIOS: &[&str] = &[
     "chatonlm-longthink",
     "chatonlm-repeat",
     "chatonlm-ruminate",
+    "chatonlm-context",
     "chatonlm-fast",
     "chatonlm-cut",
     "chatonlm-truncated",
@@ -775,6 +776,9 @@ fn voice_reply(journal: Arc<Journal>, model: &str, request: &serde_json::Value) 
 /// - `chatonlm-ruminate` : raisonnement qui ressasse sans se répéter mot pour
 ///   mot (voir [`ruminating_thinking`]), environ 8 s, puis seulement des
 ///   lignes vides, jamais de fin ;
+/// - `chatonlm-context` : contexte consommé (voir [`context_reply`]) : jetons
+///   comptés (4 caractères par jeton), `num_predict` respecté
+///   (`done_reason: "length"`), résumé si on le lui demande ;
 /// - `chatonlm-hang` : en-têtes envoyés, puis seulement des lignes vides (toutes
 ///   les 100 ms, pour remarquer un client parti), jamais de réponse ;
 /// - `chatonlm-stall` : deux lignes de réponse, puis seulement des lignes vides
@@ -929,6 +933,9 @@ async fn chat(State(journal): State<Arc<Journal>>, body: String) -> Response {
             let mut thinking = reasoned_reply_lines(model, &ruminating_thinking(), "", 96);
             thinking.pop();
             ndjson(journal, thinking, Duration::from_millis(15), End::Stall)
+        }
+        model @ "chatonlm-context" => {
+            ndjson(journal, context_reply(model, &request), quick, End::Close)
         }
         "chatonlm-hang" => ndjson(journal, Vec::new(), quick, End::Stall),
         "chatonlm-stall" => ndjson(journal, first(2), quick, End::Stall),
@@ -2374,6 +2381,51 @@ fn ruminating_thinking() -> String {
         })
         .collect()
 }
+
+/// Réponse de `chatonlm-context` : [`CONTEXT_ANSWER`] (600 jetons), ou,
+/// si le dernier message demande un résumé (« Summarize our conversation »),
+/// [`CONTEXT_SUMMARY`] ; coupée à `options.num_predict` jetons s'il est plus
+/// petit (`done_reason: "length"`). Jetons comptés à 4 caractères par jeton :
+/// `prompt_eval_count` pour tous les messages envoyés, `eval_count` pour la
+/// réponse.
+fn context_reply(model: &str, request: &serde_json::Value) -> Vec<String> {
+    let messages = request["messages"].as_array().cloned().unwrap_or_default();
+    let summary = messages
+        .last()
+        .and_then(|message| message["content"].as_str())
+        .is_some_and(|content| content.starts_with("Summarize our conversation"));
+    let full = if summary {
+        CONTEXT_SUMMARY.to_owned()
+    } else {
+        CONTEXT_ANSWER.repeat(40)
+    };
+    let prompt: usize = messages
+        .iter()
+        .map(|message| message["content"].as_str().unwrap_or_default().len() / 4)
+        .sum();
+    let limit = request["options"]["num_predict"]
+        .as_u64()
+        .and_then(|limit| usize::try_from(limit).ok());
+    let (text, length) = match limit {
+        Some(limit) if limit * 4 < full.len() => (full[..limit * 4].to_owned(), true),
+        _ => (full, false),
+    };
+    let mut lines = reply_lines(model, &text, 64);
+    let mut done: serde_json::Value = serde_json::from_str(lines.pop().unwrap().trim()).unwrap();
+    done["prompt_eval_count"] = prompt.into();
+    done["eval_count"] = (text.len() / 4).into();
+    if length {
+        done["done_reason"] = "length".into();
+    }
+    lines.push(format!("{done}\n"));
+    lines
+}
+
+/// Morceau de la réponse de `chatonlm-context` (60 caractères, 15 jetons).
+pub const CONTEXT_ANSWER: &str = "This answer fills the context of the model, fifteen tokens. ";
+
+/// Résumé écrit par `chatonlm-context`.
+pub const CONTEXT_SUMMARY: &str = "The user said hello; the model answered at length.";
 
 /// Flux sans raisonnement dont le contenu est `text`, en morceaux de `size`
 /// caractères (jamais au milieu d'un caractère), puis la ligne finale `done`,

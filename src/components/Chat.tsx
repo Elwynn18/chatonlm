@@ -30,11 +30,20 @@
  * the first sentence of a new chat keeps the voice mode); a reply stopped
  * because the model repeated itself word for word offers Retry (the last
  * message sent again, as an edit), and a thinking that seems to go in
- * circles shows a banner with Stop above the composer (both ChatonLM's own).
+ * circles shows a banner with Stop above the composer (both ChatonLM's own);
+ * ChatonLM's own context gauge and compaction: in an existing chat, a pie
+ * gauge of the context used (live from the reply being written, else the
+ * saved value) opens a panel with Compact now; the compactions of the chat
+ * are shown as separators in the list, and a reply cut because the context
+ * was full offers Compact now under the error; while Compact now runs, the
+ * composer acts as during a reply (no send, Stop stops the compaction) and
+ * the Retry buttons of the other errors are disabled; Compact now is
+ * disabled while a message is edited or the voice mode is open.
  */
 
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Compaction } from "@/bindings/Compaction";
 import type { Message } from "@/bindings/Message";
 import type { Think } from "@/bindings/Think";
 import {
@@ -42,6 +51,9 @@ import {
   type ChatFormHandle,
   type VoiceSubmit,
 } from "@/components/ChatForm";
+import { ContextFullActions } from "@/components/ContextFullActions";
+import { ContextGauge } from "@/components/ContextGauge";
+import { compactStreamId, useManualCompacting } from "@/hooks/useCompactChat";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { LoopErrorActions } from "@/components/LoopErrorActions";
 import { MessageList } from "@/components/MessageList";
@@ -60,12 +72,18 @@ import {
   useSendMessage,
 } from "@/hooks/useSendMessage";
 import { useServerHealth } from "@/hooks/useServerHealth";
-import { adoptVoiceModeChat, voiceModeSnapshot } from "@/hooks/useVoiceMode";
-import { voiceModeReplyFailed } from "@/lib/ipc";
+import {
+  adoptVoiceModeChat,
+  useVoiceModeFor,
+  voiceModeSnapshot,
+} from "@/hooks/useVoiceMode";
+import { cancelMessage, voiceModeReplyFailed } from "@/lib/ipc";
 import { isRuminating } from "@/lib/rumination";
 import {
   activeStream,
   clearError,
+  liveContext,
+  mergeCompactions,
   mergeMessages,
   NEW_CHAT,
   pendingNewStream,
@@ -141,6 +159,8 @@ function useSendVoice() {
     [send, cancel],
   );
 }
+
+const NO_COMPACTIONS: readonly Compaction[] = [];
 
 /** Recherche web refusée faute de compte relié au serveur. */
 function isWebSearchSignedOut(error: StreamError | null) {
@@ -242,6 +262,21 @@ function ChatView({ chatId }: { chatId: string }) {
     [saved, live],
   );
   const isStreaming = active !== null;
+  // Contexte (propre à ChatonLM) : compactages enregistrés et ceux du flux,
+  // jauge vivante pendant la réponse.
+  const savedCompactions = chat?.compactions ?? NO_COMPACTIONS;
+  const compactions = useMemo(
+    () => mergeCompactions(savedCompactions, live),
+    [savedCompactions, live],
+  );
+  const context = liveContext(chat?.context ?? null, live);
+  const autoCompacting = active?.compacting ?? false;
+  // Compactage manuel : la zone de saisie le traite comme une réponse en
+  // cours (pas d'envoi, que le moteur refuserait ; Stop l'arrête).
+  const manualCompacting = useManualCompacting(chatId);
+  // Rien à compacter : aucun message après le dernier compactage.
+  const lastCovered = compactions.at(-1)?.throughMessageId ?? 0;
+  const compactable = messages.some((m) => m.id > lastCovered);
   // Raisonnement en cours qui semble tourner en rond : bandeau avec Stop.
   const lastReply = active?.replies.at(-1);
   const ruminating = useMemo(
@@ -263,6 +298,18 @@ function ChatView({ chatId }: { chatId: string }) {
     setEditing(null);
     clearError(chatId);
   }, [chatId]);
+  // Mode vocal ouvert ici : ses phrases seraient refusées pendant un
+  // compactage (conversation occupée), sans moyen de l'arrêter.
+  const voiceShown = useVoiceModeFor(chatId).shown;
+  // « Compact now » : pas pendant une réponse (un compactage automatique n'a
+  // lieu que pendant l'une d'elles), Ollama perdu, rien à compacter, une
+  // modification ou le mode vocal en cours.
+  const compactDisabled =
+    isStreaming ||
+    !health.healthy ||
+    !compactable ||
+    editing !== null ||
+    voiceShown;
   const { containerRef, spacerHeight, onMessageSent } = useMessageAutoscroll({
     messages,
     isStreaming,
@@ -283,12 +330,14 @@ function ChatView({ chatId }: { chatId: string }) {
           : undefined
       }
       signedIn={isAuthenticated}
-      retryDisabled={isStreaming || !health.healthy}
+      retryDisabled={isStreaming || manualCompacting || !health.healthy}
     />
+  ) : error?.kind === "contextFull" ? (
+    <ContextFullActions chatId={chatId} disabled={compactDisabled} />
   ) : error?.kind === "loop" ? (
     <LoopErrorActions
       onRetry={lastSent ? () => formRef.current?.retry(lastSent) : undefined}
-      retryDisabled={isStreaming || !health.healthy}
+      retryDisabled={isStreaming || manualCompacting || !health.healthy}
     />
   ) : (
     // Clé d'Ollama cachée à son service (téléchargement, compte) : la
@@ -313,6 +362,8 @@ function ChatView({ chatId }: { chatId: string }) {
           isStreaming={isStreaming}
           download={active?.download ?? null}
           loading={active?.loading ?? false}
+          compacting={autoCompacting}
+          compactions={compactions}
           error={error?.message ?? null}
           errorActions={errorActions}
           editingMessageId={editing?.id ?? null}
@@ -324,8 +375,17 @@ function ChatView({ chatId }: { chatId: string }) {
         <ChatForm
           chatId={chatId}
           hasMessages={messages.length > 0}
-          isStreaming={isStreaming}
+          isStreaming={isStreaming || manualCompacting}
           isDisabled={!health.healthy}
+          contextGauge={
+            context && (
+              <ContextGauge
+                chatId={chatId}
+                usage={context}
+                compactDisabled={compactDisabled}
+              />
+            )
+          }
           banner={
             !health.healthy ? (
               <ServerLostBanner
@@ -377,6 +437,11 @@ function ChatView({ chatId }: { chatId: string }) {
           }}
           onCancel={() => {
             if (active) cancel(active.streamId);
+            else if (manualCompacting) {
+              cancelMessage(compactStreamId(chatId)).catch((error: unknown) =>
+                console.error("Failed to stop the compaction:", error),
+              );
+            }
           }}
           ref={formRef}
           editingMessage={editing}

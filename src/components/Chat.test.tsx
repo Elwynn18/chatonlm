@@ -186,6 +186,8 @@ describe("Chat", () => {
           title: "Hi",
           createdAt: 1,
           updatedAt: 2,
+          context: null,
+          compactions: [],
           messages: [
             message(1, "user", "Hi"),
             message(2, "assistant", "Hello"),
@@ -231,6 +233,8 @@ describe("editing a message", () => {
     title: "",
     createdAt: 1,
     updatedAt: 4,
+    context: null,
+    compactions: [],
     messages: [
       message(1, "user", "First"),
       message(2, "assistant", "Ok"),

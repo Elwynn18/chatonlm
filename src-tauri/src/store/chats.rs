@@ -155,6 +155,37 @@ pub struct Chat {
     pub created_at: i64,
     pub updated_at: i64,
     pub messages: Vec<Message>,
+    /// Contexte consommé à la dernière requête finie (propre à ChatonLM) ;
+    /// absent si la taille du contexte n'est pas connue.
+    pub context: Option<ContextUsage>,
+    /// Compactages, dans l'ordre (propre à ChatonLM).
+    pub compactions: Vec<Compaction>,
+}
+
+/// Contexte consommé (propre à ChatonLM) : jetons du prompt et de la réponse
+/// de la dernière requête (`prompt_eval_count` + `eval_count`), sur la taille
+/// du contexte du modèle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ContextUsage {
+    pub used: i64,
+    pub size: i64,
+}
+
+/// Compactage (propre à ChatonLM) : résumé, écrit par le modèle, des messages
+/// jusqu'à `through_message_id` compris ; une requête n'envoie que le dernier
+/// résumé et les messages qui le suivent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Compaction {
+    pub id: i64,
+    pub through_message_id: i64,
+    pub summary: String,
+    /// Fait avant un envoi, la conversation ayant passé 80 % du contexte.
+    pub automatic: bool,
+    pub created_at: i64,
 }
 
 /// Historique, de la plus récemment active à la plus ancienne.
@@ -199,6 +230,8 @@ pub fn get(connection: &Connection, id: &str) -> AppResult<Chat> {
                     created_at: row.get(2)?,
                     updated_at: row.get(3)?,
                     messages: Vec::new(),
+                    context: None,
+                    compactions: Vec::new(),
                 })
             },
         )
@@ -257,7 +290,171 @@ pub fn get(connection: &Connection, id: &str) -> AppResult<Chat> {
         }
     }
 
-    Ok(Chat { messages, ..chat })
+    Ok(Chat {
+        messages,
+        context: context(connection, id)?,
+        compactions: compactions(connection, id)?,
+        ..chat
+    })
+}
+
+/// Contexte occupé enregistré pour une conversation (taille connue).
+pub fn context(connection: &Connection, chat_id: &str) -> AppResult<Option<ContextUsage>> {
+    Ok(counted(connection, chat_id)?.map(|counted| counted.usage))
+}
+
+/// Contexte occupé, compté jusqu'au message `through` compris.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Counted {
+    pub usage: ContextUsage,
+    pub through: i64,
+}
+
+/// [`Counted`] enregistré (taille et message connus).
+pub fn counted(connection: &Connection, chat_id: &str) -> AppResult<Option<Counted>> {
+    let row = connection
+        .query_row(
+            "SELECT context_used, context_size, context_message_id FROM chats WHERE id = ?1",
+            params![chat_id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<i64>>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                ))
+            },
+        )
+        .optional()?;
+    Ok(match row {
+        Some((Some(used), Some(size), Some(through))) if size > 0 => Some(Counted {
+            usage: ContextUsage { used, size },
+            through,
+        }),
+        _ => None,
+    })
+}
+
+/// Enregistre le contexte occupé (`None` : inconnu).
+pub fn set_context(
+    connection: &Connection,
+    chat_id: &str,
+    counted: Option<Counted>,
+) -> AppResult<()> {
+    connection.execute(
+        "UPDATE chats SET context_used = ?2, context_size = ?3, context_message_id = ?4
+         WHERE id = ?1",
+        params![
+            chat_id,
+            counted.map(|c| c.usage.used),
+            counted.map(|c| c.usage.size),
+            counted.map(|c| c.through)
+        ],
+    )?;
+    Ok(())
+}
+
+/// Texte de tous les messages de l'utilisateur, un par ligne, compactés
+/// compris (adresses que `web_fetch` peut lire, comme `userMessageText` de
+/// l'officiel).
+pub fn user_texts(connection: &Connection, chat_id: &str) -> AppResult<String> {
+    let mut statement = connection
+        .prepare("SELECT content FROM messages WHERE chat_id = ?1 AND role = 'user' ORDER BY id")?;
+    let texts = statement
+        .query_map(params![chat_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(texts.join("\n"))
+}
+
+/// Compactages d'une conversation, dans l'ordre.
+pub fn compactions(connection: &Connection, chat_id: &str) -> AppResult<Vec<Compaction>> {
+    let mut statement = connection.prepare(
+        "SELECT id, through_message_id, summary, automatic, created_at
+         FROM compactions WHERE chat_id = ?1 ORDER BY id",
+    )?;
+    let rows = statement.query_map(params![chat_id], |row| {
+        Ok(Compaction {
+            id: row.get(0)?,
+            through_message_id: row.get(1)?,
+            summary: row.get(2)?,
+            automatic: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Dernier message d'une conversation (le plus récent), s'il y en a un.
+pub fn last_message_id(connection: &Connection, chat_id: &str) -> AppResult<Option<i64>> {
+    Ok(connection.query_row(
+        "SELECT MAX(id) FROM messages WHERE chat_id = ?1",
+        params![chat_id],
+        |row| row.get(0),
+    )?)
+}
+
+/// Enregistre un compactage et le contexte estimé qui le suit, ensemble.
+pub fn add_compaction(
+    connection: &mut Connection,
+    chat_id: &str,
+    through_message_id: i64,
+    summary: &str,
+    automatic: bool,
+    counted: Option<Counted>,
+    now: i64,
+) -> AppResult<Compaction> {
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "INSERT INTO compactions (chat_id, through_message_id, summary, automatic, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![chat_id, through_message_id, summary, automatic, now],
+    )?;
+    let id = transaction.last_insert_rowid();
+    set_context(&transaction, chat_id, counted)?;
+    transaction.commit()?;
+    Ok(Compaction {
+        id,
+        through_message_id,
+        summary: summary.to_owned(),
+        automatic,
+        created_at: now,
+    })
+}
+
+/// Ce qu'une requête envoie au modèle (propre à ChatonLM) : le résumé du
+/// dernier compactage, s'il y en a un, et l'historique des messages qui le
+/// suivent, avec leurs identifiants.
+#[derive(Clone, Debug, Default)]
+pub struct Sendable {
+    pub summary: Option<String>,
+    /// Dernier message résumé (0 sans compactage).
+    pub through: i64,
+    pub turns: Vec<Turn>,
+    /// Identifiant de chaque message de `turns`.
+    pub ids: Vec<i64>,
+}
+
+pub fn sendable(connection: &Connection, chat_id: &str) -> AppResult<Sendable> {
+    let last = connection
+        .query_row(
+            "SELECT through_message_id, summary FROM compactions
+             WHERE chat_id = ?1 ORDER BY id DESC LIMIT 1",
+            params![chat_id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    let (through, summary) = match last {
+        Some((through, summary)) => (through, Some(summary)),
+        None => (0, None),
+    };
+    let (ids, turns) = history_after(connection, chat_id, through)?
+        .into_iter()
+        .unzip();
+    Ok(Sendable {
+        summary,
+        through,
+        turns,
+        ids,
+    })
 }
 
 /// Appels d'outils des messages d'une conversation, par message puis dans
@@ -524,6 +721,17 @@ pub fn edit_user_message(
         "DELETE FROM messages WHERE chat_id = ?1 AND id > ?2",
         params![chat_id, message_id],
     )?;
+    // Compactages qui couvrent le message modifié : faux désormais. Le
+    // contexte consommé n'est plus connu avant la prochaine réponse.
+    transaction.execute(
+        "DELETE FROM compactions WHERE chat_id = ?1 AND through_message_id >= ?2",
+        params![chat_id, message_id],
+    )?;
+    transaction.execute(
+        "UPDATE chats SET context_used = NULL, context_size = NULL, context_message_id = NULL
+         WHERE id = ?1",
+        params![chat_id],
+    )?;
     for id in attachment_ids(&transaction, message_id)? {
         if kept.contains(&id) {
             continue;
@@ -602,11 +810,25 @@ pub enum TurnFile {
 /// ni texte, ni raisonnement, ni pièce jointe, ni appel d'outil). Seuls les
 /// appels terminés (résultat ou erreur) en font partie : un appel interrompu
 /// n'a pas de réponse à donner au modèle.
+/// Toute la conversation (essais) ; une requête envoie [`sendable`].
+#[cfg(test)]
 pub fn history(connection: &Connection, chat_id: &str) -> AppResult<Vec<Turn>> {
+    let turns = history_after(connection, chat_id, 0)?;
+    Ok(turns.into_iter().map(|(_, turn)| turn).collect())
+}
+
+/// Historique des messages d'identifiant supérieur à `after`, avec leur
+/// identifiant.
+fn history_after(
+    connection: &Connection,
+    chat_id: &str,
+    after: i64,
+) -> AppResult<Vec<(i64, Turn)>> {
     let mut statement = connection.prepare(
-        "SELECT id, role, content, thinking FROM messages WHERE chat_id = ?1 ORDER BY id",
+        "SELECT id, role, content, thinking FROM messages
+         WHERE chat_id = ?1 AND id > ?2 ORDER BY id",
     )?;
-    let rows = statement.query_map(params![chat_id], |row| {
+    let rows = statement.query_map(params![chat_id, after], |row| {
         Ok((
             row.get::<_, i64>(0)?,
             row.get::<_, String>(1)?,
@@ -633,9 +855,9 @@ pub fn history(connection: &Connection, chat_id: &str) -> AppResult<Vec<Turn>> {
         "SELECT a.message_id, a.filename, a.kind,
                 CASE WHEN a.kind = 'image' THEN a.data END, a.text
          FROM attachments a JOIN messages m ON m.id = a.message_id
-         WHERE m.chat_id = ?1 ORDER BY a.id",
+         WHERE m.chat_id = ?1 AND m.id > ?2 ORDER BY a.id",
     )?;
-    let rows = attachments.query_map(params![chat_id], |row| {
+    let rows = attachments.query_map(params![chat_id, after], |row| {
         let file = if row.get::<_, String>(2)? == "image" {
             TurnFile::Image(row.get(3)?)
         } else {
@@ -658,13 +880,16 @@ pub fn history(connection: &Connection, chat_id: &str) -> AppResult<Vec<Turn>> {
             turns[index].tool_calls.push(call);
         }
     }
-    turns.retain(|turn| {
-        !(turn.content.is_empty()
-            && turn.thinking.is_empty()
-            && turn.files.is_empty()
-            && turn.tool_calls.is_empty())
-    });
-    Ok(turns)
+    Ok(ids
+        .into_iter()
+        .zip(turns)
+        .filter(|(_, turn)| {
+            !(turn.content.is_empty()
+                && turn.thinking.is_empty()
+                && turn.files.is_empty()
+                && turn.tool_calls.is_empty())
+        })
+        .collect())
 }
 
 /// Image enregistrée (type MIME et contenu), pour le protocole `chatonlm://` ;

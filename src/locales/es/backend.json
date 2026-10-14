@@ -194,7 +194,11 @@
     "webSearchSignedOut": "La búsqueda web requiere una cuenta de Ollama",
     "notFound": "chat no encontrado: {id}",
     "emptyTitle": "el título no puede estar vacío",
-    "loopStopped": "El modelo repetía sin parar el mismo texto, así que se detuvo su respuesta."
+    "loopStopped": "El modelo repetía sin parar el mismo texto, así que se detuvo su respuesta.",
+    "contextFull": "La conversación llenó el contexto del modelo, así que se cortó la respuesta. Compacta la conversación para continuar.",
+    "nothingToCompact": "no hay nada nuevo que compactar en este chat",
+    "compactEmpty": "el modelo no escribió ningún resumen",
+    "compactStopped": "se detuvo la compactación"
   },
   "errors": {
     "connectionLost": "Conexión perdida",
@@ -408,7 +412,8 @@
       "voiceTooLong": "Este mensaje de voz es demasiado largo (10 minutos como máximo).",
       "voiceEmpty": "No oí nada en este mensaje de voz.",
       "emptyAnswer": "El modelo no respondió nada.",
-      "incomplete": "Esta respuesta no se pudo escribir entera aquí. Está completa en ChatonLM."
+      "incomplete": "Esta respuesta no se pudo escribir entera aquí. Está completa en ChatonLM.",
+      "contextFull": "La respuesta se cortó: esta conversación ya no cabe en la memoria del modelo. Vuelve a enviar tu mensaje: primero se resumirá la conversación."
     }
   }
 }

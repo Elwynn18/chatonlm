@@ -42,6 +42,11 @@
       "type": "content"
     },
     {
+      "size": 4096,
+      "type": "context",
+      "used": 26
+    },
+    {
       "messageId": 4,
       "type": "done"
     }

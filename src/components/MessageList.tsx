@@ -32,7 +32,11 @@
  * shown as "Stop reading" under a reply being written or a tool turn while it
  * is read aloud, or with the error of its reading; when that button goes
  * away with the focus, the focus goes to the text of the reply; a status
- * region under each saved reply announces its reading.
+ * region under each saved reply announces its reading; ChatonLM's own
+ * context compaction: a separator after the last message of each compaction
+ * unfolds the summary sent to the model (Compaction.tsx), and an automatic
+ * compaction shows "Compacting conversation..." in place of the waiting
+ * dots, like "Loading model...".
  */
 
 import {
@@ -40,11 +44,17 @@ import {
   type ReactNode,
   type RefObject,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import type { AttachmentInfo } from "@/bindings/AttachmentInfo";
+import type { Compaction } from "@/bindings/Compaction";
 import type { Message } from "@/bindings/Message";
+import {
+  CompactingConversation,
+  CompactionSeparator,
+} from "@/components/Compaction";
 import { CopyButton } from "@/components/CopyButton";
 import { Downloading } from "@/components/Downloading";
 import { ErrorMessage } from "@/components/ErrorMessage";
@@ -61,6 +71,8 @@ import type { DownloadProgress } from "@/lib/streams";
 import { errorFor, phaseFor } from "@/lib/readAloud";
 import { isFinished } from "@/lib/toolCalls";
 
+const NO_COMPACTIONS: readonly Compaction[] = [];
+
 export function MessageList({
   chatId,
   messages,
@@ -68,6 +80,8 @@ export function MessageList({
   isStreaming,
   download = null,
   loading = false,
+  compacting = false,
+  compactions = NO_COMPACTIONS,
   error,
   errorActions = null,
   editingMessageId = null,
@@ -85,6 +99,10 @@ export function MessageList({
   download?: DownloadProgress | null;
   /** Modèle en cours de chargement en mémoire par la réponse en cours. */
   loading?: boolean;
+  /** Compactage automatique en cours par la réponse en cours. */
+  compacting?: boolean;
+  /** Compactages de la conversation, par id croissant. */
+  compactions?: readonly Compaction[];
   error: string | null;
   /** Actions sous l'erreur (recherche web sans compte). */
   errorActions?: ReactNode;
@@ -124,6 +142,16 @@ export function MessageList({
   }, [waitingFor]);
   const waiting = waitingFor !== null;
   const showDots = waiting && dotsFor === waitingFor;
+  // Séparateurs, chacun après le dernier message qu'il résume.
+  const compactionsAfter = useMemo(() => {
+    const after = new Map<number, Compaction[]>();
+    for (const compaction of compactions) {
+      const list = after.get(compaction.throughMessageId) ?? [];
+      list.push(compaction);
+      after.set(compaction.throughMessageId, list);
+    }
+    return after;
+  }, [compactions]);
   const editingIndex =
     editingMessageId === null
       ? -1
@@ -143,6 +171,9 @@ export function MessageList({
             isFaded={editingIndex !== -1 && idx >= editingIndex}
             onEditMessage={onEditMessage}
           />
+          {compactionsAfter.get(message.id)?.map((compaction) => (
+            <CompactionSeparator key={compaction.id} compaction={compaction} />
+          ))}
         </div>
       ))}
 
@@ -153,11 +184,17 @@ export function MessageList({
           change, pour que l'annonce soit fiable. */}
       {isStreaming && (
         <div role="status" data-testid="loading-status">
-          {waiting && showDots && loading && <LoadingModel />}
+          {waiting &&
+            showDots &&
+            (compacting ? (
+              <CompactingConversation />
+            ) : (
+              loading && <LoadingModel />
+            ))}
         </div>
       )}
 
-      {waiting && showDots && !loading && (
+      {waiting && showDots && !loading && !compacting && (
         <div
           data-testid="waiting"
           className="mt-2 flex min-w-0 items-center space-x-1.5 self-start rounded-full bg-neutral-100 px-4 py-3 dark:bg-neutral-800"

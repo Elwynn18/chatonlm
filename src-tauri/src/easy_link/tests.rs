@@ -988,6 +988,22 @@ async fn unlinking_stops_the_answer_being_written() {
     assert!(started.elapsed() < Duration::from_secs(4));
 }
 
+/// Réponse coupée parce que la conversation remplit le contexte : le
+/// correspondant, qui ne peut pas compacter, est invité à renvoyer son
+/// message (l'envoi suivant compactera de lui-même).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reply_cut_by_a_full_context_asks_to_send_again() {
+    let bench = bench("chatonlm-context").await;
+    bench.telegram_linked().await;
+    // 15 000 caractères : 3 750 jetons sur 4 096, la réponse n'a plus la
+    // place de ses 600 jetons.
+    bench.say(&"Tell me everything. ".repeat(750));
+    bench
+        .wait_told("the conversation will be summarized first")
+        .await;
+    wait_until("libre", || !bench.busy()).await;
+}
+
 /// Un modèle supprimé depuis son choix n'est pas retéléchargé par un message
 /// du bot (le moteur de chat, lui, télécharge un modèle absent).
 #[tokio::test(flavor = "multi_thread")]

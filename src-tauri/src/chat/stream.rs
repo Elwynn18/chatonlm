@@ -135,9 +135,22 @@ pub enum Line {
         /// Appels d'outils de la ligne, dans l'ordre (le plus souvent aucun).
         tool_calls: Vec<StreamToolCall>,
         done: bool,
+        /// Ligne `done` : jetons et raison de la fin.
+        ending: Option<Ending>,
     },
     /// Erreur du serveur ou du modèle en cours de route.
     Error(String),
+}
+
+/// Fin d'une réponse (ligne `done`), propre à ChatonLM : contexte consommé
+/// et coupure par `num_predict`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ending {
+    /// `prompt_eval_count` (le prompt entier, même en cache : vérifié sur
+    /// Ollama 0.40) et `eval_count` ; absent si Ollama ne les donne pas.
+    pub counts: Option<(u64, u64)>,
+    /// `done_reason: "length"` : limite de jetons atteinte.
+    pub length: bool,
 }
 
 #[derive(Deserialize)]
@@ -148,6 +161,12 @@ struct Chunk {
     done: bool,
     #[serde(default)]
     error: Option<String>,
+    #[serde(default)]
+    done_reason: Option<String>,
+    #[serde(default)]
+    prompt_eval_count: Option<u64>,
+    #[serde(default)]
+    eval_count: Option<u64>,
 }
 
 #[derive(Default, Deserialize)]
@@ -204,11 +223,16 @@ pub fn parse_line(line: &str) -> Result<Line, String> {
             },
         })
         .collect();
+    let ending = chunk.done.then(|| Ending {
+        counts: chunk.prompt_eval_count.zip(chunk.eval_count),
+        length: chunk.done_reason.as_deref() == Some("length"),
+    });
     Ok(Line::Fragment {
         thinking: message.thinking,
         content: message.content,
         tool_calls,
         done: chunk.done,
+        ending,
     })
 }
 
@@ -326,8 +350,10 @@ mod tests {
                     content: c,
                     tool_calls,
                     done: d,
+                    ending,
                 } => {
                     assert!(tool_calls.is_empty());
+                    assert_eq!(ending.is_some(), d);
                     thinking.push_str(&t);
                     content.push_str(&c);
                     done += usize::from(d);
@@ -338,6 +364,29 @@ mod tests {
         assert!(thinking.starts_with("Okay, the user wants me"));
         assert_eq!(content, "\"Hello\"");
         assert_eq!(done, 1);
+    }
+
+    #[test]
+    fn the_last_line_tells_the_tokens_and_why_it_ended() {
+        let ending = |line: &str| match parse_line(line).unwrap() {
+            Line::Fragment { ending, .. } => ending,
+            Line::Error(error) => panic!("{error}"),
+        };
+        assert_eq!(ending(r#"{"message":{"content":"a"},"done":false}"#), None);
+        assert_eq!(
+            ending(r#"{"done":true,"done_reason":"stop","prompt_eval_count":42,"eval_count":5}"#),
+            Some(Ending {
+                counts: Some((42, 5)),
+                length: false
+            })
+        );
+        assert_eq!(
+            ending(r#"{"done":true,"done_reason":"length","eval_count":30}"#),
+            Some(Ending {
+                counts: None,
+                length: true
+            })
+        );
     }
 
     #[test]
@@ -419,6 +468,7 @@ mod tests {
                     },
                 ],
                 done: false,
+                ending: None,
             }
         );
         let null =

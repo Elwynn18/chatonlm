@@ -58,6 +58,17 @@
     "error": "Error",
     "loadingModel": "Loading model..."
   },
+  "context": {
+    "gauge": "Context: {percent} used",
+    "title": "Context",
+    "usage": "{used} / {size} tokens ({percent})",
+    "autoHint": "When the conversation passes {threshold}, older messages are summarized automatically.",
+    "compactNow": "Compact now",
+    "compacting": "Compacting…",
+    "compactingConversation": "Compacting conversation…",
+    "compacted": "Context compacted",
+    "compactedAuto": "Context compacted automatically"
+  },
   "thinking": {
     "active": "Thinking...",
     "moment": "Thought for a moment",

@@ -329,6 +329,7 @@ pub fn run() {
             #[cfg(feature = "e2e")]
             commands::attachments::e2e_allow_paths,
             commands::chats::cancel_message,
+            commands::chats::compact_chat,
             commands::chats::delete_chat,
             commands::chats::get_chat,
             commands::chats::list_chats,

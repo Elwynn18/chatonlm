@@ -4,7 +4,8 @@
 //   (captures claire et sombre de la page) ;
 // - longueur de contexte : clic sur « 8k » et glisser jusqu'à « 32k » (vrai
 //   pointeur de KWin), puis ← (vraie touche) : 16k ; la requête /api/chat
-//   suivante porte options.num_ctx 16384 (GET /fake/requests) ;
+//   suivante porte options.num_ctx 16384 et la limite num_predict de la
+//   réponse (GET /fake/requests) ;
 // - adresse : invalide refusée avec le message du moteur ; port fermé
 //   enregistré, la conversation signale alors qu'Ollama ne répond plus ;
 // - Reset : adresse, contexte et thème par défaut, modèle choisi gardé, la
@@ -187,7 +188,14 @@ try {
         const response = await fetch(new URL("/fake/requests", fake.url));
         return (await response.json()).at(-1);
       }, "requête /api/chat");
-      assert.deepEqual(request.options, { num_ctx: 16384 });
+      // Avec la limite de la réponse à ce qui reste du contexte (propre à
+      // ChatonLM, compact.rs).
+      assert.equal(request.options.num_ctx, 16384);
+      assert.ok(
+        request.options.num_predict > 16000 &&
+          request.options.num_predict < 16384,
+        JSON.stringify(request.options),
+      );
       await waitUntil(
         async () => !(await exists(driver, "[aria-label='Stop']")),
         "fin de la réponse",

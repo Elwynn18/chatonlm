@@ -5,6 +5,8 @@
 import type { AttachmentInfo } from "@/bindings/AttachmentInfo";
 import type { ChatErrorKind } from "@/bindings/ChatErrorKind";
 import type { ChatEvent } from "@/bindings/ChatEvent";
+import type { Compaction } from "@/bindings/Compaction";
+import type { ContextUsage } from "@/bindings/ContextUsage";
 import type { Message } from "@/bindings/Message";
 import type { StagedFile } from "@/bindings/StagedFile";
 
@@ -62,6 +64,20 @@ export interface LiveStream {
    * la place des trois points. Jamais gardé dans l'historique.
    */
   loading: boolean;
+  /**
+   * Compactage automatique en cours (entre `compacting` et `compacted`, ou le
+   * premier événement suivant) : la ligne « Compacting conversation… » prend
+   * la place des trois points (propre à ChatonLM).
+   */
+  compacting: boolean;
+  /**
+   * Contexte annoncé par le dernier événement `context` ou `compacted` du
+   * flux (null : taille inconnue) ; undefined tant qu'aucun n'est venu (la
+   * jauge garde la valeur enregistrée de la conversation).
+   */
+  context: ContextUsage | null | undefined;
+  /** Compactages faits par cet envoi, pas encore relus en base. */
+  compactions: Compaction[];
   finished: boolean;
 }
 
@@ -249,6 +265,9 @@ export function start({
     replies: [],
     download: null,
     loading: false,
+    compacting: false,
+    context: undefined,
+    compactions: [],
     finished: false,
   });
   // L'erreur de la conversation, et celle d'une nouvelle conversation
@@ -307,6 +326,10 @@ export function apply(streamId: string, event: ChatEvent) {
   // affichée sous une réponse, une erreur ou un arrêt.
   if (event.type !== "loading" && streams.get(streamId)?.loading) {
     update(streamId, (s) => ({ ...s, loading: false }));
+  }
+  // De même pour le compactage automatique.
+  if (event.type !== "compacting" && streams.get(streamId)?.compacting) {
+    update(streamId, (s) => ({ ...s, compacting: false }));
   }
   switch (event.type) {
     case "loading":
@@ -381,6 +404,22 @@ export function apply(streamId: string, event: ChatEvent) {
         })),
       );
       break;
+    case "context":
+      update(streamId, (s) => ({
+        ...s,
+        context: { used: event.used, size: event.size },
+      }));
+      break;
+    case "compacting":
+      update(streamId, (s) => ({ ...s, compacting: true }));
+      break;
+    case "compacted":
+      update(streamId, (s) => ({
+        ...s,
+        context: event.context,
+        compactions: [...s.compactions, event.compaction],
+      }));
+      break;
     case "error":
       fail(streamId, { kind: event.kind, message: event.message });
       break;
@@ -395,13 +434,14 @@ export function apply(streamId: string, event: ChatEvent) {
  * Flux terminé, quelle que soit la fin : le raisonnement resté ouvert (arrêt
  * ou erreur pendant le raisonnement) est clos, comme le moteur le fait en
  * base ; la réponse affichée jusqu'à sa relecture n'est jamais « en cours » ;
- * plus de téléchargement ni de chargement en cours.
+ * plus de téléchargement, de chargement ni de compactage en cours.
  */
 function finish(stream: LiveStream, now: number): LiveStream {
   return {
     ...withLastReply(stream, (reply) => closeThinking(reply, now)),
     download: null,
     loading: false,
+    compacting: false,
     finished: true,
   };
 }
@@ -441,13 +481,7 @@ export function mergeMessages(
   // troncature optimiste de l'officiel), tant que le flux est là ; un envoi
   // fini sans message enregistré (refusé, écriture en échec) n'a rien
   // changé en base : ils reviennent.
-  const cut = Math.min(
-    ...live.map((s) =>
-      s.editOf !== null && (s.user !== null || !s.finished)
-        ? s.editOf
-        : Number.POSITIVE_INFINITY,
-    ),
-  );
+  const cut = editCut(live);
   const messages = saved.filter((m) => m.id < cut);
   // Messages de la base déjà attribués à un flux.
   const claimed = new Set(live.flatMap((s) => (s.user ? [s.user.id] : [])));
@@ -486,6 +520,68 @@ export function mergeMessages(
     }
   }
   return messages;
+}
+
+/**
+ * Premier message coupé par une modification en cours (comme
+ * mergeMessages) ; +Infini : aucune.
+ */
+function editCut(live: readonly LiveStream[]): number {
+  return Math.min(
+    ...live.map((s) =>
+      s.editOf !== null && (s.user !== null || !s.finished)
+        ? s.editOf
+        : Number.POSITIVE_INFINITY,
+    ),
+  );
+}
+
+/**
+ * Compactages à afficher (propres à ChatonLM) : ceux de la base, complétés
+ * par ceux des flux pas encore relus, par id croissant. Ceux qui couvrent un
+ * message coupé par une modification en cours disparaissent (le moteur les
+ * supprime).
+ */
+export function mergeCompactions(
+  saved: readonly Compaction[],
+  live: readonly LiveStream[],
+): readonly Compaction[] {
+  const cut = editCut(live);
+  // Rien à ajouter ni à retirer : même tableau (mémoïsation).
+  if (cut === Infinity && live.every((s) => s.compactions.length === 0)) {
+    return saved;
+  }
+  const byId = new Map<number, Compaction>();
+  for (const compaction of saved) byId.set(compaction.id, compaction);
+  for (const stream of live) {
+    for (const compaction of stream.compactions) {
+      byId.set(compaction.id, compaction);
+    }
+  }
+  return [...byId.values()]
+    .filter((c) => c.throughMessageId < cut)
+    .sort((a, b) => a.id - b.id);
+}
+
+/**
+ * Contexte à montrer par la jauge : celui du dernier événement `context` ou
+ * `compacted` des flux de la conversation, sinon `saved` (get_chat). Une
+ * modification de message en cours sans événement : inconnu (le moteur
+ * oublie le contexte de la conversation modifiée).
+ */
+export function liveContext(
+  saved: ContextUsage | null,
+  live: readonly LiveStream[],
+): ContextUsage | null {
+  for (let i = live.length - 1; i >= 0; i--) {
+    const stream = live[i];
+    if (stream.context !== undefined) return stream.context;
+    // Modification refusée (finie sans message enregistré) : rien n'a changé.
+    if (stream.editOf !== null && (stream.user !== null || !stream.finished)) {
+      return null;
+    }
+  }
+  return saved;
 }
 
 /** Pour les tests : remet le magasin à zéro. */

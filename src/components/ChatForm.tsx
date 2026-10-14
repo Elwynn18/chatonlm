@@ -35,11 +35,12 @@
  * official app shows it from Chat.tsx), unless the chat view has its own
  * banner to show (Ollama unreachable, error of a new chat); the
  * message field never takes the focus from another field, a menu or a
- * dialog (nor, when a reply ends, from any other control), also takes it on
- * mount during a reply, and leaves Space to the focused button; Stop stays
- * clickable while Ollama is unreachable; texts translated into English,
- * Spanish and French (src/i18n); Enter, Escape and Ctrl+V read from the
- * shortcut catalog (src/lib/shortcuts.ts), also shown in the settings;
+ * dialog, an open popover dialog included (nor, when a reply ends, from
+ * any other control), also takes it on mount during a reply, and leaves
+ * Space to the focused button; Stop stays clickable while Ollama is
+ * unreachable; texts translated into English, Spanish and French
+ * (src/i18n); Enter, Escape and Ctrl+V read from the shortcut catalog
+ * (src/lib/shortcuts.ts), also shown in the settings;
  * ChatonLM's own voice mode: a "wave" button next to Send (and Ctrl+Shift+
  * Space, which also ends it) starts it for this chat, and its bar
  * (VoiceModeBar.tsx) takes the place of the message field while it lasts
@@ -54,7 +55,9 @@
  * during an edit; files dropped or pasted during it are ignored; the draft
  * of a new chat (text, staged files) goes to the composer of the chat
  * created by its first sentence, which gives it back at the end; the
- * composer carries a `data-tour` mark, shown by the first-launch tour.
+ * composer carries a `data-tour` mark, shown by the first-launch tour;
+ * ChatonLM's own context gauge (given by the chat view, ContextGauge.tsx) sits
+ * next to the model picker, under the veil while Ollama is unreachable.
  */
 
 import { ArrowUpIcon, StopIcon } from "@heroicons/react/20/solid";
@@ -148,6 +151,8 @@ interface ChatFormProps {
   isDisabled: boolean;
   /** Bandeau affiché au-dessus de la zone de saisie. */
   banner?: ReactNode;
+  /** Jauge du contexte (conversation existante), près du sélecteur de modèle. */
+  contextGauge?: ReactNode;
   /**
    * `think` : valeur du bouton Think, undefined s'il n'y en a pas ;
    * `attachments` : fichiers préparés à joindre, dans l'ordre ; `kept` :
@@ -214,6 +219,9 @@ function mayTakeFocus(composer: HTMLElement | null, replyEnded: boolean) {
   }
   const active = document.activeElement;
   if (active === null || active === document.body) return true;
+  // Panneau ouvert (celui de la jauge du contexte) : il garde le focus, et
+  // reste ouvert (son échec s'y lit).
+  if (active.closest("[role='dialog']")) return false;
   // Un champ garde le focus (la zone de saisie l'a peut-être déjà).
   if (isEditable(active)) return false;
   return !replyEnded || (composer?.contains(active) ?? false);
@@ -225,6 +233,7 @@ export function ChatForm({
   isStreaming,
   isDisabled,
   banner,
+  contextGauge,
   onSubmit,
   onCancel,
   editingMessage = null,
@@ -768,6 +777,11 @@ export function ChatForm({
               onEscape={() => textareaRef.current?.focus()}
             />
           </div>
+          {contextGauge && (
+            <div className="relative z-20 flex items-center">
+              {contextGauge}
+            </div>
+          )}
           {!isDisabled && !voice.shown && (
             <VoiceModeButton chatId={chatId} disabled={!canStartVoice} />
           )}

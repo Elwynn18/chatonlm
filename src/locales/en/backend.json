@@ -194,7 +194,11 @@
     "webSearchSignedOut": "Web search requires an Ollama account",
     "notFound": "chat not found: {id}",
     "emptyTitle": "the title cannot be empty",
-    "loopStopped": "The model kept repeating the same text, so its reply was stopped."
+    "loopStopped": "The model kept repeating the same text, so its reply was stopped.",
+    "contextFull": "The conversation filled the model's context, so the reply was cut. Compact the conversation to continue.",
+    "nothingToCompact": "there is nothing new to compact in this chat",
+    "compactEmpty": "the model wrote no summary",
+    "compactStopped": "the compaction was stopped"
   },
   "errors": {
     "connectionLost": "Connection lost",
@@ -408,7 +412,8 @@
       "voiceTooLong": "This voice message is too long (10 minutes at most).",
       "voiceEmpty": "I heard nothing in this voice message.",
       "emptyAnswer": "The model answered nothing.",
-      "incomplete": "This answer could not be written here in full. It is complete in ChatonLM."
+      "incomplete": "This answer could not be written here in full. It is complete in ChatonLM.",
+      "contextFull": "The answer was cut: this conversation no longer fits in the model's memory. Send your message again: the conversation will be summarized first."
     }
   }
 }

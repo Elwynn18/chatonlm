@@ -5,7 +5,7 @@ use crate::attachments::Staging;
 use crate::chat::{self, ChatEngine, ChatEvent, SendRequest, Server};
 use crate::error::AppResult;
 use crate::store::Store;
-use crate::store::chats::{self, Chat, ChatInfo};
+use crate::store::chats::{self, Chat, ChatInfo, Compaction};
 
 #[tauri::command]
 pub async fn list_chats(store: State<'_, Store>) -> AppResult<Vec<ChatInfo>> {
@@ -85,6 +85,21 @@ pub async fn send_message(
     let settings = crate::ollama::target::request_settings(&store).await?;
     let server = Server::from_settings(&settings);
     chat::send(&store, &engine, &staging, server, request, &on_event).await
+}
+
+/// Compacte une conversation avec le modèle donné (propre à ChatonLM) : le
+/// modèle résume ce qui précède, les requêtes suivantes n'envoient plus que
+/// ce résumé et les messages qui le suivent.
+#[tauri::command]
+pub async fn compact_chat(
+    store: State<'_, Store>,
+    engine: State<'_, ChatEngine>,
+    chat_id: String,
+    model: String,
+) -> AppResult<Compaction> {
+    let settings = crate::ollama::target::request_settings(&store).await?;
+    let server = Server::from_settings(&settings);
+    chat::compact_chat(&store, &engine, server, &chat_id, &model).await
 }
 
 /// Arrête une réponse en cours ; sans effet si elle est déjà finie.

@@ -58,6 +58,17 @@
     "error": "Error",
     "loadingModel": "Cargando modelo…"
   },
+  "context": {
+    "gauge": "Contexto: {percent} usado",
+    "title": "Contexto",
+    "usage": "{used} / {size} tokens ({percent})",
+    "autoHint": "Cuando la conversación supera el {threshold}, los mensajes más antiguos se resumen automáticamente.",
+    "compactNow": "Compactar ahora",
+    "compacting": "Compactando…",
+    "compactingConversation": "Compactando la conversación…",
+    "compacted": "Contexto compactado",
+    "compactedAuto": "Contexto compactado automáticamente"
+  },
   "thinking": {
     "active": "Pensando…",
     "moment": "Pensó un momento",

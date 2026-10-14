@@ -817,6 +817,9 @@ async fn respond<H: Host>(
             }
             // Sans l'adresse du serveur, qui ne regarde pas le correspondant.
             Some((ChatErrorKind::Unreachable, _)) => Some(t!("easyLink.bot.ollamaDown")),
+            // Le correspondant ne peut pas compacter : l'envoi suivant le
+            // fera de lui-même.
+            Some((ChatErrorKind::ContextFull, _)) => Some(t!("easyLink.bot.contextFull")),
             Some((_, message)) => Some(format!("⚠️ {message}")),
             None if done && relay.is_empty() => Some(t!("easyLink.bot.emptyAnswer")),
             None => None,

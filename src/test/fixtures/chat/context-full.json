@@ -1,0 +1,147 @@
+{
+  "description": "Existing chat at 59% of its context (1024 tokens, chatonlm-context): the answer is limited to what is left of the context, cut there (done_reason length), and the send ends with a contextFull error.",
+  "request": {
+    "chatId": "chat-1",
+    "streamId": "stream-1",
+    "content": "Say hello in one word.",
+    "model": "chatonlm-context"
+  },
+  "events": [
+    {
+      "message": {
+        "attachments": [],
+        "content": "Say hello in one word.",
+        "createdAt": 1700000000000,
+        "id": 3,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "createdAt": 1700000000000,
+      "messageId": 4,
+      "type": "replyStarted"
+    },
+    {
+      "text": "This answer fills the context of the model, fifteen tokens. This",
+      "type": "content"
+    },
+    {
+      "text": " answer fills the context of the model, fifteen tokens. This ans",
+      "type": "content"
+    },
+    {
+      "text": "wer fills the context of the model, fifteen tokens. This answer ",
+      "type": "content"
+    },
+    {
+      "text": "fills the context of the model, fifteen tokens. This answer fill",
+      "type": "content"
+    },
+    {
+      "text": "s the context of the model, fifteen tokens. This answer fills th",
+      "type": "content"
+    },
+    {
+      "text": "e context of the model, fifteen tokens. This answer fills the co",
+      "type": "content"
+    },
+    {
+      "text": "ntext of the model, fifteen tokens. This answer fills the contex",
+      "type": "content"
+    },
+    {
+      "text": "t of the model, fifteen tokens. This answer fills the context of",
+      "type": "content"
+    },
+    {
+      "text": " the model, fifteen tokens. This answer fills the context of the",
+      "type": "content"
+    },
+    {
+      "text": " model, fifteen tokens. This answer fills the context of the mod",
+      "type": "content"
+    },
+    {
+      "text": "el, fifteen tokens. This answer fills the context of the model, ",
+      "type": "content"
+    },
+    {
+      "text": "fifteen tokens. This answer fills the context of the model, fift",
+      "type": "content"
+    },
+    {
+      "text": "een tokens. This answer fills the context of the model, fifteen ",
+      "type": "content"
+    },
+    {
+      "text": "tokens. This answer fills the context of the model, fifteen toke",
+      "type": "content"
+    },
+    {
+      "text": "ns. This answer fills the context of the model, fifteen tokens. ",
+      "type": "content"
+    },
+    {
+      "text": "This answer fills the context of the model, fifteen tokens. This",
+      "type": "content"
+    },
+    {
+      "text": " answer fills the context of the model, fifteen tokens. This ans",
+      "type": "content"
+    },
+    {
+      "text": "wer fills the context of the model, fifteen tokens. This answer ",
+      "type": "content"
+    },
+    {
+      "text": "fills the context of the model, fifteen tokens. This answer fill",
+      "type": "content"
+    },
+    {
+      "text": "s the context of the model, fifteen tokens. This answer fills th",
+      "type": "content"
+    },
+    {
+      "text": "e context of the model, fifteen tokens. This answer fills the co",
+      "type": "content"
+    },
+    {
+      "text": "ntext of the model, fifteen tokens. This answer fills the contex",
+      "type": "content"
+    },
+    {
+      "text": "t of the model, fifteen tokens. This answer fills the context of",
+      "type": "content"
+    },
+    {
+      "text": " the model, fifteen tokens. This answer fills the context of the",
+      "type": "content"
+    },
+    {
+      "text": " model, fifteen tokens. This answer fills the context of the mod",
+      "type": "content"
+    },
+    {
+      "text": "el, fift",
+      "type": "content"
+    },
+    {
+      "size": 1024,
+      "type": "context",
+      "used": 1012
+    },
+    {
+      "kind": "contextFull",
+      "message": "The conversation filled the model's context, so the reply was cut. Compact the conversation to continue.",
+      "type": "error"
+    }
+  ],
+  "error": null
+}

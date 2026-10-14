@@ -194,7 +194,11 @@
     "webSearchSignedOut": "La recherche web nécessite un compte Ollama",
     "notFound": "conversation introuvable : {id}",
     "emptyTitle": "le titre ne peut pas être vide",
-    "loopStopped": "Le modèle répétait sans fin le même texte : sa réponse a été arrêtée."
+    "loopStopped": "Le modèle répétait sans fin le même texte : sa réponse a été arrêtée.",
+    "contextFull": "La conversation a rempli le contexte du modèle : la réponse a été coupée. Compactez la conversation pour continuer.",
+    "nothingToCompact": "rien de nouveau à compacter dans cette conversation",
+    "compactEmpty": "le modèle n'a écrit aucun résumé",
+    "compactStopped": "le compactage a été arrêté"
   },
   "errors": {
     "connectionLost": "Connexion perdue",
@@ -408,7 +412,8 @@
       "voiceTooLong": "Ce message vocal est trop long (10 minutes au plus).",
       "voiceEmpty": "Je n'ai rien entendu dans ce message vocal.",
       "emptyAnswer": "Le modèle n'a rien répondu.",
-      "incomplete": "Cette réponse n'a pas pu être écrite en entier ici. Elle est complète dans ChatonLM."
+      "incomplete": "Cette réponse n'a pas pu être écrite en entier ici. Elle est complète dans ChatonLM.",
+      "contextFull": "La réponse a été coupée : cette conversation ne tient plus dans la mémoire du modèle. Renvoyez votre message : la conversation sera d'abord résumée."
     }
   }
 }

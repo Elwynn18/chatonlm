@@ -121,6 +121,8 @@ export function useSendMessage() {
               createdAt: now,
               updatedAt: now,
               messages: [],
+              context: null,
+              compactions: [],
             });
             void queryClient.invalidateQueries({ queryKey: chatsKey });
             onChatCreated?.(event.chatId);

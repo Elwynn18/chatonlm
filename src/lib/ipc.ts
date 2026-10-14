@@ -9,6 +9,7 @@ import type { Chat } from "@/bindings/Chat";
 import type { ChatEvent } from "@/bindings/ChatEvent";
 import type { ChatInfo } from "@/bindings/ChatInfo";
 import type { CloudStatus } from "@/bindings/CloudStatus";
+import type { Compaction } from "@/bindings/Compaction";
 import type { DatabaseProblem } from "@/bindings/DatabaseProblem";
 import type { DictationInfo } from "@/bindings/DictationInfo";
 import type { DictationPatch } from "@/bindings/DictationPatch";
@@ -406,6 +407,19 @@ export function sendMessage(
   onEvent: Channel<ChatEvent>,
 ): Promise<void> {
   return invoke<void>("send_message", { request, onEvent });
+}
+
+/**
+ * Compacte la conversation tout de suite (propre à ChatonLM) : le modèle
+ * `model` (celui de la zone de saisie) résume tout ce qui suit le dernier
+ * compactage. Rejette si la conversation répond, s'il n'y a rien à
+ * compacter, ou si Ollama ou le modèle échoue (message du moteur traduit).
+ */
+export function compactChat(
+  chatId: string,
+  model: string,
+): Promise<Compaction> {
+  return invoke<Compaction>("compact_chat", { chatId, model });
 }
 
 /**

@@ -84,6 +84,7 @@
 //!   messagerie n'est pas lue à voix haute sur l'ordinateur), et un
 //!   rechargement de la page ne l'arrête pas.
 
+mod compact;
 pub(crate) mod pull;
 pub(crate) mod repetition;
 pub mod stream;
@@ -106,12 +107,14 @@ use crate::i18n::t;
 use crate::ollama::models::{self, ModelDetails, ShowError};
 use crate::ollama::running::{self, LoadFailure, RunningModel};
 use crate::ollama::{account, client};
-use crate::store::chats::{self, Chat, Message, Reply, Role, ToolCall, Turn};
+use crate::store::chats::{
+    self, Chat, Compaction, ContextUsage, Counted, Message, Reply, Sendable, ToolCall,
+};
 use crate::store::settings::Settings;
 use crate::store::{Store, model_prefs, now_ms};
 use crate::tts::VoiceLanguage;
 use repetition::LoopWatch;
-use stream::{Line, LineBuffer, StreamToolCall, Think};
+use stream::{Ending, Line, LineBuffer, StreamToolCall, Think};
 use tools::{AllowedUrls, Executed};
 
 /// Intervalle des écritures en base pendant une réponse.
@@ -227,6 +230,9 @@ pub enum ChatErrorKind {
     /// Réponse arrêtée : le modèle répétait mot pour mot le même passage
     /// (propre à ChatonLM, voir `repetition.rs`).
     Loop,
+    /// Réponse coupée : le contexte du modèle est plein (propre à ChatonLM,
+    /// voir `compact.rs`).
+    ContextFull,
     /// Erreur de ChatonLM (base de données...).
     Internal,
 }
@@ -309,6 +315,19 @@ pub enum ChatEvent {
         message: String,
     },
     Cancelled,
+    /// Contexte consommé après une requête finie, taille connue (propre à
+    /// ChatonLM) : avant l'événement final, et après chaque tour d'outils.
+    Context {
+        used: i64,
+        size: i64,
+    },
+    /// Compactage automatique commencé, avant la réponse (propre à ChatonLM).
+    Compacting,
+    /// Compactage fait : le résumé et le contexte estimé qui le suit.
+    Compacted {
+        compaction: Compaction,
+        context: Option<ContextUsage>,
+    },
 }
 
 /// Réponses en cours, partagées par les commandes.
@@ -651,6 +670,112 @@ pub async fn send_to(
     Ok(())
 }
 
+/// Taille du contexte du modèle d'un envoi (propre à ChatonLM) : celle du
+/// réglage, bornée par celle du modèle ; sinon (contexte du serveur) celle du
+/// modèle chargé, lue dans `/api/ps` ; inconnue pour un modèle du cloud.
+async fn context_size(server: &Server, model: &str, details: Option<&ModelDetails>) -> Option<i64> {
+    if details.is_some_and(|details| details.remote) {
+        return None;
+    }
+    if server.context_length > 0 {
+        let max = details.and_then(|details| details.max_context);
+        return Some(i64::from(max.map_or(server.context_length, |max| {
+            server.context_length.min(max)
+        })));
+    }
+    let listed = running::list_within(&server.url, PS_TIMEOUT).await.ok()?;
+    listed
+        .iter()
+        .find(|running| running::same_model(&running.name, model))
+        .and_then(|running| running.context_length)
+        .map(i64::from)
+}
+
+/// Compacte une conversation à la demande (propre à ChatonLM, voir
+/// `compact.rs`) avec `model` : le modèle résume ce qu'une requête enverrait,
+/// jusqu'au dernier message. La conversation est occupée pendant ce temps
+/// (un envoi est refusé). Refus : modèle absent, conversation occupée, rien à
+/// compacter ; échec : Ollama injoignable ou erreur du modèle.
+pub async fn compact_chat(
+    store: &Store,
+    engine: &ChatEngine,
+    server: Server,
+    chat_id: &str,
+    model: &str,
+) -> AppResult<Compaction> {
+    let model = model.trim();
+    if model.is_empty() {
+        return Err(AppError::Invalid(t!("chat.noModel")));
+    }
+    let (mut cancel, finish) =
+        engine.begin(chat_id, &format!("compact:{chat_id}"), Origin::Page)?;
+    let result = compact_now(store, &server, chat_id, model, &mut cancel).await;
+    engine.end(chat_id);
+    let _ = finish.send(true);
+    result
+}
+
+async fn compact_now(
+    store: &Store,
+    server: &Server,
+    chat_id: &str,
+    model: &str,
+    cancel: &mut watch::Receiver<bool>,
+) -> AppResult<Compaction> {
+    let id = chat_id.to_owned();
+    let (sendable, last, counted) = store
+        .call(move |c| {
+            let last = chats::last_message_id(c, &id)?
+                .ok_or_else(|| AppError::Invalid(t!("chat.nothingToCompact")))?;
+            Ok((chats::sendable(c, &id)?, last, chats::counted(c, &id)?))
+        })
+        .await?;
+    if sendable.turns.is_empty() {
+        return Err(AppError::Invalid(t!("chat.nothingToCompact")));
+    }
+    let details = match show(&server.url, model, cancel).await {
+        Shown::Found(details) => Some(details),
+        Shown::Missing | Shown::Unknown => None,
+        Shown::Unreachable => {
+            let message = t!("ollama.unreachableAt", address = server.url);
+            return Err(AppError::Ollama(message));
+        }
+        Shown::Cancelled => return Err(AppError::Invalid(t!("chat.compactStopped"))),
+    };
+    let think = accepted_think(Some(Think::Enabled(false)), details.as_ref());
+    let images = accepts_images(details.as_ref());
+    // Taille du modèle choisi ; s'il n'est pas chargé, celle du dernier
+    // envoi (sauf modèle du cloud).
+    let remote = details.as_ref().is_some_and(|details| details.remote);
+    let size = match context_size(server, model, details.as_ref()).await {
+        Some(size) => Some(size),
+        None if !remote => counted.map(|counted| counted.usage.size),
+        None => None,
+    };
+    let scale = compact::calibration(counted, &sendable).unwrap_or(1.0);
+    let (summary, count) =
+        compact::summarize(server, model, &sendable, think, images, size, scale, cancel)
+            .await
+            .map_err(|outcome| match outcome {
+                Outcome::Failed(_, message) => AppError::Ollama(message),
+                Outcome::Cancelled | Outcome::Done => AppError::Invalid(t!("chat.compactStopped")),
+            })?;
+    // Tout résumé : jusqu'au dernier message (messages vides compris) ;
+    // sinon jusqu'au dernier message résumé.
+    let through = if count == sendable.turns.len() {
+        last
+    } else {
+        sendable.ids[count - 1]
+    };
+    // Contexte estimé qui suit : le résumé et les messages non résumés.
+    let counted =
+        size.map(|size| compact::after_compaction(&sendable, &summary, count, scale, size));
+    let id = chat_id.to_owned();
+    store
+        .call(move |c| chats::add_compaction(c, &id, through, &summary, false, counted, now_ms()))
+        .await
+}
+
 enum Outcome {
     Done,
     Cancelled,
@@ -773,10 +898,18 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
         // Comme l'officiel (`hasAttachments`) : pas d'outils pour un message
         // avec des pièces jointes.
         let has_attachments = !user.attachments.is_empty();
+        let user_id = user.id;
         (self.emit)(ChatEvent::UserMessage { message: user });
 
-        let mut turns = match self.history(&reply.chat_id).await {
-            Ok(turns) => turns,
+        let mut sendable = match self.history(&reply.chat_id).await {
+            Ok(sendable) => sendable,
+            Err(error) => return error.into(),
+        };
+        // Contexte occupé compté à la fin d'un envoi précédent (inconnu
+        // après une modification de message).
+        let chat_id = reply.chat_id.clone();
+        let mut counted = match self.store.call(move |c| chats::counted(c, &chat_id)).await {
+            Ok(counted) => counted,
             Err(error) => return error.into(),
         };
 
@@ -808,19 +941,122 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
         {
             return outcome;
         }
-        // Adresses que `web_fetch` peut lire : celles des messages de
-        // l'utilisateur, puis celles reçues pendant l'envoi.
-        let mut allowed = AllowedUrls::from_text(&user_text(&turns));
+        // Taille du contexte du modèle de cet envoi (propre à ChatonLM) ;
+        // inconnue : ni compactage, ni limite, ni jauge.
+        let size = context_size(server, &reply.model, details.as_ref()).await;
+        // Occupé avant le nouveau message ; passé 80 % : compactage de ce qui
+        // le précède. Un échec n'empêche pas la réponse.
+        // Estimations corrigées par le compte d'Ollama, s'il y en a un.
+        let mut scale = compact::calibration(counted, &sendable).unwrap_or(compact::UNCALIBRATED);
+        let mut occupied = compact::occupied(counted, &sendable, 1, scale);
+        if let Some(size) = size
+            && compact::needs_compaction(Some(ContextUsage {
+                used: occupied,
+                size,
+            }))
+            && sendable.turns.len() > 1
+        {
+            // Résumé sans raisonnement si le modèle sait le couper.
+            let think = accepted_think(Some(Think::Enabled(false)), details.as_ref());
+            match self
+                .compact_before(
+                    server, &sendable, think, &asking, size, counted, reply, cancel,
+                )
+                .await
+            {
+                Ok(()) => {
+                    sendable = match self.history(&reply.chat_id).await {
+                        Ok(sendable) => sendable,
+                        Err(error) => return error.into(),
+                    };
+                    let chat_id = reply.chat_id.clone();
+                    counted = match self.store.call(move |c| chats::counted(c, &chat_id)).await {
+                        Ok(counted) => counted,
+                        Err(error) => return error.into(),
+                    };
+                    scale =
+                        compact::calibration(counted, &sendable).unwrap_or(compact::UNCALIBRATED);
+                    occupied = compact::occupied(counted, &sendable, 1, scale);
+                }
+                Err(Outcome::Cancelled) => return Outcome::Cancelled,
+                Err(Outcome::Failed(_, message)) => {
+                    eprintln!("chatonlm: automatic compaction failed: {message}");
+                }
+                Err(Outcome::Done) => {}
+            }
+        }
+        // Adresses que `web_fetch` peut lire : celles de tous les messages de
+        // l'utilisateur (compactés compris, jamais celles d'un résumé écrit
+        // par le modèle), puis celles reçues pendant l'envoi.
+        let chat_id = reply.chat_id.clone();
+        let mut allowed = match self
+            .store
+            .call(move |c| chats::user_texts(c, &chat_id))
+            .await
+        {
+            Ok(texts) => AllowedUrls::from_text(&texts),
+            Err(error) => return error.into(),
+        };
         let mut tool_turns = 0;
         loop {
             let offered = definitions.as_ref().filter(|_| tool_turns < MAX_TOOL_TURNS);
-            let calls = match self
-                .ask(server, &turns, &mut asking, offered, reply, cancel)
+            // Ce que la requête ajoute : le nouveau message, ou les
+            // résultats des outils du tour précédent.
+            let added = sendable
+                .turns
+                .last()
+                .map_or(0, |turn| compact::scaled(compact::turn_tokens(turn), scale));
+            let limit = size.map(|size| compact::reply_limit(size, occupied + added));
+            let (calls, ending) = match self
+                .ask(
+                    server,
+                    &sendable,
+                    &mut asking,
+                    offered,
+                    limit,
+                    reply,
+                    cancel,
+                )
                 .await
             {
-                Ok(calls) => calls,
+                Ok(answer) => answer,
                 Err(outcome) => return outcome,
             };
+            if let Some(Ending {
+                counts: Some((prompt, eval)),
+                ..
+            }) = ending
+            {
+                occupied = compact::occupied_after(prompt, eval, &reply.reply);
+                // Compté jusqu'à cette réponse ; taille inconnue (modèle du
+                // cloud) : le compte d'un autre modèle est oublié.
+                let through = reply.message_id.or(reply.previous).unwrap_or(user_id);
+                let counted = size.map(|size| Counted {
+                    usage: ContextUsage {
+                        used: occupied,
+                        size,
+                    },
+                    through,
+                });
+                let chat_id = reply.chat_id.clone();
+                if let Err(error) = self
+                    .store
+                    .call(move |c| chats::set_context(c, &chat_id, counted))
+                    .await
+                {
+                    return error.into();
+                }
+                if let Some(Counted { usage, .. }) = counted {
+                    (self.emit)(ChatEvent::Context {
+                        used: usage.used,
+                        size: usage.size,
+                    });
+                }
+            }
+            // Réponse arrêtée par la limite posée : le contexte est plein.
+            if limit.is_some() && ending.is_some_and(|ending| ending.length) {
+                return Outcome::Failed(ChatErrorKind::ContextFull, t!("chat.contextFull"));
+            }
             // Appels d'une requête sans outils : ignorés (rien ne les
             // exécuterait).
             if calls.is_empty() || offered.is_none() {
@@ -834,42 +1070,117 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
                 return outcome;
             }
             reply.next_turn();
-            turns = match self.history(&reply.chat_id).await {
-                Ok(turns) => turns,
+            sendable = match self.history(&reply.chat_id).await {
+                Ok(sendable) => sendable,
                 Err(error) => return error.into(),
             };
         }
     }
 
-    async fn history(&self, chat_id: &str) -> AppResult<Vec<Turn>> {
+    /// Compactage automatique de ce qui précède le dernier message (celui
+    /// envoyé) : `Compacting`, résumé du début qui tient dans le contexte,
+    /// enregistrement, `Compacted` (avec le contexte occupé estimé qui suit).
+    /// Erreur : échec (l'envoi continue) ou arrêt.
+    #[allow(clippy::too_many_arguments)]
+    async fn compact_before(
+        &self,
+        server: &Server,
+        sendable: &Sendable,
+        think: Option<Think>,
+        asking: &Asking,
+        size: i64,
+        counted: Option<Counted>,
+        reply: &ReplyWriter,
+        cancel: &mut watch::Receiver<bool>,
+    ) -> Result<(), Outcome> {
+        (self.emit)(ChatEvent::Compacting);
+        let kept = sendable.turns.len() - 1;
+        let before = Sendable {
+            summary: sendable.summary.clone(),
+            through: sendable.through,
+            turns: sendable.turns[..kept].to_vec(),
+            ids: sendable.ids[..kept].to_vec(),
+        };
+        let scale = compact::calibration(counted, &before).unwrap_or(1.0);
+        let (summary, count) = compact::summarize(
+            server,
+            &reply.model,
+            &before,
+            think,
+            asking.images,
+            Some(size),
+            scale,
+            cancel,
+        )
+        .await?;
+        let through = before.ids[count - 1];
+        // Contexte estimé qui suit : le résumé et les messages non résumés,
+        // compté jusqu'au dernier message d'avant celui envoyé.
+        let counted = compact::after_compaction(&before, &summary, count, scale, size);
+        let chat_id = reply.chat_id.clone();
+        let compaction = self
+            .store
+            .call(move |c| {
+                chats::add_compaction(
+                    c,
+                    &chat_id,
+                    through,
+                    &summary,
+                    true,
+                    Some(counted),
+                    now_ms(),
+                )
+            })
+            .await?;
+        (self.emit)(ChatEvent::Compacted {
+            compaction,
+            context: Some(counted.usage),
+        });
+        Ok(())
+    }
+
+    /// Ce que la requête suivante enverra (après le dernier compactage).
+    async fn history(&self, chat_id: &str) -> AppResult<Sendable> {
         let chat_id = chat_id.to_owned();
-        self.store.call(move |c| chats::history(c, &chat_id)).await
+        self.store.call(move |c| chats::sendable(c, &chat_id)).await
     }
 
     /// Une requête à `/api/chat`, lue jusqu'à `done` : appels d'outils reçus
-    /// pendant le tour. Erreur : fin déjà décidée.
+    /// pendant le tour, et fin de la réponse. Résumé du dernier compactage en
+    /// message système (après la consigne vocale) ; réponse limitée à
+    /// `limit` jetons s'il est donné. Erreur : fin déjà décidée.
+    #[allow(clippy::too_many_arguments)]
     async fn ask(
         &self,
         server: &Server,
-        turns: &[Turn],
+        sendable: &Sendable,
         asking: &mut Asking,
         tools: Option<&serde_json::Value>,
+        limit: Option<i64>,
         reply: &mut ReplyWriter,
         cancel: &mut watch::Receiver<bool>,
-    ) -> Result<Vec<StreamToolCall>, Outcome> {
+    ) -> Result<(Vec<StreamToolCall>, Option<Ending>), Outcome> {
+        let summary = sendable.summary.as_deref().map(compact::summary_message);
+        let system = match (&asking.system, summary) {
+            (Some(voice), Some(summary)) => Some(format!("{voice}\n\n{summary}")),
+            (voice, summary) => voice.clone().or(summary),
+        };
         loop {
             reply.think_off = asking.think == Some(Think::Enabled(false));
             let mut body = stream::request_body(
                 &reply.model,
-                turns,
+                &sendable.turns,
                 asking.think.as_ref(),
                 server.context_length,
                 server.keep_alive,
                 asking.images,
                 tools,
             );
-            if let Some(system) = &asking.system {
+            if let Some(system) = &system {
                 with_system_message(&mut body, system);
+            }
+            if let Some(limit) = limit {
+                body["options"]["num_predict"] = serde_json::json!(limit);
             }
             match open(&server.url, &body, cancel).await {
                 Opened::Stream(response) => return self.read(response, reply, cancel).await,
@@ -1038,14 +1349,14 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
         }
     }
 
-    /// Lit le flux jusqu'à `done` : appels d'outils reçus, dans l'ordre.
-    /// Erreur : fin déjà décidée.
+    /// Lit le flux jusqu'à `done` : appels d'outils reçus, dans l'ordre, et
+    /// fin de la réponse. Erreur : fin déjà décidée.
     async fn read(
         &self,
         mut response: reqwest::Response,
         reply: &mut ReplyWriter,
         cancel: &mut watch::Receiver<bool>,
-    ) -> Result<Vec<StreamToolCall>, Outcome> {
+    ) -> Result<(Vec<StreamToolCall>, Option<Ending>), Outcome> {
         let mut buffer = LineBuffer::default();
         let mut calls = Vec::new();
         // Au moins une ligne lisible reçue : une dernière ligne illisible est
@@ -1077,6 +1388,7 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
                         content,
                         tool_calls,
                         done,
+                        ending,
                     }) => {
                         understood = true;
                         if let Err(error) = self.take(reply, &thinking, &content).await {
@@ -1092,7 +1404,7 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
                         }
                         calls.extend(tool_calls);
                         if done {
-                            return Ok(calls);
+                            return Ok((calls, ending));
                         }
                     }
                     Ok(Line::Error(message)) => {
@@ -1345,16 +1657,6 @@ fn accepts_tools(details: Option<&ModelDetails>) -> bool {
     details.is_some_and(|details| details.capabilities.iter().any(|c| c == "tools"))
 }
 
-/// Texte des messages de l'utilisateur, un par ligne (`userMessageText`).
-fn user_text(turns: &[Turn]) -> String {
-    let mut text = String::new();
-    for turn in turns.iter().filter(|turn| turn.role == Role::User) {
-        text.push_str(&turn.content);
-        text.push('\n');
-    }
-    text
-}
-
 /// Erreur d'une connexion impossible, la même pour chaque requête.
 fn unreachable(base: &str) -> Outcome {
     Outcome::Failed(
@@ -1511,6 +1813,7 @@ mod tests {
     use super::*;
     use crate::attachments::tests as attachment_tests;
     use crate::attachments::{StageResult, samples};
+    use crate::store::chats::{Role, Turn};
 
     /// Attente maximale d'un événement ou d'un état, sur le faux serveur.
     const WAIT: Duration = Duration::from_secs(5);
@@ -1545,6 +1848,8 @@ mod tests {
             created_at: 0,
             updated_at: 0,
             messages: vec![saved],
+            context: None,
+            compactions: Vec::new(),
         };
         let live = Reply {
             content: "new".into(),
@@ -1889,6 +2194,7 @@ mod tests {
                 "replyStarted",
                 "thinking",
                 "content",
+                "context",
                 "done"
             ]
         );
@@ -1912,7 +2218,9 @@ mod tests {
             sent["messages"],
             json!([{"role": "user", "content": "Say hello in one word."}])
         );
-        assert!(sent.get("options").is_none());
+        // Contexte du serveur : pas de num_ctx (la limite de la réponse,
+        // propre à ChatonLM, part seule).
+        assert!(sent["options"].get("num_ctx").is_none());
     }
 
     /// Un modèle qui raisonne malgré `think: false` (gabarit qui ouvre toujours
@@ -2000,7 +2308,14 @@ mod tests {
         assert_one_final(&second.events());
 
         let sent = &fake.chat_requests()[1];
-        assert_eq!(sent["options"], json!({"num_ctx": 8192}));
+        // Réponse limitée à ce qui reste du contexte (propre à ChatonLM).
+        assert_eq!(sent["options"]["num_ctx"], json!(8192));
+        let limit = sent["options"]["num_predict"].as_i64().unwrap();
+        // 8 192, moins le contexte occupé par le premier échange (prompt de 16
+        // jetons et texte de la réponse estimé, sans son raisonnement : 18)
+        // et le nouveau message estimé (23), corrigé par le compte d'Ollama
+        // (34 comptés pour 41 estimés : 20).
+        assert_eq!(limit, 8192 - 16 - 18 - 20);
         assert_eq!(sent["think"], json!(false));
         let messages = sent["messages"].as_array().unwrap();
         assert_eq!(messages.len(), 3);
@@ -2125,6 +2440,7 @@ mod tests {
                 "replyStarted",
                 "thinking",
                 "content",
+                "context",
                 "done"
             ]
         );
@@ -2136,7 +2452,7 @@ mod tests {
             [json!({ "model": model, "kind": "load", "keep_alive": 300, "num_ctx": 8192 })]
         );
         let sent = &fake.chat_requests()[0];
-        assert_eq!(sent["options"], json!({ "num_ctx": 8192 }));
+        assert_eq!(sent["options"]["num_ctx"], json!(8192));
         assert_eq!(sent["keep_alive"], json!(300));
 
         let chat_id = first.chat_id();
@@ -2146,7 +2462,14 @@ mod tests {
             let again = send_with(&store, &fake, chat_id, model, settings).await;
             assert_eq!(
                 types(&again.events()),
-                ["userMessage", "replyStarted", "thinking", "content", "done"],
+                [
+                    "userMessage",
+                    "replyStarted",
+                    "thinking",
+                    "content",
+                    "context",
+                    "done"
+                ],
                 "{settings:?}"
             );
         }
@@ -2185,7 +2508,7 @@ mod tests {
             assert_eq!(load["model"], json!(model));
             assert_eq!(load.get("keep_alive"), expected.as_ref(), "{model}");
             // Contexte du serveur : pas de num_ctx.
-            assert!(chat.get("options").is_none() && load.get("num_ctx").is_none());
+            assert!(chat["options"].get("num_ctx").is_none() && load.get("num_ctx").is_none());
         }
     }
 
@@ -2565,6 +2888,254 @@ mod tests {
         .await;
     }
 
+    /// Envoi de `content` à `chatonlm-context`, contexte réglé à `context` :
+    /// événements reçus.
+    async fn send_context(
+        store: &Store,
+        engine: &ChatEngine,
+        fake: &FakeOllama,
+        chat_id: Option<&str>,
+        context: u32,
+    ) -> Vec<Value> {
+        send_text(
+            store,
+            engine,
+            fake,
+            chat_id,
+            context,
+            "Say hello in one word.",
+        )
+        .await
+    }
+
+    /// [`send_context`] avec le texte donné.
+    async fn send_text(
+        store: &Store,
+        engine: &ChatEngine,
+        fake: &FakeOllama,
+        chat_id: Option<&str>,
+        context: u32,
+        content: &str,
+    ) -> Vec<Value> {
+        let (channel, recorder) = recorder();
+        let server = Server {
+            url: fake.url(),
+            context_length: context,
+            keep_alive: 0,
+        };
+        let mut request = request(chat_id, "chatonlm-context", None);
+        request.content = content.into();
+        send(
+            store,
+            engine,
+            &Staging::default(),
+            server,
+            request,
+            &channel,
+        )
+        .await
+        .unwrap();
+        recorder.events()
+    }
+
+    #[tokio::test]
+    async fn past_eighty_percent_the_chat_is_compacted_before_the_answer() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let (store, engine) = (Store::open_in_memory().unwrap(), ChatEngine::default());
+        // Premier échange : 2 800 jetons de question (11 200 caractères à 4
+        // par jeton), 600 de réponse, sur 4 096 (83 %).
+        let long = "Tell me everything. ".repeat(560);
+        let first = send_text(&store, &engine, &fake, None, 4096, &long).await;
+        let chat_id = first[0]["chatId"].as_str().unwrap().to_owned();
+        assert_eq!(
+            saved(&store, &chat_id).context,
+            Some(ContextUsage {
+                used: 3400,
+                size: 4096
+            })
+        );
+        let second = send_context(&store, &engine, &fake, Some(&chat_id), 4096).await;
+        assert_eq!(
+            types(&second),
+            [
+                "userMessage",
+                "compacting",
+                "compacted",
+                "replyStarted",
+                "content",
+                "context",
+                "done"
+            ]
+        );
+        // Résumé demandé de l'échange précédent, sans le nouveau message.
+        let requests = fake.chat_requests();
+        assert_eq!(requests.len(), 3);
+        let asked = requests[1]["messages"].as_array().unwrap();
+        assert_eq!(asked.len(), 3);
+        assert!(
+            asked[2]["content"]
+                .as_str()
+                .unwrap()
+                .starts_with("Summarize")
+        );
+        assert_eq!(requests[1]["think"], Value::Null);
+        // Réponse : le résumé en message système, puis le seul nouveau
+        // message ; limitée à ce qui reste du contexte.
+        let answered = requests[2]["messages"].as_array().unwrap();
+        assert_eq!(answered.len(), 2);
+        assert_eq!(answered[0]["role"], json!("system"));
+        assert!(
+            answered[0]["content"]
+                .as_str()
+                .unwrap()
+                .ends_with(fake_ollama::CONTEXT_SUMMARY)
+        );
+        assert_eq!(answered[1]["content"], json!("Say hello in one word."));
+        assert!(requests[2]["options"]["num_predict"].as_i64().unwrap() > 3000);
+        let chat = saved(&store, &chat_id);
+        assert_eq!(chat.compactions.len(), 1);
+        let compaction = &chat.compactions[0];
+        assert_eq!(compaction.through_message_id, chat.messages[1].id);
+        assert!(compaction.automatic);
+        assert_eq!(compaction.summary, fake_ollama::CONTEXT_SUMMARY);
+        // Annoncé après le compactage : le résumé (environ 80 jetons estimés).
+        let compacted = second.iter().find(|e| e["type"] == "compacted").unwrap();
+        assert!(compacted["context"]["used"].as_i64().unwrap() < 200);
+        // Tous les messages restent ; contexte compté après la réponse.
+        assert_eq!(chat.messages.len(), 4);
+        assert_eq!(chat.context.unwrap().size, 4096);
+        assert!(chat.context.unwrap().used < 1000);
+    }
+
+    #[tokio::test]
+    async fn a_reply_reaching_the_end_of_the_context_is_cut() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let (store, engine) = (Store::open_in_memory().unwrap(), ChatEngine::default());
+        // Premier envoi : le message estimé (7 + 16 jetons, à 4 caractères par
+        // jeton faute de compte : 18), la réponse a la place de ses 600.
+        let first = send_context(&store, &engine, &fake, None, 1024).await;
+        let limit = fake.chat_requests()[0]["options"]["num_predict"].as_i64();
+        assert_eq!(limit, Some(1024 - 18));
+        let chat_id = first[0]["chatId"].as_str().unwrap().to_owned();
+        let second = send_context(&store, &engine, &fake, Some(&chat_id), 1024).await;
+        let last = second.last().unwrap();
+        assert_eq!(last["kind"], json!("contextFull"));
+        // 1024 - 605 - le nouveau message estimé (23 jetons), corrigé par le
+        // compte d'Ollama (605 comptés pour 839 estimés : 17).
+        let limit = fake.chat_requests()[1]["options"]["num_predict"].as_i64();
+        assert_eq!(limit, Some(1024 - 605 - 17));
+        let chat = saved(&store, &chat_id);
+        assert_eq!(chat.messages[3].content.len(), 402 * 4);
+        assert_eq!(chat.context.unwrap().used, 5 + 402 + 605);
+        assert!(chat.compactions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn compacting_on_demand() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let (store, engine) = (Store::open_in_memory().unwrap(), ChatEngine::default());
+        let server = || Server {
+            url: fake.url(),
+            context_length: 4096,
+            keep_alive: 0,
+        };
+        // Rien encore : conversation inconnue ou vide.
+        let chat_id = store.call(|c| chats::create(c, now_ms())).await.unwrap();
+        let empty = compact_chat(&store, &engine, server(), &chat_id, "chatonlm-context").await;
+        assert!(matches!(empty, Err(AppError::Invalid(_))), "{empty:?}");
+        let first = send_context(&store, &engine, &fake, Some(&chat_id), 4096).await;
+        assert_eq!(first.last().unwrap()["type"], json!("done"));
+        // Conversation occupée : refusé.
+        let (_cancel, _finish) = engine.begin(&chat_id, "other", Origin::Page).unwrap();
+        let busy = compact_chat(&store, &engine, server(), &chat_id, "chatonlm-context").await;
+        assert!(matches!(busy, Err(AppError::Invalid(_))), "{busy:?}");
+        engine.end(&chat_id);
+
+        let compaction = compact_chat(&store, &engine, server(), &chat_id, "chatonlm-context")
+            .await
+            .unwrap();
+        assert!(!compaction.automatic);
+        assert_eq!(compaction.through_message_id, 2);
+        let chat = saved(&store, &chat_id);
+        assert_eq!(chat.compactions, [compaction]);
+        // Contexte estimé : le résumé seul.
+        assert!(chat.context.unwrap().used < 100);
+        // Plus rien de nouveau : refusé ; un envoi n'est plus refusé
+        // (verrou rendu).
+        let again = compact_chat(&store, &engine, server(), &chat_id, "chatonlm-context").await;
+        assert!(matches!(again, Err(AppError::Invalid(_))), "{again:?}");
+        let next = send_context(&store, &engine, &fake, Some(&chat_id), 4096).await;
+        assert_eq!(next.last().unwrap()["type"], json!("done"));
+        let sent = fake.chat_requests().pop().unwrap();
+        assert_eq!(sent["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(sent["messages"][0]["role"], json!("system"));
+    }
+
+    #[tokio::test]
+    async fn stop_ends_a_compaction_on_demand() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let (store, engine) = (Store::open_in_memory().unwrap(), ChatEngine::default());
+        let first = send_context(&store, &engine, &fake, None, 4096).await;
+        let chat_id = first[0]["chatId"].as_str().unwrap().to_owned();
+        // Modèle qui ne répond jamais : arrêté par Stop (`cancel_message`
+        // sous l'identifiant `compact:<conversation>`).
+        let compacting = compact_chat(&store, &engine, server(&fake), &chat_id, "chatonlm-hang");
+        let stopping = async {
+            wait_until(Duration::from_secs(3), "compactage commencé", || {
+                fake.chat_requests().len() == 2
+            })
+            .await;
+            engine.cancel(&format!("compact:{chat_id}"));
+        };
+        let (stopped, ()) =
+            tokio::time::timeout(WAIT, async { tokio::join!(compacting, stopping) })
+                .await
+                .expect("the compaction was not stopped");
+        let Err(AppError::Invalid(message)) = stopped else {
+            panic!("{stopped:?}");
+        };
+        assert_eq!(message, "the compaction was stopped");
+        assert!(saved(&store, &chat_id).compactions.is_empty());
+        // Verrou rendu.
+        assert!(!engine.is_busy());
+    }
+
+    #[tokio::test]
+    async fn editing_a_compacted_message_drops_the_compaction() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let (store, engine) = (Store::open_in_memory().unwrap(), ChatEngine::default());
+        let first = send_context(&store, &engine, &fake, None, 4096).await;
+        let chat_id = first[0]["chatId"].as_str().unwrap().to_owned();
+        let server = Server {
+            url: fake.url(),
+            context_length: 4096,
+            keep_alive: 0,
+        };
+        compact_chat(&store, &engine, server, &chat_id, "chatonlm-context")
+            .await
+            .unwrap();
+        let (channel, recorder) = recorder();
+        let mut edit = request(Some(&chat_id), "chatonlm-context", None);
+        edit.edit_message_id = Some(1);
+        let server = Server {
+            url: fake.url(),
+            context_length: 4096,
+            keep_alive: 0,
+        };
+        send(&store, &engine, &Staging::default(), server, edit, &channel)
+            .await
+            .unwrap();
+        assert_eq!(recorder.events().last().unwrap()["type"], json!("done"));
+        let chat = saved(&store, &chat_id);
+        assert!(chat.compactions.is_empty());
+        // Le message modifié part seul, sans résumé ; réponse non limitée
+        // (contexte inconnu après la modification).
+        let sent = fake.chat_requests().pop().unwrap();
+        assert_eq!(sent["messages"].as_array().unwrap().len(), 1);
+        // Contexte oublié par la modification : seul le message, estimé (18).
+        assert_eq!(sent["options"]["num_predict"], json!(4096 - 18));
+    }
+
     /// Événements de téléchargement reçus, en (total, completed, done).
     fn downloads(events: &[Value]) -> Vec<(u64, u64, bool)> {
         let downloads = events.iter().filter(|event| event["type"] == "download");
@@ -2610,6 +3181,7 @@ mod tests {
                 "loaded",
                 "replyStarted",
                 "content",
+                "context",
                 "done"
             ]
         );
@@ -2659,7 +3231,7 @@ mod tests {
         let events = again.events();
         assert_eq!(
             types(&events),
-            ["userMessage", "replyStarted", "content", "done"]
+            ["userMessage", "replyStarted", "content", "context", "done"]
         );
         assert_eq!(fake.pull_requests().len(), 1);
         tokio::time::sleep(Duration::from_millis(150)).await;
@@ -3723,7 +4295,7 @@ mod tests {
         assert_one_final(&events);
         assert_eq!(
             types(&events),
-            ["userMessage", "replyStarted", "content", "done"]
+            ["userMessage", "replyStarted", "content", "context", "done"]
         );
 
         // Le même message, texte et pièces jointes changés (red.png retiré),
@@ -4651,11 +5223,23 @@ mod tests {
         request: &SendRequest,
         cancel_after: Option<(&str, usize)>,
     ) -> (Vec<Value>, AppResult<()>) {
+        play_with(store, staging, url, request, cancel_after, 0).await
+    }
+
+    /// [`play`], avec le réglage du contexte (0 : défaut du serveur).
+    async fn play_with(
+        store: &Store,
+        staging: &Staging,
+        url: &str,
+        request: &SendRequest,
+        cancel_after: Option<(&str, usize)>,
+        context_length: u32,
+    ) -> (Vec<Value>, AppResult<()>) {
         let engine = ChatEngine::default();
         let (channel, recorder) = recorder();
         let server = Server {
             url: url.to_owned(),
-            context_length: 0,
+            context_length,
             keep_alive: 0,
         };
         let sending = send(store, &engine, staging, server, request.clone(), &channel);
@@ -4776,6 +5360,7 @@ mod tests {
                     "replyStarted",
                     "thinking",
                     "content",
+                    "context",
                     "done",
                 ][..],
             ),
@@ -4785,7 +5370,7 @@ mod tests {
                 Target::Ollama,
                 ask(hello, "qwen3:0.6b", Some(Think::Enabled(false))),
                 None,
-                &["userMessage", "replyStarted", "content", "done"][..],
+                &["userMessage", "replyStarted", "content", "context", "done"][..],
             ),
             (
                 "cancelled",
@@ -4818,6 +5403,30 @@ mod tests {
                     "content",
                     "error",
                 ][..],
+            ),
+            (
+                "compacted-auto",
+                "Existing chat past 80% of its context (3,400 of 4,096 tokens, chatonlm-context): the earlier messages are summarized first (compacting, compacted), then the answer, then the context used.",
+                Target::Ollama,
+                ask(hello, "chatonlm-context", None),
+                None,
+                &[
+                    "userMessage",
+                    "compacting",
+                    "compacted",
+                    "replyStarted",
+                    "content",
+                    "context",
+                    "done",
+                ][..],
+            ),
+            (
+                "context-full",
+                "Existing chat at 59% of its context (1024 tokens, chatonlm-context): the answer is limited to what is left of the context, cut there (done_reason length), and the send ends with a contextFull error.",
+                Target::Ollama,
+                ask(hello, "chatonlm-context", None),
+                None,
+                &["userMessage", "replyStarted", "content", "context", "error"][..],
             ),
             (
                 "loop-stopped",
@@ -4897,6 +5506,7 @@ mod tests {
                     "loaded",
                     "replyStarted",
                     "content",
+                    "context",
                     "done",
                 ][..],
             ),
@@ -4932,6 +5542,7 @@ mod tests {
                     "loaded",
                     "replyStarted",
                     "content",
+                    "context",
                     "done",
                 ][..],
             ),
@@ -4959,7 +5570,7 @@ mod tests {
                     ),
                 ),
                 None,
-                &["userMessage", "replyStarted", "content", "done"][..],
+                &["userMessage", "replyStarted", "content", "context", "done"][..],
             ),
             (
                 "refused-edit-unknown-message",
@@ -5037,6 +5648,7 @@ mod tests {
                     "replyStarted",
                     "thinking",
                     "content",
+                    "context",
                     "done",
                 ][..],
             ),
@@ -5064,6 +5676,26 @@ mod tests {
                         ids.push(id);
                     }
                     request.attachment_ids = Some(ids);
+                }
+                // Contexte réglé des séquences du compactage ; conversation
+                // existante faite d'un premier échange de 600 jetons.
+                let context_length = match name {
+                    "compacted-auto" => 4096,
+                    "context-full" => 1024,
+                    _ => 0,
+                };
+                if context_length > 0 {
+                    let mut first = ask(hello, "chatonlm-context", None);
+                    // 2 800 jetons de question : 83 % après la réponse.
+                    if name == "compacted-auto" {
+                        first.content = "Tell me everything. ".repeat(560);
+                    }
+                    let (events, result) =
+                        play_with(&store, &staging, &url, &first, None, context_length).await;
+                    result.unwrap();
+                    let chat_id = events[0]["chatId"].as_str().unwrap().to_owned();
+                    replace.push((chat_id.clone(), "chat-1"));
+                    request.chat_id = Some(chat_id);
                 }
                 if name == "existing-chat" {
                     // Conversation existante : un premier échange, puis l'envoi
@@ -5093,7 +5725,15 @@ mod tests {
                     replace.push((chat_id.clone(), "chat-1"));
                     request.chat_id = Some(chat_id);
                 }
-                let (events, result) = play(&store, &staging, &url, &request, cancel_after).await;
+                let (events, result) = play_with(
+                    &store,
+                    &staging,
+                    &url,
+                    &request,
+                    cancel_after,
+                    context_length,
+                )
+                .await;
                 assert_eq!(types(&events), expected, "{name}");
                 if expected.is_empty() {
                     assert!(matches!(result, Err(AppError::Invalid(_))), "{name}");
@@ -5154,6 +5794,115 @@ mod tests {
     /// capacités connues n'ont pas « vision » (écart à l'officiel, qui
     /// l'envoie toujours) : la réponse arrive, l'image reste jointe au message.
     /// Un modèle vision (qwen3.5:0.8b) la reçoit et la voit.
+    /// Contexte consommé et compactage (propres à ChatonLM) contre un vrai
+    /// Ollama : `prompt_eval_count` compte tout le prompt (la conversation
+    /// entière, même en cache), `num_predict` atteint donne
+    /// `done_reason: "length"`, et le modèle écrit un résumé que l'envoi
+    /// suivant porte en message système.
+    #[tokio::test]
+    #[ignore = "instance Ollama de test : scripts/test-ollama.sh start"]
+    async fn contract_context_is_counted_and_compacted() {
+        let url = Url::parse(TEST_INSTANCE).unwrap();
+        let cut = client::client(&url, Some(REAL_WAIT))
+            .unwrap()
+            .post(format!("{TEST_INSTANCE}/api/chat"))
+            .json(&json!({
+                "model": "qwen3:0.6b",
+                "stream": false,
+                "think": false,
+                "options": {"num_ctx": 4096, "num_predict": 3},
+                "messages": [{"role": "user", "content": "Write a long story about a cat, in ten paragraphs."}],
+            }))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        let Ok(Line::Fragment {
+            ending: Some(ending),
+            ..
+        }) = stream::parse_line(&cut)
+        else {
+            panic!("{cut}");
+        };
+        assert!(ending.length, "{cut}");
+        // Le raisonnement d'une réponse passée n'est pas relu : même prompt
+        // avec ou sans lui (`occupied_after` ne le compte pas).
+        let mut prompts = Vec::new();
+        for thinking in [Some("Let me think about it carefully. ".repeat(40)), None] {
+            let mut answer = json!({"role": "assistant", "content": "391"});
+            if let Some(thinking) = thinking {
+                answer["thinking"] = json!(thinking);
+            }
+            let raw = client::client(&url, Some(REAL_WAIT))
+                .unwrap()
+                .post(format!("{TEST_INSTANCE}/api/chat"))
+                .json(&json!({
+                    "model": "qwen3:0.6b",
+                    "stream": false,
+                    "think": false,
+                    "options": {"num_ctx": 4096, "num_predict": 1},
+                    "messages": [
+                        {"role": "user", "content": "What is 17*23?"},
+                        answer,
+                        {"role": "user", "content": "Thanks."},
+                    ],
+                }))
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap();
+            prompts.push(raw["prompt_eval_count"].as_u64().unwrap());
+        }
+        assert_eq!(prompts[0], prompts[1], "{prompts:?}");
+        assert!(ending.counts.is_some_and(|(prompt, _)| prompt > 3), "{cut}");
+
+        let (store, engine) = (Store::open_in_memory().unwrap(), ChatEngine::default());
+        let real = || Server {
+            url: TEST_INSTANCE.into(),
+            context_length: 4096,
+            keep_alive: 0,
+        };
+        let mut used = Vec::new();
+        let mut chat_id = None;
+        for _ in 0..2 {
+            let (channel, recorder) = recorder();
+            let ask = request(
+                chat_id.as_deref(),
+                "qwen3:0.6b",
+                Some(Think::Enabled(false)),
+            );
+            send(&store, &engine, &Staging::default(), real(), ask, &channel)
+                .await
+                .unwrap();
+            let events = recorder.events();
+            assert_eq!(events.last().unwrap()["type"], json!("done"), "{events:?}");
+            let context = events.iter().find(|e| e["type"] == "context").unwrap();
+            assert_eq!(context["size"], json!(4096));
+            used.push(context["used"].as_i64().unwrap());
+            if chat_id.is_none() {
+                chat_id = Some(recorder.chat_id());
+            }
+        }
+        // La deuxième requête renvoie tout l'échange précédent.
+        assert!(used[1] > used[0] + 8, "{used:?}");
+        let chat_id = chat_id.unwrap();
+        let compaction = compact_chat(&store, &engine, real(), &chat_id, "qwen3:0.6b")
+            .await
+            .unwrap();
+        assert!(!compaction.summary.trim().is_empty());
+        let (channel, recorder) = recorder();
+        let ask = request(Some(&chat_id), "qwen3:0.6b", Some(Think::Enabled(false)));
+        send(&store, &engine, &Staging::default(), real(), ask, &channel)
+            .await
+            .unwrap();
+        assert_eq!(recorder.events().last().unwrap()["type"], json!("done"));
+        assert!(saved(&store, &chat_id).context.is_some());
+    }
+
     #[tokio::test]
     #[ignore = "instance Ollama de test : scripts/test-ollama.sh start"]
     async fn contract_images_and_vision() {
