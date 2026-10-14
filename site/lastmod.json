@@ -1,15 +1,15 @@
 {
   "fr/": {
-    "hash": "bfbbe0ca0342e6a0",
-    "date": "2026-10-13"
+    "hash": "b16cfd1fcfa32c67",
+    "date": "2026-10-14"
   },
   "en/": {
-    "hash": "5012ffac5e10fd69",
-    "date": "2026-10-13"
+    "hash": "4e8db9ae1384f002",
+    "date": "2026-10-14"
   },
   "es/": {
-    "hash": "0a38e99367495199",
-    "date": "2026-10-13"
+    "hash": "5966942c8362fa77",
+    "date": "2026-10-14"
   },
   "fr/contact/": {
     "hash": "71918738c6f42f94",
@@ -36,16 +36,16 @@
     "date": "2026-10-12"
   },
   "fr/privacy/": {
-    "hash": "06238c0d673d2ff4",
-    "date": "2026-10-13"
+    "hash": "4739ae72c9c74cb4",
+    "date": "2026-10-14"
   },
   "en/privacy/": {
-    "hash": "9b9c6a83b66503a1",
-    "date": "2026-10-13"
+    "hash": "c899079c487dcbaa",
+    "date": "2026-10-14"
   },
   "es/privacy/": {
-    "hash": "fc4015da4bdebb92",
-    "date": "2026-10-13"
+    "hash": "27b8e6a49f5b8b48",
+    "date": "2026-10-14"
   },
   "fr/conversation-ia-locale/": {
     "hash": "607c9765bff11732",
@@ -96,16 +96,16 @@
     "date": "2026-10-12"
   },
   "fr/correcteur-de-texte/": {
-    "hash": "da6b2f53757417c6",
-    "date": "2026-10-12"
+    "hash": "aa85caf2e2de8fea",
+    "date": "2026-10-14"
   },
   "en/proofreading/": {
-    "hash": "c410a51042938cab",
-    "date": "2026-10-12"
+    "hash": "3c37bc05dd996854",
+    "date": "2026-10-14"
   },
   "es/corrector-de-textos/": {
-    "hash": "5793a4040c282c89",
-    "date": "2026-10-12"
+    "hash": "04a826d40e48bcd4",
+    "date": "2026-10-14"
   },
   "fr/apprendre-avec-une-ia/": {
     "hash": "f64c1569e1ee4a00",
