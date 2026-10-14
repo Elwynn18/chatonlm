@@ -490,6 +490,7 @@ fn incoming(message: &Value) -> Option<Incoming> {
         })
         .unwrap_or_default();
     Some(Incoming {
+        id: message["id"].as_str()?.to_owned(),
         sender: Sender {
             id: author["id"].as_str()?.to_owned(),
             name: name.to_owned(),

@@ -24,7 +24,7 @@ mod relay;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -57,6 +57,10 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Début de l'identifiant des flux d'un bot dans le moteur de chat.
 pub const STREAM_PREFIX: &str = "easy-link:";
+
+/// Messages servis dont l'identifiant est retenu (voir `Shared::served`) :
+/// largement plus que ce qu'une écoute remplacée peut avoir en route.
+const SERVED_KEPT: usize = 256;
 
 /// Pourquoi un bot ne reçoit pas ses messages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -235,6 +239,9 @@ pub(crate) fn service_name(platform: Platform) -> &'static str {
 struct Live {
     /// Distingue cette écoute de la précédente (bot relancé).
     id: u64,
+    /// Jeton écouté : une écoute remplacée par une écoute du même bot (jeton
+    /// recollé, bot réactivé) sert encore les messages qu'elle a en route.
+    token: String,
     stop: watch::Sender<bool>,
     link: EasyLinkLink,
 }
@@ -268,6 +275,11 @@ pub(crate) struct Shared<H: Host> {
     pub(crate) pending: Mutex<HashMap<i64, Vec<String>>>,
     /// Dernier avis « message arrivé trop tard » par compte lié.
     pub(crate) missed: Mutex<HashMap<i64, std::time::Instant>>,
+    /// Derniers messages servis (messagerie, conversation, identifiant), les
+    /// plus anciens d'abord : un message remis à l'écoute remplacée, puis de
+    /// nouveau à la suivante (Telegram, s'il n'était pas encore acquitté),
+    /// n'est servi qu'une fois.
+    served: Mutex<VecDeque<(Platform, String, String)>>,
     closed: AtomicBool,
 }
 
@@ -294,6 +306,7 @@ impl<H: Host> EasyLink<H> {
             changing: tokio::sync::Mutex::default(),
             pending: Mutex::default(),
             missed: Mutex::default(),
+            served: Mutex::default(),
             closed: AtomicBool::new(false),
         }))
     }
@@ -472,6 +485,7 @@ impl<H: Host> Shared<H> {
                 platform,
                 Live {
                     id,
+                    token: token.to_owned(),
                     stop,
                     link: EasyLinkLink::Connecting,
                 },
@@ -483,7 +497,7 @@ impl<H: Host> Shared<H> {
         let (events, mut received) = mpsc::channel(32);
         let listener = messenger.clone();
         tauri::async_runtime::spawn(async move { listener.listen(events, stopped).await });
-        let shared = Arc::clone(self);
+        let (shared, token) = (Arc::clone(self), token.to_owned());
         tauri::async_runtime::spawn(async move {
             while let Some(event) = received.recv().await {
                 match event {
@@ -497,7 +511,13 @@ impl<H: Host> Shared<H> {
                         }
                     }
                     Event::Message(incoming) => {
-                        if !shared.is_live(platform, id) {
+                        // Écoute remplacée par celle d'un autre bot, ou bot
+                        // coupé : rien n'est servi. Remplacée par une écoute
+                        // du même bot : ce message, peut-être déjà acquitté,
+                        // ne lui sera pas remis ; il est servi ici.
+                        if !shared.serves(platform, id, &token)
+                            || !shared.first_delivery(platform, &incoming)
+                        {
                             continue;
                         }
                         // Chaque message dans sa tâche : une longue réponse ne
@@ -517,6 +537,29 @@ impl<H: Host> Shared<H> {
         if let Some(live) = self.live.lock().remove(&platform) {
             let _ = live.stop.send(true);
         }
+    }
+
+    /// Les messages de l'écoute `id` sont servis : c'est l'écoute du bot, ou
+    /// elle a été remplacée par une écoute du même jeton.
+    fn serves(&self, platform: Platform, id: u64, token: &str) -> bool {
+        self.live
+            .lock()
+            .get(&platform)
+            .is_some_and(|live| live.id == id || live.token == token)
+    }
+
+    /// Vrai la première fois que ce message est remis ; il est alors retenu.
+    fn first_delivery(&self, platform: Platform, incoming: &easy_link::Incoming) -> bool {
+        let key = (platform, incoming.channel.clone(), incoming.id.clone());
+        let mut served = self.served.lock();
+        if served.contains(&key) {
+            return false;
+        }
+        if served.len() >= SERVED_KEPT {
+            served.pop_front();
+        }
+        served.push_back(key);
+        true
     }
 
     fn is_live(&self, platform: Platform, id: u64) -> bool {

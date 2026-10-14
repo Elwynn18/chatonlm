@@ -10,7 +10,8 @@
 //!   l'app laisse passer, ce qu'un ton continu ne fait pas), `"private": false`
 //!   (message d'un groupe ou d'un serveur, que le bot doit ignorer),
 //!   `"bot": true` (auteur qui est un bot), `"age": 600` (envoyé il y a tant
-//!   de secondes) ;
+//!   de secondes), et pour Telegram `"messageId": 7` (identifiant imposé :
+//!   le même message remis de nouveau, comme après une reprise de l'écoute) ;
 //! - `GET /fake/sent` rend, dans l'ordre, ce que le bot a fait :
 //!   `[{"kind": "send" | "edit" | "typing", "channel": "…", "id": "…",
 //!   "text": "…"}]` (`id` et `text` absents pour `typing` ; `text` tel que

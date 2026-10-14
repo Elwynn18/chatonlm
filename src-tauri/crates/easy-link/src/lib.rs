@@ -78,6 +78,10 @@ pub struct Sender {
 /// Message privé reçu par le bot.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Incoming {
+    /// Identifiant du message dans sa conversation (`message_id` de Telegram,
+    /// identifiant du message chez Discord) : l'app ne sert pas deux fois un
+    /// message remis deux fois.
+    pub id: String,
     pub sender: Sender,
     /// Où répondre : à redonner tel quel à [`Messenger::send`].
     pub channel: String,

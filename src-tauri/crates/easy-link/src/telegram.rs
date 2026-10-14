@@ -434,6 +434,7 @@ fn incoming(update: &Value) -> Option<Incoming> {
         .as_str()
         .or_else(|| message["caption"].as_str());
     Some(Incoming {
+        id: message["message_id"].as_i64()?.to_string(),
         sender: Sender {
             id: from["id"].as_i64()?.to_string(),
             name: name.to_owned(),
@@ -1210,6 +1211,7 @@ mod tests {
         assert_eq!(
             message,
             Incoming {
+                id: "1".to_owned(),
                 sender: Sender {
                     id: "7".to_owned(),
                     name: "Ana Lopez".to_owned()

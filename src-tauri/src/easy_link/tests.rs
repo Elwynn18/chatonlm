@@ -240,6 +240,56 @@ impl Bench {
             .count()
     }
 
+    /// Plus grand `offset` envoyé par `getUpdates` : ce que Telegram tient
+    /// pour acquitté.
+    fn acknowledged(&self) -> i64 {
+        self.telegram
+            .requests()
+            .iter()
+            .filter(|request| request["method"] == "getUpdates")
+            .filter_map(|request| request["body"]["offset"].as_i64())
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Retient la tâche qui relaie les événements de l'écoute en cours (à sa
+    /// prochaine annonce, une coupure provoquée ici), puis fait arriver
+    /// `message` : l'écoute le reçoit et l'acquitte, l'app ne l'a pas encore
+    /// vu. Rend de quoi relâcher la tâche.
+    async fn message_in_flight(&self, message: Value) -> std::sync::mpsc::Sender<()> {
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        *self.on_changed.lock() = Some(Box::new(move || {
+            tokio::task::block_in_place(|| {
+                let _ = held.recv_timeout(Duration::from_secs(20));
+            });
+        }));
+        // L'acquittement de `/help` échoue (502) : l'écoute annonce la
+        // coupure, puis reprend.
+        self.telegram.fail_next(
+            "getUpdates",
+            502,
+            json!({ "ok": false, "error_code": 502, "description": "Bad Gateway" }),
+        );
+        self.say("/help");
+        wait_until("relais retenu", || self.on_changed.lock().is_none()).await;
+        let before = self.acknowledged();
+        self.telegram.message(message);
+        wait_until("message acquitté", || self.acknowledged() > before).await;
+        release
+    }
+
+    /// Relie de nouveau le bot Telegram, du même jeton (jeton recollé).
+    async fn relink(&self) {
+        self.service
+            .connect(Platform::Telegram, fake_telegram::TOKEN)
+            .await
+            .unwrap();
+        wait_until("nouvelle écoute connectée", || {
+            self.link_of(Platform::Telegram) == EasyLinkLink::Connected
+        })
+        .await;
+    }
+
     fn account(&self) -> crate::store::easy_link::Account {
         self.store
             .blocking(|c| saved::account(c, Platform::Telegram, ANA))
@@ -1361,4 +1411,41 @@ async fn closing_the_app_while_an_answer_is_written_stops_it() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(bench.ollama.chat_requests().len(), 1);
     assert_eq!(bench.told_count("Photo received"), 0, "{:?}", bench.told());
+}
+
+/// Le même bot est relié de nouveau (jeton recollé) pendant qu'un message est
+/// en route dans l'app : l'ancienne écoute l'a acquitté, la nouvelle ne le
+/// recevra pas. Il est servi quand même.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_in_flight_when_the_same_bot_is_relinked_is_served() {
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram_linked().await;
+    let release = bench
+        .message_in_flight(json!({ "user": ANA, "name": "Ana", "text": "in flight" }))
+        .await;
+    bench.relink().await;
+    release.send(()).unwrap();
+    bench.wait_answered(1).await;
+    let request = &bench.ollama.chat_requests()[0];
+    let last = request["messages"].as_array().unwrap().last().unwrap();
+    assert_eq!(last["content"], "in flight");
+}
+
+/// Un message remis à l'écoute remplacée, puis de nouveau à la suivante
+/// (Telegram ne l'avait pas encore tenu pour acquitté), n'est servi qu'une
+/// fois.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_delivered_again_after_relinking_is_served_once() {
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram_linked().await;
+    let message = json!({ "user": ANA, "name": "Ana", "text": "only once", "messageId": 9001 });
+    let release = bench.message_in_flight(message.clone()).await;
+    bench.relink().await;
+    bench.telegram.message(message);
+    bench.wait_answered(1).await;
+    // L'ancienne écoute remet enfin le même message.
+    release.send(()).unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(!bench.busy());
+    assert_eq!(bench.ollama.chat_requests().len(), 1);
 }

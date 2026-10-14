@@ -137,8 +137,12 @@ impl Journal {
         } else {
             json!({ "id": user, "first_name": first_name, "type": "private" })
         };
+        // Identifiant imposé : le même message remis une seconde fois.
+        let message_id = message["messageId"]
+            .as_i64()
+            .unwrap_or_else(|| self.next_message.fetch_add(1, Ordering::SeqCst));
         let mut content = json!({
-            "message_id": self.next_message.fetch_add(1, Ordering::SeqCst),
+            "message_id": message_id,
             "from": from,
             "chat": chat,
             "date": now() - message["age"].as_i64().unwrap_or(0),
