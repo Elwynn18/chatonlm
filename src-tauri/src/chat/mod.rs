@@ -73,6 +73,12 @@
 //!   officielle propre à deepseek-v3.1, modèle cloud) ; sans compte, arrêt
 //!   de l'envoi au lieu du bandeau qui bloque l'envoi (et, compte inconnu,
 //!   au lieu de l'erreur donnée au modèle) ;
+//! - pré-prompt (réglage `system_prompt`, propre à ChatonLM) : s'il n'est pas
+//!   vide, il part en premier message `system` de chaque requête `/api/chat`
+//!   de tout envoi (page, mode vocal, Easy Link), tours d'outils compris, sans
+//!   jamais être enregistré ; Ollama n'ajoute alors plus le `SYSTEM` du
+//!   Modelfile ; la consigne vocale et le résumé d'un compactage le suivent
+//!   dans le même message ;
 //! - envoi du mode conversation vocale (`voice`, propre à ChatonLM) : la
 //!   consigne vocale (réglage, sinon celle par défaut) part en premier
 //!   message `system` de chaque requête `/api/chat` de l'envoi, tours
@@ -585,13 +591,6 @@ pub async fn send_to(
         }
         sink(event);
     };
-    // Envoi vocal : consigne vocale réglée (vide : par défaut), envoyée en
-    // message système avec chaque requête, jamais enregistrée (écart à
-    // l'officiel, qui n'a pas de consigne système dans le chat).
-    let system = match &voice {
-        Some(_) => Some(voice_instructions(store).await),
-        None => None,
-    };
 
     let chat_id = match request.chat_id {
         Some(id) => id,
@@ -620,6 +619,17 @@ pub async fn send_to(
             return Err(error);
         }
     }
+
+    // Lus après `begin` : un arrêt demandé pendant la lecture n'est pas perdu.
+    // Pré-prompt réglé (vide : aucun), puis, pour un envoi vocal, consigne
+    // vocale réglée (vide : par défaut) : envoyés ensemble en message système
+    // avec chaque requête, jamais enregistrés (écart à l'officiel, qui n'a pas
+    // de consigne système dans le chat).
+    let voice_system = match &voice {
+        Some(_) => Some(voice_instructions(store).await),
+        None => None,
+    };
+    let system = joined_system([system_prompt(store).await, voice_system]);
 
     let mut reply = ReplyWriter {
         chat_id: chat_id.clone(),
@@ -752,7 +762,10 @@ async fn compact_now(
         None if !remote => counted.map(|counted| counted.usage.size),
         None => None,
     };
-    let scale = compact::calibration(counted, &sendable).unwrap_or(1.0);
+    // Message système fixe des envois suivants : le pré-prompt (une page
+    // n'envoie la consigne vocale qu'avec un message vocal).
+    let system = compact::system_tokens(system_prompt(store).await.as_deref());
+    let scale = compact::calibration(counted, &sendable, system).unwrap_or(1.0);
     let (summary, count) =
         compact::summarize(server, model, &sendable, think, images, size, scale, cancel)
             .await
@@ -769,7 +782,7 @@ async fn compact_now(
     };
     // Contexte estimé qui suit : le résumé et les messages non résumés.
     let counted =
-        size.map(|size| compact::after_compaction(&sendable, &summary, count, scale, size));
+        size.map(|size| compact::after_compaction(&sendable, &summary, count, scale, size, system));
     let id = chat_id.to_owned();
     store
         .call(move |c| chats::add_compaction(c, &id, through, &summary, false, counted, now_ms()))
@@ -822,7 +835,8 @@ struct Asking {
     think: Option<Think>,
     /// Images des pièces jointes envoyées.
     images: bool,
-    /// Message système placé en tête de chaque requête (consigne vocale).
+    /// Message système placé en tête de chaque requête (pré-prompt, puis
+    /// consigne vocale).
     system: Option<String>,
 }
 
@@ -947,14 +961,19 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
         // Occupé avant le nouveau message ; passé 80 % : compactage de ce qui
         // le précède. Un échec n'empêche pas la réponse.
         // Estimations corrigées par le compte d'Ollama, s'il y en a un.
-        let mut scale = compact::calibration(counted, &sendable).unwrap_or(compact::UNCALIBRATED);
-        let mut occupied = compact::occupied(counted, &sendable, 1, scale);
+        // Message système fixe (pré-prompt, consigne vocale) compris : le
+        // compte d'Ollama le comprend ; un compactage ne le réduit pas.
+        let system = compact::system_tokens(asking.system.as_deref());
+        let mut scale =
+            compact::calibration(counted, &sendable, system).unwrap_or(compact::UNCALIBRATED);
+        let mut occupied = compact::occupied(counted, &sendable, 1, scale, system);
         if let Some(size) = size
             && compact::needs_compaction(Some(ContextUsage {
                 used: occupied,
                 size,
             }))
             && sendable.turns.len() > 1
+            && compact::compaction_relieves(size, compact::scaled(system, scale))
         {
             // Résumé sans raisonnement si le modèle sait le couper.
             let think = accepted_think(Some(Think::Enabled(false)), details.as_ref());
@@ -974,9 +993,9 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
                         Ok(counted) => counted,
                         Err(error) => return error.into(),
                     };
-                    scale =
-                        compact::calibration(counted, &sendable).unwrap_or(compact::UNCALIBRATED);
-                    occupied = compact::occupied(counted, &sendable, 1, scale);
+                    scale = compact::calibration(counted, &sendable, system)
+                        .unwrap_or(compact::UNCALIBRATED);
+                    occupied = compact::occupied(counted, &sendable, 1, scale, system);
                 }
                 Err(Outcome::Cancelled) => return Outcome::Cancelled,
                 Err(Outcome::Failed(_, message)) => {
@@ -1101,7 +1120,8 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
             turns: sendable.turns[..kept].to_vec(),
             ids: sendable.ids[..kept].to_vec(),
         };
-        let scale = compact::calibration(counted, &before).unwrap_or(1.0);
+        let system = compact::system_tokens(asking.system.as_deref());
+        let scale = compact::calibration(counted, &before, system).unwrap_or(1.0);
         let (summary, count) = compact::summarize(
             server,
             &reply.model,
@@ -1116,7 +1136,7 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
         let through = before.ids[count - 1];
         // Contexte estimé qui suit : le résumé et les messages non résumés,
         // compté jusqu'au dernier message d'avant celui envoyé.
-        let counted = compact::after_compaction(&before, &summary, count, scale, size);
+        let counted = compact::after_compaction(&before, &summary, count, scale, size, system);
         let chat_id = reply.chat_id.clone();
         let compaction = self
             .store
@@ -1147,7 +1167,7 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
 
     /// Une requête à `/api/chat`, lue jusqu'à `done` : appels d'outils reçus
     /// pendant le tour, et fin de la réponse. Résumé du dernier compactage en
-    /// message système (après la consigne vocale) ; réponse limitée à
+    /// message système (après le pré-prompt et la consigne vocale) ; réponse limitée à
     /// `limit` jetons s'il est donné. Erreur : fin déjà décidée.
     #[allow(clippy::too_many_arguments)]
     async fn ask(
@@ -1161,10 +1181,7 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
         cancel: &mut watch::Receiver<bool>,
     ) -> Result<(Vec<StreamToolCall>, Option<Ending>), Outcome> {
         let summary = sendable.summary.as_deref().map(compact::summary_message);
-        let system = match (&asking.system, summary) {
-            (Some(voice), Some(summary)) => Some(format!("{voice}\n\n{summary}")),
-            (voice, summary) => voice.clone().or(summary),
-        };
+        let system = joined_system([asking.system.clone(), summary]);
         loop {
             reply.think_off = asking.think == Some(Think::Enabled(false));
             let mut body = stream::request_body(
@@ -1538,6 +1555,27 @@ async fn voice_instructions(store: &Store) -> String {
             crate::voice_mode::DEFAULT_INSTRUCTIONS.to_owned()
         }
     }
+}
+
+/// Pré-prompt réglé, `None` s'il est vide (fait d'espaces) ou illisible.
+async fn system_prompt(store: &Store) -> Option<String> {
+    match store
+        .call(|connection| crate::store::settings::get(connection, None))
+        .await
+    {
+        Ok(settings) => Some(settings.system_prompt).filter(|text| !text.trim().is_empty()),
+        Err(error) => {
+            eprintln!("chatonlm: system prompt not read: {error}");
+            None
+        }
+    }
+}
+
+/// Parties d'un message système, dans l'ordre, séparées par une ligne vide ;
+/// `None` sans aucune partie.
+fn joined_system(parts: impl IntoIterator<Item = Option<String>>) -> Option<String> {
+    let parts: Vec<String> = parts.into_iter().flatten().collect();
+    (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
 
 /// Place `system` en premier message de la requête.
@@ -2168,6 +2206,109 @@ mod tests {
         }));
     }
 
+    /// Pré-prompt réglé : en tête de chaque requête (tours d'outils compris),
+    /// suivi de la consigne vocale pour un envoi vocal, aussi pour un bot
+    /// d'Easy Link ; jamais enregistré ; fait d'espaces, rien n'est envoyé.
+    #[tokio::test]
+    async fn the_system_prompt_leads_every_request() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        fake.set_signed_in(true);
+        let (store, engine) = (Store::open_in_memory().unwrap(), ChatEngine::default());
+        let staging = Staging::default();
+        let set_prompt = |text: &str| {
+            let patch = crate::store::settings::SettingsPatch {
+                system_prompt: Some(text.into()),
+                ..Default::default()
+            };
+            store
+                .blocking(|connection| crate::store::settings::update(connection, patch, None))
+                .unwrap();
+        };
+        let system = |content: &str| json!({ "role": "system", "content": content });
+        set_prompt("Always answer in French.");
+
+        // Avec la recherche web : deux requêtes, le pré-prompt en tête des deux.
+        let ask = searching(None, "chatonlm-search", "Latest Ollama release?");
+        let (channel, first) = recorder();
+        send(&store, &engine, &staging, server(&fake), ask, &channel)
+            .await
+            .unwrap();
+        assert_eq!(first.events().last().unwrap()["type"], json!("done"));
+        let requests = fake.chat_requests();
+        assert_eq!(requests.len(), 2);
+        for sent in &requests {
+            assert_eq!(sent["messages"][0], system("Always answer in French."));
+            let systems = sent["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| message["role"] == "system")
+                .count();
+            assert_eq!(systems, 1);
+        }
+
+        // Envoi vocal : le pré-prompt, puis la consigne vocale.
+        let chat_id = first.chat_id();
+        let spoken = SendRequest {
+            voice: Some(VoiceSend::default()),
+            ..request(Some(&chat_id), "qwen3:0.6b", Some(Think::Enabled(false)))
+        };
+        let (channel, second) = recorder();
+        send(&store, &engine, &staging, server(&fake), spoken, &channel)
+            .await
+            .unwrap();
+        assert_one_final(&second.events());
+        let default = crate::voice_mode::DEFAULT_INSTRUCTIONS;
+        assert_eq!(
+            fake.chat_requests()[2]["messages"][0],
+            system(&format!("Always answer in French.\n\n{default}"))
+        );
+
+        // Bot d'Easy Link : même pré-prompt.
+        let remote = request(Some(&chat_id), "qwen3:0.6b", Some(Think::Enabled(false)));
+        let events = Mutex::new(Vec::new());
+        let sink = |event: ChatEvent| events.lock().push(event);
+        send_to(
+            &store,
+            &engine,
+            &staging,
+            server(&fake),
+            remote,
+            Origin::Remote,
+            &sink,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(events.lock().last(), Some(ChatEvent::Done { .. })));
+        assert_eq!(
+            fake.chat_requests()[3]["messages"][0],
+            system("Always answer in French.")
+        );
+
+        // Fait d'espaces : aucun message système.
+        set_prompt(" \n ");
+        let typed = request(Some(&chat_id), "qwen3:0.6b", Some(Think::Enabled(false)));
+        let (channel, third) = recorder();
+        send(&store, &engine, &staging, server(&fake), typed, &channel)
+            .await
+            .unwrap();
+        assert_one_final(&third.events());
+        let messages = fake.chat_requests()[4]["messages"].clone();
+        assert!(
+            messages
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|message| message["role"] != "system")
+        );
+        let chat = saved(&store, &chat_id);
+        assert!(
+            chat.messages
+                .iter()
+                .all(|message| !message.content.contains("French"))
+        );
+    }
+
     #[tokio::test]
     async fn answers_with_thinking_then_content() {
         let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
@@ -2386,6 +2527,7 @@ mod tests {
             auto_read: false,
             onboarding_done: true,
             show_uncensored: false,
+            system_prompt: String::new(),
         };
         let server = Server::from_settings(&settings);
         assert_eq!(
@@ -3074,6 +3216,26 @@ mod tests {
         let sent = fake.chat_requests().pop().unwrap();
         assert_eq!(sent["messages"].as_array().unwrap().len(), 2);
         assert_eq!(sent["messages"][0]["role"], json!("system"));
+        let summary = sent["messages"][0]["content"].as_str().unwrap().to_owned();
+
+        // Avec un pré-prompt : lui d'abord, puis le résumé, dans un seul
+        // message système.
+        let patch = crate::store::settings::SettingsPatch {
+            system_prompt: Some("Be brief.".into()),
+            ..Default::default()
+        };
+        store
+            .blocking(|c| crate::store::settings::update(c, patch, None))
+            .unwrap();
+        let last = send_context(&store, &engine, &fake, Some(&chat_id), 4096).await;
+        assert_eq!(last.last().unwrap()["type"], json!("done"));
+        let sent = fake.chat_requests().pop().unwrap();
+        let messages = sent["messages"].as_array().unwrap();
+        assert_eq!(messages.iter().filter(|m| m["role"] == "system").count(), 1);
+        assert_eq!(
+            messages[0]["content"],
+            json!(format!("Be brief.\n\n{summary}"))
+        );
     }
 
     #[tokio::test]

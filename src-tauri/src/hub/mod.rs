@@ -11,7 +11,7 @@ pub mod errors;
 mod fit;
 mod flight;
 mod gguf;
-mod hardware;
+pub mod hardware;
 mod hf;
 pub mod installed;
 pub mod manifest;

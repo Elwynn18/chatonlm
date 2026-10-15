@@ -164,12 +164,16 @@ describe("Voice mode settings", () => {
     await waitFor(() => expect(field.value).toBe(""));
   });
 
-  it("instructions typed as the default are saved empty; kept when leaving the page", async () => {
+  it("instructions typed as the default or as spaces are saved empty; kept when leaving the page", async () => {
     const { simulator, app } = setup();
     const field = await instructions();
     await waitFor(() => expect(field.placeholder).not.toBe(""));
-    // Texte par défaut recopié : rien à enregistrer.
+    // Texte par défaut recopié, ou fait d'espaces : rien à enregistrer.
     await userEvent.type(field, DEFAULT_VOICE_INSTRUCTIONS);
+    await userEvent.tab();
+    expect(patches(simulator)).toEqual([]);
+    await userEvent.clear(field);
+    await userEvent.type(field, "   ");
     await userEvent.tab();
     expect(patches(simulator)).toEqual([]);
     await userEvent.clear(field);

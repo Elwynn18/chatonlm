@@ -17,7 +17,11 @@
 //! - automatiquement avant un envoi, quand la conversation a passé 80 % du
 //!   contexte ; la réponse d'un envoi est limitée (`num_predict`) à ce qui
 //!   reste du contexte, pour ne pas laisser Ollama décaler son contexte et
-//!   perdre le début sans rien dire.
+//!   perdre le début sans rien dire ;
+//! - le message système fixe d'un envoi (pré-prompt, consigne vocale), que
+//!   le compte d'Ollama comprend, entre dans chaque estimation ; le compactage
+//!   ne le réduit pas : pas de compactage automatique quand, avec la place du
+//!   résumé, il tient déjà 80 % du contexte (il recommencerait à chaque envoi).
 
 use serde_json::json;
 use tokio::sync::watch;
@@ -84,6 +88,19 @@ pub(super) fn summary_tokens(summary: &str) -> i64 {
     tokens(&summary_message(summary)) + MESSAGE_TOKENS
 }
 
+/// Jetons estimés du message système fixe d'un envoi (pré-prompt, consigne
+/// vocale), gabarit compris ; 0 sans message.
+pub(super) fn system_tokens(system: Option<&str>) -> i64 {
+    system.map_or(0, |system| tokens(system) + MESSAGE_TOKENS)
+}
+
+/// Un compactage automatique peut-il ramener la conversation sous 80 % de
+/// `size` ? Non si le message système fixe (`system`, estimé et corrigé) et
+/// la place du résumé y suffisent déjà.
+pub(super) fn compaction_relieves(size: i64, system: i64) -> bool {
+    (system + summary_budget(Some(size))) * 5 < size * 4
+}
+
 /// Jetons estimés de ce qu'un message ajoute à la requête suivante : son
 /// texte, ses fichiers, ses appels d'outils et leurs résultats (pas son
 /// raisonnement).
@@ -108,21 +125,26 @@ pub(super) fn turn_tokens(turn: &Turn) -> i64 {
 }
 
 /// Contexte occupé avant une requête : compté jusqu'à `counted.through`
-/// (s'il est encore valable : pas avant le dernier compactage), sinon le
-/// résumé ; plus l'estimation, corrigée par `scale`, des messages suivants
-/// de `sendable`, sauf les `skip_last` derniers.
+/// (s'il est encore valable : pas avant le dernier compactage ; message
+/// système compris), sinon le résumé et le message système fixe (`system`,
+/// estimé : [`system_tokens`]) ; plus l'estimation, corrigée par `scale`,
+/// des messages suivants de `sendable`, sauf les `skip_last` derniers.
 pub(super) fn occupied(
     counted: Option<Counted>,
     sendable: &Sendable,
     skip_last: usize,
     scale: f64,
+    system: i64,
 ) -> i64 {
     let (base, after) = match counted {
         Some(counted) if counted.through >= sendable.through => {
             (counted.usage.used, counted.through)
         }
         _ => (
-            scaled(sendable.summary.as_deref().map_or(0, summary_tokens), scale),
+            scaled(
+                sendable.summary.as_deref().map_or(0, summary_tokens) + system,
+                scale,
+            ),
             sendable.through,
         ),
     };
@@ -137,19 +159,21 @@ pub(super) fn occupied(
 }
 
 /// Contexte estimé après un compactage des `count` premiers messages de
-/// `sendable` : le résumé et les messages non résumés (estimations corrigées
-/// par `scale`), compté jusqu'au dernier message de `sendable`.
+/// `sendable` : le message système fixe (`system`, estimé), le résumé et les
+/// messages non résumés (estimations corrigées par `scale`), compté jusqu'au
+/// dernier message de `sendable`.
 pub(super) fn after_compaction(
     sendable: &Sendable,
     summary: &str,
     count: usize,
     scale: f64,
     size: i64,
+    system: i64,
 ) -> Counted {
     let rest: i64 = sendable.turns[count..].iter().map(turn_tokens).sum();
     Counted {
         usage: ContextUsage {
-            used: scaled(summary_tokens(summary) + rest, scale),
+            used: scaled(system + summary_tokens(summary) + rest, scale),
             size,
         },
         through: sendable.ids.last().copied().unwrap_or(sendable.through),
@@ -188,11 +212,17 @@ fn summary_budget(size: Option<i64>) -> i64 {
 }
 
 /// Rapport entre les jetons comptés par Ollama et l'estimation des mêmes
-/// messages (le tokenizer du modèle, la langue, le code), borné entre 0,3 et
-/// 3 ; `None` sans compte valable.
-pub(super) fn calibration(counted: Option<Counted>, sendable: &Sendable) -> Option<f64> {
+/// messages, message système fixe (`system`, estimé) compris (le tokenizer
+/// du modèle, la langue, le code), borné entre 0,3 et 3 ; `None` sans compte
+/// valable.
+pub(super) fn calibration(
+    counted: Option<Counted>,
+    sendable: &Sendable,
+    system: i64,
+) -> Option<f64> {
     let counted = counted.filter(|counted| counted.through >= sendable.through)?;
-    let estimated: i64 = sendable.summary.as_deref().map_or(0, summary_tokens)
+    let estimated: i64 = system
+        + sendable.summary.as_deref().map_or(0, summary_tokens)
         + sendable
             .turns
             .iter()
@@ -409,11 +439,11 @@ mod tests {
         };
         // Compté jusqu'au message 2 ; le 3 (réponse arrêtée) estimé, le 4
         // (le nouveau message) laissé de côté.
-        assert_eq!(occupied(counted(500, 2), &chat, 1, 1.0), 500 + 116);
-        assert_eq!(occupied(counted(500, 2), &chat, 1, 0.5), 500 + 58);
+        assert_eq!(occupied(counted(500, 2), &chat, 1, 1.0, 0), 500 + 116);
+        assert_eq!(occupied(counted(500, 2), &chat, 1, 0.5, 0), 500 + 58);
         // Rien de compté (modification, ancienne conversation) : tout estimé.
-        assert_eq!(occupied(None, &chat, 1, 1.0), 3 * 116);
-        assert_eq!(occupied(None, &chat, 0, 1.0), 4 * 116);
+        assert_eq!(occupied(None, &chat, 1, 1.0, 0), 3 * 116);
+        assert_eq!(occupied(None, &chat, 0, 1.0, 0), 4 * 116);
         // Compte d'avant le dernier compactage : le résumé, puis la suite.
         let compacted = Sendable {
             summary: Some("s".repeat(90)),
@@ -423,23 +453,51 @@ mod tests {
         };
         let summary = summary_tokens(&"s".repeat(90));
         assert_eq!(
-            occupied(counted(3000, 1), &compacted, 1, 1.0),
+            occupied(counted(3000, 1), &compacted, 1, 1.0, 0),
             summary + 116
         );
-        assert_eq!(occupied(counted(300, 3), &compacted, 1, 1.0), 300);
+        assert_eq!(occupied(counted(300, 3), &compacted, 1, 1.0, 0), 300);
+        // Message système fixe : compris dans un compte, ajouté à une
+        // estimation.
+        assert_eq!(occupied(counted(500, 2), &chat, 1, 1.0, 400), 500 + 116);
+        assert_eq!(
+            occupied(None, &chat, 1, 0.5, 400),
+            scaled(400 + 3 * 116, 0.5)
+        );
+        assert_eq!(
+            occupied(counted(3000, 1), &compacted, 1, 1.0, 400),
+            400 + summary + 116
+        );
+    }
+
+    #[test]
+    fn the_fixed_system_message_is_estimated_and_never_compacted() {
+        assert_eq!(system_tokens(None), 0);
+        assert_eq!(system_tokens(Some(&"p".repeat(300))), 100 + MESSAGE_TOKENS);
+        // 4096 : 512 jetons pour le résumé ; sous 80 % (3276,8), il reste
+        // 2764 jetons au plus pour le message système.
+        assert!(compaction_relieves(4096, 0));
+        assert!(compaction_relieves(4096, 2764));
+        assert!(!compaction_relieves(4096, 2765));
+        assert!(!compaction_relieves(4096, 4000));
     }
 
     #[test]
     fn after_a_partial_compaction_the_rest_is_counted() {
         let chat = sendable(4);
         let summary = "s".repeat(90);
-        let all = after_compaction(&chat, &summary, 4, 1.0, 4096);
+        let all = after_compaction(&chat, &summary, 4, 1.0, 4096, 0);
         assert_eq!(all.usage.used, summary_tokens(&summary));
         assert_eq!(all.through, 4);
         // Deux messages non résumés (116 jetons chacun), corrigés de moitié.
-        let part = after_compaction(&chat, &summary, 2, 0.5, 4096);
+        let part = after_compaction(&chat, &summary, 2, 0.5, 4096, 0);
         assert_eq!(part.usage.used, scaled(summary_tokens(&summary) + 232, 0.5));
         assert_eq!(part.through, 4);
+        let with_system = after_compaction(&chat, &summary, 4, 0.5, 4096, 400);
+        assert_eq!(
+            with_system.usage.used,
+            scaled(400 + summary_tokens(&summary), 0.5)
+        );
     }
 
     #[test]
@@ -481,9 +539,11 @@ mod tests {
             })
         };
         // Messages 1 et 2 estimés à 232 jetons, comptés 116 par Ollama.
-        assert_eq!(calibration(counted(116, 2), &chat), Some(0.5));
-        assert_eq!(calibration(counted(10_000, 2), &chat), Some(3.0));
-        assert_eq!(calibration(None, &chat), None);
+        assert_eq!(calibration(counted(116, 2), &chat, 0), Some(0.5));
+        assert_eq!(calibration(counted(10_000, 2), &chat, 0), Some(3.0));
+        assert_eq!(calibration(None, &chat, 0), None);
+        // Le compte d'Ollama comprend le message système : l'estimation aussi.
+        assert_eq!(calibration(counted(232, 2), &chat, 232), Some(0.5));
         assert_eq!(scaled(116, 0.75), 87);
     }
 }

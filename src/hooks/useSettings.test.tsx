@@ -38,6 +38,7 @@ const SAVED: Settings = {
   autoRead: false,
   onboardingDone: true,
   showUncensored: false,
+  systemPrompt: "",
 };
 
 function newClient() {

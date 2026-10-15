@@ -10,7 +10,12 @@
 //   dans le chargement et le chat suivants ; liste des modèles chargés
 //   (processeur, contexte, échéance ; chatonlm-split en partie sur CPU),
 //   Unload, Load depuis la liste, « Always » → « Stays loaded », Unload all →
-//   « No models are loaded. » ;
+//   « No models are loaded. » ; jauge de la VRAM (machine injectée de 24 Gio
+//   dont 22 libres) : une part par modèle en VRAM, autres usages, part de
+//   chatonlm-split en mémoire vive, pastilles des lignes ;
+// - pré-prompt : tapé dans l'onglet Models, enregistré en quittant le champ
+//   (vraie touche Tab), envoyé en premier message système du chat suivant,
+//   jamais affiché ni enregistré dans la conversation ;
 // - préchargement : interrupteur → modèle choisi chargé aussitôt, autre
 //   modèle choisi → chargé au démarrage de la page ; coupé → plus rien ;
 // - aucune violation de la CSP ni erreur ou avertissement dans la console.
@@ -347,6 +352,40 @@ try {
         /2 models loaded · 2\.0 GB in memory/,
       );
 
+      // Jauge de la VRAM : 2 Gio occupés d'après la machine injectée, dont
+      // 1,75 pour les modèles (un quart de chatonlm-split en mémoire vive).
+      const gauge = await waitUntil(
+        () =>
+          driver.execute(
+            `const gauge = document.querySelector("[data-testid=vram-gauge]");
+             return gauge && {
+               usage: gauge.querySelector("[data-testid=vram-usage]").textContent,
+               meter: gauge.querySelector("[role=meter]").getAttribute("aria-valuetext"),
+               parts: [...gauge.querySelectorAll("[data-testid=vram-model]")]
+                 .map((part) => [part.dataset.model, part.style.width]),
+               other: gauge.querySelector("[data-testid=vram-other]")?.style.width ?? null,
+               free: gauge.querySelector("[data-testid=vram-free]").textContent,
+               spilled: gauge.querySelector("[data-testid=vram-spilled]")?.textContent ?? null,
+               swatches: document.querySelectorAll("[data-testid=loaded-model] [data-testid=vram-swatch]").length,
+             };`,
+          ),
+        "jauge de la VRAM",
+      );
+      assert.equal(gauge.usage, "2.0 GB of 24 GB used");
+      assert.equal(gauge.meter, "2.0 GB of 24 GB used");
+      assert.deepEqual(gauge.parts.map(([model]) => model).sort(), [
+        "chatonlm-slowload:latest",
+        "chatonlm-split:latest",
+      ]);
+      assert.ok(gauge.other, "autres usages montrés");
+      assert.equal(gauge.free, "Free: 22 GB");
+      assert.equal(
+        gauge.spilled,
+        "256 MB doesn't fit in VRAM: that part runs from system memory, more slowly.",
+      );
+      assert.equal(gauge.swatches, 2);
+      await driver.screenshot(".tools/shots/models-vram.png");
+
       // Unload d'une ligne.
       await driver.click(
         await driver.find(
@@ -398,13 +437,40 @@ try {
       assert.equal((await lastLoad("qwen3.5:0.8b")).keep_alive, -1);
       await driver.screenshot(".tools/shots/models-tab.png");
 
-      // Le chat suivant porte la durée réglée.
+      // Pré-prompt : tapé, enregistré en quittant le champ (vraie touche Tab).
+      const PROMPT = "Always answer like a cat.";
+      await driver.type(
+        await driver.waitFor("[data-testid=system-prompt]"),
+        PROMPT,
+      );
+      await pressKeys("tab");
+      await waitUntil(
+        async () =>
+          (await driver.invoke("get_settings")).systemPrompt === PROMPT,
+        "pré-prompt enregistré",
+      );
+
+      // Le chat suivant porte la durée réglée et le pré-prompt.
       await toChat(driver);
       await useModel(driver, "chatonlm-fast");
       await send(driver, "Keep me");
       await waitIdle(driver);
-      assert.equal((await requestsOf("chatonlm-fast")).at(-1).keep_alive, -1);
+      const sent = (await requestsOf("chatonlm-fast")).at(-1);
+      assert.equal(sent.keep_alive, -1);
+      assert.deepEqual(sent.messages[0], { role: "system", content: PROMPT });
+      assert.equal(
+        sent.messages.filter((message) => message.role === "system").length,
+        1,
+      );
       assert.equal((await lastLoad("chatonlm-fast")).keep_alive, -1);
+      // Ni affiché ni enregistré dans la conversation.
+      assert.equal(
+        await driver.execute(
+          "return document.body.textContent.includes(arguments[0])",
+          [PROMPT],
+        ),
+        false,
+      );
 
       // Unload all.
       await openModelsTab(driver);

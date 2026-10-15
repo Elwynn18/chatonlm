@@ -70,6 +70,7 @@ import type { EasyLinkPlatform } from "@/bindings/EasyLinkPlatform";
 import type { Message } from "@/bindings/Message";
 import type { ModelDetails } from "@/bindings/ModelDetails";
 import type { ModelInfo } from "@/bindings/ModelInfo";
+import type { MachineMemory } from "@/bindings/MachineMemory";
 import type { ModelsLocation } from "@/bindings/ModelsLocation";
 import type { RunningModel } from "@/bindings/RunningModel";
 import type { ServerState } from "@/bindings/ServerState";
@@ -167,6 +168,8 @@ const THEMES: readonly Theme[] = ["system", "light", "dark"];
 
 /** Durées avant déchargement acceptées (KEEP_ALIVES du moteur), en secondes. */
 const KEEP_ALIVES = [0, 60, 300, 900, 1800, 3600, 14400, -1];
+/** `MAX_SYSTEM_PROMPT_CHARS` du moteur (store/settings.rs). */
+const MAX_SYSTEM_PROMPT_CHARS = 10_000;
 
 /** Taille d'un modèle en mémoire, comme le faux serveur : 1 Gio. */
 export const RUNNING_SIZE = 1024 ** 3;
@@ -392,6 +395,12 @@ export interface FakeBackend {
    */
   running: RunningModel[];
   /**
+   * Mémoire de la machine du serveur (machine_memory, jauge de la VRAM) ;
+   * null : serveur distant. Par défaut, une carte de 24 Go dont la mémoire
+   * libre est inconnue (pas d'autres usages).
+   */
+  machine: MachineMemory | null;
+  /**
    * Échecs forcés de running_models, load_model (par modèle) et
    * unload_model / unload_all_models (null : réponse normale).
    */
@@ -493,7 +502,8 @@ export function defaultFolderCheck(path: string): FolderCheck {
  * dictation_bind_shortcut, dictation_configure_shortcut, speech_models,
  * speech_downloads, speech_download, speech_cancel_download,
  * speech_dismiss_download, speech_delete_model (src/test/dictation.ts),
- * running_models, load_model, unload_model, unload_all_models, quit_app,
+ * running_models, machine_memory, load_model, unload_model,
+ * unload_all_models, quit_app,
  * proofread_run, proofread_cancel, proofread_last_selection et shortcuts_*
  * (src/test/proofread.ts), study_* (src/test/study.ts), read_aloud,
  * read_aloud_stop, read_aloud_state et voice_* (src/test/tts.ts),
@@ -568,6 +578,7 @@ export function fakeBackend(
       autoRead: false,
       onboardingDone: true,
       showUncensored: false,
+      systemPrompt: "",
     },
     settingsErrors: { get: null, update: null },
     details: new Map<string, ModelDetails | AppError>(
@@ -611,6 +622,17 @@ export function fakeBackend(
     accountErrors: { status: null, signIn: null, signOut: null },
     cloud: { disabled: false, source: "none" },
     running: [],
+    machine: {
+      gpus: [
+        {
+          name: "NVIDIA GeForce RTX 3090",
+          vramTotal: 24 * 1024 ** 3,
+          vramFree: null,
+        },
+      ],
+      ramTotal: 64 * 1024 ** 3,
+      ramAvailable: 48 * 1024 ** 3,
+    },
     runningErrors: { list: null, load: new Map(), unload: null },
     platform: "linux",
     menuEntry: { available: false, enabled: true },
@@ -943,6 +965,14 @@ export function fakeBackend(
     ) {
       throw invalid(`unsupported keep alive: ${patch.keepAlive}`);
     }
+    if (
+      patch.systemPrompt !== undefined &&
+      [...patch.systemPrompt].length > MAX_SYSTEM_PROMPT_CHARS
+    ) {
+      throw invalid(
+        `the system prompt holds at most ${MAX_SYSTEM_PROMPT_CHARS} characters`,
+      );
+    }
     const settings: Settings = {
       ...backend.settings,
       ...patch,
@@ -964,6 +994,7 @@ export function fakeBackend(
     return settings;
   });
   simulator.handle("list_models", () => backend.models.map(modelInfo));
+  simulator.handle("machine_memory", () => backend.machine);
   simulator.handle("running_models", () => {
     if (backend.runningErrors.list) throw backend.runningErrors.list;
     return backend.running;

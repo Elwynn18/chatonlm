@@ -305,6 +305,7 @@ mod tests {
             auto_read: false,
             onboarding_done: true,
             show_uncensored: false,
+            system_prompt: String::new(),
         }
     }
 

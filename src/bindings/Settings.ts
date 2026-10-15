@@ -80,4 +80,11 @@ onboardingDone: boolean,
  * d'un modèle officiel) ; masquée par défaut. « Reset to defaults » n'y
  * touche pas.
  */
-showUncensored: boolean, };
+showUncensored: boolean, 
+/**
+ * Pré-prompt : message système envoyé en tête de chaque requête des
+ * conversations (page, mode vocal, Easy Link), jamais enregistré dans
+ * l'historique ; vide = aucun (celui du modèle). « Reset to defaults »
+ * n'y touche pas.
+ */
+systemPrompt: string, };

@@ -5,7 +5,7 @@
 // la réflexion des modèles pour les messages vocaux. La deuxième, la
 // consigne vocale ajoutée aux seules requêtes vocales (vide : celle par
 // défaut, montrée en indication dans le champ ; enregistrée en quittant le
-// champ, la page ou avant Ctrl+Q ; bouton de remise à zéro). La troisième
+// champ, la page ou avant Ctrl+Q ; bouton de remise à zéro : PromptField.tsx). La troisième
 // mène aux réglages de la transcription (onglet Dictation) et aux voix
 // (ModelHub › Voices). Chaque changement est enregistré aussitôt (« Saved »
 // de la page, erreur sous la ligne) ; table à part : « Reset to defaults »
@@ -18,27 +18,19 @@ import {
   HandRaisedIcon,
   LightBulbIcon,
   MicrophoneIcon,
-  PencilSquareIcon,
   SpeakerWaveIcon,
 } from "@heroicons/react/20/solid";
 import { Link } from "@tanstack/react-router";
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useId, useState } from "react";
 import type { VoiceModeSettingsPatch } from "@/bindings/VoiceModeSettingsPatch";
 import type { VoicePause } from "@/bindings/VoicePause";
 import type { VoiceTurnMode } from "@/bindings/VoiceTurnMode";
+import { PromptField } from "@/components/settings/PromptField";
 import { Choice, Row, RowError, Switch } from "@/components/settings/Row";
 import { useVoiceModeInfo, useVoiceModeSettings } from "@/hooks/useVoiceMode";
 import { useT } from "@/i18n";
 import { MAX_PROMPT_CHARS } from "@/lib/dictation";
 import { errorMessage } from "@/lib/ipc";
-import { onBeforeQuit } from "@/lib/quit";
 
 const LINK =
   "rounded-md text-sm/6 text-zinc-700 underline underline-offset-2 outline-none hover:text-zinc-950 focus-visible:ring-2 focus-visible:ring-accent-fg dark:text-zinc-300 dark:hover:text-white";
@@ -236,11 +228,17 @@ export function VoiceMode({
             >
               {t("settings.voiceMode.instructions.title")}
             </h2>
-            <InstructionsRow
+            <PromptField
               id={ids.instructions}
               descriptionId={ids.instructionsDescription}
+              data-voice-mode-instructions=""
+              label={t("settings.voiceMode.instructions.label")}
+              description={t("settings.voiceMode.instructions.description")}
               saved={settings.instructions}
-              defaultInstructions={info.data?.defaultInstructions ?? ""}
+              defaultText={info.data?.defaultInstructions ?? ""}
+              placeholder={info.data?.defaultInstructions ?? ""}
+              maxLength={MAX_PROMPT_CHARS}
+              resetLabel={t("settings.voiceMode.instructions.reset")}
               onSave={(instructions) => save("instructions", { instructions })}
               error={errors.instructions}
             />
@@ -289,106 +287,5 @@ export function VoiceMode({
         </div>
       </section>
     </div>
-  );
-}
-
-/**
- * Consigne vocale, enregistrée en quittant le champ, et aussi quand la carte
- * disparaît (autre page) ou avant Ctrl+Q sans que le champ soit quitté ; vide
- * ou identique à celle par défaut, le moteur garde celle par défaut (montrée
- * en indication). Un brouillon refusé reste dans le champ.
- */
-function InstructionsRow({
-  id,
-  descriptionId,
-  saved,
-  defaultInstructions,
-  onSave,
-  error,
-}: {
-  id: string;
-  descriptionId: string;
-  /** Consigne enregistrée ; vide = par défaut. */
-  saved: string;
-  defaultInstructions: string;
-  onSave: (instructions: string) => Promise<boolean>;
-  error?: string;
-}) {
-  const t = useT();
-  // null : pas de modification en cours, le champ montre l'enregistrée.
-  const [draft, setDraft] = useState<string | null>(null);
-  const value = draft ?? saved;
-  // Texte tapé pas encore envoyé, lu hors du rendu (démontage, Ctrl+Q).
-  const unsavedRef = useRef<string | null>(null);
-  const latestRef = useRef({ saved, defaultInstructions, onSave });
-  useEffect(() => {
-    latestRef.current = { saved, defaultInstructions, onSave };
-  });
-  /** Envoie le texte tapé s'il diffère de l'enregistré ; faux si refusé. */
-  const flush = useCallback(async () => {
-    const text = unsavedRef.current;
-    if (text === null) return true;
-    unsavedRef.current = null;
-    const latest = latestRef.current;
-    const cleaned =
-      text.trim() === "" || text.trim() === latest.defaultInstructions.trim()
-        ? ""
-        : text;
-    if (cleaned === latest.saved) return true;
-    const done = await latest.onSave(cleaned);
-    // Refusé : à renvoyer, sauf si un texte plus récent attend déjà.
-    if (!done) unsavedRef.current ??= text;
-    return done;
-  }, []);
-  useEffect(() => onBeforeQuit(flush), [flush]);
-  // Démontage (autre page) sans quitter le champ : envoyé quand même.
-  useEffect(() => () => void flush(), [flush]);
-  const commit = async () => {
-    const text = unsavedRef.current;
-    if (await flush()) {
-      setDraft((current) => (current === text ? null : current));
-    }
-  };
-  return (
-    <Row
-      icon={PencilSquareIcon}
-      label={
-        <label htmlFor={id}>{t("settings.voiceMode.instructions.label")}</label>
-      }
-      description={t("settings.voiceMode.instructions.description")}
-      descriptionId={descriptionId}
-    >
-      <textarea
-        id={id}
-        data-voice-mode-instructions=""
-        aria-describedby={descriptionId}
-        rows={6}
-        maxLength={MAX_PROMPT_CHARS}
-        spellCheck={false}
-        value={value}
-        placeholder={defaultInstructions}
-        onChange={(event) => {
-          setDraft(event.target.value);
-          unsavedRef.current = event.target.value;
-        }}
-        onBlur={() => void commit()}
-        className="mt-3 block w-full resize-y rounded-lg border border-neutral-300 bg-white px-3 py-2 font-mono text-[13px]/5 text-neutral-900 outline-none placeholder:text-neutral-400 focus-visible:border-accent-fg focus-visible:ring-2 focus-visible:ring-accent-fg/40 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder:text-neutral-500"
-      />
-      <div className="mt-2">
-        <button
-          type="button"
-          className={SMALL_BUTTON}
-          disabled={saved === "" && (draft === null || draft === "")}
-          onClick={() => {
-            unsavedRef.current = null;
-            setDraft(null);
-            if (saved !== "") void onSave("");
-          }}
-        >
-          {t("settings.voiceMode.instructions.reset")}
-        </button>
-      </div>
-      <RowError message={error} />
-    </Row>
   );
 }

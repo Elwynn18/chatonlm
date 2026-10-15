@@ -11,8 +11,9 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::process::Command;
+use ts_rs::TS;
 
 use super::fit;
 use super::types::{HubGpu, HubHardware};
@@ -42,14 +43,17 @@ mod os;
 
 /// Délai de `nvidia-smi`.
 const NVIDIA_TIMEOUT: Duration = Duration::from_secs(3);
-/// Durée de validité d'une détection.
-const KEEP: Duration = Duration::from_secs(60);
+/// Durée de validité d'une détection pour le ModelHub.
+pub const KEEP: Duration = Duration::from_secs(60);
 const MIB: u64 = 1024 * 1024;
 
-/// Machine détectée, sans le contexte (qui dépend des réglages).
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+/// Machine détectée, sans le contexte (qui dépend des réglages) ; aussi la
+/// mémoire montrée par la jauge de VRAM des réglages (`MachineMemory`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export, rename = "MachineMemory")]
 pub struct Machine {
+    /// Vide : pas de GPU reconnu (calcul sur le processeur).
     pub gpus: Vec<HubGpu>,
     pub ram_total: u64,
     pub ram_available: u64,
@@ -74,17 +78,19 @@ impl Machine {
     }
 }
 
-/// Dernière détection, gardée [`KEEP`].
+/// Dernière détection, gardée selon l'appelant (`machine_within`).
 #[derive(Default)]
 pub struct Detector {
     last: tokio::sync::Mutex<Option<(Instant, Option<Machine>)>>,
 }
 
 impl Detector {
-    pub async fn machine(&self) -> Option<Machine> {
+    /// Détection d'au plus `keep` : [`KEEP`] pour le ModelHub ; la jauge de
+    /// VRAM la veut récente (mémoire libre qui suit les chargements).
+    pub async fn machine_within(&self, keep: Duration) -> Option<Machine> {
         let mut last = self.last.lock().await;
         if let Some((at, machine)) = last.as_ref()
-            && at.elapsed() < KEEP
+            && at.elapsed() < keep
         {
             return machine.clone();
         }

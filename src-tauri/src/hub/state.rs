@@ -17,7 +17,7 @@ use super::catalog;
 use super::curation::CURATION;
 use super::flight::Flights;
 use super::gguf::{self, GgufFacts};
-use super::hardware::Detector;
+use super::hardware::{Detector, Machine};
 use super::hf::{Expect, Failure, Hf, Reply, Request};
 use super::names;
 use super::quant;
@@ -30,6 +30,9 @@ use super::types::{
 use crate::ollama::client::is_local;
 use crate::store::now_ms;
 
+/// Âge maximal de la mémoire montrée par la jauge de VRAM (relue toutes
+/// les 2 s tant que l'onglet est affiché).
+const MEMORY_KEEP: Duration = Duration::from_secs(1);
 const HOUR: i64 = 60 * 60 * 1000;
 const DAY: i64 = 24 * HOUR;
 
@@ -215,6 +218,10 @@ pub struct Catalog {
     cache: Cache,
     flights: Flights,
     detector: Detector,
+    /// Détection à part pour la jauge de VRAM : ses relectures fréquentes
+    /// (et un échec passager de `nvidia-smi`) ne changent pas celle du
+    /// ModelHub, gardée une minute.
+    memory_detector: Detector,
     /// Délais des listes et des fiches (README, en-tête GGUF compris).
     list_timeout: Duration,
     detail_timeout: Duration,
@@ -255,6 +262,7 @@ impl Catalog {
             cache: Cache::new(dir),
             flights: Flights::default(),
             detector: Detector::default(),
+            memory_detector: Detector::default(),
             list_timeout: LIST_TIMEOUT,
             detail_timeout: DETAIL_TIMEOUT,
         }
@@ -822,14 +830,35 @@ impl Catalog {
     /// Machine du serveur : `None` pour un serveur distant. `context` : réglage
     /// de ChatonLM (0 : celui d'Ollama d'après la VRAM).
     pub async fn hardware(&self, server_url: &str, context: u32) -> Option<HubHardware> {
+        let machine = self
+            .machine(&self.detector, server_url, super::hardware::KEEP)
+            .await?;
+        Some(machine.with_context(context))
+    }
+
+    /// Mémoire de la machine du serveur pour la jauge de VRAM : détection
+    /// d'au plus une seconde ; `None` pour un serveur distant.
+    pub async fn memory(&self, server_url: &str) -> Option<Machine> {
+        self.machine(&self.memory_detector, server_url, MEMORY_KEEP)
+            .await
+    }
+
+    /// Machine du serveur local détectée par `detector` depuis au plus `keep`
+    /// (celle injectée par `CHATONLM_E2E_HARDWARE` dans les essais).
+    async fn machine(
+        &self,
+        detector: &Detector,
+        server_url: &str,
+        keep: Duration,
+    ) -> Option<Machine> {
         #[cfg(any(debug_assertions, feature = "e2e"))]
         if let Some(injected) = super::hardware::injected() {
-            return injected.map(|machine| machine.with_context(context));
+            return injected;
         }
         if !Url::parse(server_url).is_ok_and(|url| is_local(&url)) {
             return None;
         }
-        Some(self.detector.machine().await?.with_context(context))
+        detector.machine_within(keep).await
     }
 }
 

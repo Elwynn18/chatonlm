@@ -22,6 +22,7 @@ import type { HubDownload } from "@/bindings/HubDownload";
 import type { HubDownloadRequest } from "@/bindings/HubDownloadRequest";
 import type { HubFilters } from "@/bindings/HubFilters";
 import type { HubHardware } from "@/bindings/HubHardware";
+import type { MachineMemory } from "@/bindings/MachineMemory";
 import type { HubHome } from "@/bindings/HubHome";
 import type { HubInstalled } from "@/bindings/HubInstalled";
 import type { HubList } from "@/bindings/HubList";
@@ -542,6 +543,14 @@ export function hubReadme(id: string, revision: string): Promise<HubReadme> {
 /** Mémoire de la machine du serveur ; null pour un serveur distant. */
 export function hubHardware(): Promise<HubHardware | null> {
   return invoke<HubHardware | null>("hub_hardware");
+}
+
+/**
+ * Mémoire de la machine du serveur pour la jauge de VRAM des réglages,
+ * détectée depuis au plus une seconde ; null pour un serveur distant.
+ */
+export function machineMemory(): Promise<MachineMemory | null> {
+  return invoke<MachineMemory | null>("machine_memory");
 }
 
 /**

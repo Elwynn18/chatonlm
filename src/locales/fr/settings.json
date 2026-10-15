@@ -254,6 +254,22 @@
       "label": "Afficher les modèles non censurés",
       "description": "Ajoute au ModelHub une rubrique « Non censurés » : des versions communautaires de modèles officiels qui ne refusent plus de répondre. Elles peuvent écrire des contenus choquants ou dangereux, et ChatonLM ne les vérifie pas."
     },
+    "systemPrompt": {
+      "title": "Consignes",
+      "label": "Pré-prompt",
+      "description": "Envoyé au modèle au début de chaque conversation, messages vocaux et bots d'Easy Link compris, sans jamais apparaître dans la conversation. Il prend la place du prompt système intégré au modèle. Laissez vide pour n'en envoyer aucun.",
+      "placeholder": "Par exemple : Réponds en français, brièvement et simplement.",
+      "clear": "Effacer"
+    },
+    "vram": {
+      "label": "VRAM",
+      "usage": "{used} utilisés sur {total}",
+      "otherSize": "Autres usages : {size}",
+      "freeSize": "Libre : {size}",
+      "noGpu": "Aucune carte graphique détectée : les modèles tournent sur le processeur, en mémoire vive.",
+      "unknown": "La VRAM de ce serveur Ollama ne peut pas être lue.",
+      "spilled": "{size} ne tiennent pas en VRAM : cette part tourne en mémoire vive, plus lentement."
+    },
     "loaded": {
       "title": "Modèles chargés",
       "reachError": "Impossible de joindre Ollama : {message}",

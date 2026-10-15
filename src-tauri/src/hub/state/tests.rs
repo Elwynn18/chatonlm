@@ -1004,6 +1004,8 @@ async fn a_remote_server_has_no_machine() {
     let (catalog, _dir) = open_catalog("http://127.0.0.1:1");
     assert_eq!(catalog.hardware("http://192.168.1.20:11434", 0).await, None);
     assert_eq!(catalog.hardware("not an address", 0).await, None);
+    assert_eq!(catalog.memory("http://192.168.1.20:11434").await, None);
+    assert_eq!(catalog.memory("not an address").await, None);
 }
 
 /// Manifeste du registre de Hugging Face, comme le demande Ollama :

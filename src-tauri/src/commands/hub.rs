@@ -6,6 +6,7 @@ use tauri::State;
 use super::models::server_url;
 use crate::error::AppResult;
 use crate::hub::downloads::HubDownloads;
+use crate::hub::hardware::Machine;
 use crate::hub::installed;
 use crate::hub::state::Catalog;
 use crate::hub::types::{
@@ -99,6 +100,18 @@ pub async fn hub_hardware(
     store: State<'_, Store>,
 ) -> AppResult<Option<HubHardware>> {
     machine(&catalog, &store).await
+}
+
+/// Mémoire de la machine du serveur pour la jauge de VRAM des réglages
+/// (propre à ChatonLM), détectée depuis au plus une seconde ; `None` pour un
+/// serveur distant.
+#[tauri::command]
+pub async fn machine_memory(
+    catalog: State<'_, Catalog>,
+    store: State<'_, Store>,
+) -> AppResult<Option<Machine>> {
+    let settings = crate::ollama::target::display_settings(&store).await?;
+    Ok(catalog.memory(&settings.effective_server_url).await)
 }
 
 /// Lance (ou met en file) un téléchargement depuis le serveur réglé ; sans

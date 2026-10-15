@@ -1,12 +1,15 @@
 // Onglet « Models » des réglages (propre à ChatonLM : l'officiel n'a ni
-// réglage de chargement ni liste des modèles en mémoire), en deux cartes.
+// réglage de chargement, ni pré-prompt, ni liste des modèles en mémoire), en
+// trois cartes.
 // La première règle le chargement : durée avant déchargement (keep_alive
 // envoyé par ChatonLM avec chaque requête qui charge un modèle, le service
 // d'Ollama n'est pas modifié) et préchargement du modèle choisi, puis la
 // rubrique « Uncensored » du ModelHub (masquée par défaut) ; chaque
 // changement est enregistré aussitôt (« Saved » de la page, erreur sous la
-// ligne), « Reset to defaults » (General) n'y touche pas. La seconde montre
-// les modèles en mémoire (/api/ps, relu toutes les 2 s tant que l'onglet est
+// ligne), « Reset to defaults » (General) n'y touche pas. La deuxième règle le
+// pré-prompt, envoyé en message système au début de chaque conversation
+// (PromptField.tsx : enregistré en quittant le champ). La troisième montre
+// d'abord la jauge de la VRAM (VramGauge.tsx), puis les modèles en mémoire (/api/ps, relu toutes les 2 s tant que l'onglet est
 // affiché et après chaque action), avec Unload et Unload all, et charge un
 // modèle installé (Load). Le bouton d'une action en cours reste focalisable
 // (aria-disabled) ; une ligne déchargée passe le focus à la ligne suivante
@@ -23,9 +26,12 @@ import { useCallback, useId, useRef, useState } from "react";
 import type { RunningModel } from "@/bindings/RunningModel";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import { ModelLabel } from "@/components/ModelLabel";
+import { PromptField } from "@/components/settings/PromptField";
 import { Row, RowError, Switch } from "@/components/settings/Row";
 import { Slider } from "@/components/settings/Slider";
+import { VramGauge } from "@/components/settings/VramGauge";
 import { useFocusRescue } from "@/hooks/useFocusRescue";
+import { machineMemoryKey } from "@/hooks/useMachineMemory";
 import { useModels } from "@/hooks/useModels";
 import { forgetPreloads } from "@/hooks/usePreloadModel";
 import { runningModelsKey, useRunningModels } from "@/hooks/useRunningModels";
@@ -46,6 +52,7 @@ import {
   runningDetails,
   sameRunningModel,
 } from "@/lib/runningModels";
+import { modelShade } from "@/lib/vram";
 
 const MUTED = "text-sm/6 text-zinc-500 dark:text-zinc-400";
 const SELECT =
@@ -64,7 +71,10 @@ function keepAliveOptions(t: TFunction) {
   }));
 }
 
-type Field = "keepAlive" | "preloadModel" | "showUncensored";
+type Field = "keepAlive" | "preloadModel" | "showUncensored" | "systemPrompt";
+
+/** Longueur maximale du pré-prompt (`MAX_SYSTEM_PROMPT_CHARS` du moteur). */
+const MAX_SYSTEM_PROMPT_CHARS = 10_000;
 
 /**
  * Échec d'une action, montré tant que son modèle est dans le même état :
@@ -96,19 +106,24 @@ export function Models({
     preloadDescription: useId(),
     uncensored: useId(),
     uncensoredDescription: useId(),
+    systemPrompt: useId(),
+    systemPromptDescription: useId(),
+    systemPromptTitle: useId(),
   };
 
   if (!settings) return null;
 
+  /** Enregistre `patch` ; faux s'il est refusé (erreur sous la ligne). */
   const save = async (field: Field, patch: SettingsPatch) => {
     setErrors((current) => ({ ...current, [field]: undefined }));
     try {
       await setSettings(patch);
     } catch (cause) {
       setErrors((current) => ({ ...current, [field]: errorMessage(cause) }));
-      return;
+      return false;
     }
     onSaved();
+    return true;
   };
 
   const saveKeepAlive = async (keepAlive: number) => {
@@ -202,6 +217,34 @@ export function Models({
         </div>
       </div>
 
+      <section
+        aria-labelledby={ids.systemPromptTitle}
+        data-testid="system-prompt-settings"
+        className="overflow-hidden rounded-xl bg-white dark:bg-neutral-800"
+      >
+        <div className="space-y-4 p-4">
+          <h2
+            id={ids.systemPromptTitle}
+            className="text-sm/6 font-medium text-zinc-950 dark:text-white"
+          >
+            {t("settings.models.systemPrompt.title")}
+          </h2>
+          <PromptField
+            id={ids.systemPrompt}
+            descriptionId={ids.systemPromptDescription}
+            data-testid="system-prompt"
+            label={t("settings.models.systemPrompt.label")}
+            description={t("settings.models.systemPrompt.description")}
+            saved={settings.systemPrompt}
+            placeholder={t("settings.models.systemPrompt.placeholder")}
+            maxLength={MAX_SYSTEM_PROMPT_CHARS}
+            resetLabel={t("settings.models.systemPrompt.clear")}
+            onSave={(systemPrompt) => save("systemPrompt", { systemPrompt })}
+            error={errors.systemPrompt}
+          />
+        </div>
+      </section>
+
       <LoadedModels selectedModel={settings.selectedModel} />
     </div>
   );
@@ -252,9 +295,15 @@ function LoadedModels({ selectedModel }: { selectedModel: string }) {
     setLoadError(null);
   };
 
-  /** Relit la liste après une action ; une relecture en échec s'affiche d'elle-même. */
+  /**
+   * Relit la liste et la VRAM après une action ; une relecture en échec
+   * s'affiche d'elle-même.
+   */
   const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: runningModelsKey });
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: runningModelsKey }),
+      queryClient.invalidateQueries({ queryKey: machineMemoryKey }),
+    ]);
 
   const unload = async (model: string) => {
     clearErrors();
@@ -392,6 +441,7 @@ function LoadedModels({ selectedModel }: { selectedModel: string }) {
     const loadUnavailable = chosen === "" || loading !== null;
     body = (
       <>
+        <VramGauge models={models} />
         {models.length === 0 ? (
           <p className={MUTED}>{t("settings.models.loaded.none")}</p>
         ) : (
@@ -537,10 +587,20 @@ function LoadedModelRow({
       <div className="min-w-0">
         <div
           id={nameId}
-          className="text-sm/6 text-zinc-950 dark:text-white"
+          className="flex items-center gap-2 text-sm/6 text-zinc-950 dark:text-white"
           title={model.name}
         >
-          <ModelLabel model={model.name} />
+          {/* Teinte de sa part sur la jauge de la VRAM. */}
+          {model.sizeVram > 0 && (
+            <span
+              aria-hidden="true"
+              data-testid="vram-swatch"
+              className={`h-2.5 w-2.5 flex-none rounded-full ${modelShade(index)}`}
+            />
+          )}
+          <span className="min-w-0">
+            <ModelLabel model={model.name} />
+          </span>
         </div>
         <p className={MUTED}>{runningDetails(t, model, now)}</p>
       </div>

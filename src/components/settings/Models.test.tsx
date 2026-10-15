@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Settings } from "@/bindings/Settings";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import { forgetPreloads } from "@/hooks/usePreloadModel";
+import { machineMemoryKey } from "@/hooks/useMachineMemory";
 import { runningModelsKey } from "@/hooks/useRunningModels";
 import { setLanguage } from "@/i18n";
 import {
@@ -805,6 +806,200 @@ describe("Settings: Models", () => {
   });
 });
 
+describe("Settings: Models, system prompt", () => {
+  const DESCRIPTION =
+    "Sent to the model at the start of every chat, voice messages and Easy Link bots included, and never shown in the chat. It takes the place of the model's built-in system prompt. Leave empty to send none.";
+  const field = () =>
+    screen.getByRole<HTMLTextAreaElement>("textbox", { name: "System prompt" });
+
+  it("shows the saved prompt and saves a change when the field is left", async () => {
+    const { simulator, backend } = setup(() => {}, {
+      systemPrompt: "Be brief.",
+    });
+    await screen.findByRole("heading", { name: "Instructions" });
+    expect(field().value).toBe("Be brief.");
+    expect(field().placeholder).toBe(
+      "For example: Answer in French, briefly and plainly.",
+    );
+    expect(
+      document.getElementById(field().getAttribute("aria-describedby")!)
+        ?.textContent,
+    ).toBe(DESCRIPTION);
+
+    await userEvent.clear(field());
+    await userEvent.type(field(), "Answer in French.");
+    // Rien d'envoyé pendant la frappe.
+    expect(patches(simulator)).toEqual([]);
+    await userEvent.tab();
+    await waitFor(() =>
+      expect(patches(simulator)).toEqual([
+        { systemPrompt: "Answer in French." },
+      ]),
+    );
+    expect(backend.settings.systemPrompt).toBe("Answer in French.");
+    await screen.findByText("Saved");
+
+    // Quitté sans changement : rien de renvoyé.
+    await userEvent.click(field());
+    await userEvent.tab();
+    expect(patches(simulator)).toHaveLength(1);
+  });
+
+  it("saves a prompt made of spaces as empty, and Clear empties it", async () => {
+    const { simulator, backend } = setup(() => {}, {
+      systemPrompt: "Be brief.",
+    });
+    await screen.findByRole("heading", { name: "Instructions" });
+    await userEvent.clear(field());
+    await userEvent.type(field(), "   ");
+    await userEvent.tab();
+    await waitFor(() =>
+      expect(patches(simulator)).toEqual([{ systemPrompt: "" }]),
+    );
+    const clear = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Clear",
+    });
+    await waitFor(() => expect(clear.disabled).toBe(true));
+
+    backend.settings.systemPrompt = "Be brief.";
+    await userEvent.type(field(), "x");
+    await userEvent.tab();
+    await waitFor(() => expect(field().value).toBe("x"));
+    await userEvent.click(clear);
+    await waitFor(() =>
+      expect(patches(simulator).at(-1)).toEqual({
+        systemPrompt: "",
+      }),
+    );
+    expect(field().value).toBe("");
+    expect(backend.settings.systemPrompt).toBe("");
+  });
+
+  it("keeps a refused prompt in the field, under its error", async () => {
+    const { backend } = setup();
+    await screen.findByRole("heading", { name: "Instructions" });
+    backend.settingsErrors.update = { kind: "internal", message: "disk full" };
+    await userEvent.type(field(), "Answer in French.");
+    await userEvent.tab();
+    const card = screen.getByTestId("system-prompt-settings");
+    expect((await within(card).findByRole("alert")).textContent).toContain(
+      "disk full",
+    );
+    expect(field().value).toBe("Answer in French.");
+  });
+});
+
+describe("Settings: Models, VRAM gauge", () => {
+  const GIB = 1024 ** 3;
+
+  it("shows each loaded model, the other uses and the free VRAM", async () => {
+    setup((backend) => {
+      backend.running = [
+        runningModel("qwen3:0.6b", { size: 2 * GIB, sizeVram: 2 * GIB }),
+        runningModel("gemma3:270m", { size: GIB, sizeVram: GIB / 2 }),
+      ];
+      backend.machine = {
+        gpus: [
+          { name: "Radeon RX 7600", vramTotal: 8 * GIB, vramFree: 4 * GIB },
+        ],
+        ramTotal: 32 * GIB,
+        ramAvailable: 16 * GIB,
+      };
+    });
+    const gauge = await screen.findByTestId("vram-gauge");
+    expect(within(gauge).getByTestId("vram-gpus").textContent).toBe(
+      "Radeon RX 7600",
+    );
+    // 4 Gio occupés : 2,5 pour les modèles, 1,5 pour le reste.
+    expect(within(gauge).getByTestId("vram-usage").textContent).toBe(
+      "4.0 GB of 8.0 GB used",
+    );
+    const meter = within(gauge).getByRole("meter", { name: "VRAM" });
+    expect(meter.getAttribute("aria-valuenow")).toBe(String(4 * GIB));
+    expect(meter.getAttribute("aria-valuemax")).toBe(String(8 * GIB));
+    expect(meter.getAttribute("aria-valuetext")).toBe("4.0 GB of 8.0 GB used");
+    const parts = within(gauge).getAllByTestId("vram-model");
+    expect(parts.map((part) => [part.dataset.model, part.style.width])).toEqual(
+      [
+        ["qwen3:0.6b", "25%"],
+        ["gemma3:270m", "6.25%"],
+      ],
+    );
+    expect(within(gauge).getByTestId("vram-other").style.width).toBe("18.75%");
+    expect(within(gauge).getByText("Other uses: 1.5 GB")).toBeTruthy();
+    expect(within(gauge).getByTestId("vram-free").textContent).toBe(
+      "Free: 4.0 GB",
+    );
+    expect(within(gauge).getByTestId("vram-spilled").textContent).toBe(
+      "512 MB doesn't fit in VRAM: that part runs from system memory, more slowly.",
+    );
+    // La pastille de chaque ligne reprend la teinte de sa part.
+    const swatches = screen
+      .getAllByTestId("loaded-model")
+      .map((row) => row.querySelector("[data-testid=vram-swatch]")?.className);
+    expect(swatches.map((name) => name?.match(/bg-accent\S*/)?.[0])).toEqual([
+      "bg-accent",
+      "bg-accent/60",
+    ]);
+    expect(
+      parts.map((part) => part.className.match(/bg-accent\S*/)?.[0]),
+    ).toEqual(["bg-accent", "bg-accent/60"]);
+  });
+
+  it("without the free memory of a card, shows only the models", async () => {
+    setup((backend) => {
+      backend.running = [runningModel("qwen3:0.6b")];
+    });
+    const gauge = await screen.findByTestId("vram-gauge");
+    expect(within(gauge).getByTestId("vram-usage").textContent).toBe(
+      "1.0 GB of 24 GB used",
+    );
+    expect(within(gauge).queryByTestId("vram-other")).toBeNull();
+    expect(within(gauge).queryByText(/Other uses/)).toBeNull();
+    expect(within(gauge).getByTestId("vram-free").textContent).toBe(
+      "Free: 23 GB",
+    );
+    expect(within(gauge).queryByTestId("vram-spilled")).toBeNull();
+  });
+
+  it("says so for a remote server and for a computer without a graphics card", async () => {
+    const { app, backend } = setup((backend) => {
+      backend.machine = null;
+    });
+    expect((await screen.findByTestId("vram-unknown")).textContent).toBe(
+      "VRAM usage can't be read for this Ollama server.",
+    );
+    expect(screen.queryByRole("meter")).toBeNull();
+    backend.machine = { gpus: [], ramTotal: 16 * GIB, ramAvailable: 8 * GIB };
+    await act(() =>
+      app.queryClient.invalidateQueries({ queryKey: machineMemoryKey }),
+    );
+    expect((await screen.findByTestId("vram-no-gpu")).textContent).toBe(
+      "No graphics card detected: models run on the processor, in system memory.",
+    );
+    expect(screen.queryByRole("meter")).toBeNull();
+  });
+
+  it("reads the memory again with the list, and after an unload", async () => {
+    const { simulator } = setup((backend) => {
+      backend.running = [runningModel("qwen3:0.6b")];
+    });
+    await screen.findByTestId("vram-gauge");
+    await waitFor(() =>
+      expect(simulator.callsTo("machine_memory").length).toBeGreaterThan(0),
+    );
+    const before = simulator.callsTo("machine_memory").length;
+    await userEvent.click(screen.getByRole("button", { name: "Unload" }));
+    await waitFor(() =>
+      expect(screen.queryAllByTestId("vram-model")).toEqual([]),
+    );
+    expect(simulator.callsTo("machine_memory").length).toBeGreaterThan(before);
+    expect(screen.getByTestId("vram-usage").textContent).toBe(
+      "0 B of 24 GB used",
+    );
+  });
+});
+
 describe("Settings: Models in other languages", () => {
   /** Noms des modèles (et leurs morceaux, montrés par ModelLabel) : des données. */
   const NAMES = [
@@ -820,6 +1015,8 @@ describe("Settings: Models in other languages", () => {
     "0.8b",
     "270m",
     "8b",
+    // Carte graphique du simulateur (jauge de la VRAM).
+    "NVIDIA GeForce RTX 3090",
   ];
   const tab = () => screen.getByTestId("models-settings");
 
@@ -885,7 +1082,8 @@ describe("Settings: Models in other languages", () => {
     usePseudoLanguage();
     const card = await loadedCard();
     await within(card).findByText("⟦No other model installed⟧");
-    expect(untranslatedTexts(tab())).toEqual([]);
+    await screen.findByTestId("vram-gauge");
+    expect(untranslatedTexts(tab(), NAMES)).toEqual([]);
 
     const message = "Could not connect to Ollama at http://127.0.0.1:11434";
     backend.runningErrors.list = { kind: "ollama", message };

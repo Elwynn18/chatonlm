@@ -380,6 +380,7 @@ pub fn run() {
             commands::hub::hub_download,
             commands::hub::hub_downloads,
             commands::hub::hub_hardware,
+            commands::hub::machine_memory,
             commands::hub::hub_home,
             commands::hub::hub_installed,
             commands::hub::hub_readme,

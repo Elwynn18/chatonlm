@@ -11,6 +11,9 @@ use crate::ollama::address;
 /// Longueurs de contexte proposées (crans du réglage) ; 0 = défaut du serveur.
 pub const CONTEXT_LENGTHS: [u32; 8] = [0, 4096, 8192, 16384, 32768, 65536, 131072, 262144];
 
+/// Longueur maximale du pré-prompt, en caractères.
+pub const MAX_SYSTEM_PROMPT_CHARS: usize = 10_000;
+
 /// Durées avant déchargement proposées (crans du réglage), en secondes ;
 /// 0 = défaut du serveur (rien envoyé), -1 = jusqu'au déchargement.
 pub const KEEP_ALIVES: [i64; 8] = [0, 60, 300, 900, 1800, 3600, 14400, -1];
@@ -98,6 +101,11 @@ pub struct Settings {
     /// d'un modèle officiel) ; masquée par défaut. « Reset to defaults » n'y
     /// touche pas.
     pub show_uncensored: bool,
+    /// Pré-prompt : message système envoyé en tête de chaque requête des
+    /// conversations (page, mode vocal, Easy Link), jamais enregistré dans
+    /// l'historique ; vide = aucun (celui du modèle). « Reset to defaults »
+    /// n'y touche pas.
+    pub system_prompt: String,
 }
 
 /// Mise à jour partielle : seuls les champs présents changent.
@@ -138,6 +146,9 @@ pub struct SettingsPatch {
     pub onboarding_done: Option<bool>,
     #[ts(optional)]
     pub show_uncensored: Option<bool>,
+    /// Chaîne vide = aucun pré-prompt.
+    #[ts(optional)]
+    pub system_prompt: Option<String>,
 }
 
 /// `CHATONLM_ONBOARDING` : `show` remontre le premier démarrage au prochain
@@ -166,7 +177,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
             "SELECT server_url, context_length, theme, selected_model, window_width, window_height,
                     web_search_enabled, keep_alive, preload_model, language,
                     proofread_model, proofread_shortcut, study_model, auto_read,
-                    proofread_paste, onboarding_done, show_uncensored
+                    proofread_paste, onboarding_done, show_uncensored, system_prompt
              FROM settings WHERE id = 1",
             [],
             |row| {
@@ -188,6 +199,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
                     row.get::<_, bool>(14)?,
                     row.get::<_, bool>(15)?,
                     row.get::<_, bool>(16)?,
+                    row.get::<_, String>(17)?,
                 ))
             },
         )
@@ -211,6 +223,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         proofread_paste,
         onboarding_done,
         show_uncensored,
+        system_prompt,
     ) = row;
     let language = LanguageChoice::parse(&language)
         .ok_or_else(|| AppError::Internal(format!("unknown language in database: {language}")))?;
@@ -234,6 +247,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         auto_read,
         onboarding_done,
         show_uncensored,
+        system_prompt,
     })
 }
 
@@ -284,6 +298,14 @@ pub fn update(
     {
         // i18n-ignore : nom choisi dans la liste, déjà valide.
         return Err(AppError::Invalid(format!("invalid model name: {model}")));
+    }
+    if let Some(prompt) = &patch.system_prompt
+        && prompt.chars().count() > MAX_SYSTEM_PROMPT_CHARS
+    {
+        // i18n-ignore : la page limite déjà la longueur.
+        return Err(AppError::Invalid(format!(
+            "the system prompt holds at most {MAX_SYSTEM_PROMPT_CHARS} characters"
+        )));
     }
 
     let transaction = connection.transaction()?;
@@ -371,6 +393,12 @@ pub fn update(
             params![shown],
         )?;
     }
+    if let Some(prompt) = &patch.system_prompt {
+        transaction.execute(
+            "UPDATE settings SET system_prompt = ?1 WHERE id = 1",
+            params![prompt],
+        )?;
+    }
     if let Some(model) = &patch.study_model {
         transaction.execute(
             "UPDATE settings SET study_model = ?1 WHERE id = 1",
@@ -435,6 +463,7 @@ mod tests {
                 auto_read: false,
                 onboarding_done: false,
                 show_uncensored: false,
+                system_prompt: String::new(),
             }
         );
     }
@@ -470,6 +499,45 @@ mod tests {
         };
         store.blocking(|c| update(c, off, None)).unwrap();
         assert!(!store.blocking(|c| get(c, None)).unwrap().show_uncensored);
+    }
+
+    /// Pré-prompt : vide par défaut, enregistré tel quel, borné, et « Reset to
+    /// defaults » (adresse, contexte, thème) n'y touche pas.
+    #[test]
+    fn the_system_prompt_is_saved_and_bounded() {
+        let store = store();
+        assert_eq!(store.blocking(|c| get(c, None)).unwrap().system_prompt, "");
+        let patch: SettingsPatch =
+            serde_json::from_str(r#"{"systemPrompt":"  Answer in French.\n"}"#).unwrap();
+        let saved = store.blocking(|c| update(c, patch, None)).unwrap();
+        assert_eq!(saved.system_prompt, "  Answer in French.\n");
+        let reset = SettingsPatch {
+            server_url: Some(String::new()),
+            context_length: Some(0),
+            theme: Some(Theme::System),
+            ..Default::default()
+        };
+        let after_reset = store.blocking(|c| update(c, reset, None)).unwrap();
+        assert_eq!(after_reset.system_prompt, "  Answer in French.\n");
+        let too_long = SettingsPatch {
+            system_prompt: Some("é".repeat(MAX_SYSTEM_PROMPT_CHARS + 1)),
+            ..Default::default()
+        };
+        assert!(matches!(
+            store.blocking(|c| update(c, too_long, None)),
+            Err(AppError::Invalid(_))
+        ));
+        let longest = SettingsPatch {
+            system_prompt: Some("é".repeat(MAX_SYSTEM_PROMPT_CHARS)),
+            ..Default::default()
+        };
+        store.blocking(|c| update(c, longest, None)).unwrap();
+        let cleared = SettingsPatch {
+            system_prompt: Some(String::new()),
+            ..Default::default()
+        };
+        store.blocking(|c| update(c, cleared, None)).unwrap();
+        assert_eq!(store.blocking(|c| get(c, None)).unwrap().system_prompt, "");
     }
 
     /// Premier démarrage : à faire sur une base neuve, enregistré une fois
