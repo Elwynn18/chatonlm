@@ -83,6 +83,18 @@ use os::{cleanup_leftovers, is_executable, watch_exit};
 // Aussi pour les essais (`use super::*`).
 pub(crate) use os::terminate;
 
+/// Outils du sous-processus, partagés avec le moteur d'images (`image_gen`) :
+/// mêmes garanties (rien ne survit à ChatonLM, arrêt borné), propres à chaque
+/// système (`builtin/unix.rs`, `builtin/windows.rs`).
+pub(crate) mod process {
+    #[cfg(all(test, windows))]
+    pub(crate) use super::os::alive;
+    pub(crate) use super::os::{
+        desktop_changes, is_executable, isolate, scrub, terminate, watch_exit,
+    };
+    pub(crate) use super::{Spawner, describe_exit, pick_port, rotate_log, spawn_with};
+}
+
 /// Ports jamais pris : celui d'Ollama et celui de l'instance de test.
 const RESERVED_PORTS: [u16; 2] = [11434, 11435];
 
@@ -684,7 +696,7 @@ async fn answer(url: &str, limit: Duration, poll: Duration) -> Option<String> {
     }
 }
 
-fn describe_exit(status: Option<ExitStatus>) -> String {
+pub(crate) fn describe_exit(status: Option<ExitStatus>) -> String {
     match status {
         Some(status) => match (status.code(), os::exit_signal(&status)) {
             (Some(code), _) => t!("builtinOllama.exitCode", code = code),
@@ -707,43 +719,61 @@ impl Inner {
 
     /// Crée le processus depuis le fil dédié (créé au premier appel).
     async fn spawn(&self, command: Command) -> io::Result<Child> {
-        let (reply, answer) = oneshot::channel();
-        {
-            let mut spawner = self.spawner.lock();
-            if spawner.is_none() {
-                *spawner = Some(Spawner::start()?);
-            }
-            let Some(spawner) = spawner.as_ref() else {
-                return Err(io::Error::other("no spawner thread"));
-            };
-            spawner
-                .requests
-                .send((command, reply))
-                .map_err(|_| io::Error::other("spawner thread stopped"))?;
-        }
-        answer
-            .await
-            .map_err(|_| io::Error::other("spawner thread stopped"))?
+        spawn_with(&self.spawner, "chatonlm-ollama", command).await
     }
+}
+
+/// Crée le processus depuis le fil dédié de `slot`, nommé `name` (créé au
+/// premier appel, puis gardé autant que `slot`).
+pub(crate) async fn spawn_with(
+    slot: &Mutex<Option<Spawner>>,
+    name: &str,
+    command: Command,
+) -> io::Result<Child> {
+    let (reply, answer) = oneshot::channel();
+    {
+        let mut spawner = slot.lock();
+        if spawner.is_none() {
+            *spawner = Some(Spawner::start(name)?);
+        }
+        let Some(spawner) = spawner.as_ref() else {
+            return Err(io::Error::other("no spawner thread"));
+        };
+        spawner
+            .requests
+            .send((command, reply))
+            .map_err(|_| io::Error::other("spawner thread stopped"))?;
+    }
+    answer
+        .await
+        .map_err(|_| io::Error::other("spawner thread stopped"))?
 }
 
 type SpawnRequest = (Command, oneshot::Sender<io::Result<Child>>);
 
-/// Fil qui crée les processus de l'intégré et vit autant que l'app (tant
-/// que le `Builtin` existe) : `PR_SET_PDEATHSIG` envoie SIGTERM à l'enfant
-/// quand le FIL qui l'a créé se termine, pas seulement le processus.
-struct Spawner {
+/// Fil qui crée les processus de l'intégré (ou du moteur d'images) et vit
+/// autant que l'app (tant que son propriétaire existe) : `PR_SET_PDEATHSIG`
+/// envoie SIGTERM à l'enfant quand le FIL qui l'a créé se termine, pas
+/// seulement le processus.
+pub(crate) struct Spawner {
     requests: std::sync::mpsc::Sender<SpawnRequest>,
 }
 
 impl Spawner {
-    fn start() -> io::Result<Spawner> {
+    fn start(name: &str) -> io::Result<Spawner> {
         let (requests, received) = std::sync::mpsc::channel::<SpawnRequest>();
         std::thread::Builder::new()
-            .name("chatonlm-ollama".into())
+            .name(name.into())
             .spawn(move || {
                 for (mut command, reply) in received {
-                    let _ = reply.send(os::spawn(&mut command));
+                    // Demande abandonnée pendant la création (lancement
+                    // annulé) : l'enfant n'est suivi par personne, il est
+                    // arrêté aussitôt (sous Windows, son Job reste noté
+                    // jusqu'à la fin de ChatonLM).
+                    if let Err(Ok(mut child)) = reply.send(os::spawn(&mut command)) {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
                 }
             })?;
         Ok(Spawner { requests })
@@ -840,7 +870,7 @@ pub(crate) fn remove_ignoring_case(environment: &mut BTreeMap<OsString, OsString
 }
 
 /// Journal du lancement : le précédent devient `.1`.
-fn rotate_log(log: &Path) {
+pub(crate) fn rotate_log(log: &Path) {
     if let Some(dir) = log.parent() {
         let _ = fs::create_dir_all(dir);
     }

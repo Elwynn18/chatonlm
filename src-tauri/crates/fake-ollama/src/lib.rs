@@ -54,6 +54,9 @@ pub mod hf;
 /// Lancé comme `ollama serve` (Ollama intégré de l'app) : voir [`serve`].
 pub mod serve;
 
+/// Faux `sd-server` (moteur d'images de l'app) : voir [`sdcpp`].
+pub mod sdcpp;
+
 /// Cours de ChatonLM (modèles `chatonlm-study*`) : voir [`study`].
 pub mod study;
 pub use study::STUDY_SLOW;

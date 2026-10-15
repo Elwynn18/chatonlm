@@ -41,13 +41,13 @@ pub(super) fn install_root(bin: &Path) -> Option<PathBuf> {
     Some(bin.parent()?.parent()?.to_path_buf())
 }
 
-pub(super) fn is_executable(path: &Path) -> bool {
+pub(crate) fn is_executable(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.mode() & 0o111 != 0)
 }
 
 /// Ce que ChatonLM a changé à son propre environnement : dossier de
 /// l'AppImage (`APPDIR`), contournement NVIDIA appliqué.
-pub(super) fn desktop_changes() -> (Option<OsString>, bool) {
+pub(crate) fn desktop_changes() -> (Option<OsString>, bool) {
     (
         std::env::var_os("APPDIR"),
         crate::graphics::nvidia_workaround_applied(),
@@ -57,7 +57,7 @@ pub(super) fn desktop_changes() -> (Option<OsString>, bool) {
 /// Nettoie l'environnement hérité comme celui des programmes du bureau
 /// (variables de l'AppImage, contournement NVIDIA), sans `LD_LIBRARY_PATH`
 /// ni `LD_PRELOAD` (l'intégré trouve ses bibliothèques à côté de lui).
-pub(super) fn scrub(
+pub(crate) fn scrub(
     environment: &mut BTreeMap<OsString, OsString>,
     appdir: Option<&OsStr>,
     nvidia_workaround: bool,
@@ -88,7 +88,7 @@ pub(super) fn scrub(
 /// Groupe à lui (ses runners en héritent, l'arrêt les atteint) et
 /// `PR_SET_PDEATHSIG` : le serveur reçoit SIGTERM quand le fil qui l'a créé
 /// se termine.
-pub(super) fn isolate(command: &mut Command) {
+pub(crate) fn isolate(command: &mut Command) {
     command.process_group(0);
     let parent = std::process::id();
     // SAFETY : entre fork et exec, seulement des appels système
@@ -108,7 +108,7 @@ pub(super) fn isolate(command: &mut Command) {
 }
 
 /// Crée le processus (depuis le fil dédié : voir `Spawner`).
-pub(super) fn spawn(command: &mut Command) -> io::Result<Child> {
+pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
     command.spawn()
 }
 
@@ -119,7 +119,7 @@ pub(super) fn exit_signal(status: &ExitStatus) -> Option<i32> {
 
 /// Attend la fin du processus dans un fil à part ; ce qui reste de son
 /// groupe (runners) est tué avant qu'il soit récolté.
-pub(super) fn watch_exit(mut child: Child) -> oneshot::Receiver<Option<ExitStatus>> {
+pub(crate) fn watch_exit(mut child: Child) -> oneshot::Receiver<Option<ExitStatus>> {
     let (sender, receiver) = oneshot::channel();
     let pid = child.id();
     let watcher = std::thread::Builder::new()
@@ -187,6 +187,11 @@ pub(crate) async fn terminate(
     grace: Duration,
     kill_wait: Duration,
 ) -> bool {
+    // Déjà fini (et récolté) : son numéro a pu être repris par un autre
+    // programme, rien n'est envoyé.
+    if !matches!(exited.try_recv(), Err(oneshot::error::TryRecvError::Empty)) {
+        return true;
+    }
     signal_group(pid, libc::SIGTERM);
     if tokio::time::timeout(grace, &mut *exited).await.is_ok() {
         return true;

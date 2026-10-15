@@ -84,18 +84,18 @@ pub(super) fn install_root(bin: &Path) -> Option<PathBuf> {
     Some(bin.parent()?.to_path_buf())
 }
 
-pub(super) fn is_executable(path: &Path) -> bool {
+pub(crate) fn is_executable(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|meta| meta.is_file())
 }
 
 /// ChatonLM ne change rien à son propre environnement sous Windows.
-pub(super) fn desktop_changes() -> (Option<OsString>, bool) {
+pub(crate) fn desktop_changes() -> (Option<OsString>, bool) {
     (None, false)
 }
 
 /// Retire les variables que ChatonLM pose ensuite, quelle que soit leur
 /// casse (les noms de variables n'en tiennent pas compte sous Windows).
-pub(super) fn scrub(
+pub(crate) fn scrub(
     environment: &mut BTreeMap<OsString, OsString>,
     _appdir: Option<&OsStr>,
     _nvidia_workaround: bool,
@@ -105,7 +105,7 @@ pub(super) fn scrub(
 
 /// Sans fenêtre de console, et groupe de processus à lui (comme
 /// l'officiel : un Ctrl+C de la console de ChatonLM ne l'atteint pas).
-pub(super) fn isolate(command: &mut Command) {
+pub(crate) fn isolate(command: &mut Command) {
     command.creation_flags(CREATE_NO_WINDOW.0 | CREATE_NEW_PROCESS_GROUP.0);
 }
 
@@ -152,7 +152,7 @@ fn job_for(child: &Child) -> windows::core::Result<Owned> {
 /// lancés bien après (au chargement d'un modèle), en font partie. Sans Job
 /// (refus du système), le serveur démarre quand même : l'arrêt ne vise
 /// alors que lui.
-pub(super) fn spawn(command: &mut Command) -> io::Result<Child> {
+pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
     let child = command.spawn()?;
     match job_for(&child) {
         Ok(job) => JOBS.lock().push((child.id(), Arc::new(job))),
@@ -195,7 +195,7 @@ pub(super) fn exit_signal(_status: &ExitStatus) -> Option<i32> {
 
 /// Attend la fin du processus dans un fil à part ; ce qui reste de son Job
 /// (runners) est tué avant que la fin soit annoncée.
-pub(super) fn watch_exit(mut child: Child) -> oneshot::Receiver<Option<ExitStatus>> {
+pub(crate) fn watch_exit(mut child: Child) -> oneshot::Receiver<Option<ExitStatus>> {
     let (sender, receiver) = oneshot::channel();
     let pid = child.id();
     let watcher = std::thread::Builder::new()
@@ -328,7 +328,7 @@ pub(super) fn cleanup_leftovers(config: &Config) {
 
 /// Processus pas encore sorti (essais).
 #[cfg(test)]
-pub(super) fn alive(pid: u32) -> bool {
+pub(crate) fn alive(pid: u32) -> bool {
     use windows::Win32::System::Threading::{
         GetExitCodeProcess, PROCESS_QUERY_LIMITED_INFORMATION,
     };

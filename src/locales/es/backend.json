@@ -415,5 +415,35 @@
       "incomplete": "Esta respuesta no se pudo escribir entera aquí. Está completa en ChatonLM.",
       "contextFull": "La respuesta se cortó: esta conversación ya no cabe en la memoria del modelo. Vuelve a enviar tu mensaje: primero se resumirá la conversación."
     }
+  },
+  "imageGen": {
+    "unavailable": "esta versión de ChatonLM no incluye el motor de imágenes",
+    "closed": "el motor de imágenes se está cerrando",
+    "missingFile": "falta el archivo del modelo de imágenes {path}",
+    "startFailed": "el motor de imágenes no pudo cargar el modelo: {reason}",
+    "notReady": "el motor de imágenes no respondió en {seconds} segundos",
+    "crashed": "el motor de imágenes se detuvo inesperadamente ({status})",
+    "failed": "no se pudo crear la imagen: {reason}",
+    "lost": "se perdió el contacto con el motor de imágenes: {error}",
+    "invalid": {
+      "emptyPrompt": "la descripción de la imagen está vacía",
+      "longPrompt": "la descripción de la imagen es demasiado larga ({max} caracteres como máximo)",
+      "size": "el tamaño de la imagen debe estar entre {min} y {max} píxeles, en pasos de {step}",
+      "steps": "el número de pasos debe estar entre 1 y {max}",
+      "cfg": "la escala de guía debe estar entre 0 y 30"
+    },
+    "detail": {
+      "noServer": "no hay ningún motor de imágenes en ejecución",
+      "notPng": "el motor no devolvió una imagen PNG",
+      "noJobId": "el motor no dio un número de tarea",
+      "jobNotFound": "el motor ya no conoce esta imagen",
+      "noImage": "la respuesta del motor no contiene ninguna imagen",
+      "badImage": "la imagen del motor no se puede leer",
+      "unknownError": "error desconocido",
+      "noStatus": "la respuesta del motor no indica ningún estado",
+      "http": "el motor respondió con el error HTTP {status}",
+      "tooLarge": "la respuesta del motor es demasiado grande",
+      "notJson": "la respuesta del motor no se puede leer"
+    }
   }
 }

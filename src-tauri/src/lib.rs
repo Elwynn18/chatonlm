@@ -11,6 +11,7 @@ mod error;
 mod graphics;
 mod hub;
 mod i18n;
+mod image_gen;
 mod ollama;
 mod os_util;
 mod paths;
@@ -169,6 +170,12 @@ pub fn run() {
                     targeting.first_decision(&store).await;
                 }
             });
+            // Moteur d'images (`sd-server`) : lancé à la première image,
+            // arrêté après un temps sans image et à la fermeture.
+            let sd_bin = image_gen::locate(app.path().resource_dir().ok().as_deref());
+            app.manage(image_gen::ImageGen::new(image_gen::Config::new(
+                sd_bin, &data_dir,
+            )));
             // Catalogue du ModelHub : cache disque sous le dossier des données.
             app.manage(hub::state::Catalog::new(data_dir.join("modelhub")));
             // Dictée : téléchargements des modèles de transcription (liste
@@ -491,6 +498,7 @@ pub fn run() {
 /// morceaux : un nouveau clic reprend), comme ceux des modèles de
 /// transcription (`.part` gardés) ; la séance du mode vocal finit (micro
 /// fermé) ; la dictée en cours est abandonnée et son moteur libéré ; puis
+/// le moteur d'images s'arrête (image en cours abandonnée) ; puis
 /// l'Ollama intégré s'arrête pour de bon (SIGTERM à son
 /// groupe, SIGKILL après 5 s, attente bornée ; plus aucune relance : un .deb
 /// peut remplacer ses fichiers). Rien ne redémarre ensuite : l'app quitte ou
@@ -526,13 +534,20 @@ pub async fn stop_services(app: &AppHandle) {
             downloads.stop_all(EXIT_GRACE).await;
         }
     };
+    let images = app.try_state::<image_gen::ImageGen>();
+    let images = async {
+        if let Some(images) = images {
+            images.shutdown().await;
+        }
+    };
     app.state::<tts::ReadAloud>().shutdown();
     tokio::join!(
         engine.stop_all(EXIT_GRACE),
         downloads,
         speech_downloads,
         voice_downloads,
-        dictation.shutdown()
+        dictation.shutdown(),
+        images
     );
     ollama::builtin::shutdown(app).await;
 }

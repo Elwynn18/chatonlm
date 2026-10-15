@@ -415,5 +415,35 @@
       "incomplete": "Cette réponse n'a pas pu être écrite en entier ici. Elle est complète dans ChatonLM.",
       "contextFull": "La réponse a été coupée : cette conversation ne tient plus dans la mémoire du modèle. Renvoyez votre message : la conversation sera d'abord résumée."
     }
+  },
+  "imageGen": {
+    "unavailable": "cette version de ChatonLM ne contient pas le moteur d'images",
+    "closed": "le moteur d'images s'arrête",
+    "missingFile": "le fichier du modèle d'images {path} est introuvable",
+    "startFailed": "le moteur d'images n'a pas pu charger le modèle : {reason}",
+    "notReady": "le moteur d'images n'a pas répondu en {seconds} secondes",
+    "crashed": "le moteur d'images s'est arrêté de manière inattendue ({status})",
+    "failed": "l'image n'a pas pu être créée : {reason}",
+    "lost": "le contact avec le moteur d'images est perdu : {error}",
+    "invalid": {
+      "emptyPrompt": "la description de l'image est vide",
+      "longPrompt": "la description de l'image est trop longue ({max} caractères au plus)",
+      "size": "la taille de l'image doit être comprise entre {min} et {max} pixels, par pas de {step}",
+      "steps": "le nombre d'étapes doit être compris entre 1 et {max}",
+      "cfg": "l'échelle de guidage doit être comprise entre 0 et 30"
+    },
+    "detail": {
+      "noServer": "aucun moteur d'images ne tourne",
+      "notPng": "le moteur n'a pas rendu d'image PNG",
+      "noJobId": "le moteur n'a pas donné de numéro de tâche",
+      "jobNotFound": "le moteur ne connaît plus cette image",
+      "noImage": "la réponse du moteur ne contient pas d'image",
+      "badImage": "l'image du moteur est illisible",
+      "unknownError": "erreur inconnue",
+      "noStatus": "la réponse du moteur n'indique pas d'état",
+      "http": "le moteur a répondu par l'erreur HTTP {status}",
+      "tooLarge": "la réponse du moteur est trop volumineuse",
+      "notJson": "la réponse du moteur est illisible"
+    }
   }
 }

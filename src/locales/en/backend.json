@@ -415,5 +415,35 @@
       "incomplete": "This answer could not be written here in full. It is complete in ChatonLM.",
       "contextFull": "The answer was cut: this conversation no longer fits in the model's memory. Send your message again: the conversation will be summarized first."
     }
+  },
+  "imageGen": {
+    "unavailable": "this build of ChatonLM doesn't include the image engine",
+    "closed": "the image engine is shutting down",
+    "missingFile": "the image model file {path} is missing",
+    "startFailed": "the image engine couldn't load the model: {reason}",
+    "notReady": "the image engine didn't answer within {seconds} seconds",
+    "crashed": "the image engine stopped unexpectedly ({status})",
+    "failed": "the image couldn't be created: {reason}",
+    "lost": "lost contact with the image engine: {error}",
+    "invalid": {
+      "emptyPrompt": "the image description is empty",
+      "longPrompt": "the image description is too long (at most {max} characters)",
+      "size": "the image size must be between {min} and {max} pixels, in steps of {step}",
+      "steps": "the number of steps must be between 1 and {max}",
+      "cfg": "the guidance scale must be between 0 and 30"
+    },
+    "detail": {
+      "noServer": "no image engine is running",
+      "notPng": "the engine didn't return a PNG image",
+      "noJobId": "the engine didn't give a job number",
+      "jobNotFound": "the engine no longer knows this image",
+      "noImage": "the engine's answer has no image",
+      "badImage": "the engine's image is unreadable",
+      "unknownError": "unknown error",
+      "noStatus": "the engine's answer has no status",
+      "http": "the engine answered with HTTP error {status}",
+      "tooLarge": "the engine's answer is too large",
+      "notJson": "the engine's answer is unreadable"
+    }
   }
 }
