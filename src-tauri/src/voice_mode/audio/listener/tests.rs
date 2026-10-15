@@ -310,12 +310,31 @@ fn a_release_keeps_the_last_samples() {
     assert_eq!(samples.len(), 4_800 + 128 + voice.len());
 }
 
+/// Morceau envoyé au micro des essais.
+enum Chunk {
+    /// Son capté.
+    Sound(Vec<f32>),
+    /// Son capté, et la sortie à donner au moniteur dès qu'il est rendu :
+    /// du fil de l'écoute, donc avant sa prochaine lecture de la sortie.
+    /// L'avance de la référence sur le micro est ainsi exacte, quelle que
+    /// soit la charge (envoyée du fil de l'essai, elle pouvait arriver après
+    /// le micro). Un seul de ces morceaux par lecture.
+    WithOutput {
+        sound: Vec<f32>,
+        output: Vec<f32>,
+        output_rate: u32,
+    },
+    /// Micro perdu.
+    Failed(String),
+}
+
 /// Micro des essais : rend ce que l'essai lui envoie ; lâché, il le
 /// signale.
 struct TestMic {
-    chunks: mpsc::Receiver<Result<Vec<f32>, String>>,
+    chunks: mpsc::Receiver<Chunk>,
     rate: u32,
     dropped: Arc<AtomicBool>,
+    monitor: &'static Monitor,
 }
 
 impl Microphone for TestMic {
@@ -325,7 +344,19 @@ impl Microphone for TestMic {
 
     fn read(&mut self, out: &mut Vec<f32>, _cues: &Cues) -> Result<(), String> {
         while let Ok(chunk) = self.chunks.try_recv() {
-            out.extend(chunk?);
+            match chunk {
+                Chunk::Sound(sound) => out.extend(sound),
+                Chunk::WithOutput {
+                    sound,
+                    output,
+                    output_rate,
+                } => {
+                    out.extend(sound);
+                    self.monitor.feed(&output, output_rate);
+                    break;
+                }
+                Chunk::Failed(message) => return Err(message),
+            }
         }
         Ok(())
     }
@@ -340,7 +371,7 @@ impl Drop for TestMic {
 /// Écoute ouverte sur un micro d'essai.
 struct Opened {
     listening: Box<dyn Listening>,
-    mic: mpsc::Sender<Result<Vec<f32>, String>>,
+    mic: mpsc::Sender<Chunk>,
     events: mpsc::Receiver<ListenEvent>,
     dropped: Arc<AtomicBool>,
     monitor: &'static Monitor,
@@ -359,6 +390,7 @@ impl Opened {
                     chunks: chunks.lock().take().expect("opened once"),
                     rate,
                     dropped: flag.clone(),
+                    monitor,
                 }))
             }),
             detector: Arc::new(loudness),
@@ -383,7 +415,19 @@ impl Opened {
     }
 
     fn say(&self, samples: Vec<f32>) {
-        self.mic.send(Ok(samples)).unwrap();
+        self.mic.send(Chunk::Sound(samples)).unwrap();
+    }
+
+    /// `sound` au micro, puis `output` (à `output_rate`) au moniteur, du fil
+    /// de l'écoute (voir [`Chunk::WithOutput`]).
+    fn say_with_output(&self, sound: Vec<f32>, output: Vec<f32>, output_rate: u32) {
+        self.mic
+            .send(Chunk::WithOutput {
+                sound,
+                output,
+                output_rate,
+            })
+            .unwrap();
     }
 
     /// Prochain événement autre qu'un niveau.
@@ -486,7 +530,7 @@ fn dropping_closes_the_microphone_quickly() {
 #[test]
 fn a_lost_microphone_fails_and_ends_the_listening() {
     let opened = Opened::new(hands_free(), RATE);
-    opened.mic.send(Err("unplugged".into())).unwrap();
+    opened.mic.send(Chunk::Failed("unplugged".into())).unwrap();
     assert_eq!(opened.next(), ListenEvent::Failed("unplugged".into()));
     std::thread::sleep(Duration::from_millis(50));
     assert!(opened.dropped.load(Ordering::Acquire));
@@ -495,8 +539,10 @@ fn a_lost_microphone_fails_and_ends_the_listening() {
 /// Un micro qui ne rend plus rien pendant 3 s est tenu pour perdu.
 #[test]
 fn a_silent_microphone_is_lost() {
-    let opened = Opened::new(hands_free(), RATE);
+    // Avant l'ouverture : le fil de l'écoute compte dès son départ, et
+    // l'ouverture peut rendre la main bien plus tard sous la charge.
     let started = Instant::now();
+    let opened = Opened::new(hands_free(), RATE);
     let event = loop {
         match opened.events.recv_timeout(Duration::from_secs(5)).unwrap() {
             ListenEvent::Levels { .. } => {}
@@ -545,25 +591,39 @@ fn levels_follow_the_microphone_and_the_output() {
     // Sortie à -12 dBFS (RMS d'un sinus d'amplitude 0,355), micro à
     // -23 dBFS (amplitude 0,1), à d'autres fréquences : pas un écho.
     let output = tone_at(1_000.0, 1.0, 0.355, 48_000);
-    let mut count = 0;
-    let mut last = None;
-    for second in 0..2 {
+    // Tout le son d'un coup, la sortie donnée par le micro d'essai : un fil
+    // d'essai retardé par la charge laissait l'écoute sans son plus de 3 s,
+    // et le micro était tenu pour perdu.
+    for _ in 0..2 {
         for (output, input) in output.chunks(4_800).zip(tone(1.0, 0.1, RATE).chunks(1_600)) {
-            opened.monitor.feed(output, 48_000);
-            opened.say(input.to_vec());
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        let until = Instant::now() + Duration::from_millis(100);
-        while let Some(left) = until.checked_duration_since(Instant::now()) {
-            if let Ok(ListenEvent::Levels { input, output }) = opened.events.recv_timeout(left)
-                && second == 1
-            {
-                count += 1;
-                last = Some((input, output));
-            }
+            opened.say_with_output(input.to_vec(), output.to_vec(), 48_000);
         }
     }
-    assert!((14..=16).contains(&count), "{count}");
+    // Tous les niveaux des 2 s de son, quel que soit le retard de l'écoute
+    // (charge), puis plus aucun.
+    let mut levels = Vec::new();
+    let mut others = Vec::new();
+    let mut note = |event| match event {
+        ListenEvent::Levels { input, output } => levels.push((input, output)),
+        event => others.push(event),
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut received = 0;
+    while received < 30 && Instant::now() < deadline {
+        if let Ok(event) = opened.events.recv_timeout(Duration::from_millis(100)) {
+            received += usize::from(matches!(event, ListenEvent::Levels { .. }));
+            note(event);
+        }
+    }
+    let until = Instant::now() + Duration::from_millis(300);
+    while let Some(left) = until.checked_duration_since(Instant::now()) {
+        if let Ok(event) = opened.events.recv_timeout(left) {
+            note(event);
+        }
+    }
+    let count = levels.len();
+    let last = levels.last().copied();
+    assert!((29..=31).contains(&count), "{count} levels, {others:?}");
     let (input, output) = last.unwrap();
     assert!((input - 37.0 / 60.0).abs() < 0.03, "{input}");
     assert!((output - 48.0 / 60.0).abs() < 0.03, "{output}");
@@ -582,8 +642,13 @@ fn the_output_monitor_feeds_the_echo_canceller() {
         opened.listening.set_gate(Gate::Ignore);
         settle();
         // Morceaux de 20 ms, ~4 fois plus vite que le temps réel ; la sortie
-        // a un morceau d'avance sur le micro.
+        // a un morceau d'avance sur le micro : la première d'abord, puis
+        // chacune donnée par le micro d'essai avec le morceau qui la précède
+        // de deux (`say_with_output`).
         let chunks: Vec<_> = render.chunks(960).zip(echo.chunks(960)).collect();
+        if fed {
+            opened.monitor.feed(chunks[1].0, 48_000);
+        }
         let mut events = Vec::new();
         // Son traité par l'écoute : un niveau toutes les 1/15 s de son.
         let levels = |events: &[ListenEvent]| {
@@ -604,10 +669,12 @@ fn the_output_monitor_feeds_the_echo_canceller() {
             if index == 100 {
                 opened.listening.set_gate(Gate::Respond);
             }
-            if fed && let Some((ahead, _)) = chunks.get(index + 1) {
-                opened.monitor.feed(ahead, 48_000);
+            match chunks.get(index + 2) {
+                Some((ahead, _)) if fed => {
+                    opened.say_with_output(echo.to_vec(), ahead.to_vec(), 48_000)
+                }
+                _ => opened.say(echo.to_vec()),
             }
-            opened.say(echo.to_vec());
             std::thread::sleep(Duration::from_millis(5));
             events.extend(opened.events.try_iter());
         }

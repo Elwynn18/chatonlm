@@ -355,10 +355,13 @@ try {
     { name: "context", env },
     shotOnFailure("context", async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
-      // Modèle de secours écrit par la page (session neuve) avant tout choix.
+      // Modèle de secours enregistré par la page (session neuve) avant tout
+      // choix : écrit après celui de l'essai (liste des modèles lente sous
+      // charge), il le remplaçait. Le sélecteur ne suffit pas à le savoir : il
+      // affiche un texte dès le chargement.
       await waitUntil(
-        async () => (await shownModel(driver)) !== null,
-        "modèle par défaut",
+        async () => (await driver.invoke("get_settings")).selectedModel !== "",
+        "modèle par défaut enregistré",
       );
 
       // Écouteur de la CSP, vérifié sur un script en ligne refusé.

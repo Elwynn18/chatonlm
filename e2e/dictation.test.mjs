@@ -350,22 +350,29 @@ try {
         s = await finished(driver, first);
         assert.match(s.lastResult.text, /^Polished: /);
         // Touche à peine effleurée : appui et relâchement arrivent ensemble,
-        // traités dans l'ordre (sinon l'écoute ne s'arrêterait pas).
+        // traités dans l'ordre (sinon l'écoute ne s'arrêterait pas : la
+        // phase resterait « recording »). Sous la charge, l'appui peut
+        // arriver à l'app après un premier « idle » lu (celui d'avant) : la
+        // phase repart alors, et l'on attend de nouveau son retour. La
+        // transcription du bref silence passe par Whisper, lent sous la
+        // charge (plus de 3 s le 15 oct. 2026) : 15 s. À la fin, l'écoute
+        // doit rester arrêtée.
+        const stopped = (what) =>
+          waitStatus(driver, (x) => x.phase === "idle", what, 15000);
         for (let tap = 0; tap < 8; tap++) {
           await desk.command("tap", { id: "dictation" });
-          await waitStatus(
-            driver,
-            (x) => x.phase === "idle",
-            `écoute arrêtée après l'appui bref ${tap + 1}`,
-            3000,
-          );
+          await stopped(`écoute arrêtée après l'appui bref ${tap + 1}`);
           await delay(150);
-          assert.equal(
-            (await status(driver)).phase,
-            "idle",
-            `appui ${tap + 1}`,
-          );
+          await stopped(`écoute arrêtée après l'appui bref ${tap + 1}`);
         }
+        await delay(1000);
+        await stopped("écoute arrêtée après les appuis brefs");
+        await delay(500);
+        assert.equal(
+          (await status(driver)).phase,
+          "idle",
+          "écoute repartie après les appuis brefs",
+        );
         await driver.invoke("update_dictation_settings", {
           patch: { mode: "toggle" },
         });
@@ -718,8 +725,13 @@ try {
         await driver.waitFor("[data-testid=new-chat]", { timeoutMs: 20000 });
         const secondExit = await second;
         assert.equal(secondExit.code, 0);
+        // Défaut cherché : relance bloquée jusqu'au délai des appels D-Bus
+        // (25 s après son départ à 2 s, soit ~27 s), ou perdue (bascule
+        // vérifiée ensuite). `at` compte aussi le lancement de l'app et de
+        // WebDriver, long sous la charge du contrôle complet (10,3 s le
+        // 15 oct. 2026 pour 10 s permises) : 12 s de marge après le setup.
         assert.ok(
-          secondExit.at < 6000 + 4000,
+          secondExit.at < 6000 + 12000,
           `relance finie longtemps après le setup : ${secondExit.at} ms`,
         );
         const s = await waitStatus(

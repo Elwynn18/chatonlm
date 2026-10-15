@@ -1815,8 +1815,12 @@ mod tests {
     use crate::attachments::{StageResult, samples};
     use crate::store::chats::{Role, Turn};
 
-    /// Attente maximale d'un événement ou d'un état, sur le faux serveur.
-    const WAIT: Duration = Duration::from_secs(5);
+    /// Attente maximale d'un événement ou d'un état, sur le faux serveur :
+    /// un garde-fou contre un blocage, jamais une mesure de vitesse. Large :
+    /// un envoi complet dure déjà 3,4 s à vide (chargement de
+    /// `chatonlm-slowload`, puis 190 lignes à 10 ms), bien plus sous la charge
+    /// du contrôle complet.
+    const WAIT: Duration = Duration::from_secs(20);
 
     /// État courant en retard sur la base (lecture entre une écriture et sa
     /// mise à jour) : appels, résultats et fin du raisonnement de la base
@@ -1923,7 +1927,7 @@ mod tests {
             events[0].1["chatId"].as_str().unwrap().to_owned()
         }
 
-        /// Attend au moins `count` événements de ce type, 5 s au plus.
+        /// Attend au moins `count` événements de ce type, [`WAIT`] au plus.
         async fn wait_for(&self, kind: &str, count: usize) {
             let polling = async {
                 while self.count(kind) < count {
@@ -1949,7 +1953,7 @@ mod tests {
         }
     }
 
-    /// Attend la fin d'un envoi lancé à part ; échoue au-delà de 5 s (un flux
+    /// Attend la fin d'un envoi lancé à part ; échoue au-delà de [`WAIT`] (un flux
     /// sans fin qu'une annulation n'arrête plus ferait sinon pendre les tests).
     async fn finished(task: tokio::task::JoinHandle<AppResult<()>>) {
         match tokio::time::timeout(WAIT, task).await {
@@ -6099,7 +6103,9 @@ mod tests {
         assert_eq!(saved(&store, &recorder.chat_id()).messages.len(), 1);
     }
 
-    /// Envoi complet à l'instance de test : événements reçus.
+    /// Envoi complet à l'instance de test : événements reçus. Fin attendue :
+    /// `done`, ou la coupure d'une boucle par Ollama (voir [`BoundedCopy`]) ;
+    /// le contrat regarde le chargement, pas la réponse.
     async fn sent_to_the_test_instance(store: &Store, model: &str, real: Server) -> Vec<Value> {
         let (channel, recorder) = recorder();
         let (engine, staging) = (ChatEngine::default(), Staging::default());
@@ -6109,7 +6115,10 @@ mod tests {
             .unwrap();
         let events = recorder.events();
         assert_one_final(&events);
-        assert_eq!(events.last().unwrap()["type"], json!("done"), "{events:?}");
+        let last = events.last().unwrap();
+        let looped = last["type"] == json!("error")
+            && last["message"] == json!("prediction aborted, token repeat limit reached");
+        assert!(last["type"] == json!("done") || looped, "{events:?}");
         events
     }
 
@@ -6144,11 +6153,15 @@ mod tests {
     /// (`num_predict`, comme dans un Modelfile), supprimée à la fin du contrat,
     /// même en échec (les couches restent au modèle d'origine).
     ///
-    /// ChatonLM n'envoie aucune limite de longueur, et SmolLM2 (135 M) boucle
-    /// parfois (« hello hello… ») : Ollama coupe au-delà de 100 jetons
-    /// identiques d'affilée (« prediction aborted, token repeat limit
-    /// reached ») et l'envoi finit en erreur. Une réponse bornée sous ce seuil
-    /// finit toujours, et la requête reste celle de production.
+    /// SmolLM2 (135 M) boucle parfois (« hello hello… ») : Ollama coupe
+    /// au-delà de 100 jetons identiques d'affilée (« prediction aborted, token
+    /// repeat limit reached ») et l'envoi finit en erreur. Une réponse bornée
+    /// sous ce seuil finit toujours, et la requête reste celle de production.
+    /// Mais depuis la jauge du contexte, ChatonLM envoie sa propre limite
+    /// (`num_predict` : le reste du contexte) dès que la taille du modèle est
+    /// connue, et elle remplace celle-ci : la coupure d'Ollama reste possible
+    /// (contrôle complet du 15 oct. 2026), d'où [`sent_to_the_test_instance`],
+    /// qui l'accepte.
     struct BoundedCopy(&'static str);
 
     impl BoundedCopy {

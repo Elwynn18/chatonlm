@@ -24,21 +24,37 @@ OLLAMA_HOST=http://127.0.0.1:9 CHATONLM_E2E_STANDARD_URL=http://127.0.0.1:1 \
   "$binary" >"$log" 2>&1 &
 app=$!
 trap 'kill "$app" 2>/dev/null || true; wait "$app" 2>/dev/null || true' EXIT
-sleep "${E2E_WAIT:-5}"
 
-if ! kill -0 "$app" 2>/dev/null; then
-  echo "L'app s'est arrêtée au démarrage ; voir $log" >&2
-  exit 1
-fi
-if grep -q 'startup fallback' "$log"; then
-  echo "Fenêtre affichée par le filet de secours, pas par le frontend ; voir $log" >&2
-  exit 1
-fi
-
-shot="$(scripts/e2e-session.sh --shot "$name")"
-if cmp -s "$shot" ".tools/shots/$name-before.png"; then
-  echo "L'écran n'a pas changé : aucune fenêtre affichée." >&2
-  exit 1
-fi
+# Jusqu'à ce que l'écran change, `E2E_WAIT` secondes au plus (30 par défaut) :
+# une attente fixe (5 s jusqu'au 15 oct. 2026) était dépassée sous la charge du
+# contrôle complet. L'app qui s'arrête ou le filet de secours font échouer à
+# tout moment.
+deadline=$((SECONDS + ${E2E_WAIT:-30}))
+check_app() {
+  if ! kill -0 "$app" 2>/dev/null; then
+    echo "L'app s'est arrêtée au démarrage ; voir $log" >&2
+    exit 1
+  fi
+  if grep -q 'startup fallback' "$log"; then
+    echo "Fenêtre affichée par le filet de secours, pas par le frontend ; voir $log" >&2
+    exit 1
+  fi
+}
+while :; do
+  sleep 1
+  check_app
+  shot="$(scripts/e2e-session.sh --shot "$name")"
+  if ! cmp -s "$shot" ".tools/shots/$name-before.png"; then
+    break
+  fi
+  if [ "$SECONDS" -ge "$deadline" ]; then
+    echo "L'écran n'a pas changé : aucune fenêtre affichée." >&2
+    exit 1
+  fi
+done
+# Le filet de secours s'écrit juste avant d'afficher la fenêtre : relu une
+# fois l'écran changé.
+sleep 1
+check_app
 rm -f ".tools/shots/$name-before.png"
 echo "$shot"
