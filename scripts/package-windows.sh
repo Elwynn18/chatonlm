@@ -14,14 +14,17 @@
 # 1. ONNX Runtime et Ollama intégré pour Windows, épinglés et vérifiés
 #    (scripts/fetch-onnxruntime.sh, scripts/fetch-ollama.sh) :
 #    .tools/runtimes/onnxruntime/onnxruntime.dll et .tools/runtimes/ollama/
-#    (ollama.exe, lib/ollama/…, VERSION).
+#    (ollama.exe, lib/ollama/…, VERSION) ; moteur d'images construit depuis
+#    ses sources (scripts/build-sd-server.sh, SDK Vulkan posé par le
+#    workflow) : .tools/runtimes/sd-server/ (sd-server.exe, fallback\,
+#    VERSION).
 # 2. Frontend (dist/), s'il n'est pas déjà construit, puis une première
 #    écriture des notices (scripts/package-notices.mjs) : build.rs copie les
 #    ressources de packaging/windows/bundle.conf.json à la compilation, le
 #    dossier des notices doit donc exister avant elle. Le CLI refait ensuite
 #    les deux (beforeBuildCommand, beforeBundleCommand).
 # 3. `tauri build --bundles nsis` avec packaging/windows/bundle.conf.json
-#    (ressources : onnxruntime.dll, ollama\, licenses\). Ces ressources ne
+#    (ressources : onnxruntime.dll, ollama\, sd-server\, licenses\). Ces ressources ne
 #    sont pas dans src-tauri/tauri.windows.conf.json : `cargo check` et
 #    `cargo test` n'ont pas à les télécharger.
 # 4. Copie de l'installateur dans out/ (inspection : scripts/inspect-windows.mjs).
@@ -77,14 +80,19 @@ step "ONNX Runtime épinglé"
 scripts/fetch-onnxruntime.sh
 step "Ollama intégré épinglé"
 scripts/fetch-ollama.sh
+step "Moteur d'images épinglé"
+scripts/build-sd-server.sh
 
-# Ce que packaging/windows/bundle.conf.json attend des deux scripts.
+# Ce que packaging/windows/bundle.conf.json attend des trois scripts.
 ollama="$root/.tools/runtimes/ollama"
 missing=()
 for file in \
   ".tools/runtimes/onnxruntime/onnxruntime.dll" \
   ".tools/runtimes/ollama/ollama.exe" \
-  ".tools/runtimes/ollama/lib/ollama/llama-server.exe"; do
+  ".tools/runtimes/ollama/lib/ollama/llama-server.exe" \
+  ".tools/runtimes/sd-server/sd-server.exe" \
+  ".tools/runtimes/sd-server/fallback/vulkan-1.dll" \
+  ".tools/runtimes/sd-server/VERSION"; do
   [ -f "$root/$file" ] || missing+=("$file")
 done
 if [ "${#missing[@]}" -gt 0 ]; then

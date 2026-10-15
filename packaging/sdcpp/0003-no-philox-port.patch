@@ -1,0 +1,179 @@
+diff --git a/src/core/rng_philox.hpp b/src/core/rng_philox.hpp
+deleted file mode 100644
+index 9799a87..0000000
+--- a/src/core/rng_philox.hpp
++++ /dev/null
+@@ -1,96 +0,0 @@
+-#ifndef __SD_CORE_RNG_PHILOX_HPP__
+-#define __SD_CORE_RNG_PHILOX_HPP__
+-
+-#include <array>
+-#include <cmath>
+-#include <vector>
+-
+-#include "core/rng.hpp"
+-
+-// RNG imitiating torch cuda randn on CPU.
+-// Port from: https://github.com/AUTOMATIC1111/stable-diffusion-webui/blob/5ef669de080814067961f28357256e8fe27544f4/modules/rng_philox.py
+-class PhiloxRNG : public RNG {
+-private:
+-    uint64_t seed;
+-    uint32_t offset;
+-
+-private:
+-    using Counter = std::array<std::vector<uint32_t>, 4>;
+-
+-    static constexpr uint32_t philox_m[2] = {0xD2511F53, 0xCD9E8D57};
+-    static constexpr uint32_t philox_w[2] = {0x9E3779B9, 0xBB67AE85};
+-    float two_pow32_inv                   = 2.3283064e-10f;
+-    float two_pow32_inv_2pi               = 2.3283064e-10f * 6.2831855f;
+-
+-    //  A single round of the Philox 4x32 random number generator.
+-    void philox4_round(Counter& counter, uint32_t key0, uint32_t key1) {
+-        uint32_t N = (uint32_t)counter[0].size();
+-        for (uint32_t i = 0; i < N; i++) {
+-            const uint64_t v1 = static_cast<uint64_t>(counter[0][i]) * static_cast<uint64_t>(philox_m[0]);
+-            const uint64_t v2 = static_cast<uint64_t>(counter[2][i]) * static_cast<uint64_t>(philox_m[1]);
+-
+-            counter[0][i] = static_cast<uint32_t>(v2 >> 32) ^ counter[1][i] ^ key0;
+-            counter[1][i] = static_cast<uint32_t>(v2);
+-            counter[2][i] = static_cast<uint32_t>(v1 >> 32) ^ counter[3][i] ^ key1;
+-            counter[3][i] = static_cast<uint32_t>(v1);
+-        }
+-    }
+-
+-    void philox4_32(Counter& counter, uint32_t key0, uint32_t key1, int rounds = 10) {
+-        for (int i = 0; i < rounds - 1; ++i) {
+-            philox4_round(counter, key0, key1);
+-            key0 += philox_w[0];
+-            key1 += philox_w[1];
+-        }
+-
+-        philox4_round(counter, key0, key1);
+-    }
+-
+-    float box_muller(float x, float y) {
+-        float u = x * two_pow32_inv + two_pow32_inv / 2;
+-        float v = y * two_pow32_inv_2pi + two_pow32_inv_2pi / 2;
+-
+-        float s = sqrt(-2.0f * log(u));
+-
+-        float r1 = s * sin(v);
+-        return r1;
+-    }
+-
+-public:
+-    PhiloxRNG(uint64_t seed = 0) {
+-        this->seed   = seed;
+-        this->offset = 0;
+-    }
+-
+-    std::shared_ptr<RNG> clone() const override {
+-        return std::make_shared<PhiloxRNG>(*this);
+-    }
+-
+-    void manual_seed(uint64_t seed) override {
+-        this->seed   = seed;
+-        this->offset = 0;
+-    }
+-
+-    std::vector<float> randn(uint32_t n) override {
+-        Counter counter;
+-        counter[0].resize(n, this->offset);
+-        counter[1].resize(n);
+-        counter[2].resize(n);
+-        counter[3].resize(n);
+-
+-        for (uint32_t i = 0; i < n; i++) {
+-            counter[2][i] = i;
+-        }
+-        this->offset += 1;
+-
+-        philox4_32(counter, static_cast<uint32_t>(this->seed), static_cast<uint32_t>(this->seed >> 32));
+-
+-        std::vector<float> result(n);
+-        for (uint32_t i = 0; i < n; ++i) {
+-            result[i] = box_muller((float)counter[0][i], (float)counter[1][i]);
+-        }
+-        return result;
+-    }
+-};
+-
+-#endif  // __SD_CORE_RNG_PHILOX_HPP__
+diff --git a/src/pipeline/diffusion_engine.cpp b/src/pipeline/diffusion_engine.cpp
+index cdb6e90..af9aa0f 100644
+--- a/src/pipeline/diffusion_engine.cpp
++++ b/src/pipeline/diffusion_engine.cpp
+@@ -24,7 +24,7 @@
+ 
+ #include "core/rng.hpp"
+ #include "core/rng_mt19937.hpp"
+-#include "core/rng_philox.hpp"
++#include "core/rng.hpp"
+ #include "core/util.h"
+ #include "model_builders.h"
+ #include "model_loader.h"
+@@ -154,7 +154,7 @@ static_assert(std::atomic<sd_cancel_mode_t>::is_always_lock_free,
+               "sd_cancel_mode_t must be lock-free");
+ 
+ StableDiffusionGGML::StableDiffusionGGML()
+-    : rng(std::make_shared<PhiloxRNG>()),
++    : rng(std::make_shared<STDDefaultRNG>()),
+       conditioning_cache_(std::make_unique<ConditioningCache>()),
+       denoiser(std::make_shared<CompVisDenoiser>()) {}
+ 
+@@ -671,8 +671,8 @@ std::shared_ptr<RNG> StableDiffusionGGML::get_rng(rng_type_t rng_type) {
+         return std::make_shared<STDDefaultRNG>();
+     } else if (rng_type == CPU_RNG) {
+         return std::make_shared<MT19937RNG>();
+-    } else {  // default: CUDA_RNG
+-        return std::make_shared<PhiloxRNG>();
++    } else {  // CUDA_RNG: ChatonLM build without the Philox port, std::default_random_engine instead
++        return std::make_shared<STDDefaultRNG>();
+     }
+ }
+ 
+diff --git a/src/pipeline/video.cpp b/src/pipeline/video.cpp
+index 2fcff4c..5b88167 100644
+--- a/src/pipeline/video.cpp
++++ b/src/pipeline/video.cpp
+@@ -7,7 +7,7 @@
+ 
+ #include "conditioning/wan_audio.h"
+ #include "core/rng.hpp"
+-#include "core/rng_philox.hpp"
++#include "core/rng.hpp"
+ #include "diffusion_engine.h"
+ #include "model/diffusion/minimax_h3.hpp"
+ #include "model/upscaler/ltx_latent_upscaler.hpp"
+@@ -510,7 +510,7 @@ namespace sd::pipeline {
+             }
+ 
+             auto add_visual_noise = [&](sd::Tensor<float> latent) {
+-                auto condition_rng = std::make_shared<PhiloxRNG>();
++                auto condition_rng = std::make_shared<STDDefaultRNG>();
+                 condition_rng->manual_seed(static_cast<uint64_t>(request->seed));
+                 return latent * MiniMaxH3::VISUAL_COND_TIMESTEP +
+                        sd::Tensor<float>::randn_like(latent, condition_rng) *
+diff --git a/src/runtime/denoiser.hpp b/src/runtime/denoiser.hpp
+index 02ebe57..c98d6df 100644
+--- a/src/runtime/denoiser.hpp
++++ b/src/runtime/denoiser.hpp
+@@ -13,7 +13,7 @@
+ 
+ #include "core/rng.hpp"
+ #include "core/rng_mt19937.hpp"
+-#include "core/rng_philox.hpp"
++#include "core/rng.hpp"
+ #include "core/tensor.hpp"
+ #include "core/util.h"
+ #include "model.h"
+@@ -3026,7 +3026,7 @@ static std::unique_ptr<NoiseSampler> make_noise_sampler(const sd::Tensor<float>&
+             } else if (brownian_tree_rng == "std_default") {
+                 node_rng = std::make_shared<STDDefaultRNG>();
+             } else if (brownian_tree_rng == "cuda") {
+-                node_rng = std::make_shared<PhiloxRNG>();
++                node_rng = std::make_shared<STDDefaultRNG>();
+             } else {
+                 node_rng = std::make_shared<MT19937RNG>();
+             }

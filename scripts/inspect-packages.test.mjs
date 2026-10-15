@@ -3,9 +3,10 @@
 // (inspect-packages.mjs, sur un .deb et une AppDir fabriqués ici), notices
 // (package-notices.mjs), inventaire des bibliothèques de l'AppImage
 // (appimage-libs.sh : classement des licences, liste, comparaison),
-// configuration du bundle (src-tauri/tauri.conf.json) et Ollama intégré
+// configuration du bundle (src-tauri/tauri.conf.json), Ollama intégré
 // (fetch-ollama.sh sur une archive fabriquée ici, contrôles des paquets,
-// notices).
+// notices) et moteur d'images (sd-server : contrôles des paquets, rangement
+// dans le bundle).
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -23,6 +24,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   APPIMAGE_FILES,
+  APPIMAGE_SD_PREFIX,
   appImageErrors,
   appImageRuntime,
   COMMON_FILES,
@@ -47,6 +49,12 @@ import {
   parseControl,
   parseDesktop,
   parseSums,
+  SD_FILES,
+  SD_LINK,
+  SD_LINK_TARGET,
+  SD_PREFIX,
+  sdServerErrors,
+  sdServerLines,
   walk,
 } from "./inspect-packages.mjs";
 import {
@@ -68,6 +76,7 @@ import {
   renderNpmPackages,
   renderOllamaReadme,
   renderRustCrates,
+  renderSdServerReadme,
   renderSpeechModels,
   renderVoiceModels,
 } from "./package-notices.mjs";
@@ -178,6 +187,10 @@ const SONORA = [
   "sonora-ns",
   "sonora-simd",
 ];
+/** Notice du moteur d'images, réduite à ce que noticeErrors exige. */
+const SD_README = "usr/share/doc/chatonlm/licenses/sd-server/README.txt";
+const SD_README_TEXT =
+  "sd-server of stable-diffusion.cpp\nfallback/libvulkan.so.1: Apache License\n";
 const crateLines = (names) =>
   `Crates\n${names.map((name) => `  ${name} 0.2.0 (BSD-3-Clause) https://example.org\n`).join("")}`;
 
@@ -187,6 +200,7 @@ function packageFiles(extra = {}) {
   for (const rel of COMMON_FILES) files[rel] = "x";
   files[THIRD_PARTY] = "-- Silero VAD --\n";
   files[RUST_CRATES] = crateLines(SONORA);
+  files[SD_README] = SD_README_TEXT;
   files["usr/bin/chatonlm"] = { elf: true };
   files["usr/share/applications/chatonlm.desktop"] = HIDDEN;
   files["usr/share/doc/chatonlm/copyright"] = debCopyright({
@@ -497,6 +511,7 @@ describe("appImageErrors", () => {
   const appFiles = (extra = {}) => {
     const files = packageFiles({
       [OLLAMA_LINK]: { link: OLLAMA_LINK_TARGET },
+      [SD_LINK]: { link: SD_LINK_TARGET },
       ...extra,
     });
     for (const rel of APPIMAGE_FILES) files[rel] ??= "x";
@@ -606,6 +621,21 @@ describe("noticeErrors", () => {
     expect(check(prose)).toHaveLength(1);
   });
 
+  it("requires the project and the fallback Vulkan loader in the image engine notice", () => {
+    expect(
+      check(packageFiles({ [SD_README]: "stable-diffusion.cpp\n" })),
+    ).toEqual([
+      `${SD_README} : mention absente (fallback\\/libvulkan\\.so\\.1)`,
+      `${SD_README} : mention absente (Apache License)`,
+    ]);
+    // Notice écrite par package-notices.mjs.
+    const env = parseEnv(
+      readFileSync(path.join(ROOT, "packaging/sdcpp.env"), "utf8"),
+    );
+    const readme = renderSdServerReadme({ env, licenseFiles: [] });
+    expect(check(packageFiles({ [SD_README]: readme }))).toEqual([]);
+  });
+
   it("leaves a missing file to the list of required files", () => {
     const files = packageFiles();
     delete files[RUST_CRATES];
@@ -614,9 +644,10 @@ describe("noticeErrors", () => {
 });
 
 describe("inspectDeb", () => {
-  it("extracts a .deb and inspects its files and binary", () => {
-    const dir = tempDir("inspect-deb-");
-    const data = tree(path.join(dir, "data"), debFiles());
+  /** .deb fabriqué dans `dir` avec les fichiers `files` (tree). */
+  function buildDeb(dir, files, after = () => {}) {
+    const data = tree(path.join(dir, "data"), files);
+    after(data);
     const control = tree(path.join(dir, "control"), { control: CONTROL });
     execFileSync("tar", [
       "-czf",
@@ -647,6 +678,12 @@ describe("inspectDeb", () => {
         },
       ]),
     );
+    return deb;
+  }
+
+  it("extracts a .deb and inspects its files and binary", () => {
+    const dir = tempDir("inspect-deb-");
+    const deb = buildDeb(dir, debFiles());
     const result = inspectDeb(deb, {
       work: path.join(dir, "work"),
       version: "0.1.0",
@@ -658,6 +695,70 @@ describe("inspectDeb", () => {
     expect(result.files.get("usr/bin/chatonlm").mode & 0o111).not.toBe(0);
     expect(result.binary.needed).toContain("libc.so.6");
     expect(Object.keys(result.binary.versions)).toContain("GLIBC");
+    expect(result.sdServerElf).toBeNull();
+  });
+
+  it("compares the image engine with the built directory and reads its ELF files", () => {
+    const dir = tempDir("inspect-deb-sd-");
+    const version = "master-964-1d0a58a+chatonlm.0123456789ab";
+    const deb = buildDeb(
+      dir,
+      debFiles({
+        [`${SD_PREFIX}sd-server`]: { elf: true },
+        [`${SD_PREFIX}fallback/libvulkan.so.1`]: { elf: true },
+        [`${SD_PREFIX}VERSION`]: `${version}\n`,
+      }),
+      (data) =>
+        chmodSync(path.join(data, SD_PREFIX, "fallback/libvulkan.so.1"), 0o644),
+    );
+    const sum = (rel) =>
+      createHash("sha256")
+        .update(readFileSync(path.join(dir, "data", SD_PREFIX, rel)))
+        .digest("hex");
+    const sdServer = {
+      sums: new Map(SD_FILES.map((rel) => [rel, sum(rel)])),
+      version,
+      pinned: "master-964-1d0a58a",
+    };
+    const result = inspectDeb(deb, {
+      work: path.join(dir, "work"),
+      version: "0.1.0",
+      sdServer,
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.sdServerElf.map((e) => [e.rel, e.elf])).toEqual([
+      ["sd-server", true],
+      ["fallback/libvulkan.so.1", true],
+    ]);
+    for (const entry of result.sdServerElf) {
+      expect(entry.needed).toContain("libc.so.6");
+      expect(entry.linked).toContain("libc.so.6");
+      expect(entry.missing).toEqual([]);
+      expect(entry.versions.GLIBC).toMatch(/^2\.\d+$/);
+    }
+    const report = sdServerLines(result.files, result.sdServerElf, {
+      maxGlibc: "2.0",
+    });
+    expect(report.lines[0]).toMatch(
+      /^Moteur d'images \(sd-server\) : 3 fichiers, /,
+    );
+    expect(report.errors).toHaveLength(2);
+    expect(report.errors[0]).toMatch(
+      /^le moteur d'images \(sd-server\) demande GLIBC_2\.\d+ \(maximum permis : 2\.0\)$/,
+    );
+
+    // Autre construction du moteur dans le dossier : le paquet est périmé.
+    const stale = inspectDeb(deb, {
+      work: path.join(dir, "work"),
+      version: "0.1.0",
+      sdServer: {
+        ...sdServer,
+        sums: new Map([...sdServer.sums, ["sd-server", "0".repeat(64)]]),
+      },
+    });
+    expect(stale.errors).toEqual([
+      `Moteur d'images : fichier modifié (strip, patchelf ?) : ${SD_PREFIX}sd-server`,
+    ]);
   });
 });
 
@@ -1581,6 +1682,356 @@ describe("built-in Ollama in the bundle configuration", () => {
       "must be installed separately",
     );
     expect(METAINFO).toContain("includes its own copy of Ollama");
+  });
+});
+
+describe("image engine (sd-server) in the packages", () => {
+  const PINNED = "master-964-1d0a58a";
+  const VERSION = `${PINNED}+chatonlm.0123456789ab`;
+  // Empreintes du dossier construit : contenu du fichier fabriqué (hash =
+  // contenu dans view), VERSION compris.
+  const SUMS = new Map([
+    ["sd-server", "a".repeat(64)],
+    ["fallback/libvulkan.so.1", "b".repeat(64)],
+    ["VERSION", VERSION],
+  ]);
+
+  /**
+   * Vue d'un paquet : le moteur de SUMS sous `prefix` (sd-server seul
+   * exécutable), puis `changes` (chemin → {content, mode, link} ou null pour
+   * retirer le fichier).
+   */
+  function view(changes = {}, prefix = SD_PREFIX) {
+    const entries = new Map();
+    for (const [rel, sum] of SUMS) {
+      entries.set(`${prefix}${rel}`, {
+        content: sum,
+        mode: rel === "sd-server" ? 0o100755 : 0o100644,
+      });
+    }
+    for (const [rel, change] of Object.entries(changes)) {
+      if (change === null) entries.delete(rel);
+      else entries.set(rel, { ...entries.get(rel), ...change });
+    }
+    const files = new Map(
+      [...entries].map(([rel, e]) => [
+        rel,
+        { size: 1, mode: e.mode ?? 0o100644, link: e.link ?? null },
+      ]),
+    );
+    const content = (rel) => entries.get(rel)?.content ?? "";
+    return { files, hash: content, read: content };
+  }
+  const check = (
+    changes,
+    { sums = SUMS, version = VERSION, pinned = PINNED } = {},
+  ) => sdServerErrors({ ...view(changes), sums, version, pinned });
+
+  it("accepts the files of the built directory, unchanged", () => {
+    expect(check({})).toEqual([]);
+  });
+
+  it("refuses a missing, changed or linked file, and any other file", () => {
+    expect(
+      check({
+        [`${SD_PREFIX}sd-server`]: null,
+        [`${SD_PREFIX}fallback/libvulkan.so.1`]: { content: "stripped" },
+        [`${SD_PREFIX}sd-cli`]: { content: "x" },
+        [`${SD_PREFIX}fallback/libvulkan.so`]: { link: "libvulkan.so.1" },
+      }),
+    ).toEqual([
+      `Moteur d'images : fichier absent : ${SD_PREFIX}sd-server`,
+      `Moteur d'images : fichier modifié (strip, patchelf ?) : ${SD_PREFIX}fallback/libvulkan.so.1`,
+      `Moteur d'images : fichier inattendu : ${SD_PREFIX}sd-cli`,
+      `Moteur d'images : fichier inattendu : ${SD_PREFIX}fallback/libvulkan.so -> libvulkan.so.1`,
+    ]);
+    expect(
+      check({ [`${SD_PREFIX}sd-server`]: { link: "../bin/sd-server" } }),
+    ).toEqual([`Moteur d'images : lien symbolique : ${SD_PREFIX}sd-server`]);
+  });
+
+  it("keeps the executable bit on sd-server only", () => {
+    expect(
+      check({
+        [`${SD_PREFIX}sd-server`]: { mode: 0o100644 },
+        [`${SD_PREFIX}fallback/libvulkan.so.1`]: { mode: 0o100755 },
+      }),
+    ).toEqual([
+      `Moteur d'images : ${SD_PREFIX}sd-server n'est pas exécutable`,
+      `Moteur d'images : ${SD_PREFIX}fallback/libvulkan.so.1 ne doit pas être exécutable`,
+    ]);
+  });
+
+  it("requires the version of the built directory, of the pinned release", () => {
+    // Paquet construit avec un ancien moteur : VERSION et son empreinte
+    // diffèrent de celles du dossier construit.
+    const old = `master-963-0000000+chatonlm.0123456789ab`;
+    expect(check({ [`${SD_PREFIX}VERSION`]: { content: `${old}\n` } })).toEqual(
+      [
+        `Moteur d'images : fichier modifié (strip, patchelf ?) : ${SD_PREFIX}VERSION`,
+        `Moteur d'images : VERSION ${old} au lieu de ${VERSION}`,
+        `Moteur d'images : VERSION ${old} hors de la forme ${PINNED}+chatonlm.<empreinte> (packaging/sdcpp.env)`,
+      ],
+    );
+    // packaging/sdcpp.env changé sans reconstruire le moteur.
+    expect(check({}, { pinned: "master-965-abcdef0" })).toEqual([
+      `Moteur d'images : VERSION ${VERSION} hors de la forme master-965-abcdef0+chatonlm.<empreinte> (packaging/sdcpp.env)`,
+    ]);
+    // Dossier construit sans VERSION.
+    expect(check({}, { version: null })).toEqual([
+      `Moteur d'images : VERSION ${VERSION} au lieu de (inconnue)`,
+    ]);
+  });
+
+  it("requires the checksums of the built directory", () => {
+    expect(check({}, { sums: new Map() })).toEqual([
+      "empreintes du moteur d'images absentes (lancer scripts/build-sd-server.sh)",
+    ]);
+  });
+
+  it("refuses its libraries copied out of its directory, the Ollama checks leaving its fallback alone", () => {
+    expect(
+      check({
+        "usr/lib/libvulkan.so.1": {},
+        "usr/lib/x86_64-linux-gnu/sd-server": {},
+        "usr/lib/chatonlm/ollama/VERSION": {},
+      }),
+    ).toEqual([
+      "bibliothèque du moteur d'images copiée hors de son dossier : usr/lib/libvulkan.so.1",
+      "bibliothèque du moteur d'images copiée hors de son dossier : usr/lib/x86_64-linux-gnu/sd-server",
+    ]);
+    // Le chargeur de secours, dans usr/lib/chatonlm/sd-server/fallback du
+    // .deb, n'est pas une copie du chargeur faite par linuxdeploy.
+    const { files } = view();
+    files.set(`${OLLAMA_PREFIX}VERSION`, { size: 1, mode: 0o100644 });
+    expect(
+      ollamaErrors({
+        files,
+        hash: () => "",
+        read: () => "0.40.0\n",
+        sums: new Map([["VERSION", ""]]),
+        version: "0.40.0",
+      }),
+    ).toEqual([]);
+  });
+
+  it("checks the AppImage copy in usr/libexec", () => {
+    const { files, hash, read } = view({}, APPIMAGE_SD_PREFIX);
+    files.set(SD_LINK, { size: 1, mode: 0o120777, link: SD_LINK_TARGET });
+    expect(
+      sdServerErrors({
+        files,
+        hash,
+        read,
+        sums: SUMS,
+        version: VERSION,
+        pinned: PINNED,
+        prefix: APPIMAGE_SD_PREFIX,
+      }),
+    ).toEqual([]);
+  });
+
+  it("requires the engine and its notice in both packages", () => {
+    for (const rel of SD_FILES) {
+      expect(DEB_FILES).toContain(`${SD_PREFIX}${rel}`);
+      expect(APPIMAGE_FILES).toContain(`${APPIMAGE_SD_PREFIX}${rel}`);
+    }
+    expect(SD_FILES).toEqual([
+      "sd-server",
+      "fallback/libvulkan.so.1",
+      "VERSION",
+    ]);
+    expect(COMMON_FILES).toContain(
+      "usr/share/doc/chatonlm/licenses/sd-server/README.txt",
+    );
+    const deb = debFiles();
+    delete deb[`${SD_PREFIX}sd-server`];
+    expect(
+      debErrors({
+        control: parseControl(CONTROL),
+        ...filesView(deb),
+        version: "0.1.0",
+      }),
+    ).toEqual([`fichier absent : /${SD_PREFIX}sd-server`]);
+  });
+
+  it("keeps the AppImage copy out of the .deb, and the .deb copy out of the AppImage", () => {
+    const deb = debFiles({ [`${APPIMAGE_SD_PREFIX}sd-server`]: { elf: true } });
+    expect(
+      debErrors({
+        control: parseControl(CONTROL),
+        ...filesView(deb),
+        version: "0.1.0",
+      }),
+    ).toEqual([
+      `fichier propre à l'AppImage dans le .deb : /${APPIMAGE_SD_PREFIX}sd-server`,
+    ]);
+    const appimage = packageFiles({
+      [OLLAMA_LINK]: { link: OLLAMA_LINK_TARGET },
+      [`${SD_PREFIX}sd-server`]: { elf: true },
+    });
+    for (const rel of APPIMAGE_FILES) appimage[rel] ??= "x";
+    const check = (files) =>
+      appImageErrors({
+        ...filesView(files),
+        rootDesktops: ["chatonlm.desktop"],
+        requireInventory: false,
+      });
+    // Lien absent et copie dans usr/lib (que linuxdeploy traiterait).
+    expect(check(appimage)).toEqual([
+      `fichier propre au .deb dans l'AppImage : ${SD_PREFIX}sd-server`,
+      `${SD_LINK} : lien vers ${SD_LINK_TARGET} attendu (absent)`,
+      `Moteur d'images dans usr/lib (linuxdeploy le traiterait) : ${SD_PREFIX}sd-server`,
+    ]);
+    delete appimage[`${SD_PREFIX}sd-server`];
+    expect(check({ ...appimage, [SD_LINK]: { link: "../sd-server" } })).toEqual(
+      [`${SD_LINK} : lien vers ${SD_LINK_TARGET} attendu (../sd-server)`],
+    );
+    expect(check({ ...appimage, [SD_LINK]: { link: SD_LINK_TARGET } })).toEqual(
+      [],
+    );
+  });
+
+  it("reports the libraries and the glibc of each ELF file, within the limits", () => {
+    const { files } = view();
+    const entry = (rel, more = {}) => ({
+      rel,
+      elf: true,
+      needed: ["libvulkan.so.1", "libstdc++.so.6", "libc.so.6"],
+      versions: { GLIBC: "2.34", GLIBCXX: "3.4.30" },
+      missing: [],
+      linked: ["libvulkan.so.1", "libstdc++.so.6", "libc.so.6"],
+      ...more,
+    });
+    const elf = [
+      entry("sd-server", { missing: ["libvulkan.so.1"] }),
+      entry("fallback/libvulkan.so.1", {
+        needed: ["libc.so.6"],
+        versions: { GLIBC: "2.17" },
+        linked: ["libc.so.6"],
+      }),
+    ];
+    const ok = sdServerLines(files, elf, { maxGlibc: "2.35" });
+    expect(ok.errors).toEqual([]);
+    expect(ok.lines).toEqual([
+      "Moteur d'images (sd-server) : 3 fichiers, 3 o",
+      "  sd-server : libvulkan.so.1, libstdc++.so.6, libc.so.6 ; versions de symboles les plus récentes : GLIBC_2.34, GLIBCXX_3.4.30",
+      "  fallback/libvulkan.so.1 : libc.so.6 ; versions de symboles les plus récentes : GLIBC_2.17",
+    ]);
+    expect(ollamaLines(files, null, {})).toEqual({ lines: [], errors: [] });
+    expect(sdServerLines(files, null, { maxGlibc: "2.35" })).toEqual({
+      lines: [],
+      errors: [],
+    });
+    // glibc trop récente, pour le serveur comme pour le chargeur.
+    const recent = [
+      entry("sd-server", { versions: { GLIBC: "2.38" } }),
+      entry("fallback/libvulkan.so.1", { versions: { GLIBC: "2.36" } }),
+    ];
+    expect(sdServerLines(files, recent, { maxGlibc: "2.35" }).errors).toEqual([
+      "le moteur d'images (sd-server) demande GLIBC_2.38 (maximum permis : 2.35)",
+      "le moteur d'images (fallback/libvulkan.so.1) demande GLIBC_2.36 (maximum permis : 2.35)",
+    ]);
+    expect(sdServerLines(files, recent, { maxGlibc: null }).errors).toEqual([]);
+  });
+
+  it("refuses libgomp, a missing library other than Vulkan and a file that is not ELF", () => {
+    const { files } = view();
+    const elf = [
+      {
+        rel: "sd-server",
+        elf: true,
+        needed: ["libvulkan.so.1", "libgomp.so.1"],
+        versions: { GLIBC: "2.34" },
+        missing: ["libvulkan.so.1", "libwebp.so.7"],
+        linked: ["libvulkan.so.1", "libgomp.so.1", "libwebp.so.7"],
+      },
+      {
+        rel: "fallback/libvulkan.so.1",
+        elf: true,
+        needed: ["libc.so.6"],
+        versions: {},
+        // Le chargeur de secours ne peut pas manquer de lui-même.
+        missing: ["libvulkan.so.1"],
+        linked: ["libvulkan.so.1"],
+      },
+    ];
+    expect(sdServerLines(files, elf, { maxGlibc: "2.35" }).errors).toEqual([
+      "moteur d'images : sd-server : bibliothèques introuvables (ldd) : libwebp.so.7",
+      "moteur d'images : sd-server dépend de libgomp (OpenMP devait être coupé)",
+      "moteur d'images : fallback/libvulkan.so.1 : bibliothèques introuvables (ldd) : libvulkan.so.1",
+    ]);
+    // libgomp chargée par une autre bibliothèque (ldd seulement).
+    const indirect = [
+      {
+        ...elf[0],
+        needed: ["libc.so.6"],
+        missing: [],
+        linked: ["libgomp.so.1"],
+      },
+    ];
+    expect(sdServerLines(files, indirect, {}).errors).toEqual([
+      "moteur d'images : sd-server dépend de libgomp (OpenMP devait être coupé)",
+    ]);
+    expect(
+      sdServerLines(files, [{ rel: "sd-server", elf: false }], {}).errors,
+    ).toEqual([`moteur d'images : ${SD_PREFIX}sd-server n'est pas un ELF`]);
+  });
+});
+
+describe("image engine in the bundle configuration", () => {
+  it("installs sd-server, its fallback loader and VERSION in both packages", () => {
+    const { deb, appimage } = CONFIG.bundle.linux;
+    const built = "../.tools/runtimes/sd-server";
+    const entries = (files, prefix) =>
+      Object.fromEntries(
+        Object.entries(files).filter(([dest]) => dest.startsWith(`/${prefix}`)),
+      );
+    expect(entries(deb.files, SD_PREFIX)).toEqual({
+      "/usr/lib/chatonlm/sd-server/sd-server": `${built}/sd-server`,
+      "/usr/lib/chatonlm/sd-server/fallback": `${built}/fallback`,
+      "/usr/lib/chatonlm/sd-server/VERSION": `${built}/VERSION`,
+    });
+    // AppImage : hors de usr/lib (linuxdeploy), lien posé par package.sh.
+    expect(entries(appimage.files, APPIMAGE_SD_PREFIX)).toEqual({
+      "/usr/libexec/chatonlm/sd-server/sd-server": `${built}/sd-server`,
+      "/usr/libexec/chatonlm/sd-server/fallback": `${built}/fallback`,
+      "/usr/libexec/chatonlm/sd-server/VERSION": `${built}/VERSION`,
+    });
+    expect(entries(appimage.files, SD_PREFIX)).toEqual({});
+    expect(entries(deb.files, APPIMAGE_SD_PREFIX)).toEqual({});
+    // SHA256SUMS reste dans le dossier construit.
+    for (const files of [deb.files, appimage.files]) {
+      expect(Object.values(files)).not.toContain(`${built}/SHA256SUMS`);
+      expect(Object.values(files)).not.toContain(built);
+    }
+  });
+
+  it("builds the engine and links it in the AppImage", () => {
+    const script = readFileSync(path.join(ROOT, "scripts/package.sh"), "utf8");
+    expect(script).toContain(`ln -s ${SD_LINK_TARGET} "$dir/sd-server"`);
+    expect(script).toContain(
+      `run "Moteur d'images épinglé" scripts/build-sd-server.sh`,
+    );
+    // Le lien est posé dans la même fonction que celui de l'Ollama intégré.
+    const lib = script.split("appimage_lib() {")[1].split("\n}")[0];
+    expect(lib).toContain(`ln -s ${OLLAMA_LINK_TARGET} "$dir/ollama"`);
+    expect(lib).toContain(`ln -s ${SD_LINK_TARGET} "$dir/sd-server"`);
+    // Construit avant l'empaquetage.
+    expect(script.indexOf("scripts/build-sd-server.sh")).toBeLessThan(
+      script.indexOf('run "Construction ('),
+    );
+  });
+
+  it("pins the release built by build-sd-server.sh", () => {
+    const env = parseEnv(
+      readFileSync(path.join(ROOT, "packaging/sdcpp.env"), "utf8"),
+    );
+    expect(env.SDCPP_VERSION).toMatch(/^master-\d+-[0-9a-f]{7}$/);
+    expect(env.SDCPP_COMMIT).toMatch(/^[0-9a-f]{40}$/);
+    expect(env.SDCPP_COMMIT.startsWith(env.SDCPP_VERSION.split("-")[2])).toBe(
+      true,
+    );
   });
 });
 

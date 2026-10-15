@@ -418,6 +418,7 @@
   },
   "imageGen": {
     "unavailable": "cette version de ChatonLM ne contient pas le moteur d'images",
+    "cpuUnsupported": "ce processeur ne peut pas faire tourner le moteur d'images (il lui manque : {features})",
     "closed": "le moteur d'images s'arrête",
     "missingFile": "le fichier du modèle d'images {path} est introuvable",
     "startFailed": "le moteur d'images n'a pas pu charger le modèle : {reason}",

@@ -14,8 +14,11 @@
 // officielle vérifiée par scripts/fetch-onnxruntime.sh), licences de
 // l'Ollama intégré (licenses/ollama/ : fichiers de lib/ollama de l'archive
 // officielle extraite par scripts/fetch-ollama.sh, notice, textes de la
-// GPL-3.0 et de la GCC Runtime Library Exception pour libgomp),
-// attribution des modèles de dictée téléchargés à l'usage.
+// GPL-3.0 et de la GCC Runtime Library Exception pour libgomp), licences
+// du moteur d'images (licenses/sd-server/ : notice, textes des parties
+// compilées dans sd-server, de packaging/sdcpp/licenses, et Apache-2.0 du
+// chargeur Vulkan de secours), attribution des modèles de dictée téléchargés
+// à l'usage.
 //
 // L'inventaire de l'AppImage vient de scripts/appimage-libs.sh (Ubuntu, CI),
 // rangé dans .tools/package/appimage-libs/ ; sans lui (construction locale),
@@ -29,6 +32,7 @@
 //   --offline : cargo-about sans réseau (licences des seules sources locales).
 //   --windows : notices de l'installateur Windows (défaut sous Windows).
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   cpSync,
   existsSync,
@@ -160,6 +164,155 @@ export const LIBGOMP_TEXTS = {
     "packaging/licenses/GCC-exception-3.1.txt",
 };
 
+/**
+ * Moteur d'images : sd-server de stable-diffusion.cpp, construit par
+ * scripts/build-sd-server.sh depuis les sources épinglées dans
+ * packaging/sdcpp.env, avec les correctifs de packaging/sdcpp/*.patch, dans
+ * .tools/runtimes/sd-server (sd-server, fallback/, VERSION, SHA256SUMS).
+ */
+export const SD_SERVER_DIR = ".tools/runtimes/sd-server";
+
+/** Textes de licence des parties de sd-server, relevés dans ses sources. */
+export const SD_SERVER_LICENSE_DIR = "packaging/sdcpp/licenses";
+
+/**
+ * Textes de SD_SERVER_LICENSE_DIR, exigés : nom du fichier → ce qu'il
+ * couvre. Un fichier de plus est livré aussi, sans description.
+ */
+export const SD_SERVER_LICENSES = {
+  "stable-diffusion.cpp-LICENSE.txt": "stable-diffusion.cpp (MIT)",
+  "ggml-LICENSE.txt": "ggml and its Vulkan shaders (MIT)",
+  "cpp-httplib-LICENSE.txt": "cpp-httplib (MIT)",
+  "nlohmann-json-LICENSE.txt": "JSON for Modern C++ (MIT)",
+  "stb-LICENSE.txt":
+    "stb_image, stb_image_write and stb_image_resize (MIT or public domain)",
+  "miniz-LICENSE.txt": "miniz (MIT, and public domain)",
+  "zip-LICENSE.txt": "zip library (public domain; MIT since 2024)",
+  "darts-clone-LICENSE.txt": "Darts-clone (BSD-3-Clause)",
+  "oniguruma-COPYING.txt": "Oniguruma (BSD-2-Clause)",
+  "utf8proc-LICENSE.txt":
+    "utf8proc (MIT) and its Unicode data (Unicode license)",
+  "Vulkan-Headers-LICENSE.txt":
+    "Vulkan headers compiled into the Vulkan backend (Apache-2.0 or MIT)",
+  "ported-code.txt":
+    "code ported from PyTorch, SentencePiece, llama.cpp, k-diffusion, " +
+    "NumCpp, YaRN and SD 3.5 (BSD-3-Clause, Apache-2.0, MIT)",
+  "tokenizer-data.txt": "tokenizer data of CLIP, Qwen2, Mistral, T5 and UMT5",
+  "Vulkan-Loader-components.txt":
+    "Vulkan loader of fallback/ (Apache-2.0) and the code it includes",
+};
+
+/** Textes de packaging/licenses livrés avec ceux de sd-server. */
+export const SD_SERVER_EXTRA_TEXTS = {
+  "Apache-2.0.txt": "packaging/licenses/Apache-2.0.txt",
+};
+
+/** Licences du code de sd-server, en une phrase (README, copyright). */
+export const SD_SERVER_LICENSE_SUMMARY =
+  "MIT, BSD-2-Clause, BSD-3-Clause and Apache-2.0 licenses, the Unicode data license, and public-domain code";
+
+/**
+ * Correctifs de ChatonLM appliqués aux sources (packaging/sdcpp/*.patch),
+ * résumés dans la notice : un correctif sans résumé arrête
+ * package-notices.mjs.
+ */
+export const SD_SERVER_PATCHES = {
+  "0001-refuse-browser-requests.patch":
+    "the server refuses any request that carries an Origin header (made by " +
+    "a web page) or names another host than its own address (DNS " +
+    "rebinding): only ChatonLM talks to it.",
+  "0002-windows-utf8-code-page.patch":
+    "Windows only: a manifest makes UTF-8 the code page of the program, so " +
+    "that model paths with non-ASCII characters open.",
+  "0003-no-philox-port.patch":
+    "the random number generator imitating PyTorch's CUDA generator, ported " +
+    "from AUTOMATIC1111's stable-diffusion-webui (AGPL-3.0), is removed; the " +
+    "standard C++ generator is used instead.",
+  "0004-no-gemma-tokenizer-data.patch":
+    "the tokenizer data of Gemma 3 (Gemma Terms of Use, not a permissive " +
+    "license) is left out; models that need it are not supported.",
+};
+
+/** Clés de packaging/sdcpp.env citées par les notices. */
+const SD_SERVER_ENV_KEYS = [
+  "SDCPP_VERSION",
+  "SDCPP_REPO",
+  "SDCPP_COMMIT",
+  "SDCPP_GGML_COMMIT",
+];
+
+/**
+ * Empreinte de la construction, comme scripts/build-sd-server.sh : 12
+ * premiers caractères du SHA-256 de packaging/sdcpp.env, des correctifs
+ * (dans l'ordre de leurs noms) et du script, mis bout à bout.
+ */
+export function sdServerFingerprint({ env, patches, script }) {
+  const hash = createHash("sha256");
+  for (const part of [env, ...patches, script]) hash.update(part);
+  return hash.digest("hex").slice(0, 12);
+}
+
+/**
+ * Erreurs si le sd-server construit (`builtVersion` : son fichier VERSION,
+ * ou null si absent) ne vient pas des sources épinglées (texte de
+ * packaging/sdcpp.env) et, si `fingerprint` est donnée, des correctifs et du
+ * script actuels ; s'il manque un texte de licence (`licenseFiles` : noms des
+ * fichiers de SD_SERVER_LICENSE_DIR) ; si un correctif (`patches` : noms des
+ * fichiers .patch) n'est pas résumé dans SD_SERVER_PATCHES, ou l'inverse.
+ */
+export function sdServerNoticeErrors(
+  envText,
+  builtVersion,
+  { licenseFiles = [], patches = [], fingerprint = null } = {},
+) {
+  const env = parseEnv(envText);
+  const missing = SD_SERVER_ENV_KEYS.filter((key) => !env[key]);
+  if (missing.length > 0) {
+    return missing.map((key) => `${key} absent de packaging/sdcpp.env.`);
+  }
+  const pinned = env.SDCPP_VERSION;
+  const rebuild = "lancer scripts/build-sd-server.sh.";
+  const errors = [];
+  const escaped = pinned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (builtVersion === null) {
+    errors.push(`sd-server absent de ${SD_SERVER_DIR} : ${rebuild}`);
+  } else if (
+    !new RegExp(`^${escaped}\\+chatonlm\\.[0-9a-f]{12}$`).test(builtVersion)
+  ) {
+    errors.push(
+      `sd-server ${builtVersion} dans ${SD_SERVER_DIR} au lieu de ` +
+        `${pinned}+chatonlm.<empreinte> : ${rebuild}`,
+    );
+  } else if (fingerprint && !builtVersion.endsWith(`.${fingerprint}`)) {
+    errors.push(
+      `sd-server ${builtVersion} dans ${SD_SERVER_DIR} construit avec ` +
+        `d'autres correctifs ou un autre script (empreinte attendue ` +
+        `${fingerprint}) : ${rebuild}`,
+    );
+  }
+  for (const file of Object.keys(SD_SERVER_LICENSES)) {
+    if (!licenseFiles.includes(file)) {
+      errors.push(
+        `Licence du moteur d'images absente : ${SD_SERVER_LICENSE_DIR}/${file}`,
+      );
+    }
+  }
+  for (const patch of patches) {
+    if (!SD_SERVER_PATCHES[patch]) {
+      errors.push(
+        `Correctif packaging/sdcpp/${patch} sans résumé dans ` +
+          "SD_SERVER_PATCHES (scripts/package-notices.mjs).",
+      );
+    }
+  }
+  for (const patch of Object.keys(SD_SERVER_PATCHES)) {
+    if (!patches.includes(patch)) {
+      errors.push(`Correctif résumé mais absent : packaging/sdcpp/${patch}`);
+    }
+  }
+  return errors;
+}
+
 /** Paquets npm qui n'entrent que par le CSS (comme check-npm-licenses.mjs). */
 export const CSS_PACKAGES = ["tailwindcss", "@tailwindcss/typography", "katex"];
 
@@ -233,7 +386,12 @@ function dep5Text(text) {
  * texte de LICENSE ; `appimage` ajoute le renvoi aux bibliothèques du système
  * embarquées.
  */
-export function debCopyright({ license, appimage = false, ollama = null }) {
+export function debCopyright({
+  license,
+  appimage = false,
+  ollama = null,
+  sdServer = null,
+}) {
   const libraries = appimage
     ? [
         " The AppImage also bundles system libraries, some of them under the GNU",
@@ -257,12 +415,16 @@ export function debCopyright({ license, appimage = false, ollama = null }) {
     " .",
     " ChatonLM includes third-party code (Rust crates, npm packages, whisper.cpp,",
     " ONNX Runtime) and a model built into its executable (Silero VAD, MIT).",
+    " The packages also hold programs that ChatonLM runs separately: the",
+    " built-in Ollama and the image engine (sd-server of stable-diffusion.cpp).",
     " Their notices are in THIRD_PARTY_LICENSES and in the licenses/ directory",
     " next to this file.",
     ...libraries,
     "",
     ...(ollama ? ollamaCopyright({ ...ollama, appimage }) : []),
     ...(ollama ? libgompLicense({ appimage }) : []),
+    ...(sdServer ? sdServerCopyright({ ...sdServer, appimage }) : []),
+    ...(sdServer ? apacheLicense({ appimage }) : []),
     "License: Expat",
     dep5Text(license),
     "",
@@ -334,6 +496,78 @@ function ollamaCopyright({ version, gcc, build, source, appimage }) {
     ),
     ` ${source}`,
     " (see also licenses/ollama/README.txt).",
+    "",
+  ];
+}
+
+/**
+ * Paragraphes DEP-5 du moteur d'images (`version` et `commit` épinglés dans
+ * packaging/sdcpp.env ; dans l'AppImage, il est rangé dans usr/libexec) :
+ * sd-server sous MIT (Expat), le chargeur Vulkan de secours sous Apache-2.0.
+ */
+function sdServerCopyright({ version, commit, appimage }) {
+  const dir = appimage
+    ? "usr/libexec/chatonlm/sd-server"
+    : "usr/lib/chatonlm/sd-server";
+  return [
+    `Files: ${dir}/*`,
+    "Copyright: 2023 leejet, the ggml authors, and others",
+    "License: Expat",
+    ...wrap(
+      `Comment: Image engine of ChatonLM: sd-server of stable-diffusion.cpp ` +
+        `${version} (https://github.com/leejet/stable-diffusion.cpp, commit ` +
+        `${commit}), built by ChatonLM with the changes described in ` +
+        "licenses/sd-server/README.txt. It includes code under the " +
+        `${SD_SERVER_LICENSE_SUMMARY}, and tokenizer data: see that README ` +
+        "and the license files next to it.",
+      "",
+      75,
+    ).map((line, i) => (i === 0 ? line : ` ${line}`)),
+    "",
+    `Files: ${dir}/fallback/*`,
+    "Copyright: The Khronos Group Inc., Valve Corporation, LunarG, Inc.,",
+    " and others",
+    "License: Apache-2.0",
+    ...wrap(
+      "Comment: Vulkan loader of the Khronos Group " +
+        "(https://github.com/KhronosGroup/Vulkan-Loader), from the Vulkan SDK " +
+        "of LunarG, shipped unmodified and used only where the system has " +
+        "none. It includes cJSON (MIT): see " +
+        "licenses/sd-server/Vulkan-Loader-components.txt.",
+      "",
+      75,
+    ).map((line, i) => (i === 0 ? line : ` ${line}`)),
+    "",
+  ];
+}
+
+/**
+ * Paragraphe License autonome de l'Apache-2.0 (chargeur Vulkan) : avis
+ * de la licence, et renvoi au texte complet (dans le .deb, aussi à
+ * /usr/share/common-licenses).
+ */
+function apacheLicense({ appimage }) {
+  return [
+    "License: Apache-2.0",
+    ' Licensed under the Apache License, Version 2.0 (the "License"); you may',
+    " not use this file except in compliance with the License. You may obtain",
+    " a copy of the License at",
+    " .",
+    " http://www.apache.org/licenses/LICENSE-2.0",
+    " .",
+    " Unless required by applicable law or agreed to in writing, software",
+    ' distributed under the License is distributed on an "AS IS" BASIS,',
+    " WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+    " See the License for the specific language governing permissions and",
+    " limitations under the License.",
+    " .",
+    ...(appimage
+      ? []
+      : [
+          " On Debian systems, the complete text of the Apache License, Version",
+          " 2.0 can be found in /usr/share/common-licenses/Apache-2.0.",
+        ]),
+    " The text of the license is in licenses/sd-server/Apache-2.0.txt.",
     "",
   ];
 }
@@ -640,6 +874,121 @@ https://ftp.gnu.org/gnu/gcc/gcc-${gcc}/gcc-${gcc}.tar.xz
 `;
 }
 
+/**
+ * licenses/sd-server/README.txt (Linux) ou licenses\sd-server\README.txt
+ * (Windows, `windows`) : le moteur d'images, sa provenance, ce qui en est
+ * livré, les correctifs de ChatonLM et les licences (`env` :
+ * packaging/sdcpp.env ; `licenseFiles` : textes de SD_SERVER_LICENSE_DIR).
+ */
+export function renderSdServerReadme({ env, licenseFiles, windows = false }) {
+  const version = env.SDCPP_VERSION;
+  const repo = env.SDCPP_REPO;
+  const sep = windows ? "\\" : "/";
+  const exe = windows ? "sd-server.exe" : "sd-server";
+  const loader = windows ? "vulkan-1.dll" : "libvulkan.so.1";
+  const files = [
+    ...new Set([...licenseFiles, ...Object.keys(SD_SERVER_EXTRA_TEXTS)]),
+  ].sort((a, b) => a.localeCompare(b));
+  const describe = (file) =>
+    SD_SERVER_LICENSES[file] ??
+    (file === "Apache-2.0.txt"
+      ? "text of the Apache License, Version 2.0"
+      : "");
+  const rows = files.flatMap((file) => {
+    const text = describe(file);
+    return text ? [`  ${file}`, ...wrap(text, "      ", 76)] : [`  ${file}`];
+  });
+  const patches = Object.entries(SD_SERVER_PATCHES).flatMap(([file, text]) => [
+    `  ${file}`,
+    ...wrap(text, "      ", 76),
+  ]);
+  const where = windows
+    ? [
+        "It is installed in the sd-server folder, next to chatonlm.exe, and runs as",
+        "a separate program.",
+      ]
+    : [
+        "It is installed in /usr/lib/chatonlm/sd-server (in the AppImage:",
+        "usr/libexec/chatonlm/sd-server, linked from usr/lib/chatonlm/sd-server)",
+        "and runs as a separate program.",
+      ];
+  const runtime = windows
+    ? "\n\n" +
+      wrap(
+        "sd-server.exe is linked with the static Microsoft Visual C++ " +
+          "runtime libraries (redistributable code of Microsoft Visual " +
+          "Studio, see windows-components.txt in the licenses folder): it " +
+          "needs no DLL of its own.",
+      ).join("\n")
+    : "";
+  return `ChatonLM - Built-in image engine (sd-server)
+${RULE}
+
+${wrap(
+  "ChatonLM generates images with sd-server, the server of " +
+    "stable-diffusion.cpp. ChatonLM builds it from the source code of the " +
+    "version below, with the changes listed further down (patches in " +
+    "packaging/sdcpp/ and script scripts/build-sd-server.sh of the source " +
+    `code of ChatonLM, ${REPOSITORY}).`,
+).join("\n")}
+${where.join("\n")}
+
+Project:      stable-diffusion.cpp
+Repository:   ${repo}
+Version:      ${version}
+Commit:       ${env.SDCPP_COMMIT}
+Source code:  ${repo}/tree/${env.SDCPP_COMMIT}
+ggml:         https://github.com/leejet/ggml/tree/${env.SDCPP_GGML_COMMIT}
+              (submodule of stable-diffusion.cpp at that commit)
+License:      MIT, Copyright (c) 2023 leejet
+
+${heading("What is shipped")}
+  ${exe}
+      the server, with the Vulkan backend of ggml (graphics cards through
+      Vulkan; it falls back on the processor without one), built without
+      OpenMP, without WebP and WebM support and without the web interface
+      of the server
+  fallback${sep}${loader}
+      the Vulkan loader of the Khronos Group, used only where the system
+      has none (see below)
+  VERSION
+${wrap(
+  `version of the build: ${version}+chatonlm.<fingerprint>, the ` +
+    "fingerprint covering the pinned version, the patches and the build " +
+    "script",
+  "      ",
+  76,
+).join("\n")}${runtime}
+
+${heading("Changes made by ChatonLM")}
+${patches.join("\n")}
+
+${heading("Licenses")}
+${wrap(
+  "stable-diffusion.cpp, ggml and the code they include are under the " +
+    `${SD_SERVER_LICENSE_SUMMARY}. The files below, in this ` +
+    `${windows ? "folder" : "directory"}, give each license text and the ` +
+    "parts it covers. stable-diffusion.cpp also embeds tokenizer data " +
+    "published with the models it supports: tokenizer-data.txt names " +
+    "their sources and terms.",
+).join("\n")}
+
+${rows.join("\n")}
+
+${heading("Vulkan loader")}
+${wrap(
+  `fallback${sep}${loader} is the Vulkan loader of the Khronos Group ` +
+    "(https://github.com/KhronosGroup/Vulkan-Loader), as installed by the " +
+    "Vulkan SDK of LunarG on the build machine, shipped unmodified. ChatonLM " +
+    "points sd-server to it only where the system has no Vulkan loader of " +
+    "its own. It is under the Apache License, Version 2.0 (Apache-2.0.txt), " +
+    "and includes cJSON (MIT)" +
+    (windows ? " and code of Kevlin Henney under a permissive license" : "") +
+    ": see Vulkan-Loader-components.txt.",
+).join("\n")}
+`;
+}
+
 /** Valeurs KEY=valeur d'un fichier comme packaging/appimage-runtime.env. */
 export function parseEnv(text) {
   return Object.fromEntries(
@@ -760,6 +1109,62 @@ function fail(message) {
   process.exit(1);
 }
 
+/**
+ * Moteur d'images vu depuis la racine `dir` du dépôt : packaging/sdcpp.env,
+ * VERSION du dossier construit (ou null), textes de licence (nom → contenu,
+ * ceux de SD_SERVER_LICENSE_DIR puis SD_SERVER_EXTRA_TEXTS), correctifs,
+ * empreinte attendue et erreurs (sdServerNoticeErrors).
+ */
+export function readSdServer(dir) {
+  const at = (rel) => path.join(dir, rel);
+  const envText = existsSync(at("packaging/sdcpp.env"))
+    ? readFileSync(at("packaging/sdcpp.env"), "utf8")
+    : "";
+  const versionFile = at(`${SD_SERVER_DIR}/VERSION`);
+  const builtVersion = existsSync(versionFile)
+    ? readFileSync(versionFile, "utf8").trim()
+    : null;
+  const licenseDir = at(SD_SERVER_LICENSE_DIR);
+  const licenseFiles = existsSync(licenseDir)
+    ? readdirSync(licenseDir).sort()
+    : [];
+  const patchDir = at("packaging/sdcpp");
+  const patches = existsSync(patchDir)
+    ? readdirSync(patchDir)
+        .filter((f) => f.endsWith(".patch"))
+        .sort()
+    : [];
+  const script = at("scripts/build-sd-server.sh");
+  const fingerprint =
+    envText && existsSync(script)
+      ? sdServerFingerprint({
+          env: readFileSync(at("packaging/sdcpp.env")),
+          patches: patches.map((f) => readFileSync(path.join(patchDir, f))),
+          script: readFileSync(script),
+        })
+      : null;
+  const texts = {};
+  for (const file of licenseFiles) {
+    texts[file] = readFileSync(path.join(licenseDir, file), "utf8");
+  }
+  for (const [file, source] of Object.entries(SD_SERVER_EXTRA_TEXTS)) {
+    texts[file] = readFileSync(at(source), "utf8");
+  }
+  return {
+    env: parseEnv(envText),
+    builtVersion,
+    licenseFiles,
+    patches,
+    fingerprint,
+    texts,
+    errors: sdServerNoticeErrors(envText, builtVersion, {
+      licenseFiles,
+      patches,
+      fingerprint,
+    }),
+  };
+}
+
 function main() {
   const offline = process.argv.includes("--offline");
   const out = path.join(root, ".tools/package/notices");
@@ -794,6 +1199,8 @@ function main() {
       ),
     ),
   );
+  const sdServer = readSdServer(root);
+  errors.push(...sdServer.errors);
   if (errors.length > 0) fail(errors.join("\n"));
   const ollamaEnv = parseEnv(read("packaging/ollama.env"));
   const installed = installedCargoAbout();
@@ -859,11 +1266,22 @@ function main() {
   for (const [file, source] of Object.entries(LIBGOMP_TEXTS)) {
     common[`licenses/ollama/${file}`] = read(source);
   }
+  common["licenses/sd-server/README.txt"] = renderSdServerReadme({
+    env: sdServer.env,
+    licenseFiles: sdServer.licenseFiles,
+  });
+  for (const [file, text] of Object.entries(sdServer.texts)) {
+    common[`licenses/sd-server/${file}`] = text;
+  }
   const ollama = {
     version: ollamaEnv.OLLAMA_VERSION,
     gcc: ollamaEnv.OLLAMA_LIBGOMP_GCC,
     build: ollamaEnv.OLLAMA_LIBGOMP_BUILD,
     source: ollamaEnv.OLLAMA_LIBGOMP_SOURCE,
+  };
+  const sd = {
+    version: sdServer.env.SDCPP_VERSION,
+    commit: sdServer.env.SDCPP_COMMIT,
   };
 
   rmSync(out, { recursive: true, force: true });
@@ -873,11 +1291,11 @@ function main() {
     write(deb, file, content);
     write(appimage, file, content);
   }
-  write(deb, "copyright", debCopyright({ license, ollama }));
+  write(deb, "copyright", debCopyright({ license, ollama, sdServer: sd }));
   write(
     appimage,
     "copyright",
-    debCopyright({ license, appimage: true, ollama }),
+    debCopyright({ license, appimage: true, ollama, sdServer: sd }),
   );
   for (const file of APPIMAGE_LICENSE_TEXTS) {
     write(appimage, `licenses/${file}`, read(`packaging/licenses/${file}`));

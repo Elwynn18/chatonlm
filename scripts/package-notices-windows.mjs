@@ -14,6 +14,10 @@
 //   ollama\<licences>          de licence (archive officielle), et les
 //                              textes des bibliothèques de LLVM et de
 //                              mingw-w64 qu'elle contient sans licence
+//   sd-server\README.txt       le moteur d'images (sd-server construit par
+//   sd-server\<licences>       scripts/build-sd-server.sh) : textes de
+//                              packaging/sdcpp/licenses et Apache-2.0 du
+//                              chargeur Vulkan de secours
 //
 // Pas de fichier copyright (format de Debian), pas de textes GPL ni LGPL :
 // l'archive Windows d'Ollama n'a pas libgomp (OpenMP de LLVM à la place) et
@@ -38,8 +42,10 @@ import {
   ollamaLicenseKindErrors,
   onnxRuntimeErrors,
   parseEnv,
+  readSdServer,
   renderNpmPackages,
   renderRustCrates,
+  renderSdServerReadme,
   renderSpeechModels,
   renderVoiceModels,
 } from "./package-notices.mjs";
@@ -281,6 +287,8 @@ the Vulkan engine of the built-in Ollama need them (Ollama ships its own
 copies in ollama\\lib\\ollama\\vulkan). They are not open-source software:
 they are redistributable files of Microsoft Visual Studio, shipped
 unmodified under the Microsoft Software License Terms of Visual Studio.
+sd-server\\sd-server.exe, the image engine, contains the static version of
+these libraries, under the same terms.
 `;
 }
 
@@ -371,6 +379,8 @@ export function main() {
       ),
     ),
   );
+  const sdServer = readSdServer(root);
+  errors.push(...sdServer.errors);
   if (errors.length > 0) fail(errors.join("\n"));
   const installed = installedCargoAbout();
   if (installed !== CARGO_ABOUT_VERSION) {
@@ -442,6 +452,14 @@ export function main() {
   for (const [file, source] of Object.entries(OLLAMA_WINDOWS_EXTRA_TEXTS)) {
     files[`ollama/${file}`] = read(source);
   }
+  files["sd-server/README.txt"] = renderSdServerReadme({
+    env: sdServer.env,
+    licenseFiles: sdServer.licenseFiles,
+    windows: true,
+  });
+  for (const [file, text] of Object.entries(sdServer.texts)) {
+    files[`sd-server/${file}`] = text;
+  }
 
   rmSync(out, { recursive: true, force: true });
   for (const [file, content] of Object.entries(files)) {
@@ -449,6 +467,7 @@ export function main() {
   }
   console.log(
     `Notices Windows écrites dans ${WINDOWS_NOTICES_DIR} ` +
-      `(${about.crates.length} crates, ${licenseFiles.length} licences d'Ollama).`,
+      `(${about.crates.length} crates, ${licenseFiles.length} licences d'Ollama, ` +
+      `${Object.keys(sdServer.texts).length} du moteur d'images).`,
   );
 }

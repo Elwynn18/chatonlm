@@ -21,6 +21,10 @@
 #    de l'installation 15 s plus tard.
 # 4. L'Ollama intégré lancé seul (« ollama serve » sur 127.0.0.1:18434) :
 #    version, moteur de calcul décrit (« inference compute »), arrêt.
+#    Puis le moteur d'images (sd-server) : version du fichier VERSION, et un
+#    modèle placé dans un dossier accentué est bien OUVERT (page de code
+#    UTF-8, packaging/sdcpp/0002-…) : illisible, il est refusé avec le code 1
+#    après « using gguf format ».
 # 5. Réinstallation silencieuse par-dessus une app et un Ollama intégré en
 #    marche : les crochets de packaging/windows/hooks.nsh doivent les arrêter
 #    (par leur chemin), l'installateur réussir, et rien ne rester en marche.
@@ -224,7 +228,9 @@ $app = Join-Path $install $MainBinary
 foreach ($file in @(
     $MainBinary, "uninstall.exe", "onnxruntime.dll", "vcruntime140.dll", "msvcp140.dll",
     "ollama\ollama.exe", "ollama\VERSION", "ollama\lib\ollama\llama-server.exe",
-    "licenses\LICENSE.txt", "licenses\THIRD_PARTY_LICENSES.txt", "licenses\ollama\README.txt")) {
+    "sd-server\sd-server.exe", "sd-server\VERSION", "sd-server\fallback\vulkan-1.dll",
+    "licenses\LICENSE.txt", "licenses\THIRD_PARTY_LICENSES.txt", "licenses\ollama\README.txt",
+    "licenses\sd-server\README.txt")) {
   if (-not (Test-Path -LiteralPath (Join-Path $install $file))) { Fail "Fichier installé absent : $file" }
 }
 if (Test-Path -LiteralPath $app) { Pass "Fichiers installés." }
@@ -383,6 +389,43 @@ $left = Wait-NoProcessUnder $install 10
 if ($left.Count -gt 0) { Fail "Processus encore actifs après l'arrêt de l'Ollama intégré : $(Format-Processes $left)"; Stop-ProcessesUnder $install }
 Save-Log $serveLog "ollama-seul.err.log"
 Show-Log "journal de l'Ollama intégré seul" $serveLog
+
+# --- 4 bis. Le moteur d'images seul -----------------------------------------
+Section "Moteur d'images (sd-server)"
+$sd = Join-Path $install "sd-server\sd-server.exe"
+$sdVersionFile = Join-Path $install "sd-server\VERSION"
+if ((Test-Path -LiteralPath $sd) -and (Test-Path -LiteralPath $sdVersionFile)) {
+  $sdExpected = (Get-Content -LiteralPath $sdVersionFile -Raw).Trim().Split("+")[0]
+  $sdReported = (& $sd --version 2>&1 | Select-Object -First 1) -join ""
+  if ($sdReported -like "*$sdExpected*") {
+    Pass "sd-server --version : $sdReported"
+  } else {
+    Fail "sd-server --version : « $sdReported » (attendu : $sdExpected)."
+  }
+  $accented = Join-Path $work "Thé chaton"
+  New-Item -ItemType Directory -Force -Path $accented | Out-Null
+  $badModel = Join-Path $accented "modèle illisible.gguf"
+  [IO.File]::WriteAllBytes($badModel, [byte[]](0x47, 0x47, 0x55, 0x46, 3, 0, 0, 0) + [Text.Encoding]::ASCII.GetBytes("not a model"))
+  $sdLog = Join-Path $work "sd-server-accent"
+  $sdProcess = Start-Logged $sd @("--listen-port", "18437", "--diffusion-model", "`"$badModel`"") $sdLog
+  if (-not $sdProcess.WaitForExit(60000)) {
+    Stop-Process -Id $sdProcess.Id -Force -ErrorAction SilentlyContinue
+    Fail "sd-server ne s'est pas arrêté sur un modèle illisible en 60 s."
+  } else {
+    $sdOutput = (Get-Content -LiteralPath "$sdLog.out.log", "$sdLog.err.log" -Raw -ErrorAction SilentlyContinue) -join "`n"
+    if ($sdProcess.ExitCode -ne 1) { Fail "sd-server : code de sortie $($sdProcess.ExitCode) sur un modèle illisible (attendu : 1)." }
+    if ($sdOutput -match "using gguf format") {
+      Pass "Modèle d'un dossier accentué ouvert (page de code UTF-8)."
+    } else {
+      Fail "Modèle d'un dossier accentué non ouvert par sd-server."
+    }
+    if ($sdOutput -notmatch "new_sd_ctx_t failed") { Fail "Erreur du modèle illisible absente de la sortie de sd-server." }
+    Save-Log "$sdLog.out.log" "sd-server-accent.out.log"
+    Save-Log "$sdLog.err.log" "sd-server-accent.err.log"
+  }
+} else {
+  Fail "sd-server non installé : essai du moteur d'images impossible."
+}
 
 # --- 5. Réinstallation par-dessus une app en marche ------------------------
 Section "Réinstallation par-dessus une app en marche"

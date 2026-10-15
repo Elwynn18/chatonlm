@@ -6,7 +6,8 @@
 //! Essais contre le vrai `sd-server` (processeur seul, petites images) :
 //! module `real`, ignorés sauf demande explicite (voir son en-tête).
 
-use std::ffi::OsString;
+use std::collections::BTreeMap;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -684,6 +685,92 @@ async fn a_server_killed_just_before_a_request_is_restarted() {
     engine.shutdown().await;
 }
 
+/// Sur un processeur sans les instructions de ggml, rien n'est lancé : le
+/// serveur s'arrêterait sur une instruction illégale.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_processor_without_the_needed_instructions_is_refused() {
+    let dir = temp_dir();
+    let mut config = fake_config(dir.path());
+    config.cpu_missing = || &["AVX2", "FMA"];
+    let engine = ImageGen::new(config);
+    let spec = spec(dir.path(), "klein");
+    assert_eq!(
+        generate(&engine, &spec, "a kitten").await,
+        Err(ImageGenError::CpuUnsupported("AVX2, FMA".into()))
+    );
+    assert_eq!(engine.server_pid(), None);
+}
+
+#[test]
+fn a_search_dir_is_added_first_or_last_whatever_the_case_of_the_variable() {
+    let dir = Path::new("/opt/engine/fallback");
+    let mut environment = BTreeMap::new();
+    add_search_dir(&mut environment, "LD_LIBRARY_PATH", dir, true, ':');
+    assert_eq!(
+        environment.get(OsStr::new("LD_LIBRARY_PATH")),
+        Some(&OsString::from("/opt/engine/fallback"))
+    );
+    add_search_dir(
+        &mut environment,
+        "LD_LIBRARY_PATH",
+        Path::new("/x"),
+        true,
+        ':',
+    );
+    assert_eq!(
+        environment.get(OsStr::new("LD_LIBRARY_PATH")),
+        Some(&OsString::from("/x:/opt/engine/fallback"))
+    );
+    // Windows : `Path` existant, complété en queue, sans second `PATH`.
+    let mut environment = BTreeMap::from([(
+        OsString::from("Path"),
+        OsString::from(r"C:\Windows\system32;C:\Windows"),
+    )]);
+    add_search_dir(
+        &mut environment,
+        "PATH",
+        Path::new(r"C:\App\sd-server\fallback"),
+        false,
+        ';',
+    );
+    assert_eq!(environment.len(), 1);
+    assert_eq!(
+        environment.get(OsStr::new("Path")),
+        Some(&OsString::from(
+            r"C:\Windows\system32;C:\Windows;C:\App\sd-server\fallback"
+        ))
+    );
+}
+
+/// Chargeur Vulkan de secours : donné au serveur seulement si le système n'en
+/// a pas (Linux), toujours en dernier recours (Windows).
+#[test]
+fn the_fallback_vulkan_loader_is_offered_only_as_a_last_resort() {
+    let dir = temp_dir();
+    let fallback = dir.path().join("fallback");
+    let mut environment = BTreeMap::new();
+    // Pas de chargeur livré : rien.
+    os::vulkan_loader(&mut environment, &fallback, false);
+    assert!(environment.is_empty());
+    std::fs::create_dir_all(&fallback).unwrap();
+    std::fs::write(fallback.join(os::LOADER), b"").unwrap();
+    os::vulkan_loader(&mut environment, &fallback, true);
+    #[cfg(target_os = "linux")]
+    {
+        assert!(environment.is_empty(), "the system's loader is used");
+        os::vulkan_loader(&mut environment, &fallback, false);
+        assert_eq!(
+            environment.get(OsStr::new("LD_LIBRARY_PATH")),
+            Some(&fallback.clone().into_os_string())
+        );
+    }
+    #[cfg(windows)]
+    assert_eq!(
+        environment.get(OsStr::new("PATH")),
+        Some(&fallback.clone().into_os_string())
+    );
+}
+
 /// Sans graine donnée, chaque image en tire une nouvelle.
 #[tokio::test(flavor = "multi_thread")]
 async fn each_image_without_a_seed_draws_its_own() {
@@ -893,6 +980,53 @@ mod real {
         engine.shutdown().await;
     }
 
+    /// Correctif de ChatonLM (`packaging/sdcpp/0001-…`) : seule l'app parle
+    /// au serveur ; une page web (en-tête `Origin`) ou un autre nom d'hôte
+    /// (rebinding DNS) sont refusés.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "vrai sd-server et modèles requis (voir l'en-tête du module)"]
+    async fn real_engine_refuses_browser_requests() {
+        let dir = temp_dir();
+        let Some((engine, spec)) = real_engine(dir.path()) else {
+            panic!("CHATONLM_SD_REAL_BIN et CHATONLM_SD_REAL_MODELS requis");
+        };
+        let inner = &engine.inner;
+        let running = server::start(
+            &inner.config,
+            &inner.spawner,
+            &spec,
+            &inner.pid,
+            &inner.stops,
+        )
+        .await
+        .unwrap();
+        let url = format!("{}/sdcpp/v1/capabilities", running.url());
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let status = |request: reqwest::RequestBuilder| async move {
+            request.send().await.unwrap().status().as_u16()
+        };
+        assert_eq!(status(client.get(&url)).await, 200);
+        assert_eq!(
+            status(client.get(&url).header("Origin", "https://example.com")).await,
+            403
+        );
+        assert_eq!(status(client.get(&url).header("Origin", "null")).await, 403);
+        assert_eq!(
+            status(client.get(&url).header("Host", "attacker.example:80")).await,
+            403
+        );
+        assert_eq!(
+            status(
+                client
+                    .request(reqwest::Method::OPTIONS, &url)
+                    .header("Origin", "https://example.com")
+            )
+            .await,
+            403
+        );
+        running.stop(&inner.config.timing).await;
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "vrai sd-server et modèles requis (voir l'en-tête du module)"]
     async fn real_engine_reports_a_model_it_cannot_load() {
@@ -905,7 +1039,8 @@ mod real {
         spec.files[0].1 = bad;
         match generate(&engine, &spec, "a kitten").await {
             Err(ImageGenError::StartFailed(reason)) => {
-                assert!(reason.contains("new_sd_ctx_t"), "{reason}")
+                assert!(reason.contains("new_sd_ctx_t"), "{reason}");
+                assert!(reason.contains("get sd version"), "{reason}");
             }
             other => panic!("{other:?}"),
         }

@@ -33,7 +33,15 @@
 mod api;
 mod server;
 
-use std::ffi::OsString;
+#[cfg(target_os = "linux")]
+#[path = "linux.rs"]
+mod os;
+#[cfg(windows)]
+#[path = "windows.rs"]
+mod os;
+
+use std::collections::BTreeMap;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -160,6 +168,11 @@ pub enum Progress {
 pub enum ImageGenError {
     #[error("{}", t!("imageGen.unavailable"))]
     Unavailable,
+    /// Processeur sans les instructions qu'exige ggml (voir
+    /// `dictation::cpu`) : le serveur s'arrêterait sur une instruction
+    /// illégale.
+    #[error("{}", t!("imageGen.cpuUnsupported", features = _0))]
+    CpuUnsupported(String),
     /// Fermeture de l'app (ou mise à jour) : plus aucune image.
     #[error("{}", t!("imageGen.closed"))]
     Closed,
@@ -231,6 +244,9 @@ pub struct Config {
     /// Variables ajoutées en dernier (essais, pilote Vulkan masqué...).
     pub extra_env: Vec<(OsString, OsString)>,
     pub timing: Timing,
+    /// Instructions du processeur qui manquent au moteur (essais : processeur
+    /// imposé).
+    pub cpu_missing: fn() -> &'static [&'static str],
 }
 
 impl Config {
@@ -243,6 +259,7 @@ impl Config {
             log: data_dir.join("logs").join("sd-server.log"),
             extra_env: Vec::new(),
             timing: Timing::default(),
+            cpu_missing: crate::dictation::cpu::missing_for_ggml,
         }
     }
 }
@@ -331,6 +348,10 @@ impl ImageGen {
         validate(request)?;
         if !self.available() {
             return Err(ImageGenError::Unavailable);
+        }
+        let missing = (self.inner.config.cpu_missing)();
+        if !missing.is_empty() {
+            return Err(ImageGenError::CpuUnsupported(missing.join(", ")));
         }
         let mut closed = self.inner.closed.subscribe();
         if *closed.borrow_and_update() {
@@ -550,6 +571,39 @@ impl ImageGen {
             eprintln!("chatonlm: the image engine didn't stop in time; leaving it");
         }
     }
+}
+
+/// Ajoute `dir` à la liste de dossiers `variable` de `environment`, en tête
+/// (`first`) ou en queue, avec le séparateur du système. Le nom de la
+/// variable est cherché sans tenir compte de la casse (sous Windows, `Path`
+/// et `PATH` sont la même variable).
+fn add_search_dir(
+    environment: &mut BTreeMap<OsString, OsString>,
+    variable: &str,
+    dir: &Path,
+    first: bool,
+    separator: char,
+) {
+    let key = environment
+        .keys()
+        .find(|key| key.to_string_lossy().eq_ignore_ascii_case(variable))
+        .cloned()
+        .unwrap_or_else(|| variable.into());
+    let mut value = OsString::new();
+    match environment.get(&key).filter(|current| !current.is_empty()) {
+        Some(current) if first => {
+            value.push(dir);
+            value.push(OsStr::new(&separator.to_string()));
+            value.push(current);
+        }
+        Some(current) => {
+            value.push(current);
+            value.push(OsStr::new(&separator.to_string()));
+            value.push(dir);
+        }
+        None => value.push(dir),
+    }
+    environment.insert(key, value);
 }
 
 /// Délai laissé à la fin d'un serveur pour être signalée (un processus à

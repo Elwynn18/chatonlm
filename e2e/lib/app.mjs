@@ -17,6 +17,9 @@ const DROPPED_ENV = [
   // Ollama intégré (binaire de .tools/runtimes) et adresse par défaut
   // remplacée : un test qui s'en sert les donne lui-même.
   "CHATONLM_OLLAMA_BIN",
+  // Moteur d'images (binaire de .tools/runtimes ou faux fake-sd-server) :
+  // de même, donné par le test qui s'en sert.
+  "CHATONLM_SD_SERVER_BIN",
   "CHATONLM_E2E_DEFAULT_URL",
   "CHATONLM_REGISTRY_URL",
   "CHATONLM_OLLAMA_COM_URL",

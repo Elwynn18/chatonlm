@@ -5,6 +5,9 @@
       "../.tools/runtimes/ollama/ollama.exe": "ollama/ollama.exe",
       "../.tools/runtimes/ollama/VERSION": "ollama/VERSION",
       "../.tools/runtimes/ollama/lib/": "ollama/lib/",
+      "../.tools/runtimes/sd-server/sd-server.exe": "sd-server/sd-server.exe",
+      "../.tools/runtimes/sd-server/fallback/": "sd-server/fallback/",
+      "../.tools/runtimes/sd-server/VERSION": "sd-server/VERSION",
       "../.tools/package/notices/windows/": "licenses/"
     }
   }

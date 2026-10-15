@@ -418,6 +418,7 @@
   },
   "imageGen": {
     "unavailable": "this build of ChatonLM doesn't include the image engine",
+    "cpuUnsupported": "this processor cannot run the image engine (missing: {features})",
     "closed": "the image engine is shutting down",
     "missingFile": "the image model file {path} is missing",
     "startFailed": "the image engine couldn't load the model: {reason}",

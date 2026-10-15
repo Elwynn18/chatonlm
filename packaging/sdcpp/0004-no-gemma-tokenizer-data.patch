@@ -1,0 +1,31 @@
+diff --git a/src/tokenizers/vocab/vocab.cpp b/src/tokenizers/vocab/vocab.cpp
+index 49d4493..6b68658 100644
+--- a/src/tokenizers/vocab/vocab.cpp
++++ b/src/tokenizers/vocab/vocab.cpp
+@@ -1,7 +1,7 @@
+ #include "vocab.h"
++
++#include <stdexcept>
+ #include "clip_merges.hpp"
+-#include "gemma_merges.hpp"
+-#include "gemma_vocab.hpp"
+ #include "mistral_merges.hpp"
+ #include "mistral_vocab.hpp"
+ #include "qwen_merges.hpp"
+@@ -38,12 +38,12 @@ std::string load_umt5_tokenizer_json() {
+     return json_str;
+ }
+ 
++// ChatonLM: the Gemma 3 tokenizer data is under the Gemma Terms of Use, not a
++// permissive license: it is left out of this build (models that need it fail).
+ std::string load_gemma_merges() {
+-    std::string merges_utf8_str(reinterpret_cast<const char*>(gemma_merges_utf8_c_str), sizeof(gemma_merges_utf8_c_str));
+-    return merges_utf8_str;
++    throw std::runtime_error("the Gemma tokenizer is not included in this build of sd-server");
+ }
+ 
+ std::string load_gemma_vocab_json() {
+-    std::string json_str(reinterpret_cast<const char*>(gemma_vocab_json_utf8_c_str), sizeof(gemma_vocab_json_utf8_c_str));
+-    return json_str;
++    throw std::runtime_error("the Gemma tokenizer is not included in this build of sd-server");
+ }

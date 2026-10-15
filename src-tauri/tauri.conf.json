@@ -61,7 +61,10 @@
           "/usr/lib/chatonlm/libonnxruntime.so.1": "../.tools/runtimes/onnxruntime/libonnxruntime.so.1",
           "/usr/lib/chatonlm/ollama/bin": "../.tools/runtimes/ollama/bin",
           "/usr/lib/chatonlm/ollama/lib": "../.tools/runtimes/ollama/lib",
-          "/usr/lib/chatonlm/ollama/VERSION": "../.tools/runtimes/ollama/VERSION"
+          "/usr/lib/chatonlm/ollama/VERSION": "../.tools/runtimes/ollama/VERSION",
+          "/usr/lib/chatonlm/sd-server/sd-server": "../.tools/runtimes/sd-server/sd-server",
+          "/usr/lib/chatonlm/sd-server/fallback": "../.tools/runtimes/sd-server/fallback",
+          "/usr/lib/chatonlm/sd-server/VERSION": "../.tools/runtimes/sd-server/VERSION"
         }
       },
       "appimage": {
@@ -73,7 +76,10 @@
           "/usr/lib/chatonlm": "../.tools/package/appimage-lib",
           "/usr/libexec/chatonlm/ollama/bin": "../.tools/runtimes/ollama/bin",
           "/usr/libexec/chatonlm/ollama/lib": "../.tools/runtimes/ollama/lib",
-          "/usr/libexec/chatonlm/ollama/VERSION": "../.tools/runtimes/ollama/VERSION"
+          "/usr/libexec/chatonlm/ollama/VERSION": "../.tools/runtimes/ollama/VERSION",
+          "/usr/libexec/chatonlm/sd-server/sd-server": "../.tools/runtimes/sd-server/sd-server",
+          "/usr/libexec/chatonlm/sd-server/fallback": "../.tools/runtimes/sd-server/fallback",
+          "/usr/libexec/chatonlm/sd-server/VERSION": "../.tools/runtimes/sd-server/VERSION"
         }
       }
     }

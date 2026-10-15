@@ -4,7 +4,9 @@
 //! F16C. Sur un processeur qui en manque une, le moindre appel à whisper.cpp
 //! (journaux compris) arrêterait l'app (instruction illégale) : les modèles
 //! Whisper y sont indisponibles, avec un message clair, et Parakeet (ONNX
-//! Runtime, qui choisit ses noyaux à l'exécution) reste utilisable.
+//! Runtime, qui choisit ses noyaux à l'exécution) reste utilisable. Le
+//! moteur d'images (`sd-server`, ggml compilé de la même façon) exige les
+//! mêmes instructions ([`missing_for_ggml`]).
 
 use std::sync::OnceLock;
 
@@ -51,9 +53,10 @@ fn detected(_feature: &str) -> bool {
     true
 }
 
-/// Instructions qui manquent à ce processeur pour Whisper (lues une fois) ;
-/// vide : Whisper utilisable.
-fn missing_for_whisper() -> &'static [&'static str] {
+/// Instructions qui manquent à ce processeur pour ggml compilé sans
+/// `-march=native` (Whisper, moteur d'images ; lues une fois) ; vide :
+/// utilisable.
+pub fn missing_for_ggml() -> &'static [&'static str] {
     static MISSING: OnceLock<Vec<&'static str>> = OnceLock::new();
     MISSING.get_or_init(|| {
         #[cfg(feature = "e2e")]
@@ -68,7 +71,7 @@ fn missing_for_whisper() -> &'static [&'static str] {
 /// (noms affichés) ; vide : modèles utilisables.
 pub fn missing_for(engine: SpeechEngine) -> &'static [&'static str] {
     match engine {
-        SpeechEngine::Whisper => missing_for_whisper(),
+        SpeechEngine::Whisper => missing_for_ggml(),
         SpeechEngine::Parakeet => &[],
     }
 }

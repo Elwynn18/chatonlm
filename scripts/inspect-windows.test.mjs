@@ -3,13 +3,14 @@
 // d'installation fabriqués ici), notices Windows
 // (package-notices-windows.mjs), configuration du bundle
 // (src-tauri/tauri.windows.conf.json, packaging/windows/), crochets NSIS et
-// workflow de la CI.
+// workflows de la CI (dont le moteur d'images, sd-server).
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   contentProblems,
   executionLevel,
+  formatReport,
   HOST_ONLY_DLLS,
   importProblems,
   installerProblems,
@@ -17,9 +18,14 @@ import {
   MAX_INSTALLER_BYTES,
   parsePe,
   REQUIRED_FILES,
+  SD_SERVER_EXE,
   versionString,
 } from "./inspect-windows.mjs";
-import { OLLAMA_LICENSES, parseEnv } from "./package-notices.mjs";
+import {
+  OLLAMA_LICENSES,
+  parseEnv,
+  renderSdServerReadme,
+} from "./package-notices.mjs";
 import {
   isOllamaLicenseFile,
   OLLAMA_WINDOWS_EXTRA_TEXTS,
@@ -37,6 +43,9 @@ import {
 const ROOT = path.resolve(import.meta.dirname, "..");
 const text = (file) => readFileSync(path.join(ROOT, file), "utf8");
 const json = (file) => JSON.parse(text(file));
+/** Version du moteur d'images épinglée, et celle d'une construction. */
+const SD_PINNED = "master-964-1d0a58a";
+const SD_VERSION = `${SD_PINNED}+chatonlm.0123456789ab`;
 
 /**
  * Fichier PE32+ minimal : une section, avec la table des imports
@@ -231,6 +240,25 @@ function installation(overrides = {}) {
     pe: { imports: ["libc++.dll"] },
   });
   set("ollama/lib/ollama/libc++.dll", {});
+  set(SD_SERVER_EXE, {
+    pe: { imports: ["kernel32.dll", "vulkan-1.dll", "advapi32.dll"] },
+  });
+  set("sd-server/fallback/vulkan-1.dll", {
+    pe: { imports: ["kernel32.dll", "cfgmgr32.dll"] },
+  });
+  set("sd-server/VERSION", { text: `${SD_VERSION}\n` });
+  set("licenses/sd-server/README.txt", {
+    text: renderSdServerReadme({
+      env: {
+        SDCPP_VERSION: SD_PINNED,
+        SDCPP_REPO: "https://github.com/leejet/stable-diffusion.cpp",
+        SDCPP_COMMIT: "1d0a58a",
+        SDCPP_GGML_COMMIT: "d25b121",
+      },
+      licenseFiles: [],
+      windows: true,
+    }),
+  });
   set("licenses/THIRD_PARTY_LICENSES.txt", {
     text: "-- Silero VAD --\n== Part 9. Windows installer only ==\n",
   });
@@ -255,6 +283,11 @@ function installation(overrides = {}) {
       .map((f) => [f.slice("ollama/".length), `sum:contenu de ${f}`]),
   );
   reference.set("VERSION", "sum:0.40.0\n");
+  const sdServer = new Map(
+    [...entries.keys()]
+      .filter((f) => f.startsWith("sd-server/"))
+      .map((f) => [f.slice("sd-server/".length), `sum:${content(f)}`]),
+  );
   return {
     files: new Map([...entries.keys()].map((f) => [f, 1])),
     read: content,
@@ -271,6 +304,8 @@ function installation(overrides = {}) {
       ollama: reference,
       onnxruntime: "sum:contenu de onnxruntime.dll",
       ollamaVersion: "0.40.0",
+      sdServer,
+      sdServerPinned: SD_PINNED,
     },
     version: "0.9.0",
   };
@@ -404,10 +439,177 @@ describe("contenu de l'installateur", () => {
       "licenses/rust-crates.txt : mention absente (^\\s*webview2-com-sys \\d)",
     ]);
     const bare = installation();
-    bare.reference = { ollama: null, onnxruntime: null, ollamaVersion: null };
+    bare.reference = {
+      ollama: null,
+      onnxruntime: null,
+      ollamaVersion: null,
+      sdServer: null,
+      sdServerPinned: null,
+    };
     const result = contentProblems(bare);
     expect(result.errors).toEqual([]);
-    expect(result.warnings).toHaveLength(2);
+    expect(result.warnings).toHaveLength(3);
+    expect(result.warnings[2]).toMatch(
+      /^Copie de référence du moteur d'images absente/,
+    );
+  });
+
+  it("exige le moteur d'images, identique au dossier construit, sans fichier en trop", () => {
+    for (const file of [
+      SD_SERVER_EXE,
+      "sd-server/fallback/vulkan-1.dll",
+      "sd-server/VERSION",
+      "licenses/sd-server/README.txt",
+    ]) {
+      expect(REQUIRED_FILES).toContain(file);
+    }
+    // Absent : fichier exigé, et présent dans la copie de référence.
+    const missing = installation({ [SD_SERVER_EXE]: null });
+    missing.reference.sdServer.set("sd-server.exe", "sum");
+    expect(contentProblems(missing).errors).toEqual([
+      `Fichier absent : ${SD_SERVER_EXE}`,
+      `Moteur d'images : fichier absent de l'installateur : ${SD_SERVER_EXE}`,
+    ]);
+    const base = installation();
+    const changed = {
+      ...base,
+      hash: (file) => (file === SD_SERVER_EXE ? "autre" : base.hash(file)),
+    };
+    expect(contentProblems(changed).errors).toEqual([
+      `Moteur d'images : fichier modifié : ${SD_SERVER_EXE}`,
+    ]);
+    const extra = {
+      ...base,
+      files: new Map([
+        ...base.files,
+        ["sd-server/sd-cli.exe", 1],
+        ["sd-server/fallback/vulkan-1.pdb", 1],
+      ]),
+    };
+    expect(contentProblems(extra).errors).toEqual([
+      "Moteur d'images : fichier inattendu : sd-server/sd-cli.exe",
+      "Moteur d'images : fichier inattendu : sd-server/fallback/vulkan-1.pdb",
+    ]);
+  });
+
+  it("exige la version épinglée du moteur d'images", () => {
+    const old = "master-963-0000000+chatonlm.0123456789ab";
+    // Copie de référence reconstruite avec la même version : seule la forme
+    // est fausse (packaging/sdcpp.env changé sans reconstruire).
+    const stale = installation({ "sd-server/VERSION": { text: `${old}\n` } });
+    expect(contentProblems(stale).errors).toEqual([
+      `sd-server/VERSION : « ${old} » au lieu de ${SD_PINNED}+chatonlm.<empreinte> (packaging/sdcpp.env)`,
+    ]);
+    // Paquet construit avec une autre version que le dossier de référence.
+    const built = installation();
+    const other = {
+      ...built,
+      read: (file) =>
+        file === "sd-server/VERSION" ? `${old}\n` : built.read(file),
+      hash: (file) =>
+        file === "sd-server/VERSION" ? `sum:${old}\n` : built.hash(file),
+    };
+    expect(contentProblems(other).errors).toEqual([
+      "Moteur d'images : fichier modifié : sd-server/VERSION",
+      `sd-server/VERSION : « ${old} » au lieu de ${SD_PINNED}+chatonlm.<empreinte> (packaging/sdcpp.env)`,
+    ]);
+  });
+
+  it("refuse un sd-server.exe qui importe le runtime Visual C++ ou OpenMP", () => {
+    const { errors } = contentProblems(
+      installation({
+        [SD_SERVER_EXE]: {
+          pe: {
+            imports: ["kernel32.dll", "vcruntime140.dll", "msvcp140.dll"],
+            delayImports: ["vcomp140.dll"],
+          },
+        },
+      }),
+    );
+    expect(errors).toEqual([
+      `${SD_SERVER_EXE} : DLL du runtime Visual C++ ou d'OpenMP importée (CRT statique attendu) : vcruntime140.dll, msvcp140.dll, vcomp140.dll`,
+      // Celles de la racine de l'app ne sont pas dans les dossiers de
+      // recherche du serveur.
+      `${SD_SERVER_EXE} : DLL demandée et non livrée à côté : vcruntime140.dll`,
+      `${SD_SERVER_EXE} : DLL demandée et non livrée à côté : msvcp140.dll`,
+    ]);
+    const ucrt = contentProblems(
+      installation({
+        [SD_SERVER_EXE]: {
+          pe: { imports: ["api-ms-win-crt-heap-l1-1-0.dll"] },
+        },
+      }),
+    );
+    expect(ucrt.errors).toEqual([
+      `${SD_SERVER_EXE} : DLL du runtime Visual C++ ou d'OpenMP importée (CRT statique attendu) : api-ms-win-crt-heap-l1-1-0.dll`,
+    ]);
+  });
+
+  it("trouve les DLL du chargeur de secours dans le dossier du serveur, le chargeur pouvant manquer", () => {
+    // vulkan-1.dll : fourni par le pilote, sinon fallback/ (fin du PATH).
+    expect(HOST_ONLY_DLLS.has("vulkan-1.dll")).toBe(true);
+    const withoutFallback = installation({
+      "sd-server/fallback/vulkan-1.dll": null,
+    });
+    withoutFallback.reference.sdServer.set("fallback/vulkan-1.dll", "sum");
+    expect(contentProblems(withoutFallback).errors).toEqual([
+      "Fichier absent : sd-server/fallback/vulkan-1.dll",
+      "Moteur d'images : fichier absent de l'installateur : sd-server/fallback/vulkan-1.dll",
+    ]);
+    // Une DLL que le chargeur demande, livrée à côté de sd-server.exe.
+    const helper = contentProblems(
+      installation({
+        "sd-server/fallback/vulkan-1.dll": {
+          pe: { imports: ["kernel32.dll", "libhelper.dll"] },
+        },
+        "sd-server/libhelper.dll": {},
+      }),
+    );
+    expect(helper.errors).toEqual([]);
+    // Mais pas celle de la racine de l'app.
+    const root = contentProblems(
+      installation({
+        "sd-server/fallback/vulkan-1.dll": {
+          pe: { imports: ["kernel32.dll", "vcruntime140.dll"] },
+        },
+      }),
+    );
+    expect(root.errors).toEqual([
+      "sd-server/fallback/vulkan-1.dll : DLL demandée et non livrée à côté : vcruntime140.dll",
+    ]);
+  });
+
+  it("exige la notice du moteur d'images pour Windows", () => {
+    const linux = renderSdServerReadme({
+      env: { SDCPP_VERSION: SD_PINNED },
+      licenseFiles: [],
+    });
+    const { errors } = contentProblems(
+      installation({ "licenses/sd-server/README.txt": { text: linux } }),
+    );
+    expect(errors).toEqual([
+      "licenses/sd-server/README.txt : mention absente (fallback\\\\vulkan-1\\.dll)",
+      "licenses/sd-server/README.txt : mention absente (Visual C\\+\\+)",
+    ]);
+  });
+
+  it("donne la taille du moteur d'images dans le rapport", () => {
+    const files = new Map([
+      ["chatonlm.exe", 10],
+      ["ollama/ollama.exe", 20],
+      ["sd-server/sd-server.exe", 2048],
+      ["sd-server/fallback/vulkan-1.dll", 1024],
+      ["sd-server/VERSION", 41],
+    ]);
+    const report = formatReport({
+      installer: "chatonlm_0.9.2_x64-setup.exe",
+      size: 1,
+      signed: false,
+      files,
+      pes: [],
+      problems: { errors: [], warnings: [] },
+    });
+    expect(report).toContain("    ollama/ : 20 o\n    sd-server/ : 3.0 kio\n");
   });
 
   it("résout les imports sans tenir compte de la casse", () => {
@@ -635,6 +837,9 @@ describe("configuration Windows du bundle", () => {
       "../.tools/runtimes/ollama/ollama.exe": "ollama/ollama.exe",
       "../.tools/runtimes/ollama/VERSION": "ollama/VERSION",
       "../.tools/runtimes/ollama/lib/": "ollama/lib/",
+      "../.tools/runtimes/sd-server/sd-server.exe": "sd-server/sd-server.exe",
+      "../.tools/runtimes/sd-server/fallback/": "sd-server/fallback/",
+      "../.tools/runtimes/sd-server/VERSION": "sd-server/VERSION",
       "../.tools/package/notices/windows/": "licenses/",
     });
     expect(text("scripts/package-windows.sh")).toContain(
@@ -684,6 +889,23 @@ describe("crochets NSIS", () => {
       expect(lines[0]).toBe(guard);
       expect(lines.at(-1)).toBe("${EndIf}");
     }
+  });
+
+  it("arrête aussi le moteur d'images par son chemin exact, avec l'intégré", () => {
+    const builtin = code
+      .split("!macro CHATONLM_STOP_BUILTIN")[1]
+      .split("!macroend")[0];
+    expect(
+      builtin
+        .trim()
+        .split("\n")
+        .map((line) => line.trim()),
+    ).toContain(
+      String.raw`!insertmacro CHATONLM_STOP_FILE "$INSTDIR\sd-server\sd-server.exe"`,
+    );
+    // Aucune suppression de son dossier : le modèle de Tauri remplace ses
+    // fichiers et les retire à la désinstallation.
+    expect(code).not.toMatch(/RMDir .*sd-server/);
   });
 
   it("réessaie de supprimer uninstall.exe après la désinstallation, lui seul", () => {
@@ -764,6 +986,65 @@ describe("workflow packages-windows.yml", () => {
     ]) {
       expect(workflow, step).toContain(step);
     }
+  });
+
+  /** Corps d'une étape (de « - name: » à l'étape suivante), ou null. */
+  const step = (yaml, name) => {
+    const start = yaml.indexOf(`- name: ${name}\n`);
+    if (start < 0) return null;
+    const next = yaml.indexOf("\n      - name: ", start + 1);
+    return yaml.slice(start, next < 0 ? undefined : next);
+  };
+  const SD_STEP = "SDK Vulkan et moteur d'images (sd-server)";
+
+  it("construit le moteur d'images dans les deux workflows, sans nouvelle action", () => {
+    for (const [name, yaml] of [
+      ["packages.yml", linux],
+      ["packages-windows.yml", workflow],
+    ]) {
+      const body = step(yaml, SD_STEP);
+      expect(body, name).not.toBeNull();
+      expect(body, name).toContain("scripts/build-sd-server.sh");
+      expect(body, name).toContain("packaging/sdcpp.env");
+      expect(body, name).not.toMatch(/^\s*(?:- )?uses:/m);
+      // Avant l'empaquetage, qui l'exige.
+      const pack =
+        name === "packages.yml"
+          ? "scripts/package.sh"
+          : "scripts/package-windows.sh";
+      expect(yaml.indexOf(`- name: ${SD_STEP}`), name).toBeLessThan(
+        yaml.lastIndexOf(pack),
+      );
+    }
+    // Toute action de packages.yml reste épinglée à une révision.
+    for (const match of linux.matchAll(/^\s*(?:- )?uses: (\S+)@(\S+)/gm)) {
+      expect(match[2], match[1]).toMatch(/^[0-9a-f]{40}$/);
+    }
+  });
+
+  it("reconstruit le moteur d'images Windows quand sa version, ses correctifs ou son script changent", () => {
+    const key =
+      /^\s*key: packages-windows-\$\{\{ hashFiles\((.*)\) \}\}$/m.exec(
+        workflow,
+      );
+    expect(key).not.toBeNull();
+    const inputs = key[1].split(",").map((part) => part.trim());
+    for (const input of [
+      "'packaging/*.env'",
+      "'packaging/sdcpp/*.patch'",
+      "'scripts/build-sd-server.sh'",
+    ]) {
+      expect(inputs).toContain(input);
+    }
+    // Construit (ou repris du cache) puis exigé avant l'empaquetage.
+    const pack = text("scripts/package-windows.sh");
+    expect(pack).toMatch(
+      /^step "Moteur d'images épinglé"\nscripts\/build-sd-server\.sh$/m,
+    );
+    expect(pack).toContain('".tools/runtimes/sd-server/sd-server.exe"');
+    expect(pack.indexOf("scripts/build-sd-server.sh\n")).toBeLessThan(
+      pack.indexOf("--config packaging/windows/bundle.conf.json"),
+    );
   });
 
   it("essaie l'installation, le lancement et la désinstallation en silence", () => {

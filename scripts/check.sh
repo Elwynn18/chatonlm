@@ -161,6 +161,21 @@ builtin_contracts() {
   return "$status"
 }
 
+# Contrats avec le vrai moteur d'images (image_gen::tests::real) : le binaire
+# des paquets, sur le processeur seul (pilote Vulkan masqué), en petites
+# images. Il faut les modèles du premier essai (FLUX.2 klein 4B, voir l'en-tête
+# du module) : dossier CHATONLM_SD_REAL_MODELS, .tools/sdcpp/models par défaut ;
+# absents, l'étape le dit et passe.
+sd_contracts() {
+  local models="${CHATONLM_SD_REAL_MODELS:-$root/.tools/sdcpp/models}"
+  if [ ! -f "$models/flux-2-klein-4b-Q4_0.gguf" ]; then
+    echo "Modèles d'images absents ($models) : contrats du moteur d'images non lancés."
+    return 0
+  fi
+  CHATONLM_SD_REAL_BIN="$root/.tools/runtimes/sd-server/sd-server" CHATONLM_SD_REAL_MODELS="$models" \
+    cargo test --manifest-path "$manifest" --lib --locked image_gen::tests::real -- --ignored --test-threads=1
+}
+
 real_app_checks() {
   # Binaire d'essai (frontend embarqué, serveur WebDriver), puis démarrage
   # vérifié à l'écran et tests WebDriver dans la vraie webview.
@@ -228,6 +243,8 @@ if $full; then
   step "Clippy (fonctionnalité e2e)" \
     cargo clippy --manifest-path "$manifest" --all-targets --locked --features e2e -- -D warnings
   step "Ollama intégré épinglé" scripts/fetch-ollama.sh
+  step "Moteur d'images épinglé (sd-server)" scripts/build-sd-server.sh
+  step "Contrats avec le moteur d'images (processeur)" sd_contracts
   step "Ollama de test démarré (port 11435)" start_test_ollama
   step "Contrats avec l'Ollama de test et le registre" contracts
   step "Contrats avec l'Ollama intégré" builtin_contracts

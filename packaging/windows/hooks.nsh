@@ -38,11 +38,13 @@
   ${EndIf}
 !macroend
 
-; L'Ollama intégré : le serveur, puis les programmes de llama.cpp qu'il lance.
+; L'Ollama intégré : le serveur, puis les programmes de llama.cpp qu'il lance ;
+; et le moteur d'images (sd-server), lancé par l'app comme l'intégré.
 !macro CHATONLM_STOP_BUILTIN
   !insertmacro CHATONLM_STOP_FILE "$INSTDIR\ollama\ollama.exe"
   !insertmacro CHATONLM_STOP_FILE "$INSTDIR\ollama\lib\ollama\llama-server.exe"
   !insertmacro CHATONLM_STOP_FILE "$INSTDIR\ollama\lib\ollama\llama-quantize.exe"
+  !insertmacro CHATONLM_STOP_FILE "$INSTDIR\sd-server\sd-server.exe"
 !macroend
 
 ; L'app d'abord : sa fin ferme le Job Object de l'intégré, que son

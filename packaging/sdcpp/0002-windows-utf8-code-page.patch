@@ -1,0 +1,28 @@
+diff --git a/examples/server/CMakeLists.txt b/examples/server/CMakeLists.txt
+index 302a8d6..0022209 100644
+--- a/examples/server/CMakeLists.txt
++++ b/examples/server/CMakeLists.txt
+@@ -105,3 +105,9 @@ if(WIN32 AND NOT MSVC)
+ endif()
+ 
+ target_compile_features(${TARGET} PUBLIC c_std_11 cxx_std_17)
++
++# ChatonLM: UTF-8 as the process code page on Windows, so that model paths with
++# non-ASCII characters (user folders) open through narrow-string file APIs.
++if(WIN32)
++    target_sources(${TARGET} PRIVATE utf8.manifest)
++endif()
+diff --git a/examples/server/utf8.manifest b/examples/server/utf8.manifest
+new file mode 100644
+index 0000000..bddb2d9
+--- /dev/null
++++ b/examples/server/utf8.manifest
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
++<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
++  <application xmlns="urn:schemas-microsoft-com:asm.v3">
++    <windowsSettings>
++      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
++    </windowsSettings>
++  </application>
++</assembly>

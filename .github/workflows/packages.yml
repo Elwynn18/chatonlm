@@ -148,6 +148,39 @@ jobs:
       - name: Paquets npm
         run: npm ci
 
+      # Moteur d'images construit depuis ses sources (scripts/build-sd-server.sh,
+      # 15 min sur ce runner) : gardé en cache tant que sa version épinglée, ses
+      # correctifs et son script ne changent pas.
+      - name: Cache du moteur d'images (restauration)
+        id: sd-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/runtimes/sd-server
+          key: sd-server-${{ runner.os }}-${{ inputs.build-runner || 'ubuntu-22.04' }}-${{ hashFiles('packaging/sdcpp.env', 'packaging/sdcpp/*.patch', 'scripts/build-sd-server.sh') }}
+
+      # En-têtes Vulkan, SPIR-V et glslc récents (ceux d'Ubuntu 22.04 sont trop
+      # anciens pour ggml-vulkan) : dépôt de LunarG, version de packaging/sdcpp.env.
+      # Son chargeur libvulkan.so.1 devient le chargeur de secours livré.
+      - name: SDK Vulkan et moteur d'images (sd-server)
+        if: steps.sd-cache.outputs.cache-hit != 'true'
+        run: |
+          source packaging/sdcpp.env
+          curl -fsSL https://packages.lunarg.com/lunarg-signing-key-pub.asc |
+            sudo gpg --dearmor -o /usr/share/keyrings/lunarg-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/lunarg-archive-keyring.gpg] https://packages.lunarg.com/vulkan/$VULKAN_SDK_LINUX_APT jammy main" |
+            sudo tee /etc/apt/sources.list.d/lunarg-vulkan.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvulkan1 libvulkan-dev vulkan-sdk spirv-headers
+          glslc --version | head -1
+          SDCPP_JOBS="$(nproc)" scripts/build-sd-server.sh
+
+      - name: Cache du moteur d'images (sauvegarde)
+        if: steps.sd-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/runtimes/sd-server
+          key: ${{ steps.sd-cache.outputs.cache-primary-key }}
+
       # Sans clé (paquets non signés : voir l'en-tête).
       - name: Construction, inventaire et 2e passe de l'AppImage
         id: build
@@ -188,6 +221,7 @@ jobs:
             done
             echo
             echo "Ollama intégré : $(du -sh .tools/runtimes/ollama | cut -f1) non compressé."
+            echo "Moteur d'images : $(du -sh .tools/runtimes/sd-server | cut -f1) non compressé ($(cat .tools/runtimes/sd-server/VERSION))."
           } >>"$GITHUB_STEP_SUMMARY"
 
       - name: Code source des bibliothèques de l'AppImage
@@ -246,6 +280,9 @@ jobs:
       - name: Ollama intégré
         run: packaging/ci/smoke-ollama.sh /usr/lib/chatonlm/ollama
 
+      - name: Moteur d'images
+        run: packaging/ci/smoke-sd-server.sh /usr/lib/chatonlm/sd-server
+
   smoke-appimage:
     name: AppImage sur ubuntu-24.04
     needs: build
@@ -291,12 +328,13 @@ jobs:
           app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
           packaging/ci/smoke-launch.sh --builtin "$app"
 
-      - name: Ollama intégré
+      - name: Ollama intégré et moteur d'images
         run: |
           app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
           cd "$RUNNER_TEMP"
           "$app" --appimage-extract >/dev/null
           "$GITHUB_WORKSPACE/packaging/ci/smoke-ollama.sh" squashfs-root/usr/lib/chatonlm/ollama
+          "$GITHUB_WORKSPACE/packaging/ci/smoke-sd-server.sh" squashfs-root/usr/lib/chatonlm/sd-server
 
   smoke-appimage-fedora:
     name: AppImage sur Fedora 44
@@ -348,9 +386,10 @@ jobs:
           app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
           packaging/ci/smoke-launch.sh --builtin "$app"
 
-      - name: Ollama intégré
+      - name: Ollama intégré et moteur d'images
         run: |
           app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
           cd "$RUNNER_TEMP"
           "$app" --appimage-extract >/dev/null
           "$GITHUB_WORKSPACE/packaging/ci/smoke-ollama.sh" squashfs-root/usr/lib/chatonlm/ollama
+          "$GITHUB_WORKSPACE/packaging/ci/smoke-sd-server.sh" squashfs-root/usr/lib/chatonlm/sd-server

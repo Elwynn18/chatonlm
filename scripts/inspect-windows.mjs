@@ -3,7 +3,9 @@
 // fichiers extraits par 7-Zip (`7z x`, dans .tools/package/inspect-windows),
 // fichiers attendus, notices, Ollama intégré identique à la copie vérifiée de
 // scripts/fetch-ollama.sh et sans moteur CUDA, ROCm ni MLX, ONNX Runtime
-// identique à celui de scripts/fetch-onnxruntime.sh, et surtout imports PE de
+// identique à celui de scripts/fetch-onnxruntime.sh, moteur d'images
+// identique à celui de scripts/build-sd-server.sh (CRT statique : aucune DLL
+// de Visual C++ ni d'OpenMP importée), et surtout imports PE de
 // chaque exécutable et de chaque DLL : une DLL demandée doit être livrée à
 // côté, ou appartenir à Windows. C'est ce contrôle qui remplace la « machine
 // neuve » : le runner de la CI a le redistribuable Visual C++, WebView2 et
@@ -14,7 +16,8 @@
 // standard ; code 1 si un contrôle échoue.
 //
 // Usage : node scripts/inspect-windows.mjs [options] <ChatonLM_x.y.z_x64-setup.exe>
-//   --runtimes <dossier>   copies de référence (défaut : .tools/runtimes)
+//   --runtimes <dossier>   copies de référence (défaut : .tools/runtimes ;
+//                          ollama, onnxruntime, sd-server)
 //   --report <fichier>     copie du rapport
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -59,6 +62,12 @@ export const REQUIRED_FILES = [
   "ollama/lib/ollama/llama-server.exe",
   "ollama/lib/ollama/ggml-base.dll",
   "ollama/lib/ollama/vulkan/ggml-vulkan.dll",
+  // Moteur d'images (scripts/build-sd-server.sh) : le serveur, à CRT
+  // statique, et le chargeur Vulkan de secours, que l'app met en fin de PATH
+  // du serveur (image_gen/windows.rs).
+  "sd-server/sd-server.exe",
+  "sd-server/fallback/vulkan-1.dll",
+  "sd-server/VERSION",
   // Notices (scripts/package-notices-windows.mjs).
   "licenses/LICENSE.txt",
   "licenses/THIRD_PARTY_LICENSES.txt",
@@ -76,7 +85,20 @@ export const REQUIRED_FILES = [
   "licenses/ollama/LLAMA_CPP_LICENSE",
   "licenses/ollama/LLVM-LICENSE.txt",
   "licenses/ollama/winpthreads-COPYING.txt",
+  "licenses/sd-server/README.txt",
 ];
+
+/** Dossier du moteur d'images dans l'installation, et son serveur. */
+export const SD_SERVER_DIR = "sd-server/";
+export const SD_SERVER_EXE = "sd-server/sd-server.exe";
+
+/**
+ * DLL que sd-server.exe ne doit pas importer : runtime de Visual C++ (CRT
+ * statique, aucune DLL livrée à côté de lui), OpenMP (coupé à la
+ * construction), runtimes de GCC. Même liste que scripts/build-sd-server.sh.
+ */
+export const SD_SERVER_FORBIDDEN =
+  /^(msvcp|vcruntime|vccorlib|concrt|vcomp|libomp|libgomp|libstdc|libgcc|api-ms-win-crt)/;
 
 /** Mentions exigées dans les notices : fichier → motifs. */
 export const NOTICE_MENTIONS = [
@@ -91,6 +113,15 @@ export const NOTICE_MENTIONS = [
   ],
   ["licenses/windows-components.txt", [/WebView2/, /NSIS/, /Visual C\+\+/]],
   ["licenses/ollama/README.txt", [/official build for Windows/, /libomp\.dll/]],
+  [
+    "licenses/sd-server/README.txt",
+    [
+      /stable-diffusion\.cpp/,
+      /fallback\\vulkan-1\.dll/,
+      /Apache License/,
+      /Visual C\+\+/,
+    ],
+  ],
 ];
 
 /**
@@ -119,7 +150,8 @@ export const SYSTEM_DLLS = new Set(
 /**
  * DLL que seul le système de l'utilisateur fournit, et qui peuvent manquer :
  * le chargeur Vulkan vient du pilote graphique (le moteur Vulkan d'Ollama
- * n'est chargé que s'il est là).
+ * n'est chargé que s'il est là ; sd-server.exe prend sinon celui de
+ * sd-server/fallback).
  */
 export const HOST_ONLY_DLLS = new Set(["vulkan-1.dll"]);
 
@@ -272,6 +304,10 @@ function searchDirs(file) {
   // Bibliothèques des moteurs d'Ollama (vulkan/…) : le serveur ajoute
   // lib/ollama à leur recherche.
   if (file.startsWith("ollama/lib/ollama/")) dirs.push("ollama/lib/ollama");
+  // Moteur d'images : dossier de sd-server.exe (celui du processus), puis
+  // fallback, ajouté en fin de PATH par l'app.
+  if (file.startsWith(SD_SERVER_DIR))
+    dirs.push("sd-server", "sd-server/fallback");
   return [...new Set(dirs)];
 }
 
@@ -325,8 +361,10 @@ export function importProblems({ files, pe }) {
  * dossier d'installation (« / ») → taille ; `read(chemin)` : texte ;
  * `hash(chemin)` : SHA-256 ; `pe(chemin)` : en-têtes PE ; `reference` :
  * { ollama: Map(chemin relatif → SHA-256), onnxruntime: SHA-256 | null,
- *   ollamaVersion } (copies vérifiées de .tools/runtimes) ; `version` de
- * l'app. Rend { errors, warnings }.
+ *   ollamaVersion, sdServer: Map(chemin relatif → SHA-256) | null,
+ *   sdServerPinned } (copies vérifiées de .tools/runtimes, versions de
+ * packaging/ollama.env et packaging/sdcpp.env) ; `version` de l'app. Rend
+ * { errors, warnings }.
  */
 export function contentProblems({ files, read, hash, pe, reference, version }) {
   const errors = [];
@@ -391,6 +429,56 @@ export function contentProblems({ files, read, hash, pe, reference, version }) {
     warnings.push(
       "Copie de référence d'ONNX Runtime absente (.tools/runtimes/onnxruntime) : fichier non comparé",
     );
+  }
+
+  // Moteur d'images : exactement les fichiers du dossier construit.
+  if (reference.sdServer) {
+    for (const [rel, sum] of reference.sdServer) {
+      const file = `${SD_SERVER_DIR}${rel}`;
+      if (!files.has(file)) {
+        errors.push(
+          `Moteur d'images : fichier absent de l'installateur : ${file}`,
+        );
+      } else if (hash(file) !== sum) {
+        errors.push(`Moteur d'images : fichier modifié : ${file}`);
+      }
+    }
+    for (const file of files.keys()) {
+      if (
+        file.startsWith(SD_SERVER_DIR) &&
+        !reference.sdServer.has(file.slice(SD_SERVER_DIR.length))
+      ) {
+        errors.push(`Moteur d'images : fichier inattendu : ${file}`);
+      }
+    }
+  } else {
+    warnings.push(
+      "Copie de référence du moteur d'images absente (.tools/runtimes/sd-server) : fichiers non comparés",
+    );
+  }
+  const sdVersion = `${SD_SERVER_DIR}VERSION`;
+  if (reference.sdServerPinned && files.has(sdVersion)) {
+    const shipped = read(sdVersion).trim();
+    const pinned = reference.sdServerPinned.replace(
+      /[.*+?^${}()|[\]\\]/g,
+      "\\$&",
+    );
+    if (!new RegExp(`^${pinned}\\+chatonlm\\.[0-9a-f]{12}$`).test(shipped)) {
+      errors.push(
+        `${sdVersion} : « ${shipped} » au lieu de ${reference.sdServerPinned}+chatonlm.<empreinte> (packaging/sdcpp.env)`,
+      );
+    }
+  }
+  if (files.has(SD_SERVER_EXE)) {
+    const headers = pe(SD_SERVER_EXE);
+    const crt = [...headers.imports, ...(headers.delayImports ?? [])].filter(
+      (name) => SD_SERVER_FORBIDDEN.test(name),
+    );
+    if (crt.length > 0) {
+      errors.push(
+        `${SD_SERVER_EXE} : DLL du runtime Visual C++ ou d'OpenMP importée (CRT statique attendu) : ${[...new Set(crt)].join(", ")}`,
+      );
+    }
   }
 
   for (const [file, mentions] of NOTICE_MENTIONS) {
@@ -494,12 +582,25 @@ function readReference(runtimes) {
     }
   }
   const ort = path.join(runtimes, "onnxruntime", "onnxruntime.dll");
+  // Moteur d'images : tous les fichiers du dossier construit, sauf
+  // SHA256SUMS (non livré).
+  const sdDir = path.join(runtimes, "sd-server");
+  let sdServer = null;
+  if (existsSync(path.join(sdDir, "sd-server.exe"))) {
+    sdServer = new Map(
+      walk(sdDir)
+        .filter((rel) => rel !== "SHA256SUMS")
+        .map((rel) => [rel, sha256(path.join(sdDir, rel))]),
+    );
+  }
+  const env = (file) =>
+    parseEnv(readFileSync(path.join(root, "packaging", file), "utf8"));
   return {
     ollama,
     onnxruntime: existsSync(ort) ? sha256(ort) : null,
-    ollamaVersion:
-      parseEnv(readFileSync(path.join(root, "packaging/ollama.env"), "utf8"))
-        .OLLAMA_VERSION ?? null,
+    ollamaVersion: env("ollama.env").OLLAMA_VERSION ?? null,
+    sdServer,
+    sdServerPinned: env("sdcpp.env").SDCPP_VERSION ?? null,
   };
 }
 
@@ -540,6 +641,7 @@ export function formatReport({
     `  installé : ${files.size} fichiers, ${formatSize(total)}`,
     `    racine (exe, DLL) : ${formatSize(group(""))}`,
     `    ollama/ : ${formatSize(group("ollama/"))}`,
+    `    sd-server/ : ${formatSize(group(SD_SERVER_DIR))}`,
     `    licenses/ : ${formatSize(group("licenses/"))}`,
     "",
     "Exécutables et DLL (imports hors Windows, signature) :",

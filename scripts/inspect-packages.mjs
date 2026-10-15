@@ -5,16 +5,21 @@
 // bibliothèques embarquées dans l'AppImage (liste, tailles), Ollama intégré
 // (fichiers identiques à ceux de l'archive officielle extraite par
 // scripts/fetch-ollama.sh : ni strip ni patchelf de linuxdeploy, sans
-// moteur CUDA, ROCm ni MLX, glibc demandée). Rapport lisible sur la sortie
+// moteur CUDA, ROCm ni MLX, glibc demandée), moteur d'images (sd-server
+// construit par scripts/build-sd-server.sh : mêmes contrôles, plus ses
+// bibliothèques demandées, sans libgomp). Rapport lisible sur la sortie
 // standard ; code 1 si un contrôle échoue.
 //
 // Usage : node scripts/inspect-packages.mjs [options] <paquet.deb> <paquet.AppImage>
-//   --max-glibc <x.y>       échec si le binaire ou l'Ollama intégré demande
-//                           une glibc plus récente
+//   --max-glibc <x.y>       échec si le binaire, l'Ollama intégré ou le
+//                           moteur d'images demande une glibc plus récente
 //   --require-inventory     échec si l'AppImage n'a pas l'inventaire LGPL
 //                           (construction de publication, CI)
 //   --ollama-sums <fichier> empreintes attendues de l'Ollama intégré
 //                           (défaut : .tools/runtimes/ollama/SHA256SUMS)
+//   --sd-sums <fichier>     empreintes attendues du moteur d'images (défaut :
+//                           .tools/runtimes/sd-server/SHA256SUMS ; VERSION
+//                           attendue : celle du même dossier)
 //   --report <fichier>      copie du rapport
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -69,6 +74,8 @@ export const COMMON_FILES = [
   "usr/share/doc/chatonlm/licenses/ollama/XGRAMMAR_NOTICE",
   "usr/share/doc/chatonlm/licenses/ollama/LIBGOMP_GPL-3.0.txt",
   "usr/share/doc/chatonlm/licenses/ollama/LIBGOMP_GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt",
+  // Licences du moteur d'images (ses fichiers : SD_FILES).
+  "usr/share/doc/chatonlm/licenses/sd-server/README.txt",
 ];
 
 /**
@@ -115,11 +122,81 @@ export const OLLAMA_EXECUTABLES = [
  */
 export const HOST_ONLY_LIBRARIES = ["libvulkan.so.1"];
 
-/** Fichiers propres au .deb : entrée de menu visible, AppStream, Ollama. */
+/**
+ * Moteur d'images (sd-server de stable-diffusion.cpp, construit par
+ * scripts/build-sd-server.sh dans .tools/runtimes/sd-server), rangé comme
+ * l'Ollama intégré : resource_dir()/sd-server dans le .deb, usr/libexec avec
+ * un lien depuis resource_dir()/sd-server dans l'AppImage.
+ */
+export const SD_PREFIX = "usr/lib/chatonlm/sd-server/";
+export const APPIMAGE_SD_PREFIX = "usr/libexec/chatonlm/sd-server/";
+export const SD_LINK = "usr/lib/chatonlm/sd-server";
+export const SD_LINK_TARGET = "../../libexec/chatonlm/sd-server";
+
+/**
+ * Fichiers du moteur d'images (chemins relatifs à son dossier) : le serveur,
+ * le chargeur Vulkan de secours (pris par l'app seulement si le système n'en
+ * a pas) et la version construite. Le détail est comparé aux empreintes du
+ * dossier construit (sdServerErrors).
+ */
+export const SD_FILES = ["sd-server", "fallback/libvulkan.so.1", "VERSION"];
+
+/** Seul fichier exécutable du moteur d'images. */
+export const SD_EXECUTABLES = ["sd-server"];
+
+/**
+ * Fichiers ELF du moteur d'images → sonames qui peuvent manquer sur la
+ * machine (ldd) : le chargeur Vulkan, que l'app prend dans fallback/ quand
+ * le système n'en a pas.
+ */
+export const SD_ELF = {
+  "sd-server": ["libvulkan.so.1"],
+  "fallback/libvulkan.so.1": [],
+};
+
+/**
+ * Composants livrés à part dans les paquets, contrôlés de la même façon
+ * (builtinErrors) : nom dans les messages, dossiers, lien de l'AppImage,
+ * exécutables (`onlyExecutables` : aucun autre fichier exécutable), motif
+ * des fichiers exclus, script qui produit la copie de référence.
+ */
+export const OLLAMA_COMPONENT = {
+  name: "Ollama intégré",
+  of: "de l'Ollama intégré",
+  prefix: OLLAMA_PREFIX,
+  appImagePrefix: APPIMAGE_OLLAMA_PREFIX,
+  link: OLLAMA_LINK,
+  linkTarget: OLLAMA_LINK_TARGET,
+  executables: OLLAMA_EXECUTABLES,
+  onlyExecutables: false,
+  excluded: EXCLUDED_ENGINES,
+  hostOnly: HOST_ONLY_LIBRARIES,
+  source: "scripts/fetch-ollama.sh",
+};
+export const SD_COMPONENT = {
+  name: "Moteur d'images",
+  of: "du moteur d'images",
+  prefix: SD_PREFIX,
+  appImagePrefix: APPIMAGE_SD_PREFIX,
+  link: SD_LINK,
+  linkTarget: SD_LINK_TARGET,
+  executables: SD_EXECUTABLES,
+  onlyExecutables: true,
+  excluded: null,
+  hostOnly: [],
+  source: "scripts/build-sd-server.sh",
+};
+export const BUILTIN_COMPONENTS = [OLLAMA_COMPONENT, SD_COMPONENT];
+
+/**
+ * Fichiers propres au .deb : entrée de menu visible, AppStream, Ollama et
+ * moteur d'images.
+ */
 export const DEB_FILES = [
   `usr/share/applications/${ID}.desktop`,
   `usr/share/metainfo/${ID}.metainfo.xml`,
   ...OLLAMA_FILES.map((f) => `${OLLAMA_PREFIX}${f}`),
+  ...SD_FILES.map((f) => `${SD_PREFIX}${f}`),
 ];
 
 /** Fichiers propres à l'AppImage : textes de la LGPL et notice des bibliothèques. */
@@ -132,6 +209,7 @@ export const APPIMAGE_FILES = [
   "usr/share/doc/chatonlm/licenses/GPL-3.0.txt",
   "usr/share/doc/chatonlm/appimage-libraries/README.txt",
   ...OLLAMA_FILES.map((f) => `${APPIMAGE_OLLAMA_PREFIX}${f}`),
+  ...SD_FILES.map((f) => `${APPIMAGE_SD_PREFIX}${f}`),
 ];
 
 /** Dépendances du .deb exigées (les deux premières viennent du CLI Tauri). */
@@ -326,6 +404,8 @@ export function desktopErrors(name, text, { hidden }) {
  * d'autre ne trahirait leur oubli dans les notices) : fichier → mentions
  * attendues. Silero VAD : modèle du mode vocal (src-tauri/models) ; sonora :
  * annulation d'écho, crates listées par cargo-about (« nom version (licence) »).
+ * Notice du moteur d'images : son projet et son chargeur Vulkan de secours,
+ * avec la licence de celui-ci.
  */
 export const NOTICE_MENTIONS = [
   ["usr/share/doc/chatonlm/copyright", [/Silero VAD/]],
@@ -341,6 +421,10 @@ export const NOTICE_MENTIONS = [
       "sonora-ns",
       "sonora-simd",
     ].map((crate) => new RegExp(`^\\s*${crate} \\d`, "m")),
+  ],
+  [
+    "usr/share/doc/chatonlm/licenses/sd-server/README.txt",
+    [/stable-diffusion\.cpp/, /fallback\/libvulkan\.so\.1/, /Apache License/],
   ],
 ];
 
@@ -568,17 +652,20 @@ export function appImageErrors({
       ),
     );
   }
-  const link = files.get(OLLAMA_LINK);
-  if (link?.link !== OLLAMA_LINK_TARGET) {
-    errors.push(
-      `${OLLAMA_LINK} : lien vers ${OLLAMA_LINK_TARGET} attendu (${link ? (link.link ?? "fichier ou dossier") : "absent"})`,
-    );
-  }
-  for (const file of files.keys()) {
-    if (file.startsWith(OLLAMA_PREFIX)) {
+  // Ollama intégré et moteur d'images : hors de usr/lib, derrière un lien.
+  for (const component of BUILTIN_COMPONENTS) {
+    const link = files.get(component.link);
+    if (link?.link !== component.linkTarget) {
       errors.push(
-        `Ollama intégré dans usr/lib (linuxdeploy le traiterait) : ${file}`,
+        `${component.link} : lien vers ${component.linkTarget} attendu (${link ? (link.link ?? "fichier ou dossier") : "absent"})`,
       );
+    }
+    for (const file of files.keys()) {
+      if (file.startsWith(component.prefix)) {
+        errors.push(
+          `${component.name} dans usr/lib (linuxdeploy le traiterait) : ${file}`,
+        );
+      }
     }
   }
   if (files.has("usr/share/doc/chatonlm/copyright")) {
@@ -603,76 +690,128 @@ export function parseSums(text) {
 }
 
 /**
- * Contrôles de l'Ollama intégré : `files` (chemins du paquet → {size, mode,
- * link}), `hash(chemin)` (sha256 d'un fichier du paquet), `read(chemin)`,
- * `sums` (parseSums de .tools/runtimes/ollama/SHA256SUMS, chemins relatifs au
- * dossier de l'Ollama), `version` épinglée. Fichiers identiques à ceux de
- * l'archive (aucun strip, patchelf ou RPATH de linuxdeploy), aucun fichier
- * de plus (moteurs CUDA, ROCm, MLX), aucun lien symbolique, exécutables
- * exécutables, et aucune de ses bibliothèques copiée ailleurs dans le paquet.
+ * Contrôles d'un composant livré à part (`component` : OLLAMA_COMPONENT ou
+ * SD_COMPONENT) : `files` (chemins du paquet → {size, mode, link}),
+ * `hash(chemin)` (sha256 d'un fichier du paquet), `read(chemin)`, `sums`
+ * (parseSums du SHA256SUMS de sa copie de référence, chemins relatifs à son
+ * dossier), `version` attendue, `prefix` (son dossier dans le paquet).
+ * Fichiers identiques à ceux de la copie (aucun strip, patchelf ou RPATH de
+ * linuxdeploy), aucun fichier de plus (moteurs exclus), aucun lien
+ * symbolique, exécutables exécutables (et seulement eux si
+ * `onlyExecutables`), et aucune de ses bibliothèques copiée ailleurs dans
+ * usr/lib.
  */
-export function ollamaErrors({
-  files,
-  hash,
-  read,
-  sums,
-  version,
-  prefix = OLLAMA_PREFIX,
-}) {
+export function builtinErrors(
+  component,
+  { files, hash, read, sums, version, prefix = component.prefix },
+) {
+  const { name } = component;
   const errors = [];
   if (!sums || sums.size === 0) {
-    return [
-      "empreintes de l'Ollama intégré absentes (lancer scripts/fetch-ollama.sh)",
-    ];
+    return [`empreintes ${component.of} absentes (lancer ${component.source})`];
   }
   for (const [rel, sum] of sums) {
     const file = `${prefix}${rel}`;
     const info = files.get(file);
-    if (!info) errors.push(`Ollama intégré : fichier absent : ${file}`);
-    else if (info.link)
-      errors.push(`Ollama intégré : lien symbolique : ${file}`);
+    if (!info) errors.push(`${name} : fichier absent : ${file}`);
+    else if (info.link) errors.push(`${name} : lien symbolique : ${file}`);
     else if (hash(file) !== sum) {
-      errors.push(
-        `Ollama intégré : fichier modifié (strip, patchelf ?) : ${file}`,
-      );
+      errors.push(`${name} : fichier modifié (strip, patchelf ?) : ${file}`);
     }
   }
   for (const [file, info] of files) {
     if (!file.startsWith(prefix)) continue;
     const rel = file.slice(prefix.length);
-    if (EXCLUDED_ENGINES.test(rel)) {
-      errors.push(`Ollama intégré : moteur exclu livré : ${file}`);
+    if (component.excluded?.test(rel)) {
+      errors.push(`${name} : moteur exclu livré : ${file}`);
     } else if (!sums.has(rel) && rel !== "VERSION") {
       errors.push(
-        `Ollama intégré : fichier inattendu : ${file}${info.link ? ` -> ${info.link}` : ""}`,
+        `${name} : fichier inattendu : ${file}${info.link ? ` -> ${info.link}` : ""}`,
       );
     }
   }
-  for (const rel of OLLAMA_EXECUTABLES) {
+  for (const rel of component.executables) {
     const info = files.get(`${prefix}${rel}`);
     if (info && !info.link && (info.mode & 0o111) === 0) {
-      errors.push(`Ollama intégré : ${prefix}${rel} n'est pas exécutable`);
+      errors.push(`${name} : ${prefix}${rel} n'est pas exécutable`);
+    }
+  }
+  if (component.onlyExecutables) {
+    for (const [file, info] of files) {
+      const rel = file.slice(prefix.length);
+      if (
+        file.startsWith(prefix) &&
+        !info.link &&
+        !component.executables.includes(rel) &&
+        (info.mode & 0o111) !== 0
+      ) {
+        errors.push(`${name} : ${file} ne doit pas être exécutable`);
+      }
     }
   }
   if (files.has(`${prefix}VERSION`)) {
     const shipped = read(`${prefix}VERSION`).trim();
     if (shipped !== version) {
-      errors.push(`Ollama intégré : VERSION ${shipped} au lieu de ${version}`);
+      errors.push(
+        `${name} : VERSION ${shipped} au lieu de ${version ?? "(inconnue)"}`,
+      );
     }
   }
-  // Bibliothèques de l'Ollama (ou chargeur Vulkan de la machine de
-  // construction) copiées hors de son dossier par linuxdeploy.
+  // Bibliothèques du composant (ou chargeur Vulkan de la machine de
+  // construction) copiées hors de son dossier par linuxdeploy ; les dossiers
+  // des autres composants ont leurs propres contrôles.
+  const own = BUILTIN_COMPONENTS.flatMap((c) => [c.prefix, c.appImagePrefix]);
   const names = new Set([
-    ...[...sums.keys()].map((rel) => path.posix.basename(rel)),
-    ...HOST_ONLY_LIBRARIES,
+    ...[...sums.keys()]
+      .filter((rel) => rel !== "VERSION")
+      .map((rel) => path.posix.basename(rel)),
+    ...component.hostOnly,
   ]);
   for (const [file, info] of files) {
-    if (info.link || file.startsWith(prefix) || !file.startsWith("usr/lib/")) {
+    if (
+      info.link ||
+      file.startsWith(prefix) ||
+      own.some((dir) => file.startsWith(dir)) ||
+      !file.startsWith("usr/lib/")
+    ) {
       continue;
     }
     if (names.has(path.posix.basename(file))) {
       errors.push(
-        `bibliothèque de l'Ollama intégré copiée hors de son dossier : ${file}`,
+        `bibliothèque ${component.of} copiée hors de son dossier : ${file}`,
+      );
+    }
+  }
+  return errors;
+}
+
+/**
+ * Contrôles de l'Ollama intégré (builtinErrors) : `sums` de
+ * .tools/runtimes/ollama/SHA256SUMS, `version` épinglée (packaging/ollama.env).
+ */
+export function ollamaErrors(options) {
+  return builtinErrors(OLLAMA_COMPONENT, options);
+}
+
+/**
+ * Contrôles du moteur d'images (builtinErrors) : `sums` de
+ * .tools/runtimes/sd-server/SHA256SUMS, `version` du VERSION de ce dossier,
+ * `pinned` (SDCPP_VERSION de packaging/sdcpp.env) : la version livrée doit
+ * être « <pinned>+chatonlm.<empreinte de 12 caractères> ».
+ */
+export function sdServerErrors({ pinned, ...options }) {
+  const errors = builtinErrors(SD_COMPONENT, options);
+  const prefix = options.prefix ?? SD_PREFIX;
+  if (
+    pinned &&
+    options.sums?.size > 0 &&
+    options.files.has(`${prefix}VERSION`)
+  ) {
+    const shipped = options.read(`${prefix}VERSION`).trim();
+    const escaped = pinned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!new RegExp(`^${escaped}\\+chatonlm\\.[0-9a-f]{12}$`).test(shipped)) {
+      errors.push(
+        `Moteur d'images : VERSION ${shipped} hors de la forme ${pinned}+chatonlm.<empreinte> (packaging/sdcpp.env)`,
       );
     }
   }
@@ -689,11 +828,7 @@ export function inspectOllamaElf(dir, files, prefix = OLLAMA_PREFIX) {
   for (const [rel, info] of files) {
     if (!rel.startsWith(prefix) || info.link) continue;
     const file = path.join(dir, rel);
-    const head = Buffer.alloc(4);
-    const fd = openSync(file, "r");
-    readSync(fd, head, 0, 4, 0);
-    closeSync(fd);
-    if (head.readUInt32BE(0) !== 0x7f454c46) continue;
+    if (!isElf(file)) continue;
     count += 1;
     const max = maxSymbolVersions(run("objdump", ["-T", file]));
     for (const [name, version] of Object.entries(max)) {
@@ -703,6 +838,38 @@ export function inspectOllamaElf(dir, files, prefix = OLLAMA_PREFIX) {
     }
   }
   return { count, versions };
+}
+
+/**
+ * Fichiers ELF du moteur d'images (SD_ELF) dans un paquet extrait (`dir`) :
+ * pour chacun présent, { rel, elf, needed, versions, missing, linked }
+ * (inspectBinary, sans LD_LIBRARY_PATH).
+ */
+export function inspectSdServerElf(dir, files, prefix = SD_PREFIX) {
+  const entries = [];
+  for (const rel of Object.keys(SD_ELF)) {
+    const info = files.get(`${prefix}${rel}`);
+    if (!info || info.link) continue;
+    const file = path.join(dir, prefix, rel);
+    entries.push(
+      isElf(file)
+        ? { rel, elf: true, ...inspectBinary(file, { cleanEnv: true }) }
+        : { rel, elf: false },
+    );
+  }
+  return entries;
+}
+
+/** Vrai si le fichier commence par la marque ELF. */
+function isElf(file) {
+  const head = Buffer.alloc(4);
+  const fd = openSync(file, "r");
+  try {
+    readSync(fd, head, 0, 4, 0);
+  } finally {
+    closeSync(fd);
+  }
+  return head.readUInt32BE(0) === 0x7f454c46;
 }
 
 /** sha256 d'un fichier. */
@@ -749,15 +916,23 @@ function run(cmd, args, options = {}) {
   });
 }
 
-/** Binaire : sonames demandés, versions de symboles, sonames introuvables (ldd). */
-export function inspectBinary(file) {
+/**
+ * Binaire : sonames demandés, versions de symboles, sonames introuvables et
+ * sonames chargés (ldd ; `cleanEnv` : sans LD_LIBRARY_PATH, comme sur une
+ * machine d'utilisateur).
+ */
+export function inspectBinary(file, { cleanEnv = false } = {}) {
   const needed = neededLibraries(run("readelf", ["-d", file]));
   const versions = maxSymbolVersions(run("objdump", ["-T", file]));
-  const ldd = spawnSync("ldd", [file], { encoding: "utf8", env: ENV_C });
-  const missing = [
-    ...(ldd.stdout ?? "").matchAll(/^\s*(\S+) => not found/gm),
-  ].map((m) => m[1]);
-  return { needed, versions, missing };
+  const env = { ...ENV_C };
+  if (cleanEnv) delete env.LD_LIBRARY_PATH;
+  const ldd = spawnSync("ldd", [file], { encoding: "utf8", env });
+  const out = ldd.stdout ?? "";
+  const missing = [...out.matchAll(/^\s*(\S+) => not found/gm)].map(
+    (m) => m[1],
+  );
+  const linked = [...out.matchAll(/^\s*(\S+) => /gm)].map((m) => m[1]);
+  return { needed, versions, missing, linked };
 }
 
 /**
@@ -816,8 +991,29 @@ function inspectOllama(dir, files, ollama, prefix) {
   return { errors, elf: inspectOllamaElf(dir, files, prefix) };
 }
 
+/**
+ * Moteur d'images d'un paquet extrait dans `dir` : erreurs (sdServerErrors)
+ * et inspection de ses fichiers ELF. `sdServer` : {sums, version, pinned},
+ * ou null pour ne pas le contrôler (essais).
+ */
+function inspectSdServer(dir, files, sdServer, prefix) {
+  if (!sdServer) return { errors: [], elf: null };
+  const read = (rel) => readFileSync(path.join(dir, rel), "utf8");
+  const errors = sdServerErrors({
+    files,
+    read,
+    hash: (rel) => sha256(path.join(dir, rel)),
+    prefix,
+    ...sdServer,
+  });
+  return { errors, elf: inspectSdServerElf(dir, files, prefix) };
+}
+
 /** Inspection d'un .deb, extrait dans `work`. */
-export function inspectDeb(file, { work, version, ollama = null }) {
+export function inspectDeb(
+  file,
+  { work, version, ollama = null, sdServer = null },
+) {
   const members = parseAr(readFileSync(file));
   const member = (prefix) => members.find((m) => m.name.startsWith(prefix));
   const errors = [];
@@ -854,6 +1050,8 @@ export function inspectDeb(file, { work, version, ollama = null }) {
     : null;
   const builtin = inspectOllama(dataDir, files, ollama, OLLAMA_PREFIX);
   errors.push(...builtin.errors);
+  const images = inspectSdServer(dataDir, files, sdServer, SD_PREFIX);
+  errors.push(...images.errors);
   return {
     file,
     size: statSync(file).size,
@@ -862,6 +1060,7 @@ export function inspectDeb(file, { work, version, ollama = null }) {
     errors,
     binary,
     ollamaElf: builtin.elf,
+    sdServerElf: images.elf,
     missingTools: validation.missing,
   };
 }
@@ -890,7 +1089,7 @@ export function appImageRuntime(buffer) {
 /** Inspection d'une AppImage, extraite dans `work` (--appimage-extract). */
 export function inspectAppImage(
   file,
-  { work, requireInventory, runtimePin, ollama = null },
+  { work, requireInventory, runtimePin, ollama = null, sdServer = null },
 ) {
   const buffer = readFileSync(file);
   const runtime = appImageRuntime(buffer);
@@ -940,6 +1139,7 @@ export function inspectAppImage(
       ([rel, info]) =>
         !info.link &&
         !rel.startsWith(APPIMAGE_OLLAMA_PREFIX) &&
+        !rel.startsWith(APPIMAGE_SD_PREFIX) &&
         /\.so(\.[0-9.]+)?$/.test(rel),
     )
     .map(([rel, info]) => ({ rel, size: info.size }))
@@ -949,6 +1149,8 @@ export function inspectAppImage(
     : null;
   const builtin = inspectOllama(dir, files, ollama, APPIMAGE_OLLAMA_PREFIX);
   errors.push(...builtin.errors);
+  const images = inspectSdServer(dir, files, sdServer, APPIMAGE_SD_PREFIX);
+  errors.push(...images.errors);
   return {
     file,
     size: buffer.length,
@@ -959,6 +1161,7 @@ export function inspectAppImage(
     libraries,
     binary,
     ollamaElf: builtin.elf,
+    sdServerElf: images.elf,
     missingTools: validation.missing,
   };
 }
@@ -977,6 +1180,12 @@ function total(files) {
   return sum;
 }
 
+/** Versions de symboles « GLIBC_2.35, GLIBCXX_3.4.30 », ou « aucune ». */
+const symbolList = (versions) =>
+  Object.entries(versions)
+    .map(([k, v]) => `${k}_${v}`)
+    .join(", ") || "aucune";
+
 /** Lignes du rapport sur l'Ollama intégré : taille, glibc demandée. */
 export function ollamaLines(files, elf, { maxGlibc, prefix = OLLAMA_PREFIX }) {
   if (!elf) return { lines: [], errors: [] };
@@ -988,10 +1197,7 @@ export function ollamaLines(files, elf, { maxGlibc, prefix = OLLAMA_PREFIX }) {
       count += 1;
     }
   }
-  const versions =
-    Object.entries(elf.versions)
-      .map(([k, v]) => `${k}_${v}`)
-      .join(", ") || "aucune";
+  const versions = symbolList(elf.versions);
   const lines = [
     `Ollama intégré : ${count} fichiers, ${formatSize(size)}, ${elf.count} ELF ; ` +
       `versions de symboles les plus récentes : ${versions}`,
@@ -1009,16 +1215,64 @@ export function ollamaLines(files, elf, { maxGlibc, prefix = OLLAMA_PREFIX }) {
   return { lines, errors };
 }
 
+/**
+ * Lignes du rapport sur le moteur d'images : taille, bibliothèques et glibc
+ * demandées par chaque fichier ELF (`elf` : inspectSdServerElf). Erreurs :
+ * fichier qui n'est pas un ELF, glibc plus récente que `maxGlibc`,
+ * bibliothèque introuvable autre que celles de SD_ELF, libgomp (OpenMP doit
+ * être coupé à la construction).
+ */
+export function sdServerLines(files, elf, { maxGlibc, prefix = SD_PREFIX }) {
+  if (!elf) return { lines: [], errors: [] };
+  let size = 0;
+  let count = 0;
+  for (const [rel, info] of files) {
+    if (rel.startsWith(prefix) && !info.link) {
+      size += info.size;
+      count += 1;
+    }
+  }
+  const lines = [
+    `Moteur d'images (sd-server) : ${count} fichiers, ${formatSize(size)}`,
+  ];
+  const errors = [];
+  for (const entry of elf) {
+    if (!entry.elf) {
+      errors.push(`moteur d'images : ${prefix}${entry.rel} n'est pas un ELF`);
+      continue;
+    }
+    lines.push(
+      `  ${entry.rel} : ${entry.needed.join(", ") || "aucune bibliothèque"} ; ` +
+        `versions de symboles les plus récentes : ${symbolList(entry.versions)}`,
+    );
+    const glibc = entry.versions.GLIBC;
+    if (maxGlibc && glibc && compareVersions(glibc, maxGlibc) > 0) {
+      errors.push(
+        `le moteur d'images (${entry.rel}) demande GLIBC_${glibc} (maximum permis : ${maxGlibc})`,
+      );
+    }
+    const allowed = SD_ELF[entry.rel] ?? [];
+    const missing = entry.missing.filter((name) => !allowed.includes(name));
+    if (missing.length > 0) {
+      errors.push(
+        `moteur d'images : ${entry.rel} : bibliothèques introuvables (ldd) : ${missing.join(", ")}`,
+      );
+    }
+    if ([...entry.needed, ...entry.linked].some((n) => /^libgomp\./.test(n))) {
+      errors.push(
+        `moteur d'images : ${entry.rel} dépend de libgomp (OpenMP devait être coupé)`,
+      );
+    }
+  }
+  return { lines, errors };
+}
+
 function binaryLines(binary, { maxGlibc, depends }) {
   if (!binary) return { lines: [], errors: [] };
   const { needed, versions, missing } = binary;
   const lines = [
     `Binaire : ${needed.length} bibliothèques demandées : ${needed.join(", ")}`,
-    `  versions de symboles les plus récentes : ${
-      Object.entries(versions)
-        .map(([k, v]) => `${k}_${v}`)
-        .join(", ") || "aucune"
-    }`,
+    `  versions de symboles les plus récentes : ${symbolList(versions)}`,
   ];
   const errors = [];
   if (missing.length > 0) {
@@ -1080,10 +1334,13 @@ export function formatReport({ deb, appimage, maxGlibc }) {
     lines.push(...bin.lines);
     const builtin = ollamaLines(deb.files, deb.ollamaElf, { maxGlibc });
     lines.push(...builtin.lines);
+    const images = sdServerLines(deb.files, deb.sdServerElf, { maxGlibc });
+    lines.push(...images.lines);
     errors.push(
       ...deb.errors.map((e) => `.deb : ${e}`),
       ...bin.errors.map((e) => `.deb : ${e}`),
       ...builtin.errors.map((e) => `.deb : ${e}`),
+      ...images.errors.map((e) => `.deb : ${e}`),
     );
     lines.push("");
   }
@@ -1124,10 +1381,16 @@ export function formatReport({ deb, appimage, maxGlibc }) {
       prefix: APPIMAGE_OLLAMA_PREFIX,
     });
     lines.push(...builtin.lines);
+    const images = sdServerLines(appimage.files, appimage.sdServerElf, {
+      maxGlibc,
+      prefix: APPIMAGE_SD_PREFIX,
+    });
+    lines.push(...images.lines);
     errors.push(
       ...appimage.errors.map((e) => `AppImage : ${e}`),
       ...bin.errors.map((e) => `AppImage : ${e}`),
       ...builtin.errors.map((e) => `AppImage : ${e}`),
+      ...images.errors.map((e) => `AppImage : ${e}`),
     );
     lines.push("");
   }
@@ -1153,6 +1416,7 @@ function main() {
     requireInventory: false,
     report: null,
     ollamaSums: path.join(root, ".tools/runtimes/ollama/SHA256SUMS"),
+    sdSums: path.join(root, ".tools/runtimes/sd-server/SHA256SUMS"),
   };
   const packages = [];
   for (let i = 0; i < args.length; i += 1) {
@@ -1160,6 +1424,7 @@ function main() {
     else if (args[i] === "--require-inventory") options.requireInventory = true;
     else if (args[i] === "--report") options.report = args[++i];
     else if (args[i] === "--ollama-sums") options.ollamaSums = args[++i];
+    else if (args[i] === "--sd-sums") options.sdSums = args[++i];
     else packages.push(args[i]);
   }
   const debFile = packages.find((p) => p.endsWith(".deb"));
@@ -1167,7 +1432,8 @@ function main() {
   if ((!debFile && !appFile) || packages.length > 2) {
     console.error(
       "Usage : node scripts/inspect-packages.mjs [--max-glibc x.y] [--require-inventory] " +
-        "[--ollama-sums fichier] [--report fichier] <paquet.deb> <paquet.AppImage>",
+        "[--ollama-sums fichier] [--sd-sums fichier] [--report fichier] " +
+        "<paquet.deb> <paquet.AppImage>",
     );
     process.exit(2);
   }
@@ -1187,9 +1453,28 @@ function main() {
       readFileSync(path.join(root, "packaging/ollama.env"), "utf8"),
     ).OLLAMA_VERSION,
   };
+  // Moteur d'images : empreintes et version du dossier construit par
+  // build-sd-server.sh (vides s'il manque : erreur dans le rapport).
+  const sdVersion = path.join(path.dirname(options.sdSums), "VERSION");
+  const sdServer = {
+    sums: existsSync(options.sdSums)
+      ? parseSums(readFileSync(options.sdSums, "utf8"))
+      : new Map(),
+    version: existsSync(sdVersion)
+      ? readFileSync(sdVersion, "utf8").trim()
+      : null,
+    pinned: parseEnv(
+      readFileSync(path.join(root, "packaging/sdcpp.env"), "utf8"),
+    ).SDCPP_VERSION,
+  };
   const work = path.join(root, ".tools/package/inspect");
   const deb = debFile
-    ? inspectDeb(debFile, { work: path.join(work, "deb"), version, ollama })
+    ? inspectDeb(debFile, {
+        work: path.join(work, "deb"),
+        version,
+        ollama,
+        sdServer,
+      })
     : null;
   const appimage = appFile
     ? inspectAppImage(appFile, {
@@ -1197,6 +1482,7 @@ function main() {
         requireInventory: options.requireInventory,
         runtimePin: pin,
         ollama,
+        sdServer,
       })
     : null;
   const { text, errors } = formatReport({

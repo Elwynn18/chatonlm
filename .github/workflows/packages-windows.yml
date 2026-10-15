@@ -104,7 +104,7 @@ jobs:
             src-tauri/target
             !src-tauri/target/release/bundle
             .tools/runtimes
-          key: packages-windows-${{ hashFiles('rust-toolchain.toml', 'src-tauri/Cargo.lock', 'scripts/package-notices.mjs', 'packaging/*.env') }}
+          key: packages-windows-${{ hashFiles('rust-toolchain.toml', 'src-tauri/Cargo.lock', 'scripts/package-notices.mjs', 'packaging/*.env', 'packaging/sdcpp/*.patch', 'scripts/build-sd-server.sh') }}
           restore-keys: |
             packages-windows-
 
@@ -128,6 +128,48 @@ jobs:
           scripts/fetch-ollama.sh
           ls -l .tools/runtimes/onnxruntime .tools/runtimes/ollama
           echo "ORT_DYLIB_PATH=$(cygpath -w "$PWD/.tools/runtimes/onnxruntime/onnxruntime.dll")" >>"$GITHUB_ENV"
+
+      # Moteur d'images construit depuis ses sources (scripts/build-sd-server.sh,
+      # Visual Studio 2022, CRT statique), gardé dans .tools/runtimes par le
+      # cache : le SDK Vulkan de LunarG (packaging/sdcpp.env, empreinte
+      # vérifiée) n'est installé que s'il faut le reconstruire. Son runtime
+      # (VulkanRT) pose vulkan-1.dll dans System32 : le chargeur de secours
+      # livré en est la copie.
+      - name: SDK Vulkan et moteur d'images (sd-server)
+        run: |
+          if scripts/build-sd-server.sh --check; then
+            exit 0
+          fi
+          source packaging/sdcpp.env
+          installer="$RUNNER_TEMP/vulkansdk.exe"
+          curl -fsSL -o "$installer" "$VULKAN_SDK_WINDOWS_URL"
+          echo "$VULKAN_SDK_WINDOWS_SHA256  $installer" | sha256sum --check
+          echo "== Installation du SDK Vulkan"
+          timeout 900 "$installer" -c --am --al in || echo "Installateur du SDK : code $? (vérifié ci-dessous)"
+          sdk="/c/VulkanSDK/$VULKAN_SDK_WINDOWS_VERSION"
+          test -x "$sdk/Bin/glslc.exe"
+          # VulkanRT est un installateur NSIS : /S (majuscule) pour le silence ;
+          # sans lui, il attendrait un clic.
+          if [ -f "$sdk/Helpers/VulkanRT.exe" ]; then
+            echo "== Runtime Vulkan (VulkanRT)"
+            timeout 300 "$sdk/Helpers/VulkanRT.exe" /S || echo "VulkanRT : code $?"
+          fi
+          loader="/c/Windows/System32/vulkan-1.dll"
+          if [ ! -f "$loader" ]; then
+            loader="$(find "$sdk" -iname vulkan-1.dll -print -quit)"
+          fi
+          test -n "$loader" && test -f "$loader"
+          echo "Chargeur Vulkan de secours : $loader"
+          export SDCPP_VULKAN_LOADER="$loader"
+          export VULKAN_SDK="$(cygpath -w "$sdk")"
+          export PATH="$sdk/Bin:$PATH"
+          glslc --version | head -1 || true
+          echo "== Construction de sd-server"
+          if ! SDCPP_JOBS="$(nproc)" timeout 5400 scripts/build-sd-server.sh; then
+            tail -n 60 .tools/sdcpp-build/configure.log .tools/sdcpp-build/build.log 2>/dev/null || true
+            exit 1
+          fi
+          ls -lR .tools/runtimes/sd-server
 
       # Exigé par le contexte de Tauri à la compilation (frontendDist) et par
       # les notices (dist/.vite/license.json).

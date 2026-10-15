@@ -1,0 +1,57 @@
+Tokenizer data built into stable-diffusion.cpp
+==============================================
+
+stable-diffusion.cpp embeds the vocabularies and merge rules of the
+tokenizers of several text encoders (src/tokenizers/vocab/*.hpp), compiled
+into sd-server. They are data published with these models, used unmodified:
+
+  clip_merges.hpp      CLIP (OpenAI), BPE merges of the CLIP tokenizer,
+                       https://github.com/openai/CLIP
+                       MIT License, Copyright (c) 2021 OpenAI (below)
+
+  qwen_merges.hpp      Qwen2 / Qwen2.5 tokenizer (Alibaba Cloud), as used by
+                       Qwen2.5-VL, https://huggingface.co/Qwen
+                       Apache License, Version 2.0 (Apache-2.0.txt)
+
+  mistral_vocab.hpp,   Tokenizer of Mistral Small 3.x (Mistral AI), as used by
+  mistral_merges.hpp   FLUX.2, https://huggingface.co/mistralai
+                       Apache License, Version 2.0 (Apache-2.0.txt)
+
+  t5.hpp               T5 v1.1 tokenizer (Google),
+                       https://huggingface.co/google/t5-v1_1-xxl
+                       Apache License, Version 2.0 (Apache-2.0.txt)
+
+  umt5.hpp             UMT5 tokenizer (Google),
+                       https://huggingface.co/google/umt5-xxl
+                       Apache License, Version 2.0 (Apache-2.0.txt)
+
+  The tokenizer data of Gemma 3 (gemma_vocab.hpp, gemma_merges.hpp), which
+  is not under a permissive license, is left out of this build
+  (patches/0004): models that need it are not supported.
+
+None of these projects publishes a NOTICE file for its tokenizer.
+
+-- CLIP --
+
+MIT License
+
+Copyright (c) 2021 OpenAI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+

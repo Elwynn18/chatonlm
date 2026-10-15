@@ -1,0 +1,21 @@
+diff --git a/examples/server/main.cpp b/examples/server/main.cpp
+index ddfd733..ff3a735 100644
+--- a/examples/server/main.cpp
++++ b/examples/server/main.cpp
+@@ -120,7 +120,15 @@ int main(int argc, const char** argv) {
+ 
+     httplib::Server svr;
+ 
+-    svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
++    svr.set_pre_routing_handler([&svr_params](const httplib::Request& req, httplib::Response& res) {
++        // ChatonLM: only the app talks to this server. A request from a web page
++        // (Origin header) or for another host name (DNS rebinding) is refused.
++        const std::string expected_host = svr_params.listen_ip + ":" + std::to_string(svr_params.listen_port);
++        if (req.has_header("Origin") || req.get_header_value("Host") != expected_host) {
++            res.status = 403;
++            res.set_content(R"({"error":"forbidden"})", "application/json");
++            return httplib::Server::HandlerResponse::Handled;
++        }
+         std::string origin = req.get_header_value("Origin");
+         if (origin.empty()) {
+             origin = "*";
