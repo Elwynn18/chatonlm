@@ -32,7 +32,9 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
   graphics card and memory, then download them into Ollama in one click.
   Installed models and downloads have their own tabs. When a newer version of
   an installed model is published, ChatonLM says so and updates it in one
-  click.
+  click. An optional Uncensored section (off by default, in Settings >
+  Models) lists popular community versions of official models with their
+  refusals removed.
 - **Ollama account and web search**: sign in to your ollama.com account
   through your Ollama server, then let models search the web, as in the
   official app.

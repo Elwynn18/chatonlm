@@ -567,6 +567,7 @@ export function fakeBackend(
       studyModel: "",
       autoRead: false,
       onboardingDone: true,
+      showUncensored: false,
     },
     settingsErrors: { get: null, update: null },
     details: new Map<string, ModelDetails | AppError>(

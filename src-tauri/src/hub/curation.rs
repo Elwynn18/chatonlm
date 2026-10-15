@@ -26,6 +26,15 @@ struct Raw {
     chat_pipelines: Vec<String>,
     exclude_words: String,
     open_licenses: Vec<String>,
+    uncensored: RawUncensored,
+}
+
+#[derive(Deserialize)]
+struct RawUncensored {
+    queries: Vec<String>,
+    words: String,
+    exclude: String,
+    makers: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -69,6 +78,13 @@ pub struct Curation {
     chat_pipelines: HashSet<String>,
     exclude_words: Regex,
     open_licenses: HashSet<String>,
+    /// Recherches de Hugging Face de la rubrique « Uncensored ».
+    pub uncensored_queries: Vec<String>,
+    uncensored_words: Regex,
+    uncensored_exclude: Regex,
+    /// Auteurs de dérivés sans refus faits d'après le modèle officiel, en
+    /// minuscules.
+    uncensored_makers: HashSet<String>,
 }
 
 fn lower(list: Vec<String>) -> HashSet<String> {
@@ -115,6 +131,12 @@ impl Curation {
             exclude_words: Regex::new(&format!("(?i){}", raw.exclude_words))
                 .map_err(|e| e.to_string())?,
             open_licenses: lower(raw.open_licenses),
+            uncensored_queries: raw.uncensored.queries,
+            uncensored_words: Regex::new(&format!("(?i){}", raw.uncensored.words))
+                .map_err(|e| e.to_string())?,
+            uncensored_exclude: Regex::new(&format!("(?i){}", raw.uncensored.exclude))
+                .map_err(|e| e.to_string())?,
+            uncensored_makers: lower(raw.uncensored.makers),
         })
     }
 
@@ -178,6 +200,45 @@ impl Curation {
     /// Identifiant qui contient un mot exclu (dérivés « uncensored »...).
     pub fn has_excluded_word(&self, id: &str) -> bool {
         self.exclude_words.is_match(id)
+    }
+
+    /// Nom d'un dérivé sans refus (« abliterated », « uncensored »...), ni
+    /// pour adultes ni encodeur d'un générateur d'images.
+    pub fn uncensored_name(&self, id: &str) -> bool {
+        self.uncensored_words.is_match(id) && !self.uncensored_exclude.is_match(id)
+    }
+
+    /// Modèle (« org/nom ») d'un laboratoire de `baseLabs`.
+    pub fn official_base(&self, model: &str) -> bool {
+        model
+            .split_once('/')
+            .is_some_and(|(org, _)| self.base_labs.contains(&org.to_ascii_lowercase()))
+    }
+
+    /// Lignée officielle d'un dérivé sans refus : modèle de base d'un
+    /// laboratoire de `baseLabs` (quantifié ou affiné), ou dérivé d'un auteur
+    /// de `makers` quantifié par lui-même ou par un quantificateur de
+    /// confiance. Sans modèle de base : refusé.
+    pub fn uncensored_origin(
+        &self,
+        author: &str,
+        base_model: Option<&str>,
+        relation: Option<&str>,
+    ) -> bool {
+        let Some(base) = base_model else {
+            return false;
+        };
+        let Some((org, _)) = base.split_once('/') else {
+            return false;
+        };
+        let (org, author) = (org.to_ascii_lowercase(), author.to_ascii_lowercase());
+        match relation {
+            Some("quantized" | "finetune") if self.official_base(base) => true,
+            Some("quantized") if self.uncensored_makers.contains(&org) => {
+                author == org || self.quantizers.contains_key(&author)
+            }
+            _ => false,
+        }
     }
 
     /// Licence libre (filtre « Open license »).
@@ -316,6 +377,63 @@ mod tests {
         assert!(c.open_license(Some("mit")));
         assert!(!c.open_license(Some("llama3.1")));
         assert!(!c.open_license(None));
+    }
+
+    #[test]
+    fn uncensored_names_and_origins() {
+        let c = &*CURATION;
+        assert_eq!(
+            c.uncensored_queries,
+            ["uncensored", "abliterated", "heretic"]
+        );
+        for id in [
+            "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+            "x/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive",
+            "llmfan46/gemma-4-31B-it-uncensored-heretic-GGUF",
+            "x/Model-OBLITERATED-GGUF",
+        ] {
+            assert!(c.uncensored_name(id), "{id}");
+        }
+        for id in [
+            "unsloth/Qwen3-8B-GGUF",
+            "x/Qwen3.8-27B-Heretic-JP-Roleplay-NSFW-i1-GGUF",
+            "x/Model-uncensored-RP-GGUF",
+            "x/Model-abliterated-erotic-GGUF",
+            "pottokao/MiniMax-H3-TextEncoder-Qwen3VL-32B-abliterated-GGUF",
+            "pottokao/Qwen-Image-2.1-Text-Encoder-Heretic-GGUF",
+            "BennyDaBall/Qwen3-4b-Z-Image-Turbo-AbliteratedV1",
+        ] {
+            assert!(!c.uncensored_name(id), "{id}");
+        }
+
+        // Base d'un laboratoire : tout publieur.
+        assert!(c.uncensored_origin("huihui-ai", Some("Qwen/Qwen3.8-27B"), Some("quantized")));
+        assert!(c.uncensored_origin("HauhauCS", Some("google/gemma-4-12B-it"), Some("finetune")));
+        // Base d'un auteur de dérivés : lui-même ou un quantificateur de confiance.
+        let base = Some("huihui-ai/Huihui-Qwen3.5-9B-abliterated");
+        assert!(c.uncensored_origin("mradermacher", base, Some("quantized")));
+        assert!(c.uncensored_origin("bartowski", base, Some("quantized")));
+        assert!(c.uncensored_origin(
+            "llmfan46",
+            Some("llmfan46/gemma-4-31B-it-uncensored-heretic"),
+            Some("quantized")
+        ));
+        assert!(!c.uncensored_origin("someone", base, Some("quantized")));
+        assert!(!c.uncensored_origin("mradermacher", base, Some("finetune")));
+        // Fusion communautaire, base inconnue, sans base, autre relation.
+        assert!(!c.uncensored_origin(
+            "DavidAU",
+            Some("DavidAU/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic"),
+            Some("quantized")
+        ));
+        assert!(!c.uncensored_origin(
+            "huihui-ai",
+            Some("oyildirim/CyberStrike-OffSec-35B"),
+            Some("quantized")
+        ));
+        assert!(!c.uncensored_origin("HauhauCS", None, None));
+        assert!(!c.uncensored_origin("x", Some("Qwen/Qwen3-8B"), Some("adapter")));
+        assert!(!c.uncensored_origin("x", Some("Qwen/Qwen3-8B"), Some("merge")));
     }
 
     #[test]

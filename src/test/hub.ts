@@ -33,6 +33,7 @@ import type { HubSearch } from "@/bindings/HubSearch";
 import type { HubSectionId } from "@/bindings/HubSectionId";
 import type { HubStatus } from "@/bindings/HubStatus";
 import type { HubTrust } from "@/bindings/HubTrust";
+import type { Settings } from "@/bindings/Settings";
 import type { Args, Simulator } from "@/test/simulator";
 
 export const GIB = 1024 ** 3;
@@ -137,6 +138,38 @@ function demo(
       fit: null,
     },
   };
+}
+
+/**
+ * Rubrique « Uncensored » de démonstration (copie neuve à chaque appel ;
+ * `FakeHub.uncensored` est vide par défaut).
+ */
+export function demoUncensored(): DemoRepo[] {
+  const fields = {
+    family: "qwen",
+    trust: "unverified" as const,
+    architecture: "qwen3",
+    contextLength: 40960,
+    capabilities: caps("tools", "thinking"),
+    license: "apache-2.0",
+    likes: 50,
+    lastModified: "2026-09-02T10:00:00Z",
+  };
+  return [
+    demo("huihui-ai/Huihui-Qwen3-4B-abliterated-GGUF", {
+      ...fields,
+      parameters: 4.02e9,
+      downloads: 40_000,
+      baseModel: "Qwen/Qwen3-4B",
+    }),
+    demo("huihui-ai/Huihui-Qwen3.5-9B-abliterated-GGUF", {
+      ...fields,
+      architecture: "qwen35",
+      parameters: 9.65e9,
+      downloads: 98_000,
+      baseModel: "Qwen/Qwen3.5-9B",
+    }),
+  ];
 }
 
 /** Catalogue de démonstration (copie neuve à chaque appel). */
@@ -451,6 +484,11 @@ export interface FakeHub {
   hardware: HubHardware | null;
   /** Dépôts connus (catalogue et recherche). */
   catalog: DemoRepo[];
+  /**
+   * Dépôts de la rubrique « Uncensored » (vide par défaut), servis si le
+   * réglage `showUncensored` la montre.
+   */
+  uncensored: DemoRepo[];
   /** README par dépôt ; absent : texte généré, null : pas de README. */
   readmes: Map<string, string | null>;
   /**
@@ -491,6 +529,8 @@ export interface HubHost {
   models: string[];
   /** Modèles dont le registre a une version plus récente (outdated_models). */
   outdated: Set<string>;
+  /** Réglages (rubrique « Uncensored »). */
+  settings: Pick<Settings, "showUncensored">;
 }
 
 const ACTIVE: HubDownload["state"][] = [
@@ -523,6 +563,7 @@ export function fakeHub(simulator: Simulator, host: HubHost): FakeHub {
   const hub: FakeHub = {
     hardware: RTX_3090,
     catalog: demoCatalog(),
+    uncensored: [],
     readmes: new Map(),
     problem: null,
     problems: {},
@@ -778,7 +819,18 @@ export function fakeHub(simulator: Simulator, host: HubHost): FakeHub {
         return models
           .filter((m) => (m.parameters ?? 0) < 4e9)
           .sort(byDownloads);
+      case "uncensored":
+        return [];
     }
+  }
+
+  /** Rubrique « Uncensored » : vide si le réglage ne la montre pas. */
+  function uncensored(filters: HubFilters): HubModel[] {
+    if (!host.settings.showUncensored) return [];
+    return hub.uncensored
+      .filter((repo) => matches(repo, filters, true))
+      .map(summary)
+      .sort(byDownloads);
   }
 
   const SECTIONS: HubSectionId[] = [
@@ -813,10 +865,16 @@ export function fakeHub(simulator: Simulator, host: HubHost): FakeHub {
         count,
       }));
     return {
-      sections: SECTIONS.map((id) => ({
-        id,
-        models: section(id, repos).slice(0, 6),
-      })).filter((s) => s.models.length > 0),
+      sections: [
+        ...SECTIONS.map((id) => ({
+          id,
+          models: section(id, repos).slice(0, 6),
+        })),
+        {
+          id: "uncensored" as const,
+          models: uncensored(args.filters as HubFilters).slice(0, 6),
+        },
+      ].filter((s) => s.models.length > 0),
       families,
       status: state,
     };
@@ -830,7 +888,9 @@ export function fakeHub(simulator: Simulator, host: HubHost): FakeHub {
     const repos = catalogFor(args.filters as HubFilters);
     const models =
       scope.kind === "section"
-        ? section(scope.id, repos)
+        ? scope.id === "uncensored"
+          ? uncensored(args.filters as HubFilters)
+          : section(scope.id, repos)
         : repos
             .filter((repo) => repo.model.family === scope.id)
             .map(summary)

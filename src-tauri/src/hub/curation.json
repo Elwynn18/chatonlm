@@ -360,6 +360,13 @@
   },
   "chatPipelines": ["text-generation", "image-text-to-text", "any-to-any"],
   "excludeWords": "uncensor|abliterat|heretic|obliterat|nsfw|erotic|lewd|roleplay|(^|[-_])rp([-_]|$)|aggressive|jailbr",
+  "uncensored": {
+    "about": "Rubrique Uncensored (masquée par défaut) : dérivés sans refus d'un modèle officiel. Base d'un laboratoire de baseLabs, ou d'un auteur de makers (dérivés publiés d'après le modèle officiel) quantifiée par lui-même ou par un quantificateur de confiance.",
+    "queries": ["uncensored", "abliterated", "heretic"],
+    "words": "uncensor|abliterat|heretic|obliterat",
+    "exclude": "nsfw|erotic|lewd|roleplay|(^|[-_])rp([-_]|$)|jailbr|text-?encoder|(^|[-_])image([-_]|$)",
+    "makers": ["huihui-ai", "p-e-w", "mlabonne", "failspy", "llmfan46"]
+  },
   "openLicenses": [
     "apache-2.0",
     "mit",

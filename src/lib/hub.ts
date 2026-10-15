@@ -220,7 +220,7 @@ export function machineHint(t: TFunction, hardware: HubHardware): string {
 
 /**
  * Rubriques de l'accueil (titres : `hub.sections.<id>`), dans l'ordre du
- * moteur.
+ * moteur ; « uncensored » seulement si le réglage la montre.
  */
 const SECTION_IDS: readonly HubSectionId[] = [
   "forYou",
@@ -230,6 +230,7 @@ const SECTION_IDS: readonly HubSectionId[] = [
   "vision",
   "reasoning",
   "small",
+  "uncensored",
 ];
 
 /** Usages proposés en filtre, dans l'ordre des puces (`hub.uses.<id>`). */

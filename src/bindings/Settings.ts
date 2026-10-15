@@ -74,4 +74,10 @@ autoRead: boolean,
  * Premier démarrage (choix de la langue, présentation de l'app) terminé
  * ou passé ; « Reset to defaults » n'y touche pas.
  */
-onboardingDone: boolean, };
+onboardingDone: boolean, 
+/**
+ * Rubrique « Uncensored » du ModelHub (dérivés communautaires sans refus
+ * d'un modèle officiel) ; masquée par défaut. « Reset to defaults » n'y
+ * touche pas.
+ */
+showUncensored: boolean, };

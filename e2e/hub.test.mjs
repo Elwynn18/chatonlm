@@ -1147,6 +1147,80 @@ try {
     );
   });
 
+  // 6. Rubrique « Uncensored » : absente et jamais demandée par défaut ;
+  //    montrée en dernier dès le réglage activé (Settings > Models), avec sa
+  //    liste complète.
+  await launch("hub-uncensored", envWith(hf.url), async (driver) => {
+    const UNCENSORED = [
+      "huihui-ai/Huihui-Qwen3.5-9B-abliterated-GGUF",
+      "unsloth/Qwen3-4B-Uncensored-GGUF",
+      "bartowski/huihui-ai_Huihui-Qwen3-14B-abliterated-v2-GGUF",
+    ];
+    const before = (await hf.requests()).length;
+    const searched = async () =>
+      (await hf.requests())
+        .slice(before)
+        .map((r) => r.path)
+        .filter((p) => p.includes("search="));
+    await sidebar(driver, "ModelHub");
+    await waitHome(driver);
+    assert.deepEqual(await searched(), []);
+
+    await sidebar(driver, "Settings");
+    await driver.waitFor("[data-testid=settings-tab-models]");
+    await driver.click(await driver.find("[data-testid=settings-tab-models]"));
+    const toggle = "button[role=switch][aria-label='Show uncensored models']";
+    await driver.waitFor(toggle);
+    assert.equal(
+      await driver.execute(
+        "return document.querySelector(arguments[0]).getAttribute('aria-checked')",
+        [toggle],
+      ),
+      "false",
+    );
+    await driver.click(await driver.find(toggle));
+    await waitUntil(
+      () =>
+        driver.execute(
+          "return document.querySelector(arguments[0]).getAttribute('aria-checked') === 'true'",
+          [toggle],
+        ),
+      "réglage activé",
+    );
+
+    await sidebar(driver, "ModelHub");
+    let seen;
+    await waitUntil(
+      async () => {
+        seen = await headings(driver);
+        return (
+          JSON.stringify(seen) === JSON.stringify([...SECTIONS, "Uncensored"])
+        );
+      },
+      () => `rubriques : ${JSON.stringify(seen)}`,
+      20000,
+    );
+    const home = await driver.execute(
+      `const section = [...document.querySelectorAll("section")]
+         .find((s) => s.querySelector("h3")?.textContent === "Uncensored");
+       return [...section.querySelectorAll("[data-testid=model-card]")].map((a) =>
+         decodeURIComponent(a.getAttribute("href")).replace(/^.*\\/hub\\/model\\//, ""))`,
+    );
+    assert.deepEqual(home, UNCENSORED);
+    assert.deepEqual(
+      (await searched()).map((p) => p.match(/search=(\w+)/)[1]).sort(),
+      ["abliterated", "heretic", "uncensored"],
+    );
+
+    await driver.click(await driver.find("a[aria-label='See all Uncensored']"));
+    await waitUntil(
+      async () => (await where(driver)) === "/hub?section=uncensored",
+      "liste complète",
+    );
+    assert.deepEqual(await cards(driver), UNCENSORED);
+    await shoot(driver, "uncensored");
+  });
+
   assert.deepEqual(violations, [], "violations de la CSP");
   assert.deepEqual(consoleErrors, [], "erreurs dans la console");
   assert.deepEqual(consoleWarnings, [], "avertissements dans la console");

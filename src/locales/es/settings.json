@@ -250,6 +250,10 @@
       "label": "Precargar el modelo elegido",
       "description": "Cargar el modelo seleccionado en el chat en cuanto lo elijas y al iniciar ChatonLM, para que tu primer mensaje no tenga que esperar."
     },
+    "uncensored": {
+      "label": "Mostrar modelos sin censura",
+      "description": "Añade al ModelHub una sección «Sin censura»: versiones comunitarias de modelos oficiales que ya no se niegan a responder. Pueden escribir contenido ofensivo o peligroso, y ChatonLM no los revisa."
+    },
     "loaded": {
       "title": "Modelos cargados",
       "reachError": "No se pudo conectar con Ollama: {message}",

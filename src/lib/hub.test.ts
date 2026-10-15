@@ -310,6 +310,10 @@ describe("address parameters", () => {
     ).toEqual({});
     // Le routeur lit « q=8 » comme un nombre.
     expect(validateHubParams({ q: 8 })).toEqual({ q: "8" });
+    // Rubrique « Uncensored » (montrée selon le réglage) : gardée.
+    expect(validateHubParams({ section: "uncensored" })).toEqual({
+      section: "uncensored",
+    });
   });
 
   it("uses round-trip in a fixed order", () => {

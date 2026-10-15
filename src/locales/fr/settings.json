@@ -250,6 +250,10 @@
       "label": "Précharger le modèle choisi",
       "description": "Charger le modèle sélectionné dans la conversation dès que vous le choisissez et au démarrage de ChatonLM, pour que votre premier message n'ait pas à attendre."
     },
+    "uncensored": {
+      "label": "Afficher les modèles non censurés",
+      "description": "Ajoute au ModelHub une rubrique « Non censurés » : des versions communautaires de modèles officiels qui ne refusent plus de répondre. Elles peuvent écrire des contenus choquants ou dangereux, et ChatonLM ne les vérifie pas."
+    },
     "loaded": {
       "title": "Modèles chargés",
       "reachError": "Impossible de joindre Ollama : {message}",

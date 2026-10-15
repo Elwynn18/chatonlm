@@ -3,4 +3,4 @@
 /**
  * Rubrique de l'accueil.
  */
-export type HubSectionId = "forYou" | "trending" | "popular" | "coding" | "vision" | "reasoning" | "small";
+export type HubSectionId = "forYou" | "trending" | "popular" | "coding" | "vision" | "reasoning" | "small" | "uncensored";

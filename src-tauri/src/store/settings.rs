@@ -94,6 +94,10 @@ pub struct Settings {
     /// Premier démarrage (choix de la langue, présentation de l'app) terminé
     /// ou passé ; « Reset to defaults » n'y touche pas.
     pub onboarding_done: bool,
+    /// Rubrique « Uncensored » du ModelHub (dérivés communautaires sans refus
+    /// d'un modèle officiel) ; masquée par défaut. « Reset to defaults » n'y
+    /// touche pas.
+    pub show_uncensored: bool,
 }
 
 /// Mise à jour partielle : seuls les champs présents changent.
@@ -132,6 +136,8 @@ pub struct SettingsPatch {
     pub auto_read: Option<bool>,
     #[ts(optional)]
     pub onboarding_done: Option<bool>,
+    #[ts(optional)]
+    pub show_uncensored: Option<bool>,
 }
 
 /// `CHATONLM_ONBOARDING` : `show` remontre le premier démarrage au prochain
@@ -160,7 +166,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
             "SELECT server_url, context_length, theme, selected_model, window_width, window_height,
                     web_search_enabled, keep_alive, preload_model, language,
                     proofread_model, proofread_shortcut, study_model, auto_read,
-                    proofread_paste, onboarding_done
+                    proofread_paste, onboarding_done, show_uncensored
              FROM settings WHERE id = 1",
             [],
             |row| {
@@ -181,6 +187,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
                     row.get::<_, bool>(13)?,
                     row.get::<_, bool>(14)?,
                     row.get::<_, bool>(15)?,
+                    row.get::<_, bool>(16)?,
                 ))
             },
         )
@@ -203,6 +210,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         auto_read,
         proofread_paste,
         onboarding_done,
+        show_uncensored,
     ) = row;
     let language = LanguageChoice::parse(&language)
         .ok_or_else(|| AppError::Internal(format!("unknown language in database: {language}")))?;
@@ -225,6 +233,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         study_model,
         auto_read,
         onboarding_done,
+        show_uncensored,
     })
 }
 
@@ -356,6 +365,12 @@ pub fn update(
             params![done],
         )?;
     }
+    if let Some(shown) = patch.show_uncensored {
+        transaction.execute(
+            "UPDATE settings SET show_uncensored = ?1 WHERE id = 1",
+            params![shown],
+        )?;
+    }
     if let Some(model) = &patch.study_model {
         transaction.execute(
             "UPDATE settings SET study_model = ?1 WHERE id = 1",
@@ -419,8 +434,42 @@ mod tests {
                 study_model: String::new(),
                 auto_read: false,
                 onboarding_done: false,
+                show_uncensored: false,
             }
         );
+    }
+
+    /// Rubrique « Uncensored » : masquée par défaut, enregistrée, et
+    /// « Reset to defaults » (adresse, contexte, thème) n'y touche pas.
+    #[test]
+    fn the_uncensored_section_is_hidden_until_asked() {
+        let store = store();
+        assert!(!store.blocking(|c| get(c, None)).unwrap().show_uncensored);
+        let patch: SettingsPatch = serde_json::from_str(r#"{"showUncensored":true}"#).unwrap();
+        assert!(
+            store
+                .blocking(|c| update(c, patch, None))
+                .unwrap()
+                .show_uncensored
+        );
+        let reset = SettingsPatch {
+            server_url: Some(String::new()),
+            context_length: Some(0),
+            theme: Some(Theme::System),
+            ..Default::default()
+        };
+        assert!(
+            store
+                .blocking(|c| update(c, reset, None))
+                .unwrap()
+                .show_uncensored
+        );
+        let off = SettingsPatch {
+            show_uncensored: Some(false),
+            ..Default::default()
+        };
+        store.blocking(|c| update(c, off, None)).unwrap();
+        assert!(!store.blocking(|c| get(c, None)).unwrap().show_uncensored);
     }
 
     /// Premier démarrage : à faire sur une base neuve, enregistré une fois

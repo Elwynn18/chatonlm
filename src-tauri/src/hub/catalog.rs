@@ -18,7 +18,9 @@ use super::types::{
     HubTrust, HubUse,
 };
 
-/// Rubriques de l'accueil, dans l'ordre.
+/// Rubriques de l'accueil tirées des populaires et des tendances, dans
+/// l'ordre ; « Uncensored » vient ensuite, de ses propres listes
+/// ([`uncensored_models`]).
 pub const SECTIONS: [HubSectionId; 7] = [
     HubSectionId::ForYou,
     HubSectionId::Trending,
@@ -35,6 +37,9 @@ const LARGE_ABOVE: u64 = 15_000_000_000;
 /// Audience minimale d'un dépôt de l'accueil.
 const MIN_DOWNLOADS: u64 = 1000;
 const MIN_LIKES: u64 = 50;
+/// Audience minimale d'un dérivé sans refus (rubrique « Uncensored »).
+const UNCENSORED_MIN_DOWNLOADS: u64 = 5000;
+const UNCENSORED_MIN_LIKES: u64 = 100;
 
 /// « 8B », « 0.6B », « 135M » dans un nom, détaché des lettres et chiffres
 /// voisins (« A3B », « E4B » : non).
@@ -116,6 +121,71 @@ pub fn curated(repo: &Repo) -> bool {
         && !repo.gated
         && !repo.private
         && downloadable(repo)
+}
+
+/// Règle de la rubrique « Uncensored » : règles communes, nom d'un dérivé
+/// sans refus, lignée officielle, famille connue, audience forte.
+pub fn uncensored(repo: &Repo) -> bool {
+    usable(repo)
+        && CURATION.uncensored_name(&repo.id)
+        && CURATION.uncensored_origin(
+            &repo.author,
+            repo.base_model.as_deref(),
+            repo.base_relation.as_deref(),
+        )
+        && family_of(repo).is_some()
+        && (repo.downloads >= UNCENSORED_MIN_DOWNLOADS || repo.likes >= UNCENSORED_MIN_LIKES)
+}
+
+/// Clé d'un dérivé sans refus : le dépôt quand sa base est le modèle
+/// officiel (chaque dérivé est un modèle à part : deux « Qwen3-8B
+/// uncensored » ne se confondent pas), sinon sa base (les quantifications
+/// d'un même dérivé n'en font qu'un) ; sans suffixe GGUF, en minuscules.
+fn uncensored_key(repo: &Repo) -> String {
+    let source = match &repo.base_model {
+        Some(base) if !CURATION.official_base(base) => base.as_str(),
+        _ => repo.id.as_str(),
+    };
+    KEY_SUFFIX.replace(source, "").to_ascii_lowercase()
+}
+
+/// Rubrique « Uncensored » : dépôts de `lists` gardés ([`uncensored`]), un
+/// par dérivé (son auteur d'abord, puis le rang du quantificateur et les
+/// téléchargements), par téléchargements.
+pub fn uncensored_models(lists: &[&[Repo]], hardware: Option<&HubHardware>) -> Vec<HubModel> {
+    let mut seen = HashSet::new();
+    let mut best: HashMap<String, &Repo> = HashMap::new();
+    let rank = |repo: &Repo, key: &str| {
+        let own = key
+            .split_once('/')
+            .is_some_and(|(org, _)| org.eq_ignore_ascii_case(&repo.author));
+        (
+            if own {
+                0
+            } else {
+                1 + CURATION.rank(&repo.author)
+            },
+            std::cmp::Reverse(repo.downloads),
+        )
+    };
+    for repo in lists.iter().flat_map(|list| list.iter()) {
+        if !seen.insert(repo.id.to_ascii_lowercase()) || !uncensored(repo) {
+            continue;
+        }
+        let key = uncensored_key(repo);
+        let better = best
+            .get(&key)
+            .is_none_or(|current| rank(repo, &key) < rank(current, &key));
+        if better {
+            best.insert(key, repo);
+        }
+    }
+    let mut models: Vec<HubModel> = best
+        .into_values()
+        .map(|repo| model(repo, hardware))
+        .collect();
+    models.sort_by(by_downloads);
+    models
 }
 
 /// Clé d'un modèle : modèle de base d'une quantification, sinon le dépôt,
@@ -370,6 +440,8 @@ pub fn section(entries: &[Entry], id: HubSectionId, machine_known: bool) -> Vec<
         HubSectionId::Vision => pick(&|m| m.capabilities.vision),
         HubSectionId::Reasoning => pick(&|m| m.capabilities.thinking),
         HubSectionId::Small => pick(&|m| m.parameters.is_some_and(|p| p < SMALL_BELOW)),
+        // Ses propres listes : voir `uncensored_models`.
+        HubSectionId::Uncensored => Vec::new(),
     }
 }
 

@@ -37,6 +37,7 @@ const SAVED: Settings = {
   studyModel: "",
   autoRead: false,
   onboardingDone: true,
+  showUncensored: false,
 };
 
 function newClient() {

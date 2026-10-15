@@ -51,6 +51,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0021_onboarding.sql"),
     include_str!("../../migrations/0022_easy_link.sql"),
     include_str!("../../migrations/0023_context.sql"),
+    include_str!("../../migrations/0024_show_uncensored.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.

@@ -304,6 +304,7 @@ mod tests {
             study_model: String::new(),
             auto_read: false,
             onboarding_done: true,
+            show_uncensored: false,
         }
     }
 

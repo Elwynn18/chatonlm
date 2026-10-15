@@ -79,6 +79,10 @@ const preloadSwitch = () =>
   screen.getByRole<HTMLButtonElement>("switch", {
     name: "Preload the chosen model",
   });
+const uncensoredSwitch = () =>
+  screen.getByRole<HTMLButtonElement>("switch", {
+    name: "Show uncensored models",
+  });
 
 /** Carte « Loaded models », liste lue. */
 async function loadedCard() {
@@ -225,6 +229,33 @@ describe("Settings: Models", () => {
       expect(patches(simulator)).toEqual([
         { preloadModel: true },
         { preloadModel: false },
+      ]);
+    });
+
+    it("shows the uncensored section of ModelHub on demand, hidden by default", async () => {
+      const { simulator, backend } = setup();
+      await screen.findByTestId("models-settings");
+      expect(uncensoredSwitch().getAttribute("aria-checked")).toBe("false");
+      expect(
+        document.getElementById(
+          uncensoredSwitch().getAttribute("aria-describedby")!,
+        )?.textContent,
+      ).toBe(
+        "Adds an “Uncensored” section to ModelHub: community versions of official models that no longer refuse to answer. They can write offensive or dangerous content, and ChatonLM doesn't check them.",
+      );
+      await userEvent.click(uncensoredSwitch());
+      await screen.findByText("Saved");
+      await waitFor(() =>
+        expect(uncensoredSwitch().getAttribute("aria-checked")).toBe("true"),
+      );
+      expect(backend.settings.showUncensored).toBe(true);
+      await userEvent.click(uncensoredSwitch());
+      await waitFor(() =>
+        expect(uncensoredSwitch().getAttribute("aria-checked")).toBe("false"),
+      );
+      expect(patches(simulator)).toEqual([
+        { showUncensored: true },
+        { showUncensored: false },
       ]);
     });
 
@@ -831,7 +862,9 @@ describe("Settings: Models in other languages", () => {
     );
     // Échec d'un enregistrement (ligne), puis d'un chargement.
     backend.settingsErrors.update = { kind: "database", message: "disk full" };
-    await userEvent.click(screen.getByRole("switch"));
+    await userEvent.click(
+      screen.getByRole("switch", { name: "⟦Preload the chosen model⟧" }),
+    );
     await screen.findByText("⟦Couldn't save this setting: disk full⟧");
     await userEvent.click(screen.getByTestId("load-model-button"));
     await screen.findByTestId("load-error");

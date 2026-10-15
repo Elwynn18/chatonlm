@@ -18,21 +18,32 @@ use crate::store::Store;
 /// serveur distant. Sans attendre l'intégré : seul compte que l'adresse soit
 /// locale (le catalogue de Hugging Face ne dépend pas d'Ollama).
 async fn machine(catalog: &Catalog, store: &Store) -> AppResult<Option<HubHardware>> {
-    let settings = crate::ollama::target::display_settings(store).await?;
-    Ok(catalog
-        .hardware(&settings.effective_server_url, settings.context_length)
-        .await)
+    Ok(machine_and_uncensored(catalog, store).await?.0)
 }
 
-/// Accueil : rubriques et familles, filtrées.
+/// Machine du serveur (voir [`machine`]) et réglage « Show uncensored
+/// models », lus ensemble.
+async fn machine_and_uncensored(
+    catalog: &Catalog,
+    store: &Store,
+) -> AppResult<(Option<HubHardware>, bool)> {
+    let settings = crate::ollama::target::display_settings(store).await?;
+    let hardware = catalog
+        .hardware(&settings.effective_server_url, settings.context_length)
+        .await;
+    Ok((hardware, settings.show_uncensored))
+}
+
+/// Accueil : rubriques et familles, filtrées ; « Uncensored » selon le
+/// réglage.
 #[tauri::command]
 pub async fn hub_home(
     catalog: State<'_, Catalog>,
     store: State<'_, Store>,
     filters: HubFilters,
 ) -> AppResult<HubHome> {
-    let hardware = machine(&catalog, &store).await?;
-    Ok(catalog.home(&filters, hardware.as_ref()).await)
+    let (hardware, uncensored) = machine_and_uncensored(&catalog, &store).await?;
+    Ok(catalog.home(&filters, hardware.as_ref(), uncensored).await)
 }
 
 /// Liste complète d'une rubrique ou d'une famille, filtrée.
@@ -43,8 +54,10 @@ pub async fn hub_browse(
     scope: HubScope,
     filters: HubFilters,
 ) -> AppResult<HubList> {
-    let hardware = machine(&catalog, &store).await?;
-    Ok(catalog.browse(&scope, &filters, hardware.as_ref()).await)
+    let (hardware, uncensored) = machine_and_uncensored(&catalog, &store).await?;
+    Ok(catalog
+        .browse(&scope, &filters, hardware.as_ref(), uncensored)
+        .await)
 }
 
 /// Recherche libre sur Hugging Face, page par page.

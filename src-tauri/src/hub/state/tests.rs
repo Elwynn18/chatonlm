@@ -65,7 +65,7 @@ fn section(home: &HubHome, id: HubSectionId) -> Vec<&str> {
 /// Vieillit les deux listes de l'accueil.
 async fn age_lists(catalog: &Catalog, ms: i64) {
     for list in [List::Popular, List::Trending] {
-        catalog.cache.age::<ListPage>(LISTS, list.key(), ms).await;
+        catalog.cache.age::<ListPage>(LISTS, &list.key(), ms).await;
     }
 }
 
@@ -73,7 +73,9 @@ async fn age_lists(catalog: &Catalog, ms: i64) {
 async fn the_home_comes_from_two_exact_requests_then_from_the_cache() {
     let fake = FakeHf::start(HfMode::Normal).await.unwrap();
     let (catalog, dir) = open_catalog(&fake.url());
-    let home = catalog.home(&HubFilters::default(), Some(&machine())).await;
+    let home = catalog
+        .home(&HubFilters::default(), Some(&machine()), false)
+        .await;
     assert_eq!(home.status.problem, None);
     assert!(home.status.fetched_at.is_some());
     let mut requested = paths(&fake.requests())
@@ -100,6 +102,7 @@ async fn the_home_comes_from_two_exact_requests_then_from_the_cache() {
             },
             &HubFilters::default(),
             Some(&machine()),
+            false,
         )
         .await;
     let all = ids(&browse.models);
@@ -152,6 +155,7 @@ async fn the_home_comes_from_two_exact_requests_then_from_the_cache() {
             },
             &HubFilters::default(),
             None,
+            false,
         )
         .await;
     assert_eq!(
@@ -178,14 +182,17 @@ async fn the_home_comes_from_two_exact_requests_then_from_the_cache() {
             &HubScope::Family { id: "qwen".into() },
             &HubFilters::default(),
             None,
+            false,
         )
         .await;
     assert_eq!(qwen.models.len(), 4);
 
     // Rien de plus sur le réseau : listes fraîches (mémoire puis disque).
-    catalog.home(&HubFilters::default(), None).await;
+    catalog.home(&HubFilters::default(), None, false).await;
     let again = reopen(&dir, &fake.url());
-    let cached = again.home(&HubFilters::default(), Some(&machine())).await;
+    let cached = again
+        .home(&HubFilters::default(), Some(&machine()), false)
+        .await;
     assert_eq!(cached.sections, home.sections);
     assert_eq!(fake.requests().len(), 2);
 
@@ -196,6 +203,91 @@ async fn the_home_comes_from_two_exact_requests_then_from_the_cache() {
     }
 }
 
+/// Rubrique « Uncensored » : aucune requête tant qu'elle n'est pas montrée ;
+/// montrée, trois recherches (puis le cache), en dernier, un dépôt par
+/// dérivé de lignée officielle ; les autres rubriques n'en contiennent pas.
+#[tokio::test]
+async fn the_uncensored_section_comes_only_when_shown() {
+    let fake = FakeHf::start(HfMode::Normal).await.unwrap();
+    let (catalog, _dir) = open_catalog(&fake.url());
+    let filters = HubFilters::default();
+    let scope = HubScope::Section {
+        id: HubSectionId::Uncensored,
+    };
+    let hidden = catalog.home(&filters, Some(&machine()), false).await;
+    assert!(
+        hidden
+            .sections
+            .iter()
+            .all(|s| s.id != HubSectionId::Uncensored)
+    );
+    let none = catalog
+        .browse(&scope, &filters, Some(&machine()), false)
+        .await;
+    assert!(none.models.is_empty() && none.status == HubStatus::default());
+    assert_eq!(fake.requests().len(), 2);
+
+    let shown = catalog.home(&filters, Some(&machine()), true).await;
+    assert_eq!(shown.status.problem, None);
+    let mut searches: Vec<String> = paths(&fake.requests()[2..])
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    searches.sort();
+    assert_eq!(
+        searches,
+        ["abliterated", "heretic", "uncensored"].map(|query| format!(
+            "/api/models?apps=ollama&search={query}&sort=downloads&limit=100&{E_LIST}"
+        ))
+    );
+    let last = shown.sections.last().unwrap();
+    assert_eq!(last.id, HubSectionId::Uncensored);
+    // Base officielle (tout publieur), puis un dérivé de huihui-ai : une
+    // carte, bartowski devant mradermacher. Refusés : fusion communautaire,
+    // pour adultes, audience, encodeur d'images.
+    let expected = [
+        "huihui-ai/Huihui-Qwen3.5-9B-abliterated-GGUF",
+        "unsloth/Qwen3-4B-Uncensored-GGUF",
+        "bartowski/huihui-ai_Huihui-Qwen3-14B-abliterated-v2-GGUF",
+    ];
+    assert_eq!(ids(&last.models), expected);
+    assert!(
+        last.models
+            .iter()
+            .all(|m| m.family.as_deref() == Some("qwen"))
+    );
+    assert_eq!(last.models[0].trust, HubTrust::Unverified);
+    assert_eq!(shown.families, hidden.families);
+    assert_eq!(
+        &shown.sections[..shown.sections.len() - 1],
+        &hidden.sections[..]
+    );
+    for section in &hidden.sections {
+        for model in &section.models {
+            assert!(!expected.contains(&model.id.as_str()), "{}", model.id);
+        }
+    }
+
+    // Liste complète, filtres, puis le cache seulement.
+    let all = catalog
+        .browse(&scope, &filters, Some(&machine()), true)
+        .await;
+    assert_eq!(ids(&all.models), expected);
+    let small = HubFilters {
+        size: Some(crate::hub::types::HubSize::Small),
+        ..Default::default()
+    };
+    assert!(
+        catalog
+            .browse(&scope, &small, Some(&machine()), true)
+            .await
+            .models
+            .is_empty()
+    );
+    catalog.home(&filters, None, true).await;
+    assert_eq!(fake.requests().len(), 5);
+}
+
 #[tokio::test]
 async fn filters_apply_to_sections_and_families() {
     let fake = FakeHf::start(HfMode::Normal).await.unwrap();
@@ -204,7 +296,7 @@ async fn filters_apply_to_sections_and_families() {
         uses: vec![HubUse::Vision, HubUse::Reasoning],
         ..Default::default()
     };
-    let home = catalog.home(&filters, Some(&machine())).await;
+    let home = catalog.home(&filters, Some(&machine()), false).await;
     let popular = section(&home, HubSectionId::Popular);
     assert_eq!(
         popular,
@@ -223,10 +315,10 @@ async fn filters_apply_to_sections_and_families() {
         size: Some(crate::hub::types::HubSize::Fits),
         ..Default::default()
     };
-    let remote = catalog.home(&fits, None).await;
+    let remote = catalog.home(&fits, None, false).await;
     assert_eq!(section(&remote, HubSectionId::Popular).len(), 6);
     assert!(section(&remote, HubSectionId::ForYou).is_empty());
-    let local = catalog.home(&fits, Some(&machine())).await;
+    let local = catalog.home(&fits, Some(&machine()), false).await;
     let fitting = catalog
         .browse(
             &HubScope::Section {
@@ -234,6 +326,7 @@ async fn filters_apply_to_sections_and_families() {
             },
             &fits,
             Some(&machine()),
+            false,
         )
         .await;
     assert!(fitting.models.iter().all(|m| m.fit == Some(HubFit::Fits)));
@@ -254,9 +347,9 @@ async fn simultaneous_homes_share_their_requests() {
     let filters = HubFilters::default();
     let qwen = HubScope::Family { id: "qwen".into() };
     let (a, b, c) = tokio::join!(
-        catalog.home(&filters, None),
-        catalog.home(&filters, None),
-        catalog.browse(&qwen, &filters, None)
+        catalog.home(&filters, None, false),
+        catalog.home(&filters, None, false),
+        catalog.browse(&qwen, &filters, None, false)
     );
     assert_eq!(a.sections, b.sections);
     assert_eq!(c.models.len(), 4);
@@ -266,7 +359,7 @@ async fn simultaneous_homes_share_their_requests() {
 #[tokio::test]
 async fn offline_without_cache_gives_empty_lists_and_the_problem() {
     let (catalog, _dir) = open_catalog(&closed_url().await);
-    let home = catalog.home(&HubFilters::default(), None).await;
+    let home = catalog.home(&HubFilters::default(), None, false).await;
     assert!(home.sections.is_empty() && home.families.is_empty());
     assert_eq!(
         home.status,
@@ -298,12 +391,12 @@ async fn offline_without_cache_gives_empty_lists_and_the_problem() {
 async fn stale_data_is_served_with_the_problem() {
     let fake = FakeHf::start(HfMode::Normal).await.unwrap();
     let (catalog, dir) = open_catalog(&fake.url());
-    let fresh = catalog.home(&HubFilters::default(), None).await;
+    let fresh = catalog.home(&HubFilters::default(), None, false).await;
     age_lists(&catalog, 25 * HOUR).await;
     let saved_at = fresh.status.fetched_at.unwrap() - 25 * HOUR;
 
     let offline = reopen(&dir, &closed_url().await);
-    let home = offline.home(&HubFilters::default(), None).await;
+    let home = offline.home(&HubFilters::default(), None, false).await;
     assert_eq!(home.sections, fresh.sections);
     assert_eq!(
         home.status,
@@ -315,7 +408,7 @@ async fn stale_data_is_served_with_the_problem() {
 
     let down = FakeHf::start(HfMode::Status(503)).await.unwrap();
     let home = reopen(&dir, &down.url())
-        .home(&HubFilters::default(), None)
+        .home(&HubFilters::default(), None, false)
         .await;
     assert_eq!(home.sections, fresh.sections);
     assert_eq!(
@@ -332,7 +425,7 @@ async fn stale_data_is_served_with_the_problem() {
 
     let html = FakeHf::start(HfMode::Html).await.unwrap();
     let home = reopen(&dir, &html.url())
-        .home(&HubFilters::default(), None)
+        .home(&HubFilters::default(), None, false)
         .await;
     assert_eq!(home.sections, fresh.sections);
     assert_eq!(
@@ -342,7 +435,7 @@ async fn stale_data_is_served_with_the_problem() {
 
     let refused = FakeHf::start(HfMode::Status(403)).await.unwrap();
     let home = reopen(&dir, &refused.url())
-        .home(&HubFilters::default(), None)
+        .home(&HubFilters::default(), None, false)
         .await;
     assert_eq!(
         home.status.problem,
@@ -353,7 +446,9 @@ async fn stale_data_is_served_with_the_problem() {
     // Toujours là après tous ces échecs.
     let back = reopen(&dir, &closed_url().await);
     assert_eq!(
-        back.home(&HubFilters::default(), None).await.sections,
+        back.home(&HubFilters::default(), None, false)
+            .await
+            .sections,
         fresh.sections
     );
 }
@@ -363,11 +458,11 @@ async fn stale_data_is_served_with_the_problem() {
 async fn stale_lists_are_revalidated_with_their_etag() {
     let fake = FakeHf::start(HfMode::Normal).await.unwrap();
     let (catalog, _dir) = open_catalog(&fake.url());
-    let first = catalog.home(&HubFilters::default(), None).await;
+    let first = catalog.home(&HubFilters::default(), None, false).await;
     assert!(fake.requests().iter().all(|r| r.if_none_match.is_none()));
     age_lists(&catalog, 7 * HOUR).await;
     // Tendances périmées (6 h), populaires encore fraîches (24 h).
-    let second = catalog.home(&HubFilters::default(), None).await;
+    let second = catalog.home(&HubFilters::default(), None, false).await;
     let requests = fake.requests();
     assert_eq!(requests.len(), 3);
     assert!(requests[2].path.contains("sort=trendingScore"));
@@ -376,7 +471,7 @@ async fn stale_lists_are_revalidated_with_their_etag() {
     assert_eq!(second.status.problem, None);
     let trending = catalog
         .cache
-        .read::<ListPage>(LISTS, List::Trending.key())
+        .read::<ListPage>(LISTS, &List::Trending.key())
         .await
         .unwrap();
     assert!(trending.fetched_at >= first.status.fetched_at.unwrap());
@@ -390,7 +485,7 @@ async fn a_silent_hugging_face_is_unavailable() {
     let silent = FakeHf::start(HfMode::Silent).await.unwrap();
     let (catalog, _dir) = open_catalog(&silent.url());
     let catalog = catalog.with_timeout(Duration::from_millis(300));
-    let home = catalog.home(&HubFilters::default(), None).await;
+    let home = catalog.home(&HubFilters::default(), None, false).await;
     assert!(home.sections.is_empty());
     assert_eq!(
         home.status.problem,
@@ -417,10 +512,10 @@ async fn a_silent_hugging_face_is_unavailable() {
 async fn a_copy_dated_in_the_future_is_stale() {
     let fake = FakeHf::start(HfMode::Normal).await.unwrap();
     let (catalog, _dir) = open_catalog(&fake.url());
-    catalog.home(&HubFilters::default(), None).await;
+    catalog.home(&HubFilters::default(), None, false).await;
     assert_eq!(fake.requests().len(), 2);
     age_lists(&catalog, -2 * HOUR).await;
-    let home = catalog.home(&HubFilters::default(), None).await;
+    let home = catalog.home(&HubFilters::default(), None, false).await;
     assert_eq!(home.status.problem, None);
     let requests = fake.requests();
     assert_eq!(requests.len(), 4, "{:?}", paths(&requests));
@@ -435,7 +530,7 @@ async fn the_rate_limit_stops_every_request_until_it_ends() {
         .await
         .unwrap();
     let (catalog, _dir) = open_catalog(&limited.url());
-    let home = catalog.home(&HubFilters::default(), None).await;
+    let home = catalog.home(&HubFilters::default(), None, false).await;
     assert_eq!(
         home.status.problem,
         Some(HubProblem::RateLimited { retry_after: 1 })
@@ -443,7 +538,7 @@ async fn the_rate_limit_stops_every_request_until_it_ends() {
     let sent = limited.requests().len();
     assert!((1..=2).contains(&sent), "{sent}");
     // Ni l'accueil, ni la recherche, ni une fiche, ni un README.
-    catalog.home(&HubFilters::default(), None).await;
+    catalog.home(&HubFilters::default(), None, false).await;
     let search = catalog
         .search(
             &HubSearch {
@@ -466,7 +561,7 @@ async fn the_rate_limit_stops_every_request_until_it_ends() {
     ));
     assert_eq!(limited.requests().len(), sent);
     tokio::time::sleep(Duration::from_millis(1100)).await;
-    catalog.home(&HubFilters::default(), None).await;
+    catalog.home(&HubFilters::default(), None, false).await;
     assert!(limited.requests().len() > sent);
 
     // Échéance lue dans `RateLimit` (mode de la ligne de commande : 42 s).
@@ -474,12 +569,12 @@ async fn the_rate_limit_stops_every_request_until_it_ends() {
         .await
         .unwrap();
     let (catalog, _dir) = open_catalog(&long.url());
-    let home = catalog.home(&HubFilters::default(), None).await;
+    let home = catalog.home(&HubFilters::default(), None, false).await;
     assert_eq!(
         home.status.problem,
         Some(HubProblem::RateLimited { retry_after: 42 })
     );
-    let again = catalog.home(&HubFilters::default(), None).await;
+    let again = catalog.home(&HubFilters::default(), None, false).await;
     let Some(HubProblem::RateLimited { retry_after }) = again.status.problem else {
         panic!("still limited");
     };
@@ -585,7 +680,7 @@ async fn search_keeps_unverified_publishers_and_excluded_words() {
 async fn a_non_ascii_file_name_breaks_nothing() {
     let fake = FakeHf::start(HfMode::Normal).await.unwrap();
     let (catalog, _dir) = open_catalog(&fake.url());
-    let home = catalog.home(&HubFilters::default(), None).await;
+    let home = catalog.home(&HubFilters::default(), None, false).await;
     assert_eq!(home.status.problem, None);
     assert!(!home.sections.is_empty());
     let found = catalog
@@ -613,7 +708,7 @@ async fn a_non_ascii_file_name_breaks_nothing() {
 async fn a_repository_view_reads_the_gguf_header_once() {
     let fake = FakeHf::start(HfMode::Normal).await.unwrap();
     let (catalog, _dir) = open_catalog(&fake.url());
-    catalog.home(&HubFilters::default(), None).await;
+    catalog.home(&HubFilters::default(), None, false).await;
     let before = fake.requests().len();
     let result = catalog
         .repo("unsloth/Qwen3.5-9B-GGUF", Some(&machine()))
@@ -812,7 +907,7 @@ async fn a_newer_list_with_another_date_refreshes_the_repository() {
     old.fetched_at -= HOUR;
     catalog.cache.write(REPOS, key, Arc::new(old)).await;
     // Même date que la liste : gardée ; autre date : relue.
-    catalog.home(&HubFilters::default(), None).await;
+    catalog.home(&HubFilters::default(), None, false).await;
     let before = fake.requests().len();
     let fresh = catalog.repo("Qwen/Qwen3-8B-GGUF", None).await.repo.unwrap();
     assert_eq!(fake.requests().len(), before + 1);
@@ -949,7 +1044,9 @@ fn real_catalog() -> (Catalog, TempDir) {
 #[ignore = "huggingface.co : accès au réseau"]
 async fn contract_real_lists_repository_and_readme_are_readable() {
     let (catalog, _dir) = real_catalog();
-    let home = catalog.home(&HubFilters::default(), Some(&machine())).await;
+    let home = catalog
+        .home(&HubFilters::default(), Some(&machine()), false)
+        .await;
     assert_eq!(home.status.problem, None);
     for id in [
         HubSectionId::Trending,

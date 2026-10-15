@@ -16,6 +16,7 @@ import type { HubFilters } from "@/bindings/HubFilters";
 import type { HubSearch } from "@/bindings/HubSearch";
 import type { Settings } from "@/bindings/Settings";
 import { settingsKey } from "@/hooks/useSettings";
+import { demoUncensored } from "@/test/hub";
 import { renderHub } from "@/test/renderHub";
 import type { Simulator } from "@/test/simulator";
 
@@ -602,6 +603,79 @@ describe("Discover: Hugging Face problems", () => {
     hub.failures.clear();
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     await home();
+    expect(simulator.callsTo("hub_home")).toHaveLength(2);
+  });
+});
+
+describe("Discover: uncensored", () => {
+  const headings = () =>
+    screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+
+  it("comes last when the setting shows it, and See all lists it all", async () => {
+    const { simulator, app } = renderHub("/hub", ({ backend, hub }) => {
+      backend.settings.showUncensored = true;
+      hub.uncensored = demoUncensored();
+    });
+    await home();
+    await waitFor(() => expect(headings().at(-1)).toBe("Uncensored"));
+    await userEvent.click(
+      screen.getByRole("link", { name: "See all Uncensored" }),
+    );
+    await screen.findByRole("heading", { name: "Uncensored", level: 3 });
+    expect(app.router.state.location.search).toEqual({
+      section: "uncensored",
+    });
+    expect(simulator.callsTo("hub_browse")).toEqual([
+      { scope: { kind: "section", id: "uncensored" }, filters: NO_FILTERS },
+    ]);
+    await waitFor(() =>
+      expect(cardNames()).toEqual([
+        "Huihui-Qwen3.5-9B-abliterated",
+        "Huihui-Qwen3-4B-abliterated",
+      ]),
+    );
+    expect(
+      within(card("Huihui-Qwen3.5-9B-abliterated")).getByText("Unverified"),
+    ).toBeTruthy();
+  });
+
+  it("opens from its address", async () => {
+    const { simulator } = renderHub(
+      "/hub?section=uncensored",
+      ({ backend, hub }) => {
+        backend.settings.showUncensored = true;
+        hub.uncensored = demoUncensored();
+      },
+    );
+    await screen.findByRole("link", { name: "All models" });
+    await waitFor(() =>
+      expect(cardNames()).toEqual([
+        "Huihui-Qwen3.5-9B-abliterated",
+        "Huihui-Qwen3-4B-abliterated",
+      ]),
+    );
+    expect(simulator.callsTo("hub_browse")).toEqual([
+      { scope: { kind: "section", id: "uncensored" }, filters: NO_FILTERS },
+    ]);
+  });
+
+  it("is hidden by default, and the home is read again when the setting changes", async () => {
+    const { simulator, app, backend } = renderHub("/hub", ({ hub }) => {
+      hub.uncensored = demoUncensored();
+    });
+    await home();
+    expect(headings()).not.toContain("Uncensored");
+    expect(simulator.callsTo("hub_home")).toHaveLength(1);
+    // Réglage enregistré, puis relu par la page.
+    backend.settings.showUncensored = true;
+    const settings = app.queryClient.getQueryData<Settings>(settingsKey)!;
+    act(() =>
+      app.queryClient.setQueryData(settingsKey, {
+        ...settings,
+        showUncensored: true,
+      }),
+    );
+    await screen.findByRole("heading", { name: "Uncensored", level: 3 });
     expect(simulator.callsTo("hub_home")).toHaveLength(2);
   });
 });

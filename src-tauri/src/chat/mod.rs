@@ -2381,6 +2381,7 @@ mod tests {
             study_model: String::new(),
             auto_read: false,
             onboarding_done: true,
+            show_uncensored: false,
         };
         let server = Server::from_settings(&settings);
         assert_eq!(

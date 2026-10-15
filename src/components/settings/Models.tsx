@@ -2,7 +2,8 @@
 // réglage de chargement ni liste des modèles en mémoire), en deux cartes.
 // La première règle le chargement : durée avant déchargement (keep_alive
 // envoyé par ChatonLM avec chaque requête qui charge un modèle, le service
-// d'Ollama n'est pas modifié) et préchargement du modèle choisi ; chaque
+// d'Ollama n'est pas modifié) et préchargement du modèle choisi, puis la
+// rubrique « Uncensored » du ModelHub (masquée par défaut) ; chaque
 // changement est enregistré aussitôt (« Saved » de la page, erreur sous la
 // ligne), « Reset to defaults » (General) n'y touche pas. La seconde montre
 // les modèles en mémoire (/api/ps, relu toutes les 2 s tant que l'onglet est
@@ -11,7 +12,12 @@
 // (aria-disabled) ; une ligne déchargée passe le focus à la ligne suivante
 // (ou précédente), sinon au titre de la carte.
 
-import { ArrowPathIcon, BoltIcon, ClockIcon } from "@heroicons/react/20/solid";
+import {
+  ArrowPathIcon,
+  BoltIcon,
+  ClockIcon,
+  ShieldExclamationIcon,
+} from "@heroicons/react/20/solid";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useId, useRef, useState } from "react";
 import type { RunningModel } from "@/bindings/RunningModel";
@@ -58,7 +64,7 @@ function keepAliveOptions(t: TFunction) {
   }));
 }
 
-type Field = "keepAlive" | "preloadModel";
+type Field = "keepAlive" | "preloadModel" | "showUncensored";
 
 /**
  * Échec d'une action, montré tant que son modèle est dans le même état :
@@ -88,6 +94,8 @@ export function Models({
     keepAliveDescription: useId(),
     preload: useId(),
     preloadDescription: useId(),
+    uncensored: useId(),
+    uncensoredDescription: useId(),
   };
 
   if (!settings) return null;
@@ -166,6 +174,29 @@ export function Models({
                 if (preloadModel) forgetPreloads();
                 void save("preloadModel", { preloadModel });
               }}
+            />
+          </div>
+
+          <div className="flex items-start justify-between gap-4">
+            <Row
+              icon={ShieldExclamationIcon}
+              label={
+                <span id={ids.uncensored}>
+                  {t("settings.models.uncensored.label")}
+                </span>
+              }
+              description={t("settings.models.uncensored.description")}
+              descriptionId={ids.uncensoredDescription}
+            >
+              <RowError message={errors.showUncensored} />
+            </Row>
+            <Switch
+              label={t("settings.models.uncensored.label")}
+              checked={settings.showUncensored}
+              describedBy={ids.uncensoredDescription}
+              onChange={(showUncensored) =>
+                void save("showUncensored", { showUncensored })
+              }
             />
           </div>
         </div>

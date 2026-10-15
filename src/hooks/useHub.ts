@@ -49,6 +49,14 @@ function useMachine(): { server: string; context: number } | null {
   };
 }
 
+/**
+ * Réglage « Show uncensored models » : la rubrique « Uncensored » de
+ * l'accueil et de sa liste complète en dépend.
+ */
+function useShowUncensored(): boolean {
+  return useSettings().settings?.showUncensored ?? false;
+}
+
 /** Mémoire de la machine du serveur ; null : serveur distant. */
 export function useHubHardware() {
   const machine = useMachine();
@@ -63,8 +71,9 @@ export function useHubHardware() {
 /** Accueil filtré ; les données précédentes restent affichées pendant un changement de filtre. */
 export function useHubHome(filters: HubFilters, enabled = true) {
   const machine = useMachine();
+  const uncensored = useShowUncensored();
   return useQuery({
-    queryKey: ["hub", "home", machine, filters],
+    queryKey: ["hub", "home", machine, uncensored, filters],
     queryFn: () => hubHome(filters),
     enabled: enabled && machine !== null,
     staleTime: LIST_STALE_MS,
@@ -75,8 +84,9 @@ export function useHubHome(filters: HubFilters, enabled = true) {
 /** Liste complète d'une rubrique ou d'une famille. */
 export function useHubBrowse(scope: HubScope | null, filters: HubFilters) {
   const machine = useMachine();
+  const uncensored = useShowUncensored();
   return useQuery({
-    queryKey: ["hub", "browse", machine, scope, filters],
+    queryKey: ["hub", "browse", machine, uncensored, scope, filters],
     queryFn: () => hubBrowse(scope!, filters),
     enabled: scope !== null && machine !== null,
     staleTime: LIST_STALE_MS,

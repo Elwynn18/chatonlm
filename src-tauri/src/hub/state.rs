@@ -14,6 +14,7 @@ use url::Url;
 
 use super::cache::{Cache, Entry, Kind, Limit};
 use super::catalog;
+use super::curation::CURATION;
 use super::flight::Flights;
 use super::gguf::{self, GgufFacts};
 use super::hardware::Detector;
@@ -23,8 +24,8 @@ use super::quant;
 use super::readme;
 use super::repo::{self, Repo};
 use super::types::{
-    HubFilters, HubHardware, HubHome, HubList, HubProblem, HubReadme, HubRepoResult, HubScope,
-    HubSearch, HubSection, HubStatus,
+    HubFilters, HubHardware, HubHome, HubList, HubModel, HubProblem, HubReadme, HubRepoResult,
+    HubScope, HubSearch, HubSection, HubSectionId, HubStatus,
 };
 use crate::ollama::client::is_local;
 use crate::store::now_ms;
@@ -81,19 +82,27 @@ enum List {
     Popular,
     /// 200 tendances, frais 6 h.
     Trending,
+    /// Rubrique « Uncensored » : 100 plus téléchargés d'une recherche
+    /// (`uncensored.queries` de la curation), frais 24 h ; demandée seulement
+    /// si la rubrique est montrée.
+    Uncensored(&'static str),
 }
 
+/// Dépôts d'une recherche de la rubrique « Uncensored ».
+const UNCENSORED_LIMIT: usize = 100;
+
 impl List {
-    fn key(self) -> &'static str {
+    fn key(self) -> String {
         match self {
-            List::Popular => "list:popular",
-            List::Trending => "list:trending",
+            List::Popular => "list:popular".into(),
+            List::Trending => "list:trending".into(),
+            List::Uncensored(query) => format!("list:uncensored:{query}"),
         }
     }
 
     fn max_age(self) -> i64 {
         match self {
-            List::Popular => DAY,
+            List::Popular | List::Uncensored(_) => DAY,
             List::Trending => 6 * HOUR,
         }
     }
@@ -102,8 +111,30 @@ impl List {
         let (sort, limit) = match self {
             List::Popular => ("downloads", 500),
             List::Trending => ("trendingScore", 200),
+            List::Uncensored(query) => {
+                return format!(
+                    "/api/models?apps=ollama&search={}&sort=downloads&limit={UNCENSORED_LIMIT}&{E_LIST}",
+                    utf8_percent_encode(query, NON_ALPHANUMERIC)
+                );
+            }
         };
         format!("/api/models?apps=ollama&sort={sort}&limit={limit}&{E_LIST}")
+    }
+}
+
+/// État de l'accueil : celui des populaires et des tendances, et celui de la
+/// rubrique « Uncensored » si elle est montrée (date la plus ancienne,
+/// premier problème).
+fn merge_status(main: HubStatus, other: Option<HubStatus>) -> HubStatus {
+    let Some(other) = other else {
+        return main;
+    };
+    HubStatus {
+        fetched_at: match (main.fetched_at, other.fetched_at) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        },
+        problem: main.problem.or(other.problem),
     }
 }
 
@@ -369,7 +400,7 @@ impl Catalog {
 
     async fn list(&self, list: List) -> Loaded<ListPage> {
         let path = list.path();
-        self.load(LISTS, list.key(), Some(list.max_age()), |etag| {
+        self.load(LISTS, &list.key(), Some(list.max_age()), |etag| {
             self.fetch_page(&path, etag)
         })
         .await
@@ -414,10 +445,65 @@ impl Catalog {
         (entries, status)
     }
 
-    /// Accueil : rubriques (six dépôts au plus) et familles.
-    pub async fn home(&self, filters: &HubFilters, hardware: Option<&HubHardware>) -> HubHome {
-        let (entries, status) = self.entries(filters, hardware).await;
-        let sections = catalog::SECTIONS
+    /// Rubrique « Uncensored », filtrée, et l'état de ses listes ; rien,
+    /// sans requête, si elle n'est pas montrée (`shown`).
+    async fn uncensored(
+        &self,
+        filters: &HubFilters,
+        hardware: Option<&HubHardware>,
+        shown: bool,
+    ) -> (Vec<HubModel>, Option<HubStatus>) {
+        if !shown {
+            return (Vec::new(), None);
+        }
+        let loaded = futures_util::future::join_all(
+            CURATION
+                .uncensored_queries
+                .iter()
+                .map(|query| self.list(List::Uncensored(query))),
+        )
+        .await;
+        let status = HubStatus {
+            fetched_at: loaded
+                .iter()
+                .filter_map(|loaded| loaded.entry.as_ref().map(|entry| entry.fetched_at))
+                .min(),
+            problem: loaded.iter().find_map(|loaded| loaded.problem.clone()),
+        };
+        let entries: Vec<_> = loaded
+            .into_iter()
+            .filter_map(|loaded| loaded.entry)
+            .collect();
+        let hardware = hardware.cloned();
+        let filters = filters.clone();
+        let models = tauri::async_runtime::spawn_blocking(move || {
+            let lists: Vec<&[Repo]> = entries
+                .iter()
+                .map(|entry| entry.data.repos.as_slice())
+                .collect();
+            catalog::uncensored_models(&lists, hardware.as_ref())
+                .into_iter()
+                .filter(|model| catalog::matches(model, &filters, hardware.is_some()))
+                .collect()
+        })
+        .await
+        .unwrap_or_default();
+        (models, Some(status))
+    }
+
+    /// Accueil : rubriques (six dépôts au plus) et familles ; « Uncensored »
+    /// en dernier si elle est montrée (`uncensored`).
+    pub async fn home(
+        &self,
+        filters: &HubFilters,
+        hardware: Option<&HubHardware>,
+        uncensored: bool,
+    ) -> HubHome {
+        let ((entries, status), (mut hidden, hidden_status)) = tokio::join!(
+            self.entries(filters, hardware),
+            self.uncensored(filters, hardware, uncensored)
+        );
+        let mut sections: Vec<HubSection> = catalog::SECTIONS
             .iter()
             .filter_map(|&id| {
                 let mut models = catalog::section(&entries, id, hardware.is_some());
@@ -425,20 +511,41 @@ impl Catalog {
                 (!models.is_empty()).then_some(HubSection { id, models })
             })
             .collect();
+        hidden.truncate(SECTION_SIZE);
+        if !hidden.is_empty() {
+            sections.push(HubSection {
+                id: HubSectionId::Uncensored,
+                models: hidden,
+            });
+        }
         HubHome {
             sections,
             families: catalog::families(&entries),
-            status,
+            status: merge_status(status, hidden_status),
         }
     }
 
-    /// Liste complète d'une rubrique ou d'une famille (mêmes listes).
+    /// Liste complète d'une rubrique ou d'une famille (mêmes listes) ;
+    /// « Uncensored » : vide, sans requête, si elle n'est pas montrée.
     pub async fn browse(
         &self,
         scope: &HubScope,
         filters: &HubFilters,
         hardware: Option<&HubHardware>,
+        uncensored: bool,
     ) -> HubList {
+        if *scope
+            == (HubScope::Section {
+                id: HubSectionId::Uncensored,
+            })
+        {
+            let (models, status) = self.uncensored(filters, hardware, uncensored).await;
+            return HubList {
+                models,
+                next_cursor: None,
+                status: status.unwrap_or_default(),
+            };
+        }
         let (entries, status) = self.entries(filters, hardware).await;
         let models = match scope {
             HubScope::Section { id } => catalog::section(&entries, *id, hardware.is_some()),
@@ -508,7 +615,7 @@ impl Catalog {
     async fn cached_repos(&self) -> Vec<Arc<Entry<ListPage>>> {
         let mut found = Vec::new();
         for list in [List::Popular, List::Trending] {
-            if let Some(entry) = self.cache.read::<ListPage>(LISTS, list.key()).await {
+            if let Some(entry) = self.cache.read::<ListPage>(LISTS, &list.key()).await {
                 found.push(entry);
             }
         }

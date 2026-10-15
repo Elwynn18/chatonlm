@@ -138,6 +138,9 @@ pub enum HubSectionId {
     Reasoning,
     /// Moins de 4 milliards de paramètres.
     Small,
+    /// Dérivés sans refus d'un modèle officiel (listes à part, réglage
+    /// `show_uncensored`) ; en dernier.
+    Uncensored,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
