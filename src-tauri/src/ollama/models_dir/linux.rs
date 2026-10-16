@@ -26,10 +26,9 @@
 //!
 //! Conception, preuves et banc d'essai : `.tools/research/36-modelhub-models-dir.md`.
 
-use std::ffi::{CString, OsString};
+use std::ffi::OsString;
 use std::fs;
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -948,26 +947,9 @@ pub fn check_folder_as(raw: &str, detection: &Detection, own_uid: u32) -> Folder
         let source = device(&old.join("blobs")).or_else(|| old.ancestors().find_map(device));
         source.is_some() && source == device(&at)
     });
-    check.free_bytes = free_space(&at);
+    check.free_bytes = crate::disk::free_space(&at);
     check.commands = commands_for(detection, &path);
     check
-}
-
-/// Place libre pour un utilisateur ordinaire (`statvfs`).
-pub(super) fn free_space(path: &Path) -> Option<u64> {
-    let path = CString::new(path.as_os_str().as_bytes()).ok()?;
-    let mut stat = std::mem::MaybeUninit::<libc::statvfs>::uninit();
-    // SAFETY : chemin terminé par un octet nul ; structure de sortie à la
-    // taille attendue, lue seulement si l'appel réussit.
-    if unsafe { libc::statvfs(path.as_ptr(), stat.as_mut_ptr()) } != 0 {
-        return None;
-    }
-    // SAFETY : remplie par statvfs, qui a réussi.
-    let stat = unsafe { stat.assume_init() };
-    // Types de 32 ou 64 bits selon l'architecture.
-    #[allow(clippy::unnecessary_cast)]
-    let (blocks, block_size) = (stat.f_bavail as u64, stat.f_frsize as u64);
-    Some(blocks.saturating_mul(block_size))
 }
 
 // --- Commandes à copier et drop-in --------------------------------------------

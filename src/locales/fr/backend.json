@@ -446,5 +446,28 @@
       "tooLarge": "la réponse du moteur est trop volumineuse",
       "notJson": "la réponse du moteur est illisible"
     }
+  },
+  "imageModels": {
+    "offline": "Impossible de joindre Hugging Face : vérifiez votre connexion",
+    "unavailable": "Hugging Face ne répond pas pour le moment : réessayez plus tard",
+    "rateLimited": "Trop de requêtes vers Hugging Face : réessayez dans {seconds} s",
+    "notFound": "Ce dépôt n'existe pas ou est privé",
+    "gated": "Ce dépôt est à accès restreint (un compte Hugging Face est nécessaire) : ChatonLM ne peut pas le télécharger",
+    "hfFailed": "Hugging Face a refusé la requête : {error}",
+    "uncensoredHidden": "Ce modèle est non censuré : activez « Afficher les modèles non censurés » dans les réglages pour le télécharger",
+    "unknownFamily": "ChatonLM ne connaît pas la famille de ce modèle et ne peut donc pas le faire tourner",
+    "unsupportedFamily": "La famille de ce modèle n'est pas prise en charge par le moteur d'images de ChatonLM",
+    "fileNotFound": "{file} n'est pas dans ce dépôt",
+    "fileNotUsable": "{file} ne peut pas servir de modèle d'images",
+    "noChecksum": "{file} n'a pas de somme de contrôle sur Hugging Face : ChatonLM ne le téléchargera pas",
+    "notEnoughSpace": "Place insuffisante sur le disque : {needed} nécessaires, {free} libres",
+    "downloading": "Ce modèle est en cours de téléchargement : annulez d'abord le téléchargement",
+    "stillDownloading": "Le téléchargement est encore en train de s'arrêter : réessayez dans un instant",
+    "inUse": "Une image est en cours avec ce modèle : réessayez quand elle sera terminée",
+    "notInstalled": "Ce modèle n'est pas installé",
+    "sizeGb": "{value} Go",
+    "sizeMb": "{value} Mo",
+    "revisionChanged": "Ce dépôt a changé depuis l'ouverture de sa page : rouvrez-la",
+    "unverified": "ChatonLM n'a pas pu vérifier l'origine de ce modèle (l'un de ses modèles de base est illisible) : activez « Afficher les modèles non censurés » dans les réglages pour le télécharger quand même"
   }
 }

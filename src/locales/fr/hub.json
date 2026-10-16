@@ -5,6 +5,7 @@
     "transcription": "Transcription",
     "polish": "Mise au propre",
     "voices": "Voix",
+    "images": "Images",
     "installed": "Installés",
     "downloads": "Téléchargements"
   },
@@ -293,6 +294,65 @@
       "loadFailed": "Indisponible : ONNX Runtime, nécessaire à la lecture à voix haute, n'a pas pu être chargé ({detail})."
     },
     "deleteText": "La voix sera supprimée de cet ordinateur. Vous pourrez la télécharger de nouveau plus tard."
+  },
+  "images": {
+    "title": "Modèles d'images",
+    "loading": "Chargement des modèles d'images",
+    "intro": "Les modèles d'images créent des images à partir de vos descriptions dans une conversation. Ils fonctionnent dans ChatonLM, pas dans Ollama.",
+    "machine": {
+      "noEngine": "Cette version de ChatonLM n'inclut pas le moteur d'images. Vous pouvez télécharger des modèles, mais pas créer d'images.",
+      "missingCpu": "Cet ordinateur ne peut pas créer d'images : il manque à son processeur des instructions dont le moteur d'images a besoin ({features}).",
+      "noGpu": "Aucune carte graphique trouvée : les images seront faites par le processeur, ce qui prend plusieurs minutes pour chacune."
+    },
+    "yours": "Vos modèles d'images",
+    "recommended": "Recommandés",
+    "popular": "Populaires sur Hugging Face",
+    "results": "Résultats pour « {query} »",
+    "noResults": "Aucun modèle d'images ne correspond à votre recherche.",
+    "searchLoading": "Recherche sur Hugging Face",
+    "notSupported": "Non pris en charge",
+    "restricted": "Restreint",
+    "uncensored": "Non censuré",
+    "uncensoredHint": "Ce modèle peut créer des images explicites ou choquantes.",
+    "downloads": {
+      "one": "{count} téléchargement",
+      "other": "{count} téléchargements"
+    },
+    "toDownload": "{size} à télécharger",
+    "license": "Licence :",
+    "noLicense": "Aucune licence indiquée",
+    "notOpen": "Licence non libre : lisez-la avant d'utiliser le modèle.",
+    "source": "Source :",
+    "use": "Utiliser",
+    "deleteText": "Le modèle sera supprimé de cet ordinateur. Les fichiers qu'il partage avec vos autres modèles d'images sont gardés.",
+    "deleteTextInUse": "Le modèle sera supprimé de cet ordinateur. La génération d'images ne fonctionnera plus tant que vous ne l'aurez pas retéléchargé ou que vous n'aurez pas choisi un autre modèle d'images.",
+    "repo": {
+      "family": "Famille",
+      "files": "Choisissez un fichier",
+      "components": "Aussi nécessaires",
+      "componentsHint": "Fichiers dont cette famille a besoin en plus du modèle. Ils sont partagés par vos modèles de la même famille.",
+      "present": "Déjà sur cet ordinateur",
+      "roles": {
+        "model": "Modèle",
+        "textEncoder": "Encodeur de texte",
+        "vae": "Décodeur d'images (VAE)"
+      },
+      "total": "À télécharger : {size}",
+      "freeSpace": "Place libre : {size}",
+      "installed": "Ce fichier est installé.",
+      "yourModels": "Voir vos modèles d'images",
+      "unsupported": {
+        "unknownFamily": "ChatonLM ne reconnaît pas la famille de ce modèle : il ne sait pas de quels autres fichiers il a besoin.",
+        "gated": "Ce modèle demande un compte Hugging Face. ChatonLM ne peut pas le télécharger.",
+        "noUsableFile": "Ce dépôt n'a aucun fichier utilisable par ChatonLM (GGUF, ou fichier unique de Stable Diffusion).",
+        "unsupportedFamily": "ChatonLM ne prend pas en charge cette famille de modèles."
+      },
+      "reason": {
+        "uncensored": "Activez « Afficher les modèles non censurés » dans <link>Paramètres › Modèles</link> pour télécharger ce modèle.",
+        "cpu": "Il manque au processeur de cet ordinateur des instructions dont le moteur d'images a besoin ({features}).",
+        "space": "Pas assez de place libre : {needed} nécessaires, {free} libres."
+      }
+    }
   },
   "polish": {
     "intro": "Un second modèle met au propre la transcription : ponctuation, hésitations, reprises. Si sa réponse ne ressemble pas à ce que vous avez dit, la transcription brute est copiée à la place.",

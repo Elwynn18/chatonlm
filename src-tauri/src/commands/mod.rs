@@ -9,6 +9,7 @@ pub mod desktop;
 pub mod dictation;
 pub mod easy_link;
 pub mod hub;
+pub mod image_models;
 pub mod models;
 pub mod models_dir;
 pub mod platform;

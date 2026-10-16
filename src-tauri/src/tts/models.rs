@@ -17,7 +17,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use super::VoiceLanguage;
-use crate::dictation::downloads::DownloadItem;
+use crate::dictation::downloads::{DownloadItem, ItemFile, catalog_files};
 use crate::dictation::models::ModelFile;
 use crate::dictation::onnx::RuntimeProblem;
 
@@ -272,8 +272,8 @@ pub fn for_language(language: VoiceLanguage) -> Option<&'static VoiceModel> {
 }
 
 /// Le catalogue, vu par la file de téléchargement.
-pub fn find_item(id: &str) -> Option<&'static dyn DownloadItem> {
-    find(id).map(|model| model as &'static dyn DownloadItem)
+pub fn find_item(id: &str) -> Option<std::sync::Arc<dyn DownloadItem>> {
+    find(id).map(|model| std::sync::Arc::new(*model) as std::sync::Arc<dyn DownloadItem>)
 }
 
 /// Vrai si tous les fichiers de `model` sont présents dans `root`, à la bonne
@@ -286,20 +286,10 @@ pub fn installed(root: &Path, model: &VoiceModel) -> bool {
     })
 }
 
-impl DownloadItem for VoiceModel {
-    fn id(&self) -> &'static str {
-        self.id
-    }
-
-    fn name(&self) -> &'static str {
-        self.name
-    }
-
-    fn files(&self) -> &'static [ModelFile] {
-        self.files
-    }
-
-    fn url(&self, base: Option<&str>, file: &ModelFile) -> String {
+impl VoiceModel {
+    /// Adresse de `file` ; `base` : adresse imposée par les essais, pour tous
+    /// les fichiers (sinon l'hôte réel de chacun).
+    pub fn url(&self, base: Option<&str>, file: &ModelFile) -> String {
         let index = self
             .files
             .iter()
@@ -315,6 +305,20 @@ impl DownloadItem for VoiceModel {
                 base.unwrap_or(HUGGING_FACE)
             ),
         }
+    }
+}
+
+impl DownloadItem for VoiceModel {
+    fn id(&self) -> &str {
+        self.id
+    }
+
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn files(&self, base: Option<&str>) -> Vec<ItemFile> {
+        catalog_files(self.id, self.files, |file| self.url(base, file))
     }
 }
 

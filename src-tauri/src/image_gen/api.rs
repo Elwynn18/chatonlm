@@ -54,6 +54,9 @@ pub(super) fn body(request: &Request, seed: u32) -> Value {
     if let Some(scheduler) = &sampling.scheduler {
         sample_params["scheduler"] = json!(scheduler);
     }
+    if let Some(shift) = sampling.flow_shift {
+        sample_params["flow_shift"] = json!(shift);
+    }
     json!({
         "prompt": request.prompt,
         "negative_prompt": request.negative_prompt,
@@ -248,6 +251,7 @@ mod tests {
                 cfg_scale: 1.0,
                 sample_method: None,
                 scheduler: None,
+                flow_shift: None,
             },
             preview: true,
         }
@@ -265,14 +269,17 @@ mod tests {
         assert_eq!(body["sample_params"]["sample_steps"], 4);
         assert_eq!(body["sample_params"]["guidance"]["txt_cfg"], 1.0);
         assert!(body["sample_params"].get("sample_method").is_none());
+        assert!(body["sample_params"].get("flow_shift").is_none());
         let mut chosen = request();
         chosen.preview = false;
         chosen.sampling.sample_method = Some("euler".into());
         chosen.sampling.scheduler = Some("simple".into());
+        chosen.sampling.flow_shift = Some(3.0);
         let body = super::body(&chosen, 7);
         assert_eq!(body["preview"], "none");
         assert_eq!(body["sample_params"]["sample_method"], "euler");
         assert_eq!(body["sample_params"]["scheduler"], "simple");
+        assert_eq!(body["sample_params"]["flow_shift"], 3.0);
     }
 
     #[test]

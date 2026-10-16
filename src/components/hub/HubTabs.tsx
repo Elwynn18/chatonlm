@@ -1,8 +1,9 @@
 // Onglets du ModelHub, en deux groupes sur une ligne : à gauche ce que l'on
 // parcourt (Discover, fiches comprises ; Transcription et Polish, modèles de
-// la dictée ; Voices, voix de la lecture à voix haute), à droite ce qui est
-// sur la machine (Installed, Downloads avec le nombre de téléchargements
-// actifs, modèles de transcription et voix compris).
+// la dictée ; Voices, voix de la lecture à voix haute ; Images, modèles de
+// la génération d'images), à droite ce qui est sur la machine (Installed,
+// Downloads avec le nombre de téléchargements actifs, modèles de
+// transcription, voix et modèles d'images compris).
 // Fenêtre étroite : le second groupe passe à la ligne. Vrais liens, page
 // courante annoncée par aria-current.
 
@@ -10,6 +11,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { TAB, TAB_BAR, TAB_CURRENT, TAB_IDLE } from "@/components/hub/styles";
 import { useSpeechDownloads } from "@/hooks/useDictation";
 import { useDownloads } from "@/hooks/useDownloads";
+import { useImageDownloads } from "@/hooks/useImageModels";
 import { useVoiceDownloads } from "@/hooks/useReadAloud";
 import { useT } from "@/i18n";
 import { isActiveSpeechDownload } from "@/lib/dictation";
@@ -22,6 +24,7 @@ const TABS = [
   ["/hub/transcription", "transcription"],
   ["/hub/polish", "polish"],
   ["/hub/voices", "voices"],
+  ["/hub/images", "images"],
 ] as const;
 
 export function HubTabs() {
@@ -30,10 +33,12 @@ export function HubTabs() {
   const { downloads } = useDownloads();
   const speech = useSpeechDownloads();
   const voices = useVoiceDownloads();
+  const images = useImageDownloads();
   const active =
     downloads.filter(isActiveDownload).length +
     speech.downloads.filter(isActiveSpeechDownload).length +
-    voices.downloads.filter(isActiveSpeechDownload).length;
+    voices.downloads.filter(isActiveSpeechDownload).length +
+    images.downloads.filter(isActiveSpeechDownload).length;
   const tab =
     TABS.find(([prefix]) => path.startsWith(prefix))?.[1] ?? "discover";
   const current = (name: string) =>
@@ -81,6 +86,14 @@ export function HubTabs() {
             {...current("voices")}
           >
             {t("hub.tabs.voices")}
+          </Link>
+          <Link
+            to="/hub/images"
+            draggable={false}
+            className={classOf("images")}
+            {...current("images")}
+          >
+            {t("hub.tabs.images")}
           </Link>
         </div>
         <div data-testid="hub-tabs-local" className={TAB_BAR}>

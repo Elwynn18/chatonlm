@@ -37,6 +37,8 @@
 // (backend.tts), réglage autoRead coupé par défaut. Mode conversation
 // vocale : faux moteur de src/test/voiceMode.ts (backend.voiceMode), qui lit
 // les faux moteurs de la dictée et des voix pour ses prérequis.
+// Modèles d'images : faux moteur de src/test/images.ts (backend.images), qui
+// lit le réglage showUncensored.
 // Mises à jour de ChatonLM : update_status et app_versions sur updates et
 // versions, set_auto_download change updates.autoDownload ; check_for_updates,
 // download_update et restart_to_update répondent sans rien changer (le test
@@ -90,6 +92,7 @@ import type { Platform } from "@/lib/platform";
 import { type FakeDictation, fakeDictation } from "@/test/dictation";
 import { type FakeEasyLink, fakeEasyLink } from "@/test/easyLink";
 import { canonicalModel, type FakeHub, fakeHub } from "@/test/hub";
+import { type FakeImages, fakeImages } from "@/test/images";
 import { type FakeProofread, fakeProofread } from "@/test/proofread";
 import {
   type Args,
@@ -454,6 +457,8 @@ export interface FakeBackend {
   voiceMode: FakeVoiceMode;
   /** Faux moteur d'Easy Link (easy_link_*). */
   easyLink: FakeEasyLink;
+  /** Faux moteur des modèles d'images (image_*). */
+  images: FakeImages;
 }
 
 /** Service système de la plupart des machines, pkexec présent. */
@@ -508,7 +513,8 @@ export function defaultFolderCheck(path: string): FolderCheck {
  * (src/test/proofread.ts), study_* (src/test/study.ts), read_aloud,
  * read_aloud_stop, read_aloud_state et voice_* (src/test/tts.ts),
  * voice_mode_*, get_voice_mode_settings et update_voice_mode_settings
- * (src/test/voiceMode.ts), easy_link_* (src/test/easyLink.ts),
+ * (src/test/voiceMode.ts), easy_link_* (src/test/easyLink.ts), image_*
+ * (src/test/images.ts),
  * ollama_runtime,
  * set_ollama_source, start_ollama_service, restart_builtin_ollama,
  * open_builtin_folder, open_builtin_log, menu_entry_status,
@@ -549,6 +555,7 @@ export function fakeBackend(
     | "tts"
     | "voiceMode"
     | "easyLink"
+    | "images"
   > & {
     hub?: FakeHub;
     dictation?: FakeDictation;
@@ -557,6 +564,7 @@ export function fakeBackend(
     tts?: FakeTts;
     voiceMode?: FakeVoiceMode;
     easyLink?: FakeEasyLink;
+    images?: FakeImages;
   } = {
     settings: {
       serverUrl: "",
@@ -673,6 +681,7 @@ export function fakeBackend(
     tts: backend.tts,
   });
   backend.easyLink = fakeEasyLink(simulator);
+  backend.images = fakeImages(simulator, () => backend.settings.showUncensored);
   simulator.handle("quit_app", () => null);
   simulator.handle("app_platform", () => backend.platform);
   simulator.handle("menu_entry_status", () => ({ ...backend.menuEntry }));

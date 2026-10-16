@@ -446,5 +446,28 @@
       "tooLarge": "the engine's answer is too large",
       "notJson": "the engine's answer is unreadable"
     }
+  },
+  "imageModels": {
+    "offline": "Can't reach Hugging Face: check your connection",
+    "unavailable": "Hugging Face isn't responding right now: try again later",
+    "rateLimited": "Too many requests to Hugging Face: try again in {seconds} s",
+    "notFound": "This repository doesn't exist or is private",
+    "gated": "This repository is restricted (a Hugging Face account is needed): ChatonLM can't download it",
+    "hfFailed": "Hugging Face refused the request: {error}",
+    "uncensoredHidden": "This model is uncensored: turn on “Show uncensored models” in Settings to download it",
+    "unknownFamily": "ChatonLM doesn't know this model's family, so it can't run it",
+    "unsupportedFamily": "This model's family isn't supported by ChatonLM's image engine",
+    "fileNotFound": "{file} isn't in this repository",
+    "fileNotUsable": "{file} can't be used as an image model",
+    "noChecksum": "{file} has no checksum on Hugging Face: ChatonLM won't download it",
+    "notEnoughSpace": "Not enough disk space: {needed} needed, {free} free",
+    "downloading": "This model is downloading: cancel the download first",
+    "stillDownloading": "The download is still stopping: try again in a moment",
+    "inUse": "An image is being made with this model: try again when it's done",
+    "notInstalled": "This model isn't installed",
+    "sizeGb": "{value} GB",
+    "sizeMb": "{value} MB",
+    "revisionChanged": "This repository has changed since its page was opened: open it again",
+    "unverified": "ChatonLM couldn't check where this model comes from (one of its base models can't be read): turn on “Show uncensored models” in Settings to download it anyway"
   }
 }

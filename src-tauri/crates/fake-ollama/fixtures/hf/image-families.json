@@ -1,0 +1,113 @@
+{
+  "about": "Familles d'essai (CHATONLM_IMAGE_FAMILIES) : mêmes bases que les vraies, pièces minuscules servies par le faux Hugging Face (images.json).",
+  "pieces": {
+    "tiny-te": {
+      "role": "textEncoder",
+      "component": "llm",
+      "repo": "chatonlm/tiny-text-encoder",
+      "revision": "904f0751805f8e7195d7c17d225ed556225ed1f0",
+      "file": "tiny-qwen3-Q4_K_M.gguf",
+      "size": 2500,
+      "sha256": "00fea22d905df80199483c4cadf075ae4cb62e00c7712374631b75e3a20cff71",
+      "license": "apache-2.0"
+    },
+    "tiny-vae": {
+      "role": "vae",
+      "component": "vae",
+      "repo": "chatonlm/tiny-vae",
+      "revision": "703f7f55ae94152d4ffa6c97a59fc6caa59fc364",
+      "file": "vae/tiny_ae.safetensors",
+      "size": 1500,
+      "sha256": "b650164585c3562f93fc4f2dd43882b190014a1c6b905cf1cdc2531745563989",
+      "license": "apache-2.0"
+    },
+    "tiny-sdxl-vae": {
+      "role": "vae",
+      "component": "vae",
+      "repo": "chatonlm/tiny-vae",
+      "revision": "703f7f55ae94152d4ffa6c97a59fc6caa59fc364",
+      "file": "tiny_sdxl_vae.safetensors",
+      "size": 1200,
+      "sha256": "8dcc31aa0d02b84477ead0578e6d306fc668bf06ce8dc07682452040bb0b3cf0",
+      "license": "apache-2.0"
+    }
+  },
+  "families": [
+    {
+      "id": "flux2-klein-4b",
+      "name": "FLUX.2 klein 4B",
+      "bases": [
+        "black-forest-labs/FLUX.2-klein-4B"
+      ],
+      "singleFile": false,
+      "model": "diffusionModel",
+      "pieces": [
+        "tiny-te",
+        "tiny-vae"
+      ],
+      "sampling": {
+        "steps": 4,
+        "cfg": 1.0,
+        "sampleMethod": null,
+        "scheduler": null,
+        "flowShift": null
+      },
+      "options": []
+    },
+    {
+      "id": "z-image-turbo",
+      "name": "Z-Image-Turbo",
+      "bases": [
+        "Tongyi-MAI/Z-Image-Turbo"
+      ],
+      "singleFile": false,
+      "model": "diffusionModel",
+      "pieces": [
+        "tiny-te",
+        "tiny-vae"
+      ],
+      "sampling": {
+        "steps": 8,
+        "cfg": 1.0,
+        "sampleMethod": null,
+        "scheduler": null,
+        "flowShift": null
+      },
+      "options": []
+    },
+    {
+      "id": "sdxl",
+      "name": "Stable Diffusion XL",
+      "bases": [
+        "stabilityai/stable-diffusion-xl-base-1.0"
+      ],
+      "singleFile": true,
+      "minSize": 5000,
+      "model": "model",
+      "pieces": [
+        "tiny-sdxl-vae"
+      ],
+      "sampling": {
+        "steps": 25,
+        "cfg": 6.0,
+        "sampleMethod": null,
+        "scheduler": null,
+        "flowShift": null
+      },
+      "options": []
+    }
+  ],
+  "unsupported": "(^|/)gemma|(^|/)ltx|ltx-?2|qwen-image-2\\.1|(^|/)wan-ai/|(^|/)wan2|hunyuan-?video",
+  "recommendations": [
+    {
+      "repo": "chatonlm/klein-test-GGUF",
+      "revision": "2f4d7ef8a9ee61904f107388c0100329c00fffc3",
+      "file": "tiny-klein-Q4_0.gguf",
+      "size": 3000,
+      "sha256": "abc49e6c9b612db0768f3b28b1fc578f2055ecd73a7f90995fa8ee89372d029e",
+      "license": "apache-2.0",
+      "family": "flux2-klein-4b",
+      "name": "Tiny klein"
+    }
+  ]
+}

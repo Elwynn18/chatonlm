@@ -64,8 +64,10 @@ pub const MAX_STEPS: u32 = 150;
 /// Longueur maximale d'une description (caractères).
 pub const MAX_PROMPT: usize = 8_000;
 
-/// Rôle d'un fichier du modèle : l'option de `sd-server` qui le reçoit.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Rôle d'un fichier du modèle : l'option de `sd-server` qui le reçoit
+/// (nom gardé en base par les modèles d'images : `diffusionModel`, `t5xxl`...).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Component {
     /// Modèle complet en un fichier (SD 1.x, SDXL...).
     Model,
@@ -123,6 +125,9 @@ pub struct Sampling {
     pub cfg_scale: f32,
     pub sample_method: Option<String>,
     pub scheduler: Option<String>,
+    /// Décalage du planificateur des modèles à flux (Qwen-Image : 3) ;
+    /// `None` : celui du modèle.
+    pub flow_shift: Option<f32>,
 }
 
 /// Une image à produire.
@@ -322,6 +327,27 @@ impl ImageGen {
     /// Un binaire est là.
     pub fn available(&self) -> bool {
         self.inner.config.bin.as_deref().is_some_and(is_executable)
+    }
+
+    /// Instructions du processeur qui manquent au moteur (vide : aucune).
+    pub fn missing_cpu_features(&self) -> &'static [&'static str] {
+        (self.inner.config.cpu_missing)()
+    }
+
+    /// Arrête le serveur s'il a chargé un modèle dont `uses` dit qu'il emploie
+    /// des fichiers à supprimer (modèle supprimé). Attend la fin d'une image
+    /// en cours, `limit` au plus : faux si elle n'est pas finie (rien n'est
+    /// arrêté), vrai sinon.
+    pub async fn release_if(&self, uses: impl Fn(&ModelSpec) -> bool, limit: Duration) -> bool {
+        let Ok(mut slot) = tokio::time::timeout(limit, self.inner.server.lock()).await else {
+            return false;
+        };
+        if slot.as_ref().is_some_and(|running| uses(running.spec()))
+            && let Some(running) = slot.take()
+        {
+            running.stop(&self.inner.config.timing).await;
+        }
+        true
     }
 
     /// Numéro du processus du serveur lancé (jauge de la VRAM), même pendant

@@ -79,6 +79,7 @@ fn request(prompt: &str) -> Request {
             cfg_scale: 1.0,
             sample_method: None,
             scheduler: None,
+            flow_shift: None,
         },
         preview: true,
     }
@@ -282,6 +283,44 @@ async fn the_server_is_kept_for_the_same_model_and_restarted_for_another() {
     assert!(gone_within(first, Duration::from_secs(5)).await);
     engine.shutdown().await;
     assert!(gone_within(second, Duration::from_secs(5)).await);
+}
+
+/// Modèle supprimé : le serveur qui le charge est arrêté, pas celui d'un
+/// autre ; pendant une image, rien n'est arrêté passé le délai.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_server_is_released_only_for_the_deleted_model() {
+    let dir = temp_dir();
+    let engine = ImageGen::new(fake_config(dir.path()));
+    assert!(engine.release_if(|_| true, Duration::from_secs(1)).await);
+    let klein = spec(dir.path(), "klein");
+    generate(&engine, &klein, "one").await.unwrap();
+    let first = engine.server_pid().unwrap();
+    let zimage = dir.path().join("zimage.gguf");
+    let uses =
+        |path: PathBuf| move |spec: &ModelSpec| spec.files.iter().any(|(_, file)| *file == path);
+    assert!(
+        engine
+            .release_if(uses(zimage), Duration::from_secs(1))
+            .await
+    );
+    assert_eq!(engine.server_pid(), Some(first));
+
+    let worker = hanging(&engine, &klein, "[hang] a kitten").await;
+    let model = dir.path().join("klein.gguf");
+    assert!(
+        !engine
+            .release_if(uses(model.clone()), Duration::from_millis(200))
+            .await
+    );
+    assert_eq!(engine.server_pid(), Some(first));
+    worker.abort();
+    let _ = worker.await;
+    generate(&engine, &klein, "two").await.unwrap();
+    let second = engine.server_pid().unwrap();
+    assert!(engine.release_if(uses(model), Duration::from_secs(1)).await);
+    assert!(gone_within(second, Duration::from_secs(5)).await);
+    assert_eq!(engine.server_pid(), None);
+    engine.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -699,6 +738,7 @@ async fn a_processor_without_the_needed_instructions_is_refused() {
         Err(ImageGenError::CpuUnsupported("AVX2, FMA".into()))
     );
     assert_eq!(engine.server_pid(), None);
+    assert_eq!(engine.missing_cpu_features(), ["AVX2", "FMA"]);
 }
 
 #[test]
@@ -1024,6 +1064,46 @@ mod real {
             .await,
             403
         );
+        running.stop(&inner.config.timing).await;
+    }
+
+    /// Correctif 0001 : une requête par connexion. Le corps d'une requête
+    /// refusée (jamais lu) ne doit pas être pris pour une seconde requête,
+    /// qui passerait le contrôle d'`Origin` (désynchronisation HTTP).
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "vrai sd-server et modèles requis (voir l'en-tête du module)"]
+    async fn real_engine_never_reads_a_request_hidden_in_a_refused_one() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let dir = temp_dir();
+        let Some((engine, spec)) = real_engine(dir.path()) else {
+            panic!("CHATONLM_SD_REAL_BIN et CHATONLM_SD_REAL_MODELS requis");
+        };
+        let inner = &engine.inner;
+        let running = server::start(
+            &inner.config,
+            &inner.spawner,
+            &spec,
+            &inner.pid,
+            &inner.stops,
+        )
+        .await
+        .unwrap();
+        let address = running.url().trim_start_matches("http://").to_owned();
+        let hidden = format!("GET /sdcpp/v1/capabilities HTTP/1.1\r\nHost: {address}\r\n\r\n");
+        let request = format!(
+            "POST /sdcpp/v1/capabilities HTTP/1.1\r\nHost: {address}\r\nOrigin: https://example.com\r\n\
+             Content-Type: text/plain\r\nContent-Length: {}\r\n\r\n{hidden}",
+            hidden.len()
+        );
+        let mut stream = tokio::net::TcpStream::connect(&address).await.unwrap();
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut answer = Vec::new();
+        let read =
+            tokio::time::timeout(Duration::from_secs(10), stream.read_to_end(&mut answer)).await;
+        assert!(read.is_ok(), "the connection stayed open");
+        let answer = String::from_utf8_lossy(&answer);
+        assert_eq!(answer.matches("HTTP/1.1 ").count(), 1, "{answer}");
+        assert!(answer.starts_with("HTTP/1.1 403"), "{answer}");
         running.stop(&inner.config.timing).await;
     }
 

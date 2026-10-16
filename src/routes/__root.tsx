@@ -53,6 +53,7 @@ import { useChatsEvents } from "@/hooks/useChats";
 import { useDictationEvents } from "@/hooks/useDictation";
 import { useDownloadEvents } from "@/hooks/useDownloads";
 import { useEasyLinkEvents } from "@/hooks/useEasyLink";
+import { useImageModelEvents } from "@/hooks/useImageModels";
 import { useReadAloudEvents } from "@/hooks/useReadAloud";
 import { useSettings } from "@/hooks/useSettings";
 import { useShortcutsEvents } from "@/hooks/useShortcuts";
@@ -106,6 +107,8 @@ function RootComponent() {
   // Lecture à voix haute : état, téléchargements des voix ; arrêt quand une
   // autre conversation s'ouvre.
   useReadAloudEvents();
+  // Téléchargements des modèles d'images (onglet Images du ModelHub).
+  useImageModelEvents();
   // Mode vocal : état, niveaux, phrases ; fin quand sa page n'est plus
   // affichée.
   useVoiceModeEvents();

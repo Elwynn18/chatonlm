@@ -87,8 +87,8 @@ fn find(id: &str) -> Option<&'static CatalogModel> {
 }
 
 /// Le même catalogue, vu par la file.
-fn find_item(id: &str) -> Option<&'static dyn DownloadItem> {
-    find(id).map(|model| model as &'static dyn DownloadItem)
+fn find_item(id: &str) -> Option<Arc<dyn DownloadItem>> {
+    find(id).map(|model| Arc::new(*model) as Arc<dyn DownloadItem>)
 }
 
 /// Comportement du serveur pour un fichier.
@@ -281,8 +281,10 @@ async fn setup_with(
             base_url: Some(server.url.clone()),
             read_timeout: Duration::from_secs(5),
             test_env: "CHATONLM_SPEECH_MODELS_URL",
-            find: find_item,
+            find: Arc::new(find_item),
             verify,
+            count_ending_tasks: false,
+            before_start: None,
         },
     );
     Setup {
@@ -434,7 +436,13 @@ async fn a_new_download_waits_for_the_cancelled_task_of_the_same_model() {
     let setup = setup(2).await;
     let model = find("two").unwrap();
     // Tâche annulée qui n'a pas encore fini (simulée).
-    setup.downloads.inner.state.lock().busy.insert(model.id);
+    setup
+        .downloads
+        .inner
+        .state
+        .lock()
+        .busy
+        .insert(model.id.into());
     setup.downloads.download("two").unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(setup.state("two").unwrap().state, Queued);
@@ -445,7 +453,7 @@ async fn a_new_download_waits_for_the_cancelled_task_of_the_same_model() {
             .wait_idle("two", Duration::from_millis(50))
             .await
     );
-    setup.downloads.inner.task_ended(model);
+    setup.downloads.inner.task_ended(model.id);
     setup.wait_state("two", Done).await;
 
     // Pour de vrai : annulé puis relancé aussitôt, le fichier est intact.
@@ -488,10 +496,16 @@ async fn dismissing_a_failed_or_cancelled_download_deletes_its_parts() {
     assert!(setup.downloads.wait_idle("slow", WAIT).await);
     let part = part_path(&setup.file("slow", "slow.bin"));
     assert!(part.exists());
-    setup.downloads.inner.state.lock().busy.insert(model.id);
+    setup
+        .downloads
+        .inner
+        .state
+        .lock()
+        .busy
+        .insert(model.id.into());
     setup.downloads.dismiss("slow");
     assert!(part.exists());
-    setup.downloads.inner.task_ended(model);
+    setup.downloads.inner.task_ended(model.id);
     assert!(!part.exists());
 }
 
@@ -604,4 +618,99 @@ fn urls_point_at_the_pinned_revision() {
         file_url(DEFAULT_BASE_URL, model, &model.files[0]),
         "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.bin"
     );
+}
+
+/// Modèles d'images : une tâche annulée qui vit encore occupe sa place
+/// (`count_ending_tasks`) ; sans l'option (dictée, voix), elle ne compte pas.
+#[tokio::test]
+async fn an_ending_task_keeps_its_place_when_asked() {
+    for counted in [false, true] {
+        let setup = setup(1).await;
+        let downloads = SpeechDownloads::with_options(
+            |_| {},
+            setup.root.path().to_path_buf(),
+            Options {
+                max_running: 1,
+                base_url: Some(setup.server.url.clone()),
+                find: Arc::new(find_item),
+                count_ending_tasks: counted,
+                ..Options::default()
+            },
+        );
+        downloads.simulate_task("slow");
+        downloads.download("two").unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let state = |downloads: &SpeechDownloads| downloads.list()[0].state;
+        if counted {
+            assert_eq!(state(&downloads), Queued);
+            downloads.end_task("slow");
+        }
+        let deadline = Instant::now() + WAIT;
+        while state(&downloads) != Done {
+            assert!(Instant::now() < deadline, "{:?}", downloads.list());
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+}
+
+/// Un élément mis en file tel quel (modèles d'images) range ses fichiers où
+/// il le dit ; « Try again » reprend l'élément de l'entrée échouée.
+#[tokio::test]
+async fn an_enqueued_item_is_stored_where_it_says_and_retried() {
+    struct Item(Vec<ItemFile>);
+    impl DownloadItem for Item {
+        fn id(&self) -> &str {
+            "custom"
+        }
+        fn name(&self) -> &str {
+            "Custom"
+        }
+        fn files(&self, base: Option<&str>) -> Vec<ItemFile> {
+            let base = base.unwrap_or("http://127.0.0.1:9");
+            self.0
+                .iter()
+                .cloned()
+                .map(|mut file| {
+                    file.url = format!("{base}/{REPO}/resolve/{REVISION}/{}", file.path);
+                    file
+                })
+                .collect()
+        }
+    }
+    let setup = setup(1).await;
+    let file = |name: &str, size: usize, local: &str| ItemFile {
+        path: name.into(),
+        size: size as u64,
+        sha256: sha256_hex(&content(name, size)),
+        local: PathBuf::from(local),
+        url: String::new(),
+    };
+    setup.server.serve("two-b.bin", Serve::CutAfter(1000));
+    setup.downloads.enqueue(Arc::new(Item(vec![
+        file("two-a.bin", 100_000, "blobs/a/two-a.bin"),
+        file("two-b.bin", 50_000, "blobs/b/two-b.bin"),
+    ])));
+    setup.wait_state("custom", Failed).await;
+    assert!(setup.root.path().join("blobs/a/two-a.bin").is_file());
+    setup.server.serve("two-b.bin", Serve::Normal);
+    // Inconnu du catalogue : l'élément de l'entrée est repris.
+    setup.downloads.download("custom").unwrap();
+    setup.wait_state("custom", Done).await;
+    assert_eq!(
+        std::fs::read(setup.root.path().join("blobs/b/two-b.bin")).unwrap(),
+        content("two-b.bin", 50_000)
+    );
+    // Retiré après un échec : les `.part` et leurs dossiers vides partent,
+    // jusqu'au dossier de la file.
+    setup.server.serve("slow.bin", Serve::CutAfter(1000));
+    setup.downloads.enqueue(Arc::new(Item(vec![file(
+        "slow.bin",
+        400_000,
+        "blobs/c/slow.bin",
+    )])));
+    setup.wait_state("custom", Failed).await;
+    assert!(setup.downloads.wait_idle("custom", WAIT).await);
+    setup.downloads.dismiss("custom");
+    assert!(!setup.root.path().join("blobs/c").exists());
+    assert!(setup.root.path().join("blobs/a/two-a.bin").is_file());
 }

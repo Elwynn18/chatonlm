@@ -5,6 +5,7 @@
     "transcription": "Transcription",
     "polish": "Polish",
     "voices": "Voices",
+    "images": "Images",
     "installed": "Installed",
     "downloads": "Downloads"
   },
@@ -293,6 +294,65 @@
       "loadFailed": "Not available: ONNX Runtime, which reading aloud needs, could not be loaded ({detail})."
     },
     "deleteText": "This removes the voice from this computer. You can download it again later."
+  },
+  "images": {
+    "title": "Image models",
+    "loading": "Loading image models",
+    "intro": "Image models create pictures from your descriptions in a chat. They run inside ChatonLM, not in Ollama.",
+    "machine": {
+      "noEngine": "This version of ChatonLM doesn't include the image engine. You can download models, but not create images.",
+      "missingCpu": "This computer can't create images: its processor lacks instructions the image engine needs ({features}).",
+      "noGpu": "No graphics card found: images will be made by the processor, which takes several minutes each."
+    },
+    "yours": "Your image models",
+    "recommended": "Recommended",
+    "popular": "Popular on Hugging Face",
+    "results": "Results for “{query}”",
+    "noResults": "No image models match your search.",
+    "searchLoading": "Searching Hugging Face",
+    "notSupported": "Not supported",
+    "restricted": "Restricted",
+    "uncensored": "Uncensored",
+    "uncensoredHint": "This model can create explicit or shocking images.",
+    "downloads": {
+      "one": "{count} download",
+      "other": "{count} downloads"
+    },
+    "toDownload": "{size} to download",
+    "license": "License:",
+    "noLicense": "No license stated",
+    "notOpen": "Not an open license: read it before using the model.",
+    "source": "Source:",
+    "use": "Use",
+    "deleteText": "This removes the model from this computer. Files it shares with your other image models are kept.",
+    "deleteTextInUse": "This removes the model from this computer. Image generation won't work until you download it again or choose another image model.",
+    "repo": {
+      "family": "Family",
+      "files": "Choose a file",
+      "components": "Also needed",
+      "componentsHint": "Files this family needs besides the model. They're shared by your models of the same family.",
+      "present": "Already on this computer",
+      "roles": {
+        "model": "Model",
+        "textEncoder": "Text encoder",
+        "vae": "Image decoder (VAE)"
+      },
+      "total": "To download: {size}",
+      "freeSpace": "Free space: {size}",
+      "installed": "This file is installed.",
+      "yourModels": "See your image models",
+      "unsupported": {
+        "unknownFamily": "ChatonLM doesn't recognize this model's family, so it doesn't know which other files it needs.",
+        "gated": "This model needs a Hugging Face account. ChatonLM can't download it.",
+        "noUsableFile": "This repository has no file ChatonLM can use (GGUF, or a single Stable Diffusion file).",
+        "unsupportedFamily": "ChatonLM doesn't support this family of models."
+      },
+      "reason": {
+        "uncensored": "Turn on “Show uncensored models” in <link>Settings › Models</link> to download this model.",
+        "cpu": "This computer's processor lacks instructions the image engine needs ({features}).",
+        "space": "Not enough free space: {needed} needed, {free} free."
+      }
+    }
   },
   "polish": {
     "intro": "A second model cleans up the transcript: punctuation, filler words, self-corrections. If its answer does not look like what you said, the raw transcript is copied instead.",

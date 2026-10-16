@@ -2,17 +2,17 @@
 //! Ollama (`hf.co/<auteur>/<dépôt>:<étiquette>`) et modèles installés.
 //! Contrat : `.tools/research/37-step15a-contract.md`.
 
-mod cache;
+pub(crate) mod cache;
 mod capabilities;
 pub mod catalog;
-mod curation;
+pub(crate) mod curation;
 pub mod downloads;
 pub mod errors;
 mod fit;
-mod flight;
+pub(crate) mod flight;
 mod gguf;
 pub mod hardware;
-mod hf;
+pub(crate) mod hf;
 pub mod installed;
 pub mod manifest;
 pub mod names;

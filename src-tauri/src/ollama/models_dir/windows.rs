@@ -17,8 +17,6 @@
 use std::path::{Path, PathBuf};
 
 use url::Url;
-use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-use windows::core::PCWSTR;
 
 use super::rules::{self, Listener, SystemFolders};
 use super::{
@@ -27,7 +25,6 @@ use super::{
 use crate::ollama::client::{self, Probe};
 use crate::ollama::detect;
 use crate::ollama::host::windows::{find_app, listener_pid, process_image, processes};
-use crate::os_util::wide_os;
 
 /// Port par défaut d'Ollama, celui que sert l'app de bureau.
 const STANDARD_PORT: u16 = 11434;
@@ -227,7 +224,7 @@ pub fn check_folder(raw: &str, detection: &Detection) -> FolderCheck {
     check.same_drive = check.old.as_deref().is_some_and(|old| {
         rules::volume(old).is_some() && rules::volume(old) == rules::volume(&path)
     });
-    check.free_bytes = free_space(&at);
+    check.free_bytes = crate::disk::free_space(&at);
     check.commands = match &detection.location {
         ModelsLocation::Manual { host_env, .. } => {
             Some(rules::manual_command(&path, host_env.as_deref()))
@@ -235,13 +232,4 @@ pub fn check_folder(raw: &str, detection: &Detection) -> FolderCheck {
         _ => None,
     };
     check
-}
-
-/// Place libre pour l'utilisateur (quotas compris).
-fn free_space(path: &Path) -> Option<u64> {
-    let path = wide_os(path);
-    let mut free = 0u64;
-    // SAFETY : chemin UTF-16 terminé par un zéro, sortie de 8 octets.
-    unsafe { GetDiskFreeSpaceExW(PCWSTR(path.as_ptr()), Some(&mut free), None, None) }.ok()?;
-    Some(free)
 }

@@ -1,6 +1,9 @@
 //! Faux Hugging Face pour les tests du ModelHub : API des modèles (liste,
 //! recherche, tri, curseur `Link`, ETag), fiche avec tailles, README (`raw/`),
-//! en-tête GGUF synthétique (`resolve/`, requêtes Range), registre d'Ollama
+//! en-tête GGUF synthétique (`resolve/`, requêtes Range), dépôts d'images
+//! (`fixtures/hf/images.json` : fichiers au vrai contenu déterministe,
+//! `lfs.sha256` exact, Range ; filtres `pipeline_tag` et `filter=gguf`,
+//! fiche à une révision), registre d'Ollama
 //! (`/v2/<auteur>/<dépôt>/manifests/<étiquette>`, erreurs exactes du vrai) et
 //! page d'état (`/index.json`). Serveur à part du faux Ollama, sur son propre
 //! port. Dépôts : `fixtures/hf/repos.json` (réduits des échantillons réels de
@@ -164,8 +167,69 @@ static DATA: LazyLock<Value> = LazyLock::new(|| {
 /// README réel de Qwen/Qwen3-8B-GGUF (en-tête YAML compris).
 const README_QWEN3_8B: &str = include_str!("../fixtures/hf/readme-qwen3-8b.md");
 
+/// Dépôts d'images (modèles d'images de l'app, contrat 83 § 7).
+static IMAGES: LazyLock<Value> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../fixtures/hf/images.json")).expect("valid images.json")
+});
+
+/// Familles d'essai qui citent les pièces des dépôts d'images
+/// (`CHATONLM_IMAGE_FAMILIES` de l'app).
+pub const IMAGE_FAMILIES: &str = include_str!("../fixtures/hf/image-families.json");
+
+/// Tous les dépôts : ceux du ModelHub, puis ceux d'images.
+static REPOS: LazyLock<Vec<Value>> = LazyLock::new(|| {
+    let mut all = DATA["repos"].as_array().expect("repos").clone();
+    all.extend(
+        IMAGES["repos"]
+            .as_array()
+            .expect("image repos")
+            .iter()
+            .cloned(),
+    );
+    all
+});
+
 fn repos() -> &'static [Value] {
-    DATA["repos"].as_array().expect("repos")
+    &REPOS
+}
+
+/// Dépôt d'images : ses fichiers ont un vrai contenu.
+fn has_content(repo: &Value) -> bool {
+    repo["content"].as_bool().unwrap_or(false)
+}
+
+/// Contenu déterministe d'un fichier d'un dépôt d'images (`size` octets).
+fn blob_content(repo: &str, path: &str, size: usize) -> Vec<u8> {
+    let seed = fnv(format!("{repo}/{path}").as_bytes());
+    (0..size)
+        .map(|i| ((seed >> ((i % 8) * 8)) as u8) ^ (i as u8).wrapping_mul(31))
+        .collect()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// Fichier d'un dépôt d'images, tel que le faux le sert ; `None` : dépôt ou
+/// fichier inconnu.
+pub fn image_blob(repo: &str, path: &str) -> Option<Vec<u8>> {
+    let found = find(repo).filter(|found| has_content(found))?;
+    let id = found["id"].as_str()?;
+    let (_, size) = files(found).into_iter().find(|(name, _)| *name == path)?;
+    Some(blob_content(id, path, size as usize))
+}
+
+/// Fichier sans `lfs` (pas d'empreinte dans la fiche).
+fn without_lfs(repo: &Value, path: &str) -> bool {
+    repo["files"].as_array().is_some_and(|files| {
+        files
+            .iter()
+            .any(|file| file[0].as_str() == Some(path) && file[2].as_str() == Some("nolfs"))
+    })
 }
 
 fn find(id: &str) -> Option<&'static Value> {
@@ -339,6 +403,10 @@ async fn handle(
     match segments.as_slice() {
         ["api", "models"] => list(&shared, query, &headers),
         ["api", "models", author, name] => detail(&format!("{author}/{name}"), &headers),
+        // Fiche à une révision : la même (le faux n'a qu'un commit).
+        ["api", "models", author, name, "revision", _revision] => {
+            detail(&format!("{author}/{name}"), &headers)
+        }
         ["v2", author, name, "manifests", tag] => manifest(&format!("{author}/{name}"), tag),
         [author, name, "raw", _revision, "README.md"] => {
             readme(&format!("{author}/{name}"), &headers)
@@ -437,7 +505,19 @@ fn api_repo(repo: &Value, detail: bool) -> Value {
         .chain(files(repo))
         .chain(repo["readme"].as_str().map(|_| ("README.md", 7577)))
         .map(|(name, size)| {
-            if detail {
+            if detail && has_content(repo) {
+                let sha = sha256_hex(&blob_content(id, name, size as usize));
+                if without_lfs(repo, name) || !files(repo).iter().any(|(file, _)| *file == name) {
+                    json!({ "rfilename": name, "blobId": &sha[..40], "size": size })
+                } else {
+                    json!({
+                        "rfilename": name,
+                        "blobId": &sha[..40],
+                        "size": size,
+                        "lfs": { "sha256": sha, "size": size, "pointerSize": 134 }
+                    })
+                }
+            } else if detail {
                 let sha = digest(&format!("{id}/{name}"));
                 json!({
                     "rfilename": name,
@@ -511,9 +591,18 @@ fn list(shared: &Shared, query: &str, headers: &HeaderMap) -> Response {
         .map(str::to_lowercase)
         .collect();
     let ollama = get("apps") == Some("ollama");
+    let pipeline = get("pipeline_tag");
+    let gguf_only = get("filter") == Some("gguf");
     let mut found: Vec<&Value> = repos()
         .iter()
         .filter(|repo| !ollama || repo["context_length"].is_u64())
+        .filter(|repo| pipeline.is_none_or(|tag| repo["pipeline_tag"].as_str() == Some(tag)))
+        .filter(|repo| {
+            !gguf_only
+                || repo["tags"]
+                    .as_array()
+                    .is_some_and(|tags| tags.iter().any(|tag| tag == "gguf"))
+        })
         .filter(|repo| {
             let id = repo["id"].as_str().unwrap_or_default().to_lowercase();
             words.iter().all(|word| id.contains(word.as_str()))
@@ -729,17 +818,30 @@ fn resolve(id: &str, file: &str, headers: &HeaderMap) -> Response {
     if is_gated(repo) {
         return restricted(id, false);
     }
-    if !files(repo).iter().any(|(name, _)| *name == file) {
+    let Some((_, size)) = files(repo).into_iter().find(|(name, _)| *name == file) else {
         return error(StatusCode::NOT_FOUND, "Entry not found");
-    }
-    let body = gguf_header(repo);
+    };
+    let body = if has_content(repo) {
+        blob_content(repo["id"].as_str().unwrap_or(id), file, size as usize)
+    } else {
+        gguf_header(repo)
+    };
     let total = body.len();
+    // `bytes=a-b`, ou `bytes=a-` (la suite, reprise d'un téléchargement).
     let range = headers
         .get(header::RANGE)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("bytes="))
         .and_then(|value| value.split_once('-'))
-        .and_then(|(start, end)| Some((start.parse::<usize>().ok()?, end.parse::<usize>().ok()?)));
+        .and_then(|(start, end)| {
+            let start = start.parse::<usize>().ok()?;
+            let end = if end.is_empty() {
+                total.saturating_sub(1)
+            } else {
+                end.parse::<usize>().ok()?
+            };
+            Some((start, end))
+        });
     match range {
         Some((start, end)) if start < total && start <= end => {
             let end = end.min(total - 1);
@@ -1175,6 +1277,125 @@ mod tests {
         // Le journal se lit aussi en HTTP.
         let (_, _, body) = get(&fake, "/fake/requests", "").await;
         assert_eq!(body_json(&body).as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn image_repos_are_filtered_and_their_files_served_with_real_checksums() {
+        let fake = FakeHf::start(HfMode::Normal).await.unwrap();
+        let ids = |body: &[u8]| -> Vec<String> {
+            body_json(body)
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|repo| repo["id"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        let (_, _, body) = get(
+            &fake,
+            "/api/models?pipeline_tag=text-to-image&filter=gguf&search=chatonlm&sort=downloads",
+            "",
+        )
+        .await;
+        let gguf = ids(&body);
+        assert_eq!(gguf[0], "chatonlm/klein-test-GGUF");
+        assert!(!gguf.contains(&"chatonlm/Tiny-SDXL".to_owned()));
+        assert!(!gguf.contains(&"chatonlm/tiny-text-encoder".to_owned()));
+        let (_, _, body) = get(
+            &fake,
+            "/api/models?pipeline_tag=text-to-image&search=sdxl",
+            "",
+        )
+        .await;
+        assert_eq!(
+            ids(&body),
+            ["chatonlm/Tiny-SDXL", "chatonlm/Tiny-SDXL-LoRA"]
+        );
+        // Sans filtre d'images ni `apps=ollama` : rien ne change pour le
+        // ModelHub.
+        let (_, _, body) = get(&fake, "/api/models?apps=ollama&search=klein", "").await;
+        assert!(ids(&body).is_empty());
+
+        let (status, _, body) = get(
+            &fake,
+            "/api/models/chatonlm/klein-test-GGUF/revision/main?blobs=true",
+            "",
+        )
+        .await;
+        assert_eq!(status, 200);
+        let detail = body_json(&body);
+        let sibling = |name: &str| {
+            detail["siblings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|sibling| sibling["rfilename"] == name)
+                .unwrap()
+                .clone()
+        };
+        let content = image_blob("chatonlm/klein-test-GGUF", "tiny-klein-Q4_0.gguf").unwrap();
+        assert_eq!(content.len(), 3000);
+        assert_eq!(
+            sibling("tiny-klein-Q4_0.gguf")["lfs"]["sha256"],
+            sha256_hex(&content)
+        );
+        assert!(sibling("tiny-klein-Q5_K_M.gguf").get("lfs").is_none());
+        assert_eq!(
+            detail["cardData"]["base_model"][0],
+            "black-forest-labs/FLUX.2-klein-4B"
+        );
+
+        let (status, _, body) = get(
+            &fake,
+            "/chatonlm/klein-test-GGUF/resolve/abc/tiny-klein-Q4_0.gguf",
+            "",
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(body, content);
+        let (status, head, body) = get(
+            &fake,
+            "/chatonlm/klein-test-GGUF/resolve/abc/tiny-klein-Q4_0.gguf",
+            "Range: bytes=1000-\r\n",
+        )
+        .await;
+        assert_eq!(status, 206);
+        assert!(
+            head.contains("content-range: bytes 1000-2999/3000"),
+            "{head}"
+        );
+        assert_eq!(body, &content[1000..]);
+        let (status, _, _) = get(
+            &fake,
+            "/chatonlm/gated-image-GGUF/resolve/abc/restricted-Q4_0.gguf",
+            "",
+        )
+        .await;
+        assert_eq!(status, 401);
+    }
+
+    /// Les familles d'essai citent les vraies empreintes des pièces servies.
+    #[test]
+    fn test_families_match_the_served_pieces() {
+        let families: Value = serde_json::from_str(IMAGE_FAMILIES).unwrap();
+        let mut pinned: Vec<&Value> = families["pieces"].as_object().unwrap().values().collect();
+        pinned.extend(families["recommendations"].as_array().unwrap());
+        assert!(pinned.len() >= 4);
+        for piece in pinned {
+            let repo = piece["repo"].as_str().unwrap();
+            let file = piece["file"].as_str().unwrap();
+            let content = image_blob(repo, file).unwrap_or_else(|| panic!("{repo}/{file}"));
+            assert_eq!(piece["size"].as_u64(), Some(content.len() as u64), "{file}");
+            assert_eq!(
+                piece["sha256"].as_str(),
+                Some(sha256_hex(&content).as_str()),
+                "{file}"
+            );
+            assert_eq!(
+                piece["revision"].as_str(),
+                find(repo).and_then(|found| found["sha"].as_str()),
+                "{file}"
+            );
+        }
     }
 
     #[test]

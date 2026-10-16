@@ -367,6 +367,10 @@
     "exclude": "nsfw|erotic|lewd|roleplay|(^|[-_])rp([-_]|$)|jailbr|text-?encoder|(^|[-_])image([-_]|$)",
     "makers": ["huihui-ai", "p-e-w", "mlabonne", "failspy", "llmfan46"]
   },
+  "images": {
+    "about": "Modèles d'images (.tools/research/83-image-models-contract.md § 5) : dépôt non censuré si son identifiant ou celui d'un de ses modèles de base contient l'un de ces mots ; retiré de la recherche sans le réglage showUncensored.",
+    "uncensoredWords": "uncensor|nsfw|abliterat|lewd|hentai|porn|nude|naked|explicit|erotic|xxx"
+  },
   "openLicenses": [
     "apache-2.0",
     "mit",
