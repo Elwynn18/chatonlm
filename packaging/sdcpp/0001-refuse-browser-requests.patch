@@ -1,12 +1,18 @@
 diff --git a/examples/server/main.cpp b/examples/server/main.cpp
-index ddfd733..ff3a735 100644
+index ddfd733..1b9aeeb 100644
 --- a/examples/server/main.cpp
 +++ b/examples/server/main.cpp
-@@ -120,7 +120,15 @@ int main(int argc, const char** argv) {
+@@ -119,8 +119,20 @@ int main(int argc, const char** argv) {
+     std::thread async_worker(async_job_worker, std::ref(runtime));
  
      httplib::Server svr;
- 
+-
 -    svr.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
++    // ChatonLM: one request per connection. A refused request's body is never
++    // read; with keep-alive it would be parsed as a second request (smuggling
++    // past the Origin check below).
++    svr.set_keep_alive_max_count(1);
++
 +    svr.set_pre_routing_handler([&svr_params](const httplib::Request& req, httplib::Response& res) {
 +        // ChatonLM: only the app talks to this server. A request from a web page
 +        // (Origin header) or for another host name (DNS rebinding) is refused.

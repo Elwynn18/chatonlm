@@ -1,0 +1,316 @@
+{
+  "about": "Familles de modèles d'images connues de ChatonLM (.tools/research/83-image-models-contract.md § 4) : modèles de base Hugging Face qui les désignent, fichiers acceptés, pièces annexes épinglées (révision, taille et SHA-256 relevés sur l'API le 16 oct. 2026) et réglages d'échantillonnage. unsupported : motif des modèles de base écartés (Gemma, LTX, Qwen-Image-2.1, vidéo). recommendations : modèles proposés sans réseau.",
+  "pieces": {
+    "qwen3-4b": {
+      "role": "textEncoder",
+      "component": "llm",
+      "repo": "unsloth/Qwen3-4B-GGUF",
+      "revision": "22c9fc8a8c7700b76a1789366280a6a5a1ad1120",
+      "file": "Qwen3-4B-Q4_K_M.gguf",
+      "size": 2497281312,
+      "sha256": "f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a",
+      "license": "apache-2.0"
+    },
+    "qwen3-8b": {
+      "role": "textEncoder",
+      "component": "llm",
+      "repo": "unsloth/Qwen3-8B-GGUF",
+      "revision": "a6adef130ffb23ddaf1a62fec9dced968c9bc482",
+      "file": "Qwen3-8B-Q4_K_M.gguf",
+      "size": 5027784512,
+      "sha256": "120307ba529eb2439d6c430d94104dabd578497bc7bfe7e322b5d9933b449bd4",
+      "license": "apache-2.0"
+    },
+    "flux2-vae": {
+      "role": "vae",
+      "component": "vae",
+      "repo": "black-forest-labs/FLUX.2-small-decoder",
+      "revision": "a3efc24f613ef42d9428af62fdbd6f5fd8856c4a",
+      "file": "full_encoder_small_decoder.safetensors",
+      "size": 249519092,
+      "sha256": "ea4273f02d1fafbf8e1d1c2cf6018ed8748652eb0bf34f2dd91171f16f15ab62",
+      "license": "apache-2.0"
+    },
+    "qwen3-4b-instruct": {
+      "role": "textEncoder",
+      "component": "llm",
+      "repo": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+      "revision": "a06e946bb6b655725eafa393f4a9745d460374c9",
+      "file": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "size": 2497281120,
+      "sha256": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+      "license": "apache-2.0"
+    },
+    "flux-ae": {
+      "role": "vae",
+      "component": "vae",
+      "repo": "Comfy-Org/z_image_turbo",
+      "revision": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+      "file": "split_files/vae/ae.safetensors",
+      "size": 335304388,
+      "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+      "license": "apache-2.0"
+    },
+    "t5xxl": {
+      "role": "textEncoder",
+      "component": "t5xxl",
+      "repo": "city96/t5-v1_1-xxl-encoder-gguf",
+      "revision": "005a6ea51a7d0b84d677b3e633bb52a8c85a83d9",
+      "file": "t5-v1_1-xxl-encoder-Q4_K_M.gguf",
+      "size": 2896123072,
+      "sha256": "6be2b0b7e2de7cf2919340c88cb802a103a997ce46c53131cec91958c1db1af4",
+      "license": "apache-2.0"
+    },
+    "clip-l": {
+      "role": "textEncoder",
+      "component": "clipL",
+      "repo": "comfyanonymous/flux_text_encoders",
+      "revision": "6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5",
+      "file": "clip_l.safetensors",
+      "size": 246144152,
+      "sha256": "660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd",
+      "license": "apache-2.0"
+    },
+    "qwen25-vl": {
+      "role": "textEncoder",
+      "component": "llm",
+      "repo": "mradermacher/Qwen2.5-VL-7B-Instruct-GGUF",
+      "revision": "cfa2baa09946b211c107e6e104948987a64dd2c1",
+      "file": "Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf",
+      "size": 4683072512,
+      "sha256": "0f00a930ba3108b6861ddadf74d8ebbd82e257c63eba728e62c3e8970f5eed94",
+      "license": null
+    },
+    "qwen-image-vae": {
+      "role": "vae",
+      "component": "vae",
+      "repo": "Comfy-Org/Qwen-Image_ComfyUI",
+      "revision": "1f12b17be14c89b026c51a91d67c32f84bb047bc",
+      "file": "split_files/vae/qwen_image_vae.safetensors",
+      "size": 253806246,
+      "sha256": "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f",
+      "license": "apache-2.0"
+    },
+    "sdxl-vae": {
+      "role": "vae",
+      "component": "vae",
+      "repo": "madebyollin/sdxl-vae-fp16-fix",
+      "revision": "207b116dae70ace3637169f1ddd2434b91b3a8cd",
+      "file": "sdxl_vae.safetensors",
+      "size": 334641162,
+      "sha256": "235745af8d86bf4a4c1b5b4f529868b37019a10f7c0b2e79ad0abca3a22bc6e1",
+      "license": "mit"
+    }
+  },
+  "families": [
+    {
+      "id": "flux2-klein-4b",
+      "name": "FLUX.2 klein 4B",
+      "bases": ["black-forest-labs/FLUX.2-klein-4B"],
+      "singleFile": false,
+      "model": "diffusionModel",
+      "pieces": ["qwen3-4b", "flux2-vae"],
+      "sampling": {
+        "steps": 4,
+        "cfg": 1.0,
+        "sampleMethod": null,
+        "scheduler": null,
+        "flowShift": null
+      },
+      "options": []
+    },
+    {
+      "id": "flux2-klein-base-4b",
+      "name": "FLUX.2 klein base 4B",
+      "bases": ["black-forest-labs/FLUX.2-klein-base-4B"],
+      "singleFile": false,
+      "model": "diffusionModel",
+      "pieces": ["qwen3-4b", "flux2-vae"],
+      "sampling": {
+        "steps": 20,
+        "cfg": 4.0,
+        "sampleMethod": null,
+        "scheduler": null,
+        "flowShift": null
+      },
+      "options": []
+    },
+    {
+      "id": "flux2-klein-9b",
+      "name": "FLUX.2 klein 9B",
+      "bases": ["black-forest-labs/FLUX.2-klein-9B"],
+      "singleFile": false,
+      "model": "diffusionModel",
+      "pieces": ["qwen3-8b", "flux2-vae"],
+      "sampling": {
+        "steps": 4,
+        "cfg": 1.0,
+        "sampleMethod": null,
+        "scheduler": null,
+        "flowShift": null
+      },
+      "options": []
+    },
+    {
+      "id": "z-image-turbo",
+      "name": "Z-Image-Turbo",
+      "bases": ["Tongyi-MAI/Z-Image-Turbo"],
+      "singleFile": false,
+      "model": "diffusionModel",
+      "pieces": ["qwen3-4b-instruct", "flux-ae"],
+      "sampling": {
+        "steps": 8,
+        "cfg": 1.0,
+        "sampleMethod": null,
+        "scheduler": null,
+        "flowShift": null
+      },
+      "options": []
+    },
+    {
+      "id": "z-image",
+      "name": "Z-Image",
+      "bases": ["Tongyi-MAI/Z-Image"],
+      "singleFile": false,
+      "model": "diffusionModel",
+      "pieces": ["qwen3-4b-instruct", "flux-ae"],
+      "sampling": {
+        "steps": 28,
+        "cfg": 5.0,
+        "sampleMethod": null,
+        "scheduler": null,
+        "flowShift": null
+      },
+      "options": []
+    },
+    {
+      "id": "flux1-schnell",
+      "name": "FLUX.1 schnell",
+      "bases": ["black-forest-labs/FLUX.1-schnell"],
+      "singleFile": false,
+      "model": "diffusionModel",
+      "pieces": ["t5xxl", "clip-l", "flux-ae"],
+      "sampling": {
+        "steps": 4,
+        "cfg": 1.0,
+        "sampleMethod": "euler",
+        "scheduler": null,
+        "flowShift": null
+      },
+      "options": []
+    },
+    {
+      "id": "flux1-dev",
+      "name": "FLUX.1 dev",
+      "bases": ["black-forest-labs/FLUX.1-dev"],
+      "singleFile": false,
+      "model": "diffusionModel",
+      "pieces": ["t5xxl", "clip-l", "flux-ae"],
+      "sampling": {
+        "steps": 20,
+        "cfg": 1.0,
+        "sampleMethod": "euler",
+        "scheduler": null,
+        "flowShift": null
+      },
+      "options": []
+    },
+    {
+      "id": "chroma",
+      "name": "Chroma",
+      "bases": [
+        "lodestones/Chroma",
+        "lodestones/Chroma1-HD",
+        "lodestones/Chroma1-Base"
+      ],
+      "singleFile": false,
+      "model": "diffusionModel",
+      "pieces": ["t5xxl", "flux-ae"],
+      "sampling": {
+        "steps": 26,
+        "cfg": 4.0,
+        "sampleMethod": "euler",
+        "scheduler": null,
+        "flowShift": null
+      },
+      "options": ["--model-args", "chroma_use_dit_mask=false"]
+    },
+    {
+      "id": "qwen-image",
+      "name": "Qwen-Image",
+      "bases": ["Qwen/Qwen-Image", "Qwen/Qwen-Image-2512"],
+      "singleFile": false,
+      "model": "diffusionModel",
+      "pieces": ["qwen25-vl", "qwen-image-vae"],
+      "sampling": {
+        "steps": 20,
+        "cfg": 2.5,
+        "sampleMethod": "euler",
+        "scheduler": null,
+        "flowShift": 3.0
+      },
+      "options": []
+    },
+    {
+      "id": "sdxl",
+      "name": "Stable Diffusion XL",
+      "bases": ["stabilityai/stable-diffusion-xl-base-1.0"],
+      "singleFile": true,
+      "minSize": 4000000000,
+      "model": "model",
+      "pieces": ["sdxl-vae"],
+      "sampling": {
+        "steps": 25,
+        "cfg": 6.0,
+        "sampleMethod": null,
+        "scheduler": null,
+        "flowShift": null
+      },
+      "options": []
+    },
+    {
+      "id": "sd15",
+      "name": "Stable Diffusion 1.5",
+      "bases": [
+        "stable-diffusion-v1-5/stable-diffusion-v1-5",
+        "runwayml/stable-diffusion-v1-5",
+        "CompVis/stable-diffusion-v1-4"
+      ],
+      "singleFile": true,
+      "minSize": 1500000000,
+      "model": "model",
+      "pieces": [],
+      "sampling": {
+        "steps": 25,
+        "cfg": 7.0,
+        "sampleMethod": null,
+        "scheduler": null,
+        "flowShift": null
+      },
+      "options": []
+    }
+  ],
+  "unsupported": "(^|/)gemma|(^|/)ltx|ltx-?2|qwen-image-2\\.1|(^|/)wan-ai/|(^|/)wan2|hunyuan-?video",
+  "recommendations": [
+    {
+      "repo": "leejet/FLUX.2-klein-4B-GGUF",
+      "revision": "3b1f5a9dc3abb32238b053aeb3d823c30afdacbd",
+      "file": "flux-2-klein-4b-Q4_0.gguf",
+      "size": 2460378560,
+      "sha256": "d1023499ef3f2f82ff7c50e6778495195c1b6cc34835741778868428111f9ff4",
+      "license": "apache-2.0",
+      "family": "flux2-klein-4b",
+      "name": "FLUX.2 klein 4B"
+    },
+    {
+      "repo": "leejet/Z-Image-Turbo-GGUF",
+      "revision": "c61c0e422dc8b541b7548cf33a4ef8302b0f8085",
+      "file": "z_image_turbo-Q4_K.gguf",
+      "size": 3864250304,
+      "sha256": "14b375ab4f226bc5378f68f37e899ef3c2242b8541e61e2bc1aff40976086fbd",
+      "license": "apache-2.0",
+      "family": "z-image-turbo",
+      "name": "Z-Image-Turbo"
+    }
+  ]
+}

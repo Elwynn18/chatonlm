@@ -101,7 +101,7 @@ index 9799a87..0000000
 -
 -#endif  // __SD_CORE_RNG_PHILOX_HPP__
 diff --git a/src/pipeline/diffusion_engine.cpp b/src/pipeline/diffusion_engine.cpp
-index cdb6e90..af9aa0f 100644
+index cdb6e90..57b1508 100644
 --- a/src/pipeline/diffusion_engine.cpp
 +++ b/src/pipeline/diffusion_engine.cpp
 @@ -24,7 +24,7 @@
@@ -118,7 +118,7 @@ index cdb6e90..af9aa0f 100644
  
  StableDiffusionGGML::StableDiffusionGGML()
 -    : rng(std::make_shared<PhiloxRNG>()),
-+    : rng(std::make_shared<STDDefaultRNG>()),
++    : rng(std::make_shared<MT19937RNG>()),
        conditioning_cache_(std::make_unique<ConditioningCache>()),
        denoiser(std::make_shared<CompVisDenoiser>()) {}
  
@@ -128,35 +128,36 @@ index cdb6e90..af9aa0f 100644
          return std::make_shared<MT19937RNG>();
 -    } else {  // default: CUDA_RNG
 -        return std::make_shared<PhiloxRNG>();
-+    } else {  // CUDA_RNG: ChatonLM build without the Philox port, std::default_random_engine instead
-+        return std::make_shared<STDDefaultRNG>();
++    } else {  // CUDA_RNG: ChatonLM build without the Philox port; the MT19937 generator (same on every system) instead
++        return std::make_shared<MT19937RNG>();
      }
  }
  
 diff --git a/src/pipeline/video.cpp b/src/pipeline/video.cpp
-index 2fcff4c..5b88167 100644
+index 2fcff4c..d57ee5e 100644
 --- a/src/pipeline/video.cpp
 +++ b/src/pipeline/video.cpp
-@@ -7,7 +7,7 @@
+@@ -7,7 +7,8 @@
  
  #include "conditioning/wan_audio.h"
  #include "core/rng.hpp"
 -#include "core/rng_philox.hpp"
++#include "core/rng_mt19937.hpp"
 +#include "core/rng.hpp"
  #include "diffusion_engine.h"
  #include "model/diffusion/minimax_h3.hpp"
  #include "model/upscaler/ltx_latent_upscaler.hpp"
-@@ -510,7 +510,7 @@ namespace sd::pipeline {
+@@ -510,7 +511,7 @@ namespace sd::pipeline {
              }
  
              auto add_visual_noise = [&](sd::Tensor<float> latent) {
 -                auto condition_rng = std::make_shared<PhiloxRNG>();
-+                auto condition_rng = std::make_shared<STDDefaultRNG>();
++                auto condition_rng = std::make_shared<MT19937RNG>();
                  condition_rng->manual_seed(static_cast<uint64_t>(request->seed));
                  return latent * MiniMaxH3::VISUAL_COND_TIMESTEP +
                         sd::Tensor<float>::randn_like(latent, condition_rng) *
 diff --git a/src/runtime/denoiser.hpp b/src/runtime/denoiser.hpp
-index 02ebe57..c98d6df 100644
+index 02ebe57..a51025e 100644
 --- a/src/runtime/denoiser.hpp
 +++ b/src/runtime/denoiser.hpp
 @@ -13,7 +13,7 @@
@@ -173,7 +174,7 @@ index 02ebe57..c98d6df 100644
                  node_rng = std::make_shared<STDDefaultRNG>();
              } else if (brownian_tree_rng == "cuda") {
 -                node_rng = std::make_shared<PhiloxRNG>();
-+                node_rng = std::make_shared<STDDefaultRNG>();
++                node_rng = std::make_shared<MT19937RNG>();
              } else {
                  node_rng = std::make_shared<MT19937RNG>();
              }

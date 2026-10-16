@@ -445,7 +445,7 @@ describe("Polish tab", () => {
 });
 
 describe("ModelHub tabs", () => {
-  it("two groups: Discover, Transcription, Polish, Voices; then Installed, Downloads; the current one marked", async () => {
+  it("two groups: Discover, Transcription, Polish, Voices, Images; then Installed, Downloads; the current one marked", async () => {
     const { app } = renderHub("/hub/transcription");
     const nav = await screen.findByRole("navigation", { name: "ModelHub" });
     const texts = (element: HTMLElement) =>
@@ -457,6 +457,7 @@ describe("ModelHub tabs", () => {
       "Transcription",
       "Polish",
       "Voices",
+      "Images",
       "Installed",
       "Downloads",
     ]);
@@ -465,6 +466,7 @@ describe("ModelHub tabs", () => {
       "Transcription",
       "Polish",
       "Voices",
+      "Images",
     ]);
     expect(texts(within(nav).getByTestId("hub-tabs-local"))).toEqual([
       "Installed",

@@ -10,7 +10,8 @@
 // models » : téléchargements des modèles de transcription de la dictée, avec
 // la même règle (catalogue relu sans le modèle : plus installé) ; puis
 // section « Voices » : téléchargements des voix de la lecture à voix haute,
-// même règle.
+// même règle ; enfin section « Image models » : téléchargements des modèles
+// d'images, même règle (modèles relus sans lui : plus installé).
 
 import {
   ArrowDownTrayIcon,
@@ -21,6 +22,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import type { HubDownload } from "@/bindings/HubDownload";
 import { DownloadProgress } from "@/components/hub/DownloadProgress";
+import { ImageDownloadRow } from "@/components/hub/ImageModels";
 import { ModelAvatar } from "@/components/hub/ModelBits";
 import { SpeechDownloadRow } from "@/components/hub/SpeechModels";
 import { VoiceDownloadRow } from "@/components/hub/VoiceModels";
@@ -36,6 +38,7 @@ import {
 } from "@/components/hub/styles";
 import { useSpeechDownloads, useSpeechModels } from "@/hooks/useDictation";
 import { useDownloadActions, useDownloads } from "@/hooks/useDownloads";
+import { useImageDownloads, useImageModels } from "@/hooks/useImageModels";
 import { useVoiceDownloads, useVoiceModels } from "@/hooks/useReadAloud";
 import { isActiveSpeechDownload } from "@/lib/dictation";
 import { useHubInstalled, useUseInChat } from "@/hooks/useHub";
@@ -53,7 +56,9 @@ export function DownloadsList() {
   const installed = useHubInstalled();
   const voices = useVoiceDownloads();
   const voiceModels = useVoiceModels();
-  if (!loaded || !speech.loaded || !voices.loaded) {
+  const images = useImageDownloads();
+  const imageModels = useImageModels();
+  if (!loaded || !speech.loaded || !voices.loaded || !images.loaded) {
     return (
       <div
         className={PAGE}
@@ -70,7 +75,8 @@ export function DownloadsList() {
   if (
     downloads.length === 0 &&
     speech.downloads.length === 0 &&
-    voices.downloads.length === 0
+    voices.downloads.length === 0 &&
+    images.downloads.length === 0
   ) {
     return (
       <EmptyState
@@ -113,6 +119,15 @@ export function DownloadsList() {
     !voiceModels.data.some((voice) => voice.id === id && voice.installed);
   const voiceActive = voices.downloads.filter(isActiveSpeechDownload);
   const voiceFinished = voices.downloads.filter(
+    (download) => !isActiveSpeechDownload(download),
+  );
+  // Même règle pour les modèles d'images.
+  const imageRemoved = (id: string) =>
+    imageModels.data !== undefined &&
+    !imageModels.isFetching &&
+    !imageModels.data.some((model) => model.id === id && model.installed);
+  const imageActive = images.downloads.filter(isActiveSpeechDownload);
+  const imageFinished = images.downloads.filter(
     (download) => !isActiveSpeechDownload(download),
   );
   return (
@@ -175,6 +190,31 @@ export function DownloadsList() {
                   (voice) => voice.id === download.id,
                 )}
                 removed={download.state === "done" && voiceRemoved(download.id)}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
+      {images.downloads.length > 0 && (
+        <section aria-labelledby="image-downloads" className="mt-6">
+          <h2
+            id="image-downloads"
+            className="font-rounded text-lg font-medium text-neutral-900 dark:text-white"
+          >
+            {t("hub.images.title")}
+          </h2>
+          <ul
+            className="mt-3 flex flex-col gap-3"
+            aria-label={t("hub.images.title")}
+          >
+            {[...imageActive, ...imageFinished].map((download) => (
+              <ImageDownloadRow
+                key={download.id}
+                download={download}
+                model={imageModels.data?.find(
+                  (model) => model.id === download.id,
+                )}
+                removed={download.state === "done" && imageRemoved(download.id)}
               />
             ))}
           </ul>

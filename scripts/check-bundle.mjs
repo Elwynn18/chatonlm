@@ -132,8 +132,11 @@ const NOT_PROSE_REASON =
 /**
  * Tailles maximales en octets, non compressées, ≈ 10 % au-dessus du build de
  * l'étape 8 (4 octobre 2026) : surligneur 1 993 089 o, woff2 256 168 o ;
- * entrée : ≈ 10 % au-dessus du build de la lecture à voix haute (9 octobre
- * 2026, 1 415 447 o : bouton sous les réponses, état de la lecture, onglet
+ * entrée : ≈ 10 % au-dessus du build des modèles d'images (16 octobre 2026,
+ * 1 560 307 o : rubrique Images du ModelHub, ses textes en/es/fr chargés
+ * d'emblée et l'écouteur de ses téléchargements ; Easy Link, le contexte et
+ * le pré-prompt avaient rempli la marge précédente), 1 415 447 o à la lecture
+ * à voix haute (9 octobre 2026 : bouton sous les réponses, état de la lecture, onglet
  * des réglages, textes en/es/fr ; la correction, Study et les mises à jour
  * avaient rempli la marge précédente), 1 274 843 o aux langues (6 octobre
  * 2026 : catalogues anglais, espagnol et français, ~100 Ko, chargés d'emblée
@@ -145,7 +148,7 @@ const NOT_PROSE_REASON =
  * l'étape 15a (ModelHub), 90 329 o à l'étape 12, 80 290 o à l'étape 8.
  */
 const LIMITS = {
-  jsEntry: 1_560_000,
+  jsEntry: 1_716_000,
   highlighter: 2_200_000,
   css: 146_000,
   woff2: 280_000,

@@ -6,12 +6,14 @@ mod commands;
 mod context_menu;
 mod desktop;
 mod dictation;
+mod disk;
 mod easy_link;
 mod error;
 mod graphics;
 mod hub;
 mod i18n;
 mod image_gen;
+mod image_models;
 mod ollama;
 mod os_util;
 mod paths;
@@ -178,6 +180,25 @@ pub fn run() {
             )));
             // Catalogue du ModelHub : cache disque sous le dossier des données.
             app.manage(hub::state::Catalog::new(data_dir.join("modelhub")));
+            // Modèles d'images : file des téléchargements (liste complète vers
+            // la page à chaque changement, événement `image-downloads`),
+            // familles et fiches de Hugging Face (même cache que le ModelHub).
+            let image_root = data_dir.join("image-models");
+            let handle = app.handle().clone();
+            let image_downloads = image_models::ImageDownloads::new(
+                move |downloads| {
+                    let _ = handle.emit(image_models::DOWNLOADS_EVENT, downloads);
+                },
+                image_root.clone(),
+            );
+            if let Some(store) = &store {
+                image_downloads.record_installs(store.clone());
+            }
+            app.manage(image_downloads);
+            app.manage(image_models::ImageModels::new(
+                image_root,
+                data_dir.join("modelhub"),
+            ));
             // Dictée : téléchargements des modèles de transcription (liste
             // complète vers la page à chaque changement, événement
             // `speech-downloads` ; statut de la dictée renvoyé quand un modèle
@@ -209,7 +230,7 @@ pub fn run() {
                 voice_models.clone(),
                 dictation::downloads::Options {
                     test_env: tts::VOICE_MODELS_URL_ENV,
-                    find: tts::models::find_item,
+                    find: Arc::new(tts::models::find_item),
                     ..dictation::downloads::Options::default()
                 },
             )));
@@ -393,6 +414,16 @@ pub fn run() {
             commands::hub::hub_readme,
             commands::hub::hub_repo,
             commands::hub::hub_search,
+            commands::image_models::image_cancel_download,
+            commands::image_models::image_delete_model,
+            commands::image_models::image_dismiss_download,
+            commands::image_models::image_download,
+            commands::image_models::image_downloads,
+            commands::image_models::image_machine,
+            commands::image_models::image_models,
+            commands::image_models::image_repo,
+            commands::image_models::image_search,
+            commands::image_models::image_use_model,
             commands::models::get_think_pref,
             commands::models::list_models,
             commands::models::load_model,
@@ -496,8 +527,8 @@ pub fn run() {
 /// s'arrêtent ; les réponses en cours s'arrêtent et s'enregistrent ; les
 /// téléchargements du ModelHub ferment leur requête (Ollama garde les
 /// morceaux : un nouveau clic reprend), comme ceux des modèles de
-/// transcription (`.part` gardés) ; la séance du mode vocal finit (micro
-/// fermé) ; la dictée en cours est abandonnée et son moteur libéré ; puis
+/// transcription, des voix et des modèles d'images (`.part` gardés) ; la
+/// séance du mode vocal finit (micro fermé) ; la dictée en cours est abandonnée et son moteur libéré ; puis
 /// le moteur d'images s'arrête (image en cours abandonnée) ; puis
 /// l'Ollama intégré s'arrête pour de bon (SIGTERM à son
 /// groupe, SIGKILL après 5 s, attente bornée ; plus aucune relance : un .deb
@@ -518,6 +549,7 @@ pub async fn stop_services(app: &AppHandle) {
     let downloads = app.try_state::<HubDownloads>();
     let speech_downloads = app.try_state::<SpeechDownloads>();
     let voice_downloads = app.try_state::<tts::VoiceDownloads>();
+    let image_downloads = app.try_state::<image_models::ImageDownloads>();
     let dictation = app.state::<Dictation>();
     let downloads = async {
         if let Some(downloads) = downloads {
@@ -534,6 +566,11 @@ pub async fn stop_services(app: &AppHandle) {
             downloads.stop_all(EXIT_GRACE).await;
         }
     };
+    let image_downloads = async {
+        if let Some(downloads) = image_downloads {
+            downloads.stop_all(EXIT_GRACE).await;
+        }
+    };
     let images = app.try_state::<image_gen::ImageGen>();
     let images = async {
         if let Some(images) = images {
@@ -546,6 +583,7 @@ pub async fn stop_services(app: &AppHandle) {
         downloads,
         speech_downloads,
         voice_downloads,
+        image_downloads,
         dictation.shutdown(),
         images
     );

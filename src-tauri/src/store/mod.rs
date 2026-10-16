@@ -10,6 +10,7 @@ pub mod chats;
 pub mod desktop;
 pub mod dictation;
 pub mod easy_link;
+pub mod image_models;
 pub mod model_prefs;
 pub mod settings;
 pub mod study;
@@ -53,6 +54,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0023_context.sql"),
     include_str!("../../migrations/0024_show_uncensored.sql"),
     include_str!("../../migrations/0025_system_prompt.sql"),
+    include_str!("../../migrations/0026_image_models.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.

@@ -1,0 +1,406 @@
+{
+  "about": "Dépôts d'images du faux Hugging Face (contrat 83 § 7) : fichiers servis avec un vrai contenu déterministe (fake_ollama::hf::image_blob), lfs.sha256 exact, Range. files : [chemin, taille] ou [chemin, taille, \"nolfs\"] (fichier sans lfs). Familles d'essai : image-families.json (CHATONLM_IMAGE_FAMILIES). Écrit par un script, empreintes vérifiées par les essais du module hf. Tiny-Huge : sans contenu (taille annoncée seulement, refusée faute de place). Tiny-SDXL : un modèle complet, une LoRA et un fichier trop petit à la racine ; Tiny-SDXL-LoRA : adaptateur ; Tiny-Klein-Mixed : une base illisible ; Tiny-Klein-NFAA : tag not-for-all-audiences.",
+  "repos": [
+    {
+      "id": "chatonlm/klein-test-GGUF",
+      "content": true,
+      "downloads": 9000,
+      "likes": 3,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "gguf",
+        "text-to-image",
+        "base_model:quantized:black-forest-labs/FLUX.2-klein-4B",
+        "base_model:black-forest-labs/FLUX.2-klein-4B",
+        "license:apache-2.0"
+      ],
+      "license": "apache-2.0",
+      "sha": "2f4d7ef8a9ee61904f107388c0100329c00fffc3",
+      "files": [
+        [
+          "tiny-klein-Q4_0.gguf",
+          3000
+        ],
+        [
+          "tiny-klein-Q8_0.gguf",
+          5000
+        ],
+        [
+          "tiny-klein-F16.gguf",
+          9000
+        ],
+        [
+          "tiny-klein-Q5_K_M.gguf",
+          4000,
+          "nolfs"
+        ]
+      ],
+      "pipeline_tag": "text-to-image",
+      "base": "black-forest-labs/FLUX.2-klein-4B",
+      "relation": "quantized"
+    },
+    {
+      "id": "chatonlm/uncensored-image-GGUF",
+      "content": true,
+      "downloads": 8000,
+      "likes": 3,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "gguf",
+        "text-to-image",
+        "base_model:quantized:Tongyi-MAI/Z-Image-Turbo",
+        "base_model:Tongyi-MAI/Z-Image-Turbo",
+        "license:apache-2.0"
+      ],
+      "license": "apache-2.0",
+      "sha": "c2b2a4f3b7a533f07ac21d210db70f890db70c23",
+      "files": [
+        [
+          "tiny-zimage-Q4_K.gguf",
+          4000
+        ]
+      ],
+      "pipeline_tag": "text-to-image",
+      "base": "Tongyi-MAI/Z-Image-Turbo",
+      "relation": "quantized"
+    },
+    {
+      "id": "chatonlm/unknown-diffusion-GGUF",
+      "content": true,
+      "downloads": 7000,
+      "likes": 3,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "gguf",
+        "text-to-image",
+        "base_model:quantized:someone/mystery-diffusion",
+        "base_model:someone/mystery-diffusion",
+        "license:apache-2.0"
+      ],
+      "license": "apache-2.0",
+      "sha": "023627c77b762d2038329af6c9ce7c19c9ce78b3",
+      "files": [
+        [
+          "mystery-Q4_0.gguf",
+          1000
+        ]
+      ],
+      "pipeline_tag": "text-to-image",
+      "base": "someone/mystery-diffusion",
+      "relation": "quantized"
+    },
+    {
+      "id": "chatonlm/gated-image-GGUF",
+      "content": true,
+      "downloads": 6000,
+      "likes": 3,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "gguf",
+        "text-to-image",
+        "base_model:quantized:black-forest-labs/FLUX.2-klein-4B",
+        "base_model:black-forest-labs/FLUX.2-klein-4B",
+        "license:apache-2.0"
+      ],
+      "license": "apache-2.0",
+      "sha": "b69977470be021bf26e749b92dd91c142dd91f7a",
+      "files": [
+        [
+          "restricted-Q4_0.gguf",
+          1000
+        ]
+      ],
+      "pipeline_tag": "text-to-image",
+      "base": "black-forest-labs/FLUX.2-klein-4B",
+      "relation": "quantized",
+      "gated": "auto"
+    },
+    {
+      "id": "chatonlm/Tiny-SDXL",
+      "content": true,
+      "downloads": 5000,
+      "likes": 3,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "diffusers",
+        "safetensors",
+        "text-to-image",
+        "base_model:finetune:stabilityai/stable-diffusion-xl-base-1.0",
+        "base_model:stabilityai/stable-diffusion-xl-base-1.0",
+        "license:openrail++"
+      ],
+      "license": "openrail++",
+      "sha": "f33a8efea1588c90a50dadac29771429297710c3",
+      "files": [
+        [
+          "tiny_sdxl.safetensors",
+          6000
+        ],
+        [
+          "tiny_sdxl_offset-lora.safetensors",
+          6000
+        ],
+        [
+          "tiny_small.safetensors",
+          1000
+        ],
+        [
+          "unet/diffusion_pytorch_model.safetensors",
+          3000
+        ]
+      ],
+      "pipeline_tag": "text-to-image",
+      "base": "stabilityai/stable-diffusion-xl-base-1.0",
+      "relation": "finetune"
+    },
+    {
+      "id": "chatonlm/Tiny-Klein-Finetune-GGUF",
+      "content": true,
+      "downloads": 4000,
+      "likes": 3,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "gguf",
+        "text-to-image",
+        "base_model:quantized:chatonlm/Klein-Finetune",
+        "base_model:chatonlm/Klein-Finetune",
+        "license:apache-2.0"
+      ],
+      "license": "apache-2.0",
+      "sha": "a6296443973336118b8b90d9ec0516f6ec051390",
+      "files": [
+        [
+          "klein-finetune-Q4_K_M.gguf",
+          2000
+        ]
+      ],
+      "pipeline_tag": "text-to-image",
+      "base": "chatonlm/Klein-Finetune",
+      "relation": "quantized"
+    },
+    {
+      "id": "chatonlm/Klein-Finetune",
+      "content": true,
+      "downloads": 100,
+      "likes": 3,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "diffusers",
+        "safetensors",
+        "text-to-image",
+        "base_model:finetune:black-forest-labs/FLUX.2-klein-4B",
+        "base_model:black-forest-labs/FLUX.2-klein-4B",
+        "license:apache-2.0"
+      ],
+      "license": "apache-2.0",
+      "sha": "c8e25ada1d663148bed1cb9ff4a5f8d1f4a5f56b",
+      "files": [
+        [
+          "klein-finetune.safetensors",
+          500
+        ]
+      ],
+      "pipeline_tag": "text-to-image",
+      "base": "black-forest-labs/FLUX.2-klein-4B",
+      "relation": "finetune"
+    },
+    {
+      "id": "chatonlm/Tiny-LTX-GGUF",
+      "content": true,
+      "downloads": 3000,
+      "likes": 3,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "gguf",
+        "text-to-image",
+        "base_model:quantized:Lightricks/LTX-2",
+        "base_model:Lightricks/LTX-2",
+        "license:apache-2.0"
+      ],
+      "license": "apache-2.0",
+      "sha": "fd7072ca6e01d3b9a7e6a7f8ed1a8eaeed1a8b48",
+      "files": [
+        [
+          "ltx-Q4_0.gguf",
+          1000
+        ]
+      ],
+      "pipeline_tag": "text-to-image",
+      "base": "Lightricks/LTX-2",
+      "relation": "quantized"
+    },
+    {
+      "id": "chatonlm/tiny-text-encoder",
+      "content": true,
+      "downloads": 10,
+      "likes": 3,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "gguf",
+        "license:apache-2.0"
+      ],
+      "license": "apache-2.0",
+      "sha": "904f0751805f8e7195d7c17d225ed556225ed1f0",
+      "files": [
+        [
+          "tiny-qwen3-Q4_K_M.gguf",
+          2500
+        ]
+      ]
+    },
+    {
+      "id": "chatonlm/tiny-vae",
+      "content": true,
+      "downloads": 10,
+      "likes": 3,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "diffusers",
+        "safetensors",
+        "license:apache-2.0"
+      ],
+      "license": "apache-2.0",
+      "sha": "703f7f55ae94152d4ffa6c97a59fc6caa59fc364",
+      "files": [
+        [
+          "vae/tiny_ae.safetensors",
+          1500
+        ],
+        [
+          "tiny_sdxl_vae.safetensors",
+          1200
+        ]
+      ]
+    },
+    {
+      "id": "chatonlm/Tiny-Huge-GGUF",
+      "downloads": 1,
+      "likes": 0,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "gguf",
+        "text-to-image",
+        "base_model:quantized:black-forest-labs/FLUX.2-klein-4B",
+        "license:apache-2.0"
+      ],
+      "license": "apache-2.0",
+      "sha": "00000000000000000000000000000000000000aa",
+      "files": [
+        [
+          "huge-Q4_0.gguf",
+          1000000000000000000
+        ]
+      ],
+      "pipeline_tag": "text-to-image",
+      "base": "black-forest-labs/FLUX.2-klein-4B",
+      "relation": "quantized"
+    },
+    {
+      "id": "chatonlm/Tiny-SDXL-LoRA",
+      "content": true,
+      "downloads": 2500,
+      "likes": 1,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "diffusers",
+        "safetensors",
+        "text-to-image",
+        "base_model:adapter:stabilityai/stable-diffusion-xl-base-1.0",
+        "base_model:stabilityai/stable-diffusion-xl-base-1.0",
+        "lora",
+        "license:apache-2.0"
+      ],
+      "license": "apache-2.0",
+      "sha": "1eea968b4ef98a3b8227e6b73205a6c83205aa2e",
+      "files": [
+        [
+          "tiny-lora-xl.safetensors",
+          6000
+        ]
+      ],
+      "pipeline_tag": "text-to-image",
+      "base": "stabilityai/stable-diffusion-xl-base-1.0",
+      "relation": "adapter"
+    },
+    {
+      "id": "chatonlm/Tiny-Klein-Mixed-GGUF",
+      "content": true,
+      "downloads": 2000,
+      "likes": 1,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "gguf",
+        "text-to-image",
+        "base_model:finetune:chatonlm/Klein-Finetune",
+        "base_model:chatonlm/Klein-Finetune",
+        "base_model:finetune:chatonlm/Missing-Base",
+        "license:apache-2.0"
+      ],
+      "license": "apache-2.0",
+      "sha": "4b64234b713282004daa1c3158d3217958d31e13",
+      "files": [
+        [
+          "mixed-Q4_0.gguf",
+          1500
+        ]
+      ],
+      "pipeline_tag": "text-to-image",
+      "base": "chatonlm/Klein-Finetune",
+      "relation": "finetune"
+    },
+    {
+      "id": "chatonlm/Tiny-Klein-NFAA-GGUF",
+      "content": true,
+      "downloads": 1500,
+      "likes": 1,
+      "trendingScore": 0,
+      "createdAt": "2026-10-01T10:00:00.000Z",
+      "lastModified": "2026-10-01T10:00:00.000Z",
+      "tags": [
+        "gguf",
+        "text-to-image",
+        "base_model:quantized:black-forest-labs/FLUX.2-klein-4B",
+        "base_model:black-forest-labs/FLUX.2-klein-4B",
+        "not-for-all-audiences",
+        "license:apache-2.0"
+      ],
+      "license": "apache-2.0",
+      "sha": "0ff647f791aac1b1ca3ddbac8526eb168526e7b0",
+      "files": [
+        [
+          "nfaa-Q4_0.gguf",
+          1200
+        ]
+      ],
+      "pipeline_tag": "text-to-image",
+      "base": "black-forest-labs/FLUX.2-klein-4B",
+      "relation": "quantized"
+    }
+  ]
+}

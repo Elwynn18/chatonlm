@@ -66,6 +66,10 @@ import type { UpdateStatus } from "@/bindings/UpdateStatus";
 import type { ReadAloudOutcome } from "@/bindings/ReadAloudOutcome";
 import type { ReadAloudState } from "@/bindings/ReadAloudState";
 import type { VoiceModelInfo } from "@/bindings/VoiceModelInfo";
+import type { ImageMachine } from "@/bindings/ImageMachine";
+import type { ImageModelInfo } from "@/bindings/ImageModelInfo";
+import type { ImageRepoDetail } from "@/bindings/ImageRepoDetail";
+import type { ImageSearchResult } from "@/bindings/ImageSearchResult";
 import type { VoiceModeInfo } from "@/bindings/VoiceModeInfo";
 import type { VoiceModeLevel } from "@/bindings/VoiceModeLevel";
 import type { VoiceModeRequirements } from "@/bindings/VoiceModeRequirements";
@@ -1075,6 +1079,81 @@ export function listenVoiceDownloads(
   onChange: (downloads: SpeechDownload[]) => void,
 ): Promise<UnlistenFn> {
   return listen<SpeechDownload[]>(VOICE_DOWNLOADS_EVENT, (event) =>
+    onChange(event.payload),
+  );
+}
+
+// Modèles d'images (propre à ChatonLM, src-tauri/src/image_models ; contrat
+// .tools/research/83-image-models-contract.md) : choisis sur Hugging Face,
+// téléchargés par ChatonLM avec les pièces annexes de leur famille.
+
+/** Installés et en cours, puis recommandations non installées. */
+export function imageModels(): Promise<ImageModelInfo[]> {
+  return invoke<ImageModelInfo[]>("image_models");
+}
+
+/** Ce que la machine permet (moteur, carte graphique, processeur, place). */
+export function imageMachine(): Promise<ImageMachine> {
+  return invoke<ImageMachine>("image_machine");
+}
+
+/** Dépôts d'images sur Hugging Face ; texte vide : les plus téléchargés. */
+export function imageSearch(query: string): Promise<ImageSearchResult> {
+  return invoke<ImageSearchResult>("image_search", { query });
+}
+
+/** Fiche d'un dépôt (`auteur/nom`) : fichiers, pièces annexes, révision. */
+export function imageRepo(repo: string): Promise<ImageRepoDetail> {
+  return invoke<ImageRepoDetail>("image_repo", { repo });
+}
+
+/**
+ * Met en file un fichier d'un dépôt à cette révision, avec les pièces de sa
+ * famille qui manquent ; rejette (texte traduit) faute de place, pour un
+ * dépôt restreint, une famille inconnue...
+ */
+export function imageDownload(
+  repo: string,
+  file: string,
+  revision: string,
+): Promise<void> {
+  return invoke<void>("image_download", { repo, file, revision });
+}
+
+/** Téléchargements des modèles d'images (identifiant : celui du modèle). */
+export function imageDownloads(): Promise<SpeechDownload[]> {
+  return invoke<SpeechDownload[]>("image_downloads");
+}
+
+export function imageCancelDownload(id: string): Promise<void> {
+  return invoke<void>("image_cancel_download", { id });
+}
+
+/** Retire de la liste un téléchargement fini, échoué ou annulé. */
+export function imageDismissDownload(id: string): Promise<void> {
+  return invoke<void>("image_dismiss_download", { id });
+}
+
+/**
+ * Supprime un modèle (les pièces qu'un autre modèle cite restent) ; refusé
+ * pendant son téléchargement.
+ */
+export function imageDeleteModel(id: string): Promise<void> {
+  return invoke<void>("image_delete_model", { id });
+}
+
+/** Choisit le modèle de la génération d'images (`""` : aucun). */
+export function imageUseModel(id: string): Promise<void> {
+  return invoke<void>("image_use_model", { id });
+}
+
+/** Événement du moteur à chaque changement des téléchargements des modèles d'images. */
+export const IMAGE_DOWNLOADS_EVENT = "image-downloads";
+
+export function listenImageDownloads(
+  onChange: (downloads: SpeechDownload[]) => void,
+): Promise<UnlistenFn> {
+  return listen<SpeechDownload[]>(IMAGE_DOWNLOADS_EVENT, (event) =>
     onChange(event.payload),
   );
 }

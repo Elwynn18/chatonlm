@@ -220,17 +220,24 @@ export const SD_SERVER_PATCHES = {
   "0001-refuse-browser-requests.patch":
     "the server refuses any request that carries an Origin header (made by " +
     "a web page) or names another host than its own address (DNS " +
-    "rebinding): only ChatonLM talks to it.",
+    "rebinding), and serves one request per connection: only ChatonLM " +
+    "talks to it.",
   "0002-windows-utf8-code-page.patch":
     "Windows only: a manifest makes UTF-8 the code page of the program, so " +
     "that model paths with non-ASCII characters open.",
   "0003-no-philox-port.patch":
     "the random number generator imitating PyTorch's CUDA generator, ported " +
     "from AUTOMATIC1111's stable-diffusion-webui (AGPL-3.0), is removed; the " +
-    "standard C++ generator is used instead.",
+    "MT19937 generator (PyTorch's CPU generator, the same on every system) " +
+    "is used instead.",
   "0004-no-gemma-tokenizer-data.patch":
     "the tokenizer data of Gemma 3 (Gemma Terms of Use, not a permissive " +
-    "license) is left out; models that need it are not supported.",
+    "license) is left out; a model that needs it is reported as a loading " +
+    "failure, not a crash.",
+  "0005-own-prompt-attention-parser.patch":
+    "the parser of the prompt attention syntax ((text), (text:1.2), [text], " +
+    "BREAK), a port of AUTOMATIC1111's prompt_parser.py (AGPL-3.0), is " +
+    "replaced by an implementation written for ChatonLM.",
 };
 
 /** Clés de packaging/sdcpp.env citées par les notices. */
@@ -530,8 +537,8 @@ function sdServerCopyright({ version, commit, appimage }) {
     "License: Apache-2.0",
     ...wrap(
       "Comment: Vulkan loader of the Khronos Group " +
-        "(https://github.com/KhronosGroup/Vulkan-Loader), from the Vulkan SDK " +
-        "of LunarG, shipped unmodified and used only where the system has " +
+        "(https://github.com/KhronosGroup/Vulkan-Loader), built from its " +
+        "source code at the tag pinned by ChatonLM, used only where the system has " +
         "none. It includes cJSON (MIT): see " +
         "licenses/sd-server/Vulkan-Loader-components.txt.",
       "",
@@ -978,8 +985,8 @@ ${rows.join("\n")}
 ${heading("Vulkan loader")}
 ${wrap(
   `fallback${sep}${loader} is the Vulkan loader of the Khronos Group ` +
-    "(https://github.com/KhronosGroup/Vulkan-Loader), as installed by the " +
-    "Vulkan SDK of LunarG on the build machine, shipped unmodified. ChatonLM " +
+    "(https://github.com/KhronosGroup/Vulkan-Loader), built by ChatonLM from " +
+    "its source code, unmodified, at the tag pinned in packaging/sdcpp.env. ChatonLM " +
     "points sd-server to it only where the system has no Vulkan loader of " +
     "its own. It is under the Apache License, Version 2.0 (Apache-2.0.txt), " +
     "and includes cJSON (MIT)" +

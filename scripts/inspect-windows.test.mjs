@@ -929,8 +929,12 @@ describe("crochets NSIS", () => {
       .trim()
       .split("\n")
       .map((line) => line.trim());
+    const retryApp = String.raw`!insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\${MAINBINARYNAME}.exe"`;
     const retry = String.raw`!insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\uninstall.exe"`;
-    expect(lines.slice(0, -1)).toEqual(Array(10).fill(retry));
+    expect(lines.slice(0, -1)).toEqual([
+      ...Array(10).fill(retryApp),
+      ...Array(10).fill(retry),
+    ]);
     // Le dossier n'est retiré que vide.
     expect(lines.at(-1)).toBe('RMDir "$INSTDIR"');
     // Aucune autre suppression de fichier dans les crochets.

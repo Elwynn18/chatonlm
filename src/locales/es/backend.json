@@ -446,5 +446,28 @@
       "tooLarge": "la respuesta del motor es demasiado grande",
       "notJson": "la respuesta del motor no se puede leer"
     }
+  },
+  "imageModels": {
+    "offline": "No se puede conectar con Hugging Face: comprueba tu conexión",
+    "unavailable": "Hugging Face no responde en este momento: inténtalo más tarde",
+    "rateLimited": "Demasiadas solicitudes a Hugging Face: inténtalo de nuevo en {seconds} s",
+    "notFound": "Este repositorio no existe o es privado",
+    "gated": "Este repositorio tiene acceso restringido (se necesita una cuenta de Hugging Face): ChatonLM no puede descargarlo",
+    "hfFailed": "Hugging Face rechazó la solicitud: {error}",
+    "uncensoredHidden": "Este modelo no tiene censura: activa «Mostrar modelos sin censura» en los ajustes para descargarlo",
+    "unknownFamily": "ChatonLM no conoce la familia de este modelo, así que no puede usarlo",
+    "unsupportedFamily": "El motor de imágenes de ChatonLM no admite la familia de este modelo",
+    "fileNotFound": "{file} no está en este repositorio",
+    "fileNotUsable": "{file} no puede usarse como modelo de imágenes",
+    "noChecksum": "{file} no tiene suma de comprobación en Hugging Face: ChatonLM no lo descargará",
+    "notEnoughSpace": "No hay suficiente espacio en el disco: se necesitan {needed}, quedan {free} libres",
+    "downloading": "Este modelo se está descargando: cancela primero la descarga",
+    "stillDownloading": "La descarga todavía se está deteniendo: inténtalo de nuevo en un momento",
+    "inUse": "Se está creando una imagen con este modelo: inténtalo de nuevo cuando termine",
+    "notInstalled": "Este modelo no está instalado",
+    "sizeGb": "{value} GB",
+    "sizeMb": "{value} MB",
+    "revisionChanged": "Este repositorio cambió desde que se abrió su página: vuelve a abrirla",
+    "unverified": "ChatonLM no pudo comprobar el origen de este modelo (no se puede leer uno de sus modelos base): activa «Mostrar modelos sin censura» en los ajustes para descargarlo de todos modos"
   }
 }

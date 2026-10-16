@@ -5,6 +5,7 @@
     "transcription": "Transcripción",
     "polish": "Pulido",
     "voices": "Voces",
+    "images": "Imágenes",
     "installed": "Instalados",
     "downloads": "Descargas"
   },
@@ -293,6 +294,65 @@
       "loadFailed": "No disponible: no se pudo cargar ONNX Runtime, que la lectura en voz alta necesita ({detail})."
     },
     "deleteText": "Esto elimina la voz de este equipo. Puedes volver a descargarla más tarde."
+  },
+  "images": {
+    "title": "Modelos de imágenes",
+    "loading": "Cargando modelos de imágenes",
+    "intro": "Los modelos de imágenes crean imágenes a partir de tus descripciones en un chat. Se ejecutan dentro de ChatonLM, no en Ollama.",
+    "machine": {
+      "noEngine": "Esta versión de ChatonLM no incluye el motor de imágenes. Puedes descargar modelos, pero no crear imágenes.",
+      "missingCpu": "Este equipo no puede crear imágenes: a su procesador le faltan instrucciones que necesita el motor de imágenes ({features}).",
+      "noGpu": "No se encontró ninguna tarjeta gráfica: el procesador creará las imágenes, y cada una tardará varios minutos."
+    },
+    "yours": "Tus modelos de imágenes",
+    "recommended": "Recomendados",
+    "popular": "Populares en Hugging Face",
+    "results": "Resultados para «{query}»",
+    "noResults": "Ningún modelo de imágenes coincide con tu búsqueda.",
+    "searchLoading": "Buscando en Hugging Face",
+    "notSupported": "No compatible",
+    "restricted": "Restringido",
+    "uncensored": "Sin censura",
+    "uncensoredHint": "Este modelo puede crear imágenes explícitas o impactantes.",
+    "downloads": {
+      "one": "{count} descarga",
+      "other": "{count} descargas"
+    },
+    "toDownload": "{size} por descargar",
+    "license": "Licencia:",
+    "noLicense": "Sin licencia indicada",
+    "notOpen": "No es una licencia libre: léela antes de usar el modelo.",
+    "source": "Fuente:",
+    "use": "Usar",
+    "deleteText": "Esto elimina el modelo de este equipo. Se conservan los archivos que comparte con tus otros modelos de imágenes.",
+    "deleteTextInUse": "Esto elimina el modelo de este equipo. La generación de imágenes no funcionará hasta que lo vuelvas a descargar o elijas otro modelo de imágenes.",
+    "repo": {
+      "family": "Familia",
+      "files": "Elige un archivo",
+      "components": "También necesarios",
+      "componentsHint": "Archivos que esta familia necesita además del modelo. Se comparten entre tus modelos de la misma familia.",
+      "present": "Ya está en este equipo",
+      "roles": {
+        "model": "Modelo",
+        "textEncoder": "Codificador de texto",
+        "vae": "Decodificador de imágenes (VAE)"
+      },
+      "total": "Por descargar: {size}",
+      "freeSpace": "Espacio libre: {size}",
+      "installed": "Este archivo está instalado.",
+      "yourModels": "Ver tus modelos de imágenes",
+      "unsupported": {
+        "unknownFamily": "ChatonLM no reconoce la familia de este modelo, así que no sabe qué otros archivos necesita.",
+        "gated": "Este modelo necesita una cuenta de Hugging Face. ChatonLM no puede descargarlo.",
+        "noUsableFile": "Este repositorio no tiene ningún archivo que ChatonLM pueda usar (GGUF, o un archivo único de Stable Diffusion).",
+        "unsupportedFamily": "ChatonLM no es compatible con esta familia de modelos."
+      },
+      "reason": {
+        "uncensored": "Activa «Mostrar modelos sin censura» en <link>Configuración › Modelos</link> para descargar este modelo.",
+        "cpu": "Al procesador de este equipo le faltan instrucciones que necesita el motor de imágenes ({features}).",
+        "space": "No hay suficiente espacio libre: se necesitan {needed} y hay {free} libres."
+      }
+    }
   },
   "polish": {
     "intro": "Un segundo modelo pule la transcripción: puntuación, muletillas, rectificaciones. Si su respuesta no se parece a lo que dijiste, se copia la transcripción sin procesar.",

@@ -27,6 +27,13 @@ struct Raw {
     exclude_words: String,
     open_licenses: Vec<String>,
     uncensored: RawUncensored,
+    images: RawImages,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawImages {
+    uncensored_words: String,
 }
 
 #[derive(Deserialize)]
@@ -85,6 +92,8 @@ pub struct Curation {
     /// Auteurs de dérivés sans refus faits d'après le modèle officiel, en
     /// minuscules.
     uncensored_makers: HashSet<String>,
+    /// Mots d'un modèle d'images non censuré.
+    image_uncensored_words: Regex,
 }
 
 fn lower(list: Vec<String>) -> HashSet<String> {
@@ -137,6 +146,8 @@ impl Curation {
             uncensored_exclude: Regex::new(&format!("(?i){}", raw.uncensored.exclude))
                 .map_err(|e| e.to_string())?,
             uncensored_makers: lower(raw.uncensored.makers),
+            image_uncensored_words: Regex::new(&format!("(?i){}", raw.images.uncensored_words))
+                .map_err(|e| e.to_string())?,
         })
     }
 
@@ -241,6 +252,12 @@ impl Curation {
         }
     }
 
+    /// Modèle d'images non censuré : un mot de `images.uncensoredWords` dans
+    /// l'identifiant d'un dépôt (le sien ou celui d'un modèle de base).
+    pub fn uncensored_image(&self, id: &str) -> bool {
+        self.image_uncensored_words.is_match(id)
+    }
+
     /// Licence libre (filtre « Open license »).
     pub fn open_license(&self, license: Option<&str>) -> bool {
         license.is_some_and(|license| self.open_licenses.contains(&license.to_ascii_lowercase()))
@@ -320,6 +337,22 @@ mod tests {
             assert!(!c.accepted_arch(Some(arch)), "{arch}");
         }
         assert!(!c.accepted_arch(None));
+    }
+
+    #[test]
+    fn uncensored_image_models_are_told_by_their_words() {
+        let c = &*CURATION;
+        for id in [
+            "someone/Z-Image-Turbo-NSFW-GGUF",
+            "a/flux-uncensored",
+            "b/Lewd-Diffusion",
+            "c/realistic-nude-xl",
+        ] {
+            assert!(c.uncensored_image(id), "{id}");
+        }
+        for id in ["leejet/Z-Image-Turbo-GGUF", "unsloth/FLUX.2-klein-4B-GGUF"] {
+            assert!(!c.uncensored_image(id), "{id}");
+        }
     }
 
     #[test]

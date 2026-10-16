@@ -23,6 +23,8 @@ import { Route as HubTranscriptionRouteImport } from "./routes/hub.transcription
 import { Route as HubVoicesRouteImport } from "./routes/hub.voices"
 import { Route as StudyIndexRouteImport } from "./routes/study.index"
 import { Route as StudyCourseIdRouteImport } from "./routes/study.$courseId"
+import { Route as HubImagesIndexRouteImport } from "./routes/hub.images.index"
+import { Route as HubImagesAuthorRepoRouteImport } from "./routes/hub.images.$author.$repo"
 import { Route as HubModelAuthorRepoRouteImport } from "./routes/hub.model.$author.$repo"
 
 const IndexRoute = IndexRouteImport.update({
@@ -99,6 +101,20 @@ const StudyCourseIdRoute = StudyCourseIdRouteImport.update({
 } as any).lazy(() =>
   import("./routes/study.$courseId.lazy").then((d) => d.Route),
 )
+const HubImagesIndexRoute = HubImagesIndexRouteImport.update({
+  id: "/images/",
+  path: "/images/",
+  getParentRoute: () => HubRoute,
+} as any).lazy(() =>
+  import("./routes/hub.images.index.lazy").then((d) => d.Route),
+)
+const HubImagesAuthorRepoRoute = HubImagesAuthorRepoRouteImport.update({
+  id: "/images/$author/$repo",
+  path: "/images/$author/$repo",
+  getParentRoute: () => HubRoute,
+} as any).lazy(() =>
+  import("./routes/hub.images.$author.$repo.lazy").then((d) => d.Route),
+)
 const HubModelAuthorRepoRoute = HubModelAuthorRepoRouteImport.update({
   id: "/model/$author/$repo",
   path: "/model/$author/$repo",
@@ -122,6 +138,8 @@ export interface FileRoutesByFullPath {
   "/study/$courseId": typeof StudyCourseIdRoute
   "/hub/": typeof HubIndexRoute
   "/study/": typeof StudyIndexRoute
+  "/hub/images/": typeof HubImagesIndexRoute
+  "/hub/images/$author/$repo": typeof HubImagesAuthorRepoRoute
   "/hub/model/$author/$repo": typeof HubModelAuthorRepoRoute
 }
 export interface FileRoutesByTo {
@@ -137,6 +155,8 @@ export interface FileRoutesByTo {
   "/study/$courseId": typeof StudyCourseIdRoute
   "/hub": typeof HubIndexRoute
   "/study": typeof StudyIndexRoute
+  "/hub/images": typeof HubImagesIndexRoute
+  "/hub/images/$author/$repo": typeof HubImagesAuthorRepoRoute
   "/hub/model/$author/$repo": typeof HubModelAuthorRepoRoute
 }
 export interface FileRoutesById {
@@ -155,6 +175,8 @@ export interface FileRoutesById {
   "/study/$courseId": typeof StudyCourseIdRoute
   "/hub/": typeof HubIndexRoute
   "/study/": typeof StudyIndexRoute
+  "/hub/images/": typeof HubImagesIndexRoute
+  "/hub/images/$author/$repo": typeof HubImagesAuthorRepoRoute
   "/hub/model/$author/$repo": typeof HubModelAuthorRepoRoute
 }
 export interface FileRouteTypes {
@@ -174,6 +196,8 @@ export interface FileRouteTypes {
     | "/study/$courseId"
     | "/hub/"
     | "/study/"
+    | "/hub/images/"
+    | "/hub/images/$author/$repo"
     | "/hub/model/$author/$repo"
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -189,6 +213,8 @@ export interface FileRouteTypes {
     | "/study/$courseId"
     | "/hub"
     | "/study"
+    | "/hub/images"
+    | "/hub/images/$author/$repo"
     | "/hub/model/$author/$repo"
   id:
     | "__root__"
@@ -206,6 +232,8 @@ export interface FileRouteTypes {
     | "/study/$courseId"
     | "/hub/"
     | "/study/"
+    | "/hub/images/"
+    | "/hub/images/$author/$repo"
     | "/hub/model/$author/$repo"
   fileRoutesById: FileRoutesById
 }
@@ -318,6 +346,20 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof StudyCourseIdRouteImport
       parentRoute: typeof StudyRoute
     }
+    "/hub/images/": {
+      id: "/hub/images/"
+      path: "/images"
+      fullPath: "/hub/images/"
+      preLoaderRoute: typeof HubImagesIndexRouteImport
+      parentRoute: typeof HubRoute
+    }
+    "/hub/images/$author/$repo": {
+      id: "/hub/images/$author/$repo"
+      path: "/images/$author/$repo"
+      fullPath: "/hub/images/$author/$repo"
+      preLoaderRoute: typeof HubImagesAuthorRepoRouteImport
+      parentRoute: typeof HubRoute
+    }
     "/hub/model/$author/$repo": {
       id: "/hub/model/$author/$repo"
       path: "/model/$author/$repo"
@@ -335,6 +377,8 @@ interface HubRouteChildren {
   HubTranscriptionRoute: typeof HubTranscriptionRoute
   HubVoicesRoute: typeof HubVoicesRoute
   HubIndexRoute: typeof HubIndexRoute
+  HubImagesIndexRoute: typeof HubImagesIndexRoute
+  HubImagesAuthorRepoRoute: typeof HubImagesAuthorRepoRoute
   HubModelAuthorRepoRoute: typeof HubModelAuthorRepoRoute
 }
 
@@ -345,6 +389,8 @@ const HubRouteChildren: HubRouteChildren = {
   HubTranscriptionRoute: HubTranscriptionRoute,
   HubVoicesRoute: HubVoicesRoute,
   HubIndexRoute: HubIndexRoute,
+  HubImagesIndexRoute: HubImagesIndexRoute,
+  HubImagesAuthorRepoRoute: HubImagesAuthorRepoRoute,
   HubModelAuthorRepoRoute: HubModelAuthorRepoRoute,
 }
 
