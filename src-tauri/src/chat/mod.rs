@@ -7657,8 +7657,9 @@ mod tests {
     }
 
     /// Envoi complet à l'instance de test : événements reçus. Fin attendue :
-    /// `done`, ou la coupure d'une boucle par Ollama (voir [`BoundedCopy`]) ;
-    /// le contrat regarde le chargement, pas la réponse.
+    /// `done`, la coupure d'une boucle par Ollama (voir [`BoundedCopy`]), ou
+    /// le contexte plein d'un petit modèle qui radote jusqu'à la limite ; le
+    /// contrat regarde le chargement, pas la réponse.
     async fn sent_to_the_test_instance(store: &Store, model: &str, real: Server) -> Vec<Value> {
         let (channel, recorder) = recorder();
         let (engine, staging) = (ChatEngine::default(), Staging::default());
@@ -7671,7 +7672,11 @@ mod tests {
         let last = events.last().unwrap();
         let looped = last["type"] == json!("error")
             && last["message"] == json!("prediction aborted, token repeat limit reached");
-        assert!(last["type"] == json!("done") || looped, "{events:?}");
+        let full = last["type"] == json!("error") && last["kind"] == json!("contextFull");
+        assert!(
+            last["type"] == json!("done") || looped || full,
+            "{events:?}"
+        );
         events
     }
 
