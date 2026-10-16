@@ -6,7 +6,8 @@
 #   secours fallback/libvulkan.so.1) ;
 # - « sd-server --version » donne la version épinglée de VERSION, avec le
 #   chargeur du système s'il y en a un, et avec celui de fallback/ (machine
-#   sans chargeur : ce que fait l'app, image_gen/linux.rs) ;
+#   sans chargeur : ce que fait l'app, image_gen/linux.rs) ; « --list-devices »
+#   avec fallback/ liste au moins le processeur ;
 # - sur un modèle illisible, il s'arrête aussitôt avec le code 1 et sa ligne
 #   « new_sd_ctx_t failed » (ce que l'app lit pour expliquer l'échec), sans
 #   planter avant (bibliothèques, moteurs de calcul) ; aucun processus ne
@@ -46,6 +47,11 @@ else
   echo "Pas de chargeur Vulkan sur cette machine."
 fi
 check_version "chargeur de secours" env LD_LIBRARY_PATH="$fallback" "$bin"
+# Moteurs de calcul vus avec le chargeur de secours : le processeur au moins
+# (sans pilote Vulkan, le moteur calcule dessus).
+devices="$(LD_LIBRARY_PATH="$fallback" "$bin" --list-devices 2>&1)" || fail "--list-devices en échec : $devices"
+grep -q '^CPU' <<<"$devices" || fail "processeur absent de --list-devices : $devices"
+echo "moteurs de calcul : $(tr '\n' ';' <<<"$devices")"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT

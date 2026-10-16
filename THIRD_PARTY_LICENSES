@@ -1802,6 +1802,23 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+-- Projects named as references only --
+
+Some source files name another project as the reference of their own C++
+implementation of the same model architecture or computation, without
+copying its code:
+  src/conditioning/conditioner.hpp (CLIP text conditioning of Stable
+    Diffusion 1.x and XL, with prompt chunking): AUTOMATIC1111's
+    stable-diffusion-webui, modules/sd_hijack_clip.py;
+  src/model/diffusion/control.hpp (ControlNet): ComfyUI, comfy/cldm/cldm.py,
+    itself derived from ControlNet (Apache-2.0);
+  src/runtime/denoiser.hpp (logit-normal sigma schedule): ideogram4,
+    src/ideogram4/scheduler.py.
+The code of stable-diffusion.cpp that was a port of stable-diffusion-webui
+(GNU AGPL-3.0) is not in this build: ChatonLM removes its random number
+generator (patch 0003) and replaces its prompt attention parser by its own
+(patch 0005).
+
 -- tokenizer-data.txt --
 
 Tokenizer data built into stable-diffusion.cpp
@@ -1866,9 +1883,10 @@ SOFTWARE.
 Vulkan Loader (fallback/libvulkan.so.1 on Linux, fallback\vulkan-1.dll on
 Windows), https://github.com/KhronosGroup/Vulkan-Loader
 
-The Vulkan loader of the Khronos Group is shipped unmodified, as installed by
-the Vulkan SDK of LunarG on the build machine (versions in
-packaging/sdcpp.env of the ChatonLM source code). It is under the Apache
+The Vulkan loader of the Khronos Group is built by ChatonLM from its source
+code, unmodified, at the tag and commit pinned in packaging/sdcpp.env of the
+ChatonLM source code (with Vulkan-Headers at the same tag; without window
+system extensions under Linux; debug symbols stripped). It is under the Apache
 License, Version 2.0 (Apache-2.0.txt in this directory),
 Copyright The Khronos Group Inc., Valve Corporation, LunarG, Inc., Google
 Inc., NVIDIA CORPORATION & AFFILIATES, RasterGrid Kft. and other

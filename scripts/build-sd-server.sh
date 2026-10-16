@@ -7,7 +7,8 @@
 #                       sans carte graphique ; sans OpenMP ni WebP ; CRT
 #                       statique sous Windows), sans symboles de débogage
 #   fallback/           chargeur Vulkan de secours (libvulkan.so.1 ou
-#                       vulkan-1.dll), pris par l'app seulement si le système
+#                       vulkan-1.dll) construit depuis Vulkan-Loader de Khronos
+#                       au tag épinglé, pris par l'app seulement si le système
 #                       n'en a pas (image_gen/linux.rs, image_gen/windows.rs)
 #   VERSION             <version épinglée>+chatonlm.<empreinte> : l'empreinte
 #                       couvre sdcpp.env, les correctifs et ce script (toute
@@ -17,12 +18,12 @@
 # Rien n'est refait si VERSION et SHA256SUMS correspondent. Contrôles :
 # dépendances (Linux : ldd, seule libvulkan.so.1 peut manquer, jamais
 # libgomp ; Windows : DLL importées, ni CRT de Visual C++ ni OpenMP),
-# « sd-server --version ».
+# « sd-server --version » et « --list-devices » avec le chargeur de secours.
+# Une construction à la fois (verrou .tools/sdcpp-build.lock).
 # Outils requis : git, cmake, un compilateur C++ (Visual Studio 2022 sous
 # Windows), glslc et les en-têtes Vulkan et SPIR-V (CI : SDK de LunarG, voir
 # packaging/sdcpp.env ; Arch : vulkan-headers, spirv-headers, shaderc).
-# Variables : SDCPP_JOBS (parallélisme, 4 par défaut), SDCPP_VULKAN_LOADER
-# (chemin du chargeur de secours, sinon celui du système de construction).
+# Variable : SDCPP_JOBS (parallélisme, 4 par défaut).
 # Affiche le chemin du binaire. --check : code 0 si le dossier est à jour, 1
 # sinon, sans rien construire (la CI n'installe le SDK Vulkan qu'au besoin).
 set -euo pipefail
@@ -75,6 +76,12 @@ for tool in git cmake; do
 done
 command -v glslc >/dev/null || fail "glslc manquant (SDK Vulkan, ou paquet shaderc)"
 
+# Une construction à la fois : deux lancements (check.sh et package.sh)
+# videraient le même dossier de travail.
+lock="$root/.tools/sdcpp-build.lock"
+mkdir "$lock" 2>/dev/null || fail "une autre construction est en cours (sinon supprimer $lock)"
+trap 'rm -rf "$lock"' EXIT
+
 # Sources du tag épinglé, vérifiées, puis correctifs.
 src="$work/src"
 build="$work/build"
@@ -120,23 +127,42 @@ cmake --build "$build" --config Release --target sd-server -j "${SDCPP_JOBS:-4}"
 built="$(find "$build/bin" -name "$exe" -type f -print -quit)"
 [ -n "$built" ] || fail "binaire introuvable après la construction"
 
-# Chargeur Vulkan de secours (Apache-2.0) : celui du système de construction
-# (SDK de LunarG dans la CI), sauf chemin donné.
-system_loader() {
-  if $windows; then
-    printf '%s\n' "${WINDIR:-/c/Windows}/System32/vulkan-1.dll"
-  else
-    # Sans `exit` dans awk : sous pipefail, ldconfig coupé finirait en échec.
-    ldconfig -p | awk '/libvulkan\.so\.1 \(.*x86-64/ && !found { print $NF; found = 1 }'
-  fi
+# Chargeur Vulkan de secours (Apache-2.0) : Vulkan-Loader de Khronos au tag
+# épinglé, avec Vulkan-Headers au même tag ; sans les extensions de fenêtrage
+# (sd-server n'affiche rien). Même source sous Linux et Windows.
+fetch_tag() {
+  local repo="$1" tag="$2" commit="$3" dir="$4"
+  git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$tag" "$repo" "$dir"
+  [ "$(git -C "$dir" rev-parse HEAD)" = "$commit" ] ||
+    fail "le tag $tag de $repo ne désigne plus le commit $commit"
 }
-loader_source="${SDCPP_VULKAN_LOADER:-$(system_loader)}"
-[ -n "$loader_source" ] && [ -f "$loader_source" ] ||
-  fail "chargeur Vulkan introuvable (SDCPP_VULKAN_LOADER)"
+fetch_tag "$VULKAN_HEADERS_REPO" "$VULKAN_LOADER_TAG" "$VULKAN_HEADERS_COMMIT" "$work/vulkan-headers"
+fetch_tag "$VULKAN_LOADER_REPO" "$VULKAN_LOADER_TAG" "$VULKAN_LOADER_COMMIT" "$work/vulkan-loader"
+cmake -S "$work/vulkan-headers" -B "$work/vulkan-headers-build" \
+  -DCMAKE_INSTALL_PREFIX="$work/vulkan-headers-install" >"$work/loader.log" 2>&1 &&
+  cmake --install "$work/vulkan-headers-build" >>"$work/loader.log" 2>&1 ||
+  { tail -40 "$work/loader.log" >&2; fail "en-têtes Vulkan en échec"; }
+loader_options=(
+  -DCMAKE_BUILD_TYPE=Release
+  -DVULKAN_HEADERS_INSTALL_DIR="$work/vulkan-headers-install"
+  -DCMAKE_PREFIX_PATH="$work/vulkan-headers-install"
+  -DBUILD_TESTS=OFF
+  -DUPDATE_DEPS=OFF
+)
+if $windows; then
+  loader_options+=(-A x64 -DCMAKE_POLICY_DEFAULT_CMP0091=NEW "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded")
+else
+  loader_options+=(-DBUILD_WSI_XCB_SUPPORT=OFF -DBUILD_WSI_XLIB_SUPPORT=OFF -DBUILD_WSI_WAYLAND_SUPPORT=OFF)
+fi
+cmake -S "$work/vulkan-loader" -B "$work/vulkan-loader-build" "${loader_options[@]}" >>"$work/loader.log" 2>&1 &&
+  cmake --build "$work/vulkan-loader-build" --config Release -j "${SDCPP_JOBS:-4}" >>"$work/loader.log" 2>&1 ||
+  { tail -40 "$work/loader.log" >&2; fail "chargeur Vulkan en échec"; }
+loader_source="$(find "$work/vulkan-loader-build" -type f \( -name "$loader" -o -name 'libvulkan.so.1.*' \) -print -quit)"
+[ -n "$loader_source" ] || fail "chargeur Vulkan introuvable après la construction"
 
 stage="$out.part"
 rm -rf "$stage"
-trap 'rm -rf "$stage"' EXIT
+trap 'rm -rf "$stage" "$lock"' EXIT
 mkdir -p "$stage/fallback"
 cp "$built" "$stage/$exe"
 cp -L "$loader_source" "$stage/fallback/$loader"
@@ -151,6 +177,8 @@ chmod 0644 "$stage/fallback/$loader"
 # pris dans fallback/).
 if $windows; then
   imports="$(objdump -p "$stage/$exe" | awk '/DLL Name:/ { print tolower($3) }')"
+  # Une liste vide ne prouverait rien (objdump qui ne lit pas le fichier).
+  grep -qx 'kernel32.dll' <<<"$imports" || fail "DLL importées illisibles (objdump)"
   forbidden="$(grep -E '^(msvcp|vcruntime|vcomp|concrt|libgomp|libstdc|libgcc|api-ms-win-crt)' <<<"$imports" || true)"
   [ -z "$forbidden" ] || fail "DLL à ne pas exiger : $(tr '\n' ' ' <<<"$forbidden")"
 else
@@ -160,12 +188,23 @@ else
     fail "sd-server dépend de libgomp (OpenMP devait être coupé)"
   fi
 fi
-reported="$(LD_LIBRARY_PATH="$stage/fallback" "$stage/$exe" --version 2>&1 || true)"
+# Avec le chargeur de secours, comme l'app sur une machine sans chargeur
+# (Linux : LD_LIBRARY_PATH ; Windows : fin de PATH).
+with_fallback() {
+  if $windows; then
+    PATH="$PATH:$stage/fallback" "$@"
+  else
+    LD_LIBRARY_PATH="$stage/fallback" "$@"
+  fi
+}
+reported="$(with_fallback "$stage/$exe" --version 2>&1 || true)"
 reported="${reported%%$'\n'*}"
 case "$reported" in
   *"$SDCPP_VERSION"*) ;;
   *) fail "version inattendue : $reported" ;;
 esac
+devices="$(with_fallback "$stage/$exe" --list-devices 2>&1 || true)"
+grep -q '^CPU' <<<"$devices" || fail "aucun moteur de calcul listé : $devices"
 
 printf '%s\n' "$version" >"$stage/VERSION"
 chmod 0644 "$stage/VERSION"
@@ -174,5 +213,6 @@ chmod 0644 "$stage/VERSION"
 
 rm -rf "$out"
 mv "$stage" "$out"
+rm -rf "$lock"
 trap - EXIT
 echo "$out/$exe"

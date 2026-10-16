@@ -396,7 +396,14 @@ $sd = Join-Path $install "sd-server\sd-server.exe"
 $sdVersionFile = Join-Path $install "sd-server\VERSION"
 if ((Test-Path -LiteralPath $sd) -and (Test-Path -LiteralPath $sdVersionFile)) {
   $sdExpected = (Get-Content -LiteralPath $sdVersionFile -Raw).Trim().Split("+")[0]
+  # Comme l'app (image_gen/windows.rs) : le chargeur de secours en fin de PATH,
+  # System32 passe avant s'il a le sien.
+  $systemLoader = Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\vulkan-1.dll")
+  Write-Host "vulkan-1.dll dans System32 : $systemLoader"
+  $env:PATH = "$env:PATH;$(Join-Path $install 'sd-server\fallback')"
   $sdReported = (& $sd --version 2>&1 | Select-Object -First 1) -join ""
+  $sdDevices = (& $sd --list-devices 2>&1) -join "; "
+  if ($sdDevices -match "(^|; )CPU") { Pass "sd-server --list-devices : $sdDevices" } else { Fail "sd-server --list-devices sans processeur : $sdDevices" }
   if ($sdReported -like "*$sdExpected*") {
     Pass "sd-server --version : $sdReported"
   } else {

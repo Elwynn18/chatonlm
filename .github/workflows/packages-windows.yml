@@ -132,9 +132,8 @@ jobs:
       # Moteur d'images construit depuis ses sources (scripts/build-sd-server.sh,
       # Visual Studio 2022, CRT statique), gardé dans .tools/runtimes par le
       # cache : le SDK Vulkan de LunarG (packaging/sdcpp.env, empreinte
-      # vérifiée) n'est installé que s'il faut le reconstruire. Son runtime
-      # (VulkanRT) pose vulkan-1.dll dans System32 : le chargeur de secours
-      # livré en est la copie.
+      # vérifiée) n'est installé que s'il faut le reconstruire ; le chargeur
+      # Vulkan de secours est construit depuis ses sources par le script.
       - name: SDK Vulkan et moteur d'images (sd-server)
         run: |
           if scripts/build-sd-server.sh --check; then
@@ -148,19 +147,8 @@ jobs:
           timeout 900 "$installer" -c --am --al in || echo "Installateur du SDK : code $? (vérifié ci-dessous)"
           sdk="/c/VulkanSDK/$VULKAN_SDK_WINDOWS_VERSION"
           test -x "$sdk/Bin/glslc.exe"
-          # VulkanRT est un installateur NSIS : /S (majuscule) pour le silence ;
-          # sans lui, il attendrait un clic.
-          if [ -f "$sdk/Helpers/VulkanRT.exe" ]; then
-            echo "== Runtime Vulkan (VulkanRT)"
-            timeout 300 "$sdk/Helpers/VulkanRT.exe" /S || echo "VulkanRT : code $?"
-          fi
-          loader="/c/Windows/System32/vulkan-1.dll"
-          if [ ! -f "$loader" ]; then
-            loader="$(find "$sdk" -iname vulkan-1.dll -print -quit)"
-          fi
-          test -n "$loader" && test -f "$loader"
-          echo "Chargeur Vulkan de secours : $loader"
-          export SDCPP_VULKAN_LOADER="$loader"
+          # Le chargeur de secours est construit depuis Vulkan-Loader par le
+          # script (VulkanRT, qui reste bloqué sur ce runner, n'est pas lancé).
           export VULKAN_SDK="$(cygpath -w "$sdk")"
           export PATH="$sdk/Bin:$PATH"
           glslc --version | head -1 || true

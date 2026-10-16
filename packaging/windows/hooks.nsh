@@ -76,10 +76,11 @@
   ${EndIf}
 !macroend
 
-; Le modèle supprime uninstall.exe une seule fois, sans nouvel essai : s'il est
-; tenu à cet instant (analyse antivirus d'un fichier neuf, fin du premier
-; processus du désinstalleur), il reste seul dans le dossier d'installation,
-; que le modèle ne peut alors plus retirer (vu sur le runner de la CI).
+; Le modèle supprime uninstall.exe et l'exécutable de l'app une seule fois,
+; sans nouvel essai : si l'un est tenu à cet instant (analyse antivirus d'un
+; fichier neuf, fin du premier processus du désinstalleur), il reste dans le
+; dossier d'installation, que le modèle ne peut alors plus retirer (vu sur le
+; runner de la CI, pour l'un puis pour l'autre).
 ; Nouvel essai après une demi-seconde, seulement si le fichier est encore là.
 !macro CHATONLM_DELETE_AGAIN filePath
   ${If} ${FileExists} "${filePath}"
@@ -88,9 +89,19 @@
   ${EndIf}
 !macroend
 
-; Après la désinstallation : jusqu'à dix essais (cinq secondes), puis le
-; dossier d'installation, retiré seulement s'il est vide (sans « /r »).
+; Après la désinstallation : jusqu'à dix essais (cinq secondes) pour chacun,
+; puis le dossier d'installation, retiré seulement s'il est vide (sans « /r »).
 !macro NSIS_HOOK_POSTUNINSTALL
+  !insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\${MAINBINARYNAME}.exe"
+  !insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\${MAINBINARYNAME}.exe"
+  !insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\${MAINBINARYNAME}.exe"
+  !insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\${MAINBINARYNAME}.exe"
+  !insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\${MAINBINARYNAME}.exe"
+  !insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\${MAINBINARYNAME}.exe"
+  !insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\${MAINBINARYNAME}.exe"
+  !insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\${MAINBINARYNAME}.exe"
+  !insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\${MAINBINARYNAME}.exe"
+  !insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\${MAINBINARYNAME}.exe"
   !insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\uninstall.exe"
   !insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\uninstall.exe"
   !insertmacro CHATONLM_DELETE_AGAIN "$INSTDIR\uninstall.exe"
