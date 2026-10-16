@@ -98,12 +98,18 @@ if ! (
   echo "Échec de la compilation : voir $log" >&2
   exit 1
 fi
-# Moteur d'images (génération dans la conversation) : un build sans paquet
-# prend comme dossier des ressources celui de son binaire ; le sd-server
-# construit par scripts/build-sd-server.sh y est lié.
+# Moteur d'images (génération dans la conversation) : sous Linux, Tauri ne
+# prend le dossier du binaire pour celui des ressources que si son parent
+# s'appelle « target » (ici « real-target ») ; sinon <binaire>/../lib/chatonlm
+# s'il existe, puis /usr/lib/chatonlm (tauri-utils, resource_dir_from). Le
+# sd-server construit par scripts/build-sd-server.sh est lié dans le premier ;
+# rien d'autre n'y est lu ici (ONNX Runtime : ORT_DYLIB_PATH ; pas d'Ollama
+# intégré dans la recette).
 if $real; then
+  rm -f "$target/release/sd-server"
   if [ -x "$root/.tools/runtimes/sd-server/sd-server" ]; then
-    ln -sfn "$root/.tools/runtimes/sd-server" "$target/release/sd-server"
+    mkdir -p "$target/lib/chatonlm"
+    ln -sfn "$root/.tools/runtimes/sd-server" "$target/lib/chatonlm/sd-server"
   else
     echo "Moteur d'images absent (scripts/build-sd-server.sh) : génération d'images indisponible." >&2
   fi
