@@ -1,31 +1,46 @@
 // Fiche d'un dépôt de modèles d'images (ModelHub, propre à ChatonLM ;
-// contrat .tools/research/83-image-models-contract.md § 6) : famille,
-// licence (liée à la page du dépôt), téléchargements, puis la colonne du
-// téléchargement : choix du fichier (boutons radio : quantification, taille,
-// « Recommended », « Installed »), pièces annexes de la famille (rôle,
-// dépôt et fichier, taille, licence, « déjà sur cet ordinateur »), total à
-// télécharger, place libre et Download, désactivé avec sa raison visible
-// (dépôt non pris en charge ou restreint, modèle non censuré sans le
-// réglage, processeur, place) ; pendant le téléchargement du fichier
-// choisi, sa progression et Cancel ; installé, un lien vers l'onglet.
-// Hugging Face injoignable : fiche du cache avec son bandeau, sinon l'état
-// plein (Retry, sauf dépôt introuvable ou restreint).
+// contrats .tools/research/83-image-models-contract.md § 6 et
+// 85-image-hub-clarity-contract.md § 3) : famille et sa phrase « à quoi il
+// sert », usage permis en clair, téléchargements ; licence exacte, date et
+// pièces annexes de la famille (rôle, dépôt et fichier, taille, licence,
+// « déjà sur cet ordinateur ») repliées dans « Details ». Colonne du
+// téléchargement : choix du fichier (boutons radio : variante expliquée en
+// infobulle, taille, mémoire de la carte avec « tient / dépasse », temps
+// estimé, « Recommended », « Installed »), total à télécharger, place libre
+// et Download, désactivé avec sa raison visible (dépôt non pris en charge ou
+// restreint, modèle non censuré sans le réglage, processeur, place) ;
+// pendant le téléchargement du fichier choisi, sa progression et Cancel ;
+// installé, un lien vers l'onglet. Hugging Face injoignable : fiche du cache
+// avec son bandeau, sinon l'état plein (Retry, sauf dépôt introuvable ou
+// restreint).
 
 import {
+  ArrowDownTrayIcon,
   ArrowTopRightOnSquareIcon,
   ChevronLeftIcon,
   XCircleIcon,
 } from "@heroicons/react/24/outline";
 import { Link, useCanGoBack, useRouter } from "@tanstack/react-router";
 import { type ReactNode, type RefObject, useId, useRef, useState } from "react";
-import type { ImageComponentRole } from "@/bindings/ImageComponentRole";
 import type { ImageFileChoice } from "@/bindings/ImageFileChoice";
 import type { ImageMachine } from "@/bindings/ImageMachine";
 import type { ImageRepoDetail } from "@/bindings/ImageRepoDetail";
 import type { ImageRepoUnsupported } from "@/bindings/ImageRepoUnsupported";
 import { ExternalLink } from "@/components/ExternalLink";
+import {
+  ComponentList,
+  Disclosure,
+  Fact,
+  Facts,
+  IMAGE_LINK,
+  ImageIcon,
+  MemoryFact,
+  SpeedFact,
+  UsageFact,
+  VariantChip,
+} from "@/components/hub/ImageBits";
 import { MachineNotice, UncensoredBadge } from "@/components/hub/ImageModels";
-import { InstalledBadge, ModelAvatar } from "@/components/hub/ModelBits";
+import { InstalledBadge } from "@/components/hub/ModelBits";
 import {
   RecommendedBadge,
   SpeechProgress,
@@ -37,7 +52,6 @@ import {
 } from "@/components/hub/Status";
 import {
   CARD,
-  CHIP,
   PAGE,
   PRIMARY_BUTTON,
   QUIET_LINK,
@@ -56,7 +70,8 @@ import { type TKey, useT } from "@/i18n";
 import { formatBytes, formatTimeAgo } from "@/i18n/format";
 import { Trans } from "@/i18n/Trans";
 import { isActiveSpeechDownload } from "@/lib/dictation";
-import { formatCount, huggingFaceUrl } from "@/lib/hub";
+import { huggingFaceUrl } from "@/lib/hub";
+import { familyBlurb } from "@/lib/imageModels";
 import { errorMessage } from "@/lib/ipc";
 
 /** Marge gardée sur le disque en plus du téléchargement (moteur : 100 Mio). */
@@ -68,15 +83,6 @@ const UNSUPPORTED: Record<ImageRepoUnsupported["kind"], TKey> = {
   noUsableFile: "hub.images.repo.unsupported.noUsableFile",
   unsupportedFamily: "hub.images.repo.unsupported.unsupportedFamily",
 };
-
-const ROLES: Record<ImageComponentRole, TKey> = {
-  model: "hub.images.repo.roles.model",
-  textEncoder: "hub.images.repo.roles.textEncoder",
-  vae: "hub.images.repo.roles.vae",
-};
-
-const LINK =
-  "rounded-sm underline underline-offset-2 outline-none hover:text-neutral-900 focus-visible:ring-2 focus-visible:ring-accent-fg dark:hover:text-white";
 
 export function ImageRepo({ id }: { id: string }) {
   const query = useImageRepo(id);
@@ -163,11 +169,7 @@ function RepoDetails({ detail }: { detail: ImageRepoDetail }) {
   return (
     <article aria-labelledby="image-repo-title">
       <header className="flex flex-wrap items-center gap-4">
-        <ModelAvatar
-          name={summary.name}
-          colorKey={summary.family?.id ?? summary.author}
-          size="lg"
-        />
+        <ImageIcon size="lg" />
         <div className="min-w-0 flex-1">
           <h2
             ref={titleRef}
@@ -187,14 +189,7 @@ function RepoDetails({ detail }: { detail: ImageRepoDetail }) {
       {machine.data && <MachineNotice machine={machine.data} />}
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
-        <section aria-label={t("hub.model.details")} className="min-w-0">
-          <Facts detail={detail} />
-          {!summary.openLicense && (
-            <p className="mt-3 text-sm text-amber-700 dark:text-amber-400">
-              {t("hub.images.notOpen")}
-            </p>
-          )}
-        </section>
+        <About detail={detail} />
         <aside
           aria-label={t("hub.images.repo.files")}
           className="lg:sticky lg:top-4 lg:self-start"
@@ -210,43 +205,91 @@ function RepoDetails({ detail }: { detail: ImageRepoDetail }) {
   );
 }
 
-function Facts({ detail }: { detail: ImageRepoDetail }) {
+/**
+ * Ce qu'est le modèle : famille et sa phrase, usage permis, téléchargements ;
+ * licence exacte, date et pièces annexes repliées dans « Details ».
+ */
+function About({ detail }: { detail: ImageRepoDetail }) {
   const t = useT();
-  const { summary } = detail;
-  const facts: [string, ReactNode][] = [
-    [
-      t("hub.images.repo.family"),
-      summary.family?.name ?? t("hub.images.notSupported"),
-    ],
-    [
-      t("hub.model.facts.license"),
-      <ExternalLink href={huggingFaceUrl(summary.id)} className={LINK}>
-        {summary.license ?? t("hub.images.noLicense")}
-      </ExternalLink>,
-    ],
-    [t("hub.model.facts.downloads"), formatCount(t, summary.downloads)],
-  ];
-  if (summary.lastModified) {
-    facts.push([
-      t("hub.model.facts.updated"),
-      formatTimeAgo(t, summary.lastModified),
-    ]);
-  }
+  const { summary, components } = detail;
+  const headingId = useId();
+  const blurb = summary.family ? familyBlurb(t, summary.family.id) : null;
   return (
-    <dl
-      className={`${CARD} grid grid-cols-2 gap-x-6 gap-y-4 p-5 sm:grid-cols-4`}
+    <section
+      aria-labelledby={headingId}
+      className={`${CARD} flex min-w-0 flex-col gap-4 self-start p-5`}
     >
-      {facts.map(([label, value]) => (
-        <div key={label} className="min-w-0">
-          <dt className="text-xs text-neutral-500 dark:text-neutral-400">
-            {label}
-          </dt>
-          <dd className="mt-0.5 truncate text-sm font-medium text-neutral-900 dark:text-white">
-            {value}
-          </dd>
-        </div>
-      ))}
-    </dl>
+      <div>
+        <h3
+          id={headingId}
+          data-testid="image-family"
+          className="font-rounded text-lg font-medium text-neutral-900 dark:text-white"
+        >
+          {summary.family?.name ?? t("hub.images.notSupported")}
+        </h3>
+        {blurb && (
+          <p
+            data-testid="image-blurb"
+            className="mt-1 text-sm text-neutral-600 dark:text-neutral-300"
+          >
+            {blurb}
+          </p>
+        )}
+      </div>
+      <Facts className="gap-y-2 text-sm sm:grid-cols-2">
+        <UsageFact
+          usage={summary.usage}
+          repo={summary.id}
+          license={summary.license}
+        />
+        <Fact icon={ArrowDownTrayIcon} name="downloads">
+          <span className="tabular-nums">
+            {t("hub.images.downloads", { count: summary.downloads })}
+          </span>
+        </Fact>
+      </Facts>
+      <Disclosure label={t("hub.model.details")}>
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+          <div className="min-w-0">
+            <dt className="text-xs text-neutral-500 dark:text-neutral-400">
+              {t("hub.model.facts.license")}
+            </dt>
+            <dd className="mt-0.5 truncate font-medium text-neutral-900 dark:text-white">
+              <ExternalLink
+                href={huggingFaceUrl(summary.id)}
+                className={IMAGE_LINK}
+              >
+                {summary.license ?? t("hub.images.noLicense")}
+              </ExternalLink>
+            </dd>
+          </div>
+          {summary.lastModified && (
+            <div className="min-w-0">
+              <dt className="text-xs text-neutral-500 dark:text-neutral-400">
+                {t("hub.model.facts.updated")}
+              </dt>
+              <dd className="mt-0.5 truncate font-medium text-neutral-900 dark:text-white">
+                {formatTimeAgo(t, summary.lastModified)}
+              </dd>
+            </div>
+          )}
+        </dl>
+        {components.length > 0 && (
+          <section aria-labelledby="image-components" className="mt-5">
+            <h4
+              id="image-components"
+              className="font-rounded text-base font-medium text-neutral-900 dark:text-white"
+            >
+              {t("hub.images.repo.components")}
+            </h4>
+            <p className="mt-1 mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+              {t("hub.images.repo.componentsHint")}
+            </p>
+            <ComponentList components={components} />
+          </section>
+        )}
+      </Disclosure>
+    </section>
   );
 }
 
@@ -313,7 +356,7 @@ function DownloadPanel({
             <Link
               to="/settings"
               search={{ section: "models" }}
-              className={LINK}
+              className={IMAGE_LINK}
             >
               {chunks}
             </Link>
@@ -378,9 +421,13 @@ function DownloadPanel({
                   />
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-sm font-medium text-neutral-900 dark:text-white">
-                        {file.quant ?? file.file}
-                      </span>
+                      {file.quant !== null ? (
+                        <VariantChip variant={file.quant} />
+                      ) : (
+                        <span className="text-sm font-medium break-all text-neutral-900 dark:text-white">
+                          {file.file}
+                        </span>
+                      )}
                       <span className="text-xs text-neutral-500 tabular-nums dark:text-neutral-400">
                         {formatBytes(t, file.sizeBytes)}
                       </span>
@@ -388,65 +435,29 @@ function DownloadPanel({
                       {installed(file) && <InstalledBadge />}
                     </span>
                     {file.quant !== null && (
-                      <span className="block truncate font-mono text-xs text-neutral-500 dark:text-neutral-400">
+                      <span className="mt-0.5 block truncate font-mono text-xs text-neutral-500 dark:text-neutral-400">
                         {file.file}
                       </span>
                     )}
+                    <span className="mt-2 block">
+                      <Facts inline className="grid-cols-1 gap-y-1 text-xs">
+                        <SpeedFact
+                          measured={null}
+                          estimated={file.estimatedSeconds}
+                          machine={machine}
+                        />
+                        <MemoryFact
+                          vramBytes={file.vramBytes}
+                          machine={machine}
+                        />
+                      </Facts>
+                    </span>
                   </span>
                 </label>
               );
             })}
           </div>
         </fieldset>
-      )}
-
-      {components.length > 0 && (
-        <section aria-labelledby="image-components">
-          <h3
-            id="image-components"
-            className="font-rounded text-base font-medium text-neutral-900 dark:text-white"
-          >
-            {t("hub.images.repo.components")}
-          </h3>
-          <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-            {t("hub.images.repo.componentsHint")}
-          </p>
-          <ul className="mt-3 flex flex-col gap-2">
-            {components.map((component) => (
-              <li
-                key={`${component.repo}/${component.file}`}
-                data-testid="image-component"
-                className="rounded-xl border border-neutral-200 px-3 py-2 dark:border-neutral-700"
-              >
-                <span className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-sm font-medium text-neutral-900 dark:text-white">
-                    {t(ROLES[component.role])}
-                  </span>
-                  <span className="text-xs text-neutral-500 tabular-nums dark:text-neutral-400">
-                    {formatBytes(t, component.sizeBytes)}
-                  </span>
-                  {component.present && (
-                    <span className={CHIP}>{t("hub.images.repo.present")}</span>
-                  )}
-                </span>
-                <span className="mt-0.5 block font-mono text-xs break-all text-neutral-500 dark:text-neutral-400">
-                  <ExternalLink
-                    href={huggingFaceUrl(component.repo)}
-                    className={LINK}
-                  >
-                    {component.repo}
-                  </ExternalLink>
-                  /{component.file}
-                </span>
-                <span className="block text-xs text-neutral-500 dark:text-neutral-400">
-                  {component.license
-                    ? `${t("hub.images.license")} ${component.license}`
-                    : t("hub.images.noLicense")}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
       )}
 
       <div className="flex flex-col gap-1 text-sm text-neutral-700 dark:text-neutral-200">

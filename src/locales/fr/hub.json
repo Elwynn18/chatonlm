@@ -299,19 +299,37 @@
     "title": "Modèles d'images",
     "loading": "Chargement des modèles d'images",
     "intro": "Les modèles d'images créent des images à partir de vos descriptions dans une conversation. Ils fonctionnent dans ChatonLM, pas dans Ollama.",
+    "howTo": {
+      "title": "Comment ça marche",
+      "download": "Téléchargez un modèle",
+      "use": "Cliquez sur Utiliser",
+      "chat": "Dans une conversation, appuyez sur le bouton Image (ou demandez une image au modèle)"
+    },
     "machine": {
       "noEngine": "Cette version de ChatonLM n'inclut pas le moteur d'images. Vous pouvez télécharger des modèles, mais pas créer d'images.",
       "missingCpu": "Cet ordinateur ne peut pas créer d'images : il manque à son processeur des instructions dont le moteur d'images a besoin ({features}).",
-      "noGpu": "Aucune carte graphique trouvée : les images seront faites par le processeur, ce qui prend plusieurs minutes pour chacune."
+      "noGpu": "Aucune carte graphique trouvée : les images seront faites par le processeur, ce qui prend plusieurs minutes pour chacune.",
+      "gpu": "Votre carte graphique : {card}"
     },
     "yours": "Vos modèles d'images",
     "recommended": "Recommandés",
-    "popular": "Populaires sur Hugging Face",
+    "popular": "Compatibles sur Hugging Face",
     "results": "Résultats pour « {query} »",
     "noResults": "Aucun modèle d'images ne correspond à votre recherche.",
+    "noCompatible": "Aucun modèle d'images compatible ne correspond à votre recherche.",
+    "hidden": {
+      "one": "{count} modèle non pris en charge ou restreint masqué",
+      "other": "{count} modèles non pris en charge ou restreints masqués"
+    },
+    "show": "Afficher",
+    "hide": "Masquer",
+    "unsupportedShown": "Modèles non pris en charge ou restreints",
     "searchLoading": "Recherche sur Hugging Face",
     "notSupported": "Non pris en charge",
-    "restricted": "Restreint",
+    "repoCard": {
+      "unsupported": "Non pris en charge par ChatonLM",
+      "restricted": "Restreint : demande un compte Hugging Face"
+    },
     "uncensored": "Non censuré",
     "uncensoredHint": "Ce modèle peut créer des images explicites ou choquantes.",
     "downloads": {
@@ -319,15 +337,49 @@
       "other": "{count} téléchargements"
     },
     "toDownload": "{size} à télécharger",
+    "toDownloadShared": "{size} à télécharger ({present} déjà sur cet ordinateur)",
+    "onDisk": "{size} sur le disque",
     "license": "Licence :",
     "noLicense": "Aucune licence indiquée",
-    "notOpen": "Licence non libre : lisez-la avant d'utiliser le modèle.",
-    "source": "Source :",
     "use": "Utiliser",
+    "quantHint": "Variante du fichier. Q4 : plus léger, un peu moins fidèle · Q8 : plus fidèle, plus lourd",
+    "families": {
+      "flux2-klein-4b": "Rapide et polyvalent, doué pour le texte dans les images. Un bon premier choix.",
+      "flux2-klein-base-4b": "Version de base de klein 4B : plus lente et plus variée, pour expérimenter.",
+      "flux2-klein-9b": "Le grand klein : plus de détails et plus fidèle à votre description, mais plus lourd et plus lent.",
+      "z-image-turbo": "Images photoréalistes et texte soigné, rapide.",
+      "z-image": "Version complète de Z-Image : plus lente, plus variée.",
+      "flux1-schnell": "Modèle FLUX.1 rapide pour les images de tous les jours.",
+      "flux1-dev": "Modèle FLUX.1 de grande qualité, lent.",
+      "chroma": "Modèle ouvert dérivé de FLUX, nombreux styles, lent.",
+      "qwen-image": "Très doué pour le texte et les scènes complexes ; lourd et lent.",
+      "sdxl": "Stable Diffusion XL classique : nombreux styles et variantes, léger.",
+      "sd15": "Stable Diffusion 1.5, ancien et très léger : qualité modeste, tourne presque partout."
+    },
+    "glance": "En bref",
+    "speed": {
+      "seconds": "≈ {seconds} s par image",
+      "minutes": "≈ {minutes} min par image",
+      "measuredSeconds": "≈ {seconds} s par image (mesuré)",
+      "measuredMinutes": "≈ {minutes} min par image (mesuré)",
+      "processor": "Plusieurs minutes par image (processeur)",
+      "hint": "Estimation pour une image de 1024×1024",
+      "measuredHint": "Durée de la dernière image faite sur cet ordinateur"
+    },
+    "memory": {
+      "vram": "{size} de VRAM",
+      "fits": "Tient sur votre carte ({vram})",
+      "tooBig": "Dépasse votre carte : plus lent",
+      "hint": "Mémoire de la carte graphique nécessaire pour une image de 1024×1024"
+    },
+    "usage": {
+      "free": "Usage libre",
+      "nonCommercial": "Usage non commercial",
+      "checkLicense": "Licence à lire"
+    },
     "deleteText": "Le modèle sera supprimé de cet ordinateur. Les fichiers qu'il partage avec vos autres modèles d'images sont gardés.",
     "deleteTextInUse": "Le modèle sera supprimé de cet ordinateur. La génération d'images ne fonctionnera plus tant que vous ne l'aurez pas retéléchargé ou que vous n'aurez pas choisi un autre modèle d'images.",
     "repo": {
-      "family": "Famille",
       "files": "Choisissez un fichier",
       "components": "Aussi nécessaires",
       "componentsHint": "Fichiers dont cette famille a besoin en plus du modèle. Ils sont partagés par vos modèles de la même famille.",

@@ -1,11 +1,22 @@
 // Faux moteur des modèles d'images pour le simulateur (tests vitest
 // seulement), aligné sur le moteur (src-tauri/src/image_models/service.rs ;
 // contrat .tools/research/83-image-models-contract.md) : dépôts de Hugging
-// Face (klein 4B et Z-Image-Turbo, recommandés ; un Z-Image non censuré ;
-// une famille inconnue ; un dépôt restreint ; un SDXL à fichier unique),
+// Face (klein 4B et Z-Image-Turbo, recommandés ; klein 9B, non commercial ;
+// un Z-Image non censuré ; une famille inconnue ; un dépôt restreint ; un
+// SDXL à fichier unique),
 // lignes de la base (par date d'enregistrement), fichiers sur le disque
-// (`disk`, une pièce partagée y est une fois), téléchargements en mémoire et
-// machine. Comme le moteur :
+// (`disk`, une pièce partagée y est une fois), téléchargements en mémoire,
+// temps mesurés (`measured`) et machine (RTX 3090, 24 Gio). Comme le moteur
+// (contrat 85 § 2) :
+// - usage : celui imposé par la famille (klein 9B, FLUX.1 dev : non
+//   commercial), sinon libre si la licence l'est, sinon licence à lire ;
+// - VRAM estimée = fichiers du modèle et pièces + tampons de calcul de la
+//   famille ; temps estimé = mesure de référence de la famille (×3 si la
+//   VRAM estimée dépasse celle de la carte), rien sans carte graphique ni
+//   pour une famille sans mesure ;
+// - image_search sans showUnsupported retire les dépôts sans famille ou
+//   restreints et les compte dans hiddenUnsupported (non censurés retirés
+//   avant, non comptés) ;
 // - image_models rend d'abord les lignes qui ne sont pas de simples
 //   recommandations (non recommandées, installées, ou avec un téléchargement
 //   même fini, échoué ou annulé), du plus ancien au plus récent, puis les
@@ -41,6 +52,8 @@ import type { ImageModelInfo } from "@/bindings/ImageModelInfo";
 import type { ImageRepoDetail } from "@/bindings/ImageRepoDetail";
 import type { ImageRepoSummary } from "@/bindings/ImageRepoSummary";
 import type { ImageRepoUnsupported } from "@/bindings/ImageRepoUnsupported";
+import type { ImageSearchResult } from "@/bindings/ImageSearchResult";
+import type { ImageUsage } from "@/bindings/ImageUsage";
 import type { SpeechDownload } from "@/bindings/SpeechDownload";
 import type { Args, Simulator } from "@/test/simulator";
 
@@ -57,8 +70,44 @@ export const Z_IMAGE: ImageFamily = {
   id: "z-image-turbo",
   name: "Z-Image-Turbo",
 };
+export const KLEIN_9B: ImageFamily = {
+  id: "flux2-klein-9b",
+  name: "FLUX.2 klein 9B",
+};
 export const SDXL: ImageFamily = { id: "sdxl", name: "Stable Diffusion XL" };
 export const FLUX1_DEV: ImageFamily = { id: "flux1-dev", name: "FLUX.1 dev" };
+
+/**
+ * Familles.json du moteur : temps de référence (image 1024×1024, RTX 3090),
+ * tampons de calcul, usage imposé.
+ */
+const FAMILY_FACTS: Record<
+  string,
+  { seconds: number | null; computeBytes: number; usage?: ImageUsage }
+> = {
+  [KLEIN.id]: { seconds: 5, computeBytes: 3.1 * 1024 ** 3 },
+  [KLEIN_9B.id]: {
+    seconds: 10,
+    computeBytes: 3.5 * 1024 ** 3,
+    usage: "nonCommercial",
+  },
+  [Z_IMAGE.id]: { seconds: 12, computeBytes: 3.5 * 1024 ** 3 },
+  [SDXL.id]: { seconds: 8, computeBytes: 2 * 1024 ** 3 },
+  [FLUX1_DEV.id]: {
+    seconds: 35,
+    computeBytes: 3 * 1024 ** 3,
+    usage: "nonCommercial",
+  },
+};
+
+/** Usage permis : celui de la famille, sinon selon la licence. */
+export function imageUsage(
+  family: ImageFamily | null,
+  openLicense: boolean,
+): ImageUsage {
+  const imposed = family ? FAMILY_FACTS[family.id]?.usage : undefined;
+  return imposed ?? (openLicense ? "free" : "checkLicense");
+}
 
 export const KLEIN_REPO = "leejet/FLUX.2-klein-4B-GGUF";
 export const KLEIN_FILE = "flux-2-klein-4b-Q4_0.gguf";
@@ -66,6 +115,9 @@ export const KLEIN_ID = `${KLEIN_REPO}/${KLEIN_FILE}`;
 export const KLEIN_Q8_FILE = "flux-2-klein-4b-Q8_0.gguf";
 export const KLEIN_Q8_ID = `${KLEIN_REPO}/${KLEIN_Q8_FILE}`;
 export const KLEIN_REVISION = "3b1f5a9d0c2e4f6a8b1c3d5e7f9a0b2c4d6e8f0a";
+export const KLEIN_9B_REPO = "leejet/FLUX.2-klein-9B-GGUF";
+export const KLEIN_9B_FILE = "flux-2-klein-9b-Q8_0.gguf";
+export const KLEIN_9B_ID = `${KLEIN_9B_REPO}/${KLEIN_9B_FILE}`;
 export const Z_IMAGE_REPO = "leejet/Z-Image-Turbo-GGUF";
 export const Z_IMAGE_FILE = "z_image_turbo-Q4_K.gguf";
 export const Z_IMAGE_ID = `${Z_IMAGE_REPO}/${Z_IMAGE_FILE}`;
@@ -95,6 +147,13 @@ const KLEIN_VAE: Piece = {
   sizeBytes: 168_000_000,
   license: "apache-2.0",
 };
+const QWEN3_8B: Piece = {
+  role: "textEncoder",
+  repo: "unsloth/Qwen3-8B-GGUF",
+  file: "Qwen3-8B-Q4_K_M.gguf",
+  sizeBytes: 5_027_783_488,
+  license: "apache-2.0",
+};
 const QWEN3_4B_INSTRUCT: Piece = {
   role: "textEncoder",
   repo: "unsloth/Qwen3-4B-Instruct-2507-GGUF",
@@ -119,6 +178,7 @@ const SDXL_VAE: Piece = {
 
 const PIECES: Record<string, Piece[]> = {
   [KLEIN.id]: [QWEN3_4B, KLEIN_VAE],
+  [KLEIN_9B.id]: [QWEN3_8B, KLEIN_VAE],
   [Z_IMAGE.id]: [QWEN3_4B_INSTRUCT, AE],
   [SDXL.id]: [SDXL_VAE],
 };
@@ -127,8 +187,11 @@ const PIECES: Record<string, Piece[]> = {
 export interface FakeImageRepo {
   summary: ImageRepoSummary;
   revision: string;
-  /** Fichiers (sans `installed`, calculé). */
-  files: Omit<ImageFileChoice, "installed">[];
+  /** Fichiers (sans `installed` ni les estimations, calculés). */
+  files: Omit<
+    ImageFileChoice,
+    "installed" | "vramBytes" | "estimatedSeconds"
+  >[];
   unsupported: ImageRepoUnsupported | null;
 }
 
@@ -169,7 +232,7 @@ function summary(
   fields: Partial<ImageRepoSummary> = {},
 ): ImageRepoSummary {
   const [author, name] = id.split("/");
-  return {
+  const base = {
     id,
     author,
     name,
@@ -183,6 +246,7 @@ function summary(
     gated: false,
     ...fields,
   };
+  return { ...base, usage: imageUsage(base.family, base.openLicense) };
 }
 
 /** Dépôts d'essai, par identifiant. */
@@ -208,6 +272,30 @@ export function imageRepos(): Map<string, FakeImageRepo> {
           file: "flux-2-klein-4b-BF16.gguf",
           sizeBytes: 7_750_000_000,
           quant: "BF16",
+          recommended: false,
+        },
+      ],
+      unsupported: null,
+    },
+    {
+      summary: summary(KLEIN_9B_REPO, {
+        family: KLEIN_9B,
+        downloads: 60_000,
+        license: "other",
+        openLicense: false,
+      }),
+      revision: "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+      files: [
+        {
+          file: "flux-2-klein-9b-Q4_0.gguf",
+          sizeBytes: 5_400_000_000,
+          quant: "Q4_0",
+          recommended: true,
+        },
+        {
+          file: KLEIN_9B_FILE,
+          sizeBytes: 9_900_000_000,
+          quant: "Q8_0",
           recommended: false,
         },
       ],
@@ -307,6 +395,8 @@ export interface FakeImages {
   disk: Set<string>;
   /** Modèle choisi pour la génération (`""` : aucun). */
   selected: string;
+  /** Temps de la dernière image, en secondes, par modèle. */
+  measured: Map<string, number>;
   /** Téléchargements, dans l'ordre de demande. */
   downloads: SpeechDownload[];
   /** Hugging Face injoignable (recherche et fiches) ; null : à jour. */
@@ -376,12 +466,15 @@ export function fakeImages(
       gpu: true,
       missingCpuFeatures: [],
       freeBytes: 200 * GIB,
+      vramBytes: 24 * GIB,
+      gpuName: "NVIDIA GeForce RTX 3090",
     },
     repos: imageRepos(),
     recommendations: RECOMMENDATIONS.map((entry) => ({ ...entry })),
     rows: [],
     disk: new Set(),
     selected: "",
+    measured: new Map(),
     downloads: [],
     problem: null,
     stale: false,
@@ -525,6 +618,24 @@ export function fakeImages(
     return piece.sizeBytes;
   }
 
+  /** Mémoire de la carte estimée (fichiers et pièces + calcul de la famille). */
+  function vramOf(family: ImageFamily | null, filesBytes: number): number {
+    return (
+      filesBytes + (family ? (FAMILY_FACTS[family.id]?.computeBytes ?? 0) : 0)
+    );
+  }
+
+  /** Temps estimé d'une image ; null sans carte ou sans mesure de référence. */
+  function estimatedOf(
+    family: ImageFamily | null,
+    vramBytes: number,
+  ): number | null {
+    const seconds = family ? (FAMILY_FACTS[family.id]?.seconds ?? null) : null;
+    const { gpu, vramBytes: card } = images.machine;
+    if (!gpu || seconds === null) return null;
+    return card !== null && vramBytes > card ? seconds * 3 : seconds;
+  }
+
   function missingBytes(id: string): number {
     return images
       .filesOf(id)
@@ -551,6 +662,11 @@ export function fakeImages(
         present: images.disk.has(`${piece.repo}/${piece.file}`),
       })),
     ];
+    const sizeBytes = components.reduce(
+      (total, piece) => total + piece.sizeBytes,
+      0,
+    );
+    const vramBytes = vramOf(family, sizeBytes);
     return {
       id: row.id,
       name: row.name,
@@ -563,13 +679,15 @@ export function fakeImages(
       uncensored: repo.summary.uncensored,
       recommended: recommendationOf(row.repo, row.file) !== undefined,
       installed: recorded && allPresent(row.id) && !active(row.id),
-      sizeBytes: components.reduce(
-        (total, piece) => total + piece.sizeBytes,
-        0,
-      ),
+      sizeBytes,
       missingBytes: missingBytes(row.id),
       selected: recorded && row.id === images.selected,
       components,
+      usage: imageUsage(family, repo.summary.openLicense),
+      quant: repo.files.find((file) => file.file === row.file)?.quant ?? null,
+      vramBytes,
+      estimatedSeconds: estimatedOf(family, vramBytes),
+      measuredSeconds: (recorded && images.measured.get(row.id)) || null,
     };
   }
 
@@ -629,23 +747,39 @@ export function fakeImages(
     failure("image_machine");
     return { ...images.machine };
   });
-  simulator.handle("image_search", (args: Args) => {
+  simulator.handle("image_search", (args: Args): ImageSearchResult => {
     failure("image_search");
-    if (typeof args.query !== "string") {
+    if (
+      typeof args.query !== "string" ||
+      typeof args.showUnsupported !== "boolean"
+    ) {
       throw simulator.fail(
         `image_search: bad arguments ${JSON.stringify(args)}`,
       );
     }
     if (images.problem && !images.stale) {
-      return { repos: [], problem: images.problem, stale: false };
+      return {
+        repos: [],
+        problem: images.problem,
+        stale: false,
+        hiddenUnsupported: 0,
+      };
     }
     const query = args.query.trim().toLowerCase();
-    const repos = [...images.repos.values()]
+    const found = [...images.repos.values()]
       .map((repo) => repo.summary)
       .filter((repo) => !repo.uncensored || showUncensored())
       .filter((repo) => repo.id.toLowerCase().includes(query))
       .sort((a, b) => b.downloads - a.downloads);
-    return { repos, problem: images.problem, stale: images.stale };
+    const supported = (repo: ImageRepoSummary) =>
+      repo.family !== null && !repo.gated;
+    const repos = args.showUnsupported ? found : found.filter(supported);
+    return {
+      repos,
+      problem: images.problem,
+      stale: images.stale,
+      hiddenUnsupported: found.length - repos.length,
+    };
   });
   simulator.handle("image_repo", (args: Args): ImageRepoDetail => {
     failure("image_repo");
@@ -672,9 +806,16 @@ export function fakeImages(
       files: repo.files.map((file) => {
         const modelId = `${id}/${file.file}`;
         const recorded = images.rows.some((row) => row.id === modelId);
+        const pieces = (PIECES[family] ?? []).reduce(
+          (total, piece) => total + piece.sizeBytes,
+          0,
+        );
+        const vramBytes = vramOf(repo.summary.family, file.sizeBytes + pieces);
         return {
           ...file,
           installed: (recorded && allPresent(modelId)) || active(modelId),
+          vramBytes,
+          estimatedSeconds: estimatedOf(repo.summary.family, vramBytes),
         };
       }),
       components: (PIECES[family] ?? []).map((piece) => ({

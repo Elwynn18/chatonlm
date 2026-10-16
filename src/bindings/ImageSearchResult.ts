@@ -14,4 +14,9 @@ problem: HubProblem | null,
 /**
  * Liste reprise du cache faute de réponse.
  */
-stale: boolean, };
+stale: boolean, 
+/**
+ * Dépôts non pris en charge (famille inconnue ou écartée) ou restreints
+ * retirés de `repos` (recherche sans `showUnsupported`).
+ */
+hiddenUnsupported: number, };

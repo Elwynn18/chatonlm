@@ -299,19 +299,37 @@
     "title": "Image models",
     "loading": "Loading image models",
     "intro": "Image models create pictures from your descriptions in a chat. They run inside ChatonLM, not in Ollama.",
+    "howTo": {
+      "title": "How it works",
+      "download": "Download a model",
+      "use": "Click Use",
+      "chat": "In a chat, press the Image button (or ask the model for a picture)"
+    },
     "machine": {
       "noEngine": "This version of ChatonLM doesn't include the image engine. You can download models, but not create images.",
       "missingCpu": "This computer can't create images: its processor lacks instructions the image engine needs ({features}).",
-      "noGpu": "No graphics card found: images will be made by the processor, which takes several minutes each."
+      "noGpu": "No graphics card found: images will be made by the processor, which takes several minutes each.",
+      "gpu": "Your graphics card: {card}"
     },
     "yours": "Your image models",
     "recommended": "Recommended",
-    "popular": "Popular on Hugging Face",
+    "popular": "Compatible on Hugging Face",
     "results": "Results for “{query}”",
     "noResults": "No image models match your search.",
+    "noCompatible": "No compatible image models match your search.",
+    "hidden": {
+      "one": "{count} unsupported or restricted model hidden",
+      "other": "{count} unsupported or restricted models hidden"
+    },
+    "show": "Show",
+    "hide": "Hide",
+    "unsupportedShown": "Unsupported or restricted models",
     "searchLoading": "Searching Hugging Face",
     "notSupported": "Not supported",
-    "restricted": "Restricted",
+    "repoCard": {
+      "unsupported": "Not supported by ChatonLM",
+      "restricted": "Restricted: needs a Hugging Face account"
+    },
     "uncensored": "Uncensored",
     "uncensoredHint": "This model can create explicit or shocking images.",
     "downloads": {
@@ -319,15 +337,49 @@
       "other": "{count} downloads"
     },
     "toDownload": "{size} to download",
+    "toDownloadShared": "{size} to download ({present} already on this computer)",
+    "onDisk": "{size} on disk",
     "license": "License:",
     "noLicense": "No license stated",
-    "notOpen": "Not an open license: read it before using the model.",
-    "source": "Source:",
     "use": "Use",
+    "quantHint": "File variant. Q4: lighter, a little less faithful · Q8: more faithful, heavier",
+    "families": {
+      "flux2-klein-4b": "Fast and versatile, good at text in pictures. A good first choice.",
+      "flux2-klein-base-4b": "Base version of klein 4B: slower and more varied, for experiments.",
+      "flux2-klein-9b": "Bigger klein: more detail and closer to your description, but heavier and slower.",
+      "z-image-turbo": "Photorealistic pictures and good text, quick.",
+      "z-image": "Full version of Z-Image: slower, more varied.",
+      "flux1-schnell": "Fast FLUX.1 model for everyday pictures.",
+      "flux1-dev": "High-quality FLUX.1 model, slow.",
+      "chroma": "Open model based on FLUX, many styles, slow.",
+      "qwen-image": "Very good at text and complex scenes; heavy and slow.",
+      "sdxl": "Classic Stable Diffusion XL: many styles and variants, light.",
+      "sd15": "Older, very light Stable Diffusion 1.5: modest quality, runs almost anywhere."
+    },
+    "glance": "At a glance",
+    "speed": {
+      "seconds": "≈ {seconds} s per image",
+      "minutes": "≈ {minutes} min per image",
+      "measuredSeconds": "≈ {seconds} s per image (measured)",
+      "measuredMinutes": "≈ {minutes} min per image (measured)",
+      "processor": "Several minutes per image (processor)",
+      "hint": "Estimate for one 1024×1024 picture",
+      "measuredHint": "Time of the last picture made on this computer"
+    },
+    "memory": {
+      "vram": "{size} of VRAM",
+      "fits": "Fits your card ({vram})",
+      "tooBig": "More than your card: slower",
+      "hint": "Graphics card memory needed for one 1024×1024 picture"
+    },
+    "usage": {
+      "free": "Free to use",
+      "nonCommercial": "Non-commercial use only",
+      "checkLicense": "Check the license"
+    },
     "deleteText": "This removes the model from this computer. Files it shares with your other image models are kept.",
     "deleteTextInUse": "This removes the model from this computer. Image generation won't work until you download it again or choose another image model.",
     "repo": {
-      "family": "Family",
       "files": "Choose a file",
       "components": "Also needed",
       "componentsHint": "Files this family needs besides the model. They're shared by your models of the same family.",

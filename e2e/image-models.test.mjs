@@ -2,26 +2,30 @@
 // CSP de production), avec le faux Ollama et le faux Hugging Face, familles
 // d'essai à petites pièces (CHATONLM_IMAGE_FAMILIES ; contrat
 // .tools/research/83-image-models-contract.md § 7) :
-// - onglet Images après Voices ; dépôts populaires sans le dépôt non
-//   censuré ; famille inconnue « Not supported », dépôt restreint
-//   « Restricted » ;
+// - onglet Images après Voices ; « How it works », carte graphique d'essai
+//   en neutre ; dépôts compatibles seulement (ni le non censuré, ni la
+//   famille inconnue, ni le restreint), ligne « N … hidden · Show » ; Show :
+//   famille inconnue et dépôt restreint en bas, avec leur raison
+//   (showUnsupported dans l'adresse) ;
 // - recherche par l'adresse (q) : chatonlm/klein-test-GGUF ; sa fiche : fichier
 //   conseillé coché, pièces annexes listées, total, Download → fichiers
 //   servis par le faux Hugging Face à la révision de la fiche
 //   (/resolve/<révision>/...) → « This file is installed. », fin prouvée
 //   par la ligne data-state=done de l'onglet Downloads ;
-// - « Your image models » : carte du modèle installée, Use → « In use » ; onglet
+// - « Your image models » : carte du modèle installée (repères, Details
+//   replié puis ouvert), Use → « In use » ; onglet
 //   Downloads : section « Image models », ligne « Installed », Dismiss ;
 //   suppression confirmée par la boîte, carte retirée ;
 // - fiches refusées : famille inconnue et dépôt restreint (Download désactivé,
 //   raison visible) ; dépôt non censuré atteint par son adresse : badge,
 //   raison avec le lien vers les réglages ; réglage « Show uncensored
 //   models » activé : le dépôt apparaît dans la recherche avec son badge ;
-// - faux moteur (fake-sd-server, à côté du binaire) : pas de bandeau de la
-//   machine (carte graphique d'essai de withApp) ;
-// - captures (.tools/shots/image-models/) : onglet, fiche, téléchargement en
-//   cours (faux Hugging Face figé un instant), installé, vos modèles, onglet
-//   Downloads, fiche non censurée ;
+// - faux moteur (fake-sd-server, à côté du binaire) : pas d'avertissement
+//   de la machine (carte graphique d'essai de withApp, dite en neutre) ;
+// - captures (.tools/shots/image-models/, prises aussi en clair et en sombre
+//   avec E2E_THEME_AUDIT) : onglet, dépôts masqués montrés, fiche,
+//   téléchargement en cours (faux Hugging Face figé un instant), installé,
+//   vos modèles (Details ouvert), onglet Downloads, fiche non censurée ;
 // - aucune violation de la CSP ni erreur ou avertissement dans la console.
 //
 // Suppose du faux Hugging Face (crates/fake-ollama, fixtures/hf/) : le
@@ -183,14 +187,16 @@ const repoCardText = (driver, id) =>
     [id],
   );
 
-/** Titres des cartes de modèles d'une section (« Your image models »...). */
-const modelTitles = (driver, list) =>
-  driver.execute(
-    `const list = document.querySelector("ul[aria-label='" + arguments[0] + "']");
-     return list ? [...list.querySelectorAll("[data-testid=image-model] h4")]
-       .map((h) => h.textContent.trim()) : [];`,
-    [list],
-  );
+/**
+ * Sélecteur JS de la carte de « Your image models » dont un fichier est
+ * `file` (liste des fichiers de « Details », repliée mais dans le DOM).
+ */
+const CARD_OF = `[...document.querySelectorAll("ul[aria-label='Your image models'] [data-testid=image-model]")]
+  .find((li) => li.textContent.includes("/" + arguments[0]))`;
+
+/** La carte du fichier `file` est dans « Your image models ». */
+const hasCard = (driver, file) =>
+  driver.execute(`return ${CARD_OF} !== undefined;`, [file]);
 
 /** Raison d'un Download désactivé, et l'état du bouton. */
 const downloadState = (driver) =>
@@ -283,25 +289,89 @@ try {
         ),
       "recommandations",
     );
+    assert.deepEqual(await textsOf(driver, "[data-testid=image-how-to] li"), [
+      "1Download a model",
+      "2Click Use",
+      "3In a chat, press the Image button (or ask the model for a picture)",
+    ]);
+    // Avertissements absents ; la carte graphique d'essai de withApp, neutre.
     assert.equal(
       await exists(driver, "[data-testid=image-machine]"),
       false,
       `bandeau de la machine : ${await textOf(driver, "[data-testid=image-machine]")}`,
     );
+    await waitUntil(
+      () => exists(driver, "[data-testid=image-gpu]"),
+      "carte graphique de la machine",
+    );
+    assert.match(
+      await textOf(driver, "[data-testid=image-gpu]"),
+      /^Your graphics card: NVIDIA GeForce RTX 3090/,
+    );
+    // Repères de la recommandation : mémoire de la carte, place, usage.
+    const factsText = await driver.execute(
+      `const card = document.querySelector("[data-testid=image-model]");
+       return ["memory", "size", "usage"].map((name) =>
+         card.querySelector("[data-fact=" + name + "]")?.textContent ?? null);`,
+    );
+    assert.match(factsText[0] ?? "", / of VRAM/, JSON.stringify(factsText));
+    assert.match(factsText[1] ?? "", / to download/, JSON.stringify(factsText));
+    assert.equal(factsText[2], "Free to use", JSON.stringify(factsText));
     await waitText(
       driver,
       "[data-testid=hub-scroll] h3",
-      "Popular on Hugging Face",
+      "Compatible on Hugging Face",
       20000,
     );
+    // Compatibles seulement : les non pris en charge et restreints masqués.
     const popular = await repoCards(driver);
-    for (const id of [KLEIN, UNKNOWN, GATED]) {
-      assert.ok(popular.includes(id), `${id} parmi ${JSON.stringify(popular)}`);
+    assert.ok(
+      popular.includes(KLEIN),
+      `${KLEIN} parmi ${JSON.stringify(popular)}`,
+    );
+    for (const id of [UNCENSORED, UNKNOWN, GATED]) {
+      assert.ok(
+        !popular.includes(id),
+        `${id} masqué : ${JSON.stringify(popular)}`,
+      );
     }
-    assert.ok(!popular.includes(UNCENSORED), "dépôt non censuré masqué");
-    assert.match(await repoCardText(driver, UNKNOWN), /Not supported/);
-    assert.match(await repoCardText(driver, GATED), /Restricted/);
+    const hiddenLine = await textOf(driver, "[data-testid=image-hidden]");
+    assert.match(
+      hiddenLine ?? "",
+      /^\d+ unsupported or restricted models? hidden·Show$/,
+      `ligne des masqués : ${hiddenLine}`,
+    );
     await shoot(driver, "images-tab");
+
+    // Show : ils apparaissent en bas, en retrait, avec leur raison.
+    await clickText(driver, "[data-testid=image-hidden] button", "Show");
+    await waitUntil(
+      async () => {
+        const all = await repoCards(driver);
+        return all.includes(UNKNOWN) && all.includes(GATED);
+      },
+      "dépôts masqués montrés (famille inconnue, restreint)",
+      20000,
+    );
+    assert.match(
+      await driver.execute("return location.search"),
+      /showUnsupported=true/,
+    );
+    assert.match(
+      await repoCardText(driver, UNKNOWN),
+      /Not supported by ChatonLM/,
+    );
+    assert.match(
+      await repoCardText(driver, GATED),
+      /Restricted: needs a Hugging Face account/,
+    );
+    const order = await repoCards(driver);
+    assert.ok(
+      order.indexOf(KLEIN) < order.indexOf(UNKNOWN) &&
+        order.indexOf(KLEIN) < order.indexOf(GATED),
+      `non pris en charge en bas : ${JSON.stringify(order)}`,
+    );
+    await shoot(driver, "images-tab-unsupported");
 
     // 2. Recherche par l'adresse, puis la fiche.
     await navigate(driver, "/hub/images?q=klein");
@@ -325,9 +395,32 @@ try {
     );
     const chosen = files.find((entry) => entry.checked);
     assert.ok(chosen, `fichier conseillé coché : ${JSON.stringify(files)}`);
+    // Repères par fichier : mémoire de la carte, qui tient sur 24 Gio.
+    await waitUntil(
+      async () =>
+        (await textsOf(driver, "[data-testid=image-file] [data-fact=memory]"))
+          .length === files.length,
+      "mémoire de chaque fichier",
+    );
+    assert.match(
+      await driver.execute(
+        `return [...document.querySelectorAll("[data-testid=image-file]")]
+           .find((label) => label.querySelector("input").checked)
+           .querySelector("[data-fact=memory]").textContent`,
+      ),
+      /of VRAMFits your card \(24 GB\)$/,
+    );
+    // Pièces annexes repliées dans « Details ».
     assert.ok(
       (await textsOf(driver, "[data-testid=image-component]")).length > 0,
       "pièces annexes",
+    );
+    assert.equal(
+      await driver.execute(
+        `return [...document.querySelectorAll("article button[aria-expanded]")]
+           .find((b) => b.textContent.trim() === "Details")?.getAttribute("aria-expanded") ?? null`,
+      ),
+      "false",
     );
     assert.match(
       await textOf(driver, "[data-testid=image-total]"),
@@ -397,29 +490,45 @@ try {
       60000,
     );
 
-    // 3. Vos modèles : carte installée (Use), Use → In use.
-    const stem = chosen.file.replace(/\.[^.]+$/, "");
+    // 3. Vos modèles : carte installée (Use), Use → In use, Details ouvert.
     await tab(driver, "Images");
     await waitUntil(
-      async () =>
-        (await modelTitles(driver, "Your image models")).includes(stem),
-      `carte ${stem} dans « Your image models »`,
+      () => hasCard(driver, chosen.file),
+      `carte de ${chosen.file} dans « Your image models »`,
+    );
+    assert.match(
+      await driver.execute(
+        `return ${CARD_OF}.querySelector("[data-fact=size]").textContent;`,
+        [chosen.file],
+      ),
+      / on disk$/,
     );
     await driver.execute(
-      `const card = [...document.querySelectorAll("[data-testid=image-model]")]
-         .find((li) => li.querySelector("h4")?.textContent.trim() === arguments[0]);
-       [...card.querySelectorAll("button")].find((b) => b.textContent.trim() === "Use").click();`,
-      [stem],
+      `[...${CARD_OF}.querySelectorAll("button")].find((b) => b.textContent.trim() === "Use").click();`,
+      [chosen.file],
     );
     await waitUntil(
       () =>
         driver.execute(
-          `const card = [...document.querySelectorAll("[data-testid=image-model]")]
-             .find((li) => li.querySelector("h4")?.textContent.trim() === arguments[0]);
-           return card?.textContent.includes("In use") ?? false;`,
-          [stem],
+          `return ${CARD_OF}?.textContent.includes("In use") ?? false;`,
+          [chosen.file],
         ),
       "In use",
+    );
+    await driver.execute(
+      `[...${CARD_OF}.querySelectorAll("button")].find((b) => b.textContent.trim() === "Details").click();`,
+      [chosen.file],
+    );
+    await waitUntil(
+      () =>
+        driver.execute(
+          `const card = ${CARD_OF};
+           return card.querySelector("button[aria-expanded=true]") !== null &&
+             [...card.querySelectorAll("[data-testid=image-component]")]
+               .every((piece) => piece.offsetParent !== null);`,
+          [chosen.file],
+        ),
+      "Details ouvert",
     );
     await shoot(driver, "your-models");
 
@@ -444,14 +553,10 @@ try {
 
     // 5. Suppression confirmée.
     await tab(driver, "Images");
-    await waitUntil(
-      async () =>
-        (await modelTitles(driver, "Your image models")).includes(stem),
-      "carte de retour",
-    );
+    await waitUntil(() => hasCard(driver, chosen.file), "carte de retour");
     await driver.execute(
-      `document.querySelector("button[aria-label='Delete " + arguments[0] + "']").click();`,
-      [stem],
+      `${CARD_OF}.querySelector("button[aria-label^='Delete ']").click();`,
+      [chosen.file],
     );
     await driver.waitFor("[role=alertdialog]");
     assert.match(
@@ -460,8 +565,7 @@ try {
     );
     await clickText(driver, "[role=alertdialog] button", "Delete");
     await waitUntil(
-      async () =>
-        !(await modelTitles(driver, "Your image models")).includes(stem),
+      async () => !(await hasCard(driver, chosen.file)),
       "carte retirée",
     );
 

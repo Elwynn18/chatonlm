@@ -26,6 +26,7 @@ import type { ModelPickerHandle } from "@/components/ModelPicker";
 import { useImageActions, useImageModels } from "@/hooks/useImageModels";
 import { useT } from "@/i18n";
 import { errorMessage } from "@/lib/ipc";
+import { imageModelLabel } from "@/lib/imageModels";
 
 export function ImageModelPicker({
   onModelSelect,
@@ -108,7 +109,7 @@ export function ImageModelPicker({
           {data === undefined && !isError ? (
             <span>{t("chat.picker.loading")}</span>
           ) : selected ? (
-            <span className="truncate">{selected.name}</span>
+            <span className="truncate">{imageModelLabel(selected)}</span>
           ) : (
             <span className="truncate">{t("chat.image.chooseModel")}</span>
           )}
@@ -241,12 +242,14 @@ function ImageModelList({
               id={`${baseId}-${index}`}
               role="option"
               aria-selected={model.selected}
-              title={model.name}
+              title={imageModelLabel(model)}
               onClick={() => onModelSelect(model)}
               onMouseEnter={() => setHighlightedIndex(index)}
               className={optionClass(index, model.selected)}
             >
-              <span className="min-w-0 flex-1 truncate">{model.name}</span>
+              <span className="min-w-0 flex-1 truncate">
+                {imageModelLabel(model)}
+              </span>
               {model.selected && (
                 <CheckIcon
                   className="h-4 w-4 flex-none text-accent-fg"

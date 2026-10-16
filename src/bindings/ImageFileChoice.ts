@@ -15,4 +15,12 @@ recommended: boolean,
 /**
  * Déjà installé (ou en cours de téléchargement).
  */
-installed: boolean, };
+installed: boolean, 
+/**
+ * Mémoire de la carte estimée avec ce fichier (voir `ImageModelInfo`).
+ */
+vramBytes: number, 
+/**
+ * Temps estimé d'une image avec ce fichier (voir `ImageModelInfo`).
+ */
+estimatedSeconds: number | null, };

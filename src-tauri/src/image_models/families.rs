@@ -12,13 +12,24 @@
 //! (cran 1), sinon une base de ses bases (cran 2, fiches lues par
 //! l'appelant). Une base qui désigne une famille écartée donne
 //! `Unsupported`.
+//!
+//! Repères de la page (contrat 85 § 2) : `referenceSeconds` (image 1024×1024,
+//! 512×512 pour SD 1.5, sur une RTX 3090 avec tout en VRAM) et `computeBytes`
+//! (tampons de calcul 1024², en Gio de 2^30 octets). Mesurés au lot 0
+//! (`82-image-generation-research.md`) : FLUX.2 klein 4B (5 s ; DiT 1,1 + VAE
+//! 2 Gio) et Z-Image-Turbo (12 s ; DiT 0,7 + VAE 2,8 Gio). Les autres sont des
+//! ESTIMATIONS (nombre d'étapes et taille du modèle rapportés à ces deux
+//! mesures), à remplacer par une mesure quand elle existera. `usageOverride` :
+//! usage connu malgré la licence déclarée par un dépôt (FLUX.2 klein 9B et
+//! FLUX.1 dev : licences non commerciales de Black Forest Labs, souvent
+//! omises par les dépôts GGUF).
 
 use std::collections::HashMap;
 
 use regex::Regex;
 use serde::Deserialize;
 
-use super::types::{ImageComponentRole, ImageFamily};
+use super::types::{ImageComponentRole, ImageFamily, ImageUsage};
 use crate::image_gen::{Component, Sampling};
 
 /// Variable qui remplace `families.json` (débogage, essais, e2e).
@@ -60,6 +71,13 @@ pub struct Family {
     /// Côté d'une image dont la taille n'est pas demandée, avec une carte
     /// graphique (512 pour SD 1.5, entraîné à cette taille ; 1024 sinon).
     pub default_side: u32,
+    /// Usage connu de la famille, qui prime sur la licence du dépôt.
+    pub usage_override: Option<ImageUsage>,
+    /// Secondes d'une image 1024×1024 sur une RTX 3090, tout en VRAM
+    /// (512×512 pour SD 1.5) ; `None` : aucune référence.
+    pub reference_seconds: Option<u32>,
+    /// Tampons de calcul d'une image 1024² (octets), en plus des poids.
+    pub compute_bytes: u64,
 }
 
 impl Family {
@@ -166,6 +184,31 @@ struct RawFamily {
     pieces: Vec<String>,
     sampling: RawSampling,
     options: Vec<String>,
+    #[serde(default)]
+    usage_override: Option<RawUsage>,
+    #[serde(default)]
+    reference_seconds: Option<u32>,
+    #[serde(default)]
+    compute_bytes: u64,
+}
+
+/// Usage écrit dans le JSON (`ImageUsage` n'est que sérialisé vers la page).
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum RawUsage {
+    Free,
+    NonCommercial,
+    CheckLicense,
+}
+
+impl From<RawUsage> for ImageUsage {
+    fn from(usage: RawUsage) -> Self {
+        match usage {
+            RawUsage::Free => ImageUsage::Free,
+            RawUsage::NonCommercial => ImageUsage::NonCommercial,
+            RawUsage::CheckLicense => ImageUsage::CheckLicense,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -234,6 +277,9 @@ impl Families {
                 },
                 options: family.options,
                 default_side: family.default_side,
+                usage_override: family.usage_override.map(ImageUsage::from),
+                reference_seconds: family.reference_seconds,
+                compute_bytes: family.compute_bytes,
             });
         }
         for recommendation in &raw.recommendations {
@@ -392,6 +438,38 @@ mod tests {
             .map(|family| (family.id.as_str(), family.default_side))
             .collect();
         assert_eq!(sides, [("sd15", 512)]);
+        // Repères de la page (contrat 85 § 2) : secondes de référence et
+        // tampons de calcul (Gio), usage non commercial de deux familles.
+        const GIB: f64 = (1u64 << 30) as f64;
+        let marks: Vec<(&str, Option<u32>, f64, Option<ImageUsage>)> = families
+            .families
+            .iter()
+            .map(|family| {
+                (
+                    family.id.as_str(),
+                    family.reference_seconds,
+                    (family.compute_bytes as f64 / GIB * 10.0).round() / 10.0,
+                    family.usage_override,
+                )
+            })
+            .collect();
+        let nc = Some(ImageUsage::NonCommercial);
+        assert_eq!(
+            marks,
+            [
+                ("flux2-klein-4b", Some(5), 3.1, None),
+                ("flux2-klein-base-4b", Some(25), 3.1, None),
+                ("flux2-klein-9b", Some(10), 3.5, nc),
+                ("z-image-turbo", Some(12), 3.5, None),
+                ("z-image", Some(40), 3.5, None),
+                ("flux1-schnell", Some(8), 3.0, None),
+                ("flux1-dev", Some(35), 3.0, nc),
+                ("chroma", Some(45), 3.0, None),
+                ("qwen-image", Some(60), 4.0, None),
+                ("sdxl", Some(8), 2.0, None),
+                ("sd15", Some(3), 1.0, None),
+            ]
+        );
         // Recommandations épinglées.
         let klein_q4 = families
             .recommendation("leejet/FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q4_0.gguf")
@@ -471,6 +549,27 @@ mod tests {
         assert!(!sdxl.accepts("tiny.safetensors", Some(2_000_000_000)));
         assert!(sd15.accepts("v1-5-pruned-emaonly.safetensors", Some(4_265_380_512)));
         assert!(!sd15.accepts("small.safetensors", Some(1_000_000_000)));
+    }
+
+    #[test]
+    fn page_marks_are_optional_in_the_json() {
+        // Fichier d'essai sans les repères : aucune référence, aucun calcul,
+        // aucun usage imposé.
+        let families = Families::parse(fake_ollama::hf::IMAGE_FAMILIES).unwrap();
+        let klein = families.get("flux2-klein-4b").unwrap();
+        assert_eq!(
+            (
+                klein.reference_seconds,
+                klein.compute_bytes,
+                klein.usage_override
+            ),
+            (None, 0, None)
+        );
+        // Usage inconnu : refusé.
+        let json = include_str!("families.json");
+        let mut value: serde_json::Value = serde_json::from_str(json).unwrap();
+        value["families"][0]["usageOverride"] = "whatever".into();
+        assert!(Families::parse(&value.to_string()).is_err());
     }
 
     #[test]

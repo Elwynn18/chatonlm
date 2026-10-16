@@ -299,19 +299,37 @@
     "title": "Modelos de imágenes",
     "loading": "Cargando modelos de imágenes",
     "intro": "Los modelos de imágenes crean imágenes a partir de tus descripciones en un chat. Se ejecutan dentro de ChatonLM, no en Ollama.",
+    "howTo": {
+      "title": "Cómo funciona",
+      "download": "Descarga un modelo",
+      "use": "Haz clic en Usar",
+      "chat": "En un chat, pulsa el botón Imagen (o pídele una imagen al modelo)"
+    },
     "machine": {
       "noEngine": "Esta versión de ChatonLM no incluye el motor de imágenes. Puedes descargar modelos, pero no crear imágenes.",
       "missingCpu": "Este equipo no puede crear imágenes: a su procesador le faltan instrucciones que necesita el motor de imágenes ({features}).",
-      "noGpu": "No se encontró ninguna tarjeta gráfica: el procesador creará las imágenes, y cada una tardará varios minutos."
+      "noGpu": "No se encontró ninguna tarjeta gráfica: el procesador creará las imágenes, y cada una tardará varios minutos.",
+      "gpu": "Tu tarjeta gráfica: {card}"
     },
     "yours": "Tus modelos de imágenes",
     "recommended": "Recomendados",
-    "popular": "Populares en Hugging Face",
+    "popular": "Compatibles en Hugging Face",
     "results": "Resultados para «{query}»",
     "noResults": "Ningún modelo de imágenes coincide con tu búsqueda.",
+    "noCompatible": "Ningún modelo de imágenes compatible coincide con tu búsqueda.",
+    "hidden": {
+      "one": "{count} modelo no compatible o restringido oculto",
+      "other": "{count} modelos no compatibles o restringidos ocultos"
+    },
+    "show": "Mostrar",
+    "hide": "Ocultar",
+    "unsupportedShown": "Modelos no compatibles o restringidos",
     "searchLoading": "Buscando en Hugging Face",
     "notSupported": "No compatible",
-    "restricted": "Restringido",
+    "repoCard": {
+      "unsupported": "No compatible con ChatonLM",
+      "restricted": "Restringido: necesita una cuenta de Hugging Face"
+    },
     "uncensored": "Sin censura",
     "uncensoredHint": "Este modelo puede crear imágenes explícitas o impactantes.",
     "downloads": {
@@ -319,15 +337,49 @@
       "other": "{count} descargas"
     },
     "toDownload": "{size} por descargar",
+    "toDownloadShared": "{size} por descargar ({present} ya en este equipo)",
+    "onDisk": "{size} en el disco",
     "license": "Licencia:",
     "noLicense": "Sin licencia indicada",
-    "notOpen": "No es una licencia libre: léela antes de usar el modelo.",
-    "source": "Fuente:",
     "use": "Usar",
+    "quantHint": "Variante del archivo. Q4: más ligera, algo menos fiel · Q8: más fiel, más pesada",
+    "families": {
+      "flux2-klein-4b": "Rápido y versátil, bueno con el texto en las imágenes. Una buena primera opción.",
+      "flux2-klein-base-4b": "Versión base de klein 4B: más lenta y más variada, para experimentar.",
+      "flux2-klein-9b": "El klein grande: más detalle y más fiel a tu descripción, pero más pesado y más lento.",
+      "z-image-turbo": "Imágenes fotorrealistas y buen texto, rápido.",
+      "z-image": "Versión completa de Z-Image: más lenta, más variada.",
+      "flux1-schnell": "Modelo FLUX.1 rápido para imágenes del día a día.",
+      "flux1-dev": "Modelo FLUX.1 de gran calidad, lento.",
+      "chroma": "Modelo abierto basado en FLUX, muchos estilos, lento.",
+      "qwen-image": "Muy bueno con el texto y las escenas complejas; pesado y lento.",
+      "sdxl": "Stable Diffusion XL clásico: muchos estilos y variantes, ligero.",
+      "sd15": "Stable Diffusion 1.5, antiguo y muy ligero: calidad modesta, funciona casi en cualquier equipo."
+    },
+    "glance": "En resumen",
+    "speed": {
+      "seconds": "≈ {seconds} s por imagen",
+      "minutes": "≈ {minutes} min por imagen",
+      "measuredSeconds": "≈ {seconds} s por imagen (medido)",
+      "measuredMinutes": "≈ {minutes} min por imagen (medido)",
+      "processor": "Varios minutos por imagen (procesador)",
+      "hint": "Estimación para una imagen de 1024×1024",
+      "measuredHint": "Duración de la última imagen creada en este equipo"
+    },
+    "memory": {
+      "vram": "{size} de VRAM",
+      "fits": "Cabe en tu tarjeta ({vram})",
+      "tooBig": "Supera tu tarjeta: más lento",
+      "hint": "Memoria de la tarjeta gráfica necesaria para una imagen de 1024×1024"
+    },
+    "usage": {
+      "free": "Uso libre",
+      "nonCommercial": "Solo uso no comercial",
+      "checkLicense": "Lee la licencia"
+    },
     "deleteText": "Esto elimina el modelo de este equipo. Se conservan los archivos que comparte con tus otros modelos de imágenes.",
     "deleteTextInUse": "Esto elimina el modelo de este equipo. La generación de imágenes no funcionará hasta que lo vuelvas a descargar o elijas otro modelo de imágenes.",
     "repo": {
-      "family": "Familia",
       "files": "Elige un archivo",
       "components": "También necesarios",
       "componentsHint": "Archivos que esta familia necesita además del modelo. Se comparten entre tus modelos de la misma familia.",

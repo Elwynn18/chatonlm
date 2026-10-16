@@ -21,4 +21,13 @@ missingCpuFeatures: Array<string>,
 /**
  * Place libre dans le dossier des modèles d'images ; `None` : inconnue.
  */
-freeBytes: number | null, };
+freeBytes: number | null, 
+/**
+ * Mémoire de la plus grande carte graphique reconnue ; `None` : aucune
+ * carte, ou mémoire inconnue.
+ */
+vramBytes: number | null, 
+/**
+ * Nom de cette carte (« NVIDIA GeForce RTX 3090 ») ; `None` : inconnu.
+ */
+gpuName: string | null, };

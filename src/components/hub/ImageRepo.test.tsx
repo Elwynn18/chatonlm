@@ -1,6 +1,9 @@
 // Fiche d'un dépôt de modèles d'images face au simulateur (faux moteur de
-// src/test/images.ts) : faits et licence, choix du fichier (conseillé coché,
-// autre fichier choisi), pièces annexes (rôle, taille, déjà présentes),
+// src/test/images.ts) : famille et sa phrase, usage en clair,
+// téléchargements, licence exacte et pièces annexes repliées dans « Details »
+// (rôle, taille, déjà présentes), choix du fichier (conseillé coché, autre
+// fichier choisi ; par fichier : variante expliquée, vitesse, VRAM qui tient
+// ou dépasse),
 // total et place libre, Download avec la révision de la fiche, progression et
 // Cancel, fichier installé ; Download désactivé avec sa raison (famille
 // inconnue, dépôt restreint, non censuré sans le réglage, processeur,
@@ -18,6 +21,8 @@ import { describe, expect, it, vi } from "vitest";
 import { setLanguage } from "@/i18n";
 import {
   GATED_REPO,
+  KLEIN_9B_FILE,
+  KLEIN_9B_REPO,
   KLEIN_FILE,
   KLEIN_ID,
   KLEIN_Q8_FILE,
@@ -47,27 +52,55 @@ const radios = () =>
 const downloadButton = () =>
   screen.getByRole("button", { name: "Download" }) as HTMLButtonElement;
 const reason = () => screen.getByTestId("image-download-reason").textContent;
+const files = () => screen.getAllByTestId("image-file");
+/** Repère `name` (speed, memory, usage, downloads) d'un élément. */
+const fact = (element: HTMLElement, name: string) =>
+  element.querySelector<HTMLElement>(`[data-fact=${name}]`)!;
+/** Bloc « famille, usage, Details » de la fiche. */
+const about = () =>
+  screen.getByTestId("image-family").closest("section") as HTMLElement;
 
 describe("Image repo page", () => {
-  it("facts, files with the recommended one checked, pieces, total and free space", async () => {
+  it("family and its sentence, usage, downloads; license and pieces folded in Details", async () => {
     renderHub(page(KLEIN_REPO));
     expect((await screen.findByRole("heading", { level: 2 })).textContent).toBe(
       "FLUX.2-klein-4B-GGUF",
     );
-    const facts = screen.getByRole("region", { name: "Details" });
-    expect(facts.textContent).toContain("FamilyFLUX.2 klein 4B");
-    expect(facts.textContent).toContain("Downloads120K");
-    expect(
-      within(facts)
-        .getByRole("link", { name: "apache-2.0" })
-        .getAttribute("href"),
-    ).toBe(`https://huggingface.co/${KLEIN_REPO}`);
+    const block = screen.getByRole("region", { name: "FLUX.2 klein 4B" });
+    expect(block).toBe(about());
+    expect(within(block).getByTestId("image-blurb").textContent).toBe(
+      "Fast and versatile, good at text in pictures. A good first choice.",
+    );
+    expect(fact(block, "usage").textContent).toBe("Free to use");
+    expect(fact(block, "downloads").textContent).toBe("120,000 downloads");
     expect(
       screen
         .getByRole("link", { name: "View on Hugging Face" })
         .getAttribute("href"),
     ).toBe(`https://huggingface.co/${KLEIN_REPO}`);
+    // Replié : licence exacte et pièces annexes cachées.
+    const details = within(block).getByRole("button", { name: "Details" });
+    expect(details.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      within(block).queryByRole("link", { name: "apache-2.0" }),
+    ).toBeNull();
+    await userEvent.click(details);
+    expect(
+      within(block)
+        .getByRole("link", { name: "apache-2.0" })
+        .getAttribute("href"),
+    ).toBe(`https://huggingface.co/${KLEIN_REPO}`);
+    expect(block.textContent).toContain("Updated");
+    const pieces = within(block).getAllByTestId("image-component");
+    expect(pieces.map((piece) => piece.textContent)).toEqual([
+      "Text encoder2.3 GBunsloth/Qwen3-4B-GGUF/Qwen3-4B-Q4_K_M.ggufLicense: apache-2.0",
+      "Image decoder (VAE)160 MBblack-forest-labs/FLUX.2-small-decoder/full_encoder_small_decoder.safetensorsLicense: apache-2.0",
+    ]);
+  });
 
+  it("files with the recommended one checked; for each, variant, speed and VRAM; total and free space", async () => {
+    renderHub(page(KLEIN_REPO));
+    await screen.findAllByTestId("image-file");
     const group = screen.getByRole("group", { name: "Choose a file" });
     expect(radios().map((radio) => [radio.value, radio.checked])).toEqual([
       [KLEIN_FILE, true],
@@ -75,15 +108,21 @@ describe("Image repo page", () => {
       ["flux-2-klein-4b-BF16.gguf", false],
     ]);
     const first = within(group).getAllByTestId("image-file")[0];
-    expect(first.textContent).toContain("Q4_0");
+    expect(within(first).getByText("Q4_0").getAttribute("title")).toBe(
+      "File variant. Q4: lighter, a little less faithful · Q8: more faithful, heavier",
+    );
     expect(first.textContent).toContain("2.3 GB");
     expect(first.textContent).toContain("Recommended");
-
-    const pieces = screen.getAllByTestId("image-component");
-    expect(pieces.map((piece) => piece.textContent)).toEqual([
-      "Text encoder2.3 GBunsloth/Qwen3-4B-GGUF/Qwen3-4B-Q4_K_M.ggufLicense: apache-2.0",
-      "Image decoder (VAE)160 MBblack-forest-labs/FLUX.2-small-decoder/full_encoder_small_decoder.safetensorsLicense: apache-2.0",
-    ]);
+    expect(fact(first, "speed").textContent).toBe("≈ 5 s per image");
+    await waitFor(() =>
+      expect(fact(first, "memory").textContent).toBe(
+        "7.9 GB of VRAMFits your card (24 GB)",
+      ),
+    );
+    // Le plus gros fichier : plus de mémoire, tient encore sur 24 Go.
+    expect(fact(files()[2], "memory").textContent).toBe(
+      "13 GB of VRAMFits your card (24 GB)",
+    );
     expect(screen.getByTestId("image-total").textContent).toBe(
       "To download: 4.8 GB",
     );
@@ -91,6 +130,40 @@ describe("Image repo page", () => {
       "Free space: 200 GB",
     );
     expect(downloadButton().disabled).toBe(false);
+  });
+
+  it("a file bigger than the card: in amber, three times slower; non-commercial use", async () => {
+    renderHub(page(KLEIN_9B_REPO), ({ backend }) => {
+      backend.images.machine.vramBytes = 16 * GIB;
+    });
+    await screen.findAllByTestId("image-file");
+    const q8 = files().find(
+      (label) => label.querySelector("input")!.value === KLEIN_9B_FILE,
+    )!;
+    await waitFor(() =>
+      expect(fact(q8, "memory").textContent).toBe(
+        "18 GB of VRAMMore than your card: slower",
+      ),
+    );
+    expect(fact(q8, "speed").textContent).toBe("≈ 30 s per image");
+    expect(fact(files()[0], "memory").textContent).toBe(
+      "13 GB of VRAMFits your card (16 GB)",
+    );
+    expect(fact(about(), "usage").textContent).toBe("Non-commercial use only");
+    expect(
+      fact(about(), "usage").querySelector("span span")!.className,
+    ).toContain("amber-700");
+  });
+
+  it("no graphics card: several minutes per image, VRAM without comparison", async () => {
+    renderHub(page(KLEIN_REPO), ({ backend }) => {
+      backend.images.machine.gpu = false;
+    });
+    await screen.findByTestId("image-machine");
+    expect(fact(files()[0], "speed").textContent).toBe(
+      "Several minutes per image (processor)",
+    );
+    expect(fact(files()[0], "memory").textContent).toBe("7.9 GB of VRAM");
   });
 
   it("Download sends the chosen file and the page's revision; progress and Cancel", async () => {
@@ -176,12 +249,18 @@ describe("Image repo page", () => {
   it("a single-file SDXL repo: the file name as its label, no quantization", async () => {
     renderHub(page(SDXL_REPO));
     await screen.findAllByTestId("image-file");
-    expect(screen.getAllByTestId("image-file")[0].textContent).toBe(
-      "sd_xl_base_1.0.safetensors6.5 GBRecommended",
+    const only = screen.getAllByTestId("image-file")[0];
+    expect(only.textContent).toMatch(
+      /^sd_xl_base_1\.0\.safetensors6\.5 GBRecommended≈ 8 s per image/,
     );
+    // Pas de variante : pas de puce expliquée.
+    expect(within(only).queryByTitle(/^File variant/)).toBeNull();
+    // Licence à lire : un lien vers la page du dépôt.
     expect(
-      screen.getByText("Not an open license: read it before using the model."),
-    ).toBeTruthy();
+      within(fact(about(), "usage"))
+        .getByRole("link", { name: "Check the license" })
+        .getAttribute("href"),
+    ).toBe(`https://huggingface.co/${SDXL_REPO}`);
   });
 
   it("a failed download: the page stays downloadable, with the failure message", async () => {
@@ -246,9 +325,12 @@ describe("Image repo page: why Download is off", () => {
   it("an unknown family", async () => {
     renderHub(page(UNKNOWN_REPO));
     await screen.findAllByTestId("image-file");
-    expect(
-      screen.getByRole("region", { name: "Details" }).textContent,
-    ).toContain("FamilyNot supported");
+    expect(screen.getByTestId("image-family").textContent).toBe(
+      "Not supported",
+    );
+    expect(within(about()).queryByTestId("image-blurb")).toBeNull();
+    // Famille inconnue : pas de temps de référence.
+    expect(fact(files()[0], "speed")).toBeNull();
     expect(downloadButton().disabled).toBe(true);
     expect(reason()).toBe(
       "ChatonLM doesn't recognize this model's family, so it doesn't know which other files it needs.",
@@ -383,6 +465,7 @@ describe("Image repo page in other languages", () => {
     "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
     "Comfy-Org/z_image_turbo",
     "split_files/vae/ae.safetensors",
+    "NVIDIA GeForce RTX 3090",
   ];
 
   it("pseudo-language: page, pieces, reasons, no text written in the code", async () => {

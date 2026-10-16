@@ -191,12 +191,15 @@ export function useShowUncensoredImages(): boolean | null {
   return useSettings().settings?.showUncensored ?? null;
 }
 
-/** Recherche (texte vide : dépôts les plus téléchargés). */
-export function useImageSearch(query: string) {
+/**
+ * Recherche (texte vide : dépôts les plus téléchargés) ; `showUnsupported` :
+ * avec les dépôts non pris en charge ou restreints.
+ */
+export function useImageSearch(query: string, showUnsupported = false) {
   const uncensored = useShowUncensoredImages();
   return useQuery({
-    queryKey: ["images", "search", uncensored, query],
-    queryFn: () => imageSearch(query),
+    queryKey: ["images", "search", uncensored, showUnsupported, query],
+    queryFn: () => imageSearch(query, showUnsupported),
     enabled: uncensored !== null,
     staleTime: LIST_STALE_MS,
     placeholderData: keepPreviousData,

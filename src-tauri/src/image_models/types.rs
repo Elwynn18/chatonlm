@@ -48,6 +48,20 @@ pub struct ImageFamily {
     pub name: String,
 }
 
+/// Ce que la licence permet, en clair (propre à la page Images).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ImageUsage {
+    /// Licence libre (Apache-2.0, MIT...) : tout usage.
+    Free,
+    /// Licence connue pour interdire l'usage commercial (FLUX.2 klein 9B,
+    /// FLUX.1 dev...), même si le dépôt ne la déclare pas.
+    NonCommercial,
+    /// Autre licence (OpenRAIL, « other », aucune) : à lire.
+    CheckLicense,
+}
+
 /// Modèle d'images installé, en cours de téléchargement ou recommandé.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -83,6 +97,21 @@ pub struct ImageModelInfo {
     /// Le modèle choisi pour la génération.
     pub selected: bool,
     pub components: Vec<ImageComponentInfo>,
+    /// Usage permis, en clair.
+    pub usage: ImageUsage,
+    /// Quantification lue dans le nom du fichier (`Q4_0`, `Q8_0`...).
+    pub quant: Option<String>,
+    /// Mémoire de la carte graphique estimée pour une image 1024×1024 (poids
+    /// et calculs) ; au-delà de celle de la carte, le moteur garde une partie
+    /// en mémoire vive (plus lent).
+    pub vram_bytes: u64,
+    /// Temps estimé d'une image 1024×1024 avec une carte graphique (mesure de
+    /// référence de la famille, ralentie si le modèle ne tient pas dans la
+    /// carte) ; `None` : sans carte graphique, ou famille sans mesure.
+    pub estimated_seconds: Option<u32>,
+    /// Temps de la dernière image faite sur cette machine (des premières
+    /// étapes à l'image, sans le démarrage ni le chargement) ; `None` : jamais.
+    pub measured_seconds: Option<u32>,
 }
 
 /// Dépôt Hugging Face trouvé par la recherche.
@@ -105,6 +134,8 @@ pub struct ImageRepoSummary {
     pub uncensored: bool,
     /// Accès restreint (compte Hugging Face nécessaire) : pas de téléchargement.
     pub gated: bool,
+    /// Usage permis, en clair.
+    pub usage: ImageUsage,
 }
 
 /// Résultat d'une recherche (ou des dépôts populaires si la recherche est vide).
@@ -118,6 +149,9 @@ pub struct ImageSearchResult {
     pub problem: Option<HubProblem>,
     /// Liste reprise du cache faute de réponse.
     pub stale: bool,
+    /// Dépôts non pris en charge (famille inconnue ou écartée) ou restreints
+    /// retirés de `repos` (recherche sans `showUnsupported`).
+    pub hidden_unsupported: u32,
 }
 
 /// Fichier d'un dépôt que l'on peut choisir comme modèle.
@@ -133,6 +167,10 @@ pub struct ImageFileChoice {
     pub recommended: bool,
     /// Déjà installé (ou en cours de téléchargement).
     pub installed: bool,
+    /// Mémoire de la carte estimée avec ce fichier (voir `ImageModelInfo`).
+    pub vram_bytes: u64,
+    /// Temps estimé d'une image avec ce fichier (voir `ImageModelInfo`).
+    pub estimated_seconds: Option<u32>,
 }
 
 /// Pourquoi un dépôt ne peut pas être téléchargé.
@@ -183,4 +221,9 @@ pub struct ImageMachine {
     pub missing_cpu_features: Vec<String>,
     /// Place libre dans le dossier des modèles d'images ; `None` : inconnue.
     pub free_bytes: Option<u64>,
+    /// Mémoire de la plus grande carte graphique reconnue ; `None` : aucune
+    /// carte, ou mémoire inconnue.
+    pub vram_bytes: Option<u64>,
+    /// Nom de cette carte (« NVIDIA GeForce RTX 3090 ») ; `None` : inconnu.
+    pub gpu_name: Option<String>,
 }

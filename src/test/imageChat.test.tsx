@@ -368,11 +368,15 @@ describe("image mode of the composer", () => {
       within(list)
         .getAllByRole("option")
         .map((option) => option.textContent),
-    ).toEqual([IMAGE_MODEL, "Z-Image-Turbo", "More image models"]);
+    ).toEqual([
+      `${IMAGE_MODEL} Q4_0`,
+      "Z-Image-Turbo Q4_K",
+      "More image models",
+    ]);
     await userEvent.click(
-      within(list).getByRole("option", { name: "Z-Image-Turbo" }),
+      within(list).getByRole("option", { name: "Z-Image-Turbo Q4_K" }),
     );
-    await waitFor(() => expect(picker.textContent).toBe("Z-Image-Turbo"));
+    await waitFor(() => expect(picker.textContent).toBe("Z-Image-Turbo Q4_K"));
     expect(backend.images.selected).toBe(Z_IMAGE_ID);
     // Mode coupé : le sélecteur d'Ollama revient.
     await userEvent.click(await imageButton());
@@ -707,14 +711,20 @@ describe("translations of the image screens", () => {
     // Mode Image : le sélecteur montre le modèle d'images.
     await waitFor(() =>
       expect(screen.getByTitle(/Select image model/).textContent).toBe(
-        IMAGE_MODEL,
+        `${IMAGE_MODEL} Q4_0`,
       ),
     );
     await userEvent.type(textarea, `${PROMPT}{Enter}`);
     await replay.started;
     await replay.until("imageProgress");
     await screen.findByRole("progressbar");
-    const allow = [PROMPT, IMAGE_MODEL, TOOL_MODEL, "disk full"];
+    const allow = [
+      PROMPT,
+      `${IMAGE_MODEL} Q4_0`,
+      IMAGE_MODEL,
+      TOOL_MODEL,
+      "disk full",
+    ];
     expect(untranslatedTexts(document.body, allow)).toEqual([]);
     await replay.finish();
     await waitFor(() => expect(generated()).not.toBeNull());

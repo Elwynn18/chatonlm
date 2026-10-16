@@ -1,6 +1,8 @@
 //! Modèles d'images (état Tauri) : liste (installés, en cours, recommandés),
 //! machine, recherche et fiche de Hugging Face, choix d'un fichier (mis en
 //! file), suppression avec références, modèle choisi pour la génération.
+//! Repères de la page (contrat 85 § 2) : usage en clair, VRAM et temps
+//! estimés, temps mesuré, dépôts non pris en charge masqués de la recherche.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -15,12 +17,12 @@ use super::downloads::{
 use super::families::{Families, Family, Piece, Recommendation, accepted_gguf, single_file};
 use super::types::{
     ImageComponentInfo, ImageComponentRole, ImageFileChoice, ImageMachine, ImageModelInfo,
-    ImageRepoDetail, ImageRepoSummary, ImageRepoUnsupported, ImageSearchResult,
+    ImageRepoDetail, ImageRepoSummary, ImageRepoUnsupported, ImageSearchResult, ImageUsage,
 };
 use crate::error::{AppError, AppResult};
 use crate::hub::curation::CURATION;
 use crate::hub::hardware::{Detector, KEEP, Machine};
-use crate::hub::types::HubProblem;
+use crate::hub::types::{HubGpu, HubProblem};
 use crate::i18n::t;
 use crate::image_gen::{ImageGen, ModelSpec, Sampling};
 use crate::store::image_models::{self as stored, StoredFile, StoredModel};
@@ -32,6 +34,11 @@ const RELEASE_WAIT: Duration = Duration::from_secs(5);
 const IDLE_WAIT: Duration = Duration::from_secs(5);
 /// Mémoire supposée si la machine ne se lit pas.
 const UNKNOWN_MEMORY: u64 = 8 * 1024 * 1024 * 1024;
+
+/// Ralentissement supposé d'un modèle qui dépasse la mémoire de la carte
+/// (poids ou calculs gardés en mémoire vive) : ×3 (lot 0 : 5 → 14 s pour
+/// klein 4B sous un plafond de 6 Go, 12 → 29 s pour Z-Image-Turbo).
+const SPILL_SLOWDOWN: u32 = 3;
 
 /// Quantifications conseillées, de la plus petite à la plus grande.
 const PREFERRED: &[&str] = &["Q4_0", "Q4_K", "Q4_K_M", "Q5_K_M", "Q8_0"];
@@ -54,6 +61,8 @@ pub struct SelectedModel {
     /// Côté d'une image dont la taille n'est pas demandée (avec une carte
     /// graphique).
     pub default_side: u32,
+    /// Identifiant du modèle (`<dépôt>/<fichier>`) : où noter le temps mesuré.
+    pub id: String,
 }
 
 pub struct ImageModels {
@@ -136,6 +145,7 @@ fn recommended_model(family: &Family, recommendation: &Recommendation) -> Stored
         ever_installed: false,
         files,
         created_at: now_ms(),
+        last_seconds: None,
     }
 }
 
@@ -178,6 +188,45 @@ fn memory_of(machine: Option<&Machine>) -> u64 {
             .unwrap_or(machine.ram_total),
         None => UNKNOWN_MEMORY,
     }
+}
+
+/// Usage permis : celui connu de la famille, sinon la licence du dépôt
+/// (libre : `Free` ; autre ou aucune : `CheckLicense`).
+pub fn usage_of(family: Option<&Family>, license: Option<&str>) -> ImageUsage {
+    match family.and_then(|family| family.usage_override) {
+        Some(usage) => usage,
+        None if CURATION.open_license(license) => ImageUsage::Free,
+        None => ImageUsage::CheckLicense,
+    }
+}
+
+/// Mémoire de la carte estimée pour une image : poids (`weights`, modèle et
+/// pièces) et tampons de calcul de la famille.
+pub fn vram_estimate(weights: u64, family: Option<&Family>) -> u64 {
+    weights.saturating_add(family.map_or(0, |family| family.compute_bytes))
+}
+
+/// Plus grande carte graphique de la machine (par sa mémoire).
+fn largest_gpu(machine: Option<&Machine>) -> Option<&HubGpu> {
+    machine?.gpus.iter().max_by_key(|gpu| gpu.vram_total)
+}
+
+/// Temps estimé d'une image : aucun sans carte graphique (ou machine
+/// inconnue) ni pour une famille sans référence ; sinon la référence de la
+/// famille, ×3 si `vram` dépasse la mémoire connue de la plus grande carte.
+pub fn estimated_seconds(
+    family: Option<&Family>,
+    vram: u64,
+    machine: Option<&Machine>,
+) -> Option<u32> {
+    let gpu = largest_gpu(machine)?;
+    let reference = family?.reference_seconds?;
+    let spilled = gpu.vram_total > 0 && vram > gpu.vram_total;
+    Some(if spilled {
+        reference.saturating_mul(SPILL_SLOWDOWN)
+    } else {
+        reference
+    })
 }
 
 impl ImageModels {
@@ -246,7 +295,13 @@ impl ImageModels {
 
     /// Ce que la machine permet.
     pub async fn machine_info(&self, engine: &ImageGen) -> ImageMachine {
-        let gpu = self.gpu().await;
+        let machine = self.machine().await;
+        let largest = largest_gpu(machine.as_ref());
+        let gpu = largest.is_some();
+        let vram_bytes = largest.map(|gpu| gpu.vram_total).filter(|vram| *vram > 0);
+        let gpu_name = largest
+            .map(|gpu| gpu.name.trim().to_owned())
+            .filter(|name| !name.is_empty());
         let root = self.root.clone();
         let free_bytes =
             tauri::async_runtime::spawn_blocking(move || crate::disk::free_space_for(&root))
@@ -262,18 +317,23 @@ impl ImageModels {
                 .map(|feature| (*feature).to_owned())
                 .collect(),
             free_bytes,
+            vram_bytes,
+            gpu_name,
         }
     }
 
-    /// Fiche d'un modèle telle que la page la voit.
+    /// Fiche d'un modèle telle que la page la voit (`machine` : pour le
+    /// temps estimé).
     fn info(
         &self,
         model: &StoredModel,
         recorded: bool,
         downloading: bool,
         selected: &str,
+        machine: Option<&Machine>,
     ) -> ImageModelInfo {
-        let family = self.families.get(&model.family).map_or_else(
+        let known = self.families.get(&model.family);
+        let family = known.map_or_else(
             || super::types::ImageFamily {
                 id: model.family.clone(),
                 name: model.family.clone(),
@@ -287,6 +347,8 @@ impl ImageModels {
                 .iter()
                 .map(|file| (blob_path(&self.root, file), file.size)),
         );
+        let size_bytes = total(files.iter().map(|file| file.size));
+        let vram_bytes = vram_estimate(size_bytes, known);
         ImageModelInfo {
             id: model.id.clone(),
             name: model.name.clone(),
@@ -302,7 +364,7 @@ impl ImageModels {
                 .recommendation(&model.repo, &model.file)
                 .is_some(),
             installed: recorded && all_present && !downloading,
-            size_bytes: total(files.iter().map(|file| file.size)),
+            size_bytes,
             missing_bytes: missing,
             selected: recorded && model.id == selected,
             components: model
@@ -317,6 +379,11 @@ impl ImageModels {
                     present: present(&self.root, file),
                 })
                 .collect(),
+            usage: usage_of(known, model.license.as_deref()),
+            quant: crate::hub::quant::display_label(&model.file),
+            vram_bytes,
+            estimated_seconds: estimated_seconds(known, vram_bytes, machine),
+            measured_seconds: model.last_seconds.filter(|seconds| *seconds > 0),
         }
     }
 
@@ -337,9 +404,17 @@ impl ImageModels {
             .into_iter()
             .map(|download| download.id)
             .collect();
+        let machine = self.machine().await;
+        let machine = machine.as_ref();
         let (mut first, mut last) = (Vec::new(), Vec::new());
         for model in &models {
-            let info = self.info(model, true, downloads.is_active(&model.id), &selected);
+            let info = self.info(
+                model,
+                true,
+                downloads.is_active(&model.id),
+                &selected,
+                machine,
+            );
             if !info.recommended || info.installed || listed.contains(&model.id) {
                 first.push(info);
             } else {
@@ -352,7 +427,7 @@ impl ImageModels {
             };
             let model = recommended_model(family, recommendation);
             if !models.iter().any(|known| known.id == model.id) {
-                last.push(self.info(&model, false, false, &selected));
+                last.push(self.info(&model, false, false, &selected, machine));
             }
         }
         first.extend(last);
@@ -367,14 +442,15 @@ impl ImageModels {
     }
 
     fn summary(&self, repo: &ImageRepo, recognized: &Recognized) -> ImageRepoSummary {
+        let family = match &recognized.known {
+            Known::Family(id) => self.families.get(id),
+            Known::Unsupported | Known::Unknown => None,
+        };
         ImageRepoSummary {
             id: repo.id.clone(),
             author: repo.author.clone(),
             name: repo.name().to_owned(),
-            family: match &recognized.known {
-                Known::Family(id) => self.families.get(id).map(Family::info),
-                Known::Unsupported | Known::Unknown => None,
-            },
+            family: family.map(Family::info),
             downloads: repo.downloads,
             likes: repo.likes,
             last_modified: repo.last_modified.clone(),
@@ -382,12 +458,19 @@ impl ImageModels {
             open_license: CURATION.open_license(repo.license.as_deref()),
             uncensored: recognized.uncensored,
             gated: repo.gated,
+            usage: usage_of(family, repo.license.as_deref()),
         }
     }
 
     /// Recherche (vide : dépôts populaires) ; non censurés retirés sans le
-    /// réglage.
-    pub async fn search(&self, store: &Store, query: &str) -> AppResult<ImageSearchResult> {
+    /// réglage ; puis, sans `show_unsupported`, les dépôts sans famille
+    /// reconnue ou restreints retirés et comptés (`hidden_unsupported`).
+    pub async fn search(
+        &self,
+        store: &Store,
+        query: &str,
+        show_unsupported: bool,
+    ) -> AppResult<ImageSearchResult> {
         let shown = Self::show_uncensored(store).await?;
         let query = query.split_whitespace().collect::<Vec<_>>().join(" ");
         let (gguf, single) = self.catalog.search_lists(&query).await;
@@ -436,10 +519,16 @@ impl ImageModels {
             .map(|(repo, recognized)| self.summary(repo, recognized))
             .collect();
         found.sort_by_key(|repo| std::cmp::Reverse(repo.downloads));
+        let before = found.len();
+        if !show_unsupported {
+            found.retain(|repo| repo.family.is_some() && !repo.gated);
+        }
+        let hidden_unsupported = u32::try_from(before - found.len()).unwrap_or(u32::MAX);
         Ok(ImageSearchResult {
             repos: found,
             problem,
             stale,
+            hidden_unsupported,
         })
     }
 
@@ -514,11 +603,16 @@ impl ImageModels {
                 )
             })
             .collect();
+        let machine = if choices.is_empty() {
+            None
+        } else {
+            self.machine().await
+        };
+        let pieces = family.map_or(0, |family| {
+            total(family.pieces.iter().map(|piece| piece.size))
+        });
         let advised = match (family, &unsupported) {
-            (Some(family), None) => {
-                let pieces = total(family.pieces.iter().map(|piece| piece.size));
-                recommend(&quants, pieces, memory_of(self.machine().await.as_ref()))
-            }
+            (Some(_), None) => recommend(&quants, pieces, memory_of(machine.as_ref())),
             _ => None,
         };
         let files = choices
@@ -527,12 +621,15 @@ impl ImageModels {
             .enumerate()
             .map(|(index, (blob, (size, quant)))| {
                 let model_id = format!("{}/{}", repo.id, blob.path);
+                let vram_bytes = vram_estimate(size.saturating_add(pieces), family);
                 ImageFileChoice {
                     file: blob.path.clone(),
                     size_bytes: size,
                     quant,
                     recommended: advised == Some(index),
                     installed: installed.contains(&model_id) || downloads.is_active(&model_id),
+                    vram_bytes,
+                    estimated_seconds: estimated_seconds(family, vram_bytes, machine.as_ref()),
                 }
             })
             .collect();
@@ -638,6 +735,7 @@ impl ImageModels {
             ever_installed: false,
             files,
             created_at: now_ms(),
+            last_seconds: None,
         })
     }
 
@@ -950,6 +1048,7 @@ impl ImageModels {
             sampling: family.sampling.clone(),
             name: model.name,
             default_side: family.default_side,
+            id: model.id,
         })
     }
 }
@@ -971,6 +1070,7 @@ fn empty_detail(id: &str, problem: HubProblem) -> ImageRepoDetail {
             open_license: false,
             uncensored: CURATION.uncensored_image(id),
             gated: problem == HubProblem::Restricted,
+            usage: ImageUsage::CheckLicense,
         },
         revision: String::new(),
         files: Vec::new(),

@@ -1106,9 +1106,16 @@ export function imageMachine(): Promise<ImageMachine> {
   return invoke<ImageMachine>("image_machine");
 }
 
-/** Dépôts d'images sur Hugging Face ; texte vide : les plus téléchargés. */
-export function imageSearch(query: string): Promise<ImageSearchResult> {
-  return invoke<ImageSearchResult>("image_search", { query });
+/**
+ * Dépôts d'images sur Hugging Face ; texte vide : les plus téléchargés. Sans
+ * `showUnsupported`, les dépôts non pris en charge ou restreints sont retirés
+ * (et comptés dans `hiddenUnsupported`).
+ */
+export function imageSearch(
+  query: string,
+  showUnsupported: boolean,
+): Promise<ImageSearchResult> {
+  return invoke<ImageSearchResult>("image_search", { query, showUnsupported });
 }
 
 /** Fiche d'un dépôt (`auteur/nom`) : fichiers, pièces annexes, révision. */

@@ -467,10 +467,14 @@ try {
     // montre le modèle d'images installé, puis de nouveau celui d'Ollama une
     // fois le mode coupé.
     await newChat(driver);
-    const imageModelName = (await driver.invoke("image_models")).find(
+    const chosen = (await driver.invoke("image_models")).find(
       (model) => model.selected && model.installed,
-    )?.name;
-    assert.ok(imageModelName, "modèle d'images choisi et installé");
+    );
+    assert.ok(chosen, "modèle d'images choisi et installé");
+    // Nom clair, comme le ModelHub : nom de la recommandation, sinon celui de
+    // la famille, suivi de la variante.
+    const title = chosen.recommended ? chosen.name : chosen.family.name;
+    const imageModelName = chosen.quant ? `${title} ${chosen.quant}` : title;
     await waitShown(driver, shownModel, TOOL_MODEL, "sélecteur d'Ollama");
     await enableImageMode(driver);
     await waitShown(

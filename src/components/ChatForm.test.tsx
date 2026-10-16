@@ -109,6 +109,8 @@ function renderForm({
             gpu: true,
             missingCpuFeatures: [],
             freeBytes: null,
+            vramBytes: null,
+            gpuName: null,
             ...images.machine,
           } satisfies ImageMachine;
         case "image_models": {
@@ -120,12 +122,20 @@ function renderForm({
               {
                 id: IMAGE_MODEL_ID,
                 name: IMAGE_MODEL,
+                // Recommandés : le sélecteur montre leur nom tel quel.
+                recommended: true,
+                quant: null,
+                family: { id: "flux2-klein-4b", name: "FLUX.2 klein 4B" },
                 selected: images.chosen === true,
                 installed: true,
               },
               {
                 id: OTHER_IMAGE_MODEL_ID,
                 name: OTHER_IMAGE_MODEL,
+                // Recommandés : le sélecteur montre leur nom tel quel.
+                recommended: true,
+                quant: null,
+                family: { id: "flux2-klein-4b", name: "FLUX.2 klein 4B" },
                 selected: false,
                 installed: true,
               },

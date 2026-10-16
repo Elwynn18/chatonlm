@@ -59,6 +59,11 @@ function info(
     missingBytes: 0,
     selected: false,
     components: [],
+    usage: "free",
+    quant: null,
+    vramBytes: 1,
+    estimatedSeconds: null,
+    measuredSeconds: null,
     ...fields,
   };
 }
@@ -154,7 +159,7 @@ async function open(expected: string) {
 
 const INSTALLED = [
   info(KLEIN_Q4, "FLUX.2 klein 4B", { selected: true, recommended: true }),
-  info(KLEIN_Q8, "flux-2-klein-4b-Q8_0"),
+  info(KLEIN_Q8, "flux-2-klein-4b-Q8_0", { quant: "Q8_0" }),
   // En cours de téléchargement, et recommandation jamais téléchargée.
   info(Z_IMAGE, "Z-Image-Turbo", { installed: false, recommended: true }),
   info("someone/repo/other.gguf", "other", { installed: false }),
@@ -169,7 +174,7 @@ describe("ImageModelPicker", () => {
     expect(picker.getAttribute("aria-expanded")).toBe("true");
     expect(texts()).toEqual([
       "FLUX.2 klein 4B",
-      "flux-2-klein-4b-Q8_0",
+      "FLUX.2 klein 4B Q8_0",
       "More image models",
     ]);
     const [chosen, other, more] = options();
@@ -186,13 +191,13 @@ describe("ImageModelPicker", () => {
   it("without a chosen model, the button asks to choose one", async () => {
     setup({
       models: [
-        info(KLEIN_Q8, "flux-2-klein-4b-Q8_0"),
+        info(KLEIN_Q8, "flux-2-klein-4b-Q8_0", { quant: "Q8_0" }),
         // Choisi mais pas installé (téléchargement) : pas encore utilisable.
         info(Z_IMAGE, "Z-Image-Turbo", { selected: true, installed: false }),
       ],
     });
     await open("Choose an image model");
-    expect(texts()).toEqual(["flux-2-klein-4b-Q8_0", "More image models"]);
+    expect(texts()).toEqual(["FLUX.2 klein 4B Q8_0", "More image models"]);
     expect(
       options().some((o) => o.getAttribute("aria-selected") === "true"),
     ).toBe(false);
@@ -214,9 +219,24 @@ describe("ImageModelPicker", () => {
       ),
     );
     await waitFor(() =>
-      expect(picker.textContent).toBe("flux-2-klein-4b-Q8_0"),
+      expect(picker.textContent).toBe("FLUX.2 klein 4B Q8_0"),
     );
     expect(onError).toHaveBeenLastCalledWith(null);
+  });
+
+  it("names a model by its family and variant, never by its file name", async () => {
+    setup({
+      models: [
+        info(KLEIN_Q8, "flux-2-klein-9b-Q8_0", {
+          selected: true,
+          quant: "Q8_0",
+          family: { id: "flux2-klein-9b", name: "FLUX.2 klein 9B" },
+        }),
+      ],
+    });
+    const picker = await open("FLUX.2 klein 9B Q8_0");
+    expect(picker.textContent).not.toContain("flux-2-klein-9b");
+    expect(texts()).toEqual(["FLUX.2 klein 9B Q8_0", "More image models"]);
   });
 
   it("choosing the chosen model only closes the menu", async () => {
@@ -279,7 +299,7 @@ describe("ImageModelPicker", () => {
     // Le bouton rouvre la liste (Entrée), la dernière ligne mène au Hub.
     const picker = await button();
     await waitFor(() =>
-      expect(picker.textContent).toBe("flux-2-klein-4b-Q8_0"),
+      expect(picker.textContent).toBe("FLUX.2 klein 4B Q8_0"),
     );
     picker.focus();
     await userEvent.keyboard("{Enter}");
@@ -320,7 +340,11 @@ describe("ImageModelPicker", () => {
   });
 
   it("cuts a long name, kept whole as a tooltip, in a button of limited width", async () => {
-    setup({ models: [info(KLEIN_Q8, LONG_NAME, { selected: true })] });
+    setup({
+      models: [
+        info(KLEIN_Q8, LONG_NAME, { selected: true, recommended: true }),
+      ],
+    });
     const picker = await open(LONG_NAME);
     expect(picker.className).toContain("max-w-64");
     expect(picker.querySelector("span")?.className).toContain("truncate");
@@ -349,7 +373,7 @@ describe("ImageModelPicker", () => {
       untranslatedTexts(document.body, [
         "Outside",
         "FLUX.2 klein 4B",
-        "flux-2-klein-4b-Q8_0",
+        "FLUX.2 klein 4B Q8_0",
       ]),
     ).toEqual([]);
     cleanup();

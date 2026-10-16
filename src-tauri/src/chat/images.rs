@@ -18,9 +18,14 @@
 //!   famille avec une carte graphique, 512 sans carte).
 //! - Arrêt : lâcher le futur de [`Painter::paint`] (le moteur arrête alors
 //!   `sd-server` s'il calculait).
+//! - Temps mesuré (contrat 85 § 2) : après chaque image réussie, la durée de
+//!   la première étape d'échantillonnage à l'image (sans démarrage,
+//!   chargement ni compilation des shaders), arrondie à la seconde (au moins
+//!   1), est notée pour le modèle ; un échec ou un arrêt ne note rien.
 
 use std::future::Future;
 use std::pin::Pin;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -33,6 +38,7 @@ use crate::i18n::t;
 use crate::image_gen::{self, ImageGen};
 use crate::image_models::ImageModels;
 use crate::store::Store;
+use crate::store::image_models as stored;
 
 /// Nom de l'outil.
 pub const TOOL_NAME: &str = "generate_image";
@@ -121,6 +127,13 @@ pub fn progress_of(
             ..ImageProgress::at(ImageStage::Generating, cpu, width, height)
         },
     }
+}
+
+/// Durée d'une image en secondes : arrondie, au moins 1.
+pub fn measured_seconds(elapsed: Duration) -> u32 {
+    let seconds = elapsed.as_secs_f64().round();
+    // Borné avant la conversion.
+    seconds.clamp(1.0, f64::from(u32::MAX)) as u32
 }
 
 /// Aperçu en adresse `data:` ; aucun au-delà de 512 Kio.
@@ -341,12 +354,33 @@ impl EnginePainter<'_> {
             sampling: selected.sampling,
             preview: true,
         };
-        let mut relay = |step: image_gen::Progress| progress(progress_of(step, cpu, width, height));
+        // Première étape d'échantillonnage vue : début du temps mesuré.
+        let mut first_step: Option<Instant> = None;
+        let mut relay = |step: image_gen::Progress| {
+            if first_step.is_none()
+                && matches!(step, image_gen::Progress::Generating { step: Some(_), .. })
+            {
+                first_step = Some(Instant::now());
+            }
+            progress(progress_of(step, cpu, width, height));
+        };
         let image = self
             .engine
             .generate(&selected.spec, &wanted, &mut relay)
             .await
             .map_err(|error| error.to_string())?;
+        if let Some(started) = first_step {
+            let seconds = measured_seconds(started.elapsed());
+            let id = selected.id.clone();
+            let noted = self
+                .store
+                .call(move |connection| stored::record_seconds(connection, &id, seconds))
+                .await;
+            if let Err(error) = noted {
+                // i18n-ignore : journal.
+                eprintln!("chatonlm: image time not recorded: {error}");
+            }
+        }
         Ok(Painted {
             png: image.png,
             width: image.width,
@@ -546,6 +580,16 @@ mod tests {
     }
 
     #[test]
+    fn the_measured_time_is_rounded_to_at_least_one_second() {
+        assert_eq!(measured_seconds(Duration::ZERO), 1);
+        assert_eq!(measured_seconds(Duration::from_millis(120)), 1);
+        assert_eq!(measured_seconds(Duration::from_millis(1499)), 1);
+        assert_eq!(measured_seconds(Duration::from_millis(1500)), 2);
+        assert_eq!(measured_seconds(Duration::from_millis(9400)), 9);
+        assert_eq!(measured_seconds(Duration::from_millis(9600)), 10);
+    }
+
+    #[test]
     fn refusals_have_their_text() {
         assert_eq!(
             PaintRefusal::NoModel.message(),
@@ -658,6 +702,7 @@ mod tests {
                 ever_installed: true,
                 files,
                 created_at: 0,
+                last_seconds: None,
             };
             let saved = model.clone();
             store
@@ -757,6 +802,76 @@ mod tests {
             assert_eq!(
                 painter.paint(request, &mut |_| {}).await,
                 Err(PaintRefusal::NoModel.message())
+            );
+            engine.shutdown().await;
+        }
+
+        /// Temps de la dernière image noté pour le modèle.
+        fn last_seconds(store: &Store, id: &str) -> Option<u32> {
+            let id = id.to_owned();
+            store
+                .blocking(move |c| Ok(stored::get(c, &id)?.and_then(|model| model.last_seconds)))
+                .unwrap()
+        }
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn the_painter_notes_the_time_of_a_finished_image_only() {
+            let (dir, root, cache) = (temp_dir(), temp_dir(), temp_dir());
+            let store = Store::open_in_memory().unwrap();
+            let engine = ImageGen::new(fake_config(dir.path()));
+            let models = models(root.path(), cache.path(), true);
+            let model = install(&store, root.path(), "tiny", "Tiny Q4");
+            let painter = EnginePainter {
+                engine: &engine,
+                models: &models,
+                store: &store,
+            };
+            let request = |prompt: &str| PaintRequest {
+                prompt: prompt.into(),
+                width: 256,
+                height: 256,
+            };
+            // Échec après une première étape vue : rien.
+            let mut steps = 0;
+            let failed = painter
+                .paint(request("a cat [slow] [late-fail]"), &mut |progress| {
+                    if progress.stage == ImageStage::Generating {
+                        steps += 1;
+                    }
+                })
+                .await;
+            assert!(failed.is_err(), "{failed:?}");
+            assert!(steps > 0, "a step was seen before the failure");
+            assert_eq!(last_seconds(&store, &model.id), None);
+            // Arrêt (futur lâché) en pleine image : rien.
+            let stopped = tokio::time::timeout(
+                Duration::from_millis(900),
+                painter.paint(request("a cat [slow]"), &mut |_| {}),
+            )
+            .await;
+            assert!(stopped.is_err(), "{stopped:?}");
+            assert_eq!(last_seconds(&store, &model.id), None);
+            // Image faite : 400 ms de chargement puis quatre étapes de 400 ms.
+            // De la première étape à l'image : ≈ 1,2 s, soit 1 s (2 s si le
+            // chargement ou le démarrage comptaient).
+            painter
+                .paint(request("a cat [slow]"), &mut |_| {})
+                .await
+                .unwrap();
+            assert_eq!(last_seconds(&store, &model.id), Some(1));
+            // Relu par la liste du ModelHub.
+            let downloads = crate::image_models::ImageDownloads::with_base_url(
+                |_| {},
+                root.path().to_path_buf(),
+                None,
+            );
+            let listed = models.list(&downloads, &store).await.unwrap();
+            assert_eq!(
+                listed
+                    .iter()
+                    .find(|info| info.id == model.id)
+                    .and_then(|info| info.measured_seconds),
+                Some(1)
             );
             engine.shutdown().await;
         }

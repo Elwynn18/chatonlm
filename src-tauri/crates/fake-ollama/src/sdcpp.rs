@@ -17,6 +17,8 @@
 //! - `[slow]` : 400 ms par étape (30 ms sinon) ;
 //! - `[fail]` : échec après la première étape
 //!   (`{"code":"generation_failed","message":"fake failure"}`) ;
+//! - `[late-fail]` : même échec, mais au début de la deuxième étape (l'aperçu
+//!   de la première reste visible le temps d'une étape) ;
 //! - `[crash]` : le processus sort (code 134) pendant la première étape ;
 //! - `[hang]` : reste `generating` sans fin (seul l'arrêt du processus en
 //!   vient à bout, comme le vrai, qui n'interrompt pas un calcul) ;
@@ -423,6 +425,9 @@ async fn generate(shared: &Shared, id: &str, body: &Value) -> Result<Value, Valu
         if prompt.contains("[crash]") {
             eprintln!("[E] fake crash");
             std::process::exit(134);
+        }
+        if step == 2 && prompt.contains("[late-fail]") {
+            return Err(json!({"code": "generation_failed", "message": "fake failure"}));
         }
         if preview {
             let frame = json!({

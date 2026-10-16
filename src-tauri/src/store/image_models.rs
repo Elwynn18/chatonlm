@@ -1,5 +1,6 @@
-//! Modèles d'images enregistrés (migration 0026, contrat 83 § 3) et modèle
-//! choisi pour la génération (`settings.image_model`).
+//! Modèles d'images enregistrés (migration 0026, contrat 83 § 3 ; temps de
+//! la dernière image : migration 0027, contrat 85 § 2) et modèle choisi pour
+//! la génération (`settings.image_model`).
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -44,10 +45,16 @@ pub struct StoredModel {
     /// Le modèle d'abord, puis les pièces annexes.
     pub files: Vec<StoredFile>,
     pub created_at: i64,
+    /// Secondes de la dernière image faite avec ce modèle (posé par
+    /// [`record_seconds`], gardé par [`save`]) ; `None` : aucune.
+    pub last_seconds: Option<u32>,
 }
 
 const COLUMNS: &str = "id, repo, revision, file, family, name, license, uncensored, components, \
      created_at, installed";
+/// Colonnes lues : celles écrites par [`save`], puis le temps mesuré.
+const READ_COLUMNS: &str = "id, repo, revision, file, family, name, license, uncensored, \
+     components, created_at, installed, last_seconds";
 
 fn read(row: &rusqlite::Row) -> rusqlite::Result<(StoredModel, String)> {
     Ok((
@@ -63,6 +70,7 @@ fn read(row: &rusqlite::Row) -> rusqlite::Result<(StoredModel, String)> {
             ever_installed: row.get(10)?,
             files: Vec::new(),
             created_at: row.get(9)?,
+            last_seconds: row.get(11)?,
         },
         row.get(8)?,
     ))
@@ -87,7 +95,7 @@ fn with_files((mut model, json): (StoredModel, String)) -> Option<StoredModel> {
 /// Tous les modèles lisibles, du plus ancien au plus récent.
 pub fn list(connection: &Connection) -> AppResult<Vec<StoredModel>> {
     let mut statement = connection.prepare(&format!(
-        "SELECT {COLUMNS} FROM image_models ORDER BY created_at, id"
+        "SELECT {READ_COLUMNS} FROM image_models ORDER BY created_at, id"
     ))?;
     let rows = statement.query_map([], read)?;
     let mut models = Vec::new();
@@ -101,7 +109,7 @@ pub fn list(connection: &Connection) -> AppResult<Vec<StoredModel>> {
 pub fn get(connection: &Connection, id: &str) -> AppResult<Option<StoredModel>> {
     let row = connection
         .query_row(
-            &format!("SELECT {COLUMNS} FROM image_models WHERE id = ?1"),
+            &format!("SELECT {READ_COLUMNS} FROM image_models WHERE id = ?1"),
             [id],
             read,
         )
@@ -115,8 +123,17 @@ pub fn mark_installed(connection: &Connection, id: &str) -> AppResult<()> {
     Ok(())
 }
 
-/// Enregistre `model` ; déjà là : remplacé, sa date de création et
-/// « installé au moins une fois » gardés.
+/// Note le temps (secondes) de la dernière image faite avec le modèle `id`.
+pub fn record_seconds(connection: &Connection, id: &str, seconds: u32) -> AppResult<()> {
+    connection.execute(
+        "UPDATE image_models SET last_seconds = ?2 WHERE id = ?1",
+        params![id, seconds],
+    )?;
+    Ok(())
+}
+
+/// Enregistre `model` ; déjà là : remplacé, sa date de création,
+/// « installé au moins une fois » et le temps mesuré gardés.
 pub fn save(connection: &Connection, model: &StoredModel) -> AppResult<()> {
     let files = serde_json::to_string(&model.files)
         .map_err(|error| AppError::Internal(error.to_string()))?;
@@ -198,6 +215,7 @@ mod tests {
                 license: None,
             }],
             created_at,
+            last_seconds: None,
         }
     }
 
@@ -226,6 +244,14 @@ mod tests {
                 mark_installed(c, "a/b/first.gguf")?;
                 save(c, &changed)?;
                 assert!(get(c, "a/b/first.gguf")?.unwrap().ever_installed);
+                // Temps mesuré : posé, relu, gardé par un nouvel
+                // enregistrement (même si celui-ci n'en dit rien).
+                assert_eq!(get(c, "a/b/first.gguf")?.unwrap().last_seconds, None);
+                record_seconds(c, "a/b/first.gguf", 12)?;
+                assert_eq!(get(c, "a/b/first.gguf")?.unwrap().last_seconds, Some(12));
+                save(c, &changed)?;
+                assert_eq!(list(c)?[0].last_seconds, Some(12));
+                assert_eq!(get(c, "a/b/second.gguf")?.unwrap().last_seconds, None);
 
                 select(c, "a/b/first.gguf")?;
                 assert_eq!(selected(c)?, "a/b/first.gguf");
@@ -235,6 +261,41 @@ mod tests {
                 assert_eq!(selected(c)?, "");
                 assert!(delete(c, "a/b/first.gguf")?.is_none());
                 assert!(get(c, "a/b/first.gguf")?.is_none());
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    /// Une base de la version 26 garde ses modèles, sans temps mesuré.
+    #[test]
+    fn a_version_26_database_gains_the_measured_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        let connection = Connection::open(&path).unwrap();
+        for sql in &crate::store::MIGRATIONS[..26] {
+            connection.execute_batch(sql).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 26).unwrap();
+        let old = model("a/b/old.gguf", 5);
+        let files = serde_json::to_string(&old.files).unwrap();
+        connection
+            .execute(
+                &format!(
+                    "INSERT INTO image_models ({COLUMNS}) VALUES ('a/b/old.gguf', 'a/b', '0123', \
+                     'm.gguf', 'flux2-klein-4b', 'm', 'apache-2.0', 0, ?1, 5, 1)"
+                ),
+                [files],
+            )
+            .unwrap();
+        drop(connection);
+        let store = Store::open(&path).unwrap();
+        store
+            .blocking(|c| {
+                let found = get(c, "a/b/old.gguf")?.unwrap();
+                assert_eq!(found.last_seconds, None);
+                assert!(found.ever_installed);
+                record_seconds(c, "a/b/old.gguf", 3)?;
+                assert_eq!(get(c, "a/b/old.gguf")?.unwrap().last_seconds, Some(3));
                 Ok(())
             })
             .unwrap();

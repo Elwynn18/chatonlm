@@ -31,14 +31,17 @@ pub async fn image_machine(
     Ok(models.machine_info(&engine).await)
 }
 
-/// Recherche sur Hugging Face (vide : dépôts populaires).
+/// Recherche sur Hugging Face (vide : dépôts populaires) ; sans
+/// `show_unsupported` (`showUnsupported` côté page), les dépôts non pris en
+/// charge ou restreints sont masqués et comptés.
 #[tauri::command]
 pub async fn image_search(
     models: State<'_, ImageModels>,
     store: State<'_, Store>,
     query: String,
+    show_unsupported: bool,
 ) -> AppResult<ImageSearchResult> {
-    models.search(&store, &query).await
+    models.search(&store, &query, show_unsupported).await
 }
 
 /// Fiche d'un dépôt (« auteur/dépôt »).

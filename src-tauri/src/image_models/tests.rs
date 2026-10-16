@@ -169,7 +169,7 @@ async fn the_search_recognizes_families_and_hides_uncensored_models() {
     let setup = setup().await;
     let result = setup
         .models
-        .search(&setup.store, "  chatonlm ")
+        .search(&setup.store, "  chatonlm ", true)
         .await
         .unwrap();
     assert_eq!(result.problem, None);
@@ -213,7 +213,11 @@ async fn the_search_recognizes_families_and_hides_uncensored_models() {
     );
 
     setup.show_uncensored(true);
-    let result = setup.models.search(&setup.store, "chatonlm").await.unwrap();
+    let result = setup
+        .models
+        .search(&setup.store, "chatonlm", true)
+        .await
+        .unwrap();
     let zimage = result.repos.iter().find(|repo| repo.id == ZIMAGE).unwrap();
     assert!(zimage.uncensored);
     assert_eq!(
@@ -235,7 +239,7 @@ async fn an_unreachable_hugging_face_or_an_unknown_repo_is_told() {
     let offline = setup_with(FakeHf::start(HfMode::Status(503)).await.unwrap(), 1 << 30).await;
     let empty = offline
         .models
-        .search(&offline.store, "klein")
+        .search(&offline.store, "klein", false)
         .await
         .unwrap();
     assert!(empty.repos.is_empty());
@@ -835,7 +839,11 @@ async fn a_cancelled_download_is_forgotten_when_dismissed_and_refuses_deletion_m
 #[tokio::test]
 async fn adapters_are_not_whole_models() {
     let setup = setup().await;
-    let result = setup.models.search(&setup.store, "sdxl").await.unwrap();
+    let result = setup
+        .models
+        .search(&setup.store, "sdxl", false)
+        .await
+        .unwrap();
     let ids: Vec<&str> = result.repos.iter().map(|repo| repo.id.as_str()).collect();
     assert_eq!(ids, ["chatonlm/Tiny-SDXL"]);
     let lora = setup
@@ -1070,7 +1078,7 @@ async fn at_most_twelve_bases_are_read() {
 async fn search_ids(setup: &Setup) -> Vec<String> {
     setup
         .models
-        .search(&setup.store, "chatonlm")
+        .search(&setup.store, "chatonlm", false)
         .await
         .unwrap()
         .repos
@@ -1149,4 +1157,254 @@ async fn dismissing_never_forgets_a_model_installed_once() {
     let info = setup.info(&klein).await;
     assert!(!info.installed);
     assert_eq!(info.missing_bytes, 9000);
+}
+
+/// Sans `show_unsupported`, les dépôts sans famille reconnue (inconnue ou
+/// écartée) et les restreints sont retirés et comptés ; les non censurés
+/// masqués par le réglage ne comptent pas.
+#[tokio::test]
+async fn unsupported_repos_are_hidden_and_counted_unless_asked() {
+    let setup = setup().await;
+    let all = setup
+        .models
+        .search(&setup.store, "chatonlm", true)
+        .await
+        .unwrap();
+    assert_eq!(all.hidden_unsupported, 0);
+    let unsupported: Vec<&str> = all
+        .repos
+        .iter()
+        .filter(|repo| repo.family.is_none() || repo.gated)
+        .map(|repo| repo.id.as_str())
+        .collect();
+    for id in [
+        "chatonlm/unknown-diffusion-GGUF",
+        "chatonlm/Tiny-LTX-GGUF",
+        "chatonlm/gated-image-GGUF",
+    ] {
+        assert!(unsupported.contains(&id), "{id}: {unsupported:?}");
+    }
+    let shown = setup
+        .models
+        .search(&setup.store, "chatonlm", false)
+        .await
+        .unwrap();
+    assert_eq!(shown.hidden_unsupported as usize, unsupported.len());
+    assert_eq!(shown.repos.len() + unsupported.len(), all.repos.len());
+    assert!(
+        shown
+            .repos
+            .iter()
+            .all(|repo| repo.family.is_some() && !repo.gated)
+    );
+    // Un dépôt restreint d'une famille reconnue est masqué lui aussi.
+    let gated = all
+        .repos
+        .iter()
+        .find(|repo| repo.id == "chatonlm/gated-image-GGUF")
+        .unwrap();
+    assert!(gated.gated);
+    // Non censuré masqué par le réglage : retiré avant, pas compté ; montré
+    // avec le réglage, il reste (famille reconnue).
+    assert!(shown.repos.iter().all(|repo| repo.id != ZIMAGE));
+    setup.show_uncensored(true);
+    let uncensored = setup
+        .models
+        .search(&setup.store, "chatonlm", false)
+        .await
+        .unwrap();
+    assert_eq!(uncensored.hidden_unsupported, shown.hidden_unsupported);
+    assert!(uncensored.repos.iter().any(|repo| repo.id == ZIMAGE));
+}
+
+#[test]
+fn usage_comes_from_the_family_then_the_license() {
+    let families = Families::embedded();
+    let klein = families.get("flux2-klein-4b");
+    let klein9 = families.get("flux2-klein-9b");
+    let dev = families.get("flux1-dev");
+    assert_eq!(usage_of(klein, Some("apache-2.0")), ImageUsage::Free);
+    assert_eq!(usage_of(klein, Some("Apache-2.0")), ImageUsage::Free);
+    assert_eq!(usage_of(klein, Some("other")), ImageUsage::CheckLicense);
+    assert_eq!(usage_of(klein, None), ImageUsage::CheckLicense);
+    assert_eq!(
+        usage_of(families.get("sdxl"), Some("openrail++")),
+        ImageUsage::CheckLicense
+    );
+    // Usage connu de la famille : prime sur la licence déclarée.
+    assert_eq!(
+        usage_of(klein9, Some("apache-2.0")),
+        ImageUsage::NonCommercial
+    );
+    assert_eq!(usage_of(dev, None), ImageUsage::NonCommercial);
+    // Famille inconnue : selon la licence.
+    assert_eq!(usage_of(None, Some("mit")), ImageUsage::Free);
+    assert_eq!(usage_of(None, Some("other")), ImageUsage::CheckLicense);
+}
+
+/// Familles d'essai avec les repères de la page : klein 5 s et 3 000 octets
+/// de calcul, Z-Image-Turbo sans référence.
+fn families_with_marks() -> String {
+    let mut value: serde_json::Value = serde_json::from_str(IMAGE_FAMILIES).unwrap();
+    for family in value["families"].as_array_mut().unwrap() {
+        if family["id"] == "flux2-klein-4b" {
+            family["referenceSeconds"] = 5.into();
+            family["computeBytes"] = 3000.into();
+        }
+    }
+    value.to_string()
+}
+
+#[test]
+fn vram_and_time_are_estimated_from_the_family_and_the_card() {
+    let families = Families::parse(&families_with_marks()).unwrap();
+    let klein = families.get("flux2-klein-4b");
+    let zimage = families.get("z-image-turbo");
+    assert_eq!(vram_estimate(10_000, klein), 13_000);
+    assert_eq!(vram_estimate(10_000, None), 10_000);
+    let card = machine(20_000);
+    // Tient sur la carte : la référence.
+    assert_eq!(estimated_seconds(klein, 13_000, Some(&card)), Some(5));
+    assert_eq!(estimated_seconds(klein, 20_000, Some(&card)), Some(5));
+    // Dépasse la carte : ×3.
+    assert_eq!(estimated_seconds(klein, 20_001, Some(&card)), Some(15));
+    // Mémoire de la carte inconnue : la référence.
+    assert_eq!(estimated_seconds(klein, 20_001, Some(&machine(0))), Some(5));
+    // La plus grande carte compte.
+    let mut two = machine(8_000);
+    two.gpus.push(HubGpu {
+        name: "Big".into(),
+        vram_total: 30_000,
+        vram_free: None,
+    });
+    assert_eq!(estimated_seconds(klein, 20_001, Some(&two)), Some(5));
+    // Sans carte graphique, machine inconnue, famille sans référence ou
+    // inconnue : aucun.
+    let mut cpu = machine(0);
+    cpu.gpus.clear();
+    assert_eq!(estimated_seconds(klein, 13_000, Some(&cpu)), None);
+    assert_eq!(estimated_seconds(klein, 13_000, None), None);
+    assert_eq!(estimated_seconds(zimage, 13_000, Some(&card)), None);
+    assert_eq!(estimated_seconds(None, 13_000, Some(&card)), None);
+}
+
+#[tokio::test]
+async fn models_and_files_carry_their_usage_vram_and_time() {
+    // Pièces : 2 500 + 1 500 octets ; calcul 3 000 ; carte de 12 000 octets
+    // (Q4_0 et Q8_0 tiennent, F16 dépasse).
+    let fake = FakeHf::start(HfMode::Normal).await.unwrap();
+    let setup = setup_families(fake, 12_000, &families_with_marks()).await;
+    let detail = setup
+        .models
+        .repo(&setup.downloads, &setup.store, KLEIN)
+        .await
+        .unwrap();
+    assert_eq!(detail.summary.usage, ImageUsage::Free);
+    let files: Vec<(&str, u64, u64, Option<u32>)> = detail
+        .files
+        .iter()
+        .map(|file| {
+            (
+                file.file.as_str(),
+                file.size_bytes,
+                file.vram_bytes,
+                file.estimated_seconds,
+            )
+        })
+        .collect();
+    for (file, size, vram, seconds) in &files {
+        assert_eq!(*vram, size + 2_500 + 1_500 + 3_000, "{file}");
+        let expected = if *vram > 12_000 { 15 } else { 5 };
+        assert_eq!(*seconds, Some(expected), "{file}");
+    }
+    // Les deux cas sont essayés (tient, dépasse).
+    assert!(
+        files.iter().any(|(_, _, vram, _)| *vram <= 12_000),
+        "{files:?}"
+    );
+    assert!(
+        files.iter().any(|(_, _, vram, _)| *vram > 12_000),
+        "{files:?}"
+    );
+
+    // Modèle de la liste (recommandation) : usage, variante, VRAM, temps.
+    let id = format!("{KLEIN}/tiny-klein-Q4_0.gguf");
+    let info = setup.info(&id).await;
+    assert_eq!(info.usage, ImageUsage::Free);
+    assert_eq!(info.quant.as_deref(), Some("Q4_0"));
+    assert_eq!((info.size_bytes, info.vram_bytes), (7_000, 10_000));
+    assert_eq!(info.estimated_seconds, Some(5));
+    assert_eq!(info.measured_seconds, None);
+    // Temps mesuré : celui noté en base pour un modèle enregistré.
+    setup.download(KLEIN, "tiny-klein-Q4_0.gguf").await.unwrap();
+    setup.wait_done(&id).await;
+    let noted = id.clone();
+    setup
+        .store
+        .blocking(move |c| stored::record_seconds(c, &noted, 7))
+        .unwrap();
+    assert_eq!(setup.info(&id).await.measured_seconds, Some(7));
+
+    // Dépôt d'une famille inconnue : usage selon sa licence, pas de temps.
+    let unknown = setup
+        .models
+        .repo(
+            &setup.downloads,
+            &setup.store,
+            "chatonlm/unknown-diffusion-GGUF",
+        )
+        .await
+        .unwrap();
+    let license = unknown.summary.license.clone();
+    assert_eq!(
+        unknown.summary.usage,
+        usage_of(None, license.as_deref()),
+        "{license:?}"
+    );
+    assert!(
+        unknown
+            .files
+            .iter()
+            .all(|file| file.estimated_seconds.is_none())
+    );
+}
+
+#[tokio::test]
+async fn the_machine_tells_its_largest_card() {
+    let root = tempfile::tempdir().unwrap();
+    let engine = ImageGen::new(Config::new(None, root.path()));
+    let machine_info = |machine: Option<Machine>| {
+        let models = ImageModels::for_tests(
+            root.path().to_path_buf(),
+            ImageCatalog::new(root.path().join("cache")),
+            Families::parse(IMAGE_FAMILIES).unwrap(),
+            machine,
+        );
+        let engine = &engine;
+        async move { models.machine_info(engine).await }
+    };
+    let mut two = machine(8 << 30);
+    two.gpus.push(HubGpu {
+        name: " NVIDIA GeForce RTX 3090 ".into(),
+        vram_total: 24 << 30,
+        vram_free: Some(20 << 30),
+    });
+    let info = machine_info(Some(two)).await;
+    assert!(info.gpu);
+    assert_eq!(info.vram_bytes, Some(24 << 30));
+    assert_eq!(info.gpu_name.as_deref(), Some("NVIDIA GeForce RTX 3090"));
+    // Carte sans mémoire ni nom lisibles : une carte, rien d'autre.
+    let mut blank = machine(0);
+    blank.gpus[0].name = String::new();
+    let info = machine_info(Some(blank)).await;
+    assert!(info.gpu);
+    assert_eq!((info.vram_bytes, info.gpu_name), (None, None));
+    // Sans carte, machine inconnue.
+    let mut cpu = machine(0);
+    cpu.gpus.clear();
+    for machine in [Some(cpu), None] {
+        let info = machine_info(machine).await;
+        assert!(!info.gpu);
+        assert_eq!((info.vram_bytes, info.gpu_name), (None, None));
+    }
 }
