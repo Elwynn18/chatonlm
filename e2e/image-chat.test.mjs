@@ -166,6 +166,21 @@ const shownModel = (driver) =>
     "return document.querySelector('[title=\"Select model\"]')?.textContent ?? null",
   );
 
+/** Bouton du sélecteur des modèles d'images (mode Image) : son texte, ou null. */
+const shownImageModel = (driver) =>
+  driver.execute(
+    "return document.querySelector('[title=\"Select image model\"]')?.textContent ?? null",
+  );
+
+/** Attend que le sélecteur (d'Ollama ou d'images) affiche `expected`. */
+async function waitShown(driver, read, expected, what) {
+  let shown = null;
+  await waitUntil(
+    async () => (shown = await read(driver)) === expected,
+    () => `${what} : ${expected} (affiché : ${shown})`,
+  );
+}
+
 /** Choisit un modèle de langage (absent de la liste), puis recharge. */
 async function useModel(driver, model) {
   await waitUntil(() => shownModel(driver), "un modèle affiché");
@@ -337,6 +352,15 @@ try {
       title: "Enable image mode",
     });
     await enableImageMode(driver);
+    // Le sélecteur montre les modèles d'images (aucun choisi) à la place de
+    // ceux d'Ollama.
+    await waitShown(
+      driver,
+      shownImageModel,
+      "Choose an image model",
+      "sélecteur d'images sans modèle",
+    );
+    assert.equal(await shownModel(driver), null, "sélecteur d'Ollama masqué");
     // L'envoi attend que les modèles d'images soient lus (bouton d'envoi
     // grisé jusque-là) : refus ici, avec le lien. Un refus du moteur passe
     // par le même avis (texte rendu, lien une fois les modèles relus).
@@ -439,9 +463,37 @@ try {
     );
     await shoot(driver, "tool-done");
 
-    // 4. Bouton Image : aucune requête au modèle de langage.
+    // 4. Bouton Image : aucune requête au modèle de langage. Le sélecteur
+    // montre le modèle d'images installé, puis de nouveau celui d'Ollama une
+    // fois le mode coupé.
     await newChat(driver);
+    const imageModelName = (await driver.invoke("image_models")).find(
+      (model) => model.selected && model.installed,
+    )?.name;
+    assert.ok(imageModelName, "modèle d'images choisi et installé");
+    await waitShown(driver, shownModel, TOOL_MODEL, "sélecteur d'Ollama");
     await enableImageMode(driver);
+    await waitShown(
+      driver,
+      shownImageModel,
+      imageModelName,
+      "sélecteur d'images",
+    );
+    assert.equal(await shownModel(driver), null, "sélecteur d'Ollama masqué");
+    await driver.click(await driver.find("button[aria-label='Image']"));
+    await waitShown(driver, shownModel, TOOL_MODEL, "sélecteur d'Ollama rendu");
+    assert.equal(
+      await shownImageModel(driver),
+      null,
+      "sélecteur d'images masqué",
+    );
+    await enableImageMode(driver);
+    await waitShown(
+      driver,
+      shownImageModel,
+      imageModelName,
+      "sélecteur d'images de nouveau",
+    );
     const requestsBefore = (await chatRequests()).length;
     const buttonPrompt = "A cream sofa in a sunny room";
     await send(driver, buttonPrompt);

@@ -72,7 +72,9 @@
  * refused at once by the backend gives the text back to the field with the
  * backend's message in the same notice (the link too when the image models,
  * read again, show none chosen), and an amber line under the composer warns
- * when there is no graphics card.
+ * when there is no graphics card; while it is on, the model picker lists the
+ * installed image models instead of Ollama's (ImageModelPicker.tsx, same
+ * close handle), its failure to choose one shown in the same notice.
  */
 
 import { ArrowUpIcon, StopIcon } from "@heroicons/react/20/solid";
@@ -101,6 +103,7 @@ import { ComposerFiles } from "@/components/ComposerFiles";
 import { DropOverlay } from "@/components/DropOverlay";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { ImageButton } from "@/components/ImageButton";
+import { ImageModelPicker } from "@/components/ImageModelPicker";
 import { Logo } from "@/components/Logo";
 import { ModelPicker, type ModelPickerHandle } from "@/components/ModelPicker";
 import { StaleModelBanner } from "@/components/StaleModelBanner";
@@ -260,12 +263,14 @@ function mayTakeFocus(composer: HTMLElement | null, replyEnded: boolean) {
 
 /**
  * Avis d'un envoi du mode Image refusé : ici avant de partir (fichiers,
- * aucun modèle d'images choisi), ou d'emblée par le moteur (son texte).
+ * aucun modèle d'images choisi), ou d'emblée par le moteur (son texte) ;
+ * aussi le choix d'un modèle d'images refusé par le moteur (`pick`).
  */
 type ImageNotice =
   | { kind: "files" }
   | { kind: "noModel" }
-  | { kind: "refused"; message: string };
+  | { kind: "refused"; message: string }
+  | { kind: "pick"; message: string };
 
 /** Lien de l'avis « aucun modèle d'images » vers l'onglet Images du ModelHub. */
 function ChooseImageModel() {
@@ -798,7 +803,8 @@ export function ChatForm({
         >
           <ErrorMessage
             message={
-              shownImageNotice.kind === "refused"
+              shownImageNotice.kind === "refused" ||
+              shownImageNotice.kind === "pick"
                 ? shownImageNotice.message
                 : t(
                     shownImageNotice.kind === "files"
@@ -947,13 +953,31 @@ export function ChatForm({
           )}
 
           <div className="relative z-20 flex items-center gap-2">
-            <ModelPicker
-              ref={modelPickerRef}
-              chatId={chatId}
-              isDisabled={isDisabled}
-              onModelSelect={() => textareaRef.current?.focus()}
-              onEscape={() => textareaRef.current?.focus()}
-            />
+            {/* Mode Image : les modèles d'images installés à la place de
+                ceux d'Ollama. */}
+            {imageActive ? (
+              <ImageModelPicker
+                ref={modelPickerRef}
+                onModelSelect={() => textareaRef.current?.focus()}
+                onError={(message) =>
+                  setImageNotice((notice) =>
+                    message !== null
+                      ? { kind: "pick", message }
+                      : notice?.kind === "pick"
+                        ? null
+                        : notice,
+                  )
+                }
+              />
+            ) : (
+              <ModelPicker
+                ref={modelPickerRef}
+                chatId={chatId}
+                isDisabled={isDisabled}
+                onModelSelect={() => textareaRef.current?.focus()}
+                onEscape={() => textareaRef.current?.focus()}
+              />
+            )}
           </div>
           {contextGauge && (
             <div className="relative z-20 flex items-center">

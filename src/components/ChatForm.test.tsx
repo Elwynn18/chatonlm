@@ -10,7 +10,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { createRef, type ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { CloudStatus } from "@/bindings/CloudStatus";
 import type { ImageMachine } from "@/bindings/ImageMachine";
 import type { Message } from "@/bindings/Message";
@@ -64,6 +64,8 @@ function renderForm({
     held?: Promise<void>;
     /** image_models échoue. */
     fails?: boolean;
+    /** image_use_model échoue avec ce message. */
+    useError?: string;
   } | null,
 } = {}) {
   const settings = { selectedModel, serverUrl: "", webSearchEnabled };
@@ -113,10 +115,31 @@ function renderForm({
           if (!images) break;
           const list = () => {
             if (images.fails) throw { kind: "io", message: "unreadable" };
-            return images.chosen ? [{ selected: true, installed: true }] : [];
+            // Un second modèle installé, jamais choisi.
+            return [
+              {
+                id: IMAGE_MODEL_ID,
+                name: IMAGE_MODEL,
+                selected: images.chosen === true,
+                installed: true,
+              },
+              {
+                id: OTHER_IMAGE_MODEL_ID,
+                name: OTHER_IMAGE_MODEL,
+                selected: false,
+                installed: true,
+              },
+            ];
           };
           return images.held ? images.held.then(list) : list();
         }
+        case "image_use_model":
+          if (!images) break;
+          if (images.useError) {
+            throw { kind: "invalid", message: images.useError };
+          }
+          images.chosen = (args as { id: string }).id === IMAGE_MODEL_ID;
+          return null;
       }
       throw new Error(`unexpected command ${command}`);
     },
@@ -162,6 +185,22 @@ function renderForm({
       rerender(ui());
     },
   };
+}
+
+/** Modèles d'images installés du faux moteur (`images`). */
+const IMAGE_MODEL = "FLUX.2 klein 4B";
+const IMAGE_MODEL_ID = "leejet/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q4_0.gguf";
+const OTHER_IMAGE_MODEL = "flux-2-klein-4b-Q8_0";
+const OTHER_IMAGE_MODEL_ID =
+  "leejet/FLUX.2-klein-4B-GGUF/flux-2-klein-4b-Q8_0.gguf";
+
+/**
+ * Menu du sélecteur d'images hors d'un routeur (son lien vers le ModelHub) :
+ * le routeur prévient dans la console, sans plus.
+ */
+function quietRouter() {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  onTestFinished(() => warn.mockRestore());
 }
 
 /** Laisse passer les focus différés (setTimeout 0) de la zone de saisie. */
@@ -1280,6 +1319,88 @@ describe("ChatForm: image mode", () => {
     // Envoi suivant : l'avis s'en va.
     await send(textarea, "");
     expect(screen.queryByTestId("image-notice")).toBeNull();
+  });
+
+  it("the model picker lists the image models while it is on, Ollama's once off", async () => {
+    renderForm({ images: { chosen: true } });
+    await waitFor(() => expect(picker().textContent).toBe(QWEN));
+    const toggle = await imageButton();
+    await userEvent.click(toggle);
+    const imagePicker = await screen.findByTitle("Select image model");
+    await waitFor(() => expect(imagePicker.textContent).toBe(IMAGE_MODEL));
+    expect(screen.queryByTitle("Select model")).toBeNull();
+    await userEvent.click(toggle);
+    await waitFor(() => expect(picker().textContent).toBe(QWEN));
+    expect(screen.queryByTitle("Select image model")).toBeNull();
+  });
+
+  it("without an image model chosen, the image picker asks for one", async () => {
+    renderForm({ images: {} });
+    await userEvent.click(await imageButton());
+    const imagePicker = await screen.findByTitle("Select image model");
+    await waitFor(() =>
+      expect(imagePicker.textContent).toBe("Choose an image model"),
+    );
+  });
+
+  it("choosing an image model: the picker and the send follow, the focus goes to the field", async () => {
+    quietRouter();
+    const { commands, onSubmit, textarea } = renderForm({ images: {} });
+    await userEvent.click(await imageButton());
+    const imagePicker = await screen.findByTitle("Select image model");
+    await waitFor(() =>
+      expect(imagePicker.textContent).toBe("Choose an image model"),
+    );
+    await userEvent.click(imagePicker);
+    await userEvent.click(screen.getByRole("option", { name: IMAGE_MODEL }));
+    expect(document.activeElement).toBe(textarea);
+    await waitFor(() => expect(imagePicker.textContent).toBe(IMAGE_MODEL));
+    expect(commands).toContain("image_use_model");
+    // Modèle choisi : l'envoi part (sans l'avis « aucun modèle »).
+    await send(textarea, "A red kitten");
+    expect(screen.queryByTestId("image-notice")).toBeNull();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("a choice refused by the backend is shown above the composer", async () => {
+    quietRouter();
+    renderForm({
+      images: { chosen: true, useError: "This model isn't installed" },
+    });
+    await userEvent.click(await imageButton());
+    const imagePicker = await screen.findByTitle("Select image model");
+    await waitFor(() => expect(imagePicker.textContent).toBe(IMAGE_MODEL));
+    await userEvent.click(imagePicker);
+    await userEvent.click(
+      screen.getByRole("option", { name: OTHER_IMAGE_MODEL }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("image-notice").textContent).toContain(
+        "This model isn't installed",
+      ),
+    );
+    expect(imagePicker.textContent).toBe(IMAGE_MODEL);
+    // Mode coupé : l'avis s'en va avec lui.
+    await userEvent.click(await imageButton());
+    expect(screen.queryByTestId("image-notice")).toBeNull();
+  });
+
+  it("Escape in the image picker does not stop the reply", async () => {
+    quietRouter();
+    const { onCancel } = renderForm({
+      isStreaming: true,
+      images: { chosen: true },
+    });
+    await userEvent.click(await imageButton());
+    const imagePicker = await screen.findByTitle("Select image model");
+    await waitFor(() => expect(imagePicker.textContent).toBe(IMAGE_MODEL));
+    await userEvent.click(imagePicker);
+    expect(screen.getByRole("listbox", { name: "Image models" })).toBeTruthy();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(onCancel).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it("shows no button without the image engine", async () => {

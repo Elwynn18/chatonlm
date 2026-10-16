@@ -21,7 +21,7 @@ import { attachmentImageUrl } from "@/lib/attachments";
 import * as streams from "@/lib/streams";
 import { fakeBackend, type StoredChat } from "@/test/backend";
 import { untranslatedTexts, usePseudoLanguage } from "@/test/i18n";
-import { KLEIN_ID } from "@/test/images";
+import { KLEIN_ID, Z_IMAGE_ID } from "@/test/images";
 import { composer, renderApp, texts } from "@/test/renderApp";
 import {
   installSimulator,
@@ -350,6 +350,41 @@ describe("image mode of the composer", () => {
     await waitFor(() => expect(app.path()).toMatch(/^\/hub\/images\/?$/));
   });
 
+  it("the model picker lists the installed image models, chooses one, and leads to the Images tab", async () => {
+    const { backend, app } = setup({ chosen: false });
+    backend.images.install(KLEIN_ID, Z_IMAGE_ID);
+    await field();
+    await waitFor(() =>
+      expect(screen.getByTitle("Select model").textContent).toBe(MODEL),
+    );
+    await enableImageMode();
+    const picker = await screen.findByTitle("Select image model");
+    await waitFor(() =>
+      expect(picker.textContent).toBe("Choose an image model"),
+    );
+    await userEvent.click(picker);
+    const list = screen.getByRole("listbox", { name: "Image models" });
+    expect(
+      within(list)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual([IMAGE_MODEL, "Z-Image-Turbo", "More image models"]);
+    await userEvent.click(
+      within(list).getByRole("option", { name: "Z-Image-Turbo" }),
+    );
+    await waitFor(() => expect(picker.textContent).toBe("Z-Image-Turbo"));
+    expect(backend.images.selected).toBe(Z_IMAGE_ID);
+    // Mode coupé : le sélecteur d'Ollama revient.
+    await userEvent.click(await imageButton());
+    expect(screen.getByTitle("Select model").textContent).toBe(MODEL);
+    await enableImageMode();
+    await userEvent.click(await screen.findByTitle("Select image model"));
+    await userEvent.click(
+      screen.getByRole("option", { name: "More image models" }),
+    );
+    await waitFor(() => expect(app.path()).toMatch(/^\/hub\/images\/?$/));
+  });
+
   it("does not need a language model, and turning it off sends normally again", async () => {
     const { simulator } = setup({ selectedModel: "", models: [] });
     simulator.queue(buttonSequence(SUCCESS, ""));
@@ -665,9 +700,15 @@ describe("translations of the image screens", () => {
       { stepwise: true },
     );
     const textarea = await field();
-    await userEvent.click(await screen.findByRole("button", { name: /Image/ }));
     await waitFor(() =>
       expect(screen.getByTitle(/Select model/).textContent).toBe(TOOL_MODEL),
+    );
+    await userEvent.click(await screen.findByRole("button", { name: /Image/ }));
+    // Mode Image : le sélecteur montre le modèle d'images.
+    await waitFor(() =>
+      expect(screen.getByTitle(/Select image model/).textContent).toBe(
+        IMAGE_MODEL,
+      ),
     );
     await userEvent.type(textarea, `${PROMPT}{Enter}`);
     await replay.started;
