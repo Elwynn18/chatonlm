@@ -17,7 +17,11 @@
 //   raison visible) ; dépôt non censuré atteint par son adresse : badge,
 //   raison avec le lien vers les réglages ; réglage « Show uncensored
 //   models » activé : le dépôt apparaît dans la recherche avec son badge ;
-// - captures claires (.tools/shots/image-models/) ;
+// - faux moteur (fake-sd-server, à côté du binaire) : pas de bandeau de la
+//   machine (carte graphique d'essai de withApp) ;
+// - captures (.tools/shots/image-models/) : onglet, fiche, téléchargement en
+//   cours (faux Hugging Face figé un instant), installé, vos modèles, onglet
+//   Downloads, fiche non censurée ;
 // - aucune violation de la CSP ni erreur ou avertissement dans la console.
 //
 // Suppose du faux Hugging Face (crates/fake-ollama, fixtures/hf/) : le
@@ -29,6 +33,7 @@
 // fichiers servis à /<dépôt>/resolve/<révision>/<chemin>.
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { startFake, startFakeHf } from "./lib/fake.mjs";
@@ -51,6 +56,9 @@ const env = {
   CHATONLM_HF_URL: hf.url,
   CHATONLM_HF_STATUS_URL: hf.url,
   CHATONLM_IMAGE_FAMILIES: FAMILIES,
+  // Faux moteur construit par scripts/e2e-build.sh dans le même dossier : la
+  // page montre l'état normal (sans « moteur absent »).
+  CHATONLM_SD_SERVER_BIN: join(dirname(binary), "fake-sd-server"),
 };
 
 /** `what` : texte, ou fonction appelée à l'échec (dernier état observé). */
@@ -267,6 +275,19 @@ try {
     ]);
     await tab(driver, "Images");
     await waitText(driver, "[data-testid=hub-scroll] h2", "Image models");
+    // Moteur présent, carte graphique : aucun bandeau de la machine.
+    await waitUntil(
+      async () =>
+        (await textsOf(driver, "[data-testid=hub-scroll] h3")).includes(
+          "Recommended",
+        ),
+      "recommandations",
+    );
+    assert.equal(
+      await exists(driver, "[data-testid=image-machine]"),
+      false,
+      `bandeau de la machine : ${await textOf(driver, "[data-testid=image-machine]")}`,
+    );
     await waitText(
       driver,
       "[data-testid=hub-scroll] h3",
@@ -317,8 +338,33 @@ try {
       reason: null,
     });
     await shoot(driver, "klein-page");
+    const totalBefore = await textOf(driver, "[data-testid=image-total]");
     const before = (await hf.requests()).length;
-    await clickText(driver, "aside button", "Download");
+    // Faux Hugging Face figé : le téléchargement reste en cours (progression
+    // et Cancel) le temps d'une capture, puis reprend.
+    hf.pause();
+    try {
+      await clickText(driver, "aside button", "Download");
+      await waitUntil(
+        async () =>
+          (await textsOf(driver, "aside button")).includes("Cancel") &&
+          (await exists(driver, "aside [role=progressbar]")),
+        "téléchargement en cours (progression, Cancel)",
+      );
+      // En cours : ni badge « Installed » ni total qui l'oublie.
+      const checkedLabel = await driver.execute(
+        `return [...document.querySelectorAll("[data-testid=image-file]")]
+           .find((label) => label.querySelector("input").checked).textContent`,
+      );
+      assert.doesNotMatch(checkedLabel, /Installed/);
+      assert.equal(
+        await textOf(driver, "[data-testid=image-total]"),
+        totalBefore,
+      );
+      await shoot(driver, "klein-downloading");
+    } finally {
+      hf.resume();
+    }
     await waitUntil(
       async () =>
         (await textsOf(driver, "aside p")).includes("This file is installed."),
@@ -389,6 +435,7 @@ try {
     assert.ok(
       (await textsOf(driver, "#image-downloads")).includes("Image models"),
     );
+    await shoot(driver, "downloads-tab");
     await clickText(driver, "[data-testid=image-download] button", "Dismiss");
     await waitUntil(
       async () => !(await exists(driver, "[data-testid=image-download]")),

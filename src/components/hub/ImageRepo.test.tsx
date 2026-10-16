@@ -139,6 +139,31 @@ describe("Image repo page", () => {
     expect(downloadButton().disabled).toBe(false);
   });
 
+  it("a file being downloaded: no Installed badge, still counted in the total", async () => {
+    renderHub(page(KLEIN_REPO), ({ backend }) => {
+      // Le moteur dit `installed` d'un fichier en cours (pas de second
+      // Download) : la fiche ne doit pas le montrer installé.
+      const row = backend.images.record(KLEIN_ID);
+      backend.images.downloads.push({
+        id: KLEIN_ID,
+        name: row.name,
+        state: "downloading",
+        completedBytes: 100 * MIB,
+        totalBytes: 4 * GIB,
+        error: null,
+      });
+    });
+    await screen.findByRole("progressbar");
+    expect(radios()[0].checked).toBe(true);
+    expect(screen.getAllByTestId("image-file")[0].textContent).not.toContain(
+      "Installed",
+    );
+    expect(screen.getByTestId("image-total").textContent).toBe(
+      "To download: 4.8 GB",
+    );
+    expect(screen.queryByText("This file is installed.")).toBeNull();
+  });
+
   it("a finished download turns the page to installed", async () => {
     const { backend } = renderHub(page(KLEIN_REPO));
     await screen.findAllByTestId("image-file");

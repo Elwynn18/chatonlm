@@ -19,6 +19,7 @@ import {
 import { Link, useCanGoBack, useRouter } from "@tanstack/react-router";
 import { type ReactNode, type RefObject, useId, useRef, useState } from "react";
 import type { ImageComponentRole } from "@/bindings/ImageComponentRole";
+import type { ImageFileChoice } from "@/bindings/ImageFileChoice";
 import type { ImageMachine } from "@/bindings/ImageMachine";
 import type { ImageRepoDetail } from "@/bindings/ImageRepoDetail";
 import type { ImageRepoUnsupported } from "@/bindings/ImageRepoUnsupported";
@@ -283,9 +284,18 @@ function DownloadPanel({
   const modelId = chosen ? `${summary.id}/${chosen.file}` : null;
   const download = downloads.find((entry) => entry.id === modelId) ?? null;
   const active = download !== null && isActiveSpeechDownload(download);
+  // Le moteur dit `installed` d'un fichier en cours de téléchargement (pas
+  // de second Download) : ni badge « Installed » ni total à zéro pour lui.
+  const installed = (file: ImageFileChoice) =>
+    file.installed &&
+    !downloads.some(
+      (entry) =>
+        entry.id === `${summary.id}/${file.file}` &&
+        isActiveSpeechDownload(entry),
+    );
   const missing = components.filter((component) => !component.present);
   const total =
-    (chosen && !chosen.installed ? chosen.sizeBytes : 0) +
+    (chosen && !installed(chosen) ? chosen.sizeBytes : 0) +
     missing.reduce((sum, component) => sum + component.sizeBytes, 0);
   const free = machine?.freeBytes ?? null;
 
@@ -322,7 +332,7 @@ function DownloadPanel({
     });
   }
   const failed =
-    download?.state === "failed" && chosen && !chosen.installed
+    download?.state === "failed" && chosen && !installed(chosen)
       ? (download.error ?? t("hub.downloadState.failed"))
       : null;
   const error = start.isError
@@ -375,7 +385,7 @@ function DownloadPanel({
                         {formatBytes(t, file.sizeBytes)}
                       </span>
                       {file.recommended && <RecommendedBadge />}
-                      {file.installed && <InstalledBadge />}
+                      {installed(file) && <InstalledBadge />}
                     </span>
                     {file.quant !== null && (
                       <span className="block truncate font-mono text-xs text-neutral-500 dark:text-neutral-400">
@@ -468,7 +478,7 @@ function DownloadPanel({
             </button>
           </div>
         </div>
-      ) : chosen?.installed ? (
+      ) : chosen && installed(chosen) ? (
         <div className="flex flex-col items-start gap-2">
           <p className="text-sm text-green-800 dark:text-green-400">
             {t("hub.images.repo.installed")}

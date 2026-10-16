@@ -114,7 +114,7 @@ export async function startFake(mode = "ollama", port = 0) {
  * d'état « incident » pour un 5xx), `hf-ratelimit` (429, nouvel essai dans
  * 42 s), `hf-html` (page HTML). Donner `url` à l'app par `CHATONLM_HF_URL` et
  * `CHATONLM_HF_STATUS_URL` (env de `withApp`). Renvoie { url, port, requests,
- * stop } ; `requests()` : requêtes reçues, dans l'ordre
+ * pause, resume, stop } ; `requests()` : requêtes reçues, dans l'ordre
  * ({ method, path, ifNoneMatch, range }).
  */
 export async function startFakeHf(mode = "hf", port = 0) {
@@ -126,8 +126,21 @@ export async function startFakeHf(mode = "hf", port = 0) {
       const response = await fetch(new URL("/fake/requests", url));
       return response.json();
     },
+    /**
+     * Fige le serveur (SIGSTOP) : les connexions restent ouvertes mais rien
+     * ne répond (un téléchargement reste en cours) ; `resume` le relance.
+     * `requests()` ne répond pas tant qu'il est figé.
+     */
+    pause() {
+      child.kill("SIGSTOP");
+    },
+    resume() {
+      child.kill("SIGCONT");
+    },
     async stop() {
       child.kill("SIGTERM");
+      // Un serveur figé ne traiterait SIGTERM qu'une fois relancé.
+      child.kill("SIGCONT");
       await exited;
     },
   };
