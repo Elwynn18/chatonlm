@@ -188,6 +188,7 @@ describe("Chat", () => {
           updatedAt: 2,
           context: null,
           compactions: [],
+          replyRunning: null,
           messages: [
             message(1, "user", "Hi"),
             message(2, "assistant", "Hello"),
@@ -235,6 +236,7 @@ describe("editing a message", () => {
     updatedAt: 4,
     context: null,
     compactions: [],
+    replyRunning: null,
     messages: [
       message(1, "user", "First"),
       message(2, "assistant", "Ok"),

@@ -3,6 +3,7 @@
 
 use std::time::Duration;
 
+use reqwest::multipart::{Form, Part};
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, watch};
 
@@ -33,6 +34,18 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(30);
 const TYPING_TIMEOUT: Duration = Duration::from_secs(10);
 const FILE_TIMEOUT: Duration = Duration::from_secs(15);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
+/// Envoi d'une image : plusieurs mégaoctets sur une connexion lente.
+const UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Plus grosse photo acceptée par `sendPhoto` (« 10 MB ») : au-delà, l'image
+/// part en document.
+pub const PHOTO_MAX: usize = 10_000_000;
+/// Plus gros fichier qu'un bot peut envoyer (« 50 MB ») : au-delà,
+/// [`Problem::TooLarge`] sans requête.
+pub const DOCUMENT_MAX: usize = 50_000_000;
+/// Longueur sûre d'une légende : la limite est de 1024 unités UTF-16 après
+/// lecture de la mise en forme.
+pub const CAPTION_LIMIT: usize = 1000;
 
 /// Attente avant un nouvel essai de réception : doublée à chaque échec.
 pub(crate) const FIRST_WAIT: Duration = Duration::from_secs(1);
@@ -245,9 +258,79 @@ impl Client {
     }
 
     pub async fn typing(&self, channel: &str) -> Result<(), Problem> {
-        let body = json!({ "chat_id": number_or_text(channel), "action": "typing" });
+        self.action(channel, "typing").await
+    }
+
+    /// « envoie une photo… » : pendant qu'une image se prépare.
+    pub async fn preparing_photo(&self, channel: &str) -> Result<(), Problem> {
+        self.action(channel, "upload_photo").await
+    }
+
+    async fn action(&self, channel: &str, action: &str) -> Result<(), Problem> {
+        let body = json!({ "chat_id": number_or_text(channel), "action": action });
         self.call("sendChatAction", &body, TYPING_TIMEOUT).await?;
         Ok(())
+    }
+
+    /// Image PNG en photo (document au-delà de [`PHOTO_MAX`]) ; `filename`
+    /// déjà assaini, `caption` non vide. Une légende dont Telegram ne sait
+    /// pas lire la mise en forme repart une fois telle quelle, comme un
+    /// message.
+    pub(crate) async fn send_photo(
+        &self,
+        channel: &str,
+        png: Vec<u8>,
+        filename: &str,
+        caption: Option<&str>,
+    ) -> Result<String, Problem> {
+        if png.len() > DOCUMENT_MAX {
+            return Err(Problem::TooLarge);
+        }
+        let (method, field) = if png.len() > PHOTO_MAX {
+            ("sendDocument", "document")
+        } else {
+            ("sendPhoto", "photo")
+        };
+        let form = |png: Vec<u8>, formatted: bool| -> Result<Form, Problem> {
+            let part = Part::bytes(png)
+                .file_name(filename.to_owned())
+                .mime_str("image/png")
+                .map_err(|error| self.network(error))?;
+            let mut form = Form::new()
+                .text("chat_id", channel.to_owned())
+                .part(field, part);
+            match caption {
+                Some(caption) if formatted => {
+                    form = form
+                        .text("caption", text::telegram_html(caption))
+                        .text("parse_mode", "HTML");
+                }
+                Some(caption) => form = form.text("caption", caption.to_owned()),
+                None => {}
+            }
+            Ok(form)
+        };
+        // Copie gardée pour le second envoi, seulement s'il peut avoir lieu.
+        let spare = caption.is_some().then(|| png.clone());
+        let first = form(png, true)?;
+        let sent = match self
+            .call_with(method, UPLOAD_TIMEOUT, |request| request.multipart(first))
+            .await
+        {
+            Err(Problem::Refused {
+                status: 400,
+                message,
+            }) if message.contains(UNPARSED) && spare.is_some() => {
+                let plain = form(spare.unwrap_or_default(), false)?;
+                self.call_with(method, UPLOAD_TIMEOUT, |request| request.multipart(plain))
+                    .await
+            }
+            sent => sent,
+        }?;
+        match &sent["message_id"] {
+            Value::Number(id) => Ok(id.to_string()),
+            _ => Err(unreadable()),
+        }
     }
 
     pub async fn download(&self, file: &FileHandle, max: u64) -> Result<Vec<u8>, Problem> {
@@ -305,10 +388,26 @@ impl Client {
 
     /// Appelle une méthode de la Bot API et rend son `result`.
     async fn call(&self, method: &str, body: &Value, timeout: Duration) -> Result<Value, Problem> {
+        self.call_with(method, timeout, |request| request.json(body))
+            .await
+    }
+
+    /// Comme [`Client::call`], corps posé par `body` (JSON ou multipart).
+    async fn call_with(
+        &self,
+        method: &str,
+        timeout: Duration,
+        body: impl FnOnce(reqwest::RequestBuilder) -> reqwest::RequestBuilder,
+    ) -> Result<Value, Problem> {
         let url = format!("{}/bot{}/{method}", self.base, self.token);
-        let request = self.http.post(url).json(body).timeout(timeout);
+        let request = body(self.http.post(url)).timeout(timeout);
         let response = request.send().await.map_err(|error| self.network(error))?;
         let status = response.status().as_u16();
+        // Corps refusé par le frontal (page HTML, pas de JSON) : fichier trop
+        // gros.
+        if status == 413 {
+            return Err(Problem::TooLarge);
+        }
         let content = response
             .bytes()
             .await
@@ -1643,6 +1742,188 @@ mod tests {
         assert_eq!(
             client.download(&photo(), 100).await,
             Err(Problem::Network("unreadable reply".to_owned()))
+        );
+        fake.stop().await;
+    }
+
+    // --- Images envoyées ---
+
+    /// Image « PNG » de `size` octets (signature, puis des zéros).
+    fn png(size: usize) -> Vec<u8> {
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.resize(size.max(png.len()), 0);
+        png
+    }
+
+    fn photos(fake: &FakeTelegram) -> Vec<Value> {
+        fake.sent()
+            .into_iter()
+            .filter(|action| action["kind"] == "photo")
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn an_image_is_sent_as_a_multipart_photo() {
+        let fake = FakeTelegram::start().await;
+        let messenger = crate::Messenger::Telegram(client(&fake));
+        let id = messenger
+            .send_photo("7", png(300), "image-7.png", Some(" **Chaton** roux "))
+            .await
+            .unwrap();
+        // Nom assaini, sans légende.
+        let second = messenger
+            .send_photo("7", png(100), "chat \"roux\"", None)
+            .await
+            .unwrap();
+        assert_ne!(id, second);
+        assert_eq!(
+            photos(&fake),
+            [
+                json!({
+                    "kind": "photo", "channel": "7", "id": id, "filename": "image-7.png",
+                    "size": 300, "contentType": "image/png", "upload": "photo",
+                    "caption": "<b>Chaton</b> roux", "parseMode": "HTML",
+                }),
+                json!({
+                    "kind": "photo", "channel": "7", "id": second, "filename": "chat__roux_.png",
+                    "size": 100, "contentType": "image/png", "upload": "photo",
+                }),
+            ]
+        );
+        // Champs du formulaire, tels que lus par le faux serveur.
+        assert_eq!(
+            requests(&fake, "sendPhoto"),
+            [
+                json!({
+                    "chat_id": "7",
+                    "photo": { "filename": "image-7.png", "size": 300, "contentType": "image/png" },
+                    "caption": "<b>Chaton</b> roux",
+                    "parse_mode": "HTML",
+                }),
+                json!({
+                    "chat_id": "7",
+                    "photo": { "filename": "chat__roux_.png", "size": 100, "contentType": "image/png" },
+                }),
+            ]
+        );
+        fake.stop().await;
+    }
+
+    #[tokio::test]
+    async fn an_image_beyond_ten_megabytes_is_sent_as_a_document() {
+        let fake = FakeTelegram::start().await;
+        let client = client(&fake);
+        client
+            .send_photo("7", png(PHOTO_MAX), "a.png", None)
+            .await
+            .unwrap();
+        client
+            .send_photo("7", png(PHOTO_MAX + 1), "b.png", None)
+            .await
+            .unwrap();
+        let uploads: Vec<_> = photos(&fake)
+            .iter()
+            .map(|photo| (photo["filename"].clone(), photo["upload"].clone()))
+            .collect();
+        assert_eq!(
+            uploads,
+            [
+                (json!("a.png"), json!("photo")),
+                (json!("b.png"), json!("document")),
+            ]
+        );
+        assert_eq!(requests(&fake, "sendDocument").len(), 1);
+
+        // Au-delà de ce qu'un bot peut envoyer : rien ne part.
+        let before = fake.requests().len();
+        assert_eq!(
+            client
+                .send_photo("7", png(DOCUMENT_MAX + 1), "c.png", None)
+                .await,
+            Err(Problem::TooLarge)
+        );
+        assert_eq!(fake.requests().len(), before);
+        fake.stop().await;
+    }
+
+    #[tokio::test]
+    async fn a_refused_caption_formatting_is_sent_again_as_plain_text() {
+        let fake = FakeTelegram::start().await;
+        let client = client(&fake);
+        let unparsed = "Bad Request: can't parse entities: Unsupported start tag";
+        fake.fail_next("sendPhoto", 400, refusal(400, unparsed));
+        client
+            .send_photo("7", png(64), "a.png", Some("**Chaton**"))
+            .await
+            .unwrap();
+        let sent = requests(&fake, "sendPhoto");
+        assert_eq!(sent.len(), 2);
+        assert_eq!(sent[1]["caption"], "**Chaton**");
+        assert!(sent[1].get("parse_mode").is_none());
+        assert_eq!(sent[1]["photo"]["size"], 64);
+        assert_eq!(photos(&fake)[0]["caption"], "**Chaton**");
+
+        // Sans légende, le même refus n'est pas réessayé.
+        fake.fail_next("sendPhoto", 400, refusal(400, unparsed));
+        assert!(matches!(
+            client.send_photo("7", png(64), "a.png", None).await,
+            Err(Problem::Refused { status: 400, .. })
+        ));
+        assert_eq!(requests(&fake, "sendPhoto").len(), 3);
+        fake.stop().await;
+    }
+
+    #[tokio::test]
+    async fn refusals_of_an_image_become_typed_problems() {
+        let fake = FakeTelegram::start().await;
+        let client = client(&fake);
+        let limited = json!({
+            "ok": false,
+            "error_code": 429,
+            "description": "Too Many Requests: retry after 3",
+            "parameters": { "retry_after": 3 },
+        });
+        fake.fail_next("sendPhoto", 429, limited);
+        assert_eq!(
+            client.send_photo("7", png(64), "a.png", None).await,
+            Err(Problem::RateLimited(Duration::from_secs(3)))
+        );
+        // Le frontal refuse un corps trop gros par une page HTML.
+        fake.fail_next("sendPhoto", 413, json!("Request Entity Too Large"));
+        assert_eq!(
+            client.send_photo("7", png(64), "a.png", None).await,
+            Err(Problem::TooLarge)
+        );
+        fake.block("7");
+        assert_eq!(
+            client.send_photo("7", png(64), "a.png", None).await,
+            Err(Problem::Forbidden)
+        );
+        // Contenu qui n'est pas une image : refus de Telegram.
+        assert_eq!(
+            client
+                .send_photo("8", b"GIF89a".to_vec(), "a.png", None)
+                .await,
+            Err(Problem::Refused {
+                status: 400,
+                message: "Bad Request: IMAGE_PROCESS_FAILED".to_owned(),
+            })
+        );
+        assert!(photos(&fake).is_empty());
+        fake.stop().await;
+    }
+
+    #[tokio::test]
+    async fn preparing_a_photo_is_shown_in_the_conversation() {
+        let fake = FakeTelegram::start().await;
+        client(&fake).preparing_photo("7").await.unwrap();
+        assert_eq!(
+            requests(&fake, "sendChatAction"),
+            [json!({ "chat_id": 7, "action": "upload_photo" })]
+        );
+        assert_eq!(
+            fake.sent(),
+            [json!({ "kind": "typing", "channel": "7", "action": "upload_photo" })]
         );
         fake.stop().await;
     }

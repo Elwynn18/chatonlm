@@ -476,6 +476,15 @@ export function unstage(ids: string[]): Promise<void> {
   return invoke<void>("unstage", { ids });
 }
 
+/**
+ * Enregistre l'image créée d'une réponse (pièce jointe `attachmentId`) par le
+ * dialogue natif « Enregistrer » (nom proposé : celui de la pièce jointe) ;
+ * vrai si elle est écrite, faux si l'utilisateur annule.
+ */
+export function saveImage(attachmentId: number): Promise<boolean> {
+  return invoke<boolean>("save_image", { attachmentId });
+}
+
 /** Arrête une réponse en cours. */
 export function cancelMessage(streamId: string): Promise<void> {
   return invoke<void>("cancel_message", { streamId });

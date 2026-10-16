@@ -278,6 +278,7 @@
       ],
       "singleFile": true,
       "minSize": 1500000000,
+      "defaultSide": 512,
       "model": "model",
       "pieces": [],
       "sampling": {

@@ -9,12 +9,15 @@
 // images left out for a model known not to support vision (Ollama would
 // refuse them); tool results are saved with the assistant's message and sent
 // back as the tool messages that follow it (the official app saves separate
-// tool messages); interrupted calls (no result, no error) are left out.
+// tool messages); interrupted calls (no result, no error) are left out;
+// for a model known not to support tools, finished generate_image calls are
+// told as a short line of text (see image_calls_as_text).
 
 //! Échange avec `POST /api/chat` : corps de la requête et lecture du flux
 //! NDJSON (une ligne JSON par fragment, la dernière avec `done: true`), avec
 //! les appels d'outils (`tools`, `message.tool_calls`, messages `tool`).
 
+use std::borrow::Cow;
 use std::fmt::Write as _;
 
 use base64::Engine as _;
@@ -115,6 +118,50 @@ pub fn request_body(
         body["tools"] = tools.clone();
     }
     body
+}
+
+/// Historique pour un modèle connu sans la capacité `tools` (propre à
+/// ChatonLM) : ses gabarits ignorent `tool_calls` et les messages `tool`, il
+/// ne saurait pas qu'une image a été faite (bouton « Image », ou appel d'un
+/// envoi précédent vers un autre modèle). Chaque appel `generate_image` fini
+/// est retiré des appels de sa réponse et dit en une ligne ajoutée à son
+/// texte : `[Image created: <prompt>]`, ou `[Image not created: <erreur>]`
+/// (consigne au modèle : en anglais). Les autres outils sont inchangés ; un
+/// appel interrompu reste ignoré.
+pub fn image_calls_as_text(turns: &[Turn]) -> Cow<'_, [Turn]> {
+    let is_image = |call: &ToolCall| call.name == super::images::TOOL_NAME && call.is_finished();
+    if !turns
+        .iter()
+        .any(|turn| turn.role == Role::Assistant && turn.tool_calls.iter().any(is_image))
+    {
+        return Cow::Borrowed(turns);
+    }
+    let mut turns = turns.to_vec();
+    for turn in turns.iter_mut().filter(|turn| turn.role == Role::Assistant) {
+        let (told, kept): (Vec<ToolCall>, Vec<ToolCall>) = std::mem::take(&mut turn.tool_calls)
+            .into_iter()
+            .partition(is_image);
+        turn.tool_calls = kept;
+        for call in told {
+            let prompt = arguments(&call.arguments)["prompt"]
+                .as_str()
+                .map(str::trim)
+                .unwrap_or_default()
+                .to_owned();
+            // i18n-ignore : consigne au modèle, en anglais.
+            let line = match (&call.result, &call.error, prompt.is_empty()) {
+                (Some(_), _, false) => format!("[Image created: {prompt}]"),
+                (Some(_), _, true) => "[Image created]".to_owned(),
+                (None, Some(error), _) => format!("[Image not created: {error}]"),
+                (None, None, _) => continue,
+            };
+            if !turn.content.is_empty() && !turn.content.ends_with('\n') {
+                turn.content.push('\n');
+            }
+            turn.content.push_str(&line);
+        }
+    }
+    Cow::Owned(turns)
 }
 
 /// Arguments enregistrés d'un appel, en objet JSON (`{}` s'ils sont
@@ -446,6 +493,82 @@ mod tests {
         );
         let without = request_body("qwen3:0.6b", &turns[..1], None, 0, 0, true, None);
         assert!(without.get("tools").is_none());
+    }
+
+    /// Modèle sans outils : images faites (ou non) dites en texte, les
+    /// autres appels inchangés, un appel interrompu toujours ignoré.
+    #[test]
+    fn image_calls_are_told_in_text_to_a_model_without_tools() {
+        let call =
+            |name: &str, arguments: &str, result: Option<&str>, error: Option<&str>| ToolCall {
+                result: result.map(str::to_owned),
+                error: error.map(str::to_owned),
+                ..ToolCall::new(name, arguments)
+            };
+        let mut mixed = turn(Role::Assistant, "Let me draw.", "Drawing.");
+        mixed.tool_calls = vec![
+            call(
+                "generate_image",
+                r#"{"prompt":" a red fox ","width":512}"#,
+                Some(r#"{"attachmentId":1}"#),
+                None,
+            ),
+            call("web_search", r#"{"query":"fox"}"#, Some("{}"), None),
+            call(
+                "generate_image",
+                r#"{"prompt":"a cat"}"#,
+                None,
+                Some("boom"),
+            ),
+            // Interrompu : ni texte, ni appel.
+            call("generate_image", r#"{"prompt":"a dog"}"#, None, None),
+            // Description illisible.
+            call("generate_image", "not json", Some("{}"), None),
+        ];
+        let mut button = turn(Role::Assistant, "", "");
+        button.tool_calls = vec![call(
+            "generate_image",
+            r#"{"prompt":"a lighthouse"}"#,
+            Some("{}"),
+            None,
+        )];
+        // L'utilisateur n'a pas d'appels ; son texte n'est jamais touché.
+        let turns = [turn(Role::User, "Draw", ""), mixed, button];
+        let told = image_calls_as_text(&turns);
+        assert_eq!(told[0], turns[0]);
+        assert_eq!(
+            told[1].content,
+            "Let me draw.\n[Image created: a red fox]\n[Image not created: boom]\n[Image created]"
+        );
+        assert_eq!(told[1].thinking, "Drawing.");
+        assert_eq!(
+            told[1]
+                .tool_calls
+                .iter()
+                .map(|call| call.name.as_str())
+                .collect::<Vec<_>>(),
+            ["web_search", "generate_image"]
+        );
+        assert_eq!(told[2].content, "[Image created: a lighthouse]");
+        assert!(told[2].tool_calls.is_empty());
+        let body = request_body("m", &told, None, 0, 0, true, None);
+        assert_eq!(
+            body["messages"],
+            json!([
+                {"role": "user", "content": "Draw"},
+                {
+                    "role": "assistant",
+                    "content": "Let me draw.\n[Image created: a red fox]\n[Image not created: boom]\n[Image created]",
+                    "thinking": "Drawing.",
+                    "tool_calls": [{"function": {"name": "web_search", "arguments": {"query": "fox"}}}],
+                },
+                {"role": "tool", "content": "{}", "tool_name": "web_search"},
+                {"role": "assistant", "content": "[Image created: a lighthouse]"},
+            ])
+        );
+        // Sans appel d'image : l'historique tel quel, sans copie.
+        let plain = [turn(Role::User, "Hi", "")];
+        assert!(matches!(image_calls_as_text(&plain), Cow::Borrowed(_)));
     }
 
     #[test]

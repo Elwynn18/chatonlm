@@ -12,6 +12,7 @@ import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { createRef, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CloudStatus } from "@/bindings/CloudStatus";
+import type { ImageMachine } from "@/bindings/ImageMachine";
 import type { Message } from "@/bindings/Message";
 import type { ModelDetails } from "@/bindings/ModelDetails";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
@@ -51,6 +52,19 @@ function renderForm({
   webSearchEnabled = false,
   /** Réponse de cloud_status. */
   cloud = { disabled: false, source: "none" } as CloudStatus | null,
+  /**
+   * Moteur d'images (image_machine, image_models) ; null : commandes
+   * inconnues (pas de bouton Image).
+   */
+  images = null as {
+    machine?: Partial<ImageMachine>;
+    /** Un modèle d'images choisi et installé. */
+    chosen?: boolean;
+    /** image_models ne répond qu'une fois la promesse tenue. */
+    held?: Promise<void>;
+    /** image_models échoue. */
+    fails?: boolean;
+  } | null,
 } = {}) {
   const settings = { selectedModel, serverUrl: "", webSearchEnabled };
   const saved: { model: string; think: Think }[] = [];
@@ -86,6 +100,23 @@ function renderForm({
         case "set_think_pref":
           saved.push(args as { model: string; think: Think });
           return null;
+        case "image_machine":
+          if (!images) break;
+          return {
+            engineAvailable: true,
+            gpu: true,
+            missingCpuFeatures: [],
+            freeBytes: null,
+            ...images.machine,
+          } satisfies ImageMachine;
+        case "image_models": {
+          if (!images) break;
+          const list = () => {
+            if (images.fails) throw { kind: "io", message: "unreadable" };
+            return images.chosen ? [{ selected: true, installed: true }] : [];
+          };
+          return images.held ? images.held.then(list) : list();
+        }
       }
       throw new Error(`unexpected command ${command}`);
     },
@@ -1078,5 +1109,183 @@ describe("ChatForm: retry of a message (web search error)", () => {
     await settle();
     expect(onSubmit).not.toHaveBeenCalled();
     expect(settings.webSearchEnabled).toBe(true);
+  });
+});
+
+describe("ChatForm: image mode", () => {
+  const imageButton = () => screen.findByRole("button", { name: "Image" });
+  const kept = {
+    id: 7,
+    filename: "notes.txt",
+    kind: "text" as const,
+    mime: "text/plain",
+    size: 3,
+  };
+  const edited: Message = {
+    id: 5,
+    role: "user",
+    content: "A cat",
+    thinking: "",
+    model: null,
+    createdAt: 1,
+    updatedAt: 1,
+    thinkingStartedAt: null,
+    thinkingEndedAt: null,
+    attachments: [kept],
+    toolCalls: [],
+  };
+
+  it("sends the text with image, without Think nor web search, and stays on", async () => {
+    const { onSubmit, textarea } = renderForm({
+      details: [{ ...TOOLS, ...ON_OFF, capabilities: ["tools", "thinking"] }],
+      webSearchEnabled: true,
+      images: { chosen: true },
+    });
+    await thinkToggle();
+    await waitFor(() => expect(globe()).not.toBeNull());
+    const toggle = await imageButton();
+    // Après la recherche web, avant le sélecteur de modèle.
+    expect(
+      globe()!.compareDocumentPosition(toggle) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await userEvent.click(toggle);
+    expect(textarea.placeholder).toBe("Describe the image to create");
+    expect(screen.queryByRole("button", { name: "Think" })).toBeNull();
+    expect(globe()).toBeNull();
+    await send(textarea, "A red kitten");
+    expect(onSubmit).toHaveBeenLastCalledWith(
+      "A red kitten",
+      QWEN,
+      undefined,
+      [],
+      [],
+      false,
+      undefined,
+      undefined,
+      true,
+      expect.any(Function),
+    );
+    expect(textarea.value).toBe("");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    // Coupé : envoi ordinaire, Think et recherche web reviennent.
+    await userEvent.click(toggle);
+    await thinkToggle();
+    expect(globe()).not.toBeNull();
+    await send(textarea);
+    expect(onSubmit).toHaveBeenLastCalledWith(
+      "Hello",
+      QWEN,
+      true,
+      [],
+      [],
+      true,
+    );
+  });
+
+  it("refuses the kept attachments of an edited message, composer kept", async () => {
+    const { handle, onSubmit, textarea } = renderForm({
+      images: { chosen: true },
+    });
+    await userEvent.click(await imageButton());
+    act(() => handle.current?.startEdit(edited));
+    await send(textarea, "");
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByTestId("image-notice").textContent).toContain(
+      "Image mode doesn't take attached files: remove them to create an image.",
+    );
+    expect(textarea.value).toBe("A cat");
+    // Pièce jointe retirée : l'avis s'en va, l'envoi part.
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove notes.txt" }),
+    );
+    expect(screen.queryByTestId("image-notice")).toBeNull();
+    await send(textarea, "");
+    expect(onSubmit).toHaveBeenLastCalledWith(
+      "A cat",
+      QWEN,
+      undefined,
+      [],
+      [],
+      false,
+      undefined,
+      undefined,
+      true,
+      expect.any(Function),
+    );
+  });
+
+  it("waits for the image models before sending", async () => {
+    let read = () => {};
+    const held = new Promise<void>((resolve) => (read = resolve));
+    const { onSubmit, textarea } = renderForm({
+      images: { chosen: true, held },
+    });
+    await userEvent.click(await imageButton());
+    await userEvent.type(textarea, "A red kitten");
+    const sendButton = screen.getByLabelText("Send message");
+    expect((sendButton as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(textarea, "{Enter}");
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("A red kitten");
+    act(() => read());
+    await waitFor(() =>
+      expect((sendButton as HTMLButtonElement).disabled).toBe(false),
+    );
+    await userEvent.type(textarea, "{Enter}");
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends anyway when the image models can't be read: the backend decides", async () => {
+    const { onSubmit, textarea, commands } = renderForm({
+      images: { fails: true },
+    });
+    await userEvent.click(await imageButton());
+    await waitFor(() => expect(commands).toContain("image_models"));
+    await send(textarea, "A red kitten");
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("a refusal of the backend gives the text back, its message in the notice", async () => {
+    const { onSubmit, textarea, commands } = renderForm({
+      images: { chosen: true },
+    });
+    await userEvent.click(await imageButton());
+    await userEvent.type(textarea, "A red kitten");
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Send message") as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    await send(textarea, "");
+    expect(textarea.value).toBe("");
+    const onRefused = onSubmit.mock.lastCall?.[9] as (m: string) => boolean;
+    const reads = commands.filter((c) => c === "image_models").length;
+    let shown = false;
+    act(() => {
+      shown = onRefused("The image engine isn't ready");
+    });
+    // Montré ici : pas d'erreur ailleurs.
+    expect(shown).toBe(true);
+    expect(textarea.value).toBe("A red kitten");
+    expect(screen.getByTestId("image-notice").textContent).toContain(
+      "The image engine isn't ready",
+    );
+    // Modèles relus (lien vers l'onglet Images s'il n'y en a plus).
+    await waitFor(() =>
+      expect(commands.filter((c) => c === "image_models").length).toBe(
+        reads + 1,
+      ),
+    );
+    // Envoi suivant : l'avis s'en va.
+    await send(textarea, "");
+    expect(screen.queryByTestId("image-notice")).toBeNull();
+  });
+
+  it("shows no button without the image engine", async () => {
+    renderForm({ images: { machine: { engineAvailable: false } } });
+    await screen.findByRole("button", { name: "Upload multiple files" });
+    await settle();
+    expect(screen.queryByRole("button", { name: "Image" })).toBeNull();
   });
 });

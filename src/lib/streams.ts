@@ -7,6 +7,7 @@ import type { ChatErrorKind } from "@/bindings/ChatErrorKind";
 import type { ChatEvent } from "@/bindings/ChatEvent";
 import type { Compaction } from "@/bindings/Compaction";
 import type { ContextUsage } from "@/bindings/ContextUsage";
+import type { ImageProgress } from "@/bindings/ImageProgress";
 import type { Message } from "@/bindings/Message";
 import type { StagedFile } from "@/bindings/StagedFile";
 
@@ -78,7 +79,22 @@ export interface LiveStream {
   context: ContextUsage | null | undefined;
   /** Compactages faits par cet envoi, pas encore relus en base. */
   compactions: Compaction[];
+  /**
+   * Envoi du bouton « Image » (propre à ChatonLM) : le texte part tel quel au
+   * modèle d'images.
+   */
+  image: boolean;
+  /**
+   * Dernier avancement de chaque image en cours (appel `generate_image`),
+   * par `imageKey(messageId, index)` ; jamais enregistré en base.
+   */
+  images: Readonly<Record<string, ImageProgress>>;
   finished: boolean;
+}
+
+/** Clé d'un appel d'outil dans `LiveStream.images`. */
+export function imageKey(messageId: number, index: number): string {
+  return `${messageId}:${index}`;
 }
 
 /** Clé des erreurs d'une nouvelle conversation refusée avant sa création. */
@@ -150,6 +166,23 @@ export function streamsFor(chatId: string): readonly LiveStream[] {
   const value = unchanged ? previous : current;
   snapshots.set(chatId, { source: streams, value });
   return value;
+}
+
+/**
+ * Dernier avancement de l'image de l'appel `index` de la réponse
+ * `messageId`, quel que soit son flux ; null : aucun (pas commencée, ou plus
+ * de flux). Même objet tant qu'il ne change pas (useSyncExternalStore).
+ */
+export function imageProgressFor(
+  messageId: number,
+  index: number,
+): ImageProgress | null {
+  const key = imageKey(messageId, index);
+  for (const stream of streams.values()) {
+    const progress = stream.images[key];
+    if (progress) return progress;
+  }
+  return null;
 }
 
 /** Flux qui répond encore parmi ceux d'une conversation. */
@@ -228,6 +261,7 @@ export function start({
   attachments = [],
   kept = [],
   editOf = null,
+  image = false,
   ...stream
 }: {
   streamId: string;
@@ -239,11 +273,14 @@ export function start({
   /** Pièces jointes gardées du message modifié (avant les nouvelles). */
   kept?: AttachmentInfo[];
   editOf?: number | null;
+  /** Envoi du bouton « Image ». */
+  image?: boolean;
 }) {
   const startedAt = Date.now();
   streams = new Map(streams).set(stream.streamId, {
     ...stream,
     editOf,
+    image,
     startedAt,
     pending: {
       ...emptyMessage("user", nextPendingId--, startedAt, null),
@@ -268,6 +305,7 @@ export function start({
     compacting: false,
     context: undefined,
     compactions: [],
+    images: {},
     finished: false,
   });
   // L'erreur de la conversation, et celle d'une nouvelle conversation
@@ -404,6 +442,25 @@ export function apply(streamId: string, event: ChatEvent) {
         })),
       );
       break;
+    case "imageProgress":
+      update(streamId, (s) => ({
+        ...s,
+        images: {
+          ...s.images,
+          [imageKey(event.messageId, event.index)]: event.progress,
+        },
+      }));
+      break;
+    case "imageReady":
+      // Image enregistrée en pièce jointe de la réponse (avant le résultat
+      // de l'appel, qui la désigne).
+      update(streamId, (s) =>
+        withReply(s, event.messageId, (reply) => ({
+          ...reply,
+          attachments: [...reply.attachments, event.attachment],
+        })),
+      );
+      break;
     case "context":
       update(streamId, (s) => ({
         ...s,
@@ -449,10 +506,12 @@ function finish(stream: LiveStream, now: number): LiveStream {
 /**
  * Fin en erreur : l'erreur reste affichée jusqu'au prochain envoi ; avant la
  * création de la conversation, elle va à la page de nouvelle conversation.
+ * `null` : refus déjà montré par la zone de saisie (avis du mode Image),
+ * aucune erreur gardée.
  */
-export function fail(streamId: string, error: StreamError) {
+export function fail(streamId: string, error: StreamError | null) {
   const stream = streams.get(streamId);
-  if (stream) {
+  if (stream && error) {
     errors = new Map(errors).set(stream.chatId ?? NEW_CHAT, error);
   }
   update(streamId, (s) => finish(s, Date.now()));

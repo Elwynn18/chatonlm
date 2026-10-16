@@ -23,15 +23,16 @@ async fn fake_sd_server() {
     }
 }
 
-fn temp_dir() -> tempfile::TempDir {
+pub(crate) fn temp_dir() -> tempfile::TempDir {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.tools/tmp");
     std::fs::create_dir_all(&base).unwrap();
     // Chemin canonique : comparé à ceux de `/proc` (sans `..`).
     tempfile::tempdir_in(std::fs::canonicalize(base).unwrap()).unwrap()
 }
 
-/// Moteur joué par le faux, journal sous `dir`.
-fn fake_config(dir: &Path) -> Config {
+/// Moteur joué par le faux, journal sous `dir` (aussi pour les essais du
+/// peintre de la conversation).
+pub(crate) fn fake_config(dir: &Path) -> Config {
     let mut config = Config::new(Some(std::env::current_exe().unwrap()), dir);
     config.prefix_args = [
         "image_gen::tests::fake_sd_server",

@@ -2,7 +2,9 @@
   "dialogs": {
     "selectFiles": "Choisir des fichiers",
     "supportedFiles": "Fichiers pris en charge",
-    "selectModelDirectory": "Choisir le dossier des modèles"
+    "selectModelDirectory": "Choisir le dossier des modèles",
+    "saveImage": "Enregistrer l'image",
+    "pngImages": "Images PNG"
   },
   "tray": {
     "show": "Afficher ChatonLM",
@@ -198,7 +200,15 @@
     "contextFull": "La conversation a rempli le contexte du modèle : la réponse a été coupée. Compactez la conversation pour continuer.",
     "nothingToCompact": "rien de nouveau à compacter dans cette conversation",
     "compactEmpty": "le modèle n'a écrit aucun résumé",
-    "compactStopped": "le compactage a été arrêté"
+    "compactStopped": "le compactage a été arrêté",
+    "imageNoModel": "Aucun modèle d'images choisi : choisissez-en un dans le ModelHub, onglet Images.",
+    "imageWithFiles": "Une image ne peut pas être créée à partir de fichiers joints : retirez-les, ou désactivez Image.",
+    "imageUnavailable": "Cette version de ChatonLM ne contient pas le moteur d'images.",
+    "imageCpuUnsupported": "Ce processeur ne peut pas faire tourner le moteur d'images (il lui manque : {features}).",
+    "imageTooMany": "Au plus {max} images peuvent être créées par message.",
+    "imageTooLarge": "L'image est trop volumineuse pour être gardée (plus de {max} Mio).",
+    "imageNoPrompt": "La description de l'image (prompt) est absente ou vide.",
+    "imageNotFound": "Cette image n'existe plus."
   },
   "errors": {
     "connectionLost": "Connexion perdue",
@@ -351,6 +361,8 @@
     "unreachable": "Impossible de joindre {service} : {error}",
     "refused": "{service} a répondu par une erreur : {error}",
     "noBot": "Reliez et activez d'abord le bot",
+    "photoFailed": "L'image a été créée, mais elle n'a pas pu être envoyée ici. Elle est visible dans ChatonLM.",
+    "photoMaybeFailed": "Il se peut que l'image ne soit pas arrivée. Elle est visible dans ChatonLM.",
     "unavailable": "Easy Link est indisponible : impossible d'ouvrir la base de données",
     "bot": {
       "private": "Ce bot est privé. Pour vous en servir, envoyez le code d'appairage affiché par ChatonLM (Paramètres > Easy Link).",

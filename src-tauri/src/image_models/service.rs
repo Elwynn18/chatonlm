@@ -44,6 +44,18 @@ enum MachineSource {
     Fixed(Option<Machine>),
 }
 
+/// Modèle choisi pour la génération, prêt pour le moteur.
+#[derive(Clone, Debug)]
+pub struct SelectedModel {
+    pub spec: ModelSpec,
+    pub sampling: Sampling,
+    /// Nom affiché (« FLUX.2 klein 4B »).
+    pub name: String,
+    /// Côté d'une image dont la taille n'est pas demandée (avec une carte
+    /// graphique).
+    pub default_side: u32,
+}
+
 pub struct ImageModels {
     families: Arc<Families>,
     catalog: ImageCatalog,
@@ -53,6 +65,9 @@ pub struct ImageModels {
     /// Choix, suppressions et retraits un par un : les références d'un
     /// fichier ne changent pas entre leur calcul et l'effacement.
     changes: tokio::sync::Mutex<()>,
+    /// Essais : machines demandées (détections, ou leur cache).
+    #[cfg(test)]
+    detections: std::sync::atomic::AtomicUsize,
 }
 
 /// Refus montré à la page.
@@ -174,6 +189,8 @@ impl ImageModels {
             root,
             machine: MachineSource::Detect(Detector::default()),
             changes: tokio::sync::Mutex::new(()),
+            #[cfg(test)]
+            detections: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -191,12 +208,22 @@ impl ImageModels {
             root,
             machine: MachineSource::Fixed(machine),
             changes: tokio::sync::Mutex::new(()),
+            detections: std::sync::atomic::AtomicUsize::new(0),
         }
+    }
+
+    /// Essais : machines demandées jusqu'ici.
+    #[cfg(test)]
+    pub fn detections(&self) -> usize {
+        self.detections.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Machine qui fera les images (celle de `CHATONLM_E2E_HARDWARE` dans
     /// les essais de l'app).
     async fn machine(&self) -> Option<Machine> {
+        #[cfg(test)]
+        self.detections
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         match &self.machine {
             MachineSource::Detect(detector) => {
                 #[cfg(any(debug_assertions, feature = "e2e"))]
@@ -210,9 +237,16 @@ impl ImageModels {
         }
     }
 
+    /// Une carte graphique est reconnue (détection gardée en cache).
+    pub async fn gpu(&self) -> bool {
+        self.machine()
+            .await
+            .is_some_and(|machine| !machine.gpus.is_empty())
+    }
+
     /// Ce que la machine permet.
     pub async fn machine_info(&self, engine: &ImageGen) -> ImageMachine {
-        let machine = self.machine().await;
+        let gpu = self.gpu().await;
         let root = self.root.clone();
         let free_bytes =
             tauri::async_runtime::spawn_blocking(move || crate::disk::free_space_for(&root))
@@ -221,7 +255,7 @@ impl ImageModels {
                 .flatten();
         ImageMachine {
             engine_available: engine.available(),
-            gpu: machine.is_some_and(|machine| !machine.gpus.is_empty()),
+            gpu,
             missing_cpu_features: engine
                 .missing_cpu_features()
                 .iter()
@@ -890,10 +924,9 @@ impl ImageModels {
     }
 
     /// Modèle choisi pour la génération, prêt pour le moteur : fichiers
-    /// (tous présents) et réglages de sa famille ; `None` : aucun, ou plus
-    /// utilisable.
-    #[allow(dead_code, reason = "branché à la génération au lot 4")]
-    pub async fn selected_spec(&self, store: &Store) -> Option<(ModelSpec, Sampling)> {
+    /// (tous présents), réglages de sa famille, nom affiché et côté par
+    /// défaut ; `None` : aucun, ou plus utilisable.
+    pub async fn selected_spec(&self, store: &Store) -> Option<SelectedModel> {
         let model = store
             .call(|connection| {
                 let id = stored::selected(connection)?;
@@ -905,8 +938,8 @@ impl ImageModels {
         if !model.files.iter().all(|file| present(&self.root, file)) {
             return None;
         }
-        Some((
-            ModelSpec {
+        Some(SelectedModel {
+            spec: ModelSpec {
                 files: model
                     .files
                     .iter()
@@ -914,8 +947,10 @@ impl ImageModels {
                     .collect(),
                 options: family.options.clone(),
             },
-            family.sampling.clone(),
-        ))
+            sampling: family.sampling.clone(),
+            name: model.name,
+            default_side: family.default_side,
+        })
     }
 }
 

@@ -88,15 +88,45 @@
 //!   moteur et même historique, mais ses événements vont au bot et non à la
 //!   page ; l'observateur ne les voit pas (une réponse destinée à une
 //!   messagerie n'est pas lue à voix haute sur l'ordinateur), et un
-//!   rechargement de la page ne l'arrête pas.
+//!   rechargement de la page ne l'arrête pas ;
+//! - outil `generate_image` (propre à ChatonLM, voir `images.rs`) : offert
+//!   si les détails du modèle sont connus avec la capacité `tools` et si le
+//!   peintre (moteur d'images, modèle choisi dans le ModelHub) est prêt
+//!   (su sans détecter la carte graphique, regardée seulement au moment d'une
+//!   image), pour un envoi de la page ou d'Easy Link mais jamais du mode
+//!   vocal (chaque phrase prononcée arrêterait l'image en cours sans
+//!   prévenir), indépendamment de la recherche web (les deux jeux d'outils
+//!   partent dans le même tableau `tools`) et des pièces jointes. Un appel :
+//!   avancement annoncé (`imageProgress`, rien en base), image enregistrée en
+//!   pièce jointe de la réponse et annoncée (`imageReady`), puis le résultat
+//!   (JSON : pièce jointe, taille, graine, modèle) écrit et annoncé
+//!   (`toolResult`). Description absente, plus de 4 images dans l'envoi,
+//!   échec du moteur : erreur donnée au modèle, l'envoi continue ; arrêt
+//!   pendant l'image, ou demandé pendant qu'elle finissait : ni enregistrée
+//!   ni annoncée, l'appel reste sans résultat ni erreur. Un outil appelé sans
+//!   avoir été offert reçoit « unknown tool ». Pour un modèle connu sans la
+//!   capacité `tools` (gabarits qui ignorent appels et messages `tool`), les
+//!   images de l'historique sont dites en une ligne de texte ajoutée à la
+//!   réponse (`[Image created: …]`), voir `stream::image_calls_as_text` ;
+//!   la réponse en cours d'un bot d'Easy Link est désignée à la page par
+//!   `reply_running` (superposition de `get_chat`) ;
+//! - bouton « Image » (`image`, page, propre à ChatonLM) : refus d'emblée
+//!   (rien d'écrit) avec des pièces jointes ou si le peintre n'est pas prêt ;
+//!   sinon le message de l'utilisateur est écrit, puis, sans aucune requête à
+//!   Ollama (le modèle de l'envoi n'est pas exigé, gardé tel quel sur la
+//!   réponse), une réponse faite d'un appel `generate_image` avec le texte
+//!   tel quel, exécuté comme ci-dessus, et `done` (une erreur d'image reste
+//!   sur l'appel).
 
 mod compact;
+pub(crate) mod images;
 pub(crate) mod pull;
 pub(crate) mod repetition;
 pub mod stream;
 pub(crate) mod tools;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
@@ -114,11 +144,14 @@ use crate::ollama::models::{self, ModelDetails, ShowError};
 use crate::ollama::running::{self, LoadFailure, RunningModel};
 use crate::ollama::{account, client};
 use crate::store::chats::{
-    self, Chat, Compaction, ContextUsage, Counted, Message, Reply, Sendable, ToolCall,
+    self, AttachmentInfo, Chat, Compaction, ContextUsage, Counted, Message, Reply, Sendable,
+    ToolCall,
 };
 use crate::store::settings::Settings;
 use crate::store::{Store, model_prefs, now_ms};
 use crate::tts::VoiceLanguage;
+pub use images::{ImageProgress, ImageStage};
+use images::{Painter, Ready};
 use repetition::LoopWatch;
 use stream::{Ending, Line, LineBuffer, StreamToolCall, Think};
 use tools::{AllowedUrls, Executed};
@@ -174,6 +207,10 @@ pub struct SendRequest {
     /// ordinaire.
     #[ts(optional)]
     pub voice: Option<VoiceSend>,
+    /// Bouton « Image » (propre à ChatonLM) : le texte part tel quel au
+    /// modèle d'images, sans modèle de langage ; absent = non.
+    #[ts(optional)]
+    pub image: Option<bool>,
 }
 
 /// Envoi d'une phrase du mode conversation vocale.
@@ -310,6 +347,23 @@ pub enum ChatEvent {
         result: Option<String>,
         error: Option<String>,
     },
+    /// Avancement de l'image demandée par l'appel `index` (outil
+    /// `generate_image`) d'une réponse (propre à ChatonLM).
+    #[serde(rename_all = "camelCase")]
+    ImageProgress {
+        message_id: i64,
+        index: u32,
+        progress: ImageProgress,
+    },
+    /// Image produite par l'appel `index`, enregistrée en pièce jointe de la
+    /// réponse, toujours avant le `ToolResult` de cet appel (propre à
+    /// ChatonLM).
+    #[serde(rename_all = "camelCase")]
+    ImageReady {
+        message_id: i64,
+        index: u32,
+        attachment: AttachmentInfo,
+    },
     /// Fin normale ; `messageId` : dernier message de l'assistant de l'envoi
     /// (un par tour d'outils), absent si le modèle n'a rien répondu.
     #[serde(rename_all = "camelCase")]
@@ -348,6 +402,9 @@ pub struct ChatEngine {
     /// mode conversation vocale, propres à ChatonLM) ; posé une fois au
     /// démarrage.
     observer: std::sync::OnceLock<Observer>,
+    /// Fait les images (outil `generate_image`, bouton « Image ») ; posé une
+    /// fois au démarrage. Absent : aucune image possible.
+    painter: std::sync::OnceLock<Arc<dyn Painter>>,
 }
 
 type Observer = Box<dyn Fn(&str, &ChatEvent, Option<&VoiceSend>) + Send + Sync>;
@@ -366,6 +423,15 @@ impl ChatEngine {
         observer: impl Fn(&str, &ChatEvent, Option<&VoiceSend>) + Send + Sync + 'static,
     ) {
         let _ = self.observer.set(Box::new(observer));
+    }
+
+    /// Pose le peintre des images (une fois, au démarrage).
+    pub fn set_painter(&self, painter: Arc<dyn Painter>) {
+        let _ = self.painter.set(painter);
+    }
+
+    fn painter(&self) -> Option<Arc<dyn Painter>> {
+        self.painter.get().cloned()
     }
 
     fn observe(&self, chat: Option<&str>, event: &ChatEvent, voice: Option<&VoiceSend>) {
@@ -473,11 +539,20 @@ impl ChatEngine {
     /// en base (les écritures n'ont lieu que toutes les 500 ms). Ce qui ne
     /// fait que s'ajouter (fin du raisonnement, appels, résultats) est gardé
     /// de la base s'il y est déjà : une lecture entre une écriture et la mise à
-    /// jour de l'état courant ne le perd pas.
+    /// jour de l'état courant ne le perd pas. La réponse d'un bot d'Easy Link
+    /// est en plus désignée par `reply_running` : la page n'a pas de flux pour
+    /// elle (celles de la page sont les siennes, et arrêtées par
+    /// [`ChatEngine::cancel_page`] si elle se recharge).
     pub fn overlay(&self, chat: &mut Chat) {
+        let remote = self
+            .running
+            .lock()
+            .get(&chat.id)
+            .is_some_and(|running| running.origin == Origin::Remote);
         if let Some((message_id, reply)) = self.live.lock().get(&chat.id)
             && let Some(message) = chat.messages.iter_mut().find(|m| m.id == *message_id)
         {
+            chat.reply_running = remote.then_some(*message_id);
             message.content.clone_from(&reply.content);
             message.thinking.clone_from(&reply.thinking);
             message.thinking_started_at = reply.thinking_started_at;
@@ -573,8 +648,14 @@ pub async fn send_to(
     if request.content.trim().is_empty() {
         return Err(AppError::Invalid(t!("chat.emptyMessage")));
     }
+    // Bouton « Image » : vérifié avant toute écriture ; le modèle de langage
+    // n'est pas exigé.
+    let painting = match request.image {
+        Some(true) => Some(painter_ready(engine, &request).await?),
+        _ => None,
+    };
     let model = request.model.trim().to_owned();
-    if model.is_empty() {
+    if model.is_empty() && painting.is_none() {
         return Err(AppError::Invalid(t!("chat.noModel")));
     }
     let edit = request.edit()?;
@@ -656,12 +737,24 @@ pub async fn send_to(
     let asking = Asking {
         think: request.think,
         images: true,
+        // Pas d'image pour un envoi vocal : la phrase suivante l'arrêterait.
+        paint: voice.is_none(),
+        calls_as_text: false,
         system,
     };
     let web_search = request.web_search == Some(true);
-    let outcome = conversation
-        .run(&server, prompt, asking, web_search, &mut reply, &mut cancel)
-        .await;
+    let outcome = match painting {
+        Some(ready) => {
+            conversation
+                .paint_only(&server, prompt, ready, &mut reply, &mut cancel)
+                .await
+        }
+        None => {
+            conversation
+                .run(&server, prompt, asking, web_search, &mut reply, &mut cancel)
+                .await
+        }
+    };
     let saved = conversation.finish(&mut reply).await;
     engine.end(&chat_id);
     let _ = finish.send(true);
@@ -678,6 +771,31 @@ pub async fn send_to(
         (Outcome::Failed(kind, message), Ok(())) => ChatEvent::Error { kind, message },
     });
     Ok(())
+}
+
+/// Bouton « Image » : peintre prêt, ou refus d'emblée (pièces jointes,
+/// moteur absent, processeur, aucun modèle d'images).
+async fn painter_ready(engine: &ChatEngine, request: &SendRequest) -> AppResult<Ready> {
+    let attached = request
+        .attachment_ids
+        .as_ref()
+        .is_some_and(|ids| !ids.is_empty())
+        || request
+            .kept_attachment_ids
+            .as_ref()
+            .is_some_and(|ids| !ids.is_empty());
+    if attached {
+        return Err(AppError::Invalid(t!("chat.imageWithFiles")));
+    }
+    let Some(painter) = engine.painter() else {
+        return Err(AppError::Invalid(
+            images::PaintRefusal::Unavailable.message(),
+        ));
+    };
+    painter
+        .ready()
+        .await
+        .map_err(|refusal| AppError::Invalid(refusal.message()))
 }
 
 /// Taille du contexte du modèle d'un envoi (propre à ChatonLM) : celle du
@@ -754,6 +872,10 @@ async fn compact_now(
     };
     let think = accepted_think(Some(Think::Enabled(false)), details.as_ref());
     let images = accepts_images(details.as_ref());
+    let mut sendable = sendable;
+    if refuses_tools(details.as_ref()) {
+        sendable.turns = stream::image_calls_as_text(&sendable.turns).into_owned();
+    }
     // Taille du modèle choisi ; s'il n'est pas chargé, celle du dernier
     // envoi (sauf modèle du cloud).
     let remote = details.as_ref().is_some_and(|details| details.remote);
@@ -835,6 +957,13 @@ struct Asking {
     think: Option<Think>,
     /// Images des pièces jointes envoyées.
     images: bool,
+    /// Outil `generate_image` permis (pas pour un envoi du mode vocal :
+    /// chaque phrase prononcée arrêterait l'image en cours sans prévenir).
+    paint: bool,
+    /// Modèle connu sans la capacité `tools` : ses gabarits ignorent les
+    /// appels et les messages `tool` ; les images faites lui sont dites en
+    /// texte (voir [`stream::image_calls_as_text`]).
+    calls_as_text: bool,
     /// Message système placé en tête de chaque requête (pré-prompt, puis
     /// consigne vocale).
     system: Option<String>,
@@ -864,17 +993,38 @@ struct Conversation<'a, E: Fn(ChatEvent)> {
     origin: Origin,
 }
 
-impl<E: Fn(ChatEvent)> Conversation<'_, E> {
-    async fn run(
-        &self,
-        server: &Server,
-        prompt: Prompt<'_>,
-        mut asking: Asking,
-        web_search: bool,
-        reply: &mut ReplyWriter,
-        cancel: &mut watch::Receiver<bool>,
-    ) -> Outcome {
-        let chat_id = reply.chat_id.clone();
+/// Images de l'envoi (outil `generate_image`).
+struct ImageCalls {
+    /// Peintre prêt : l'outil est offert.
+    ready: Option<Ready>,
+    /// Images demandées jusqu'ici (au plus [`images::MAX_IMAGES_PER_SEND`]).
+    count: usize,
+}
+
+/// Outils offerts à un envoi : recherche web et image, dans le même tableau ;
+/// aucun : `None`.
+fn tool_definitions(web: bool, image: bool) -> Option<serde_json::Value> {
+    let mut definitions = Vec::new();
+    if web && let serde_json::Value::Array(web) = tools::definitions() {
+        definitions.extend(web);
+    }
+    if image {
+        definitions.push(images::definition());
+    }
+    (!definitions.is_empty()).then_some(serde_json::Value::Array(definitions))
+}
+
+/// Erreur d'un outil appelé sans avoir été offert (texte de l'officiel).
+fn unknown_tool(name: &str) -> Executed {
+    // i18n-ignore : texte de l'officiel, donné au modèle.
+    Executed::Error(format!("unknown tool: {name}"))
+}
+
+impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
+    /// Écrit le message de l'utilisateur (nouveau, ou modifié) avec ses
+    /// pièces jointes, puis l'annonce. Erreur : fin déjà décidée.
+    async fn write_prompt(&self, chat_id: &str, prompt: Prompt<'_>) -> Result<Message, Outcome> {
+        let chat_id = chat_id.to_owned();
         let Prompt {
             content,
             files,
@@ -905,15 +1055,71 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
         // fichiers quittent la zone de préparation (la page ne connaît plus
         // leurs identifiants, ils y resteraient jusqu'au rechargement).
         files.keep();
-        let user = match written {
+        let user = written.map_err(Outcome::from)?;
+        (self.emit)(ChatEvent::UserMessage {
+            message: user.clone(),
+        });
+        Ok(user)
+    }
+
+    /// Bouton « Image » : message de l'utilisateur écrit, puis, sans
+    /// requête à Ollama, une réponse faite d'un appel `generate_image` avec
+    /// le texte tel quel.
+    async fn paint_only(
+        &self,
+        server: &Server,
+        prompt: Prompt<'_>,
+        ready: Ready,
+        reply: &mut ReplyWriter,
+        cancel: &mut watch::Receiver<bool>,
+    ) -> Outcome {
+        let user = match self.write_prompt(&reply.chat_id, prompt).await {
             Ok(user) => user,
-            Err(error) => return error.into(),
+            Err(outcome) => return outcome,
         };
-        // Comme l'officiel (`hasAttachments`) : pas d'outils pour un message
-        // avec des pièces jointes.
+        let call = StreamToolCall {
+            name: images::TOOL_NAME.to_owned(),
+            arguments: serde_json::json!({ "prompt": user.content }),
+        };
+        let mut images = ImageCalls {
+            ready: Some(ready),
+            count: 0,
+        };
+        let mut allowed = AllowedUrls::default();
+        match self
+            .run_tools(
+                &server.url,
+                &[call],
+                &mut allowed,
+                false,
+                &mut images,
+                reply,
+                cancel,
+            )
+            .await
+        {
+            Ok(()) => Outcome::Done,
+            Err(outcome) => outcome,
+        }
+    }
+
+    async fn run(
+        &self,
+        server: &Server,
+        prompt: Prompt<'_>,
+        mut asking: Asking,
+        web_search: bool,
+        reply: &mut ReplyWriter,
+        cancel: &mut watch::Receiver<bool>,
+    ) -> Outcome {
+        let user = match self.write_prompt(&reply.chat_id, prompt).await {
+            Ok(user) => user,
+            Err(outcome) => return outcome,
+        };
+        // Comme l'officiel (`hasAttachments`) : pas d'outils web pour un
+        // message avec des pièces jointes.
         let has_attachments = !user.attachments.is_empty();
         let user_id = user.id;
-        (self.emit)(ChatEvent::UserMessage { message: user });
 
         let mut sendable = match self.history(&reply.chat_id).await {
             Ok(sendable) => sendable,
@@ -933,12 +1139,30 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
         };
         asking.think = accepted_think(asking.think, details.as_ref());
         asking.images = accepts_images(details.as_ref());
-        let definitions = (web_search && !has_attachments && accepts_tools(details.as_ref()))
-            .then(tools::definitions);
+        asking.calls_as_text = refuses_tools(details.as_ref());
+        let tools_accepted = accepts_tools(details.as_ref());
+        let web = web_search && !has_attachments && tools_accepted;
+        // Outil d'image : offert si le peintre est prêt (relu à chaque envoi,
+        // sans détecter la carte graphique), jamais à un envoi vocal.
+        let mut images = ImageCalls {
+            ready: None,
+            count: 0,
+        };
+        if tools_accepted
+            && asking.paint
+            && let Some(painter) = self.engine.painter()
+        {
+            images.ready = tokio::select! {
+                biased;
+                () = cancelled(cancel) => return Outcome::Cancelled,
+                ready = painter.ready() => ready.ok(),
+            };
+        }
+        let definitions = tool_definitions(web, images.ready.is_some());
         // Recherche demandée, aucun compte relié au serveur : arrêt avant la
         // génération. Compte inconnu (ollama.com injoignable...) : l'envoi
         // part, un 401 d'un outil l'arrêtera.
-        if definitions.is_some() {
+        if web {
             let linked = tokio::select! {
                 biased;
                 () = cancelled(cancel) => return Outcome::Cancelled,
@@ -1083,7 +1307,15 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
             }
             tool_turns += 1;
             if let Err(outcome) = self
-                .run_tools(&server.url, &calls, &mut allowed, reply, cancel)
+                .run_tools(
+                    &server.url,
+                    &calls,
+                    &mut allowed,
+                    web,
+                    &mut images,
+                    reply,
+                    cancel,
+                )
                 .await
             {
                 return outcome;
@@ -1114,10 +1346,15 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
     ) -> Result<(), Outcome> {
         (self.emit)(ChatEvent::Compacting);
         let kept = sendable.turns.len() - 1;
+        let turns = &sendable.turns[..kept];
         let before = Sendable {
             summary: sendable.summary.clone(),
             through: sendable.through,
-            turns: sendable.turns[..kept].to_vec(),
+            turns: if asking.calls_as_text {
+                stream::image_calls_as_text(turns).into_owned()
+            } else {
+                turns.to_vec()
+            },
             ids: sendable.ids[..kept].to_vec(),
         };
         let system = compact::system_tokens(asking.system.as_deref());
@@ -1182,11 +1419,16 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
     ) -> Result<(Vec<StreamToolCall>, Option<Ending>), Outcome> {
         let summary = sendable.summary.as_deref().map(compact::summary_message);
         let system = joined_system([asking.system.clone(), summary]);
+        let turns = if asking.calls_as_text {
+            stream::image_calls_as_text(&sendable.turns)
+        } else {
+            std::borrow::Cow::Borrowed(sendable.turns.as_slice())
+        };
         loop {
             reply.think_off = asking.think == Some(Think::Enabled(false));
             let mut body = stream::request_body(
                 &reply.model,
-                &sendable.turns,
+                &turns,
                 asking.think.as_ref(),
                 server.context_length,
                 server.keep_alive,
@@ -1213,13 +1455,17 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
 
     /// Fin d'un tour avec des appels : réponse créée si besoin, appels
     /// enregistrés puis annoncés, dernière écriture du tour, puis exécution
-    /// dans l'ordre (chaque résultat écrit puis annoncé). Erreur : fin déjà
-    /// décidée (arrêt pendant un outil : l'appel reste sans résultat).
+    /// dans l'ordre (chaque résultat écrit puis annoncé). `web` : outils de
+    /// la recherche web offerts. Erreur : fin déjà décidée (arrêt pendant un
+    /// outil : l'appel reste sans résultat).
+    #[allow(clippy::too_many_arguments)]
     async fn run_tools(
         &self,
         base: &str,
         received: &[StreamToolCall],
         allowed: &mut AllowedUrls,
+        web: bool,
+        images: &mut ImageCalls,
         reply: &mut ReplyWriter,
         cancel: &mut watch::Receiver<bool>,
     ) -> Result<(), Outcome> {
@@ -1249,13 +1495,20 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
         self.finish(reply).await?;
 
         for (index, call) in (0u32..).zip(received) {
-            let (result, error) =
-                match tools::execute(base, &call.name, &call.arguments, allowed, cancel).await {
-                    Executed::Result(result) => (Some(result), None),
-                    Executed::Error(error) => (None, Some(error)),
-                    Executed::Cancelled => return Err(Outcome::Cancelled),
-                    Executed::SignedOut => return Err(signed_out()),
-                };
+            let executed = match call.name.as_str() {
+                images::TOOL_NAME if images.ready.is_some() => {
+                    self.paint(message_id, index, &call.arguments, images, cancel)
+                        .await?
+                }
+                name @ (tools::WEB_SEARCH | tools::WEB_FETCH) if !web => unknown_tool(name),
+                name => tools::execute(base, name, &call.arguments, allowed, cancel).await,
+            };
+            let (result, error) = match executed {
+                Executed::Result(result) => (Some(result), None),
+                Executed::Error(error) => (None, Some(error)),
+                Executed::Cancelled => return Err(Outcome::Cancelled),
+                Executed::SignedOut => return Err(signed_out()),
+            };
             if let Some(live) = reply.reply.tool_calls.get_mut(index as usize) {
                 live.result.clone_from(&result);
                 live.error.clone_from(&error);
@@ -1282,6 +1535,92 @@ impl<E: Fn(ChatEvent)> Conversation<'_, E> {
             });
         }
         Ok(())
+    }
+
+    /// Exécute un appel `generate_image` (outil offert) de la réponse
+    /// `message_id` : avancement annoncé, image enregistrée en pièce jointe
+    /// de la réponse puis annoncée ; résultat (JSON) ou erreur pour le
+    /// modèle. Arrêt : `Executed::Cancelled` (futur du peintre lâché).
+    /// Erreur : fin décidée (écriture impossible).
+    async fn paint(
+        &self,
+        message_id: i64,
+        index: u32,
+        arguments: &serde_json::Value,
+        images: &mut ImageCalls,
+        cancel: &mut watch::Receiver<bool>,
+    ) -> Result<Executed, Outcome> {
+        let (Some(ready), Some(painter)) = (images.ready.clone(), self.engine.painter()) else {
+            return Ok(unknown_tool(images::TOOL_NAME));
+        };
+        let Some(prompt) = images::prompt_argument(arguments) else {
+            return Ok(Executed::Error(t!("chat.imageNoPrompt")));
+        };
+        if images.count >= images::MAX_IMAGES_PER_SEND {
+            return Ok(Executed::Error(t!(
+                "chat.imageTooMany",
+                max = images::MAX_IMAGES_PER_SEND
+            )));
+        }
+        images.count += 1;
+        // Carte graphique détectée maintenant seulement (pas à chaque envoi).
+        let cpu = tokio::select! {
+            biased;
+            () = cancelled(cancel) => return Ok(Executed::Cancelled),
+            cpu = painter.cpu() => cpu,
+        };
+        let (width, height) = images::image_size(arguments, ready.side(cpu));
+        let emit = self.emit;
+        // Place réservée tout de suite, avant la première nouvelle du moteur.
+        emit(ChatEvent::ImageProgress {
+            message_id,
+            index,
+            progress: ImageProgress::at(ImageStage::Starting, cpu, width, height),
+        });
+        let mut progress = |progress: ImageProgress| {
+            emit(ChatEvent::ImageProgress {
+                message_id,
+                index,
+                progress,
+            });
+        };
+        let request = images::PaintRequest {
+            prompt: prompt.to_owned(),
+            width,
+            height,
+        };
+        let painted = tokio::select! {
+            biased;
+            () = cancelled(cancel) => return Ok(Executed::Cancelled),
+            painted = painter.paint(request, &mut progress) => painted,
+        };
+        let mut painted = match painted {
+            Ok(painted) => painted,
+            Err(error) => return Ok(Executed::Error(error)),
+        };
+        // Arrêt demandé pendant que l'image finissait : ni enregistrée, ni
+        // annoncée (un bot d'Easy Link l'enverrait encore).
+        if *cancel.borrow() {
+            return Ok(Executed::Cancelled);
+        }
+        let (png, seed) = (std::mem::take(&mut painted.png), painted.seed);
+        let saved = self
+            .store
+            .call(move |c| chats::add_generated_image(c, message_id, &png, seed, now_ms()))
+            .await;
+        let attachment = match saved {
+            Ok(attachment) => attachment,
+            // Trop grande : erreur donnée au modèle.
+            Err(AppError::Invalid(message)) => return Ok(Executed::Error(message)),
+            Err(error) => return Err(error.into()),
+        };
+        let result = images::result_text(attachment.id, &painted);
+        emit(ChatEvent::ImageReady {
+            message_id,
+            index,
+            attachment,
+        });
+        Ok(Executed::Result(result))
     }
 
     /// Détails du modèle pour l'envoi (`None` : inconnus) ; un modèle absent
@@ -1695,6 +2034,15 @@ fn accepts_tools(details: Option<&ModelDetails>) -> bool {
     details.is_some_and(|details| details.capabilities.iter().any(|c| c == "tools"))
 }
 
+/// Modèle dont les capacités connues (liste non vide) ne comptent pas
+/// « tools » : ses gabarits ignorent les appels d'outils de l'historique
+/// (détails inconnus : envoyés comme d'habitude).
+fn refuses_tools(details: Option<&ModelDetails>) -> bool {
+    details.is_some_and(|details| {
+        !details.capabilities.is_empty() && !details.capabilities.iter().any(|c| c == "tools")
+    })
+}
+
 /// Erreur d'une connexion impossible, la même pour chaque requête.
 fn unreachable(base: &str) -> Outcome {
     Outcome::Failed(
@@ -1892,6 +2240,7 @@ mod tests {
             messages: vec![saved],
             context: None,
             compactions: Vec::new(),
+            reply_running: None,
         };
         let live = Reply {
             content: "new".into(),
@@ -1906,6 +2255,52 @@ mod tests {
         assert_eq!(message.content, "new");
         assert_eq!(message.thinking_ended_at, Some(2));
         assert_eq!(message.tool_calls, vec![done, pending]);
+    }
+
+    /// Réponse en cours d'un bot d'Easy Link : désignée à la page
+    /// (`replyRunning`), qui n'a pas de flux pour elle ; pas celle de la
+    /// page, ni rien une fois l'envoi fini.
+    #[test]
+    fn overlay_points_the_page_to_a_remote_reply_only() {
+        let chat = || Chat {
+            id: "chat".into(),
+            title: String::new(),
+            created_at: 0,
+            updated_at: 0,
+            messages: vec![Message {
+                id: 7,
+                role: chats::Role::Assistant,
+                content: String::new(),
+                thinking: String::new(),
+                model: None,
+                created_at: 0,
+                updated_at: 0,
+                thinking_started_at: None,
+                thinking_ended_at: None,
+                attachments: Vec::new(),
+                tool_calls: Vec::new(),
+            }],
+            context: None,
+            compactions: Vec::new(),
+            reply_running: None,
+        };
+        let live = Reply {
+            content: "Hi".into(),
+            ..Reply::default()
+        };
+        for (origin, expected) in [(Origin::Remote, Some(7)), (Origin::Page, None)] {
+            let engine = ChatEngine::default();
+            let (_cancel, _finish) = engine.begin("chat", "stream", origin).unwrap();
+            engine.update_live("chat", 7, &live);
+            let mut read = chat();
+            engine.overlay(&mut read);
+            assert_eq!(read.messages[0].content, "Hi", "{origin:?}");
+            assert_eq!(read.reply_running, expected, "{origin:?}");
+            engine.end("chat");
+            let mut read = chat();
+            engine.overlay(&mut read);
+            assert_eq!(read.reply_running, None, "{origin:?}");
+        }
     }
 
     /// Événements reçus par le canal, en JSON, avec leur heure de réception
@@ -2057,6 +2452,7 @@ mod tests {
             kept_attachment_ids: None,
             web_search: None,
             voice: None,
+            image: None,
         }
     }
 
@@ -5255,6 +5651,934 @@ mod tests {
         );
     }
 
+    /// Nom du modèle d'images du peintre en mémoire.
+    const FAKE_IMAGE_MODEL: &str = "Fake image model";
+
+    /// Peintre en mémoire : prêt (ou refus imposé) ; avancement (chargement,
+    /// étape 1 avec un aperçu, étape 2), puis une image rouge, graine 7.
+    /// Description avec `[slow]` : ne finit jamais (seul l'arrêt la lâche) ;
+    /// avec `[fail]` : échec après la première étape.
+    struct FakePainter {
+        refusal: Option<images::PaintRefusal>,
+        cpu: bool,
+        /// Images demandées, dans l'ordre.
+        asked: Mutex<Vec<images::PaintRequest>>,
+        /// Images lâchées avant leur fin.
+        dropped: Arc<std::sync::atomic::AtomicUsize>,
+        /// Carte graphique demandée (au moment d'une image seulement).
+        cpu_asked: std::sync::atomic::AtomicUsize,
+        /// Lancé une fois, quand une image vient d'être finie (juste avant
+        /// de la rendre).
+        on_done: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    }
+
+    /// Compte un futur lâché.
+    struct Dropped(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Drop for Dropped {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    impl FakePainter {
+        fn with(refusal: Option<images::PaintRefusal>) -> Arc<Self> {
+            Arc::new(Self {
+                refusal,
+                cpu: false,
+                asked: Mutex::new(Vec::new()),
+                dropped: Arc::default(),
+                cpu_asked: std::sync::atomic::AtomicUsize::new(0),
+                on_done: Mutex::new(None),
+            })
+        }
+
+        fn ready() -> Arc<Self> {
+            Self::with(None)
+        }
+
+        fn refusing(refusal: images::PaintRefusal) -> Arc<Self> {
+            Self::with(Some(refusal))
+        }
+
+        fn ready_value(&self) -> Ready {
+            Ready {
+                model_name: FAKE_IMAGE_MODEL.into(),
+                default_side: 1024,
+            }
+        }
+
+        fn cpu_asked(&self) -> usize {
+            self.cpu_asked.load(std::sync::atomic::Ordering::SeqCst)
+        }
+
+        fn prompts(&self) -> Vec<String> {
+            self.asked
+                .lock()
+                .iter()
+                .map(|request| request.prompt.clone())
+                .collect()
+        }
+
+        fn dropped(&self) -> usize {
+            self.dropped.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl Painter for FakePainter {
+        fn ready(&self) -> images::PaintFuture<'_, Result<Ready, images::PaintRefusal>> {
+            let ready = match &self.refusal {
+                Some(refusal) => Err(refusal.clone()),
+                None => Ok(self.ready_value()),
+            };
+            Box::pin(async move { ready })
+        }
+
+        fn cpu(&self) -> images::PaintFuture<'_, bool> {
+            self.cpu_asked
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let cpu = self.cpu;
+            Box::pin(async move { cpu })
+        }
+
+        fn paint<'a>(
+            &'a self,
+            request: images::PaintRequest,
+            progress: &'a mut (dyn FnMut(ImageProgress) + Send),
+        ) -> images::PaintFuture<'a, Result<images::Painted, String>> {
+            Box::pin(async move {
+                self.asked.lock().push(request.clone());
+                let at = |stage| ImageProgress::at(stage, self.cpu, request.width, request.height);
+                progress(at(ImageStage::Loading));
+                progress(ImageProgress {
+                    step: Some(1),
+                    total: Some(2),
+                    preview: Some(format!(
+                        "data:image/png;base64,{}",
+                        BASE64.encode(red_png())
+                    )),
+                    ..at(ImageStage::Generating)
+                });
+                if request.prompt.contains("[slow]") {
+                    let _dropped = Dropped(self.dropped.clone());
+                    std::future::pending::<()>().await;
+                }
+                if request.prompt.contains("[fail]") {
+                    return Err("the image couldn't be created: fake failure".into());
+                }
+                progress(ImageProgress {
+                    step: Some(2),
+                    total: Some(2),
+                    ..at(ImageStage::Generating)
+                });
+                let on_done = self.on_done.lock().take();
+                if let Some(on_done) = on_done {
+                    on_done();
+                }
+                Ok(images::Painted {
+                    png: red_png(),
+                    width: request.width,
+                    height: request.height,
+                    seed: 7,
+                    model_name: FAKE_IMAGE_MODEL.into(),
+                })
+            })
+        }
+    }
+
+    /// Moteur de chat avec ce peintre (aucun : comme les essais d'avant).
+    fn engine_painting(painter: Option<Arc<FakePainter>>) -> ChatEngine {
+        let engine = ChatEngine::default();
+        if let Some(painter) = painter {
+            engine.set_painter(painter);
+        }
+        engine
+    }
+
+    /// Envoi complet sur `url`, borné par [`WAIT`] : événements et résultat.
+    async fn send_painting(
+        store: &Store,
+        engine: &ChatEngine,
+        staging: &Staging,
+        url: &str,
+        ask: SendRequest,
+    ) -> (Recorder, AppResult<()>) {
+        let (channel, recorder) = recorder();
+        let server = Server {
+            url: url.to_owned(),
+            context_length: 0,
+            keep_alive: 0,
+        };
+        let sending = send(store, engine, staging, server, ask, &channel);
+        let result = tokio::time::timeout(WAIT, sending)
+            .await
+            .unwrap_or_else(|_| panic!("still sending after {WAIT:?}: {:?}", recorder.events()));
+        (recorder, result)
+    }
+
+    fn drawing(model: &str, content: &str) -> SendRequest {
+        SendRequest {
+            content: content.into(),
+            ..request(None, model, None)
+        }
+    }
+
+    /// Envoi du bouton « Image » (aucun modèle de langage choisi).
+    fn image_button(content: &str) -> SendRequest {
+        SendRequest {
+            image: Some(true),
+            ..drawing("", content)
+        }
+    }
+
+    #[tokio::test]
+    async fn the_image_tool_is_offered_only_when_the_painter_is_ready() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        fake.set_signed_in(true);
+        let store = Store::open_in_memory().unwrap();
+        let staging = attachment_tests::staging();
+        let first_tools = |before: usize| fake.chat_requests()[before].get("tools").cloned();
+        let image_only = json!([images::definition()]);
+        let mut both = tools::definitions();
+        both.as_array_mut().unwrap().push(images::definition());
+        let ready = FakePainter::ready();
+        let refusing = FakePainter::refusing(images::PaintRefusal::NoModel);
+        let searching_too = SendRequest {
+            web_search: Some(true),
+            ..drawing("chatonlm-search", "Search this")
+        };
+        for (what, painter, ask, expected) in [
+            (
+                "ready",
+                Some(ready.clone()),
+                drawing("chatonlm-image", "Draw a fox"),
+                Some(image_only.clone()),
+            ),
+            (
+                "with web search",
+                Some(ready.clone()),
+                searching_too.clone(),
+                Some(both),
+            ),
+            (
+                "web search, no painter",
+                None,
+                searching_too,
+                Some(tools::definitions()),
+            ),
+            (
+                "no tools capability",
+                Some(ready.clone()),
+                drawing("chatonlm-plain", "Draw a fox"),
+                None,
+            ),
+            (
+                "unknown details",
+                Some(ready.clone()),
+                drawing("chatonlm-nothink", "Draw a fox"),
+                None,
+            ),
+            (
+                "not ready",
+                Some(refusing),
+                drawing("chatonlm-image", "Draw a fox"),
+                None,
+            ),
+            (
+                "no painter",
+                None,
+                drawing("chatonlm-image", "Draw a fox"),
+                None,
+            ),
+        ] {
+            let engine = engine_painting(painter);
+            let before = fake.chat_requests().len();
+            let (recorder, result) =
+                send_painting(&store, &engine, &staging, &fake.url(), ask).await;
+            result.unwrap();
+            let events = recorder.events();
+            assert_one_final(&events);
+            assert_eq!(events.last().unwrap()["type"], json!("done"), "{what}");
+            assert_eq!(first_tools(before), expected, "{what}");
+        }
+        // Offrir l'outil ne détecte pas la carte graphique (`nvidia-smi`
+        // jusqu'à 3 s à chaque envoi) : seule l'image faite l'a demandée.
+        assert_eq!(ready.cpu_asked(), 1);
+
+        // Avec une pièce jointe : plus d'outils web, l'outil d'image reste.
+        let mut with_file = SendRequest {
+            web_search: Some(true),
+            ..drawing("chatonlm-image", "Draw what this file says.")
+        };
+        with_file.attachment_ids = Some(vec![stage(&staging, "notes.txt", b"A fox").await]);
+        let engine = engine_painting(Some(ready.clone()));
+        let before = fake.chat_requests().len();
+        let (recorder, result) =
+            send_painting(&store, &engine, &staging, &fake.url(), with_file).await;
+        result.unwrap();
+        assert_one_final(&recorder.events());
+        assert_eq!(first_tools(before), Some(image_only));
+        assert_eq!(recorder.count("imageReady"), 1);
+    }
+
+    #[tokio::test]
+    async fn an_image_call_shows_its_progress_then_the_image_then_the_result() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let painter = FakePainter::ready();
+        let engine = engine_painting(Some(painter.clone()));
+        let ask = drawing("chatonlm-image", "Draw a red fox");
+        let (recorder, result) =
+            send_painting(&store, &engine, &Staging::default(), &fake.url(), ask).await;
+        result.unwrap();
+        let events = recorder.events();
+        assert_one_final(&events);
+        assert_eq!(
+            types(&events),
+            [
+                "chatCreated",
+                "userMessage",
+                "loading",
+                "loaded",
+                "replyStarted",
+                "thinking",
+                "toolCalls",
+                "imageProgress",
+                "imageReady",
+                "toolResult",
+                "replyStarted",
+                "content",
+                "done"
+            ]
+        );
+        // Taille demandée par le modèle (512 × 512).
+        assert_eq!(
+            *painter.asked.lock(),
+            [images::PaintRequest {
+                prompt: "Draw a red fox".into(),
+                width: 512,
+                height: 512
+            }]
+        );
+        let chat = saved(&store, &recorder.chat_id());
+        assert_eq!(chat.messages.len(), 3);
+        let (calls, answer) = (&chat.messages[1], &chat.messages[2]);
+        // Pièce jointe de la réponse qui a fait l'appel.
+        assert_eq!(calls.attachments.len(), 1);
+        let attachment = &calls.attachments[0];
+        assert_eq!(
+            (attachment.filename.as_str(), attachment.mime.as_str()),
+            ("image-7.png", "image/png")
+        );
+        let result = format!(
+            r#"{{"attachmentId":{},"width":512,"height":512,"seed":7,"model":"Fake image model"}}"#,
+            attachment.id
+        );
+        let call = &calls.tool_calls[0];
+        assert_eq!(call.name, "generate_image");
+        assert_eq!(
+            (call.result.as_deref(), call.error.as_deref()),
+            (Some(result.as_str()), None)
+        );
+        assert_eq!(answer.content, "Here is your image.");
+
+        // Avancement : place réservée d'abord, puis celui du peintre, tous
+        // pour cet appel ; l'image annoncée avant le résultat.
+        let progress = of_type(&events, "imageProgress");
+        assert_eq!(progress.len(), 4);
+        assert!(
+            progress
+                .iter()
+                .all(|event| event["messageId"] == json!(calls.id) && event["index"] == json!(0))
+        );
+        assert_eq!(
+            progress[0]["progress"],
+            json!({ "stage": "starting", "step": null, "total": null, "preview": null,
+                    "cpu": false, "width": 512, "height": 512 })
+        );
+        assert_eq!(progress[1]["progress"]["stage"], json!("loading"));
+        assert_eq!(progress[2]["progress"]["step"], json!(1));
+        assert!(
+            progress[2]["progress"]["preview"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:image/png;base64,")
+        );
+        assert_eq!(
+            of_type(&events, "imageReady"),
+            [json!({
+                "type": "imageReady",
+                "messageId": calls.id,
+                "index": 0,
+                "attachment": serde_json::to_value(attachment).unwrap(),
+            })]
+        );
+        let position = |kind: &str| events.iter().position(|e| e["type"] == kind).unwrap();
+        assert!(position("imageReady") < position("toolResult"));
+        assert_eq!(of_type(&events, "toolResult")[0]["result"], json!(result));
+
+        // Le tour suivant reçoit le résultat, jamais l'image elle-même.
+        let requests = fake.chat_requests();
+        assert_eq!(requests.len(), 2);
+        let messages = &requests[1]["messages"];
+        assert_eq!(messages[1]["role"], json!("assistant"));
+        assert!(messages[1].get("images").is_none(), "{messages}");
+        assert_eq!(
+            messages[2],
+            json!({ "role": "tool", "content": result, "tool_name": "generate_image" })
+        );
+        // Un envoi suivant non plus.
+        let ask = SendRequest {
+            chat_id: Some(chat.id.clone()),
+            ..drawing("qwen3:0.6b", "Thanks")
+        };
+        let (_, result) =
+            send_painting(&store, &engine, &Staging::default(), &fake.url(), ask).await;
+        result.unwrap();
+        let last = fake.chat_requests().last().cloned().unwrap();
+        assert!(
+            last["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|message| message.get("images").is_none()),
+            "{last}"
+        );
+    }
+
+    #[tokio::test]
+    async fn image_errors_go_to_the_model() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let painter = FakePainter::ready();
+        let engine = engine_painting(Some(painter.clone()));
+        let ask = drawing("chatonlm-image", "Draw a fox [fail]");
+        let (recorder, result) =
+            send_painting(&store, &engine, &Staging::default(), &fake.url(), ask).await;
+        result.unwrap();
+        let events = recorder.events();
+        assert_eq!(events.last().unwrap()["type"], json!("done"));
+        assert_eq!(recorder.count("imageReady"), 0);
+        let failure = "the image couldn't be created: fake failure";
+        let results = of_type(&events, "toolResult");
+        assert_eq!(
+            (&results[0]["result"], &results[0]["error"]),
+            (&Value::Null, &json!(failure))
+        );
+        let chat = saved(&store, &recorder.chat_id());
+        assert!(chat.messages[1].attachments.is_empty());
+        assert_eq!(chat.messages[2].content, "Here is your image.");
+        assert_eq!(
+            fake.chat_requests()[1]["messages"][2],
+            json!({ "role": "tool", "content": format!("Error: {failure}"), "tool_name": "generate_image" })
+        );
+    }
+
+    /// Appels vérifiés un à un (description, limite de 4 par envoi, outils
+    /// non offerts), sans modèle de langage : directement par `run_tools`.
+    #[tokio::test]
+    async fn image_calls_are_checked_and_limited_to_four_per_send() {
+        let store = Store::open_in_memory().unwrap();
+        let painter = FakePainter::ready();
+        let engine = engine_painting(Some(painter.clone()));
+        let chat_id = store.blocking(|c| chats::create(c, now_ms())).unwrap();
+        let id = chat_id.clone();
+        store
+            .blocking(move |c| chats::add_user_message(c, &id, "Draw", &[], now_ms()))
+            .unwrap();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let sink = events.clone();
+        let emit = move |event: ChatEvent| sink.lock().push(event);
+        let conversation = Conversation {
+            store: &store,
+            engine: &engine,
+            emit: &emit,
+            origin: Origin::Page,
+        };
+        let mut reply = ReplyWriter {
+            chat_id: chat_id.clone(),
+            model: "m".into(),
+            message_id: None,
+            previous: None,
+            reply: Reply::default(),
+            last_save: Instant::now(),
+            think_off: false,
+            always_thinks_noted: false,
+            loops: LoopWatch::default(),
+        };
+        let call = |name: &str, arguments: Value| StreamToolCall {
+            name: name.into(),
+            arguments,
+        };
+        let draw = |n: usize| {
+            call(
+                images::TOOL_NAME,
+                json!({ "prompt": format!("picture {n}") }),
+            )
+        };
+        let (_stop, mut cancel) = watch::channel(false);
+        let mut allowed = AllowedUrls::default();
+        let mut images = ImageCalls {
+            ready: Some(painter.ready_value()),
+            count: 0,
+        };
+        let calls = [
+            draw(1),
+            call(images::TOOL_NAME, json!({ "prompt": "  " })),
+            draw(2),
+            draw(3),
+            call(images::TOOL_NAME, json!({ "width": 512 })),
+            draw(4),
+            draw(5),
+            // Recherche web pas offerte : refusée sans requête.
+            call(tools::WEB_SEARCH, json!({ "query": "fox" })),
+            call(tools::WEB_FETCH, json!({ "url": "https://example.com" })),
+        ];
+        let ran = conversation
+            .run_tools(
+                "http://127.0.0.1:9",
+                &calls,
+                &mut allowed,
+                false,
+                &mut images,
+                &mut reply,
+                &mut cancel,
+            )
+            .await;
+        assert!(ran.is_ok());
+        let no_prompt = "The image description (prompt) is missing or empty.";
+        let too_many = "At most 4 images can be created per message.";
+        let errors = |message: usize| -> Vec<Option<String>> {
+            saved(&store, &chat_id).messages[message]
+                .tool_calls
+                .iter()
+                .map(|call| call.error.clone())
+                .collect()
+        };
+        assert_eq!(
+            errors(1),
+            [
+                None,
+                Some(no_prompt.into()),
+                None,
+                None,
+                Some(no_prompt.into()),
+                None,
+                Some(too_many.into()),
+                Some("unknown tool: web_search".into()),
+                Some("unknown tool: web_fetch".into()),
+            ]
+        );
+        assert_eq!(
+            painter.prompts(),
+            ["picture 1", "picture 2", "picture 3", "picture 4"]
+        );
+        assert_eq!(saved(&store, &chat_id).messages[1].attachments.len(), 4);
+
+        // La limite vaut pour tout l'envoi (tour suivant compris).
+        reply.next_turn();
+        let ran = conversation
+            .run_tools(
+                "http://127.0.0.1:9",
+                &[draw(6)],
+                &mut allowed,
+                false,
+                &mut images,
+                &mut reply,
+                &mut cancel,
+            )
+            .await;
+        assert!(ran.is_ok());
+        assert_eq!(errors(2), [Some(too_many.into())]);
+        // Outil d'image non offert : inconnu.
+        reply.next_turn();
+        let mut not_offered = ImageCalls {
+            ready: None,
+            count: 0,
+        };
+        let ran = conversation
+            .run_tools(
+                "http://127.0.0.1:9",
+                &[draw(7)],
+                &mut allowed,
+                false,
+                &mut not_offered,
+                &mut reply,
+                &mut cancel,
+            )
+            .await;
+        assert!(ran.is_ok());
+        assert_eq!(errors(3), [Some("unknown tool: generate_image".into())]);
+        assert_eq!(painter.prompts().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn stopping_during_an_image_drops_it() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let painter = FakePainter::ready();
+        let engine = Arc::new(engine_painting(Some(painter.clone())));
+        let (channel, recorder) = recorder();
+        let ask = drawing("chatonlm-image", "Draw slowly [slow]");
+        let task = {
+            let (store, engine, server) = (store.clone(), engine.clone(), server(&fake));
+            tokio::spawn(async move {
+                send(&store, &engine, &Staging::default(), server, ask, &channel).await
+            })
+        };
+        recorder.wait_for("imageProgress", 3).await;
+        assert_eq!(painter.dropped(), 0);
+        engine.cancel("stream-chatonlm-image");
+        finished(task).await;
+        let events = recorder.events();
+        assert_one_final(&events);
+        assert_eq!(events.last().unwrap()["type"], json!("cancelled"));
+        assert_eq!(recorder.count("toolResult"), 0);
+        assert_eq!(recorder.count("imageReady"), 0);
+        assert_eq!(painter.dropped(), 1);
+        let chat = saved(&store, &recorder.chat_id());
+        let call = &chat.messages[1].tool_calls[0];
+        assert_eq!(
+            (call.result.as_deref(), call.error.as_deref()),
+            (None, None)
+        );
+        assert!(chat.messages[1].attachments.is_empty());
+        assert_eq!(fake.chat_requests().len(), 1);
+    }
+
+    /// Arrêt demandé pendant que l'image finissait : ni enregistrée, ni
+    /// annoncée (un bot d'Easy Link l'enverrait encore), appel sans résultat.
+    #[tokio::test]
+    async fn a_stop_while_the_image_finishes_keeps_it_out() {
+        let store = Store::open_in_memory().unwrap();
+        let painter = FakePainter::ready();
+        let (stop, mut cancel) = watch::channel(false);
+        let stop = Arc::new(stop);
+        let stopper = stop.clone();
+        *painter.on_done.lock() = Some(Box::new(move || {
+            let _ = stopper.send(true);
+        }));
+        let engine = engine_painting(Some(painter.clone()));
+        let chat_id = store.blocking(|c| chats::create(c, now_ms())).unwrap();
+        let id = chat_id.clone();
+        store
+            .blocking(move |c| chats::add_user_message(c, &id, "Draw", &[], now_ms()))
+            .unwrap();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let sink = events.clone();
+        let emit = move |event: ChatEvent| sink.lock().push(serde_json::to_value(&event).unwrap());
+        let conversation = Conversation {
+            store: &store,
+            engine: &engine,
+            emit: &emit,
+            origin: Origin::Remote,
+        };
+        let mut reply = ReplyWriter {
+            chat_id: chat_id.clone(),
+            model: "m".into(),
+            message_id: None,
+            previous: None,
+            reply: Reply::default(),
+            last_save: Instant::now(),
+            think_off: false,
+            always_thinks_noted: false,
+            loops: LoopWatch::default(),
+        };
+        let draw = StreamToolCall {
+            name: images::TOOL_NAME.into(),
+            arguments: json!({ "prompt": "a fox" }),
+        };
+        let mut images = ImageCalls {
+            ready: Some(painter.ready_value()),
+            count: 0,
+        };
+        let ran = conversation
+            .run_tools(
+                "http://127.0.0.1:9",
+                &[draw],
+                &mut AllowedUrls::default(),
+                false,
+                &mut images,
+                &mut reply,
+                &mut cancel,
+            )
+            .await;
+        assert!(matches!(ran, Err(Outcome::Cancelled)));
+        // Image finie (pas lâchée), mais gardée hors de la conversation.
+        assert_eq!(painter.prompts(), ["a fox"]);
+        assert_eq!(painter.dropped(), 0);
+        let events = events.lock().clone();
+        assert_eq!(of_type(&events, "imageReady"), Vec::<Value>::new());
+        assert_eq!(of_type(&events, "toolResult"), Vec::<Value>::new());
+        let chat = saved(&store, &chat_id);
+        assert!(chat.messages[1].attachments.is_empty());
+        let call = &chat.messages[1].tool_calls[0];
+        assert_eq!(
+            (call.result.as_deref(), call.error.as_deref()),
+            (None, None)
+        );
+    }
+
+    /// Pas d'outil d'image pour un envoi du mode vocal : chaque phrase
+    /// prononcée arrêterait l'image en cours sans prévenir.
+    #[tokio::test]
+    async fn a_voice_send_is_not_offered_the_image_tool() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let painter = FakePainter::ready();
+        let engine = engine_painting(Some(painter.clone()));
+        let spoken = SendRequest {
+            voice: Some(VoiceSend::default()),
+            ..drawing("chatonlm-image", "Draw a fox")
+        };
+        let (recorder, result) =
+            send_painting(&store, &engine, &Staging::default(), &fake.url(), spoken).await;
+        result.unwrap();
+        assert_eq!(recorder.events().last().unwrap()["type"], json!("done"));
+        assert_eq!(fake.chat_requests()[0].get("tools"), None);
+        assert_eq!(recorder.count("imageReady"), 0);
+        assert!(painter.prompts().is_empty());
+        assert_eq!(painter.cpu_asked(), 0);
+    }
+
+    /// Un modèle connu sans la capacité `tools` (ses gabarits ignorent les
+    /// appels et les messages `tool`) apprend en texte qu'une image a été
+    /// faite, ou non ; un modèle « tools » reçoit toujours les appels.
+    #[tokio::test]
+    async fn a_model_without_tools_is_told_about_images_in_text() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let engine = engine_painting(Some(FakePainter::ready()));
+        let staging = Staging::default();
+        let url = fake.url();
+        let (first, result) =
+            send_painting(&store, &engine, &staging, &url, image_button("A red fox")).await;
+        result.unwrap();
+        let chat_id = first.chat_id();
+        let in_chat = |ask: SendRequest| SendRequest {
+            chat_id: Some(chat_id.clone()),
+            ..ask
+        };
+        let failing = in_chat(image_button("A blue fox [fail]"));
+        send_painting(&store, &engine, &staging, &url, failing)
+            .await
+            .1
+            .unwrap();
+        let plain = in_chat(drawing("chatonlm-plain", "Thanks"));
+        send_painting(&store, &engine, &staging, &url, plain)
+            .await
+            .1
+            .unwrap();
+        let sent = fake.chat_requests().last().cloned().unwrap();
+        assert_eq!(
+            sent["messages"],
+            json!([
+                {"role": "user", "content": "A red fox"},
+                {"role": "assistant", "content": "[Image created: A red fox]"},
+                {"role": "user", "content": "A blue fox [fail]"},
+                {"role": "assistant", "content": "[Image not created: the image couldn't be created: fake failure]"},
+                {"role": "user", "content": "Thanks"},
+            ])
+        );
+        // Modèle « tools » : les appels et les messages `tool`, sans texte
+        // ajouté.
+        let tools = in_chat(drawing("qwen3:0.6b", "Again"));
+        send_painting(&store, &engine, &staging, &url, tools)
+            .await
+            .1
+            .unwrap();
+        let sent = fake.chat_requests().last().cloned().unwrap();
+        let messages = sent["messages"].as_array().unwrap();
+        assert_eq!(messages[1]["content"], json!(""));
+        assert_eq!(
+            messages[1]["tool_calls"][0]["function"]["name"],
+            json!("generate_image")
+        );
+        assert_eq!(messages[2]["role"], json!("tool"));
+    }
+
+    /// Un bot d'Easy Link reçoit aussi l'outil d'image.
+    #[tokio::test]
+    async fn a_remote_send_is_offered_the_image_tool() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let engine = engine_painting(Some(FakePainter::ready()));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink_seen = seen.clone();
+        let sink = move |event: ChatEvent| {
+            sink_seen
+                .lock()
+                .push(serde_json::to_value(&event).unwrap()["type"].clone());
+        };
+        send_to(
+            &store,
+            &engine,
+            &Staging::default(),
+            server(&fake),
+            drawing("chatonlm-image", "Draw a fox"),
+            Origin::Remote,
+            &sink,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            fake.chat_requests()[0]["tools"],
+            json!([images::definition()])
+        );
+        let seen = seen.lock().clone();
+        assert!(seen.contains(&json!("imageReady")), "{seen:?}");
+        assert_eq!(seen.last(), Some(&json!("done")));
+    }
+
+    #[tokio::test]
+    async fn the_image_button_paints_without_asking_ollama() {
+        // Rien n'écoute : la moindre requête à Ollama finirait en erreur.
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let url = fake.url();
+        fake.stop().await;
+        let store = Store::open_in_memory().unwrap();
+        let painter = FakePainter::ready();
+        let engine = engine_painting(Some(painter.clone()));
+        let text = "A lighthouse at dusk, oil painting";
+        // Raisonnement et recherche demandés : sans effet ici.
+        let ask = SendRequest {
+            think: Some(Think::Enabled(true)),
+            web_search: Some(true),
+            ..image_button(text)
+        };
+        let (recorder, result) =
+            send_painting(&store, &engine, &Staging::default(), &url, ask).await;
+        result.unwrap();
+        let events = recorder.events();
+        assert_one_final(&events);
+        assert_eq!(
+            types(&events),
+            [
+                "chatCreated",
+                "userMessage",
+                "replyStarted",
+                "toolCalls",
+                "imageProgress",
+                "imageReady",
+                "toolResult",
+                "done"
+            ]
+        );
+        assert_eq!(
+            *painter.asked.lock(),
+            [images::PaintRequest {
+                prompt: text.into(),
+                width: 1024,
+                height: 1024
+            }]
+        );
+        let chat = saved(&store, &recorder.chat_id());
+        assert_eq!(chat.messages.len(), 2);
+        assert_eq!(chat.messages[0].content, text);
+        let reply = &chat.messages[1];
+        assert_eq!(reply.content, "");
+        // Modèle de l'envoi gardé tel quel (aucun ici).
+        assert_eq!(reply.model.as_deref(), Some(""));
+        assert_eq!(reply.attachments.len(), 1);
+        let call = &reply.tool_calls[0];
+        assert_eq!(
+            (call.name.as_str(), call.arguments.as_str()),
+            (
+                "generate_image",
+                json!({ "prompt": text }).to_string().as_str()
+            )
+        );
+        assert!(call.result.is_some());
+        assert_eq!(events.last().unwrap()["messageId"], json!(reply.id));
+
+        // Échec de l'image : l'envoi finit quand même par `done`, l'erreur
+        // reste sur l'appel.
+        let ask = SendRequest {
+            chat_id: Some(chat.id.clone()),
+            ..image_button("A fox [fail]")
+        };
+        let (recorder, result) =
+            send_painting(&store, &engine, &Staging::default(), &url, ask).await;
+        result.unwrap();
+        let events = recorder.events();
+        assert_one_final(&events);
+        assert_eq!(events.last().unwrap()["type"], json!("done"));
+        let failed = saved(&store, &chat.id).messages[3].tool_calls[0].clone();
+        assert_eq!(
+            failed.error.as_deref(),
+            Some("the image couldn't be created: fake failure")
+        );
+    }
+
+    #[tokio::test]
+    async fn the_image_button_is_refused_before_anything_is_written() {
+        let store = Store::open_in_memory().unwrap();
+        let staging = attachment_tests::staging();
+        let file = stage(&staging, "notes.txt", b"A fox").await;
+        let with_file = SendRequest {
+            attachment_ids: Some(vec![file.clone()]),
+            ..image_button("Draw this")
+        };
+        let edit_keeping = SendRequest {
+            chat_id: Some("chat".into()),
+            edit_message_id: Some(1),
+            kept_attachment_ids: Some(vec![1]),
+            ..image_button("Draw this")
+        };
+        let with_files =
+            "An image can't be created from attached files: remove them, or turn off Image.";
+        let cpu = images::PaintRefusal::CpuUnsupported("AVX2".into());
+        for (what, painter, ask, expected) in [
+            (
+                "no image model",
+                Some(FakePainter::refusing(images::PaintRefusal::NoModel)),
+                image_button("Draw a fox"),
+                images::PaintRefusal::NoModel.message(),
+            ),
+            (
+                "no engine",
+                Some(FakePainter::refusing(images::PaintRefusal::Unavailable)),
+                image_button("Draw a fox"),
+                images::PaintRefusal::Unavailable.message(),
+            ),
+            (
+                "processor",
+                Some(FakePainter::refusing(cpu.clone())),
+                image_button("Draw a fox"),
+                cpu.message(),
+            ),
+            (
+                "no painter",
+                None,
+                image_button("Draw a fox"),
+                images::PaintRefusal::Unavailable.message(),
+            ),
+            (
+                "attachment",
+                Some(FakePainter::ready()),
+                with_file,
+                with_files.into(),
+            ),
+            (
+                "kept attachment",
+                Some(FakePainter::ready()),
+                edit_keeping,
+                with_files.into(),
+            ),
+        ] {
+            let engine = engine_painting(painter);
+            let (recorder, result) =
+                send_painting(&store, &engine, &staging, "http://127.0.0.1:9", ask).await;
+            assert!(
+                matches!(&result, Err(AppError::Invalid(message)) if *message == expected),
+                "{what}: {result:?}"
+            );
+            assert!(recorder.events().is_empty(), "{what}");
+        }
+        assert!(store.blocking(|c| chats::list(c)).unwrap().is_empty());
+        assert!(staging.get(&file).is_some());
+    }
+
     /// Horodatage unique des séquences exportées.
     const FIXED_TIME: i64 = 1_700_000_000_000;
 
@@ -5280,6 +6604,8 @@ mod tests {
         kept_attachment_ids: Option<Vec<i64>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         web_search: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        image: Option<bool>,
     }
 
     #[derive(Serialize)]
@@ -5360,6 +6686,7 @@ mod tests {
                 edit_message_id: request.edit_message_id,
                 kept_attachment_ids: request.kept_attachment_ids.clone(),
                 web_search: request.web_search,
+                image: request.image,
             },
             events,
             error,
@@ -5390,10 +6717,11 @@ mod tests {
         request: &SendRequest,
         cancel_after: Option<(&str, usize)>,
     ) -> (Vec<Value>, AppResult<()>) {
-        play_with(store, staging, url, request, cancel_after, 0).await
+        play_with(store, staging, url, request, cancel_after, 0, None).await
     }
 
-    /// [`play`], avec le réglage du contexte (0 : défaut du serveur).
+    /// [`play`], avec le réglage du contexte (0 : défaut du serveur) et un
+    /// peintre des images.
     async fn play_with(
         store: &Store,
         staging: &Staging,
@@ -5401,8 +6729,9 @@ mod tests {
         request: &SendRequest,
         cancel_after: Option<(&str, usize)>,
         context_length: u32,
+        painter: Option<Arc<FakePainter>>,
     ) -> (Vec<Value>, AppResult<()>) {
-        let engine = ChatEngine::default();
+        let engine = engine_painting(painter);
         let (channel, recorder) = recorder();
         let server = Server {
             url: url.to_owned(),
@@ -5474,6 +6803,7 @@ mod tests {
             kept_attachment_ids: None,
             web_search: None,
             voice: None,
+            image: None,
         };
         let hello = "Say hello in one word.";
         // Fichiers préparés avant l'envoi, désignés par leur nom dans
@@ -5496,6 +6826,11 @@ mod tests {
             ..ask(content, "chatonlm-search", None)
         };
         let latest = "What is the latest Ollama release?";
+        let fox = "A red fox in the snow, watercolor";
+        let button = |content: &str| SendRequest {
+            image: Some(true),
+            ..ask(content, "qwen3:0.6b", None)
+        };
         let searched = &[
             "chatCreated",
             "userMessage",
@@ -5802,6 +7137,53 @@ mod tests {
                 ][..],
             ),
             (
+                "image-tool",
+                "A model with tools and an image model chosen in the ModelHub (chatonlm-image): thinking and a generate_image call (512 x 512), the image's progress (place kept, loading, two steps, the first with a preview), the image saved as an attachment of that answer (imageReady), the call's result, then a second answer.",
+                Target::Ollama,
+                ask(fox, "chatonlm-image", None),
+                None,
+                &[
+                    "chatCreated",
+                    "userMessage",
+                    "loading",
+                    "loaded",
+                    "replyStarted",
+                    "thinking",
+                    "toolCalls",
+                    "imageProgress",
+                    "imageReady",
+                    "toolResult",
+                    "replyStarted",
+                    "content",
+                    "done",
+                ][..],
+            ),
+            (
+                "image-button",
+                "Image button: the text goes as it is to the image model (1024 x 1024 with a graphics card), with no request to Ollama: an answer made of one generate_image call, the image's progress, the image, the call's result, then done.",
+                Target::Ollama,
+                button(fox),
+                None,
+                &[
+                    "chatCreated",
+                    "userMessage",
+                    "replyStarted",
+                    "toolCalls",
+                    "imageProgress",
+                    "imageReady",
+                    "toolResult",
+                    "done",
+                ][..],
+            ),
+            (
+                "image-button-no-model",
+                "Image button while no image model is chosen: the command fails, no event, nothing saved.",
+                Target::Ollama,
+                button(fox),
+                None,
+                &[][..],
+            ),
+            (
                 "loading",
                 "New chat with a model that isn't in memory and takes 1.5 s to load: loading, loaded, then thinking and the answer.",
                 Target::Ollama,
@@ -5858,7 +7240,7 @@ mod tests {
                         first.content = "Tell me everything. ".repeat(560);
                     }
                     let (events, result) =
-                        play_with(&store, &staging, &url, &first, None, context_length).await;
+                        play_with(&store, &staging, &url, &first, None, context_length, None).await;
                     result.unwrap();
                     let chat_id = events[0]["chatId"].as_str().unwrap().to_owned();
                     replace.push((chat_id.clone(), "chat-1"));
@@ -5892,6 +7274,14 @@ mod tests {
                     replace.push((chat_id.clone(), "chat-1"));
                     request.chat_id = Some(chat_id);
                 }
+                // Peintre des séquences d'images : prêt, sauf pour le refus.
+                let painter = match name {
+                    "image-button-no-model" => {
+                        Some(FakePainter::refusing(images::PaintRefusal::NoModel))
+                    }
+                    _ if name.starts_with("image-") => Some(FakePainter::ready()),
+                    _ => None,
+                };
                 let (events, result) = play_with(
                     &store,
                     &staging,
@@ -5899,6 +7289,7 @@ mod tests {
                     &request,
                     cancel_after,
                     context_length,
+                    painter,
                 )
                 .await;
                 assert_eq!(types(&events), expected, "{name}");

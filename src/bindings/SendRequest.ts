@@ -42,4 +42,9 @@ webSearch?: boolean,
  * système à chaque requête, réponse lue à voix haute ; absent = envoi
  * ordinaire.
  */
-voice?: VoiceSend, };
+voice?: VoiceSend, 
+/**
+ * Bouton « Image » (propre à ChatonLM) : le texte part tel quel au
+ * modèle d'images, sans modèle de langage ; absent = non.
+ */
+image?: boolean, };

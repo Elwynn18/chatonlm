@@ -508,10 +508,15 @@ const CHAT_SCENARIOS: &[&str] = &[
     "chatonlm-study-invalid",
 ];
 
-/// Scénarios de `/api/chat` qui appellent les outils de la recherche web (voir
-/// [`chat`]) : leur `/api/show` répond 200 avec les capacités `completion` et
-/// `tools`.
-const TOOL_SCENARIOS: &[&str] = &["chatonlm-search", "chatonlm-fetch", "chatonlm-loop"];
+/// Scénarios de `/api/chat` qui appellent des outils (recherche web, et
+/// `generate_image` pour `chatonlm-image`, voir [`chat`]) : leur `/api/show`
+/// répond 200 avec les capacités `completion` et `tools`.
+const TOOL_SCENARIOS: &[&str] = &[
+    "chatonlm-search",
+    "chatonlm-fetch",
+    "chatonlm-loop",
+    "chatonlm-image",
+];
 
 /// Scénarios de `/api/chat` du mode conversation vocale (voir
 /// [`voice_reply`]) : leur `/api/show` répond 200 avec les capacités
@@ -806,6 +811,8 @@ fn voice_reply(journal: Arc<Journal>, model: &str, request: &serde_json::Value) 
 /// - `chatonlm-search`, `chatonlm-fetch`, `chatonlm-loop` : recherche web (voir
 ///   [`tool_reply`]) ; leur `/api/show` donne les capacités `completion` et
 ///   `tools` ;
+/// - `chatonlm-image` : génération d'images de ChatonLM, outil
+///   `generate_image` (voir [`tool_reply`]) ; mêmes capacités ;
 /// - `chatonlm-polish`, `chatonlm-polish-poem`, `chatonlm-polish-remote` :
 ///   nettoyage de la dictée (voir [`polish_reply`]) ; le `/api/show` du
 ///   dernier décrit un modèle d'ollama.com (`remote_host`, `remote_model`),
@@ -2004,6 +2011,11 @@ fn proofread_reply(journal: Arc<Journal>, model: &str, request: &serde_json::Val
 ///   de lien, ou plus d'outils) « Found: » suivi du contenu du dernier message
 ///   `tool` ; sans `tools` ni message `tool`, « Answered without web
 ///   fetch. » ;
+/// - `chatonlm-image` : si `tools` contient une fonction `generate_image` et
+///   que le dernier message est de l'utilisateur, un court raisonnement puis
+///   un appel `generate_image` `{"prompt": <son texte>, "width": 512,
+///   "height": 512}` ; dernier message `tool` → « Here is your image. » ;
+///   sans cet outil, « Image generation is not available. » ;
 /// - `chatonlm-loop` : avec `tools`, appelle toujours `web_search`
 ///   `{"query": "loop N"}` ; sans `tools`, « Done », sauf si le dernier
 ///   message de l'utilisateur contient `stubborn` : l'appel part quand même
@@ -2033,7 +2045,20 @@ fn tool_reply(model: &str, request: &serde_json::Value) -> Vec<String> {
     let call = |thinking: &str, name: &str, arguments: serde_json::Value| {
         tool_call_lines(model, thinking, name, arguments, tool_messages + 1)
     };
+    // Fonction `generate_image` offerte.
+    let paints = request["tools"].as_array().is_some_and(|tools| {
+        tools
+            .iter()
+            .any(|tool| tool["function"]["name"] == "generate_image")
+    });
     match model {
+        "chatonlm-image" if role(&last) == "tool" => reply_lines(model, "Here is your image.", 16),
+        "chatonlm-image" if paints && role(&last) == "user" => call(
+            "The user wants a picture.",
+            "generate_image",
+            json!({ "prompt": content(&last), "width": 512, "height": 512 }),
+        ),
+        "chatonlm-image" => reply_lines(model, "Image generation is not available.", 16),
         "chatonlm-search" if role(&last) == "tool" => found(),
         "chatonlm-search" if tools => call(
             "The user wants a web search.",
@@ -4617,6 +4642,23 @@ mod tests {
         lines
     }
 
+    /// Flux de `model` pour ces messages, avec ce tableau `tools` (`null` :
+    /// absent).
+    async fn tool_lines_with(
+        model: &str,
+        messages: serde_json::Value,
+        tools: serde_json::Value,
+    ) -> Vec<serde_json::Value> {
+        let mut request = serde_json::json!({ "model": model, "messages": messages });
+        if !tools.is_null() {
+            request["tools"] = tools;
+        }
+        let (status, lines) = chat_lines(request).await;
+        assert_eq!(status, StatusCode::OK, "{model}");
+        assert_eq!(lines.last().unwrap()["done"], true, "{model}");
+        lines
+    }
+
     /// Appels d'outils d'un flux : (nom, arguments).
     fn calls(lines: &[serde_json::Value]) -> Vec<(String, serde_json::Value)> {
         lines
@@ -4645,6 +4687,48 @@ mod tests {
         let user = |text: &str| serde_json::json!({ "role": "user", "content": text });
         let tool = |text: &str| serde_json::json!({ "role": "tool", "content": text, "tool_name": "web_search" });
         let call = |name: &str, arguments: serde_json::Value| (name.to_owned(), arguments);
+
+        // chatonlm-image : appel de generate_image seulement s'il est offert.
+        let image_tool = serde_json::json!([{
+            "type": "function",
+            "function": { "name": "generate_image" },
+        }]);
+        let painting = tool_lines_with(
+            "chatonlm-image",
+            serde_json::json!([user("A red fox")]),
+            image_tool.clone(),
+        )
+        .await;
+        assert_eq!(
+            calls(&painting),
+            [call(
+                "generate_image",
+                serde_json::json!({ "prompt": "A red fox", "width": 512, "height": 512 })
+            )]
+        );
+        assert_eq!(joined(&painting).0, "The user wants a picture.");
+        let painted = tool_lines_with(
+            "chatonlm-image",
+            serde_json::json!([user("A red fox"), tool(r#"{"attachmentId":1}"#)]),
+            image_tool,
+        )
+        .await;
+        assert!(calls(&painted).is_empty());
+        assert_eq!(joined(&painted).1, "Here is your image.");
+        // Outils web seulement, ou aucun : pas d'image.
+        for tools in [
+            serde_json::json!([{ "type": "function", "function": { "name": "web_search" } }]),
+            serde_json::Value::Null,
+        ] {
+            let refused = tool_lines_with(
+                "chatonlm-image",
+                serde_json::json!([user("A red fox")]),
+                tools,
+            )
+            .await;
+            assert!(calls(&refused).is_empty());
+            assert_eq!(joined(&refused).1, "Image generation is not available.");
+        }
 
         // chatonlm-search : appel, puis réponse qui cite le résultat.
         let asked = tool_lines(

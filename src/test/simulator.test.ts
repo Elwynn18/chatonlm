@@ -517,6 +517,9 @@ describe("recorded sequences", () => {
       "edit",
       "existing-chat",
       "http-error",
+      "image-button",
+      "image-button-no-model",
+      "image-tool",
       "loading",
       "loop-stopped",
       "model-error",
@@ -591,6 +594,18 @@ describe("recorded sequences", () => {
           count: event.toolCalls.length,
           results: [],
         };
+      } else if (event.type === "imageProgress") {
+        // Avancement d'une image : appel de ce tour encore sans résultat.
+        expect(calls).not.toBeNull();
+        expect(event.messageId).toBe(calls!.messageId);
+        expect(event.index).toBe(calls!.results.length);
+      } else if (event.type === "imageReady") {
+        // Image enregistrée juste avant le résultat de son appel.
+        expect(calls).not.toBeNull();
+        expect(event.messageId).toBe(calls!.messageId);
+        expect(event.index).toBe(calls!.results.length);
+        const next = events[events.indexOf(event) + 1];
+        expect(next.type === "toolResult" && next.index).toBe(event.index);
       } else if (event.type === "toolResult") {
         expect(calls).not.toBeNull();
         expect(event.messageId).toBe(calls!.messageId);
@@ -602,8 +617,20 @@ describe("recorded sequences", () => {
         expect(calls).toBeNull();
       }
     }
+    // Appels d'outils : recherche web demandée, ou outil d'images (propre
+    // à ChatonLM, offert sans demande) ; le bouton Image n'en fait qu'un,
+    // sans requête à Ollama (ni chargement ni raisonnement).
+    const toolNames = events.flatMap((e) =>
+      e.type === "toolCalls" ? e.toolCalls.map((call) => call.name) : [],
+    );
     if (request.webSearch !== true) {
-      expect(types).not.toContain("toolCalls");
+      expect(toolNames.filter((n) => n !== "generate_image")).toEqual([]);
+    }
+    if (request.image === true) {
+      expect(toolNames).toEqual(["generate_image"]);
+      expect(types).not.toContain("loading");
+      expect(types).not.toContain("thinking");
+      expect(types).not.toContain("content");
     }
     // Chargement du modèle : au plus un par envoi, après le message
     // enregistré et le téléchargement, avant la réponse ; loaded le suit

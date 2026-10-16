@@ -10,9 +10,10 @@ use fake_ollama::{FakeOllama, Mode};
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 
+use super::relay::Relay;
 use super::*;
 use crate::chat::{self, ChatEvent, Origin, SendRequest, Server};
-use crate::store::chats;
+use crate::store::chats::{self, AttachmentInfo};
 use crate::store::settings::{self, SettingsPatch};
 
 /// Action d'un essai au prochain accès au moteur de chat.
@@ -1229,6 +1230,7 @@ async fn a_conversation_busy_in_the_app_refuses_the_message_and_keeps_its_photo(
                 kept_attachment_ids: None,
                 web_search: None,
                 voice: None,
+                image: None,
             };
             chat::send_to(
                 &store,
@@ -1464,4 +1466,485 @@ async fn a_message_delivered_again_after_relinking_is_served_once() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(!bench.busy());
     assert_eq!(bench.ollama.chat_requests().len(), 1);
+}
+
+// --- Images produites (outil `generate_image`) ---
+
+/// PNG valide de 2 × 2 points.
+const PNG: [u8; 73] = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02, 0x00, 0x00, 0x00, 0xfd, 0xd4, 0x9a,
+    0x73, 0x00, 0x00, 0x00, 0x10, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0xb8, 0x99, 0xa3, 0x0d,
+    0x44, 0x0c, 0x10, 0x0a, 0x00, 0x2b, 0x06, 0x05, 0xc1, 0x90, 0xd0, 0x9b, 0x7a, 0x00, 0x00, 0x00,
+    0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+/// Salon privé d'`ANA` chez le faux Discord.
+const ANA_DISCORD: &str = "91001";
+
+/// Ce que la messagerie montre, photos comprises : texte de chaque message
+/// (dernière version), ou `[photo <nom> <taille>]`, dans l'ordre d'envoi.
+fn shown_with_photos(sent: &[Value]) -> Vec<String> {
+    let mut messages: Vec<(String, String)> = Vec::new();
+    for action in sent {
+        let Some(id) = action["id"].as_str() else {
+            continue;
+        };
+        match action["kind"].as_str() {
+            Some("send") => {
+                messages.push((id.to_owned(), action["text"].as_str().unwrap().to_owned()))
+            }
+            Some("edit") => {
+                if let Some(message) = messages.iter_mut().find(|(known, _)| known == id) {
+                    message.1 = action["text"].as_str().unwrap().to_owned();
+                }
+            }
+            Some("photo") => messages.push((
+                id.to_owned(),
+                format!(
+                    "[photo {} {}]",
+                    action["filename"].as_str().unwrap(),
+                    action["size"]
+                ),
+            )),
+            _ => {}
+        }
+    }
+    messages.into_iter().map(|(_, text)| text).collect()
+}
+
+impl Bench {
+    /// Messagerie de `platform` reliée aux faux serveurs, et salon d'`ANA`.
+    fn messenger(&self, platform: Platform) -> (Messenger, &'static str) {
+        let (token, channel) = match platform {
+            Platform::Telegram => (fake_telegram::TOKEN, ANA),
+            Platform::Discord => (fake_discord::TOKEN, ANA_DISCORD),
+        };
+        (
+            self.service.shared().messenger(platform, token).unwrap(),
+            channel,
+        )
+    }
+
+    fn sent(&self, platform: Platform) -> Vec<Value> {
+        match platform {
+            Platform::Telegram => self.telegram.sent(),
+            Platform::Discord => self.discord.sent(),
+        }
+    }
+
+    /// Image produite enregistrée sur une réponse (graine 7).
+    fn generated(&self) -> AttachmentInfo {
+        self.store
+            .blocking(|c| {
+                let chat = chats::create(c, 1)?;
+                let reply = chats::create_reply(c, &chat, "chatonlm-image", 1)?;
+                chats::add_generated_image(c, reply, &PNG, 7, 2)
+            })
+            .unwrap()
+    }
+}
+
+/// Le texte d'avant l'image est écrit, la photo part, puis la suite dans un
+/// nouveau message.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_image_goes_between_the_text_before_and_the_text_after() {
+    for platform in [Platform::Telegram, Platform::Discord] {
+        let bench = bench("qwen3:0.6b").await;
+        let (messenger, channel) = bench.messenger(platform);
+        let image = bench.generated();
+        let mut relay = Relay::new(&messenger, channel);
+        relay.push("Here is a cat:");
+        relay.tick().await;
+        relay.push(" a red one.");
+        let png = bot::generated_png(&bench.store, image.id).await;
+        assert_eq!(png.as_deref(), Some(&PNG[..]));
+        relay.photo(png, &image.filename).await;
+        relay.new_turn();
+        relay.push("Do you like it?");
+        relay.finish().await.unwrap();
+        assert_eq!(
+            shown_with_photos(&bench.sent(platform)),
+            [
+                "Here is a cat: a red one.".to_owned(),
+                format!("[photo image-7.png {}]", PNG.len()),
+                "Do you like it?".to_owned(),
+            ],
+            "{platform:?}"
+        );
+        let photo = bench
+            .sent(platform)
+            .into_iter()
+            .find(|action| action["kind"] == "photo")
+            .unwrap();
+        assert_eq!(photo["contentType"], "image/png");
+        assert_eq!(photo["channel"], channel);
+        assert!(photo.get("caption").is_none());
+    }
+}
+
+/// Une image seule, sans texte autour : rien qu'une photo, et la réponse
+/// n'est pas « vide ».
+#[tokio::test(flavor = "multi_thread")]
+async fn an_image_alone_is_an_answer() {
+    let bench = bench("qwen3:0.6b").await;
+    let (messenger, channel) = bench.messenger(Platform::Telegram);
+    let image = bench.generated();
+    let mut relay = Relay::new(&messenger, channel);
+    relay.new_turn();
+    assert!(relay.is_empty());
+    relay.photo(Some(PNG.to_vec()), &image.filename).await;
+    relay.new_turn();
+    relay.finish().await.unwrap();
+    assert!(!relay.is_empty());
+    assert_eq!(
+        shown_with_photos(&bench.telegram.sent()),
+        [format!("[photo image-7.png {}]", PNG.len())]
+    );
+}
+
+/// Photo refusée par la messagerie, ou introuvable en base : un court texte
+/// à sa place, et la réponse continue.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_photo_that_cannot_be_sent_is_replaced_by_a_short_text() {
+    let failed = crate::i18n::t!("easyLink.photoFailed");
+    for platform in [Platform::Telegram, Platform::Discord] {
+        let bench = bench("qwen3:0.6b").await;
+        match platform {
+            Platform::Telegram => bench.telegram.fail_next(
+                "sendPhoto",
+                400,
+                json!({ "ok": false, "error_code": 400, "description": "Bad Request: IMAGE_PROCESS_FAILED" }),
+            ),
+            Platform::Discord => bench.discord.fail_next("photo", 500, json!({"message": "boom"})),
+        }
+        let (messenger, channel) = bench.messenger(platform);
+        let image = bench.generated();
+        let mut relay = Relay::new(&messenger, channel);
+        relay.push("Before.");
+        relay.photo(Some(PNG.to_vec()), &image.filename).await;
+        relay.push("Between.");
+        // Image supprimée entre-temps : rien à lire en base.
+        let gone = bot::generated_png(&bench.store, image.id + 1000).await;
+        assert_eq!(gone, None);
+        relay.photo(gone, &image.filename).await;
+        relay.push("After.");
+        relay.finish().await.unwrap();
+        assert_eq!(
+            shown_with_photos(&bench.sent(platform)),
+            ["Before.", &failed, "Between.", &failed, "After."],
+            "{platform:?}"
+        );
+    }
+}
+
+/// « Trop de requêtes » sur la photo : attendue, puis envoyée une fois.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rate_limited_photo_is_sent_after_the_wait() {
+    let bench = bench("qwen3:0.6b").await;
+    let limited = json!({"message": "You are being rate limited.", "retry_after": 0.2});
+    bench.discord.fail_next("photo", 429, limited);
+    let (messenger, channel) = bench.messenger(Platform::Discord);
+    let image = bench.generated();
+    let mut relay = Relay::new(&messenger, channel);
+    let start = std::time::Instant::now();
+    relay.photo(Some(PNG.to_vec()), &image.filename).await;
+    assert!(start.elapsed() >= Duration::from_millis(200));
+    assert_eq!(
+        shown_with_photos(&bench.discord.sent()),
+        [format!("[photo image-7.png {}]", PNG.len())]
+    );
+}
+
+/// Destinataire qui a bloqué le bot : la photo refusée, ni texte de repli
+/// ni suite.
+#[tokio::test(flavor = "multi_thread")]
+async fn nothing_more_is_sent_to_a_recipient_who_blocked_the_bot() {
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram.block(ANA);
+    let (messenger, channel) = bench.messenger(Platform::Telegram);
+    let image = bench.generated();
+    let mut relay = Relay::new(&messenger, channel);
+    relay.photo(Some(PNG.to_vec()), &image.filename).await;
+    assert!(relay.gone());
+    relay.push("After.");
+    assert_eq!(relay.finish().await, Err(Problem::Forbidden));
+    assert_eq!(bench.telegram_calls(&["sendPhoto"]), 1);
+    assert_eq!(bench.telegram_calls(&["sendMessage"]), 0);
+    assert!(bench.telegram.sent().is_empty());
+}
+
+/// Le texte d'avant l'image n'a pas pu être écrit : la photo et la suite
+/// partent quand même, et la dernière écriture rend le problème (le bot dira
+/// la réponse incomplète).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lost_text_before_an_image_makes_the_answer_incomplete() {
+    let bench = bench("qwen3:0.6b").await;
+    bench
+        .discord
+        .fail_next("send", 400, json!({"message": "nope"}));
+    let (messenger, channel) = bench.messenger(Platform::Discord);
+    let image = bench.generated();
+    let mut relay = Relay::new(&messenger, channel);
+    relay.push("Before.");
+    relay.photo(Some(PNG.to_vec()), &image.filename).await;
+    relay.push("After.");
+    assert!(matches!(
+        relay.finish().await,
+        Err(Problem::Refused { status: 400, .. })
+    ));
+    assert_eq!(
+        shown_with_photos(&bench.discord.sent()),
+        [
+            format!("[photo image-7.png {}]", PNG.len()),
+            "After.".to_owned()
+        ]
+    );
+}
+
+/// Seule une image PNG part en photo : une autre pièce jointe (photo JPEG
+/// d'un message reçu) n'est pas lue comme telle.
+#[tokio::test(flavor = "multi_thread")]
+async fn only_a_png_is_read_as_a_generated_image() {
+    let bench = bench("qwen3:0.6b").await;
+    let jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0, 0];
+    let id = bench
+        .store
+        .blocking(|c| {
+            let chat = chats::create(c, 1)?;
+            let attachment = chats::NewAttachment {
+                filename: "photo.jpg",
+                kind: chats::AttachmentKind::Image,
+                mime: "image/jpeg",
+                data: &jpeg,
+                text: None,
+            };
+            let message = chats::add_user_message(c, &chat, "look", &[attachment], 2)?;
+            Ok(message.attachments[0].id)
+        })
+        .unwrap();
+    assert_eq!(bot::generated_png(&bench.store, id).await, None);
+    let image = bench.generated();
+    assert!(bot::generated_png(&bench.store, image.id).await.is_some());
+}
+
+/// Peintre d'essai : note les invites, annonce un avancement, puis attend
+/// `gate` avant de rendre `PNG` (et lance `on_done` juste avant).
+struct TestPainter {
+    prompts: Arc<Mutex<Vec<String>>>,
+    gate: tokio::sync::watch::Receiver<bool>,
+    on_done: Mutex<Option<Hook>>,
+}
+
+impl chat::images::Painter for TestPainter {
+    fn ready(
+        &self,
+    ) -> chat::images::PaintFuture<'_, Result<chat::images::Ready, chat::images::PaintRefusal>>
+    {
+        Box::pin(async {
+            Ok(chat::images::Ready {
+                model_name: "Test painter".into(),
+                default_side: 512,
+            })
+        })
+    }
+
+    fn cpu(&self) -> chat::images::PaintFuture<'_, bool> {
+        Box::pin(async { false })
+    }
+
+    fn paint<'a>(
+        &'a self,
+        request: chat::images::PaintRequest,
+        progress: &'a mut (dyn FnMut(chat::ImageProgress) + Send),
+    ) -> chat::images::PaintFuture<'a, Result<chat::images::Painted, String>> {
+        Box::pin(async move {
+            self.prompts.lock().push(request.prompt.clone());
+            progress(chat::ImageProgress {
+                stage: chat::ImageStage::Generating,
+                step: Some(1),
+                total: Some(2),
+                preview: None,
+                cpu: false,
+                width: request.width,
+                height: request.height,
+            });
+            let mut gate = self.gate.clone();
+            let _ = gate.wait_for(|open| *open).await;
+            let on_done = self.on_done.lock().take();
+            if let Some(on_done) = on_done {
+                on_done();
+            }
+            Ok(chat::images::Painted {
+                png: PNG.to_vec(),
+                width: request.width,
+                height: request.height,
+                seed: 7,
+                model_name: "Test painter".into(),
+            })
+        })
+    }
+}
+
+/// De bout en bout : le modèle demande une image, le bot montre « envoie une
+/// photo… » pendant le calcul, envoie la photo, puis la suite de la réponse
+/// dans un nouveau message.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_image_asked_from_the_bot_arrives_as_a_photo() {
+    let bench = bench("chatonlm-image").await;
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    let (open, gate) = tokio::sync::watch::channel(false);
+    bench
+        .service
+        .shared()
+        .host
+        .engine()
+        .set_painter(Arc::new(TestPainter {
+            prompts: Arc::clone(&prompts),
+            gate,
+            on_done: Mutex::new(None),
+        }));
+    bench.telegram_linked().await;
+    let before = bench.telegram.sent().len();
+    bench.say("a red kitten");
+    // Pendant le calcul : l'indicateur de Telegram pour une photo.
+    wait_until("« envoie une photo… »", || {
+        bench.telegram.sent()[before..]
+            .iter()
+            .any(|action| action["action"] == "upload_photo")
+    })
+    .await;
+    assert_eq!(*prompts.lock(), ["a red kitten"]);
+    open.send(true).unwrap();
+    bench.wait_answered(2).await;
+    let told = shown_with_photos(&bench.telegram.sent()[before..]);
+    assert_eq!(
+        told,
+        [
+            format!("[photo image-7.png {}]", PNG.len()),
+            "Here is your image.".to_owned(),
+        ]
+    );
+}
+
+/// Arrêt demandé (`/stop`) pendant que l'image finissait, avant que le bot ne
+/// la reçoive : la photo ne part pas.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_photo_is_sent_once_the_answer_is_stopped() {
+    let bench = bench("chatonlm-image").await;
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    let (_open, gate) = tokio::sync::watch::channel(true);
+    // Arrêt retenu par le bot seulement : le moteur, qui ne le sait pas
+    // encore, enregistre et annonce l'image.
+    let shared = Arc::clone(bench.service.shared());
+    let stop: Hook = Box::new(move || {
+        for claim in shared.busy.lock().values_mut() {
+            claim.stopped = true;
+        }
+    });
+    bench
+        .service
+        .shared()
+        .host
+        .engine()
+        .set_painter(Arc::new(TestPainter {
+            prompts: Arc::clone(&prompts),
+            gate,
+            on_done: Mutex::new(Some(stop)),
+        }));
+    bench.telegram_linked().await;
+    bench.say("a red kitten");
+    wait_until("image faite", || prompts.lock().len() == 1).await;
+    wait_until("réponse finie", || !bench.busy()).await;
+    let saved: i64 = bench
+        .store
+        .blocking(|c| Ok(c.query_row("SELECT COUNT(*) FROM attachments", [], |row| row.get(0))?))
+        .unwrap();
+    assert_eq!(saved, 1, "l'image a été annoncée au bot");
+    assert_eq!(bench.telegram_calls(&["sendPhoto", "sendDocument"]), 0);
+}
+
+/// « Trop de requêtes » avec une longue attente : la limite reste posée, et
+/// rien n'est écrit avant sa fin (ni texte de repli, ni texte, ni photo).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_long_rate_limit_holds_every_write() {
+    let limited = json!({
+        "ok": false,
+        "error_code": 429,
+        "description": "Too Many Requests: retry after 60",
+        "parameters": { "retry_after": 60 },
+    });
+    // Sur la photo : pas de texte de repli, ni la suite.
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram.fail_next("sendPhoto", 429, limited.clone());
+    let (messenger, channel) = bench.messenger(Platform::Telegram);
+    let image = bench.generated();
+    let mut relay = Relay::new(&messenger, channel);
+    relay.photo(Some(PNG.to_vec()), &image.filename).await;
+    relay.push("After.");
+    relay.tick().await;
+    assert!(matches!(
+        relay.finish().await,
+        Err(Problem::RateLimited(wait)) if wait > Duration::from_secs(50)
+    ));
+    assert_eq!(bench.telegram_calls(&["sendPhoto"]), 1);
+    assert_eq!(bench.telegram_calls(&["sendMessage", "editMessageText"]), 0);
+
+    // Sur le texte d'avant l'image : ni photo, ni texte de repli, ni la
+    // suite.
+    let bench = self::bench("qwen3:0.6b").await;
+    bench.telegram.fail_next("sendMessage", 429, limited);
+    let (messenger, channel) = bench.messenger(Platform::Telegram);
+    let image = bench.generated();
+    let mut relay = Relay::new(&messenger, channel);
+    relay.push("Before.");
+    relay.photo(Some(PNG.to_vec()), &image.filename).await;
+    relay.push("After.");
+    relay.tick().await;
+    assert!(matches!(relay.finish().await, Err(Problem::RateLimited(_))));
+    assert_eq!(bench.telegram_calls(&["sendMessage"]), 1);
+    assert_eq!(
+        bench.telegram_calls(&["sendPhoto", "sendDocument", "editMessageText"]),
+        0
+    );
+}
+
+/// Échec du réseau à l'envoi de la photo (délai dépassé, réponse illisible) :
+/// elle a pu arriver, le texte qui la remplace le dit avec prudence.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_photo_lost_on_the_network_is_told_with_caution() {
+    let bench = bench("qwen3:0.6b").await;
+    // Réponse illisible : `Problem::Network`, comme un délai dépassé.
+    bench
+        .telegram
+        .fail_next("sendPhoto", 200, json!({ "ok": false }));
+    let (messenger, channel) = bench.messenger(Platform::Telegram);
+    let image = bench.generated();
+    let mut relay = Relay::new(&messenger, channel);
+    relay.photo(Some(PNG.to_vec()), &image.filename).await;
+    relay.finish().await.unwrap();
+    let maybe = crate::i18n::t!("easyLink.photoMaybeFailed");
+    assert_ne!(maybe, crate::i18n::t!("easyLink.photoFailed"));
+    assert_eq!(shown_with_photos(&bench.telegram.sent()), [maybe]);
+}
+
+/// Dernière écriture refusée avec une longue attente : la réponse est
+/// incomplète, mais le texte qui le dit n'est pas envoyé pendant la limite.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_final_note_waits_for_a_long_rate_limit() {
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram_linked().await;
+    let before = bench.telegram_calls(&["sendMessage"]);
+    let limited = json!({
+        "ok": false,
+        "error_code": 429,
+        "description": "Too Many Requests: retry after 60",
+        "parameters": { "retry_after": 60 },
+    });
+    bench.telegram.fail_next("sendMessage", 429, limited);
+    bench.say("hi");
+    bench.wait_answered(1).await;
+    // Le seul envoi, refusé ; ni nouvel essai, ni « réponse incomplète ».
+    assert_eq!(bench.telegram_calls(&["sendMessage"]), before + 1);
+    assert_eq!(bench.telegram_calls(&["editMessageText"]), 0);
 }

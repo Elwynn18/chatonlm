@@ -122,6 +122,7 @@ const REQUEST_FIELDS = [
   "editMessageId",
   "keptAttachmentIds",
   "webSearch",
+  "image",
 ] as const;
 type RequestField = (typeof REQUEST_FIELDS)[number];
 

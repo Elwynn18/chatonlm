@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ImageProgress } from "@/bindings/ImageProgress";
 import type { Message } from "@/bindings/Message";
 import * as streams from "./streams";
 
@@ -499,6 +500,102 @@ describe("tool calls (web search)", () => {
     });
     const merged = streams.mergeMessages(history, streams.streamsFor("c"));
     expect(merged.map((m) => m.content)).toEqual(["Hi", "Yo", "Hi again"]);
+  });
+});
+
+describe("images (generate_image)", () => {
+  const progress = (stage: ImageProgress["stage"], step: number | null) => ({
+    stage,
+    step,
+    total: step === null ? null : 4,
+    preview: null,
+    cpu: false,
+    width: 512,
+    height: 512,
+  });
+  const IMAGE = {
+    id: 42,
+    filename: "image-7.png",
+    kind: "image" as const,
+    mime: "image/png",
+    size: 2048,
+  };
+
+  /** Envoi « c » du bouton Image : réponse 2 qui appelle generate_image. */
+  function startImage() {
+    streams.start({
+      streamId: "s",
+      chatId: "c",
+      content: "A cat",
+      model: "",
+      image: true,
+    });
+    streams.apply("s", { type: "replyStarted", messageId: 2, createdAt: 1 });
+    streams.apply("s", {
+      type: "toolCalls",
+      messageId: 2,
+      toolCalls: [
+        {
+          name: "generate_image",
+          arguments: '{"prompt":"A cat"}',
+          result: null,
+          error: null,
+        },
+      ],
+    });
+  }
+
+  it("marks a send of the Image button", () => {
+    startImage();
+    expect(only("c")?.image).toBe(true);
+    streams.start({ streamId: "t", chatId: "d", content: "Hi", model: "m" });
+    expect(only("d")?.image).toBe(false);
+  });
+
+  it("keeps the last progress of each call, the same object until it changes", () => {
+    startImage();
+    expect(streams.imageProgressFor(2, 0)).toBeNull();
+    streams.apply("s", {
+      type: "imageProgress",
+      messageId: 2,
+      index: 0,
+      progress: progress("loading", null),
+    });
+    streams.apply("s", {
+      type: "imageProgress",
+      messageId: 2,
+      index: 0,
+      progress: progress("generating", 3),
+    });
+    const last = streams.imageProgressFor(2, 0);
+    expect(last).toEqual(progress("generating", 3));
+    expect(streams.imageProgressFor(2, 0)).toBe(last);
+    // Un autre appel, une autre réponse : rien.
+    expect(streams.imageProgressFor(2, 1)).toBeNull();
+    expect(streams.imageProgressFor(3, 0)).toBeNull();
+    // Rien en base, rien dans les messages.
+    expect(only("c")?.replies[0].toolCalls[0].result).toBeNull();
+    streams.remove("s");
+    expect(streams.imageProgressFor(2, 0)).toBeNull();
+  });
+
+  it("adds the image to the attachments of its reply, before the result", () => {
+    startImage();
+    streams.apply("s", {
+      type: "imageReady",
+      messageId: 2,
+      index: 0,
+      attachment: IMAGE,
+    });
+    expect(only("c")?.replies[0].attachments).toEqual([IMAGE]);
+    // Réponse inconnue : rien.
+    streams.apply("s", {
+      type: "imageReady",
+      messageId: 9,
+      index: 0,
+      attachment: { ...IMAGE, id: 43 },
+    });
+    expect(only("c")?.replies.map((r) => r.attachments.length)).toEqual([1]);
   });
 });
 

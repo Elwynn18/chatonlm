@@ -694,7 +694,12 @@ async fn the_chosen_model_gives_the_engine_its_files_and_settings() {
         .await
         .unwrap();
     assert!(setup.info(&klein).await.selected);
-    let (spec, sampling) = setup.models.selected_spec(&setup.store).await.unwrap();
+    let selected = setup.models.selected_spec(&setup.store).await.unwrap();
+    let (spec, sampling) = (selected.spec, selected.sampling);
+    assert_eq!(
+        (selected.name.as_str(), selected.default_side),
+        ("tiny-klein-Q8_0", 1024)
+    );
     assert_eq!(
         spec.files
             .iter()

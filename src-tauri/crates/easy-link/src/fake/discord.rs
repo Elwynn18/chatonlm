@@ -8,6 +8,11 @@
 //! remis après `READY` (le vrai Discord le perdrait), et le salon privé d'un
 //! compte est « 9 » suivi de son identifiant (compte 42 : salon 942).
 //!
+//! Un message à pièce jointe (`multipart/form-data` : `payload_json` et
+//! `files[0]`) est lu comme le ferait Discord : pièce jointe de 10 Mio au
+//! plus (413 au-delà), texte facultatif, `attachments` qui renvoient aux
+//! fichiers envoyés.
+//!
 //! Garde-fous propres au faux serveur : une requête sans agent `DiscordBot`
 //! est refusée (400), comme un fichier demandé avec le jeton du bot (le CDN
 //! n'en veut pas : il ne doit jamais sortir de l'API).
@@ -19,6 +24,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::body::Bytes;
+use axum::extract::DefaultBodyLimit;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
@@ -50,6 +56,9 @@ const VOICE_FLAG: u64 = 1 << 13;
 
 /// Limite d'un message, en caractères.
 const CONTENT_MAX: usize = 2000;
+
+/// Pièce jointe la plus grosse dans un message privé.
+const UPLOAD_MAX: usize = 10 * 1024 * 1024;
 
 const IMAGE_NAME: &str = "image.png";
 const VOICE_NAME: &str = "voice-message.ogg";
@@ -196,7 +205,8 @@ impl FakeDiscord {
 
     /// La prochaine requête de cette route échoue avec ce code et ce corps
     /// (et l'en-tête `Retry-After` si le corps porte `retry_after`). Routes :
-    /// `send`, `edit`, `typing`, `gateway` (`GET /gateway/bot`).
+    /// `send`, `photo` (message à pièce jointe), `edit`, `typing`, `gateway`
+    /// (`GET /gateway/bot`).
     pub fn fail_next(&self, route: &str, status: u16, body: serde_json::Value) {
         self.shared
             .failures
@@ -477,6 +487,9 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/fake/message", post(fake_message))
         .route("/fake/sent", get(fake_sent))
         .route("/fake/gateway", get(fake_gateway))
+        // Plafond d'axum (2 Mo) relevé : une pièce jointe au-delà de la
+        // limite de Discord doit arriver jusqu'à son refus (413).
+        .layer(DefaultBodyLimit::max(2 * UPLOAD_MAX))
         .with_state(shared)
 }
 
@@ -559,6 +572,15 @@ async fn send(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok());
+    if super::is_multipart(content_type) {
+        if let Some(response) = unwelcome(&headers).or_else(|| shared.failure("photo")) {
+            return response;
+        }
+        return send_files(&shared, channel, content_type.unwrap_or_default(), &body);
+    }
     if let Some(response) = unwelcome(&headers).or_else(|| shared.failure("send")) {
         return response;
     }
@@ -581,6 +603,96 @@ async fn send(
         "flags": flags,
     }));
     Json(json!({"id": id, "channel_id": channel, "content": text})).into_response()
+}
+
+/// Message à pièce jointe : `payload_json` (texte, mentions, drapeaux,
+/// `attachments`) et `files[n]`.
+fn send_files(shared: &Shared, channel: String, content_type: &str, body: &[u8]) -> Response {
+    let invalid = || refusal(StatusCode::BAD_REQUEST, "Invalid Form Body", 50035);
+    let Ok(parts) = super::parse_multipart(content_type, body) else {
+        return refusal(StatusCode::BAD_REQUEST, "400: Bad Request", 0);
+    };
+    let Some(payload) = parts
+        .iter()
+        .find(|part| part.name == "payload_json")
+        .and_then(|part| serde_json::from_slice::<Value>(&part.data).ok())
+    else {
+        return invalid();
+    };
+    let files: Vec<_> = parts
+        .iter()
+        .filter(|part| part.name.starts_with("files["))
+        .collect();
+    let [file] = files.as_slice() else {
+        // L'app n'envoie qu'une image par message.
+        return invalid();
+    };
+    let Some(index) = file
+        .name
+        .strip_prefix("files[")
+        .and_then(|rest| rest.strip_suffix(']'))
+        .and_then(|index| index.parse::<u64>().ok())
+    else {
+        return invalid();
+    };
+    let Some(filename) = file.filename.clone().filter(|name| !name.is_empty()) else {
+        return invalid();
+    };
+    if file.data.len() > UPLOAD_MAX {
+        return refusal(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Request entity too large",
+            40005,
+        );
+    }
+    // `attachments`, s'il est donné, désigne les fichiers envoyés.
+    if let Some(attachments) = payload.get("attachments") {
+        let named = attachments.as_array().is_some_and(|list| {
+            list.iter()
+                .all(|attachment| attachment["id"].as_u64() == Some(index))
+        });
+        if !named {
+            return invalid();
+        }
+    }
+    let content = payload["content"].as_str().unwrap_or_default();
+    if content.chars().count() > CONTENT_MAX {
+        return invalid();
+    }
+    let id = shared.snowflake();
+    let mut entry = json!({
+        "kind": "photo",
+        "channel": channel,
+        "id": id,
+        "filename": filename,
+        "size": file.data.len(),
+        "contentType": file.content_type,
+        "upload": "attachment",
+        "allowedMentions": payload["allowed_mentions"],
+        "flags": payload["flags"],
+    });
+    if !content.is_empty() {
+        entry["caption"] = content.into();
+    }
+    shared.sent.lock().unwrap().push(entry);
+    let url = format!(
+        "http://{}/attachments/{channel}/{id}/{filename}",
+        shared.addr
+    );
+    Json(json!({
+        "id": id,
+        "channel_id": channel,
+        "content": content,
+        "attachments": [{
+            "id": shared.snowflake(),
+            "filename": filename,
+            "size": file.data.len(),
+            "content_type": file.content_type,
+            "url": url,
+            "proxy_url": url,
+        }],
+    }))
+    .into_response()
 }
 
 async fn edit(

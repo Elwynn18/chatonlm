@@ -57,6 +57,9 @@ pub struct Family {
     pub sampling: Sampling,
     /// Options de lancement du moteur (`--model-args ...`).
     pub options: Vec<String>,
+    /// Côté d'une image dont la taille n'est pas demandée, avec une carte
+    /// graphique (512 pour SD 1.5, entraîné à cette taille ; 1024 sinon).
+    pub default_side: u32,
 }
 
 impl Family {
@@ -157,6 +160,8 @@ struct RawFamily {
     single_file: bool,
     #[serde(default)]
     min_size: u64,
+    #[serde(default = "default_side")]
+    default_side: u32,
     model: Component,
     pieces: Vec<String>,
     sampling: RawSampling,
@@ -171,6 +176,11 @@ struct RawSampling {
     sample_method: Option<String>,
     scheduler: Option<String>,
     flow_shift: Option<f32>,
+}
+
+/// Côté par défaut d'une famille qui n'en dit rien.
+fn default_side() -> u32 {
+    1024
 }
 
 /// Empreinte SHA-256 écrite en hexadécimal (64 caractères).
@@ -223,6 +233,7 @@ impl Families {
                     flow_shift: family.sampling.flow_shift,
                 },
                 options: family.options,
+                default_side: family.default_side,
             });
         }
         for recommendation in &raw.recommendations {
@@ -373,6 +384,14 @@ mod tests {
         assert!(sdxl.single_file);
         assert_eq!(sdxl.model_component, Component::Model);
         assert!(families.get("sd15").unwrap().pieces.is_empty());
+        // Côté par défaut : 512 pour SD 1.5 seulement (champ absent : 1024).
+        let sides: Vec<(&str, u32)> = families
+            .families
+            .iter()
+            .filter(|family| family.default_side != 1024)
+            .map(|family| (family.id.as_str(), family.default_side))
+            .collect();
+        assert_eq!(sides, [("sd15", 512)]);
         // Recommandations épinglées.
         let klein_q4 = families
             .recommendation("leejet/FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q4_0.gguf")

@@ -54,6 +54,7 @@ import {
   speechDownloads,
   speechModels,
   stageBytes,
+  saveImage,
   stagePaths,
   unstage,
   updateDictationSettings,
@@ -191,6 +192,16 @@ describe("attachment commands", () => {
       ["stage_paths", { paths: ["/home/me/notes.txt"] }],
       ["unstage", { ids: [staged.file.id] }],
     ]);
+  });
+
+  it("saves a created image by its attachment id, telling if it was written", async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((command, args) => {
+      calls.push([command, args]);
+      return command === "save_image";
+    });
+    await expect(saveImage(42)).resolves.toBe(true);
+    expect(calls).toEqual([["save_image", { attachmentId: 42 }]]);
   });
 
   it("sends pasted bytes raw, with the name encoded in a header", async () => {

@@ -2,7 +2,9 @@
   "dialogs": {
     "selectFiles": "Seleccionar archivos",
     "supportedFiles": "Archivos compatibles",
-    "selectModelDirectory": "Seleccionar la carpeta de modelos"
+    "selectModelDirectory": "Seleccionar la carpeta de modelos",
+    "saveImage": "Guardar la imagen",
+    "pngImages": "Imágenes PNG"
   },
   "tray": {
     "show": "Mostrar ChatonLM",
@@ -198,7 +200,15 @@
     "contextFull": "La conversación llenó el contexto del modelo, así que se cortó la respuesta. Compacta la conversación para continuar.",
     "nothingToCompact": "no hay nada nuevo que compactar en este chat",
     "compactEmpty": "el modelo no escribió ningún resumen",
-    "compactStopped": "se detuvo la compactación"
+    "compactStopped": "se detuvo la compactación",
+    "imageNoModel": "No se eligió ningún modelo de imágenes: elige uno en el ModelHub, pestaña Imágenes.",
+    "imageWithFiles": "No se puede crear una imagen a partir de archivos adjuntos: quítalos o desactiva Imagen.",
+    "imageUnavailable": "Esta versión de ChatonLM no incluye el motor de imágenes.",
+    "imageCpuUnsupported": "Este procesador no puede ejecutar el motor de imágenes (le falta: {features}).",
+    "imageTooMany": "Se pueden crear como máximo {max} imágenes por mensaje.",
+    "imageTooLarge": "La imagen es demasiado grande para guardarla (más de {max} MiB).",
+    "imageNoPrompt": "Falta la descripción de la imagen (prompt) o está vacía.",
+    "imageNotFound": "Esta imagen ya no existe."
   },
   "errors": {
     "connectionLost": "Conexión perdida",
@@ -352,6 +362,8 @@
     "refused": "{service} respondió con un error: {error}",
     "noBot": "Conecta y activa primero el bot",
     "unavailable": "Easy Link no está disponible: no se pudo abrir la base de datos",
+    "photoFailed": "La imagen se creó, pero no se pudo enviar aquí. Puedes verla en ChatonLM.",
+    "photoMaybeFailed": "Puede que la imagen no haya llegado. Puedes verla en ChatonLM.",
     "bot": {
       "private": "Este bot es privado. Para usarlo, envía el código de vinculación que muestra ChatonLM (Configuración > Easy Link).",
       "linked": "Tu cuenta está vinculada. Envía un mensaje para hablar con el modelo.",

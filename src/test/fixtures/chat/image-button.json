@@ -1,0 +1,128 @@
+{
+  "description": "Image button: the text goes as it is to the image model (1024 x 1024 with a graphics card), with no request to Ollama: an answer made of one generate_image call, the image's progress, the image, the call's result, then done.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "A red fox in the snow, watercolor",
+    "model": "qwen3:0.6b",
+    "image": true
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "A red fox in the snow, watercolor",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "createdAt": 1700000000000,
+      "messageId": 2,
+      "type": "replyStarted"
+    },
+    {
+      "messageId": 2,
+      "toolCalls": [
+        {
+          "arguments": "{\"prompt\":\"A red fox in the snow, watercolor\"}",
+          "error": null,
+          "name": "generate_image",
+          "result": null
+        }
+      ],
+      "type": "toolCalls"
+    },
+    {
+      "index": 0,
+      "messageId": 2,
+      "progress": {
+        "cpu": false,
+        "height": 1024,
+        "preview": null,
+        "stage": "starting",
+        "step": null,
+        "total": null,
+        "width": 1024
+      },
+      "type": "imageProgress"
+    },
+    {
+      "index": 0,
+      "messageId": 2,
+      "progress": {
+        "cpu": false,
+        "height": 1024,
+        "preview": null,
+        "stage": "loading",
+        "step": null,
+        "total": null,
+        "width": 1024
+      },
+      "type": "imageProgress"
+    },
+    {
+      "index": 0,
+      "messageId": 2,
+      "progress": {
+        "cpu": false,
+        "height": 1024,
+        "preview": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAP0lEQVR4AQE0AMv/AP8AAP8AAP8AAP8AAAD/AAD/AAD/AAD/AAAA/wAA/wAA/wAA/wAAAP8AAP8AAP8AAP8AAK6TD/FxtSpPAAAAAElFTkSuQmCC",
+        "stage": "generating",
+        "step": 1,
+        "total": 2,
+        "width": 1024
+      },
+      "type": "imageProgress"
+    },
+    {
+      "index": 0,
+      "messageId": 2,
+      "progress": {
+        "cpu": false,
+        "height": 1024,
+        "preview": null,
+        "stage": "generating",
+        "step": 2,
+        "total": 2,
+        "width": 1024
+      },
+      "type": "imageProgress"
+    },
+    {
+      "attachment": {
+        "filename": "image-7.png",
+        "id": 1,
+        "kind": "image",
+        "mime": "image/png",
+        "size": 120
+      },
+      "index": 0,
+      "messageId": 2,
+      "type": "imageReady"
+    },
+    {
+      "error": null,
+      "index": 0,
+      "messageId": 2,
+      "result": "{\"attachmentId\":1,\"width\":1024,\"height\":1024,\"seed\":7,\"model\":\"Fake image model\"}",
+      "type": "toolResult"
+    },
+    {
+      "messageId": 2,
+      "type": "done"
+    }
+  ],
+  "error": null
+}

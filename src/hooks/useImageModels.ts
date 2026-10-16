@@ -155,6 +155,29 @@ export function useImageModels() {
   return useQuery({ queryKey: imageModelsKey, queryFn: imageModels });
 }
 
+/**
+ * Modèle d'images du mode Image de la zone de saisie (lot 4) : `chosen`
+ * (choisi et installé), `none`, `loading` tant que les modèles ne sont pas
+ * lus (l'envoi attend), `unknown` si leur lecture échoue (le moteur décide
+ * alors, et refuse avec son texte).
+ */
+export type ImageModelState = "chosen" | "none" | "loading" | "unknown";
+
+/** `enabled` : modèles lus seulement quand il le faut (mode Image actif). */
+export function useImageModelState(enabled: boolean): ImageModelState {
+  const { data, isError } = useQuery({
+    queryKey: imageModelsKey,
+    queryFn: imageModels,
+    enabled,
+  });
+  if (data) {
+    return data.some((model) => model.selected && model.installed)
+      ? "chosen"
+      : "none";
+  }
+  return isError ? "unknown" : "loading";
+}
+
 /** Ce que la machine permet (relue avec les modèles : place libre). */
 export function useImageMachine() {
   return useQuery({ queryKey: imageMachineKey, queryFn: imageMachine });

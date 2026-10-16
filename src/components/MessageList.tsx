@@ -36,7 +36,11 @@
  * context compaction: a separator after the last message of each compaction
  * unfolds the summary sent to the model (Compaction.tsx), and an automatic
  * compaction shows "Compacting conversation..." in place of the waiting
- * dots, like "Loading model...".
+ * dots, like "Loading model..."; ChatonLM's own image tool
+ * (`generate_image`, ToolCalls.tsx): its finished result shows the image
+ * created (GeneratedImage.tsx, with "Save image...") instead of the JSON
+ * block, its error stays with the call (no "Error:" block), and the reply of
+ * the composer's "Image" mode (no text, one call) has no empty text block.
  */
 
 import {
@@ -51,6 +55,7 @@ import {
 import type { AttachmentInfo } from "@/bindings/AttachmentInfo";
 import type { Compaction } from "@/bindings/Compaction";
 import type { Message } from "@/bindings/Message";
+import type { ToolCall } from "@/bindings/ToolCall";
 import {
   CompactingConversation,
   CompactionSeparator,
@@ -58,6 +63,7 @@ import {
 import { CopyButton } from "@/components/CopyButton";
 import { Downloading } from "@/components/Downloading";
 import { ErrorMessage } from "@/components/ErrorMessage";
+import { GeneratedImage } from "@/components/GeneratedImage";
 import { ImageThumbnail } from "@/components/ImageThumbnail";
 import { LoadingModel } from "@/components/LoadingModel";
 import { ReadAloudButton, ReadAloudStatus } from "@/components/ReadAloudButton";
@@ -67,6 +73,11 @@ import { ToolCallDisplay, ToolResult } from "@/components/ToolCalls";
 import { useReadAloud } from "@/hooks/useReadAloud";
 import { useT } from "@/i18n";
 import { attachmentImageUrl } from "@/lib/attachments";
+import {
+  IMAGE_TOOL,
+  imagePrompt,
+  parseImageResult,
+} from "@/lib/generatedImages";
 import type { DownloadProgress } from "@/lib/streams";
 import { errorFor, phaseFor } from "@/lib/readAloud";
 import { isFinished } from "@/lib/toolCalls";
@@ -85,6 +96,7 @@ export function MessageList({
   error,
   errorActions = null,
   editingMessageId = null,
+  remoteReplyId = null,
   onEditMessage,
 }: {
   /**
@@ -108,6 +120,11 @@ export function MessageList({
   errorActions?: ReactNode;
   /** Message en cours de modification : lui et les suivants sont estompés. */
   editingMessageId?: number | null;
+  /**
+   * Réponse d'un bot d'Easy Link en cours (Chat.replyRunning) : la page n'a
+   * pas son flux, ses appels sans résultat restent « en cours ».
+   */
+  remoteReplyId?: number | null;
   onEditMessage?: (message: Message) => void;
 }) {
   // Trois points tant que la réponse n'a pas commencé, après 750 ms, mais pas
@@ -168,6 +185,7 @@ export function MessageList({
             chatId={chatId}
             message={message}
             isStreaming={isStreaming && idx === messages.length - 1}
+            isRemoteRunning={message.id === remoteReplyId}
             isFaded={editingIndex !== -1 && idx >= editingIndex}
             onEditMessage={onEditMessage}
           />
@@ -244,12 +262,15 @@ const MessageView = memo(function MessageView({
   chatId,
   message,
   isStreaming,
+  isRemoteRunning,
   isFaded,
   onEditMessage,
 }: {
   chatId?: string;
   message: Message;
   isStreaming: boolean;
+  /** Réponse d'un bot d'Easy Link en cours, sans flux dans la page. */
+  isRemoteRunning: boolean;
   isFaded: boolean;
   onEditMessage?: (message: Message) => void;
 }) {
@@ -264,6 +285,7 @@ const MessageView = memo(function MessageView({
       chatId={chatId}
       message={message}
       isStreaming={isStreaming}
+      isRemoteRunning={isRemoteRunning}
       isFaded={isFaded}
     />
   );
@@ -460,15 +482,47 @@ function thinkingTimes(
   return isStreaming ? { startTime } : {};
 }
 
+/**
+ * Résultat terminé d'un appel ; une image créée est montrée à la place de
+ * son JSON (hors de la typographie des réponses), une erreur d'image reste
+ * avec son appel (ToolCalls.tsx).
+ */
+function ToolResultBlock({ call, fade }: { call: ToolCall; fade: string }) {
+  const image = call.name === IMAGE_TOOL ? parseImageResult(call.result) : null;
+  if (call.name === IMAGE_TOOL && call.error !== null) return null;
+  return (
+    <div
+      className={`mb-8 flex flex-col space-y-4 transition-opacity duration-300 ${fade}`}
+    >
+      <div className="group relative flex max-w-none flex-1 flex-col justify-start text-wrap break-words">
+        {image ? (
+          <div data-role="tool">
+            <GeneratedImage result={image} prompt={imagePrompt(call)} />
+          </div>
+        ) : (
+          <div
+            className="prose dark:prose-invert max-w-full break-words"
+            data-role="tool"
+          >
+            <ToolResult call={call} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AssistantMessage({
   chatId,
   message,
   isStreaming,
+  isRemoteRunning = false,
   isFaded,
 }: {
   chatId?: string;
   message: Message;
   isStreaming: boolean;
+  isRemoteRunning?: boolean;
   isFaded: boolean;
 }) {
   const t = useT();
@@ -531,7 +585,14 @@ function AssistantMessage({
         {toolCalls.length > 0 && (
           <div data-role="tool-calls">
             {toolCalls.map((call, index) => (
-              <ToolCallDisplay key={index} call={call} />
+              <ToolCallDisplay
+                key={index}
+                call={call}
+                messageId={message.id}
+                index={index}
+                isStreaming={isStreaming}
+                isRemoteRunning={isRemoteRunning}
+              />
             ))}
           </div>
         )}
@@ -555,19 +616,7 @@ function AssistantMessage({
       {toolCalls.map(
         (call, index) =>
           isFinished(call) && (
-            <div
-              key={index}
-              className={`mb-8 flex flex-col space-y-4 transition-opacity duration-300 ${fade}`}
-            >
-              <div className="group relative flex max-w-none flex-1 flex-col justify-start text-wrap break-words">
-                <div
-                  className="prose dark:prose-invert max-w-full break-words"
-                  data-role="tool"
-                >
-                  <ToolResult call={call} />
-                </div>
-              </div>
-            </div>
+            <ToolResultBlock key={index} call={call} fade={fade} />
           ),
       )}
     </>

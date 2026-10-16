@@ -5,6 +5,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { AttachmentInfo } from "@/bindings/AttachmentInfo";
 import type { Chat } from "@/bindings/Chat";
 import type { ChatEvent } from "@/bindings/ChatEvent";
+import type { ImageProgress } from "@/bindings/ImageProgress";
 import type { StagedFile } from "@/bindings/StagedFile";
 import type { Think } from "@/bindings/Think";
 import type { VoiceSend } from "@/bindings/VoiceSend";
@@ -44,6 +45,19 @@ export function useChatError(chatId: string): streams.StreamError | null {
 }
 
 /**
+ * Dernier avancement de l'image de l'appel `index` de la réponse
+ * `messageId` (flux vivant) ; null : aucun.
+ */
+export function useImageProgress(
+  messageId: number,
+  index: number,
+): ImageProgress | null {
+  return useSyncExternalStore(streams.subscribe, () =>
+    streams.imageProgressFor(messageId, index),
+  );
+}
+
+/**
  * Envoi d'un message : le flux vit dans `streams` pendant la réponse ; à la
  * fin, la conversation et l'historique sont relus en base, puis le flux est
  * retiré. Une nouvelle conversation ouvre sa page dès sa création. `think`
@@ -55,8 +69,11 @@ export function useChatError(chatId: string): streams.StreamError | null {
  * message modifié (lui et les suivants remplacés), avec les pièces jointes
  * gardées. `webSearch` : outils de recherche web proposés au modèle (absent
  * de la requête s'il est faux). `voice` : phrase du mode vocal (propre à
- * ChatonLM) ; `onRefused` reçoit le message d'un envoi refusé d'emblée,
- * `onChatCreated` l'identifiant de la nouvelle conversation, avant d'y aller.
+ * ChatonLM) ; `image` : bouton « Image » (propre à ChatonLM), le texte part
+ * tel quel au modèle d'images (absent de la requête s'il est faux) ;
+ * `onRefused` reçoit le message d'un envoi refusé d'emblée (rendre `true` :
+ * l'appelant le montre lui-même, aucune erreur de flux), `onChatCreated`
+ * l'identifiant de la nouvelle conversation, avant d'y aller.
  */
 export function useSendMessage() {
   const queryClient = useQueryClient();
@@ -72,6 +89,7 @@ export function useSendMessage() {
       edit,
       webSearch = false,
       voice,
+      image = false,
       onRefused,
       onChatCreated,
     }: {
@@ -83,7 +101,8 @@ export function useSendMessage() {
       edit?: { messageId: number; kept: AttachmentInfo[] };
       webSearch?: boolean;
       voice?: VoiceSend;
-      onRefused?: (message: string) => void;
+      image?: boolean;
+      onRefused?: (message: string) => boolean | void;
       onChatCreated?: (chatId: string) => void;
     }) => {
       const streamId = crypto.randomUUID();
@@ -98,6 +117,7 @@ export function useSendMessage() {
         attachments,
         kept: edit?.kept,
         editOf: edit?.messageId,
+        image,
       });
 
       // Raisonnement reçu malgré `think: false` : le moteur a retenu que le
@@ -123,6 +143,7 @@ export function useSendMessage() {
               messages: [],
               context: null,
               compactions: [],
+              replyRunning: null,
             });
             void queryClient.invalidateQueries({ queryKey: chatsKey });
             onChatCreated?.(event.chatId);
@@ -177,6 +198,7 @@ export function useSendMessage() {
             ...(keptAttachmentIds.length > 0 && { keptAttachmentIds }),
             ...(webSearch && { webSearch }),
             ...(voice && { voice }),
+            ...(image && { image }),
           },
           channel,
         );
@@ -190,8 +212,8 @@ export function useSendMessage() {
         // conversation.
         release(attachmentIds);
         const message = errorMessage(error);
-        streams.fail(streamId, { kind: "internal", message });
-        onRefused?.(message);
+        const shown = onRefused?.(message) === true;
+        streams.fail(streamId, shown ? null : { kind: "internal", message });
       }
 
       if (thoughtDespiteOff) {

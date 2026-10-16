@@ -1,9 +1,13 @@
 //! Faux Telegram : voir `fake/mod.rs`.
 //!
 //! Sert la Bot API utile à l'app (`getMe`, `getUpdates` en attente longue,
-//! `sendMessage`, `editMessageText`, `sendChatAction`, `getFile` et les
-//! fichiers), avec les refus du vrai service que l'app doit savoir traiter :
-//! jeton inconnu, HTML illisible, message vide ou trop long, message inchangé.
+//! `sendMessage`, `editMessageText`, `sendChatAction`, `sendPhoto`,
+//! `sendDocument`, `getFile` et les fichiers), avec les refus du vrai service
+//! que l'app doit savoir traiter : jeton inconnu, HTML illisible, message
+//! vide ou trop long, message inchangé, photo trop grosse ou illisible.
+//! Une photo n'est reçue qu'en `multipart/form-data` ; dans
+//! `/fake/requests`, son corps est celui des champs texte, le fichier noté
+//! `{"filename", "size", "contentType"}` sous le nom de son champ.
 //! En plus du pilotage commun : `GET /fake/requests` (toutes les requêtes
 //! reçues), `POST /fake/fail` avec `{"method", "status", "body"}` (comme
 //! [`FakeTelegram::fail_next`]), `POST /fake/block` avec `{"user"}` (comme
@@ -17,8 +21,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::body::Bytes;
+use axum::extract::DefaultBodyLimit;
 use axum::extract::{Path, State};
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
@@ -35,6 +40,11 @@ const BOT_NAME: &str = "chatonlm_test_bot";
 
 /// Limite de Telegram, en unités UTF-16 du texte une fois la mise en forme lue.
 const TEXT_LIMIT: usize = 4096;
+/// Même mesure, pour la légende d'une photo.
+const CAPTION_LIMIT: usize = 1024;
+/// Photo la plus grosse (`sendPhoto`), fichier le plus gros (`sendDocument`).
+const PHOTO_MAX: usize = 10_000_000;
+const DOCUMENT_MAX: usize = 50_000_000;
 
 /// Identifiants des fichiers joints par `"image"` et `"voice"`.
 const PHOTO: &str = "fake-photo";
@@ -335,6 +345,8 @@ fn router(journal: Arc<Journal>) -> Router {
         .route("/fake/fail", post(fake_fail))
         .route("/fake/block", post(fake_block))
         .route("/fake/hold", post(fake_hold))
+        // Plafond d'axum (2 Mo) relevé : les documents vont jusqu'à 50 Mo.
+        .layer(DefaultBodyLimit::max(DOCUMENT_MAX + 1024 * 1024))
         .with_state(journal)
 }
 
@@ -359,12 +371,51 @@ fn authorized(bot: &str) -> bool {
 async fn method(
     State(journal): State<Arc<Journal>>,
     Path((bot, method)): Path<(String, String)>,
+    headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     if !authorized(&bot) {
         return refuse(401, "Unauthorized");
     }
-    let body: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok());
+    // Corps en formulaire : champs texte dans le corps, fichiers à part.
+    let mut uploads = Vec::new();
+    let body: Value = if super::is_multipart(content_type) {
+        match super::parse_multipart(content_type.unwrap_or_default(), &body) {
+            Ok(parts) => {
+                let mut fields = serde_json::Map::new();
+                for part in parts {
+                    if part.filename.is_some() {
+                        fields.insert(
+                            part.name.clone(),
+                            json!({
+                                "filename": part.filename,
+                                "size": part.data.len(),
+                                "contentType": part.content_type,
+                            }),
+                        );
+                        uploads.push(part);
+                    } else {
+                        let text = String::from_utf8_lossy(&part.data).into_owned();
+                        fields.insert(part.name, text.into());
+                    }
+                }
+                Value::Object(fields)
+            }
+            Err(error) => {
+                let request = json!({ "method": method, "body": { "malformed": error } });
+                journal.requests.lock().unwrap().push(request);
+                return refuse(
+                    400,
+                    &format!("Bad Request: malformed multipart body: {error}"),
+                );
+            }
+        }
+    } else {
+        serde_json::from_slice(&body).unwrap_or_else(|_| json!({}))
+    };
     let request = json!({ "method": method, "body": body });
     journal.requests.lock().unwrap().push(request);
     journal.wait_released(&method).await;
@@ -373,7 +424,7 @@ async fn method(
     }
     let writes = matches!(
         method.as_str(),
-        "sendMessage" | "editMessageText" | "sendChatAction"
+        "sendMessage" | "editMessageText" | "sendChatAction" | "sendPhoto" | "sendDocument"
     );
     if writes && chat(&body).is_some_and(|chat| journal.blocked.lock().unwrap().contains(&chat)) {
         return refuse(403, "Forbidden: bot was blocked by the user");
@@ -392,6 +443,8 @@ async fn method(
         "sendMessage" => send_message(&journal, &body),
         "editMessageText" => edit_message(&journal, &body),
         "sendChatAction" => send_chat_action(&journal, &body),
+        "sendPhoto" => send_file(&journal, &body, uploads, "photo"),
+        "sendDocument" => send_file(&journal, &body, uploads, "document"),
         "getFile" => get_file(&body),
         _ => refuse(404, "Not Found: method not found"),
     }
@@ -540,12 +593,89 @@ fn send_chat_action(journal: &Journal, body: &Value) -> Response {
     let Some(channel) = chat(body) else {
         return refuse(400, "Bad Request: chat_id is empty");
     };
-    if body["action"] != "typing" {
-        return refuse(400, "Bad Request: wrong parameter action in request");
+    let mut entry = json!({ "kind": "typing", "channel": channel });
+    match body["action"].as_str() {
+        Some("typing") => {}
+        Some(action @ "upload_photo") => entry["action"] = action.into(),
+        _ => return refuse(400, "Bad Request: wrong parameter action in request"),
     }
-    let entry = json!({ "kind": "typing", "channel": channel });
     journal.sent.lock().unwrap().push(entry);
     ok(json!(true))
+}
+
+/// `sendPhoto` (`field` = `photo`) ou `sendDocument` (`document`) : fichier
+/// joint au formulaire, légende facultative.
+fn send_file(
+    journal: &Journal,
+    body: &Value,
+    uploads: Vec<super::FormPart>,
+    field: &str,
+) -> Response {
+    let Some(channel) = chat(body) else {
+        return refuse(400, "Bad Request: chat_id is empty");
+    };
+    // Telegram accepte aussi un `file_id` ou une adresse : l'app envoie
+    // toujours le fichier lui-même.
+    let Some(file) = uploads.into_iter().find(|part| part.name == field) else {
+        return refuse(
+            400,
+            &format!("Bad Request: there is no {field} in the request"),
+        );
+    };
+    if file.data.is_empty() {
+        return refuse(400, &format!("Bad Request: {field} is empty"));
+    }
+    let photo = field == "photo";
+    if file.data.len() > if photo { PHOTO_MAX } else { DOCUMENT_MAX } {
+        return refuse(413, "Request Entity Too Large");
+    }
+    if photo && !file.data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return refuse(400, "Bad Request: IMAGE_PROCESS_FAILED");
+    }
+    let mode = body["parse_mode"].as_str();
+    let caption = body["caption"].as_str().unwrap_or_default();
+    let shown = match mode {
+        Some("HTML") => match parse_html(caption) {
+            Ok(shown) => shown,
+            Err(error) => {
+                return refuse(400, &format!("Bad Request: can't parse entities: {error}"));
+            }
+        },
+        _ => caption.to_owned(),
+    };
+    if shown.encode_utf16().count() > CAPTION_LIMIT {
+        return refuse(400, "Bad Request: message caption is too long");
+    }
+    let id = journal.next_message.fetch_add(1, Ordering::SeqCst);
+    let mut entry = json!({
+        "kind": "photo",
+        "channel": channel,
+        "id": id.to_string(),
+        "filename": file.filename,
+        "size": file.data.len(),
+        "contentType": file.content_type,
+        "upload": field,
+    });
+    if !caption.is_empty() {
+        entry["caption"] = caption.into();
+        if let Some(mode) = mode {
+            entry["parseMode"] = mode.into();
+        }
+    }
+    journal.sent.lock().unwrap().push(entry);
+    let mut result = sent_message(id, body, "");
+    if let Some(fields) = result.as_object_mut() {
+        fields.remove("text");
+    }
+    result[field] = if photo {
+        json!([{ "file_id": format!("sent-{id}"), "file_unique_id": format!("sent-{id}"), "width": 2, "height": 2 }])
+    } else {
+        json!({ "file_id": format!("sent-{id}"), "file_unique_id": format!("sent-{id}"), "file_name": file.filename })
+    };
+    if !caption.is_empty() {
+        result["caption"] = shown.into();
+    }
+    ok(result)
 }
 
 /// Chemin et contenu d'un fichier joint (contenu absent : fichier d'essai

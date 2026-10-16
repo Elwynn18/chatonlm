@@ -38,7 +38,12 @@
  * was full offers Compact now under the error; while Compact now runs, the
  * composer acts as during a reply (no send, Stop stops the compaction) and
  * the Retry buttons of the other errors are disabled; Compact now is
- * disabled while a message is edited or the voice mode is open.
+ * disabled while a message is edited or the voice mode is open; a message
+ * sent with ChatonLM's own "Image" mode of the composer goes with `image`
+ * (straight to the image model), its refusal at once shown by the composer
+ * (its notice, the text given back) instead of an error; an image created
+ * by an Easy Link bot's reply still running in the chat shows as in
+ * progress (MessageList.tsx).
  */
 
 import { useNavigate } from "@tanstack/react-router";
@@ -223,6 +228,8 @@ function NewChat() {
             webSearch,
             _editOf,
             voice,
+            image,
+            onRefused,
           ) =>
             void (voice
               ? sendVoice(NEW_CHAT, { content, model, think, webSearch }, voice)
@@ -233,6 +240,8 @@ function NewChat() {
                   think,
                   attachments,
                   webSearch,
+                  image,
+                  onRefused,
                 }))
           }
           onCancel={() => {
@@ -367,6 +376,7 @@ function ChatView({ chatId }: { chatId: string }) {
           error={error?.message ?? null}
           errorActions={errorActions}
           editingMessageId={editing?.id ?? null}
+          remoteReplyId={chat?.replyRunning ?? null}
           onEditMessage={startEdit}
         />
       </section>
@@ -409,6 +419,8 @@ function ChatView({ chatId }: { chatId: string }) {
             webSearch,
             editOf,
             voice,
+            image,
+            onRefused,
           ) => {
             onMessageSent();
             // Phrase du mode vocal : un nouveau message, jamais une
@@ -432,6 +444,8 @@ function ChatView({ chatId }: { chatId: string }) {
               attachments,
               ...(messageId !== undefined && { edit: { messageId, kept } }),
               webSearch,
+              image,
+              onRefused,
             });
             if (editOf === undefined) setEditing(null);
           }}

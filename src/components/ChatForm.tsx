@@ -57,11 +57,28 @@
  * created by its first sentence, which gives it back at the end; the
  * composer carries a `data-tour` mark, shown by the first-launch tour;
  * ChatonLM's own context gauge (given by the chat view, ContextGauge.tsx) sits
- * next to the model picker, under the veil while Ollama is unreachable.
+ * next to the model picker, under the veil while Ollama is unreachable;
+ * ChatonLM's own "Image" toggle (ImageButton.tsx), shown when the image
+ * engine is shipped (greyed out, with the reason, when the processor lacks
+ * what it needs): local state, kept after sending (and taken over by the
+ * chat created by an image sent from a new chat), not shown during the
+ * voice mode; while it is on, the message goes as is to the image model
+ * chosen in the ModelHub (onSubmit with `image`, no model required, no
+ * Think nor web search, whose buttons are hidden), the field asks to
+ * describe the image, a send with files (new or kept) or without an image
+ * model chosen is refused here, the composer kept, with a notice above it
+ * (the latter with a link to the Images tab of the ModelHub), sending waits
+ * until the image models are read (unless reading them fails), a send
+ * refused at once by the backend gives the text back to the field with the
+ * backend's message in the same notice (the link too when the image models,
+ * read again, show none chosen), and an amber line under the composer warns
+ * when there is no graphics card.
  */
 
 import { ArrowUpIcon, StopIcon } from "@heroicons/react/20/solid";
 import { PlusIcon } from "@heroicons/react/24/outline";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import {
   type KeyboardEvent,
   type ReactNode,
@@ -83,6 +100,7 @@ import type { VoiceModeUtterance } from "@/bindings/VoiceModeUtterance";
 import { ComposerFiles } from "@/components/ComposerFiles";
 import { DropOverlay } from "@/components/DropOverlay";
 import { ErrorMessage } from "@/components/ErrorMessage";
+import { ImageButton } from "@/components/ImageButton";
 import { Logo } from "@/components/Logo";
 import { ModelPicker, type ModelPickerHandle } from "@/components/ModelPicker";
 import { StaleModelBanner } from "@/components/StaleModelBanner";
@@ -97,6 +115,11 @@ import {
   useComposerFiles,
 } from "@/hooks/useComposerFiles";
 import { useFileDrop } from "@/hooks/useFileDrop";
+import {
+  imageModelsKey,
+  useImageMachine,
+  useImageModelState,
+} from "@/hooks/useImageModels";
 import { useHasVision, useToolsSupport } from "@/hooks/useModelCapabilities";
 import { useSelectedModel } from "@/hooks/useModels";
 import { useSettings } from "@/hooks/useSettings";
@@ -118,6 +141,7 @@ import { errorMessage, pickFiles, voiceModeReplyFailed } from "@/lib/ipc";
 import { classifyPaste } from "@/lib/pastedFiles";
 import { thinkToSend, voiceThinkToSend } from "@/lib/think";
 import { overlayOpen } from "@/lib/overlay";
+import { streamsFor } from "@/lib/streams";
 import {
   isEscapeKey,
   isPasteShortcut,
@@ -160,7 +184,12 @@ interface ChatFormProps {
    * demandée (modèle `tools`, bouton actif, nuage non coupé) ; `editOf` :
    * message réécrit sans passer par la zone de saisie (relance sans
    * recherche web), sinon celui que la vue modifie ; `voice` : phrase du
-   * mode vocal (jamais une modification, sans fichier).
+   * mode vocal (jamais une modification, sans fichier) ; `image` : mode
+   * Image (propre à ChatonLM), le texte part tel quel au modèle d'images
+   * (`model` : celui du sélecteur, ou "" ; ni Think, ni fichier, ni
+   * recherche web) ; `onRefused` (mode Image) : à appeler avec le message
+   * d'un envoi refusé d'emblée par le moteur, que la zone de saisie montre
+   * elle-même (rend `true` : pas d'erreur ailleurs).
    */
   onSubmit: (
     content: string,
@@ -171,6 +200,8 @@ interface ChatFormProps {
     webSearch: boolean,
     editOf?: number,
     voice?: VoiceSubmit,
+    image?: boolean,
+    onRefused?: (message: string) => boolean,
   ) => void;
   onCancel: () => void;
   /** Message en cours de modification (commencée par startEdit), ou null. */
@@ -225,6 +256,28 @@ function mayTakeFocus(composer: HTMLElement | null, replyEnded: boolean) {
   // Un champ garde le focus (la zone de saisie l'a peut-être déjà).
   if (isEditable(active)) return false;
   return !replyEnded || (composer?.contains(active) ?? false);
+}
+
+/**
+ * Avis d'un envoi du mode Image refusé : ici avant de partir (fichiers,
+ * aucun modèle d'images choisi), ou d'emblée par le moteur (son texte).
+ */
+type ImageNotice =
+  | { kind: "files" }
+  | { kind: "noModel" }
+  | { kind: "refused"; message: string };
+
+/** Lien de l'avis « aucun modèle d'images » vers l'onglet Images du ModelHub. */
+function ChooseImageModel() {
+  const t = useT();
+  return (
+    <Link
+      to="/hub/images"
+      className="inline-flex rounded-full bg-neutral-900 px-3 py-1 text-sm font-medium text-white outline-none hover:bg-neutral-700 focus-visible:ring-2 focus-visible:ring-accent-fg dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+    >
+      {t("chat.image.chooseModel")}
+    </Link>
+  );
 }
 
 export function ChatForm({
@@ -286,6 +339,20 @@ export function ChatForm({
     enabled: voice.shown,
   });
   const keepThink = voiceSettings?.keepThink ?? false;
+  // Mode Image (propre à ChatonLM) : état local, gardé après l'envoi ; la
+  // conversation créée par un envoi d'image depuis la nouvelle conversation
+  // le reprend (son flux en est un).
+  const [imageMode, setImageMode] = useState(
+    () => chatId !== "new" && streamsFor(chatId).some((s) => s.image),
+  );
+  const { data: imageMachine } = useImageMachine();
+  const imageMissingCpu = imageMachine?.missingCpuFeatures ?? [];
+  const imageShown = imageMachine?.engineAvailable === true && !voice.shown;
+  const imageActive = imageMode && imageShown && imageMissingCpu.length === 0;
+  // Modèles d'images lus seulement en mode Image.
+  const imageModel = useImageModelState(imageActive);
+  const queryClient = useQueryClient();
+  const [imageNotice, setImageNotice] = useState<ImageNotice | null>(null);
   const canStartVoice =
     !isDisabled && selected !== null && editingMessage === null;
 
@@ -356,19 +423,98 @@ export function ChatForm({
   };
 
   // Une erreur de fichier bloque aussi Entrée (l'officiel ne bloque que le
-  // bouton) ; un fichier en cours de lecture partirait sans être joint.
+  // bouton) ; un fichier en cours de lecture partirait sans être joint. Mode
+  // Image : pas de modèle exigé, les fichiers sont refusés à l'envoi (avis) ;
+  // l'envoi attend que les modèles d'images soient lus (sauf échec de leur
+  // lecture), pour refuser ici, avec le lien, quand aucun n'est choisi.
   const canSend =
     !isStreaming &&
     !isDisabled &&
     content.trim() !== "" &&
-    selected !== null &&
-    composerFiles.errors.length === 0 &&
-    !composerFiles.busy;
+    !composerFiles.busy &&
+    (imageActive
+      ? imageModel !== "loading"
+      : selected !== null && composerFiles.errors.length === 0);
+  // Fichiers dans la zone (nouveaux, refusés ou gardés d'un message modifié).
+  const hasFiles =
+    composerFiles.files.length > 0 ||
+    composerFiles.errors.length > 0 ||
+    kept.length > 0;
+  // Avis montré tant qu'il a lieu d'être (fichiers retirés, modèle choisi) ;
+  // celui du moteur, jusqu'au prochain envoi.
+  const shownImageNotice =
+    !imageActive || imageNotice === null
+      ? null
+      : imageNotice.kind === "files"
+        ? hasFiles
+          ? imageNotice
+          : null
+        : imageNotice.kind === "noModel"
+          ? imageModel === "chosen"
+            ? null
+            : imageNotice
+          : imageNotice;
   // Ollama perdu pendant une réponse : on doit pouvoir l'arrêter à la souris.
   const stopAboveVeil = isStreaming && isDisabled;
 
+  /** Vide la zone de saisie après un envoi, qui garde le focus. */
+  const clearAfterSend = () => {
+    clearVoiceModeError(chatId);
+    setContent("");
+    setKept([]);
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.focus();
+    }
+  };
+
+  // Mode Image : refusé ici (zone gardée, avis) avec des fichiers ou sans
+  // modèle d'images choisi ; inconnu (lecture des modèles en échec) : le
+  // moteur décide. Son refus d'emblée rend le texte à la zone et va dans le
+  // même avis ; les modèles sont relus, pour le lien vers l'onglet Images
+  // s'il n'y en a plus de choisi (aucun texte du moteur n'est comparé).
+  const submitImage = () => {
+    if (hasFiles) {
+      setImageNotice({ kind: "files" });
+      return;
+    }
+    if (imageModel === "none") {
+      setImageNotice({ kind: "noModel" });
+      return;
+    }
+    setImageNotice(null);
+    const text = content;
+    const onRefused = (message: string) => {
+      setContent((current) => (current === "" ? text : current));
+      setImageNotice({ kind: "refused", message });
+      void queryClient.invalidateQueries({ queryKey: imageModelsKey });
+      // Hauteur reprise une fois le texte rendu.
+      setTimeout(resize, 0);
+      return true;
+    };
+    onSubmit(
+      content,
+      selected?.model ?? "",
+      undefined,
+      [],
+      [],
+      false,
+      undefined,
+      undefined,
+      true,
+      onRefused,
+    );
+    clearAfterSend();
+  };
+
   const submit = () => {
-    if (!canSend || !selected) return;
+    if (!canSend) return;
+    if (imageActive) {
+      submitImage();
+      return;
+    }
+    if (!selected) return;
     // Prepare attachments for submission, excluding unsupported images
     const taken = composerFiles.take();
     const attachments = visionMissing
@@ -388,14 +534,7 @@ export function ChatForm({
       keptToSend,
       webSearchUsable && webSearchEnabled,
     );
-    clearVoiceModeError(chatId);
-    setContent("");
-    setKept([]);
-    const textarea = textareaRef.current;
-    if (textarea) {
-      textarea.style.height = "auto";
-      textarea.focus();
-    }
+    clearAfterSend();
   };
 
   // Comme l'officiel : le composer reprend le message (les fichiers
@@ -651,6 +790,29 @@ export function ChatForm({
           <ErrorMessage message={voice.error} />
         </div>
       )}
+      {/* Envoi du mode Image refusé avant de partir (zone gardée) */}
+      {shownImageNotice !== null && (
+        <div
+          data-testid="image-notice"
+          className="mx-auto w-full max-w-[768px] px-5"
+        >
+          <ErrorMessage
+            message={
+              shownImageNotice.kind === "refused"
+                ? shownImageNotice.message
+                : t(
+                    shownImageNotice.kind === "files"
+                      ? "chat.image.withFiles"
+                      : "chat.image.noModel",
+                  )
+            }
+          >
+            {(shownImageNotice.kind === "noModel" ||
+              (shownImageNotice.kind === "refused" &&
+                imageModel === "none")) && <ChooseImageModel />}
+          </ErrorMessage>
+        </div>
+      )}
       <div
         ref={composerRef}
         data-tour="composer"
@@ -702,7 +864,11 @@ export function ChatForm({
                 setContent(e.target.value);
                 resize();
               }}
-              placeholder={t("chat.composer.placeholder")}
+              placeholder={t(
+                imageActive
+                  ? "chat.image.placeholder"
+                  : "chat.composer.placeholder",
+              )}
               aria-label={t("chat.composer.label")}
               disabled={isDisabled}
               rows={1}
@@ -739,7 +905,9 @@ export function ChatForm({
                     <PlusIcon className="h-4.5 w-4.5 stroke-2 text-neutral-500 dark:text-neutral-400" />
                   </button>
                 )}
+                {/* Mode Image : ni Think ni recherche web pour l'envoi. */}
                 {thinkControl.kind !== "none" &&
+                  !imageActive &&
                   (!voice.shown || keepThink) && (
                     <ThinkButton
                       control={thinkControl}
@@ -757,12 +925,22 @@ export function ChatForm({
                     dire en changeant de modèle). */}
                 <WebSearchButton
                   isVisible={
-                    (supportsWebSearch && cloudDisabled === false) ||
-                    toolsSupport === false
+                    !imageActive &&
+                    ((supportsWebSearch && cloudDisabled === false) ||
+                      toolsSupport === false)
                   }
                   isUnavailable={toolsSupport === false}
                   isActive={webSearchEnabled}
                   onToggle={() => setWebSearch(!webSearchEnabled)}
+                />
+                <ImageButton
+                  isVisible={imageShown}
+                  missingCpuFeatures={imageMissingCpu}
+                  isActive={imageActive}
+                  onToggle={() => {
+                    setImageMode(!imageMode);
+                    setImageNotice(null);
+                  }}
                 />
               </div>
             </div>
@@ -807,6 +985,15 @@ export function ChatForm({
           )}
         </div>
       </div>
+      {/* Mode Image sans carte graphique : chaque image prend des minutes. */}
+      {imageActive && imageMachine?.gpu === false && (
+        <p
+          data-testid="image-no-gpu"
+          className="mx-auto mt-2 w-full max-w-[768px] px-5 text-xs text-amber-700 dark:text-amber-400"
+        >
+          {t("chat.image.noGpu")}
+        </p>
+      )}
     </div>
   );
 }

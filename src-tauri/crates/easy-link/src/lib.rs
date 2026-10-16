@@ -18,7 +18,10 @@
 //! - le texte reçu par [`Messenger::send`] et [`Messenger::edit`] est du
 //!   Markdown tel que l'écrit un modèle ; chaque messagerie le rend à sa
 //!   façon, et un texte en cours d'écriture (bloc de code non fermé) reste
-//!   valable.
+//!   valable ;
+//! - une image produite par l'app part par [`Messenger::send_photo`] (PNG,
+//!   envoi `multipart/form-data`) : photo Telegram (document au-delà de
+//!   10 Mo), pièce jointe Discord (10 Mio au plus).
 
 use std::time::Duration;
 
@@ -222,6 +225,42 @@ impl Messenger {
         }
     }
 
+    /// Comme [`Messenger::typing`], pendant qu'une image se prépare :
+    /// Telegram montre « envoie une photo… » (action `upload_photo`), Discord
+    /// n'a que « écrit… ».
+    pub async fn preparing_photo(&self, channel: &str) -> Result<(), Problem> {
+        match self {
+            Messenger::Telegram(client) => client.preparing_photo(channel).await,
+            Messenger::Discord(client) => client.typing(channel).await,
+        }
+    }
+
+    /// Envoie une image PNG, avec une légende en Markdown s'il y en a une
+    /// (courte : [`telegram::CAPTION_LIMIT`], [`discord::TEXT_LIMIT`]), et
+    /// rend l'identifiant du message. `filename` est assaini (lettres et
+    /// chiffres ASCII, `.`, `-`, `_`, extension `.png`). Telegram : photo
+    /// (`sendPhoto`) jusqu'à [`telegram::PHOTO_MAX`], document
+    /// (`sendDocument`) au-delà ; Discord : pièce jointe d'un message,
+    /// [`Problem::TooLarge`] sans requête au-delà de [`discord::UPLOAD_MAX`].
+    /// Pas de nouvel essai ici : un [`Problem::RateLimited`] revient à
+    /// l'appelant, comme pour [`Messenger::send`].
+    pub async fn send_photo(
+        &self,
+        channel: &str,
+        png: Vec<u8>,
+        filename: &str,
+        caption: Option<&str>,
+    ) -> Result<String, Problem> {
+        let filename = upload_name(filename);
+        let caption = caption.map(str::trim).filter(|caption| !caption.is_empty());
+        match self {
+            Messenger::Telegram(client) => {
+                client.send_photo(channel, png, &filename, caption).await
+            }
+            Messenger::Discord(client) => client.send_photo(channel, png, &filename, caption).await,
+        }
+    }
+
     /// Lit un fichier reçu, `max` octets au plus ([`Problem::TooLarge`]
     /// au-delà, sans tout lire). Une poignée de l'autre messagerie est
     /// refusée.
@@ -233,9 +272,50 @@ impl Messenger {
     }
 }
 
+/// Nom d'un fichier envoyé : rien qui puisse casser l'en-tête d'une partie
+/// `multipart` (guillemet, fin de ligne) ni désigner un chemin. Lettres et
+/// chiffres ASCII, `.`, `-` et `_` gardés, le reste devient `_` ; 64
+/// caractères au plus ; extension `.png` ajoutée si elle manque.
+pub(crate) fn upload_name(name: &str) -> String {
+    const MAX: usize = 64;
+    let mut base: String = name
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if base.to_ascii_lowercase().ends_with(".png") {
+        base.truncate(base.len() - 4);
+    }
+    let base = base.trim_matches('.');
+    let base = if base.is_empty() { "image" } else { base };
+    let base = &base[..base.len().min(MAX - 4)];
+    format!("{base}.png")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_upload_name_is_safe_and_ends_in_png() {
+        assert_eq!(upload_name("image-7.png"), "image-7.png");
+        assert_eq!(upload_name("IMAGE.PNG"), "IMAGE.png");
+        assert_eq!(upload_name("chat roux"), "chat_roux.png");
+        assert_eq!(upload_name("a\"b\r\nc.png"), "a_b__c.png");
+        assert_eq!(upload_name("../../etc/passwd"), "_.._etc_passwd.png");
+        assert_eq!(upload_name("  "), "image.png");
+        assert_eq!(upload_name(".png"), "image.png");
+        assert_eq!(upload_name("chaton-é.png"), "chaton-_.png");
+        let long = upload_name(&"x".repeat(200));
+        assert_eq!(long.len(), 64);
+        assert!(long.ends_with(".png"));
+    }
 
     #[test]
     fn platform_names_round_trip() {

@@ -1,0 +1,154 @@
+{
+  "description": "A model with tools and an image model chosen in the ModelHub (chatonlm-image): thinking and a generate_image call (512 x 512), the image's progress (place kept, loading, two steps, the first with a preview), the image saved as an attachment of that answer (imageReady), the call's result, then a second answer.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "A red fox in the snow, watercolor",
+    "model": "chatonlm-image"
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "A red fox in the snow, watercolor",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "type": "loading"
+    },
+    {
+      "type": "loaded"
+    },
+    {
+      "createdAt": 1700000000000,
+      "messageId": 2,
+      "type": "replyStarted"
+    },
+    {
+      "text": "The user wants a",
+      "type": "thinking"
+    },
+    {
+      "text": " picture.",
+      "type": "thinking"
+    },
+    {
+      "messageId": 2,
+      "toolCalls": [
+        {
+          "arguments": "{\"height\":512,\"prompt\":\"A red fox in the snow, watercolor\",\"width\":512}",
+          "error": null,
+          "name": "generate_image",
+          "result": null
+        }
+      ],
+      "type": "toolCalls"
+    },
+    {
+      "index": 0,
+      "messageId": 2,
+      "progress": {
+        "cpu": false,
+        "height": 512,
+        "preview": null,
+        "stage": "starting",
+        "step": null,
+        "total": null,
+        "width": 512
+      },
+      "type": "imageProgress"
+    },
+    {
+      "index": 0,
+      "messageId": 2,
+      "progress": {
+        "cpu": false,
+        "height": 512,
+        "preview": null,
+        "stage": "loading",
+        "step": null,
+        "total": null,
+        "width": 512
+      },
+      "type": "imageProgress"
+    },
+    {
+      "index": 0,
+      "messageId": 2,
+      "progress": {
+        "cpu": false,
+        "height": 512,
+        "preview": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAP0lEQVR4AQE0AMv/AP8AAP8AAP8AAP8AAAD/AAD/AAD/AAD/AAAA/wAA/wAA/wAA/wAAAP8AAP8AAP8AAP8AAK6TD/FxtSpPAAAAAElFTkSuQmCC",
+        "stage": "generating",
+        "step": 1,
+        "total": 2,
+        "width": 512
+      },
+      "type": "imageProgress"
+    },
+    {
+      "index": 0,
+      "messageId": 2,
+      "progress": {
+        "cpu": false,
+        "height": 512,
+        "preview": null,
+        "stage": "generating",
+        "step": 2,
+        "total": 2,
+        "width": 512
+      },
+      "type": "imageProgress"
+    },
+    {
+      "attachment": {
+        "filename": "image-7.png",
+        "id": 1,
+        "kind": "image",
+        "mime": "image/png",
+        "size": 120
+      },
+      "index": 0,
+      "messageId": 2,
+      "type": "imageReady"
+    },
+    {
+      "error": null,
+      "index": 0,
+      "messageId": 2,
+      "result": "{\"attachmentId\":1,\"width\":512,\"height\":512,\"seed\":7,\"model\":\"Fake image model\"}",
+      "type": "toolResult"
+    },
+    {
+      "createdAt": 1700000000000,
+      "messageId": 3,
+      "type": "replyStarted"
+    },
+    {
+      "text": "Here is your ima",
+      "type": "content"
+    },
+    {
+      "text": "ge.",
+      "type": "content"
+    },
+    {
+      "messageId": 3,
+      "type": "done"
+    }
+  ],
+  "error": null
+}

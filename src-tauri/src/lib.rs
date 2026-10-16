@@ -268,6 +268,10 @@ pub fn run() {
                         voice_mode.observe(chat, event, voice);
                     }
                 });
+            // Images de la conversation (outil `generate_image`, bouton
+            // « Image ») : moteur, modèle choisi et base relus à chaque image.
+            app.state::<ChatEngine>()
+                .set_painter(Arc::new(chat::images::AppPainter(app.handle().clone())));
             app.state::<Dictation>().setup(app.handle());
             window::create_main_window(app, store.as_ref())?;
             if let Some(store) = store {
@@ -350,6 +354,7 @@ pub fn run() {
             commands::account::account_status,
             commands::account::cloud_status,
             commands::attachments::pick_files,
+            commands::attachments::save_image,
             commands::attachments::stage_bytes,
             commands::attachments::stage_clipboard_image,
             commands::attachments::stage_paths,

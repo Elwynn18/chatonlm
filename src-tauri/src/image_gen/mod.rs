@@ -26,10 +26,6 @@
 //!   la VRAM libre au moment de générer (« auto-fit ») ; rien n'est déchargé
 //!   d'Ollama ici.
 
-// Branché à la conversation à une étape suivante (outil `generate_image`,
-// bouton « Image ») : seuls les essais s'en servent pour l'instant.
-#![allow(dead_code, reason = "branché à la conversation ensuite")]
-
 mod api;
 mod server;
 
@@ -351,7 +347,12 @@ impl ImageGen {
     }
 
     /// Numéro du processus du serveur lancé (jauge de la VRAM), même pendant
-    /// une image.
+    /// une image. Seuls les essais le lisent tant que la jauge de la VRAM ne
+    /// compte pas encore le moteur d'images.
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "jauge de la VRAM, pas encore branchée")
+    )]
     pub fn server_pid(&self) -> Option<u32> {
         Some(self.inner.pid.load(Ordering::SeqCst)).filter(|pid| *pid != 0)
     }
@@ -714,4 +715,4 @@ fn validate(request: &Request) -> Result<(), ImageGenError> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

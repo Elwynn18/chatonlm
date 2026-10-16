@@ -1,0 +1,14 @@
+{
+  "description": "Image button while no image model is chosen: the command fails, no event, nothing saved.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "A red fox in the snow, watercolor",
+    "model": "qwen3:0.6b",
+    "image": true
+  },
+  "events": [],
+  "error": {
+    "kind": "invalid",
+    "message": "No image model chosen: pick one in the ModelHub, Images tab."
+  }
+}

@@ -2,7 +2,9 @@
   "dialogs": {
     "selectFiles": "Select Files",
     "supportedFiles": "Supported Files",
-    "selectModelDirectory": "Select Model Directory"
+    "selectModelDirectory": "Select Model Directory",
+    "saveImage": "Save Image",
+    "pngImages": "PNG Images"
   },
   "tray": {
     "show": "Show ChatonLM",
@@ -198,7 +200,15 @@
     "contextFull": "The conversation filled the model's context, so the reply was cut. Compact the conversation to continue.",
     "nothingToCompact": "there is nothing new to compact in this chat",
     "compactEmpty": "the model wrote no summary",
-    "compactStopped": "the compaction was stopped"
+    "compactStopped": "the compaction was stopped",
+    "imageNoModel": "No image model chosen: pick one in the ModelHub, Images tab.",
+    "imageWithFiles": "An image can't be created from attached files: remove them, or turn off Image.",
+    "imageUnavailable": "This build of ChatonLM doesn't include the image engine.",
+    "imageCpuUnsupported": "This processor can't run the image engine (missing: {features}).",
+    "imageTooMany": "At most {max} images can be created per message.",
+    "imageTooLarge": "The image is too large to be kept (more than {max} MiB).",
+    "imageNoPrompt": "The image description (prompt) is missing or empty.",
+    "imageNotFound": "This image no longer exists."
   },
   "errors": {
     "connectionLost": "Connection lost",
@@ -352,6 +362,8 @@
     "refused": "{service} answered with an error: {error}",
     "noBot": "Connect and turn on the bot first",
     "unavailable": "Easy Link is unavailable: the database could not be opened",
+    "photoFailed": "The image was created, but it could not be sent here. You can see it in ChatonLM.",
+    "photoMaybeFailed": "The image may not have arrived. You can see it in ChatonLM.",
     "bot": {
       "private": "This bot is private. To use it, send the pairing code shown in ChatonLM (Settings > Easy Link).",
       "linked": "Your account is linked. Send a message to talk to the model.",

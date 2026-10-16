@@ -12,7 +12,8 @@
 // over by the dialog (or a native drop) can then be staged.
 
 //! Pièces jointes : sélecteur natif et zone de préparation (voir
-//! `attachments`).
+//! `attachments`) ; enregistrement d'une image de la conversation (propre à
+//! ChatonLM).
 
 use percent_encoding::percent_decode_str;
 use tauri::http::HeaderMap;
@@ -23,6 +24,7 @@ use tauri_plugin_dialog::DialogExt;
 use crate::attachments::{self, StageResult, Staging};
 use crate::error::{AppError, AppResult};
 use crate::i18n::t;
+use crate::store::{Store, chats};
 
 /// En-tête qui porte le nom d'un fichier envoyé en octets bruts, encodé par
 /// `encodeURIComponent`.
@@ -76,6 +78,80 @@ pub async fn pick_files(
         .map(|path| path.to_string_lossy().into_owned())
         .collect();
     Ok(hand_over(&staging, generation, paths))
+}
+
+/// Enregistre une image de la conversation (image produite, propre à
+/// ChatonLM) dans le fichier choisi par la boîte « Enregistrer » native, au
+/// nom de la pièce jointe ; vrai si le fichier est écrit, faux si
+/// l'utilisateur annule.
+#[tauri::command]
+pub async fn save_image(
+    window: WebviewWindow,
+    store: State<'_, Store>,
+    attachment_id: i64,
+) -> AppResult<bool> {
+    let found = store
+        .call(move |connection| chats::image_file(connection, attachment_id))
+        .await?;
+    let Some((filename, data)) = found else {
+        return Err(AppError::NotFound(t!("chat.imageNotFound")));
+    };
+    let Some(path) = pick_image_path(&window, suggested_name(&filename)).await else {
+        return Ok(false);
+    };
+    tauri::async_runtime::spawn_blocking(move || std::fs::write(&path, data))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
+    Ok(true)
+}
+
+/// Nom proposé pour enregistrer une image : celui de la pièce jointe, en
+/// `.png` s'il n'a pas d'extension d'image.
+fn suggested_name(filename: &str) -> String {
+    let lower = filename.to_ascii_lowercase();
+    let extension = lower.rsplit_once('.').map(|(_, extension)| extension);
+    if matches!(
+        extension,
+        Some("png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp")
+    ) {
+        filename.to_owned()
+    } else {
+        format!("{filename}.png")
+    }
+}
+
+/// Chemin choisi dans la boîte « Enregistrer » native, au-dessus de la
+/// fenêtre ; `None` si l'utilisateur annule.
+async fn pick_image_path(window: &WebviewWindow, name: String) -> Option<std::path::PathBuf> {
+    // Essais de l'app réelle : pas de boîte à piloter, le chemin « choisi »
+    // est la valeur de la variable (vide : annulé), comme pour les notes d'un
+    // cours.
+    #[cfg(feature = "e2e")]
+    if let Some(path) = std::env::var_os("CHATONLM_E2E_SAVE_FILE") {
+        return (!path.is_empty()).then(|| std::path::PathBuf::from(path));
+    }
+    let png = name.to_ascii_lowercase().ends_with(".png");
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let dialog = window
+        .dialog()
+        .file()
+        .set_parent(window)
+        .set_title(t!("dialogs.saveImage"))
+        .set_file_name(name);
+    let dialog = if png {
+        dialog.add_filter(t!("dialogs.pngImages"), &["png"])
+    } else {
+        dialog
+    };
+    dialog.save_file(move |path| {
+        let _ = sender.send(path);
+    });
+    // Rappel jamais fait (boucle d'événements arrêtée) : comme une annulation.
+    receiver
+        .await
+        .ok()
+        .flatten()
+        .and_then(|path| path.into_path().ok())
 }
 
 /// Remet les chemins choisis à la zone de préparation, sauf si la page a été
@@ -251,6 +327,14 @@ mod tests {
         ERROR_READING_FILE, FILE_TOO_LARGE, FILE_TYPE_NOT_SUPPORTED, rejection, staged, staging,
         temp_dir,
     };
+
+    #[test]
+    fn a_saved_image_keeps_its_name_as_an_image_file() {
+        assert_eq!(suggested_name("image-7.png"), "image-7.png");
+        assert_eq!(suggested_name("Photo.JPG"), "Photo.JPG");
+        assert_eq!(suggested_name("image"), "image.png");
+        assert_eq!(suggested_name("notes.txt"), "notes.txt.png");
+    }
 
     #[test]
     fn the_filename_is_decoded_like_decode_uri_component() {

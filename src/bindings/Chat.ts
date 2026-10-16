@@ -12,4 +12,10 @@ context: ContextUsage | null,
 /**
  * Compactages, dans l'ordre (propre à ChatonLM).
  */
-compactions: Array<Compaction>, };
+compactions: Array<Compaction>, 
+/**
+ * Réponse d'un bot d'Easy Link en cours dans cette conversation
+ * (identifiant du message vivant), superposée par le moteur ; la page
+ * n'a pas de flux pour elle (propre à ChatonLM).
+ */
+replyRunning: number | null, };

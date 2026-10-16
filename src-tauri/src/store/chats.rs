@@ -15,6 +15,10 @@ const EXCERPT_CHARS: usize = 100;
 /// Longueur maximale d'un titre.
 const TITLE_CHARS: usize = 200;
 
+/// Taille maximale d'une image produite par le moteur d'images, enregistrée
+/// en pièce jointe d'une réponse (propre à ChatonLM).
+pub const MAX_GENERATED_IMAGE_SIZE: usize = 32 * 1024 * 1024;
+
 /// Entrée de l'historique.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -160,6 +164,10 @@ pub struct Chat {
     pub context: Option<ContextUsage>,
     /// Compactages, dans l'ordre (propre à ChatonLM).
     pub compactions: Vec<Compaction>,
+    /// Réponse d'un bot d'Easy Link en cours dans cette conversation
+    /// (identifiant du message vivant), superposée par le moteur ; la page
+    /// n'a pas de flux pour elle (propre à ChatonLM).
+    pub reply_running: Option<i64>,
 }
 
 /// Contexte consommé (propre à ChatonLM) : jetons du prompt et de la réponse
@@ -232,6 +240,7 @@ pub fn get(connection: &Connection, id: &str) -> AppResult<Chat> {
                     messages: Vec::new(),
                     context: None,
                     compactions: Vec::new(),
+                    reply_running: None,
                 })
             },
         )
@@ -850,12 +859,15 @@ fn history_after(
         });
     }
 
-    // Images : leur contenu ; autres fichiers : leur texte extrait.
+    // Images : leur contenu ; autres fichiers : leur texte extrait. Seules
+    // celles de l'utilisateur : une image produite (pièce jointe d'une
+    // réponse) ne part jamais au modèle, qui la connaît par le résultat de
+    // son appel `generate_image`.
     let mut attachments = connection.prepare(
         "SELECT a.message_id, a.filename, a.kind,
                 CASE WHEN a.kind = 'image' THEN a.data END, a.text
          FROM attachments a JOIN messages m ON m.id = a.message_id
-         WHERE m.chat_id = ?1 AND m.id > ?2 ORDER BY a.id",
+         WHERE m.chat_id = ?1 AND m.id > ?2 AND m.role = 'user' ORDER BY a.id",
     )?;
     let rows = attachments.query_map(params![chat_id, after], |row| {
         let file = if row.get::<_, String>(2)? == "image" {
@@ -902,6 +914,56 @@ pub fn image_attachment(connection: &Connection, id: i64) -> AppResult<Option<(S
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?)
+}
+
+/// Image enregistrée (nom et contenu), pour « Save image… » ; `None` pour
+/// une pièce jointe inconnue ou qui n'est pas une image.
+pub fn image_file(connection: &Connection, id: i64) -> AppResult<Option<(String, Vec<u8>)>> {
+    Ok(connection
+        .query_row(
+            "SELECT filename, data FROM attachments WHERE id = ?1 AND kind = 'image'",
+            params![id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?)
+}
+
+/// Enregistre une image produite par le moteur d'images (PNG, graine `seed`)
+/// en pièce jointe de la réponse `message_id` (propre à ChatonLM) : nom
+/// `image-<seed>.png`. Refus au-delà de [`MAX_GENERATED_IMAGE_SIZE`]
+/// (`AppError::Invalid`, texte donné au modèle).
+pub fn add_generated_image(
+    connection: &Connection,
+    message_id: i64,
+    png: &[u8],
+    seed: u32,
+    now: i64,
+) -> AppResult<AttachmentInfo> {
+    if png.len() > MAX_GENERATED_IMAGE_SIZE {
+        return Err(AppError::Invalid(t!(
+            "chat.imageTooLarge",
+            max = MAX_GENERATED_IMAGE_SIZE / (1024 * 1024)
+        )));
+    }
+    let filename = format!("image-{seed}.png");
+    let mut infos = insert_attachments(
+        connection,
+        message_id,
+        &[NewAttachment {
+            filename: &filename,
+            kind: AttachmentKind::Image,
+            mime: "image/png",
+            data: png,
+            text: None,
+        }],
+    )?;
+    connection.execute(
+        "UPDATE messages SET updated_at = ?2 WHERE id = ?1",
+        params![message_id, now],
+    )?;
+    infos
+        .pop()
+        .ok_or_else(|| AppError::Internal("attachment not saved".into()))
 }
 
 /// État d'une réponse de l'assistant à enregistrer.
@@ -1751,5 +1813,74 @@ mod tests {
             })
             .unwrap();
         assert_eq!(remaining, (5, 10));
+    }
+
+    /// Image produite : pièce jointe de la réponse (nom, type, taille),
+    /// servie et enregistrable, jamais renvoyée au modèle ; au-delà de
+    /// 32 Mio, refusée sans rien écrire.
+    #[test]
+    fn a_generated_image_belongs_to_the_reply_and_stays_out_of_the_history() {
+        let store = Store::open_in_memory().unwrap();
+        let id = store.blocking(|c| create(c, NOW)).unwrap();
+        let chat = id.clone();
+        store
+            .blocking(move |c| add_user_message(c, &chat, "Draw a cat", &[], NOW))
+            .unwrap();
+        let chat = id.clone();
+        let reply = store
+            .blocking(move |c| create_reply(c, &chat, "qwen3:0.6b", NOW))
+            .unwrap();
+        let png = b"\x89PNG fake".to_vec();
+        let data = png.clone();
+        let info = store
+            .blocking(move |c| add_generated_image(c, reply, &data, 7, NOW + 5))
+            .unwrap();
+        assert_eq!(
+            (
+                info.filename.as_str(),
+                info.kind,
+                info.mime.as_str(),
+                info.size
+            ),
+            ("image-7.png", AttachmentKind::Image, "image/png", 9)
+        );
+        let saved = store.blocking({
+            let id = id.clone();
+            move |c| get(c, &id)
+        });
+        let saved = saved.unwrap();
+        assert_eq!(saved.messages[1].attachments, std::slice::from_ref(&info));
+        assert_eq!(saved.messages[1].updated_at, NOW + 5);
+        assert_eq!(
+            store
+                .blocking(move |c| image_attachment(c, info.id))
+                .unwrap(),
+            Some(("image/png".into(), png.clone()))
+        );
+        assert_eq!(
+            store.blocking(move |c| image_file(c, info.id)).unwrap(),
+            Some(("image-7.png".into(), png))
+        );
+        // Réponse faite d'une image seule, sans appel : vide pour le modèle.
+        let turns = store
+            .blocking({
+                let id = id.clone();
+                move |c| history(c, &id)
+            })
+            .unwrap();
+        assert_eq!(turns.len(), 1);
+        assert!(turns[0].files.is_empty());
+
+        let huge = vec![0u8; MAX_GENERATED_IMAGE_SIZE + 1];
+        let refused = store.blocking(move |c| add_generated_image(c, reply, &huge, 8, NOW));
+        assert!(
+            matches!(&refused, Err(AppError::Invalid(message)) if message.contains("32 MiB")),
+            "{refused:?}"
+        );
+        let count: i64 = store
+            .blocking(|c| Ok(c.query_row("SELECT COUNT(*) FROM attachments", [], |r| r.get(0))?))
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(store.blocking(|c| image_file(c, 999)).unwrap(), None);
     }
 }

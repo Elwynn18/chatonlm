@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use futures_util::{SinkExt, StreamExt};
 use reqwest::Method;
 use reqwest::header::{AUTHORIZATION, CONTENT_LENGTH, HeaderValue, RETRY_AFTER, USER_AGENT};
+use reqwest::multipart::{Form, Part};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
@@ -46,7 +47,13 @@ const IDENTITY_TIMEOUT: Duration = Duration::from_secs(15);
 const SEND_TIMEOUT: Duration = Duration::from_secs(30);
 const TYPING_TIMEOUT: Duration = Duration::from_secs(10);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
+/// Envoi d'une image : plusieurs mégaoctets sur une connexion lente.
+const UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Plus grosse pièce jointe qu'un bot peut envoyer dans un message privé
+/// (10 Mio) : au-delà, [`Problem::TooLarge`] sans requête.
+pub const UPLOAD_MAX: usize = 10 * 1024 * 1024;
 
 /// Taille permise à une réponse de l'API.
 const ANSWER_MAX: u64 = 1 << 20;
@@ -174,6 +181,44 @@ impl Client {
         let request = self
             .api(Method::POST, &path, SEND_TIMEOUT)
             .json(&message_body(markdown));
+        let answer = self.call(request).await?;
+        answer["id"]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(unreadable)
+    }
+
+    /// Image PNG en pièce jointe d'un nouveau message (`payload_json` et
+    /// `files[0]`) ; `filename` déjà assaini, `caption` non vide.
+    pub(crate) async fn send_photo(
+        &self,
+        channel: &str,
+        png: Vec<u8>,
+        filename: &str,
+        caption: Option<&str>,
+    ) -> Result<String, Problem> {
+        let path = format!("/channels/{}/messages", snowflake(channel)?);
+        if png.len() > UPLOAD_MAX {
+            return Err(Problem::TooLarge);
+        }
+        let mut payload = message_body(caption.unwrap_or_default());
+        if caption.is_none() {
+            // Un message à pièce jointe peut n'avoir aucun texte.
+            if let Some(fields) = payload.as_object_mut() {
+                fields.remove("content");
+            }
+        }
+        payload["attachments"] = json!([{ "id": 0, "filename": filename }]);
+        let part = Part::bytes(png)
+            .file_name(filename.to_owned())
+            .mime_str("image/png")
+            .map_err(|error| self.network(error))?;
+        let form = Form::new()
+            .text("payload_json", payload.to_string())
+            .part("files[0]", part);
+        let request = self
+            .api(Method::POST, &path, UPLOAD_TIMEOUT)
+            .multipart(form);
         let answer = self.call(request).await?;
         answer["id"]
             .as_str()
@@ -317,6 +362,8 @@ impl Client {
         match status {
             401 => Problem::Unauthorized,
             403 => Problem::Forbidden,
+            // Pièce jointe au-delà de ce que permet la conversation.
+            413 => Problem::TooLarge,
             429 => {
                 let seconds = body["retry_after"].as_f64().or(retry).unwrap_or(1.0);
                 // Valeur démesurée ou illisible : jamais de panique en la
@@ -1295,6 +1342,137 @@ mod tests {
                 json!({"kind": "typing", "channel": "942"}),
             ]
         );
+    }
+
+    /// Image « PNG » de `size` octets (signature, puis des zéros).
+    fn png(size: usize) -> Vec<u8> {
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.resize(size.max(png.len()), 0);
+        png
+    }
+
+    #[tokio::test]
+    async fn an_image_is_sent_as_an_attachment_without_any_mention_allowed() {
+        let fake = FakeDiscord::start().await;
+        let messenger = crate::Messenger::Discord(client(&fake));
+        let id = messenger
+            .send_photo("942", png(300), "image-7.png", None)
+            .await
+            .unwrap();
+        let second = messenger
+            .send_photo("942", png(50), "chat roux", Some("Hello @everyone"))
+            .await
+            .unwrap();
+        assert_ne!(id, second);
+        let nobody = json!({"parse": []});
+        assert_eq!(
+            fake.sent(),
+            vec![
+                json!({
+                    "kind": "photo", "channel": "942", "id": id, "filename": "image-7.png",
+                    "size": 300, "contentType": "image/png", "upload": "attachment",
+                    "allowedMentions": nobody, "flags": 1 << 2,
+                }),
+                json!({
+                    "kind": "photo", "channel": "942", "id": second, "filename": "chat_roux.png",
+                    "size": 50, "contentType": "image/png", "upload": "attachment",
+                    "allowedMentions": nobody, "flags": 1 << 2, "caption": "Hello @everyone",
+                }),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn the_form_of_an_image_names_its_file_in_the_payload() {
+        // Corps reçu tel quel, lu par le lecteur strict des faux serveurs.
+        let (sender, mut bodies) = mpsc::unbounded_channel::<(String, Vec<u8>)>();
+        let router = Router::new().fallback(move |headers: HeaderMap, body: Bytes| {
+            let content_type = headers
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_owned();
+            let _ = sender.send((content_type, body.to_vec()));
+            async { Json(json!({"id": "1"})) }
+        });
+        let client = client_at(&serve(router).await, TOKEN);
+        let id = client
+            .send_photo("942", png(20), "image-7.png", None)
+            .await
+            .unwrap();
+        assert_eq!(id, "1");
+        let (content_type, body) = bodies.recv().await.unwrap();
+        let parts = crate::fake::parse_multipart(&content_type, &body).unwrap();
+        let names: Vec<_> = parts.iter().map(|part| part.name.as_str()).collect();
+        assert_eq!(names, ["payload_json", "files[0]"]);
+        let payload: Value = serde_json::from_slice(&parts[0].data).unwrap();
+        assert_eq!(
+            payload,
+            json!({
+                "allowed_mentions": {"parse": []},
+                "flags": 1 << 2,
+                "attachments": [{"id": 0, "filename": "image-7.png"}],
+            })
+        );
+        assert_eq!(parts[1].filename.as_deref(), Some("image-7.png"));
+        assert_eq!(parts[1].content_type.as_deref(), Some("image/png"));
+        assert_eq!(parts[1].data, png(20));
+    }
+
+    #[tokio::test]
+    async fn an_image_beyond_the_limit_or_to_a_bad_channel_never_leaves() {
+        let (base, hits) = counting().await;
+        let counted = client_at(&base, TOKEN);
+        assert_eq!(
+            counted
+                .send_photo("942", png(UPLOAD_MAX + 1), "a.png", None)
+                .await,
+            Err(Problem::TooLarge)
+        );
+        assert!(matches!(
+            counted.send_photo("9/42", png(10), "a.png", None).await,
+            Err(Problem::Refused { status: 0, .. })
+        ));
+        assert_eq!(hits.load(Ordering::SeqCst), 0);
+        // À la limite : la requête part.
+        let fake = FakeDiscord::start().await;
+        client(&fake)
+            .send_photo("942", png(UPLOAD_MAX), "a.png", None)
+            .await
+            .unwrap();
+        assert_eq!(fake.sent()[0]["size"], UPLOAD_MAX);
+    }
+
+    #[tokio::test]
+    async fn refusals_of_an_image_become_problems() {
+        let fake = FakeDiscord::start().await;
+        let client = client(&fake);
+        let limited = json!({"message": "You are being rate limited.", "retry_after": 2.5});
+        fake.fail_next("photo", 429, limited);
+        assert_eq!(
+            client.send_photo("942", png(10), "a.png", None).await,
+            Err(Problem::RateLimited(Duration::from_millis(2500)))
+        );
+        let large = json!({"message": "Request entity too large", "code": 40005});
+        fake.fail_next("photo", 413, large);
+        assert_eq!(
+            client.send_photo("942", png(10), "a.png", None).await,
+            Err(Problem::TooLarge)
+        );
+        let blocked = json!({"message": "Cannot send messages to this user", "code": 50007});
+        fake.fail_next("photo", 403, blocked);
+        assert_eq!(
+            client.send_photo("942", png(10), "a.png", None).await,
+            Err(Problem::Forbidden)
+        );
+        // Les refus de la route `photo` ne touchent pas les messages.
+        fake.fail_next("photo", 500, json!({"message": "boom"}));
+        client.send("942", "hi").await.unwrap();
+        assert!(matches!(
+            client.send_photo("942", png(10), "a.png", None).await,
+            Err(Problem::Refused { status: 500, .. })
+        ));
+        assert_eq!(fake.sent().len(), 1);
     }
 
     #[tokio::test]

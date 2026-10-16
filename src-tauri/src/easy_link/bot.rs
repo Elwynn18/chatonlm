@@ -17,7 +17,7 @@ use crate::dictation::audio;
 use crate::i18n::t;
 use crate::ollama::{models, running};
 use crate::store::easy_link::{self as saved, Account, Platform};
-use crate::store::{chats, model_prefs, now_ms};
+use crate::store::{Store, chats, model_prefs, now_ms};
 
 /// Un message d'un compte lié plus ancien que cela à son arrivée (remis par la
 /// messagerie après une absence de l'app) n'est plus servi : y répondre des
@@ -698,6 +698,7 @@ async fn respond<H: Host>(
         kept_attachment_ids: None,
         web_search: Some(account.web_search),
         voice: None,
+        image: None,
     };
     let server = Server::from_settings(&settings);
     let (events, mut received) = mpsc::unbounded_channel::<ChatEvent>();
@@ -737,6 +738,8 @@ async fn respond<H: Host>(
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut typed = Instant::now();
     let mut refreshed = Instant::now();
+    // Une image se calcule (outil `generate_image`) : « envoie une photo… ».
+    let mut painting = false;
     loop {
         tokio::select! {
             event = received.recv() => {
@@ -760,8 +763,24 @@ async fn respond<H: Host>(
                             shared.host.chat_updated(id);
                         }
                     }
-                    ChatEvent::ReplyStarted { .. } => relay.new_turn(),
+                    ChatEvent::ReplyStarted { .. } => {
+                        painting = false;
+                        relay.new_turn();
+                    }
                     ChatEvent::Content { text } => relay.push(&text),
+                    // Rien à envoyer de l'avancement : l'indicateur suffit.
+                    ChatEvent::ImageProgress { .. } => painting = true,
+                    ChatEvent::ImageReady { attachment, .. } => {
+                        painting = false;
+                        // Arrêt demandé (`/stop`, compte délié) ou bot bloqué
+                        // pendant que l'image finissait : rien n'est envoyé.
+                        if !(shared.stopped(account.id) || relay.gone()) {
+                            let png = generated_png(&shared.store, attachment.id).await;
+                            relay.photo(png, &attachment.filename).await;
+                        }
+                    }
+                    // Image en échec : l'erreur va au modèle, qui la dira.
+                    ChatEvent::ToolResult { .. } => painting = false,
                     ChatEvent::Done { .. } => done = true,
                     ChatEvent::Error { kind, message } => failure = Some((kind, message)),
                     _ => {}
@@ -776,7 +795,11 @@ async fn respond<H: Host>(
                 }
                 if typed.elapsed() >= TYPING_EVERY && !relay.wrote_within(TYPING_EVERY) {
                     typed = Instant::now();
-                    let _ = messenger.typing(channel).await;
+                    let _ = if painting {
+                        messenger.preparing_photo(channel).await
+                    } else {
+                        messenger.typing(channel).await
+                    };
                 }
                 if refreshed.elapsed() >= REFRESH_EVERY && let Some(id) = &chat_id {
                     refreshed = Instant::now();
@@ -825,10 +848,21 @@ async fn respond<H: Host>(
             None => None,
         },
     };
+    // Par le relais : une limite de débit encore posée est respectée.
     if let Some(note) = note
         && !relay.gone()
     {
-        say(messenger, channel, &note).await;
+        relay.say(&note).await;
+    }
+}
+
+/// PNG d'une image produite pour la réponse, lu en base ; rien s'il manque
+/// (supprimé entre-temps) ou n'est pas un PNG.
+pub(super) async fn generated_png(store: &Store, id: i64) -> Option<Vec<u8>> {
+    let image = store.call(move |c| chats::image_attachment(c, id)).await;
+    match image {
+        Ok(Some((mime, png))) if mime == "image/png" => Some(png),
+        _ => None,
     }
 }
 

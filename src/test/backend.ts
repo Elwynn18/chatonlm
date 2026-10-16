@@ -53,6 +53,10 @@
 // Contexte (propre à ChatonLM) : les événements context et compacted
 // rejoués mettent à jour la conversation enregistrée ; compact_chat la
 // compacte selon backend.compaction.
+// Images créées (propre à ChatonLM) : imageReady rejoué ajoute la pièce
+// jointe à la réponse enregistrée (imageProgress n'enregistre rien) ;
+// save_image note la pièce jointe dans imageSaves et répond imageSave
+// (vrai : écrite, faux : annulé, ou l'erreur renvoyée).
 // Pour les tests seulement.
 
 import type { AccountStatus } from "@/bindings/AccountStatus";
@@ -235,12 +239,17 @@ type FakeEntry = FakeFile | { error: string };
 /**
  * Conversation enregistrée : celle de get_chat, plus son rang de favori et
  * la messagerie d'où elle vient (list_chats seulement ; absents : non
- * favorite, conversation de l'app). Contexte et compactages facultatifs
- * (absents : taille inconnue, aucun compactage).
+ * favorite, conversation de l'app). Contexte, compactages et réponse d'un
+ * bot en cours facultatifs (absents : taille inconnue, aucun compactage,
+ * aucune réponse d'Easy Link en cours).
  */
-export type StoredChat = Omit<Chat, "context" | "compactions"> & {
+export type StoredChat = Omit<
+  Chat,
+  "context" | "compactions" | "replyRunning"
+> & {
   context?: ContextUsage | null;
   compactions?: Compaction[];
+  replyRunning?: number | null;
   favorite?: boolean;
   source?: EasyLinkPlatform | null;
 };
@@ -459,6 +468,10 @@ export interface FakeBackend {
   easyLink: FakeEasyLink;
   /** Faux moteur des modèles d'images (image_*). */
   images: FakeImages;
+  /** Pièces jointes demandées à save_image, dans l'ordre. */
+  imageSaves: number[];
+  /** Réponse de save_image (vrai par défaut), ou l'erreur renvoyée. */
+  imageSave: boolean | AppError;
 }
 
 /** Service système de la plupart des machines, pkexec présent. */
@@ -514,7 +527,7 @@ export function defaultFolderCheck(path: string): FolderCheck {
  * read_aloud_stop, read_aloud_state et voice_* (src/test/tts.ts),
  * voice_mode_*, get_voice_mode_settings et update_voice_mode_settings
  * (src/test/voiceMode.ts), easy_link_* (src/test/easyLink.ts), image_*
- * (src/test/images.ts),
+ * (src/test/images.ts), save_image (backend.imageSave),
  * ollama_runtime,
  * set_ollama_source, start_ollama_service, restart_builtin_ollama,
  * open_builtin_folder, open_builtin_log, menu_entry_status,
@@ -653,6 +666,8 @@ export function fakeBackend(
       lastError: null,
     },
     versions: { chatonlm: "0.9.0", ollama: null },
+    imageSaves: [],
+    imageSave: true,
     updateErrors: {
       check: null,
       download: null,
@@ -683,6 +698,11 @@ export function fakeBackend(
   backend.easyLink = fakeEasyLink(simulator);
   backend.images = fakeImages(simulator, () => backend.settings.showUncensored);
   simulator.handle("quit_app", () => null);
+  simulator.handle("save_image", (args: Args) => {
+    backend.imageSaves.push(args.attachmentId as number);
+    if (typeof backend.imageSave !== "boolean") throw backend.imageSave;
+    return backend.imageSave;
+  });
   simulator.handle("app_platform", () => backend.platform);
   simulator.handle("menu_entry_status", () => ({ ...backend.menuEntry }));
   simulator.handle("set_menu_entry", (args: Args) => {
@@ -785,6 +805,15 @@ export function fakeBackend(
         call.error = event.error;
         break;
       }
+      case "imageReady": {
+        // Image enregistrée en pièce jointe de la réponse.
+        const target = chat.messages.find((m) => m.id === event.messageId);
+        target?.attachments.push({ ...event.attachment });
+        break;
+      }
+      case "imageProgress":
+        // Avancement d'une image : rien d'enregistré.
+        break;
       case "loading":
       case "loaded":
       case "compacting":
@@ -1179,6 +1208,7 @@ export function fakeBackend(
       messages,
       context: chat.context ?? null,
       compactions: chat.compactions ?? [],
+      replyRunning: chat.replyRunning ?? null,
     };
   });
   // Compactage manuel : tout ce qui suit le dernier compactage, résumé par
