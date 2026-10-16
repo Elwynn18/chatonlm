@@ -98,6 +98,16 @@ if ! (
   echo "Échec de la compilation : voir $log" >&2
   exit 1
 fi
+# Moteur d'images (génération dans la conversation) : un build sans paquet
+# prend comme dossier des ressources celui de son binaire ; le sd-server
+# construit par scripts/build-sd-server.sh y est lié.
+if $real; then
+  if [ -x "$root/.tools/runtimes/sd-server/sd-server" ]; then
+    ln -sfn "$root/.tools/runtimes/sd-server" "$target/release/sd-server"
+  else
+    echo "Moteur d'images absent (scripts/build-sd-server.sh) : génération d'images indisponible." >&2
+  fi
+fi
 
 if $build_only; then
   echo "Prêt : $binary"
