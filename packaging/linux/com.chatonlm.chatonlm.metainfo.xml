@@ -43,6 +43,20 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.9.2" date="2026-10-17" type="development">
+      <description>
+        <p>What's new:</p>
+        <ul>
+          <li>Image generation in the chat: press the Image button, or ask a model that can use tools for a picture. Runs on your computer with a built-in image engine (stable-diffusion.cpp), on the graphics card or, more slowly, on the processor.</li>
+          <li>ModelHub, Images tab: pick free image models from Hugging Face (FLUX.2 klein, Z-Image and more), with what each one is good at, its speed, the graphics memory it needs and its license.</li>
+          <li>Easy Link: pictures made by the model are sent to your Telegram or Discord bot.</li>
+          <li>Context: a gauge shows how full the model's context is; long conversations can be compacted, automatically or on demand.</li>
+          <li>A model that loops is stopped or flagged.</li>
+          <li>Settings: a system prompt sent with every chat, and a graphics memory gauge.</li>
+          <li>ModelHub: an optional Uncensored section, hidden by default.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.9.1" date="2026-10-14" type="development">
       <description>
         <p>What's new:</p>

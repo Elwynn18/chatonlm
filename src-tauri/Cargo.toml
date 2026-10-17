@@ -1,6 +1,6 @@
 [package]
 name = "chatonlm"
-version = "0.9.1"
+version = "0.9.2"
 description = "Unofficial desktop chat client for Ollama"
 authors = ["Elwynn18 <216957512+Elwynn18@users.noreply.github.com>"]
 license = "MIT"
