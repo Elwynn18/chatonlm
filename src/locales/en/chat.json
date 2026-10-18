@@ -58,6 +58,7 @@
     "error": "Error",
     "loadingModel": "Loading model..."
   },
+  "slowModel": "Slower replies: {percent} of {model} runs on the processor (not enough graphics memory)",
   "context": {
     "gauge": "Context: {percent} used",
     "title": "Context",

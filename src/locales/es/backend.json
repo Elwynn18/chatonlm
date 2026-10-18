@@ -90,6 +90,7 @@
       "cloudHint": "El modelo del chat ({model}) se ejecuta fuera de este equipo. Para corregir con este modelo, elígelo en la página «Corrección» de ChatonLM.",
       "stopped": "Corrección detenida",
       "stoppedHint": "No se copió nada.",
+      "replaced": "El modelo {missing} ya no está instalado: corrección hecha con {model}, cargado en Ollama.",
       "keysHeld": "Suelta las teclas del atajo y vuelve a usarlo.",
       "copyBlocked": "Windows no permitió que ChatonLM copiara el texto seleccionado."
     },

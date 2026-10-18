@@ -17,6 +17,11 @@
 //! cloud ou distant n'est jamais utilisé, la sélection (de n'importe quelle
 //! application) ne quitte pas la machine sans ce choix explicite.
 //!
+//! Modèle introuvable (supprimé depuis qu'il a été choisi) : la correction se
+//! refait avec un modèle chargé dans Ollama (`/api/ps`, le plus récemment
+//! servi d'abord) qui tourne sur la machine et produit du texte ; la
+//! notification le dit. Le réglage ne change pas. Aucun : l'erreur reste.
+//!
 //! Notifications (D-Bus, comme la dictée, mais une suite à part : une
 //! correction et une dictée simultanées ne se remplacent pas) : progression
 //! « Correcting the selected text… », affichée tant que la correction dure,
@@ -29,8 +34,8 @@ use parking_lot::Mutex;
 use tauri::{AppHandle, Manager};
 
 use super::{
-    Cancel, MAX_CHARS, Outcome, ProofreadEvent, ProofreadMode, Proofreader, SelectionResult,
-    model_of,
+    Cancel, MAX_CHARS, Outcome, ProofreadErrorCode, ProofreadEvent, ProofreadMode, Proofreader,
+    SelectionResult, model_of,
 };
 use crate::chat::Server;
 use crate::dictation::clipboard::{
@@ -38,7 +43,7 @@ use crate::dictation::clipboard::{
 };
 use crate::dictation::notify::{self, Action, DesktopNotifier, Notice, Notifier, Offer};
 use crate::i18n::t;
-use crate::ollama::models;
+use crate::ollama::{models, running};
 use crate::store::Store;
 
 /// Ce que la correction lit de l'app au moment de l'appui.
@@ -56,6 +61,11 @@ pub(crate) struct Prepared {
 /// L'app vue par la correction de la sélection (remplacée dans les tests).
 pub(crate) trait Host: Send + Sync + 'static {
     fn prepare(&self) -> BoxFuture<Result<Prepared, String>>;
+
+    /// Noms des modèles chargés dans Ollama à l'adresse `base`, dans l'ordre
+    /// de `/api/ps` (le plus récemment servi d'abord) ; vide si la liste est
+    /// illisible.
+    fn loaded(&self, base: String) -> BoxFuture<Vec<String>>;
 }
 
 /// Moteur de correction : [`super::run`] en mode Correct, ou un faux.
@@ -246,25 +256,30 @@ impl Selection {
             return stopped();
         }
         let paste = prepared.paste;
+        let server = prepared.server;
 
-        // Affichée jusqu'au résultat : la correction d'un long texte dure.
-        let progress = format!(
-            "{}\n{}",
-            t!("proofread.selection.model", model = model),
-            t!("notifications.runAgain")
-        );
-        self.services.notifier.show(Notice::working(
-            t!("proofread.selection.correcting"),
-            &progress,
-        ));
-        let outcome = self
-            .services
-            .corrector
-            .correct(prepared.server, model, text.clone(), cancel.clone())
+        let mut outcome = self
+            .run_with(server.clone(), model.clone(), &text, cancel)
             .await;
         // Arrêt demandé : rien de copié, même si le moteur a fini entre-temps.
         if outcome.stopped || cancel.is_cancelled() {
             return stopped();
+        }
+        // Modèle introuvable : refaite avec un modèle chargé, s'il y en a un.
+        let mut replaced = None;
+        if matches!(outcome.error, Some((ProofreadErrorCode::ModelNotFound, _))) {
+            let found = tokio::select! {
+                biased;
+                () = cancel.cancelled() => return stopped(),
+                found = loaded_instead(host, &server.url, &model) => found,
+            };
+            if let Some(other) = found {
+                outcome = self.run_with(server, other, &text, cancel).await;
+                if outcome.stopped || cancel.is_cancelled() {
+                    return stopped();
+                }
+                replaced = Some(model);
+            }
         }
         if let Some((_, message)) = &outcome.error {
             return failure(t!("proofread.selection.failed"), message);
@@ -285,6 +300,13 @@ impl Selection {
         } else {
             t!("proofread.selection.noMistakes")
         };
+        let replaced = replaced.map(|missing| {
+            t!(
+                "proofread.selection.replaced",
+                missing = missing,
+                model = outcome.model
+            )
+        });
         *proofreader.last_selection.lock() = Some(SelectionResult {
             model: outcome.model,
             parts: outcome.parts,
@@ -298,6 +320,10 @@ impl Selection {
         if kept {
             body.push_str("\n\n");
             body.push_str(&notify::escape(&t!("proofread.selection.kept")));
+        }
+        if let Some(note) = replaced {
+            body.push_str("\n\n");
+            body.push_str(&notify::escape(&note));
         }
         // Copie échouée : le résultat reste visible par « Show ».
         let notice = match self.services.clipboard.copy(corrected).await {
@@ -319,6 +345,63 @@ impl Selection {
             ),
         };
         notice.offering(offer)
+    }
+}
+
+impl Selection {
+    /// Notification de progression (affichée jusqu'au résultat : la
+    /// correction d'un long texte dure), puis correction par `model`.
+    async fn run_with(
+        &self,
+        server: Server,
+        model: String,
+        text: &str,
+        cancel: &Cancel,
+    ) -> Outcome {
+        let progress = format!(
+            "{}\n{}",
+            t!("proofread.selection.model", model = model),
+            t!("notifications.runAgain")
+        );
+        self.services.notifier.show(Notice::working(
+            t!("proofread.selection.correcting"),
+            &progress,
+        ));
+        self.services
+            .corrector
+            .correct(server, model, text.to_owned(), cancel.clone())
+            .await
+    }
+}
+
+/// Modèle chargé dans Ollama qui peut remplacer `missing`, introuvable : le
+/// premier de la liste qui n'est pas `missing` et qui corrige sur la machine
+/// (voir [`corrects_here`]) ; nom sans `:latest`, comme dans les réglages.
+async fn loaded_instead(host: &dyn Host, base: &str, missing: &str) -> Option<String> {
+    for name in host.loaded(base.to_owned()).await {
+        let name = models::display_name(&name);
+        if !running::same_model(&name, missing) && corrects_here(base, &name).await {
+            return Some(name);
+        }
+    }
+    None
+}
+
+/// Modèle qui tourne sur la machine (jamais un modèle cloud ou distant : la
+/// sélection ne la quitte pas sans choix explicite) et produit du texte
+/// (pas un modèle d'embedding). Détails illisibles : la requête dira ce qui
+/// ne va pas.
+async fn corrects_here(base: &str, model: &str) -> bool {
+    if models::is_cloud_name(model) {
+        return false;
+    }
+    match models::show(base, model).await {
+        Ok(details) => {
+            !details.remote
+                && (details.capabilities.is_empty()
+                    || details.capabilities.iter().any(|c| c == "completion"))
+        }
+        Err(_) => true,
     }
 }
 
@@ -410,6 +493,15 @@ impl Host for AppHost {
                 from_chat: settings.proofread_model.is_empty(),
                 paste: settings.proofread_paste,
             })
+        })
+    }
+
+    fn loaded(&self, base: String) -> BoxFuture<Vec<String>> {
+        Box::pin(async move {
+            running::list(&base)
+                .await
+                .map(|models| models.into_iter().map(|model| model.name).collect())
+                .unwrap_or_default()
         })
     }
 }
@@ -553,6 +645,8 @@ mod tests {
         url: Option<String>,
         /// Réglage « coller à la place de la sélection ».
         paste: bool,
+        /// Modèles chargés dans Ollama (`/api/ps`).
+        loaded: &'static [&'static str],
     }
 
     impl FakeHost {
@@ -563,6 +657,7 @@ mod tests {
                 from_chat: true,
                 url,
                 paste: false,
+                loaded: &[],
             }
         }
     }
@@ -589,6 +684,11 @@ mod tests {
                 })
             })
         }
+
+        fn loaded(&self, _base: String) -> BoxFuture<Vec<String>> {
+            let loaded = self.loaded.iter().map(|&name| name.to_owned()).collect();
+            Box::pin(async move { loaded })
+        }
     }
 
     struct BrokenHost;
@@ -597,16 +697,22 @@ mod tests {
         fn prepare(&self) -> BoxFuture<Result<Prepared, String>> {
             Box::pin(async { Err("The database could not be opened".to_owned()) })
         }
+
+        fn loaded(&self, _base: String) -> BoxFuture<Vec<String>> {
+            Box::pin(async { Vec::new() })
+        }
     }
 
     /// Faux moteur : un passage par paragraphe, « teh » → « the » ; un
     /// passage « KEEP » est gardé tel quel (garde-fou) ; erreur au choix ;
     /// peut attendre un signal avant de répondre, et s'arrêter pendant
-    /// l'attente (`stoppable`) ou finir quand même.
+    /// l'attente (`stoppable`) ou finir quand même ; modèle `missing`
+    /// introuvable.
     #[derive(Default)]
     struct FakeCorrector {
         calls: Mutex<Vec<(String, String)>>,
         error: Mutex<Option<(ProofreadErrorCode, String)>>,
+        missing: Option<&'static str>,
         nothing: AtomicBool,
         gate: Option<Arc<Notify>>,
         stoppable: bool,
@@ -621,7 +727,14 @@ mod tests {
             cancel: Cancel,
         ) -> BoxFuture<Outcome> {
             self.calls.lock().push((model.clone(), text.clone()));
-            let error = self.error.lock().clone();
+            let error = if self.missing == Some(model.as_str()) {
+                Some((
+                    ProofreadErrorCode::ModelNotFound,
+                    format!("The model {model} is not installed"),
+                ))
+            } else {
+                self.error.lock().clone()
+            };
             let nothing = self.nothing.load(Ordering::SeqCst);
             let gate = self.gate.clone();
             let stoppable = self.stoppable;
@@ -757,6 +870,7 @@ mod tests {
         from_chat: false,
         url: None,
         paste: false,
+        loaded: &[],
     };
 
     /// Réglage par défaut : le texte corrigé est collé.
@@ -1166,6 +1280,7 @@ mod tests {
                 from_chat: false,
                 url: url.clone(),
                 paste: false,
+                loaded: &[],
             })
             .await;
             assert_eq!(rig.corrector.calls.lock().len(), 1, "{model}");
@@ -1305,6 +1420,142 @@ mod tests {
         rig.selection.cancel();
         task.await.unwrap();
         assert!(rig.clipboard.pastes.lock().is_empty());
+        assert!(rig.copies().is_empty());
+    }
+
+    /// Modèle de la correction supprimé depuis qu'il a été choisi (`/api/ps`
+    /// le nomme avec `:latest`).
+    const MISSING: &str = "gone";
+
+    fn missing_corrector() -> FakeCorrector {
+        FakeCorrector {
+            missing: Some(MISSING),
+            ..FakeCorrector::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_missing_model_is_replaced_by_a_loaded_one() {
+        let rig = Rig::with_corrector("teh text", missing_corrector());
+        rig.press(&FakeHost {
+            model: Some(MISSING),
+            loaded: &["gone:latest", "llama3.2:latest"],
+            ..PASTING
+        })
+        .await;
+        // Refaite avec le premier modèle chargé qui n'est pas l'absent, nommé
+        // comme dans les réglages.
+        assert_eq!(
+            *rig.corrector.calls.lock(),
+            [
+                ("gone".to_owned(), "teh text".to_owned()),
+                ("llama3.2".to_owned(), "teh text".to_owned())
+            ]
+        );
+        assert_eq!(rig.copies(), ["the text"]);
+        assert_eq!(rig.clipboard.pastes.lock().len(), 1);
+        let notices = rig.notices();
+        assert_eq!(notices.len(), 3);
+        assert_eq!(
+            notices[1],
+            Notice::working(
+                "Correcting the selected text…".into(),
+                "Model: llama3.2\nRun the shortcut again to stop"
+            )
+        );
+        assert_eq!(notices[2].summary, "Corrected text pasted");
+        assert_eq!(
+            notices[2].body,
+            "the text\n\nThe model gone is no longer installed: corrected with llama3.2, \
+             loaded in Ollama."
+        );
+        let last = rig.proofreader.last_selection().expect("result kept");
+        assert_eq!(last.model, "llama3.2");
+        assert!(rig.idle());
+        {
+            use crate::i18n::Lang;
+            assert_eq!(
+                t!("proofread.selection.replaced" in Lang::Fr, missing = "a", model = "b"),
+                "Le modèle a n'est plus installé\u{a0}: correction faite avec b, chargé dans \
+                 Ollama."
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_replacement_runs_here_and_writes_text() {
+        // Modèle cloud, distant d'après `/api/show`, ou d'embedding : jamais
+        // pris ; le suivant l'est.
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let rig = Rig::with_corrector("teh text", missing_corrector());
+        rig.press(&FakeHost {
+            model: Some(MISSING),
+            url: Some(fake.url()),
+            loaded: &[
+                "gpt-oss:20b-cloud",
+                "chatonlm-polish-remote:latest",
+                "chatonlm-embed:latest",
+                "chatonlm-proofread:latest",
+            ],
+            ..MODEL
+        })
+        .await;
+        let calls = rig.corrector.calls.lock().clone();
+        assert_eq!(
+            calls
+                .iter()
+                .map(|(model, _)| model.as_str())
+                .collect::<Vec<_>>(),
+            ["gone", "chatonlm-proofread"]
+        );
+        assert_eq!(rig.copies(), ["the text"]);
+
+        // Aucun modèle chargé utilisable : l'erreur reste, rien de copié.
+        let none: [&'static [&'static str]; 3] = [
+            &[],
+            &["gone:latest"],
+            &[
+                "gpt-oss:20b-cloud",
+                "chatonlm-polish-remote:latest",
+                "chatonlm-embed:latest",
+            ],
+        ];
+        for loaded in none {
+            let rig = Rig::with_corrector("teh text", missing_corrector());
+            rig.press(&FakeHost {
+                model: Some(MISSING),
+                url: Some(fake.url()),
+                loaded,
+                ..PASTING
+            })
+            .await;
+            assert_eq!(rig.corrector.calls.lock().len(), 1, "{loaded:?}");
+            assert!(rig.copies().is_empty());
+            assert!(rig.clipboard.pastes.lock().is_empty());
+            assert_eq!(
+                rig.last(),
+                Notice::lasting(
+                    "Proofreading failed".into(),
+                    "The model gone is not installed".into()
+                ),
+                "{loaded:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn only_a_missing_model_is_replaced() {
+        let rig = Rig::new("teh text");
+        *rig.corrector.error.lock() = Some((
+            ProofreadErrorCode::Failed,
+            "Proofreading failed: boom".into(),
+        ));
+        rig.press(&FakeHost {
+            loaded: &["llama3.2:latest"],
+            ..MODEL
+        })
+        .await;
+        assert_eq!(rig.corrector.calls.lock().len(), 1);
         assert!(rig.copies().is_empty());
     }
 

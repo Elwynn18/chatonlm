@@ -74,7 +74,11 @@
  * read again, show none chosen), and an amber line under the composer warns
  * when there is no graphics card; while it is on, the model picker lists the
  * installed image models instead of Ollama's (ImageModelPicker.tsx, same
- * close handle), its failure to choose one shown in the same notice.
+ * close handle), its failure to choose one shown in the same notice;
+ * the line breaks and spaces ending a message are removed when it is sent
+ * (sentText), in both modes; ChatonLM's own snail (SlowModelSnail.tsx) after
+ * the model picker while the chosen model runs partly on the processor
+ * (useCpuShare), not in image mode.
  */
 
 import { ArrowUpIcon, StopIcon } from "@heroicons/react/20/solid";
@@ -104,6 +108,7 @@ import { DropOverlay } from "@/components/DropOverlay";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { ImageButton } from "@/components/ImageButton";
 import { ImageModelPicker } from "@/components/ImageModelPicker";
+import { SlowModelSnail } from "@/components/SlowModelSnail";
 import { Logo } from "@/components/Logo";
 import { ModelPicker, type ModelPickerHandle } from "@/components/ModelPicker";
 import { StaleModelBanner } from "@/components/StaleModelBanner";
@@ -112,6 +117,7 @@ import { VoiceModeBar } from "@/components/VoiceModeBar";
 import { VoiceModeButton } from "@/components/VoiceModeButton";
 import { WebSearchButton } from "@/components/WebSearchButton";
 import { useCloudStatus } from "@/hooks/useCloudStatus";
+import { useCpuShare } from "@/hooks/useCpuShare";
 import {
   addPathsToActiveComposer,
   release,
@@ -356,6 +362,9 @@ export function ChatForm({
   const imageActive = imageMode && imageShown && imageMissingCpu.length === 0;
   // Modèles d'images lus seulement en mode Image.
   const imageModel = useImageModelState(imageActive);
+  // Escargot : le modèle choisi tourne en partie sur le processeur.
+  const slowModel = imageActive ? null : (selected?.model ?? null);
+  const cpu = useCpuShare(slowModel);
   const queryClient = useQueryClient();
   const [imageNotice, setImageNotice] = useState<ImageNotice | null>(null);
   const canStartVoice =
@@ -462,6 +471,9 @@ export function ChatForm({
   // Ollama perdu pendant une réponse : on doit pouvoir l'arrêter à la souris.
   const stopAboveVeil = isStreaming && isDisabled;
 
+  /** Texte envoyé : sans les retours à la ligne ni les espaces de la fin. */
+  const sentText = () => content.trimEnd();
+
   /** Vide la zone de saisie après un envoi, qui garde le focus. */
   const clearAfterSend = () => {
     clearVoiceModeError(chatId);
@@ -499,7 +511,7 @@ export function ChatForm({
       return true;
     };
     onSubmit(
-      content,
+      sentText(),
       selected?.model ?? "",
       undefined,
       [],
@@ -532,7 +544,7 @@ export function ChatForm({
       ? kept.filter((attachment) => attachment.kind !== "image")
       : kept;
     onSubmit(
-      content,
+      sentText(),
       selected.model,
       thinkToSend(thinkControl),
       attachments,
@@ -977,6 +989,9 @@ export function ChatForm({
                 onModelSelect={() => textareaRef.current?.focus()}
                 onEscape={() => textareaRef.current?.focus()}
               />
+            )}
+            {slowModel !== null && cpu !== null && (
+              <SlowModelSnail model={slowModel} cpu={cpu} />
             )}
           </div>
           {contextGauge && (

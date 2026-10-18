@@ -90,6 +90,7 @@
       "cloudHint": "Le modèle de la conversation ({model}) fonctionne hors de cet ordinateur. Pour corriger avec ce modèle, choisissez-le sur la page « Correction » de ChatonLM.",
       "stopped": "Correction arrêtée",
       "stoppedHint": "Rien n'a été copié.",
+      "replaced": "Le modèle {missing} n'est plus installé : correction faite avec {model}, chargé dans Ollama.",
       "keysHeld": "Relâchez les touches du raccourci, puis utilisez-le de nouveau.",
       "copyBlocked": "Windows n'a pas laissé ChatonLM copier le texte sélectionné."
     },

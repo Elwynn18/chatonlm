@@ -556,6 +556,7 @@ fn shown(journal: &Journal, model: &str) -> (StatusCode, String) {
             StatusCode::OK,
             synthetic_show(&["completion", "vision"], None),
         ),
+        "chatonlm-embed" => (StatusCode::OK, synthetic_show(&["embedding"], None)),
         "chatonlm-nothink" => (
             StatusCode::INTERNAL_SERVER_ERROR,
             r#"{"error":"unable to read the model metadata"}"#.into(),
@@ -818,6 +819,9 @@ fn voice_reply(journal: Arc<Journal>, model: &str, request: &serde_json::Value) 
 ///   dernier décrit un modèle d'ollama.com (`remote_host`, `remote_model`),
 ///   que ChatonLM ne doit jamais appeler pour la dictée et qui n'est jamais en
 ///   mémoire ici ;
+/// - `chatonlm-embed` : modèle d'embedding, `/api/show` seulement (capacité
+///   `embedding`, pas `completion`) : la correction ne le prend jamais pour
+///   remplacer un modèle introuvable ;
 /// - `chatonlm-slowload`, `chatonlm-longload` : chargement de [`SLOW_LOAD`]
 ///   ou [`LONG_LOAD`] avant la réponse s'il n'est pas en mémoire avec ce
 ///   contexte (aussi par `/api/generate`, voir [`generate`]), puis le flux de

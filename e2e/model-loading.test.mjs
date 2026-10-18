@@ -12,7 +12,9 @@
 //   Unload, Load depuis la liste, « Always » → « Stays loaded », Unload all →
 //   « No models are loaded. » ; jauge de la VRAM (machine injectée de 24 Gio
 //   dont 22 libres) : une part par modèle en VRAM, autres usages, part de
-//   chatonlm-split en mémoire vive, pastilles des lignes ;
+//   chatonlm-split en mémoire vive, pastilles des lignes ; escargot de
+//   chatonlm-split (en partie sur le processeur) sur sa ligne, puis à côté
+//   du sélecteur de la zone de saisie quand il est choisi ;
 // - pré-prompt : tapé dans l'onglet Models, enregistré en quittant le champ
 //   (vraie touche Tab), envoyé en premier message système du chat suivant,
 //   jamais affiché ni enregistré dans la conversation ;
@@ -385,6 +387,45 @@ try {
       );
       assert.equal(gauge.swatches, 2);
       await driver.screenshot(".tools/shots/models-vram.png");
+
+      // Escargot : seul chatonlm-split est en partie sur le processeur.
+      const slow =
+        "Slower replies: 25% of chatonlm-split runs on the processor (not enough graphics memory)";
+      assert.deepEqual(
+        await driver.execute(
+          `return [...document.querySelectorAll("[data-testid=loaded-model] [data-testid=slow-model]")]
+             .map((snail) => [snail.closest("[data-testid=loaded-model]").dataset.model,
+                              snail.getAttribute("aria-label")]);`,
+        ),
+        [["chatonlm-split:latest", slow]],
+      );
+      // Choisi dans le chat : l'escargot suit le sélecteur de modèle.
+      await toChat(driver);
+      const chosen = await shownModel(driver);
+      const composerSnail = () =>
+        driver.execute(
+          `const snail = document.querySelector("[data-testid=slow-model]");
+           const picker = document.querySelector('[title="Select model"]');
+           return snail && {
+             label: snail.getAttribute("aria-label"),
+             after: Boolean(picker.compareDocumentPosition(snail) & Node.DOCUMENT_POSITION_FOLLOWING),
+           };`,
+        );
+      assert.equal(await composerSnail(), null);
+      await useModel(driver, "chatonlm-split");
+      const snail = await waitUntil(
+        composerSnail,
+        "escargot de la zone de saisie",
+      );
+      assert.deepEqual(snail, { label: slow, after: true });
+      await driver.screenshot(".tools/shots/slow-model.png");
+      await useModel(driver, chosen);
+      assert.equal(await composerSnail(), null);
+      await openModelsTab(driver);
+      await waitUntil(
+        async () => (await loadedRows(driver))["chatonlm-split:latest"],
+        "chatonlm-split listé de nouveau",
+      );
 
       // Unload d'une ligne.
       await driver.click(

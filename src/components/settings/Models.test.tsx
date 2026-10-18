@@ -321,6 +321,16 @@ describe("Settings: Models", () => {
       expect(screen.getByTestId("loaded-models-summary").textContent).toBe(
         "4 models loaded · 7.0 GB in memory",
       );
+      // Escargot : le seul modèle partagé avec le processeur.
+      const snails = screen.getAllByTestId("slow-model");
+      expect(snails.map((snail) => snail.getAttribute("aria-label"))).toEqual([
+        "Slower replies: 25% of big-split:8b runs on the processor (not enough graphics memory)",
+      ]);
+      expect(
+        snails[0]
+          .closest("[data-testid=loaded-model]")
+          ?.getAttribute("data-model"),
+      ).toBe("big-split:8b");
     });
 
     it("says 1 model loaded, and shows a Hugging Face name like the picker", async () => {

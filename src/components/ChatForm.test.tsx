@@ -15,9 +15,10 @@ import type { CloudStatus } from "@/bindings/CloudStatus";
 import type { ImageMachine } from "@/bindings/ImageMachine";
 import type { Message } from "@/bindings/Message";
 import type { ModelDetails } from "@/bindings/ModelDetails";
+import type { RunningModel } from "@/bindings/RunningModel";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import type { Think } from "@/bindings/Think";
-import { modelInfo, thinkingModel } from "@/test/backend";
+import { modelInfo, runningModel, thinkingModel } from "@/test/backend";
 import { ChatForm, type ChatFormHandle } from "./ChatForm";
 
 afterEach(() => {
@@ -67,6 +68,8 @@ function renderForm({
     /** image_use_model échoue avec ce message. */
     useError?: string;
   } | null,
+  /** Modèles en mémoire (running_models). */
+  running = [] as RunningModel[],
 } = {}) {
   const settings = { selectedModel, serverUrl: "", webSearchEnabled };
   const saved: { model: string; think: Think }[] = [];
@@ -97,6 +100,8 @@ function renderForm({
           const held = heldDetails[model];
           return held ? held.then(() => detailsOf(model)) : detailsOf(model);
         }
+        case "running_models":
+          return running;
         case "get_think_pref":
           return prefs[model] ?? null;
         case "set_think_pref":
@@ -246,6 +251,27 @@ describe("ChatForm", () => {
     // Pas de bouton Think (modèle sans capacité thinking) : think absent.
     expect(onSubmit).toHaveBeenCalledWith(
       "Hello\nthere",
+      "qwen3:0.6b",
+      undefined,
+      [],
+      [],
+      false,
+    );
+    expect((textarea as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("sends without the line breaks and spaces that end the message", async () => {
+    const { onSubmit, textarea } = renderForm();
+    await waitFor(() =>
+      expect(screen.getByTitle("Select model").textContent).toBe("qwen3:0.6b"),
+    );
+    // Ceux du début et du milieu restent.
+    await userEvent.type(
+      textarea,
+      "{Shift>}{Enter}{/Shift}Hello{Shift>}{Enter}{Enter}{/Shift}there {Shift>}{Enter}{Enter}{/Shift}  {Shift>}{Enter}{/Shift}{Enter}",
+    );
+    expect(onSubmit).toHaveBeenCalledWith(
+      "\nHello\n\nthere",
       "qwen3:0.6b",
       undefined,
       [],
@@ -1202,7 +1228,8 @@ describe("ChatForm: image mode", () => {
     expect(textarea.placeholder).toBe("Describe the image to create");
     expect(screen.queryByRole("button", { name: "Think" })).toBeNull();
     expect(globe()).toBeNull();
-    await send(textarea, "A red kitten");
+    // Retours à la ligne de la fin retirés, comme pour un message.
+    await send(textarea, "A red kitten{Shift>}{Enter}{Enter}{/Shift}");
     expect(onSubmit).toHaveBeenLastCalledWith(
       "A red kitten",
       QWEN,
@@ -1418,5 +1445,46 @@ describe("ChatForm: image mode", () => {
     await screen.findByRole("button", { name: "Upload multiple files" });
     await settle();
     expect(screen.queryByRole("button", { name: "Image" })).toBeNull();
+  });
+});
+
+describe("ChatForm: slow model", () => {
+  const GB = 1024 ** 3;
+  const split = (name: string) =>
+    runningModel(name, { size: 4 * GB, sizeVram: 3 * GB });
+
+  it("shows a snail while the chosen model runs partly on the processor", async () => {
+    renderForm({ running: [split("qwen3:0.6b")] });
+    const snail = await screen.findByRole("img", {
+      name: "Slower replies: 25% of qwen3:0.6b runs on the processor (not enough graphics memory)",
+    });
+    // Juste après le sélecteur de modèle.
+    expect(
+      picker().compareDocumentPosition(snail) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(snail.getAttribute("title")).toBe(snail.getAttribute("aria-label"));
+  });
+
+  it("shows none on the graphics card alone, for another model, or in image mode", async () => {
+    for (const running of [
+      [runningModel("qwen3:0.6b")],
+      [runningModel("qwen3:0.6b", { sizeVram: 0 })],
+      [split("gemma3:270m")],
+    ]) {
+      const { commands } = renderForm({ running });
+      await waitFor(() => expect(commands).toContain("running_models"));
+      await waitFor(() =>
+        expect(screen.getByTitle("Select model").textContent).toBe(
+          "qwen3:0.6b",
+        ),
+      );
+      expect(screen.queryByTestId("slow-model")).toBeNull();
+      cleanup();
+    }
+    renderForm({ running: [split("qwen3:0.6b")], images: { chosen: true } });
+    expect(await screen.findByTestId("slow-model")).not.toBeNull();
+    await userEvent.click(await screen.findByRole("button", { name: "Image" }));
+    expect(screen.queryByTestId("slow-model")).toBeNull();
   });
 });

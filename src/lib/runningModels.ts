@@ -86,6 +86,26 @@ export function processorText(
   });
 }
 
+/**
+ * Part (en %, de 1 à 99) d'un modèle chargé à la fois sur la carte graphique
+ * et sur le processeur, faute de mémoire graphique : la cause d'une réponse
+ * lente (escargot, SlowModelSnail.tsx). null s'il n'est pas chargé, s'il est
+ * tout entier sur l'une ou l'autre (sans carte graphique, tout sur le
+ * processeur est normal) ou si les tailles sont incohérentes.
+ */
+export function cpuShare(
+  running: readonly RunningModel[],
+  model: string,
+): number | null {
+  const loaded = running.find((each) => sameRunningModel(each.name, model));
+  if (!loaded) return null;
+  const { size, sizeVram } = loaded;
+  if (size <= 0 || sizeVram <= 0 || sizeVram >= size) return null;
+  // Arrondi comme `ollama ps`, jamais à 0 ni à 100 : une part reste.
+  const cpu = Math.round(((size - sizeVram) / size) * 100);
+  return Math.min(99, Math.max(1, cpu));
+}
+
 /** Contexte : « 32k » pour un multiple de 1024, sinon le nombre ; null si inconnu. */
 export function contextText(contextLength: number | null): string | null {
   if (contextLength === null || contextLength <= 0) return null;

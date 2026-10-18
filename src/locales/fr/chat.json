@@ -58,6 +58,7 @@
     "error": "Erreur",
     "loadingModel": "Chargement du modèle…"
   },
+  "slowModel": "Réponses plus lentes : {percent} de {model} tourne sur le processeur (mémoire graphique insuffisante)",
   "context": {
     "gauge": "Contexte : {percent} utilisé",
     "title": "Contexte",

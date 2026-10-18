@@ -3,6 +3,7 @@ import type { RunningModel } from "@/bindings/RunningModel";
 import { translator } from "@/i18n";
 import {
   contextText,
+  cpuShare,
   expiryText as expiryIn,
   KEEP_ALIVE_STEPS,
   keepAliveLabel,
@@ -105,6 +106,34 @@ describe("running models", () => {
     // Incohérent : ollama ps dit « Unknown », rien n'est montré.
     expect(processorText(GB, 2 * GB)).toBeNull();
     expect(processorText(0, 0)).toBe("100% CPU");
+  });
+
+  it("gives the processor share of a model split with the graphics card", () => {
+    const split = model({ size: 4 * GB, sizeVram: 3 * GB });
+    expect(cpuShare([split], "qwen3:0.6b")).toBe(25);
+    // Nom des réglages, sans « :latest » ni la même casse.
+    expect(
+      cpuShare(
+        [model({ name: "llama3.2:latest", size: 3, sizeVram: 1 })],
+        "Llama3.2",
+      ),
+    ).toBe(67);
+    // Jamais 0 ni 100 : une part reste de chaque côté.
+    expect(cpuShare([model({ size: 1000, sizeVram: 999 })], "qwen3:0.6b")).toBe(
+      1,
+    );
+    expect(cpuShare([model({ size: 1000, sizeVram: 1 })], "qwen3:0.6b")).toBe(
+      99,
+    );
+    // Tout sur la carte, tout sur le processeur, incohérent, absent.
+    expect(cpuShare([model()], "qwen3:0.6b")).toBeNull();
+    expect(cpuShare([model({ sizeVram: 0 })], "qwen3:0.6b")).toBeNull();
+    expect(cpuShare([model({ sizeVram: 2 * GB })], "qwen3:0.6b")).toBeNull();
+    expect(
+      cpuShare([model({ size: 0, sizeVram: 0 })], "qwen3:0.6b"),
+    ).toBeNull();
+    expect(cpuShare([split], "gemma3:270m")).toBeNull();
+    expect(cpuShare([], "qwen3:0.6b")).toBeNull();
   });
 
   it("writes the context in k when it is a multiple of 1024", () => {

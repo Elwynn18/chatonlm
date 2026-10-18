@@ -90,6 +90,7 @@
       "cloudHint": "The chat model ({model}) runs outside this computer. To proofread with it, choose it on the Proofread page of ChatonLM.",
       "stopped": "Proofreading stopped",
       "stoppedHint": "Nothing was copied.",
+      "replaced": "The model {missing} is no longer installed: corrected with {model}, loaded in Ollama.",
       "keysHeld": "Release the shortcut keys, then use the shortcut again.",
       "copyBlocked": "Windows did not let ChatonLM copy the selected text."
     },

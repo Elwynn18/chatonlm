@@ -11,7 +11,8 @@
 // (PromptField.tsx : enregistré en quittant le champ). La troisième montre
 // d'abord la jauge de la VRAM (VramGauge.tsx), puis les modèles en mémoire (/api/ps, relu toutes les 2 s tant que l'onglet est
 // affiché et après chaque action), avec Unload et Unload all, et charge un
-// modèle installé (Load). Le bouton d'une action en cours reste focalisable
+// modèle installé (Load) ; un escargot (SlowModelSnail.tsx) suit le nom d'un
+// modèle en partie sur le processeur. Le bouton d'une action en cours reste focalisable
 // (aria-disabled) ; une ligne déchargée passe le focus à la ligne suivante
 // (ou précédente), sinon au titre de la carte.
 
@@ -26,6 +27,7 @@ import { useCallback, useId, useRef, useState } from "react";
 import type { RunningModel } from "@/bindings/RunningModel";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import { ModelLabel } from "@/components/ModelLabel";
+import { SlowModelSnail } from "@/components/SlowModelSnail";
 import { PromptField } from "@/components/settings/PromptField";
 import { Row, RowError, Switch } from "@/components/settings/Row";
 import { Slider } from "@/components/settings/Slider";
@@ -46,6 +48,7 @@ import {
 } from "@/lib/ipc";
 import { sameModel } from "@/lib/modelNames";
 import {
+  cpuShare,
   KEEP_ALIVE_STEPS,
   keepAliveLabel,
   loadedSummary,
@@ -577,6 +580,7 @@ function LoadedModelRow({
 }) {
   const t = useT();
   const nameId = useId();
+  const cpu = cpuShare([model], model.name);
   return (
     <li
       data-testid="loaded-model"
@@ -601,6 +605,7 @@ function LoadedModelRow({
           <span className="min-w-0">
             <ModelLabel model={model.name} />
           </span>
+          {cpu !== null && <SlowModelSnail model={model.name} cpu={cpu} />}
         </div>
         <p className={MUTED}>{runningDetails(t, model, now)}</p>
       </div>

@@ -584,6 +584,7 @@ async fn cancelled(cancel: &mut watch::Receiver<bool>) {
 }
 
 /// Réglages du serveur utilisés pour l'envoi.
+#[derive(Clone)]
 pub struct Server {
     pub url: String,
     /// 0 = défaut du serveur.
