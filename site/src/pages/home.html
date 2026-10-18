@@ -73,6 +73,10 @@
             <button type="button" class="onglet" data-vue="etude" aria-pressed="false">
               {{>i-book.svg}}<strong>{{t:tools.study.name}}</strong>
             </button>
+            <!-- Le dernier venu (0.9.2) prend toute la ligne, avec sa pastille. -->
+            <button type="button" class="onglet onglet--neuf" data-vue="images" aria-pressed="false">
+              {{>i-photo.svg}}<strong>{{t:tools.images.name}}</strong><span class="onglet-pastille">{{t:tools.new}}</span>
+            </button>
           </div>
           <div class="outil-textes" data-outil-textes>
             <p data-vue="chat"><strong>{{t:tools.chat.name}}.</strong> {{t:tools.chat.text}} <a href="/{{lang}}/{{path:chat}}">{{t:toolpage.more}}</a></p>
@@ -81,6 +85,7 @@
             <p data-vue="voix"><strong>{{t:tools.voice.name}}.</strong> {{t:tools.voice.text}} <a href="/{{lang}}/{{path:voice}}">{{t:toolpage.more}}</a></p>
             <p data-vue="correction"><strong>{{t:tools.proofread.name}}.</strong> {{t:tools.proofread.text}} <a href="/{{lang}}/{{path:proofread}}">{{t:toolpage.more}}</a></p>
             <p data-vue="etude"><strong>{{t:tools.study.name}}.</strong> {{t:tools.study.text}} <a href="/{{lang}}/{{path:study}}">{{t:toolpage.more}}</a></p>
+            <p data-vue="images"><strong>{{t:tools.images.name}}.</strong> {{t:tools.images.text}} <a href="/{{lang}}/{{path:images}}">{{t:toolpage.more}}</a></p>
           </div>
           <p class="discret outils-plus">{{h:tools.easylink}}</p>
         </div>
@@ -97,6 +102,7 @@
               {{>vue-voice.html}}
               {{>vue-proofread.html}}
               {{>vue-study.html}}
+              {{>vue-images.html}}
             </div>
           </div>
           <i class="fil-a fil-a--scene-bas" data-fil></i>
@@ -116,13 +122,14 @@
             <span class="mini">{{t:merge.w4}}</span>
             <span class="mini">{{t:merge.w5}}</span>
             <span class="mini">{{t:merge.w6}}</span>
+            <span class="mini">{{t:merge.w7}}</span>
           </div>
           <div class="une">
             <i class="fil-a fil-a--une-haut" data-fil></i>
             <i class="fil-a fil-a--une-bas" data-fil></i>
             <p class="une-tete"><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg>ChatonLM</p>
             <p class="une-outils">
-              <span>{{t:tools.chat.name}}</span><span>{{t:tools.hub.name}}</span><span>{{t:tools.dictation.name}}</span><span>{{t:tools.voice.name}}</span><span>{{t:tools.proofread.name}}</span><span>{{t:tools.study.name}}</span>
+              <span>{{t:tools.chat.name}}</span><span>{{t:tools.hub.name}}</span><span>{{t:tools.dictation.name}}</span><span>{{t:tools.voice.name}}</span><span>{{t:tools.proofread.name}}</span><span>{{t:tools.study.name}}</span><span>{{t:tools.images.name}}</span>
             </p>
           </div>
         </div>
@@ -132,8 +139,8 @@
 
       <div class="bandeau" aria-hidden="true">
         <div class="bandeau-piste">
-          <span>{{t:ticker.w1}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w2}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w3}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w4}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w5}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w6}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg>
-          <span>{{t:ticker.w1}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w2}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w3}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w4}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w5}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w6}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg>
+          <span>{{t:ticker.w1}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w2}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w3}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w4}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w5}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w6}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w7}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg>
+          <span>{{t:ticker.w1}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w2}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w3}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w4}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w5}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w6}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg><span>{{t:ticker.w7}}</span><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg>
         </div>
       </div>
 
@@ -163,6 +170,7 @@
           <div class="raisons-tete">
             <h2>{{h:why.title}}</h2>
             <p class="chapo">{{t:why.lead}}</p>
+            <a class="lien" href="/{{lang}}/{{path:choose}}">{{t:choose.more}}</a>
           </div>
           <ol class="raisons-liste" role="list">
             <li class="raison" data-fil-carte><i class="fil-a" data-fil="perle"></i><h3>{{t:why.r1.title}}</h3><p>{{t:why.r1.text}}</p></li>
@@ -265,6 +273,7 @@
           <details><summary>{{t:faq.q2}}</summary><p>{{t:faq.a2}}</p></details>
           <details><summary>{{t:faq.offline_q}}</summary><p>{{t:faq.offline_a}}</p></details>
           <details><summary>{{t:faq.models_q}}</summary><p>{{t:faq.models_a}}</p></details>
+          <details><summary>{{t:faq.images_q}}</summary><p>{{h:faq.images_a}}</p></details>
           <details><summary>{{t:faq.engine_q}}</summary><p>{{t:faq.engine_a}}</p></details>
           <details><summary>{{t:faq.q3}}</summary><p>{{t:faq.a3}}</p></details>
           <details><summary>{{t:faq.q4}}</summary><p>{{t:faq.a4}}</p></details>
@@ -284,7 +293,7 @@
             <path d="M226 412v10M242 412v10" stroke="#2A1A10" stroke-opacity=".28" stroke-width="3.500" stroke-linecap="round" />
             <g transform="rotate(-7 200 190) translate(31 -44) scale(.66)">{{>cat-head.svg}}</g>
             <g class="bras">
-              <path d="M138 318C100 300 62 262 44 212" fill="none" stroke="#F28A38" stroke-width="36" stroke-linecap="round" />
+              <path d="M128 312C94 296 60 262 44 212" fill="none" stroke="#F28A38" stroke-width="36" stroke-linecap="round" />
               <path d="M34 208l6 14M52 202l6 14" stroke="#D9701F" stroke-width="5.500" stroke-linecap="round" />
             </g>
           </svg>

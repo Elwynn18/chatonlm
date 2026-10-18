@@ -76,6 +76,17 @@ export const PAGES = {
     en: "learn-with-ai/",
     es: "aprender-con-ia/",
   },
+  // Pourquoi ChatonLM plutôt qu'une autre app : comparaison et détails.
+  choose: {
+    fr: "pourquoi-chatonlm/",
+    en: "why-chatonlm/",
+    es: "por-que-chatonlm/",
+  },
+  images: {
+    fr: "generateur-d-images-ia/",
+    en: "local-ai-image-generator/",
+    es: "generador-de-imagenes-ia/",
+  },
 };
 /**
  * Pages des outils : elles partagent le gabarit src/pages/tool.html, leurs
@@ -89,6 +100,7 @@ export const TOOLS = {
   voice: { vue: "voix" },
   proofread: { vue: "correction" },
   study: { vue: "etude" },
+  images: { vue: "images" },
 };
 
 /** Chemin d'une page dans une langue. */
@@ -115,6 +127,7 @@ const CRUMBS = {
   contact: "nav.contact",
   legal: "footer.notice",
   privacy: "footer.privacy",
+  choose: "nav.why",
 };
 const OG_LOCALES = { fr: "fr_FR", en: "en_US", es: "es_ES" };
 
@@ -312,14 +325,7 @@ export function structuredData({ page, lang, texts, assets, modified }) {
       isAccessibleForFree: true,
       license: "https://opensource.org/license/mit",
       inLanguage: LANGS,
-      featureList: [
-        "chat",
-        "hub",
-        "dictation",
-        "voice",
-        "proofread",
-        "study",
-      ].map(
+      featureList: Object.keys(TOOLS).map(
         (tool) =>
           `${texts.get(`tools.${tool}.name`)}. ${texts.get(`tools.${tool}.text`)}`,
       ),
@@ -589,14 +595,23 @@ export async function build({
   );
   // Résumé du site pour les assistants (llmstxt.org : un titre, une citation,
   // du texte libre, puis des sections « ## » qui ne portent que des liens), en
-  // anglais : mêmes textes que la page anglaise pour ce que font les outils.
+  // anglais : mêmes textes que la page anglaise pour ce que font les outils, et
+  // les adresses anglaises des pages ({{path:images}}).
   await emit(
     "llms.txt",
     render(await readFile(path.join(src, "llms.txt"), "utf8"), {
       texts: locales[DEFAULT_LANG],
       partials,
       assets,
-      vars: { origin: ORIGIN },
+      vars: {
+        origin: ORIGIN,
+        ...Object.fromEntries(
+          Object.keys(PAGES).map((page) => [
+            `path:${page}`,
+            pathOf(page, DEFAULT_LANG),
+          ]),
+        ),
+      },
       used,
     }),
   );

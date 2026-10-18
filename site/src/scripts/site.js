@@ -659,6 +659,17 @@ function reunis() {
   section.querySelector("[data-rejouer]")?.addEventListener("click", jouer);
 }
 
+// --- Illustrations qui s'animent une fois à l'écran ([data-anime]) ----------------
+// La feuille de style montre leur état final par défaut (sans script, mouvement
+// réduit) ; « anime--pret » les remet au départ, « anime--joue » les lance.
+function anime() {
+  if (calme) return;
+  for (const dessin of document.querySelectorAll("[data-anime]")) {
+    dessin.classList.add("anime--pret");
+    vu(dessin, () => dessin.classList.add("anime--joue"), 0.5);
+  }
+}
+
 // --- Affiche : le titre tient sur la largeur, le prix descend à zéro -----------
 function affiche() {
   const titre = document.querySelector("[data-ajuste]");
@@ -879,6 +890,7 @@ for (const partie of [
   demo,
   questions,
   reunis,
+  anime,
   affiche,
   version,
   contact,

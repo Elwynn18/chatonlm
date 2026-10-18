@@ -1,0 +1,460 @@
+/* chatonlm.com : page « Pourquoi ChatonLM » (src/pages/choose.html). Elle
+   reprend le haut de page des outils (30-outil.css), puis un tableau
+   « ailleurs / avec ChatonLM » et trois détails illustrés. Les illustrations
+   s'animent une fois à l'écran (site.js, [data-anime]) ; sans script ou en
+   mouvement réduit, elles sont montrées dans leur état final. */
+
+/* 1. Haut de page : le chaton et sa pelote */
+.choix-art {
+  max-width: 560px;
+  justify-self: center;
+  width: 100%;
+}
+.choix-art svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+/* 2. Ailleurs, et ici */
+.duel {
+  padding-block: clamp(30px, 6vw, 80px) clamp(60px, 9vw, 110px);
+}
+.duel h2 {
+  margin-bottom: clamp(28px, 4vw, 48px);
+}
+.duel-liste {
+  margin: 0;
+}
+.duel-ligne {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.1fr) minmax(0, 1.3fr);
+  gap: clamp(16px, 3vw, 40px);
+  align-items: baseline;
+  padding-block: 20px;
+  border-top: 1.5px solid var(--trait);
+}
+.duel-ligne--tete {
+  border-top: 0;
+  padding-block: 0 12px;
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--encre-2);
+}
+.duel-ligne--tete span:last-child {
+  color: var(--roux-fonce);
+}
+.duel-ligne dt {
+  font: 600 clamp(21px, 2vw, 26px) / 1.15 var(--f-titre);
+  letter-spacing: -0.02em;
+}
+.duel-ligne dd {
+  margin: 0;
+  font-size: 17.5px;
+  line-height: 1.45;
+}
+.duel-ailleurs {
+  color: var(--encre-2);
+}
+.duel-ici {
+  position: relative;
+  padding-left: 22px;
+  font-weight: 600;
+}
+.duel-ici::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.45em;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--roux);
+}
+/* « Ailleurs » et « Avec ChatonLM » devant chaque case : lus par les lecteurs
+   d'écran partout, montrés sur un téléphone, où l'en-tête du tableau disparaît. */
+.duel-qui {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.duel-note {
+  margin-top: 18px;
+  max-width: 52em;
+}
+/* Les lignes paraissent l'une après l'autre. */
+.duel-liste .duel-ligne {
+  transition:
+    opacity 0.6s,
+    transform 0.7s var(--doux);
+}
+.duel-liste .duel-ligne:nth-child(2) {
+  transition-delay: 0.15s;
+}
+.duel-liste .duel-ligne:nth-child(3) {
+  transition-delay: 0.3s;
+}
+.duel-liste .duel-ligne:nth-child(4) {
+  transition-delay: 0.45s;
+}
+.duel-liste .duel-ligne:nth-child(5) {
+  transition-delay: 0.6s;
+}
+.duel-liste .duel-ligne:nth-child(6) {
+  transition-delay: 0.75s;
+}
+.duel-liste .duel-ligne:nth-child(7) {
+  transition-delay: 0.9s;
+}
+.anime--pret:not(.anime--joue) .duel-liste .duel-ligne {
+  opacity: 0;
+  transform: translateY(16px);
+}
+
+/* 3. Les détails qui changent tout */
+.details {
+  background: var(--sable);
+  padding-block: clamp(60px, 9vw, 120px);
+}
+.details-tete {
+  max-width: 760px;
+  margin-bottom: clamp(36px, 6vw, 80px);
+}
+.details-tete h2 {
+  margin-bottom: 16px;
+}
+.detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(30px, 6vw, 90px);
+  align-items: center;
+}
+.detail + .detail {
+  margin-top: clamp(60px, 9vw, 120px);
+}
+.detail--inverse .detail-texte {
+  order: 2;
+}
+.detail-texte h3 {
+  font-size: clamp(30px, 3.4vw, 44px);
+  margin-bottom: 18px;
+}
+.detail-texte h3 em {
+  font-weight: 500;
+  color: var(--roux-fonce);
+}
+.detail-texte p {
+  font-size: 17.5px;
+  margin-bottom: 14px;
+}
+.detail-texte p + p {
+  color: var(--encre-2);
+}
+.detail-dessin {
+  background: var(--surface);
+  border-radius: 22px;
+  padding: clamp(20px, 3vw, 32px);
+  box-shadow:
+    0 0 0 1.5px var(--trait),
+    0 30px 50px -34px rgb(42 26 16 / 0.4);
+}
+.detail-dessin p {
+  margin: 0;
+}
+
+/* 3a. La voix : ce qui est écrit, puis ce que la voix lit. */
+.lecture {
+  display: grid;
+  gap: 12px;
+}
+.lecture-bloc {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  font-size: 17px;
+  line-height: 1.45;
+}
+.lecture-bloc--lu {
+  background: var(--encre);
+  color: var(--creme);
+}
+.lecture-etiquette {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--encre-2);
+}
+.lecture-bloc--lu .lecture-etiquette {
+  color: var(--roux);
+}
+.lecture-etiquette .onde {
+  height: 22px;
+}
+.lecture-fleche {
+  justify-self: center;
+  color: var(--roux-fonce);
+}
+.lecture-fleche svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+.lecture-lu {
+  transition:
+    opacity 1.2s 0.9s,
+    transform 1.2s var(--doux) 0.9s;
+}
+.lecture-fleche {
+  transition: opacity 0.6s 0.5s;
+}
+.anime--pret:not(.anime--joue) .lecture-lu {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.anime--pret:not(.anime--joue) .lecture-fleche {
+  opacity: 0;
+}
+
+/* 3b. Le contexte : la jauge se remplit jusqu'à 80 %, puis le compactage. */
+.contexte {
+  display: grid;
+  gap: 14px;
+}
+.contexte-panneau {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1.5px var(--trait);
+}
+.contexte-panneau p {
+  display: grid;
+  gap: 2px;
+}
+.contexte-panneau b {
+  font-size: 17px;
+}
+.contexte-panneau span {
+  font-size: 15px;
+  color: var(--encre-2);
+}
+.contexte-secteur {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  rotate: -90deg;
+}
+.contexte-secteur circle {
+  fill: none;
+  stroke: var(--sable);
+  stroke-width: 10;
+}
+.contexte-secteur .contexte-plein {
+  stroke: var(--roux);
+  stroke-dasharray: 80 100;
+  transition: stroke-dasharray 2.6s var(--doux) 0.3s;
+}
+.anime--pret:not(.anime--joue) .contexte-plein {
+  stroke-dasharray: 0 100;
+}
+.contexte-bouton {
+  justify-self: start;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 9px 16px;
+  border-radius: 12px;
+  background: var(--encre);
+  color: var(--creme);
+}
+.contexte-separateur {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--encre-2);
+}
+.contexte-separateur::before,
+.contexte-separateur::after {
+  content: "";
+  flex: 1;
+  height: 1.5px;
+  background: var(--trait);
+}
+.contexte .bulle {
+  font-size: 16px;
+}
+.contexte-separateur,
+.contexte .bulle {
+  transition:
+    opacity 0.8s 3s,
+    transform 0.9s var(--doux) 3s;
+}
+.anime--pret:not(.anime--joue) .contexte-separateur,
+.anime--pret:not(.anime--joue) .contexte .bulle {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+/* 3c. La VRAM : la part du modèle, les autres usages, la place libre. */
+.vram {
+  display: grid;
+  gap: 16px;
+}
+.vram-tete {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 15px;
+  color: var(--encre-2);
+}
+.vram-tete b {
+  font-size: 17px;
+  color: var(--encre);
+}
+.vram-barre {
+  display: flex;
+  height: 18px;
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--sable);
+}
+.vram-barre i {
+  display: block;
+  height: 100%;
+  transform-origin: 0 50%;
+  transition: transform 2.2s var(--doux) 0.3s;
+}
+.vram-barre .vram-modele {
+  width: 21.25%;
+  background: var(--roux);
+}
+.vram-barre .vram-autre {
+  width: 5%;
+  background: rgb(42 26 16 / 0.28);
+  transition-delay: 1.4s;
+}
+.anime--pret:not(.anime--joue) .vram-barre i {
+  transform: scaleX(0);
+}
+.vram-legende {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 15px;
+  color: var(--encre-2);
+}
+.vram-legende li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.vram-legende i {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--sable);
+  box-shadow: inset 0 0 0 1.5px var(--trait);
+}
+.vram-legende .vram-modele {
+  background: var(--roux);
+  box-shadow: none;
+}
+.vram-legende .vram-autre {
+  background: rgb(42 26 16 / 0.28);
+  box-shadow: none;
+}
+.vram-ligne {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 15px;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1.5px var(--trait);
+}
+.vram-ligne b::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 9px;
+  border-radius: 50%;
+  background: var(--roux);
+}
+.vram-ligne small {
+  font-size: 14px;
+  color: var(--encre-2);
+}
+.vram-ligne em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: var(--sable);
+}
+
+/* La page « Pourquoi » se termine sur la bande des outils, sans page en cours. */
+.page-choix .autres {
+  padding-top: clamp(40px, 6vw, 80px);
+}
+
+@media (max-width: 900px) {
+  .duel-ligne {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .duel-ligne--tete {
+    display: none;
+  }
+  .duel-liste .duel-ligne:first-child {
+    border-top: 0;
+  }
+  .duel-qui {
+    position: static;
+    display: block;
+    width: auto;
+    height: auto;
+    clip-path: none;
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--encre-2);
+  }
+  .duel-ici .duel-qui {
+    color: var(--roux-fonce);
+  }
+  .duel-ici {
+    padding-left: 0;
+  }
+  .duel-ici::before {
+    display: none;
+  }
+  .detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .detail--inverse .detail-texte {
+    order: 0;
+  }
+  .choix-art {
+    max-width: 420px;
+  }
+}

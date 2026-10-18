@@ -3,9 +3,9 @@
 **The tools of local AI in one desktop app, for Windows and Linux.**
 
 ChatonLM is a free, open-source app for using large language models on your
-own computer. One window brings together chat, a model browser for Hugging
-Face, dictation, read aloud and voice conversations, proofreading and
-step-by-step courses. It is built on [Ollama](https://ollama.com) and
+own computer. One window brings together chat, image generation, a model
+browser for Hugging Face, dictation, read aloud and voice conversations,
+proofreading and step-by-step courses. It is built on [Ollama](https://ollama.com) and
 includes it, so it works out of the box: no account, no subscription, no
 telemetry.
 
@@ -25,9 +25,18 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
 - **Chat**, as in the official app: streaming answers with Markdown, code
   highlighting and math, editable messages, and a history with favorites.
   Reasoning models get a **Think** button, with a thinking level when the
-  model supports it.
+  model supports it. A gauge shows how full the model's context is, and long
+  conversations can be compacted, automatically or on demand. A model that
+  loops is stopped or flagged.
 - **Attachments**: images (for vision models), PDFs, text and code files, added
   with the + button, by drag and drop, or by pasting.
+- **Image generation**: create pictures right in the chat, with the Image
+  button or by asking a model that can use tools. A built-in image engine
+  ([stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp))
+  makes them on your computer, on the graphics card or, more slowly, on the
+  processor. Pick free image models from Hugging Face in ModelHub, Images tab
+  (FLUX.2 klein, Z-Image and more), with what each one is good at, its speed,
+  the graphics memory it needs and its license.
 - **ModelHub**: browse open models from Hugging Face, see which ones fit your
   graphics card and memory, then download them into Ollama in one click.
   Installed models and downloads have their own tabs. When a newer version of
@@ -53,9 +62,11 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
   worked examples and quizzes, from your own documents and the web if you
   want.
 - **Models settings**: keep models loaded for as long as you want, preload the
-  chosen model, see loaded models and unload them.
+  chosen model, see loaded models and unload them, follow a graphics memory
+  gauge, and set a system prompt sent at the start of every chat.
 - **Easy Link**: talk to your models from your phone, through your own
-  Telegram or Discord bot (see [Easy Link](#easy-link)).
+  Telegram or Discord bot, and get the pictures they create (see
+  [Easy Link](#easy-link)).
 - **Built-in Ollama**: no setup needed. ChatonLM uses the Ollama of your
   computer when there is one, and its own copy otherwise (see
   [Ollama](#ollama)).
@@ -114,6 +125,8 @@ icon.
 - **Photos and voice messages**: a photo goes to a model that can see; a voice
   message is transcribed on your computer by the speech recognition model of
   Dictation, then sent as text.
+- **Pictures**: ask the bot for a picture, and if the model can use tools and
+  an image model is chosen in ChatonLM, the image arrives as a photo.
 - **Web search**, with `/web on`, if your Ollama account is connected.
 - **ChatonLM must be running** on your computer (it keeps running in the tray
   when you close the window). Nothing is hosted elsewhere, and no port is
@@ -261,15 +274,16 @@ click **Restart to update**, never on its own.
 ## Privacy
 
 ChatonLM has no account of its own, no telemetry and no analytics. Your chats,
-attachments and settings stay on your computer, and dictation and voice mode
-are transcribed locally.
+attachments, generated images and settings stay on your computer, dictation
+and voice mode are transcribed locally, and images are generated locally by
+the built-in image engine, which does not connect to the internet.
 
 ChatonLM itself connects only to:
 
 - **Hugging Face** (huggingface.co and its status page), when you open
   ModelHub (model lists, model cards, file sizes; the first-launch tour opens
-  it at its second step) and when you download a speech recognition model or
-  a voice;
+  it at its second step), when you browse or download image models, and when
+  you download a speech recognition model or a voice;
 - **ollama.com**, to check that a model name typed in the model picker exists,
   and to show your account picture once you are signed in;
 - **ollama.com or Hugging Face**, whichever the model came from, to check
@@ -281,7 +295,7 @@ ChatonLM itself connects only to:
 - **Telegram** (api.telegram.org) **or Discord** (discord.com and its file
   servers), only if you connect a bot in Settings › Easy Link, and only while
   it is turned on: the messages, photos and voice messages you send to your
-  bot, and the answers of your model, go through that service. The token of
+  bot, and the answers and pictures of your model, go through that service. The token of
   your bot is stored in the database of ChatonLM, on your computer.
 
 Everything else goes through your Ollama server: chats, model downloads,
@@ -402,6 +416,11 @@ folder of the installation on Windows.
 - The AppImage also contains system libraries from Ubuntu 22.04, some under
   the GNU LGPL. Their source code, and that of the AppImage runtime, is
   published with each release as `chatonlm_<version>_amd64.AppImage-sources.tar`.
+- The packages include sd-server, the server of
+  [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp)
+  (MIT), built by ChatonLM with the Vulkan backend of ggml
+  (THIRD_PARTY_LICENSES, part 10). Image models are downloaded on demand from
+  Hugging Face, under their own licenses, shown in ModelHub.
 - Speech recognition models are downloaded on demand, not shipped:
   [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3)
   by NVIDIA (CC BY 4.0, in the ONNX conversion by

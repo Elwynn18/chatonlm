@@ -1,0 +1,26 @@
+<div class="vue" data-vue="images">
+  <p class="bulle">{{t:demo.images.prompt}}</p>
+  <div class="genere">
+    <p class="genere-etat"><span class="genere-encours">{{t:demo.images.creating}}</span><span class="genere-fini">{{t:demo.images.created}}</span></p>
+    <!-- L'image créée : le chaton endormi de la maison, près de sa pelote. Elle se précise à l'arrivée sur l'outil (20-accueil.css). -->
+    <svg class="genere-image chaton--dort" viewBox="0 0 200 200">
+      <rect width="200" height="200" fill="#F6DDBF" />
+      <circle cx="152" cy="54" r="27" fill="#FBC98E" />
+      <rect y="174" width="200" height="26" fill="#EBC59C" />
+      <g transform="translate(-24 19) scale(.36)">
+        <path d="M150 440C120 330 200 232 320 232C440 232 520 310 508 400C504 432 480 446 440 446Z" fill="#F28A38" />
+        <path d="M300 244l-6 34M350 248l-2 36M400 262l4 34M446 290l12 30" fill="none" stroke="#D9701F" stroke-width="12" stroke-linecap="round" />
+        <path d="M500 404C520 452 430 462 330 446" fill="none" stroke="#F28A38" stroke-width="36" stroke-linecap="round" />
+        <path d="M500 404C520 452 430 462 330 446" fill="none" stroke="#D9701F" stroke-width="36" stroke-dasharray="11 30" stroke-dashoffset="-30" />
+        <ellipse cx="208" cy="358" rx="118" ry="112" fill="#D9701F" opacity=".5" />
+        <g transform="translate(26 152) scale(.66)">{{>cat-head.svg}}</g>
+        <ellipse cx="150" cy="440" rx="30" ry="14" fill="#FFF4E8" />
+        <ellipse cx="246" cy="440" rx="30" ry="14" fill="#FFF4E8" />
+      </g>
+      <path d="M68 178C96 190 140 188 168 178" fill="none" stroke="#E2711D" stroke-width="2.500" stroke-linecap="round" />
+      <g transform="translate(180 170) scale(.2)">{{>yarn.svg}}</g>
+    </svg>
+    <i class="genere-barre"></i>
+  </div>
+  <div class="saisie"><span>{{t:demo.images.placeholder}}</span><i class="saisie-outil saisie-outil--actif" data-vers="images" title="{{t:demo.images.button}}">{{>i-photo.svg}}</i><b>FLUX.2 klein</b><i class="envoi"></i></div>
+</div>

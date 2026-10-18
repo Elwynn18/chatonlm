@@ -308,7 +308,8 @@ describe("fabrication complète", () => {
             priceCurrency: "EUR",
           });
           expect(app.operatingSystem).toBe("Windows 11, Linux");
-          expect(app.featureList).toHaveLength(6);
+          // Un outil par page d'outil.
+          expect(app.featureList).toHaveLength(Object.keys(TOOLS).length);
           expect(app.url).toBe(url);
           expect(app.installUrl).toBe(`${url}#telecharger`);
           expect(app.downloadUrl).toBeUndefined();
@@ -329,6 +330,26 @@ describe("fabrication complète", () => {
           expect(crumbs[1].name.length).toBeGreaterThanOrEqual(3);
         }
       }
+    }
+  });
+
+  it("relie la page « Pourquoi ChatonLM » à l'en-tête, à l'accueil et aux outils", () => {
+    for (const lang of LANGS) {
+      const lien = `href="/${lang}/${pathOf("choose", lang)}"`;
+      // En-tête, section des raisons et pied de page de l'accueil y mènent.
+      expect(read(`${lang}/index.html`).split(lien).length - 1, lang).toBe(3);
+      // Et l'en-tête de toute autre page.
+      expect(read(`${lang}/${pathOf("images", lang)}index.html`)).toContain(
+        lien,
+      );
+      const page = read(`${lang}/${pathOf("choose", lang)}index.html`);
+      for (const outil of Object.keys(TOOLS))
+        expect(page, `${lang} ${outil}`).toContain(
+          `href="/${lang}/${pathOf(outil, lang)}"`,
+        );
+      // Sept sujets comparés, et le tableau plus les trois dessins s'animent.
+      expect(page.match(/<div class="duel-ligne">/g)).toHaveLength(7);
+      expect(page.match(/ data-anime/g)).toHaveLength(4);
     }
   });
 
@@ -356,12 +377,18 @@ describe("fabrication complète", () => {
     }
   });
 
-  it("rend cliquable, dans la fenêtre dessinée, chacun des six outils", () => {
+  it("rend cliquable, dans la fenêtre dessinée, chacun des sept outils", () => {
     const html = read("fr/index.html");
     const outils = [
-      ...html.matchAll(/class="onglet" data-vue="([a-z]+)"/g),
+      ...html.matchAll(/class="onglet[^"]*" data-vue="([a-z]+)"/g),
     ].map((m) => m[1]);
-    expect(outils).toHaveLength(6);
+    expect(outils).toHaveLength(7);
+    // Chaque outil de la fenêtre a sa page.
+    expect(outils.sort()).toEqual(
+      Object.values(TOOLS)
+        .map(({ vue }) => vue)
+        .sort(),
+    );
     const scene = html.slice(
       html.indexOf('<div class="app"'),
       html.indexOf('<section class="reunis'),
@@ -396,7 +423,7 @@ describe("fabrication complète", () => {
   });
 
   it("garde la typographie française et un plan du site complet", () => {
-    expect(read("fr/index.html")).toMatch(/apprendre\u00a0: ChatonLM/);
+    expect(read("fr/index.html")).toMatch(/créer des images\u00a0: ChatonLM/);
     expect(read("en/index.html")).not.toMatch(/\u202f[;!?]/);
     const sitemap = read("sitemap.xml");
     expect(sitemap.match(/<loc>/g)).toHaveLength(INDEXED);

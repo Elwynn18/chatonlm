@@ -3,7 +3,7 @@
     "home": {
       "title": "Free local AI app for Windows and Linux · ChatonLM",
       "social_title": "ChatonLM, an indoor AI",
-      "description": "ChatonLM is a free, open-source local AI app for Windows and Linux: chat, dictation, voice, proofreading and study in one window. Works offline, no account."
+      "description": "ChatonLM is a free, open-source local AI app for Windows and Linux: chat, images, dictation, voice, proofreading and study. Works offline, no account."
     },
     "contact": {
       "title": "Contact · ChatonLM",
@@ -50,6 +50,14 @@
     "study": {
       "title": "Learn with a local AI: courses and quizzes · ChatonLM",
       "description": "Pick a topic: a local AI writes a course at your level, with lessons, examples and quizzes, based on your own documents if needed. Free, no account."
+    },
+    "images": {
+      "title": "Local AI image generator, free and offline · ChatonLM",
+      "description": "Create images from a description on your own computer: built-in image engine, open models of your choice, your pictures stay home. Free, for Windows and Linux."
+    },
+    "choose": {
+      "title": "Why choose ChatonLM: all-in-one local AI",
+      "description": "Seven local AI tools in one free app, a voice that reads correctly, conversations that don’t overflow, graphics memory in plain sight: why choose ChatonLM."
     }
   },
   "nav": {
@@ -78,7 +86,7 @@
   "hero": {
     "eyebrow": "Local AI · Windows and Linux · free",
     "title": "An<br /><em>indoor AI.</em>",
-    "lead": "Chat, dictate, listen, proofread, learn: ChatonLM puts what you do with AI into a single app. It lives on your computer, not in the cloud.",
+    "lead": "Chat, dictate, listen, proofread, learn, create images: ChatonLM puts what you do with AI into a single app. It lives on your computer, not in the cloud.",
     "other": "Windows 11 and Linux, 64-bit",
     "note": "Version 0.9 beta · free and open source · no account"
   },
@@ -108,7 +116,7 @@
     "requirements": "64-bit PC (x86-64). A graphics card speeds up the models but isn’t required. No macOS version for now. On Linux, global shortcuts need KDE Plasma 6 or GNOME 48; elsewhere, set them in your desktop’s settings."
   },
   "tools": {
-    "title": "Six tools. <em>One window.</em>",
+    "title": "Seven tools. <em>One window.</em>",
     "lead": "Take a look around: every tool is one click away, and they all share your models.",
     "label": "ChatonLM tools",
     "chat": {
@@ -135,7 +143,12 @@
       "name": "Study",
       "text": "Pick a topic: your model writes a course, with lessons, examples and quizzes, based on your own documents if you like."
     },
-    "easylink": "Also <strong>Easy Link</strong>, to write to your models from your phone through your own Telegram or Discord bot, as long as ChatonLM is running on your computer."
+    "images": {
+      "name": "Images",
+      "text": "Describe a picture in the chat, or ask your model for one: the built-in image engine draws it on your computer, with the open model of your choice."
+    },
+    "new": "New",
+    "easylink": "Also <strong>Easy Link</strong>, to write to your models from your phone through your own Telegram or Discord bot, and get the pictures they make, as long as ChatonLM is running on your computer."
   },
   "app": {
     "chat": "Chat",
@@ -183,18 +196,26 @@
       "a": "In the roots",
       "b": "In the chloroplasts",
       "c": "In the nucleus"
+    },
+    "images": {
+      "prompt": "A ginger kitten asleep by its ball of yarn, evening light",
+      "creating": "Creating an image…",
+      "created": "Created an image",
+      "placeholder": "Describe the image to create",
+      "button": "Image"
     }
   },
   "merge": {
-    "title": "Six apps elsewhere. <em>One here.</em>",
-    "lead": "Usually you need one app to talk to a model, another to dictate, a third to have a text read aloud, a fourth to proofread it. Each has its own settings, its own models to download all over again, sometimes its own account. ChatonLM installs once, and everything works together.",
+    "title": "Seven apps elsewhere. <em>One here.</em>",
+    "lead": "Usually you need one app to talk to a model, another to dictate, a third to have a text read aloud, a fourth to proofread it, a fifth to make pictures. Each has its own settings, its own models to download all over again, sometimes its own account. ChatonLM installs once, and everything works together.",
     "w1": "Chat",
     "w2": "Find models",
     "w3": "Dictate",
     "w4": "Listen",
     "w5": "Proofread",
     "w6": "Study",
-    "before": "Six installs, six sets of settings, six updates",
+    "w7": "Create images",
+    "before": "Seven installs, seven sets of settings, seven updates",
     "after": "One app, one set of settings",
     "replay": "Replay"
   },
@@ -204,7 +225,8 @@
     "w3": "Listen",
     "w4": "Proofread",
     "w5": "Learn",
-    "w6": "Search"
+    "w6": "Search",
+    "w7": "Draw"
   },
   "free": {
     "eyebrow": "The price",
@@ -225,11 +247,11 @@
     },
     "r2": {
       "title": "Nothing to set up",
-      "text": "Install the app, open it: no server to start, no container. The engine that runs the models is included. If it’s already on your machine, ChatonLM uses it, with the models you’ve already downloaded."
+      "text": "Install the app, open it: no server to start, no container. The engine that runs the models is included, and so is the image engine. If the first one is already on your machine, ChatonLM uses it, with the models you’ve already downloaded."
     },
     "r3": {
       "title": "It knows your machine",
-      "text": "ModelHub reads your graphics card and memory, then points you to the models that fit your machine. No more 20 GB downloads for nothing."
+      "text": "ModelHub reads your graphics card and memory, then points you to the models, for text or images, that fit your machine. No more 20 GB downloads for nothing."
     },
     "r4": {
       "title": "Linux doesn’t wait its turn",
@@ -248,7 +270,7 @@
     "title": "What leaves the house: <em>almost nothing.</em>",
     "lead": "No account, no telemetry, no ads. And when ChatonLM does go online, you know why.",
     "stays": "Stays on your computer",
-    "stays1": "Your conversations and attachments",
+    "stays1": "Your conversations, attachments and the images you create",
     "stays2": "Your voice: dictation, read aloud and voice mode",
     "stays3": "The texts you proofread and your courses",
     "stays4": "Your settings and history",
@@ -263,7 +285,7 @@
     "q1": "Is it really free?",
     "a1": "Yes. ChatonLM is open-source software under the MIT license: no paid version, no subscription, no ads. The open models you download are free too.",
     "q2": "Do I need a graphics card?",
-    "a2": "No. Models also run on the processor, just more slowly. With a graphics card they run faster and can be bigger; ModelHub tells you which ones fit your machine.",
+    "a2": "No. Models also run on the processor, just more slowly. With a graphics card they run faster and can be bigger; ModelHub tells you which ones fit your machine. For images, a graphics card makes all the difference: on the processor, expect several minutes per image.",
     "q3": "Is it as capable as the big online AIs?",
     "a3": "Not at everything. A model that fits on your computer is smaller than the ones behind the big online services. For chatting, summarizing, proofreading, translating, studying or dictating, it does the job very well, and your data stays with you.",
     "q4": "What about macOS?",
@@ -273,11 +295,13 @@
     "q6": "Windows shows a warning during installation",
     "a6": "ChatonLM is a young app: its installer doesn’t yet have a certificate that Windows recognizes, hence the “Windows protected your PC” screen. Click “More info”, then “Run anyway”. The code is open, and every update is signed.",
     "what_q": "What is ChatonLM?",
-    "what_a": "ChatonLM is a free, open-source local AI app for Windows 11 and Linux. It brings six tools together in one window: chat with a language model (LLM), a model catalog, voice dictation, voice (read aloud and voice mode), proofreading and study. Models run on your own computer, with no account and no subscription.",
+    "what_a": "ChatonLM is a free, open-source local AI app for Windows 11 and Linux. It brings seven tools together in one window: chat with a language model (LLM), a model catalog, voice dictation, voice (read aloud and voice mode), proofreading, study and image generation. Models run on your own computer, with no account and no subscription.",
     "offline_q": "Does it work without an internet connection?",
-    "offline_a": "Yes, once your models, voices and speech recognition are downloaded. Chat, dictation, voice, proofreading and study all work offline. The internet is only used to browse the catalog, to download models and voices, to check for updates and, if you turn them on, for web search and Easy Link.",
+    "offline_a": "Yes, once your models, voices and speech recognition are downloaded. Chat, image generation, dictation, voice, proofreading and study all work offline. The internet is only used to browse the catalog, to download models and voices, to check for updates and, if you turn them on, for web search and Easy Link.",
     "models_q": "Which models can I use?",
     "models_a": "Models you can download and run locally, such as Gemma, Qwen, Mistral or Llama. ModelHub lists them in one catalog, tells you which ones fit your machine, and installs them in one click.",
+    "images_q": "Can ChatonLM create images?",
+    "images_a": "Yes, in the chat: describe the picture, and the built-in image engine draws it on your computer, with an open model chosen in ModelHub. With a graphics card, an image takes from a few seconds to about a minute with the recommended models, longer with the heaviest ones or on a modest card; on the processor, several minutes. <a href='/{{lang}}/{{path:images}}'>All about image generation</a>",
     "engine_q": "Does ChatonLM work with Ollama?",
     "engine_a": "Yes. ChatonLM is a desktop app for Ollama: the engine it includes is Ollama, unmodified. If Ollama is already installed on your computer, ChatonLM connects to it and picks up the models you’ve already downloaded. ChatonLM is an independent project: it is not affiliated with Ollama, nor endorsed by it."
   },
@@ -330,15 +354,15 @@
   "privacy": {
     "title": "Privacy",
     "lead": "This site doesn’t track you: no cookies, no analytics, no content loaded from a third party.",
-    "body": "<h2>When you visit this site</h2><p>No cookie is set and no analytics tool is installed. The fonts and images come from the site itself.</p><p>Like any web server, ours records the IP address, the date, the requested page, the browser used and the referring page in a technical log. This log is used for the security and proper running of the site; it is deleted automatically after a few weeks.</p><h2>When you write to us</h2><p>The form sends us your name, your email address and your message by email, to a Gmail (Google) mailbox. They are used only to reply to you and are not stored anywhere else. The controller of this processing is the site’s publisher, relying on its legitimate interest in replying to you. Google may store these emails outside the European Union. They are deleted at the latest one year after our last exchange.</p><p>To limit abusive submissions, your IP address is kept in working memory for one day at most, never on disk.</p><h2>When you download ChatonLM</h2><p>The files are hosted by GitHub: your browser downloads them from GitHub, which therefore sees your IP address, under its own privacy policy.</p><h2>In the ChatonLM app</h2><p>ChatonLM has no account, no telemetry and no analytics. Your conversations, attachments and settings stay on your computer; dictation and voice mode are transcribed locally.</p><p>The app only connects to:</p><ul><li><strong>Hugging Face</strong>, when you open ModelHub (model lists and model pages), when you download a speech recognition model or a voice, and to check whether a model installed from Hugging Face has a newer version;</li><li><strong>ollama.com</strong>, to check that a model name exists and whether an installed model has a newer version and, if you sign in to it, to show your account picture;</li><li><strong>GitHub</strong>, to check for and download updates, and to download the files of a voice;</li><li><strong>Telegram or Discord</strong>, only if you connect a bot with Easy Link (see below).</li></ul><p>Everything else goes through the Ollama engine, on your computer by default: conversations, model downloads and, if you turn them on, the Ollama account and web search, which are then handled by ollama.com. If you point the app at a server on another machine, your messages, attachments and the transcripts cleaned up by dictation are sent to it.</p><h2>With Easy Link</h2><p>Easy Link lets you write to your models from Telegram or Discord, through a bot you create yourself. As long as you haven’t connected a bot, the app doesn’t connect to either service. Once a bot is connected, and while the app is running, your messages to the bot (text, photos, voice messages) and everything it replies, the model’s answers included, go through the servers of that service, under its own privacy policy. The app talks to that service directly: no other server sits in between, and nothing is sent to ChatonLM’s publisher.</p><p>The bot’s token is kept in the app’s database, on your computer, and is only sent to that service. Voice messages are transcribed on your computer, the model answers through the Ollama engine as it does in the app, and these conversations are saved on your computer with the others.</p><h2>Your rights</h2><p>You can ask to see, correct or delete the data about you, or object to its processing, by writing to <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>. You can also lodge a complaint with the CNIL (cnil.fr).</p>",
+    "body": "<h2>When you visit this site</h2><p>No cookie is set and no analytics tool is installed. The fonts and images come from the site itself.</p><p>Like any web server, ours records the IP address, the date, the requested page, the browser used and the referring page in a technical log. This log is used for the security and proper running of the site; it is deleted automatically after a few weeks.</p><h2>When you write to us</h2><p>The form sends us your name, your email address and your message by email, to a Gmail (Google) mailbox. They are used only to reply to you and are not stored anywhere else. The controller of this processing is the site’s publisher, relying on its legitimate interest in replying to you. Google may store these emails outside the European Union. They are deleted at the latest one year after our last exchange.</p><p>To limit abusive submissions, your IP address is kept in working memory for one day at most, never on disk.</p><h2>When you download ChatonLM</h2><p>The files are hosted by GitHub: your browser downloads them from GitHub, which therefore sees your IP address, under its own privacy policy.</p><h2>In the ChatonLM app</h2><p>ChatonLM has no account, no telemetry and no analytics. Your conversations, attachments, the images you create and your settings stay on your computer; dictation and voice mode are transcribed locally, and images are made there too.</p><p>The app only connects to:</p><ul><li><strong>Hugging Face</strong>, when you open ModelHub (model lists and model pages, image models included), when you download an image model, a speech recognition model or a voice, and to check whether a model installed from Hugging Face has a newer version;</li><li><strong>ollama.com</strong>, to check that a model name exists and whether an installed model has a newer version and, if you sign in to it, to show your account picture;</li><li><strong>GitHub</strong>, to check for and download updates, and to download the files of a voice;</li><li><strong>Telegram or Discord</strong>, only if you connect a bot with Easy Link (see below).</li></ul><p>Everything else goes through the Ollama engine, on your computer by default: conversations, model downloads and, if you turn them on, the Ollama account and web search, which are then handled by ollama.com. If you point the app at a server on another machine, your messages, attachments and the transcripts cleaned up by dictation are sent to it.</p><h2>When you create an image</h2><p>The image is made on your computer by the image engine built into ChatonLM (stable-diffusion.cpp), which runs locally and does not connect to the internet. Your description and the image stay on your computer; the image is saved with the conversation and is never sent back to the language model. When the language model is the one asking for the image, your message goes through the Ollama engine, like any message.</p><h2>With Easy Link</h2><p>Easy Link lets you write to your models from Telegram or Discord, through a bot you create yourself. As long as you haven’t connected a bot, the app doesn’t connect to either service. Once a bot is connected, and while the app is running, your messages to the bot (text, photos, voice messages) and everything it replies, the model’s answers and the images it creates included, go through the servers of that service, under its own privacy policy. The app talks to that service directly: no other server sits in between, and nothing is sent to ChatonLM’s publisher.</p><p>The bot’s token is kept in the app’s database, on your computer, and is only sent to that service. Voice messages are transcribed on your computer, the model answers through the Ollama engine as it does in the app, and these conversations are saved on your computer with the others.</p><h2>Your rights</h2><p>You can ask to see, correct or delete the data about you, or object to its processing, by writing to <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>. You can also lodge a complaint with the CNIL (cnil.fr).</p>",
     "updated": "Last updated: October 2026."
   },
   "toolpage": {
-    "back": "All six tools",
+    "back": "All seven tools",
     "more": "Learn more",
     "free": "Free and open source · no account",
     "end_lead": "ChatonLM is free, for Windows and Linux.",
-    "others_title": "The six tools in <em>ChatonLM</em>"
+    "others_title": "The seven tools in <em>ChatonLM</em>"
   },
   "pages": {
     "dictation": {
@@ -397,7 +421,7 @@
       "fact2_title": "A Think button",
       "fact2_text": "Reasoning models get their own Think button, with a thinking level when the model allows it.",
       "fact3_title": "A history of your own",
-      "fact3_text": "Your conversations are kept on your computer, with favorites. Every message can still be edited.",
+      "fact3_text": "Your conversations are kept on your computer, with favorites. Every message can still be edited. Long conversations are compacted, automatically or on demand, to fit in the model’s memory.",
       "fact4_title": "Easy-to-read answers",
       "fact4_text": "Markdown, highlighted code and math formulas, rendered while the answer is being written.",
       "fact5_title": "The web, if you want it",
@@ -441,13 +465,13 @@
       "fact4_text": "Its author’s description, its license and its versions, without leaving the app.",
       "fact5_title": "Downloads you can follow",
       "fact5_text": "The progress of every download in one tab, and your installed models in another.",
-      "fact6_title": "For voice too",
-      "fact6_text": "Speech recognition models and read-aloud voices are chosen in the same place.",
+      "fact6_title": "For voice and images too",
+      "fact6_text": "Image models, speech recognition models and read-aloud voices are chosen in the same place.",
       "privacy_title": "What goes <em>over the internet.</em>",
       "privacy_text": "To show the catalog and download a model, ChatonLM connects to Hugging Face: that’s the only time ModelHub goes online. No account is required, and your machine is examined locally: nothing ModelHub learns about your graphics card or memory is sent anywhere.",
       "faq_title": "Questions about <em>ModelHub</em>",
       "q1": "Where do the models come from?",
-      "a1": "From Hugging Face, the largest library of open models. ModelHub shows its compatible models and installs them in Ollama, the engine included in ChatonLM.",
+      "a1": "From Hugging Face, the largest library of open models. ModelHub shows its compatible models and installs them in Ollama, the engine included in ChatonLM; image models run in ChatonLM itself, with its image engine.",
       "q2": "How do I know whether a model will run on my machine?",
       "a2": "ModelHub compares the size of each version with your graphics card and memory, then shows the result on a label. The “Fits my machine” filter keeps only the ones that fit.",
       "q3": "Do I need a Hugging Face account?",
@@ -455,7 +479,7 @@
       "q4": "Are the models free?",
       "a4": "Yes: they’re open models, free to download. Each has its own license, shown on its model card; a filter keeps only open licenses.",
       "q5": "Where are the models stored?",
-      "a5": "On your computer, in Ollama’s folder. You can choose another folder in the settings, for example on a bigger drive.",
+      "a5": "On your computer: language models in Ollama’s folder, image models in ChatonLM’s. For the former, you can choose another folder in the settings, for example on a bigger drive.",
       "end_title": "Ready to <em>choose?</em>"
     },
     "voice": {
@@ -574,6 +598,136 @@
       "q5": "Does it work without the internet?",
       "a5": "Yes, once the model is downloaded. Only web search, which is optional, needs a connection.",
       "end_title": "Ready to <em>learn?</em>"
+    },
+    "images": {
+      "eyebrow": "AI image generation · runs locally",
+      "title": "Your pictures, <em>drawn at home.</em>",
+      "lead": "ChatonLM creates images from a description, right in the chat. The image engine is built in and runs on your computer: your description and the picture stay with you. And you choose the model, from open models.",
+      "steps_title": "Three steps, <em>and there’s your picture.</em>",
+      "step1_title": "Pick an image model",
+      "step1_text": "In ModelHub, Images tab: each model says what it’s good at, how long it takes and whether it fits your graphics card. Download it, then click Use.",
+      "step2_title": "Describe the picture",
+      "step2_text": "In a chat, turn on the Image button and write what you want to see: the subject, the style, the colors, the light.",
+      "step3_title": "Watch it take shape",
+      "step3_text": "The picture sharpens step by step before your eyes, then appears in the chat. A button lets you save it.",
+      "facts_title": "What it <em>can do.</em>",
+      "fact1_title": "Right in the chat",
+      "fact1_text": "No separate program: the picture lands in the chat, next to your messages, and stays in your history.",
+      "fact2_title": "Two ways to ask",
+      "fact2_text": "The Image button sends your text as is to the image model. Or simply ask a model that can use tools for a picture: it writes a detailed description itself.",
+      "fact3_title": "The model you choose",
+      "fact3_text": "FLUX.2 klein, Z-Image, FLUX.1, Stable Diffusion XL and more: ModelHub shows the open models on Hugging Face from the families ChatonLM recognizes, not a handful of models picked in advance.",
+      "fact4_title": "Every model explained",
+      "fact4_text": "What it’s good at, how long an image takes, how much graphics memory it needs, and what its license allows: free use, non-commercial use, or a license to read.",
+      "fact5_title": "With or without a graphics card",
+      "fact5_text": "A graphics card does the heavy lifting. Without one, the processor takes over, at several minutes per image, and ChatonLM tells you beforehand.",
+      "fact6_title": "All the way to your phone",
+      "fact6_text": "With Easy Link, ask your Telegram or Discord bot for a picture: if its model can use tools and an image model is chosen in ChatonLM, the image arrives as a photo.",
+      "privacy_title": "Your ideas <em>stay home.</em>",
+      "privacy_text": "An online image generator receives every description you write and makes the picture on its servers. Here, the image engine runs on your computer: your descriptions and pictures never leave it. The internet is only used to browse image models and download them from Hugging Face. Two exceptions, which are yours to decide: with Easy Link, pictures go through your messaging service; and an Ollama server you may have set up on another machine receives your messages, but never the pictures it creates.",
+      "faq_title": "Questions about <em>images</em>",
+      "q1": "Do I need a graphics card?",
+      "a1": "It’s strongly recommended. With a graphics card, an image takes from a few seconds to about a minute with the recommended models, longer with the heaviest ones or on a modest card. Without one, the processor does the work, at several minutes per image. The image engine also needs a recent processor (with AVX2).",
+      "q2": "How long does an image take?",
+      "a2": "It depends on the model and your machine. ModelHub shows it for each model: an estimate at first, then the time measured on your computer from your first image on. The fastest ones, such as FLUX.2 klein 4B, take a few seconds on a powerful graphics card. The first image after a break, or after switching models, takes longer: the model is loading.",
+      "q3": "Where do the models come from, and under what license?",
+      "a3": "From Hugging Face, the big library of open models; they download with no account. Each model has its own license, and ModelHub spells it out: free use, non-commercial use, or a license to read. The two recommended models, FLUX.2 klein 4B and Z-Image-Turbo, are under the Apache 2.0 license: free use.",
+      "q4": "Does anything leave my computer?",
+      "a4": "No: your description and the picture are processed on your computer, by the built-in image engine. Only the list of models and their downloads go over the internet. With Easy Link, the picture is sent to your bot, since that’s where you asked for it. And if you point ChatonLM at an Ollama server on another machine, your messages are sent to it, but never the pictures it creates.",
+      "q5": "Is it really free?",
+      "a5": "Yes. Image generation is part of ChatonLM, open-source software under the MIT license: no credits to buy, no subscription, no account. The models are free to download; their license says what you may do with the pictures.",
+      "end_title": "Ready to <em>draw?</em>"
     }
+  },
+  "choose": {
+    "more": "Every reason, in detail",
+    "eyebrow": "Why ChatonLM · all-in-one local AI",
+    "title": "Why ChatonLM, <em>and not another app?</em>",
+    "lead": "There are plenty of apps for running AI at home, each for one job. ChatonLM brings their tools together in a single app, free and open, and takes care of the details you only notice once you use it: a voice that reads correctly, a conversation that doesn’t overflow, a graphics card you can watch fill up.",
+    "duel_title": "Elsewhere, <em>and here.</em>",
+    "elsewhere": "Elsewhere",
+    "here": "With ChatonLM",
+    "r1": {
+      "topic": "The tools",
+      "else": "One app to chat, another to dictate, others to read aloud, to proofread, to create images.",
+      "here": "Seven tools in a single window, sharing your models and settings."
+    },
+    "r2": {
+      "topic": "The price",
+      "else": "A subscription for each service: the bill soon comes to about sixty euros a month*.",
+      "here": "Free. No limited trial, no “Pro” version, no credit card."
+    },
+    "r3": {
+      "topic": "Your voice",
+      "else": "Often transcribed on a server.",
+      "here": "Transcribed on your computer, for dictation and voice mode alike."
+    },
+    "r4": {
+      "topic": "Setup",
+      "else": "Often a server to start, a terminal, a container.",
+      "here": "One installer. The model engine and the image engine are included."
+    },
+    "r5": {
+      "topic": "Picking a model",
+      "else": "A download of several gigabytes, without knowing whether it will fit.",
+      "here": "Before you download, ModelHub tells you what fits your machine."
+    },
+    "r6": {
+      "topic": "Systems",
+      "else": "Often Windows and macOS only.",
+      "here": "Windows and Linux, with the same tools."
+    },
+    "r7": {
+      "topic": "The code",
+      "else": "Often closed: you have to take their word for it.",
+      "here": "Open source, under the MIT license: anyone can read and check it."
+    },
+    "details_title": "The details <em>that change everything.</em>",
+    "details_lead": "Three things you can’t see in a screenshot, and notice within the first hour.",
+    "voice": {
+      "title": "A voice <em>that reads correctly.</em>",
+      "text": "A synthetic voice that gets raw text may skip a number, mix up a unit or stumble over an acronym. Before reading an answer aloud, ChatonLM prepares it in its language: numbers, dates, times, units, currencies and version numbers written out in full, acronyms spelled out, formatting and code blocks removed.",
+      "proof": "The difference is clearest in French and Spanish. On our hardest test sentences in French, misread words were cut by a factor of two to three; in Spanish, without this preparation, the voice lost track of the sentence. And this preparation takes less than a tenth of a millisecond per paragraph: the voice starts no later.",
+      "link": "Voice, in detail",
+      "written_label": "Written",
+      "written": "Meet on 10/21 at 2:30 pm: the RAM goes up to 32 GB for $15.",
+      "spoken_label": "Read aloud",
+      "spoken": "Meet on October twenty-first at two thirty p m: the ram goes up to thirty-two gigabytes for fifteen dollars."
+    },
+    "context": {
+      "title": "A conversation <em>that doesn’t overflow.</em>",
+      "text": "A model only remembers a limited number of words: its context. Beyond that, the engine silently forgets the start of the conversation. ChatonLM shows a gauge of the context used; past 80%, it summarizes the oldest messages to make room, and a “Compact now” button does it whenever you like. The whole history stays on screen, and the summary sent to the model is one click away.",
+      "loops": "And if a model starts going in circles, ChatonLM stops it when it repeats itself word for word, or warns you when it keeps rehashing, with a button to stop it.",
+      "link": "Chat, in detail",
+      "gauge": "Context: 80% used",
+      "usage": "26,214 / 32,768 tokens (80%)",
+      "compact_now": "Compact now",
+      "compacted": "Context compacted automatically",
+      "message": "So what do you suggest for the rest of the trip?"
+    },
+    "vram": {
+      "title": "Graphics memory <em>in plain sight.</em>",
+      "text": "A model that no longer fits on the graphics card spills into system memory and slows down, often without you knowing why. In Settings › Models, a gauge shows each loaded model’s share, other uses and free space, and tells you when part of a model runs from system memory. Unload a model in one click, keep it loaded as long as you like, or preload the one in your chat.",
+      "hub": "And before you even download, ModelHub tells you whether a model, for text or images, will fit on your card.",
+      "link": "ModelHub, in detail",
+      "usage": "6.3 GB of 24 GB used",
+      "model": "gemma3: 5.1 GB",
+      "others": "Other uses: 1.2 GB",
+      "free": "Free: 17.7 GB",
+      "kept": "Stays loaded",
+      "unload": "Unload"
+    },
+    "faq_title": "Still <em>on the fence?</em>",
+    "q1": "Can ChatonLM replace an online AI assistant?",
+    "a1": "For many uses, yes: chatting, summarizing, proofreading, translating, dictating, studying, creating images. A model that fits on your computer is smaller than those of the big online services and doesn’t match them on everything; in return, it’s free, works offline, and your data stays home.",
+    "q2": "What does it offer beyond a simple chat interface?",
+    "a2": "Chat is just one of its seven tools. ChatonLM adds dictation, voice, proofreading, study and image generation, a model catalog that knows your machine, context and graphics memory gauges, and it ships the engine that runs the models.",
+    "q3": "Do I need to know about local AI?",
+    "a3": "No. A guided tour shows you the essentials on first launch, ModelHub points you to the models that fit your machine, and everything installs in one click, with no terminal.",
+    "q4": "Can I keep the models I already have?",
+    "a4": "Yes. If Ollama is already installed on your computer, ChatonLM connects to it and finds your models: nothing to download again.",
+    "q5": "What leaves my computer?",
+    "a5": "Almost nothing: no account, no telemetry, no ads. The internet is used to browse and download models and voices, to check for updates and, if you turn them on, for web search and Easy Link. <a href='/{{lang}}/privacy/'>The privacy page</a> details every connection.",
+    "end_title": "One kitten, <em>every tool.</em>"
   }
 }

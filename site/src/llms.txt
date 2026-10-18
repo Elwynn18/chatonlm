@@ -1,6 +1,6 @@
 # ChatonLM
 
-> ChatonLM is a free, open-source desktop app for Windows 11 and Linux that brings the tools of local AI together in one window: chat, a model catalog, dictation, voice, proofreading and study. Models run on the user's own computer, with no account, no subscription and no telemetry.
+> ChatonLM is a free, open-source desktop app for Windows 11 and Linux that brings the tools of local AI together in one window: chat, a model catalog, dictation, voice, proofreading, study and image generation. Models run on the user's own computer, with no account, no subscription and no telemetry.
 
 Tools:
 
@@ -10,15 +10,18 @@ Tools:
 - {{h:tools.voice.name}}: {{h:tools.voice.text}}
 - {{h:tools.proofread.name}}: {{h:tools.proofread.text}}
 - {{h:tools.study.name}}: {{h:tools.study.text}}
+- {{h:tools.images.name}}: {{h:tools.images.text}}
 
 Facts:
 
 - Price: free. Open-source software under the MIT license. No paid version, no subscription, no ads.
 - Platforms: Windows 11 (installer) and Linux (AppImage and .deb), on 64-bit x86 PCs. No macOS version for now.
-- Hardware: a graphics card makes models faster but is not required.
+- Hardware: a graphics card makes models faster but is not required. For image generation it is strongly recommended: on the processor, an image takes several minutes.
 - Interface languages: English, French and Spanish.
 - Engine: ChatonLM includes the Ollama engine, unmodified, and uses an existing Ollama installation and its models when there is one. ChatonLM is an independent project, not affiliated with Ollama.
-- Privacy: conversations, attachments, voice and settings stay on the user's computer. The app goes online only to browse and download models and voices, to check for signed updates and newer versions of installed models and, if enabled, for web search and Easy Link (messages to the user's own Telegram or Discord bot, which go through that service).
+- Image generation: in the chat, with the Image button or by asking a model that can use tools. Images are made on the user's computer by a built-in engine (stable-diffusion.cpp), with open image models chosen in ModelHub from Hugging Face (such as FLUX.2 klein and Z-Image), whose license (free use, non-commercial use, or a license to read) is shown for each one.
+- Privacy: conversations, attachments, generated images, voice and settings stay on the user's computer. The app goes online only to browse and download models (image models included) and voices, to check for signed updates and newer versions of installed models and, if enabled, for web search and Easy Link (messages to the user's own Telegram or Discord bot, which go through that service, generated images included).
+- Details: before an answer is read aloud, its text is prepared for the voice in each language (numbers, dates, times, units, currencies and version numbers written out, acronyms spelled out), in under a tenth of a millisecond per paragraph. A gauge shows how full the model's context is; past 80% the oldest messages are summarized automatically, or on demand, and the whole history stays visible. A model that loops is stopped or flagged. A graphics memory (VRAM) gauge shows each loaded model's share.
 - Designed in France.
 
 ## Pages
@@ -27,6 +30,14 @@ Facts:
 - [Accueil, en français]({{origin}}/fr/)
 - [Inicio, en español]({{origin}}/es/)
 - [Download]({{origin}}/en/#telecharger): Windows installer, Linux AppImage and .deb package
+- [Why ChatonLM]({{origin}}/en/{{path:choose}}): how it compares with other local AI apps, and the details that set it apart
+- [Local AI chat]({{origin}}/en/{{path:chat}}): chat with a model that runs on your computer
+- [Local AI image generator]({{origin}}/en/{{path:images}}): create images on your computer, with open models
+- [Local AI models]({{origin}}/en/{{path:hub}}): ModelHub, the catalog of open models that fit your machine
+- [Voice dictation]({{origin}}/en/{{path:dictation}}): offline dictation in any app
+- [Voice mode]({{origin}}/en/{{path:voice}}): hands-free voice conversations and read aloud
+- [Proofreading]({{origin}}/en/{{path:proofread}}): correct or rephrase a text with a local model
+- [Learn with AI]({{origin}}/en/{{path:study}}): courses and quizzes on any topic
 - [Privacy]({{origin}}/en/privacy/): every connection the website and the app make
 - [Contact]({{origin}}/en/contact/)
 

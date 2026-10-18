@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="{{lang}}" class="sans-js">
+  <head>
+    {{>head.html}}
+    <title>{{t:meta.choose.title}}</title>
+    <meta name="description" content="{{t:meta.choose.description}}" />
+    <meta property="og:title" content="{{t:meta.choose.title}}" />
+    <meta property="og:description" content="{{t:meta.choose.description}}" />
+    {{>head-index.html}}
+  </head>
+  <body class="page-outil page-choix">
+    {{>header.html}}
+    <main id="contenu">
+      <section class="outil-tete cadre">
+        <div class="outil-tete-texte">
+          <a class="retour" href="/{{lang}}/">{{t:nav.home}}</a>
+          <h1><span class="surtitre">{{t:choose.eyebrow}}</span> <span class="outil-titre">{{h:choose.title}}</span></h1>
+          <p class="chapo">{{t:choose.lead}}</p>
+          <div class="actions">
+            <a class="bouton" href="/{{lang}}/#telecharger" data-telecharger
+              data-label-windows="{{t:download.for_windows}}" data-label-linux="{{t:download.for_linux}}"
+              data-label-soon="{{t:download.soon}}">{{>i-down.svg}}<span>{{t:download.cta}}</span></a>
+            <span class="discret">{{t:toolpage.free}}</span>
+          </div>
+        </div>
+        <!-- Le chaton de l'accueil et sa pelote : un décor. -->
+        <div class="choix-art" aria-hidden="true">
+          <svg viewBox="-170 -10 620 470" data-chaton>
+            <ellipse cx="150" cy="432" rx="250" ry="16" fill="#F0DCC5" />
+            {{>cat-body.svg}}
+            <ellipse cx="166" cy="416" rx="32" ry="17" fill="#FFF4E8" />
+            <ellipse cx="234" cy="416" rx="32" ry="17" fill="#FFF4E8" />
+            <path d="M158 412v10M174 412v10M226 412v10M242 412v10" stroke="#2A1A10" stroke-opacity=".28" stroke-width="3.500" stroke-linecap="round" />
+            <g transform="translate(31 -44) scale(.66)">{{>cat-head.svg}}</g>
+            <g transform="translate(14 346)">
+              <g class="pelote-entree">
+                <circle r="93" fill="#FFF4E8" />
+                <g class="pelote">{{>yarn.svg}}</g>
+              </g>
+            </g>
+          </svg>
+        </div>
+      </section>
+
+      <!-- Ailleurs / avec ChatonLM : une ligne par sujet, qui paraît quand le tableau arrive à l'écran. -->
+      <section class="duel cadre">
+        <h2>{{h:choose.duel_title}}</h2>
+        <div class="duel-table" data-anime>
+          <div class="duel-ligne duel-ligne--tete" aria-hidden="true">
+            <span></span><span>{{t:choose.elsewhere}}</span><span>{{t:choose.here}}</span>
+          </div>
+          <dl class="duel-liste">
+            <div class="duel-ligne"><dt>{{t:choose.r1.topic}}</dt><dd class="duel-ailleurs"><span class="duel-qui">{{t:choose.elsewhere}}</span>{{t:choose.r1.else}}</dd><dd class="duel-ici"><span class="duel-qui">{{t:choose.here}}</span>{{t:choose.r1.here}}</dd></div>
+            <div class="duel-ligne"><dt>{{t:choose.r2.topic}}</dt><dd class="duel-ailleurs"><span class="duel-qui">{{t:choose.elsewhere}}</span>{{t:choose.r2.else}}</dd><dd class="duel-ici"><span class="duel-qui">{{t:choose.here}}</span>{{t:choose.r2.here}}</dd></div>
+            <div class="duel-ligne"><dt>{{t:choose.r3.topic}}</dt><dd class="duel-ailleurs"><span class="duel-qui">{{t:choose.elsewhere}}</span>{{t:choose.r3.else}}</dd><dd class="duel-ici"><span class="duel-qui">{{t:choose.here}}</span>{{t:choose.r3.here}}</dd></div>
+            <div class="duel-ligne"><dt>{{t:choose.r4.topic}}</dt><dd class="duel-ailleurs"><span class="duel-qui">{{t:choose.elsewhere}}</span>{{t:choose.r4.else}}</dd><dd class="duel-ici"><span class="duel-qui">{{t:choose.here}}</span>{{t:choose.r4.here}}</dd></div>
+            <div class="duel-ligne"><dt>{{t:choose.r5.topic}}</dt><dd class="duel-ailleurs"><span class="duel-qui">{{t:choose.elsewhere}}</span>{{t:choose.r5.else}}</dd><dd class="duel-ici"><span class="duel-qui">{{t:choose.here}}</span>{{t:choose.r5.here}}</dd></div>
+            <div class="duel-ligne"><dt>{{t:choose.r6.topic}}</dt><dd class="duel-ailleurs"><span class="duel-qui">{{t:choose.elsewhere}}</span>{{t:choose.r6.else}}</dd><dd class="duel-ici"><span class="duel-qui">{{t:choose.here}}</span>{{t:choose.r6.here}}</dd></div>
+            <div class="duel-ligne"><dt>{{t:choose.r7.topic}}</dt><dd class="duel-ailleurs"><span class="duel-qui">{{t:choose.elsewhere}}</span>{{t:choose.r7.else}}</dd><dd class="duel-ici"><span class="duel-qui">{{t:choose.here}}</span>{{t:choose.r7.here}}</dd></div>
+          </dl>
+        </div>
+        <p class="discret duel-note">{{t:free.note}}</p>
+      </section>
+
+      <section class="details">
+        <div class="cadre">
+          <div class="details-tete">
+            <h2>{{h:choose.details_title}}</h2>
+            <p class="chapo">{{t:choose.details_lead}}</p>
+          </div>
+
+          <!-- 1. La voix : le texte écrit, puis ce que la voix reçoit. -->
+          <article class="detail">
+            <div class="detail-texte">
+              <h3>{{h:choose.voice.title}}</h3>
+              <p>{{t:choose.voice.text}}</p>
+              <p>{{t:choose.voice.proof}}</p>
+              <a class="lien" href="/{{lang}}/{{path:voice}}">{{t:choose.voice.link}}</a>
+            </div>
+            <div class="detail-dessin lecture" data-anime aria-hidden="true">
+              <p class="lecture-bloc"><span class="lecture-etiquette">{{t:choose.voice.written_label}}</span><span class="lecture-ecrit">{{t:choose.voice.written}}</span></p>
+              <p class="lecture-fleche">{{>i-down.svg}}</p>
+              <p class="lecture-bloc lecture-bloc--lu"><span class="lecture-etiquette"><span class="onde onde--petite"><i></i><i></i><i></i><i></i><i></i></span>{{t:choose.voice.spoken_label}}</span><span class="lecture-lu">{{t:choose.voice.spoken}}</span></p>
+            </div>
+          </article>
+
+          <!-- 2. Le contexte : la jauge en secteur, le compactage, l'historique gardé. -->
+          <article class="detail detail--inverse">
+            <div class="detail-texte">
+              <h3>{{h:choose.context.title}}</h3>
+              <p>{{t:choose.context.text}}</p>
+              <p>{{t:choose.context.loops}}</p>
+              <a class="lien" href="/{{lang}}/{{path:chat}}">{{t:choose.context.link}}</a>
+            </div>
+            <div class="detail-dessin contexte" data-anime aria-hidden="true">
+              <div class="contexte-panneau">
+                <svg class="contexte-secteur" viewBox="0 0 40 40"><circle cx="20" cy="20" r="15" pathLength="100" /><circle class="contexte-plein" cx="20" cy="20" r="15" pathLength="100" /></svg>
+                <p><b>{{t:choose.context.gauge}}</b><span>{{t:choose.context.usage}}</span></p>
+              </div>
+              <p class="contexte-bouton">{{t:choose.context.compact_now}}</p>
+              <p class="contexte-separateur"><span>{{t:choose.context.compacted}}</span></p>
+              <p class="bulle">{{t:choose.context.message}}</p>
+            </div>
+          </article>
+
+          <!-- 3. La VRAM : la part de chaque modèle, les autres usages, la place libre. -->
+          <article class="detail">
+            <div class="detail-texte">
+              <h3>{{h:choose.vram.title}}</h3>
+              <p>{{t:choose.vram.text}}</p>
+              <p>{{t:choose.vram.hub}}</p>
+              <a class="lien" href="/{{lang}}/{{path:hub}}">{{t:choose.vram.link}}</a>
+            </div>
+            <div class="detail-dessin vram" data-anime aria-hidden="true">
+              <p class="vram-tete"><b>VRAM</b><span>{{t:choose.vram.usage}}</span></p>
+              <div class="vram-barre"><i class="vram-modele"></i><i class="vram-autre"></i></div>
+              <ul class="vram-legende" role="list">
+                <li><i class="vram-modele"></i>{{t:choose.vram.model}}</li>
+                <li><i class="vram-autre"></i>{{t:choose.vram.others}}</li>
+                <li><i></i>{{t:choose.vram.free}}</li>
+              </ul>
+              <div class="vram-ligne"><b>gemma3</b><small>{{t:choose.vram.kept}}</small><em>{{t:choose.vram.unload}}</em></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="questions cadre">
+        <h2>{{h:choose.faq_title}}</h2>
+        <div class="questions-liste">
+          <details><summary>{{t:choose.q1}}</summary><p>{{t:choose.a1}}</p></details>
+          <details><summary>{{t:choose.q2}}</summary><p>{{t:choose.a2}}</p></details>
+          <details><summary>{{t:choose.q3}}</summary><p>{{t:choose.a3}}</p></details>
+          <details><summary>{{t:choose.q4}}</summary><p>{{t:choose.a4}}</p></details>
+          <details><summary>{{t:choose.q5}}</summary><p>{{h:choose.a5}}</p></details>
+        </div>
+      </section>
+
+      <nav class="autres cadre" aria-label="{{t:tools.label}}">
+        <h2>{{h:toolpage.others_title}}</h2>
+        <ul role="list">
+          <li><a href="/{{lang}}/{{path:chat}}">{{>i-chat.svg}}{{t:tools.chat.name}}</a></li>
+          <li><a href="/{{lang}}/{{path:hub}}">{{>i-hub.svg}}{{t:tools.hub.name}}</a></li>
+          <li><a href="/{{lang}}/{{path:dictation}}">{{>i-mic.svg}}{{t:tools.dictation.name}}</a></li>
+          <li><a href="/{{lang}}/{{path:voice}}">{{>i-wave.svg}}{{t:tools.voice.name}}</a></li>
+          <li><a href="/{{lang}}/{{path:proofread}}">{{>i-pen.svg}}{{t:tools.proofread.name}}</a></li>
+          <li><a href="/{{lang}}/{{path:study}}">{{>i-book.svg}}{{t:tools.study.name}}</a></li>
+          <li><a href="/{{lang}}/{{path:images}}">{{>i-photo.svg}}{{t:tools.images.name}}</a></li>
+        </ul>
+      </nav>
+
+      <section class="bout cadre">
+        <div class="bout-dessin" aria-hidden="true">
+          <svg viewBox="-30 40 450 420" data-chaton>
+            <ellipse cx="200" cy="432" rx="190" ry="15" fill="#F0DCC5" />
+            {{>cat-body.svg}}
+            <ellipse cx="234" cy="416" rx="32" ry="17" fill="#FFF4E8" />
+            <path d="M226 412v10M242 412v10" stroke="#2A1A10" stroke-opacity=".28" stroke-width="3.500" stroke-linecap="round" />
+            <g transform="rotate(-7 200 190) translate(31 -44) scale(.66)">{{>cat-head.svg}}</g>
+            <g class="bras">
+              <path d="M128 312C94 296 60 262 44 212" fill="none" stroke="#F28A38" stroke-width="36" stroke-linecap="round" />
+              <path d="M34 208l6 14M52 202l6 14" stroke="#D9701F" stroke-width="5.500" stroke-linecap="round" />
+            </g>
+          </svg>
+        </div>
+        <div class="bout-texte">
+          <h2>{{h:choose.end_title}}</h2>
+          <p class="chapo">{{t:toolpage.end_lead}}</p>
+          <a class="bouton" href="/{{lang}}/#telecharger" data-telecharger
+            data-label-windows="{{t:download.for_windows}}" data-label-linux="{{t:download.for_linux}}"
+            data-label-soon="{{t:download.soon}}">{{>i-down.svg}}<span>{{t:download.cta}}</span></a>
+        </div>
+      </section>
+    </main>
+    {{>footer.html}}
+    {{>contact-dialog.html}}
+  </body>
+</html>
