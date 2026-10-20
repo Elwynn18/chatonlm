@@ -2925,6 +2925,7 @@ mod tests {
             onboarding_done: true,
             show_uncensored: false,
             system_prompt: String::new(),
+            unload_on_quit: true,
         };
         let server = Server::from_settings(&settings);
         assert_eq!(

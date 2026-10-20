@@ -3,7 +3,9 @@
 // trois cartes.
 // La première règle le chargement : durée avant déchargement (keep_alive
 // envoyé par ChatonLM avec chaque requête qui charge un modèle, le service
-// d'Ollama n'est pas modifié) et préchargement du modèle choisi, puis la
+// d'Ollama n'est pas modifié), préchargement du modèle choisi et
+// déchargement des modèles en quittant l'app (activé par défaut ; pas à la
+// fermeture de la fenêtre dans la zone de notification), puis la
 // rubrique « Uncensored » du ModelHub (masquée par défaut) ; chaque
 // changement est enregistré aussitôt (« Saved » de la page, erreur sous la
 // ligne), « Reset to defaults » (General) n'y touche pas. La deuxième règle le
@@ -20,6 +22,7 @@ import {
   ArrowPathIcon,
   BoltIcon,
   ClockIcon,
+  PowerIcon,
   ShieldExclamationIcon,
 } from "@heroicons/react/20/solid";
 import { useQueryClient } from "@tanstack/react-query";
@@ -74,7 +77,12 @@ function keepAliveOptions(t: TFunction) {
   }));
 }
 
-type Field = "keepAlive" | "preloadModel" | "showUncensored" | "systemPrompt";
+type Field =
+  | "keepAlive"
+  | "preloadModel"
+  | "unloadOnQuit"
+  | "showUncensored"
+  | "systemPrompt";
 
 /** Longueur maximale du pré-prompt (`MAX_SYSTEM_PROMPT_CHARS` du moteur). */
 const MAX_SYSTEM_PROMPT_CHARS = 10_000;
@@ -107,6 +115,8 @@ export function Models({
     keepAliveDescription: useId(),
     preload: useId(),
     preloadDescription: useId(),
+    unloadOnQuit: useId(),
+    unloadOnQuitDescription: useId(),
     uncensored: useId(),
     uncensoredDescription: useId(),
     systemPrompt: useId(),
@@ -192,6 +202,29 @@ export function Models({
                 if (preloadModel) forgetPreloads();
                 void save("preloadModel", { preloadModel });
               }}
+            />
+          </div>
+
+          <div className="flex items-start justify-between gap-4">
+            <Row
+              icon={PowerIcon}
+              label={
+                <span id={ids.unloadOnQuit}>
+                  {t("settings.models.unloadOnQuit.label")}
+                </span>
+              }
+              description={t("settings.models.unloadOnQuit.description")}
+              descriptionId={ids.unloadOnQuitDescription}
+            >
+              <RowError message={errors.unloadOnQuit} />
+            </Row>
+            <Switch
+              label={t("settings.models.unloadOnQuit.label")}
+              checked={settings.unloadOnQuit}
+              describedBy={ids.unloadOnQuitDescription}
+              onChange={(unloadOnQuit) =>
+                void save("unloadOnQuit", { unloadOnQuit })
+              }
             />
           </div>
 

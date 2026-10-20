@@ -87,4 +87,10 @@ showUncensored: boolean,
  * l'historique ; vide = aucun (celui du modèle). « Reset to defaults »
  * n'y touche pas.
  */
-systemPrompt: string, };
+systemPrompt: string, 
+/**
+ * À la fin de l'app, décharger les modèles encore en mémoire dans
+ * l'Ollama de la machine (`ollama::target::unload_url_at_exit`) ;
+ * activé par défaut. « Reset to defaults » n'y touche pas.
+ */
+unloadOnQuit: boolean, };

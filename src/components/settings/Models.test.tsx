@@ -80,6 +80,10 @@ const preloadSwitch = () =>
   screen.getByRole<HTMLButtonElement>("switch", {
     name: "Preload the chosen model",
   });
+const unloadOnQuitSwitch = () =>
+  screen.getByRole<HTMLButtonElement>("switch", {
+    name: "Unload models when quitting",
+  });
 const uncensoredSwitch = () =>
   screen.getByRole<HTMLButtonElement>("switch", {
     name: "Show uncensored models",
@@ -257,6 +261,33 @@ describe("Settings: Models", () => {
       expect(patches(simulator)).toEqual([
         { showUncensored: true },
         { showUncensored: false },
+      ]);
+    });
+
+    it("unloads the models when quitting unless turned off, on by default", async () => {
+      const { simulator, backend } = setup();
+      await screen.findByTestId("models-settings");
+      expect(unloadOnQuitSwitch().getAttribute("aria-checked")).toBe("true");
+      expect(
+        document.getElementById(
+          unloadOnQuitSwitch().getAttribute("aria-describedby")!,
+        )?.textContent,
+      ).toBe(
+        "When you quit ChatonLM, the models Ollama still holds in memory are unloaded, freeing system memory and VRAM. Closing the window while ChatonLM keeps running in the system tray leaves them loaded.",
+      );
+      await userEvent.click(unloadOnQuitSwitch());
+      await screen.findByText("Saved");
+      await waitFor(() =>
+        expect(unloadOnQuitSwitch().getAttribute("aria-checked")).toBe("false"),
+      );
+      expect(backend.settings.unloadOnQuit).toBe(false);
+      await userEvent.click(unloadOnQuitSwitch());
+      await waitFor(() =>
+        expect(unloadOnQuitSwitch().getAttribute("aria-checked")).toBe("true"),
+      );
+      expect(patches(simulator)).toEqual([
+        { unloadOnQuit: false },
+        { unloadOnQuit: true },
       ]);
     });
 

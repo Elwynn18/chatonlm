@@ -250,6 +250,10 @@
       "label": "Precargar el modelo elegido",
       "description": "Cargar el modelo seleccionado en el chat en cuanto lo elijas y al iniciar ChatonLM, para que tu primer mensaje no tenga que esperar."
     },
+    "unloadOnQuit": {
+      "label": "Descargar los modelos al salir",
+      "description": "Al salir de ChatonLM, se descargan los modelos que Ollama aún tiene en memoria, lo que libera la memoria del sistema y la VRAM. Cerrar la ventana mientras ChatonLM sigue funcionando en la bandeja del sistema los deja cargados."
+    },
     "uncensored": {
       "label": "Mostrar modelos sin censura",
       "description": "Añade al ModelHub una sección «Sin censura»: versiones comunitarias de modelos oficiales que ya no se niegan a responder. Pueden escribir contenido ofensivo o peligroso, y ChatonLM no los revisa."

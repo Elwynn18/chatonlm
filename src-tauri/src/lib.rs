@@ -534,7 +534,9 @@ pub fn run() {
 /// morceaux : un nouveau clic reprend), comme ceux des modèles de
 /// transcription, des voix et des modèles d'images (`.part` gardés) ; la
 /// séance du mode vocal finit (micro fermé) ; la dictée en cours est abandonnée et son moteur libéré ; puis
-/// le moteur d'images s'arrête (image en cours abandonnée) ; puis
+/// le moteur d'images s'arrête (image en cours abandonnée) ; puis les modèles
+/// encore en mémoire dans l'Ollama de la machine sont déchargés (réglage
+/// « Unload models when quitting ») ; puis
 /// l'Ollama intégré s'arrête pour de bon (SIGTERM à son
 /// groupe, SIGKILL après 5 s, attente bornée ; plus aucune relance : un .deb
 /// peut remplacer ses fichiers). Rien ne redémarre ensuite : l'app quitte ou
@@ -592,5 +594,33 @@ pub async fn stop_services(app: &AppHandle) {
         dictation.shutdown(),
         images
     );
+    unload_models(app).await;
     ollama::builtin::shutdown(app).await;
+}
+
+/// Délai des déchargements de la fin de l'app : un Ollama lent ou injoignable
+/// ne la retient pas plus longtemps.
+const EXIT_UNLOAD_LIMIT: Duration = Duration::from_secs(5);
+
+/// Réglage « Unload models when quitting » (activé par défaut) : les modèles
+/// encore en mémoire dans l'Ollama de la machine sont déchargés, une fois
+/// les réponses arrêtées (voir `ollama::target::unload_url_at_exit`). Un
+/// échec est seulement journalisé : l'app quitte quand même.
+async fn unload_models(app: &AppHandle) {
+    let Some(store) = app.try_state::<Store>() else {
+        return;
+    };
+    let url = match ollama::target::unload_url_at_exit(&store).await {
+        Ok(Some(url)) => url,
+        Ok(None) => return,
+        Err(error) => {
+            eprintln!("chatonlm: cannot read the unload-on-quit setting: {error}");
+            return;
+        }
+    };
+    match tokio::time::timeout(EXIT_UNLOAD_LIMIT, ollama::running::unload_all(&url)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => eprintln!("chatonlm: cannot unload the models: {error}"),
+        Err(_) => eprintln!("chatonlm: unloading the models took too long"),
+    }
 }

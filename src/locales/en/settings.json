@@ -250,6 +250,10 @@
       "label": "Preload the chosen model",
       "description": "Load the model selected in the chat as soon as you choose it and when ChatonLM starts, so your first message doesn't wait."
     },
+    "unloadOnQuit": {
+      "label": "Unload models when quitting",
+      "description": "When you quit ChatonLM, the models Ollama still holds in memory are unloaded, freeing system memory and VRAM. Closing the window while ChatonLM keeps running in the system tray leaves them loaded."
+    },
     "uncensored": {
       "label": "Show uncensored models",
       "description": "Adds an “Uncensored” section to ModelHub: community versions of official models that no longer refuse to answer. They can write offensive or dangerous content, and ChatonLM doesn't check them."

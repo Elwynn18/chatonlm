@@ -39,6 +39,7 @@ const SAVED: Settings = {
   onboardingDone: true,
   showUncensored: false,
   systemPrompt: "",
+  unloadOnQuit: true,
 };
 
 function newClient() {

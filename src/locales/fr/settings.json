@@ -250,6 +250,10 @@
       "label": "Précharger le modèle choisi",
       "description": "Charger le modèle sélectionné dans la conversation dès que vous le choisissez et au démarrage de ChatonLM, pour que votre premier message n'ait pas à attendre."
     },
+    "unloadOnQuit": {
+      "label": "Décharger les modèles en quittant",
+      "description": "Quand vous quittez ChatonLM, les modèles qu'Ollama garde encore en mémoire sont déchargés, ce qui libère la mémoire vive et la VRAM. Fermer la fenêtre pendant que ChatonLM continue dans la zone de notification les laisse chargés."
+    },
     "uncensored": {
       "label": "Afficher les modèles non censurés",
       "description": "Ajoute au ModelHub une rubrique « Non censurés » : des versions communautaires de modèles officiels qui ne refusent plus de répondre. Elles peuvent écrire des contenus choquants ou dangereux, et ChatonLM ne les vérifie pas."

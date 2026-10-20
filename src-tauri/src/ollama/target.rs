@@ -231,6 +231,25 @@ pub async fn settings_updated(store: &Store) -> AppResult<Settings> {
     display_settings(store).await
 }
 
+/// Fin de l'app, réglage « Unload models when quitting » : adresse de
+/// l'Ollama dont décharger les modèles encore en mémoire. Aucune si le
+/// réglage est coupé, si la cible est l'Ollama intégré (son arrêt, juste
+/// après, libère toute sa mémoire) ou si aucune cible n'a encore été choisie
+/// (ChatonLM n'a parlé à aucun Ollama). Rien n'est décidé ni démarré ici.
+pub async fn unload_url_at_exit(store: &Store) -> AppResult<Option<String>> {
+    let settings = plain_settings(store).await?;
+    if !settings.unload_on_quit {
+        return Ok(None);
+    }
+    Ok(match current() {
+        Some(targeting) => targeting
+            .last_target()
+            .filter(|target| target.kind == TargetKind::Machine && !target.url.is_empty())
+            .map(|target| target.url),
+        None => Some(settings.effective_server_url),
+    })
+}
+
 /// Erreur d'une requête vers un intégré qui ne tourne pas (échec, arrêt).
 fn not_running(failure: Option<String>) -> AppError {
     AppError::Ollama(match failure {
@@ -427,6 +446,11 @@ impl Targeting {
             super::builtin::spawn(async move { builtin.stop().await });
         }
         (self.on_change)(target);
+    }
+
+    /// Dernière cible servie, sans rien décider ni démarrer (fin de l'app).
+    pub fn last_target(&self) -> Option<OllamaTarget> {
+        self.last.lock().clone()
     }
 
     /// Réglages avec l'adresse de la cible, et la cible.

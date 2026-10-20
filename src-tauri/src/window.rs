@@ -306,6 +306,7 @@ mod tests {
             onboarding_done: true,
             show_uncensored: false,
             system_prompt: String::new(),
+            unload_on_quit: true,
         }
     }
 

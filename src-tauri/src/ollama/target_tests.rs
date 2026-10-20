@@ -768,3 +768,66 @@ async fn the_runtime_gives_the_address_left_to_auto() {
     assert!(!runtime.machine_local);
     builtin.stop().await;
 }
+
+/// Fin de l'app : les modèles sont déchargés seulement dans l'Ollama de la
+/// machine déjà choisi, et seulement si le réglage le demande ; rien n'est
+/// décidé ni démarré pour cela.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_models_are_unloaded_at_exit_only_from_the_machine() {
+    let dir = temp_dir();
+    let builtin = Builtin::new(fake_config(dir.path(), &[]));
+    let machine = Machine::new(ServerState::Running);
+    let (targeting, _) = targeting(builtin.clone(), &machine);
+    let targeting = Arc::new(targeting);
+    let store = store_with_address("127.0.0.1:11500");
+    let exit_url = || TEST_TARGETING.scope(targeting.clone(), unload_url_at_exit(&store));
+
+    // Aucune cible encore : rien, sans vérification ni démarrage.
+    assert_eq!(exit_url().await.unwrap(), None);
+    assert_eq!(machine.calls(), 0);
+    assert_eq!(builtin.snapshot().state, BuiltinState::Stopped);
+
+    targeting.status(&store).await.unwrap();
+    assert_eq!(
+        exit_url().await.unwrap().as_deref(),
+        Some("http://127.0.0.1:11500")
+    );
+    // Hors de l'app (aucune cible installée) : l'adresse réglée.
+    assert_eq!(
+        unload_url_at_exit(&store).await.unwrap().as_deref(),
+        Some("http://127.0.0.1:11500")
+    );
+
+    // Réglage coupé : rien.
+    let off = SettingsPatch {
+        unload_on_quit: Some(false),
+        ..Default::default()
+    };
+    store
+        .blocking(|c| settings::update(c, off, None).map(drop))
+        .unwrap();
+    assert_eq!(exit_url().await.unwrap(), None);
+    assert_eq!(unload_url_at_exit(&store).await.unwrap(), None);
+}
+
+/// Fin de l'app avec l'Ollama intégré : rien à décharger, son arrêt libère
+/// toute sa mémoire.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_builtin_is_not_unloaded_at_exit() {
+    let dir = temp_dir();
+    let builtin = Builtin::new(fake_config(dir.path(), &[]));
+    let (targeting, _) = targeting(builtin.clone(), &Machine::new(ServerState::Running));
+    let targeting = Arc::new(targeting);
+    let store = Store::open_in_memory().unwrap();
+    targeting
+        .set_source(&store, OllamaSource::Builtin)
+        .await
+        .unwrap();
+    assert_eq!(running(&builtin).await.state, BuiltinState::Running);
+    let url = TEST_TARGETING
+        .scope(targeting.clone(), unload_url_at_exit(&store))
+        .await
+        .unwrap();
+    assert_eq!(url, None);
+    builtin.stop().await;
+}

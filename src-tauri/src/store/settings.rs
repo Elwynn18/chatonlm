@@ -106,6 +106,10 @@ pub struct Settings {
     /// l'historique ; vide = aucun (celui du modèle). « Reset to defaults »
     /// n'y touche pas.
     pub system_prompt: String,
+    /// À la fin de l'app, décharger les modèles encore en mémoire dans
+    /// l'Ollama de la machine (`ollama::target::unload_url_at_exit`) ;
+    /// activé par défaut. « Reset to defaults » n'y touche pas.
+    pub unload_on_quit: bool,
 }
 
 /// Mise à jour partielle : seuls les champs présents changent.
@@ -149,6 +153,8 @@ pub struct SettingsPatch {
     /// Chaîne vide = aucun pré-prompt.
     #[ts(optional)]
     pub system_prompt: Option<String>,
+    #[ts(optional)]
+    pub unload_on_quit: Option<bool>,
 }
 
 /// `CHATONLM_ONBOARDING` : `show` remontre le premier démarrage au prochain
@@ -177,7 +183,8 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
             "SELECT server_url, context_length, theme, selected_model, window_width, window_height,
                     web_search_enabled, keep_alive, preload_model, language,
                     proofread_model, proofread_shortcut, study_model, auto_read,
-                    proofread_paste, onboarding_done, show_uncensored, system_prompt
+                    proofread_paste, onboarding_done, show_uncensored, system_prompt,
+                    unload_on_quit
              FROM settings WHERE id = 1",
             [],
             |row| {
@@ -200,6 +207,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
                     row.get::<_, bool>(15)?,
                     row.get::<_, bool>(16)?,
                     row.get::<_, String>(17)?,
+                    row.get::<_, bool>(18)?,
                 ))
             },
         )
@@ -224,6 +232,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         onboarding_done,
         show_uncensored,
         system_prompt,
+        unload_on_quit,
     ) = row;
     let language = LanguageChoice::parse(&language)
         .ok_or_else(|| AppError::Internal(format!("unknown language in database: {language}")))?;
@@ -248,6 +257,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         onboarding_done,
         show_uncensored,
         system_prompt,
+        unload_on_quit,
     })
 }
 
@@ -405,6 +415,12 @@ pub fn update(
             params![model],
         )?;
     }
+    if let Some(enabled) = patch.unload_on_quit {
+        transaction.execute(
+            "UPDATE settings SET unload_on_quit = ?1 WHERE id = 1",
+            params![enabled],
+        )?;
+    }
     transaction.commit()?;
     get(connection, ollama_host)
 }
@@ -464,8 +480,42 @@ mod tests {
                 onboarding_done: false,
                 show_uncensored: false,
                 system_prompt: String::new(),
+                unload_on_quit: true,
             }
         );
+    }
+
+    /// Déchargement des modèles en quittant : activé par défaut, enregistré,
+    /// et « Reset to defaults » (adresse, contexte, thème) n'y touche pas.
+    #[test]
+    fn unloading_on_quit_is_on_until_turned_off() {
+        let store = store();
+        assert!(store.blocking(|c| get(c, None)).unwrap().unload_on_quit);
+        let patch: SettingsPatch = serde_json::from_str(r#"{"unloadOnQuit":false}"#).unwrap();
+        assert!(
+            !store
+                .blocking(|c| update(c, patch, None))
+                .unwrap()
+                .unload_on_quit
+        );
+        let reset = SettingsPatch {
+            server_url: Some(String::new()),
+            context_length: Some(0),
+            theme: Some(Theme::System),
+            ..Default::default()
+        };
+        assert!(
+            !store
+                .blocking(|c| update(c, reset, None))
+                .unwrap()
+                .unload_on_quit
+        );
+        let on = SettingsPatch {
+            unload_on_quit: Some(true),
+            ..Default::default()
+        };
+        store.blocking(|c| update(c, on, None)).unwrap();
+        assert!(store.blocking(|c| get(c, None)).unwrap().unload_on_quit);
     }
 
     /// Rubrique « Uncensored » : masquée par défaut, enregistrée, et

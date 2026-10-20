@@ -600,6 +600,7 @@ export function fakeBackend(
       onboardingDone: true,
       showUncensored: false,
       systemPrompt: "",
+      unloadOnQuit: true,
     },
     settingsErrors: { get: null, update: null },
     details: new Map<string, ModelDetails | AppError>(
