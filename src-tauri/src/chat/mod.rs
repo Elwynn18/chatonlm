@@ -140,7 +140,7 @@ use crate::attachments::{Staging, Taken};
 use crate::error::{AppError, AppResult};
 use crate::hub::errors::connection_lost;
 use crate::i18n::t;
-use crate::ollama::models::{self, ModelDetails, ShowError};
+use crate::ollama::models::{self, CloudRefusal, ModelDetails, ShowError};
 use crate::ollama::running::{self, LoadFailure, RunningModel};
 use crate::ollama::{account, client};
 use crate::store::chats::{
@@ -270,6 +270,15 @@ pub enum ChatErrorKind {
     Model,
     /// Recherche web demandée sans compte ollama.com relié au serveur.
     WebSearchSignedOut,
+    /// Modèle cloud alors que le réglage `cloud_models` est coupé : rien n'est
+    /// envoyé (propre à ChatonLM).
+    CloudOff,
+    /// Modèle cloud sans compte ollama.com relié au serveur (« cloud
+    /// unauthorized » de l'officiel).
+    CloudSignedOut,
+    /// Limite d'usage du forfait ollama.com atteinte (402, « usage limit
+    /// upgrade » de l'officiel).
+    CloudLimit,
     /// Réponse arrêtée : le modèle répétait mot pour mot le même passage
     /// (propre à ChatonLM, voir `repetition.rs`).
     Loop,
@@ -287,6 +296,20 @@ fn signed_out() -> Outcome {
         ChatErrorKind::WebSearchSignedOut,
         t!("chat.webSearchSignedOut"),
     )
+}
+
+/// Erreur [`ChatErrorKind::CloudOff`].
+fn cloud_off(model: &str) -> Outcome {
+    Outcome::Failed(ChatErrorKind::CloudOff, models::cloud_off(model))
+}
+
+/// Erreur d'un refus propre au cloud (compte, limite d'usage).
+fn cloud_refused(refusal: CloudRefusal) -> Outcome {
+    let kind = match refusal {
+        CloudRefusal::SignedOut => ChatErrorKind::CloudSignedOut,
+        CloudRefusal::UsageLimit => ChatErrorKind::CloudLimit,
+    };
+    Outcome::Failed(kind, refusal.message())
 }
 
 /// Événements envoyés au frontend pendant un envoi.
@@ -592,16 +615,26 @@ pub struct Server {
     /// `keep_alive` envoyé (secondes ; 0 = rien d'envoyé, défaut du serveur ;
     /// -1 = garder chargé).
     pub keep_alive: i64,
+    /// Modèles cloud permis (réglage `cloud_models`) ; coupé, rien ne part
+    /// vers un modèle qui tourne sur ollama.com.
+    pub cloud: bool,
 }
 
 impl Server {
-    /// Adresse effective, contexte et durée en mémoire réglés.
+    /// Adresse effective, contexte, durée en mémoire et cloud réglés.
     pub fn from_settings(settings: &Settings) -> Self {
         Self {
             url: settings.effective_server_url.clone(),
             context_length: settings.context_length,
             keep_alive: settings.keep_alive,
+            cloud: settings.cloud_models,
         }
+    }
+
+    /// Refus d'un modèle qui tourne ailleurs quand le cloud est coupé :
+    /// texte de l'erreur, rien sinon.
+    pub fn refuses(&self, model: &str, remote: bool) -> Option<String> {
+        (remote && !self.cloud).then(|| models::cloud_off(model))
     }
 }
 
@@ -742,6 +775,7 @@ pub async fn send_to(
         paint: voice.is_none(),
         calls_as_text: false,
         system,
+        remote: false,
     };
     let web_search = request.web_search == Some(true);
     let outcome = match painting {
@@ -803,7 +837,9 @@ async fn painter_ready(engine: &ChatEngine, request: &SendRequest) -> AppResult<
 /// réglage, bornée par celle du modèle ; sinon (contexte du serveur) celle du
 /// modèle chargé, lue dans `/api/ps` ; inconnue pour un modèle du cloud.
 async fn context_size(server: &Server, model: &str, details: Option<&ModelDetails>) -> Option<i64> {
-    if details.is_some_and(|details| details.remote) {
+    // Modèle du cloud, même aux détails inconnus : sa taille n'est pas la
+    // nôtre.
+    if models::is_cloud_name(model) || details.is_some_and(|details| details.remote) {
         return None;
     }
     if server.context_length > 0 {
@@ -862,6 +898,10 @@ async fn compact_now(
     if sendable.turns.is_empty() {
         return Err(AppError::Invalid(t!("chat.nothingToCompact")));
     }
+    // Nom d'un modèle cloud, réglage coupé : pas même /api/show.
+    if let Some(message) = server.refuses(model, models::is_cloud_name(model)) {
+        return Err(AppError::Invalid(message));
+    }
     let details = match show(&server.url, model, cancel).await {
         Shown::Found(details) => Some(details),
         Shown::Missing | Shown::Unknown => None,
@@ -879,7 +919,12 @@ async fn compact_now(
     }
     // Taille du modèle choisi ; s'il n'est pas chargé, celle du dernier
     // envoi (sauf modèle du cloud).
-    let remote = details.as_ref().is_some_and(|details| details.remote);
+    let remote =
+        models::is_cloud_name(model) || details.as_ref().is_some_and(|details| details.remote);
+    // Modèle cloud, réglage coupé : rien n'est envoyé.
+    if let Some(message) = server.refuses(model, remote) {
+        return Err(AppError::Invalid(message));
+    }
     let size = match context_size(server, model, details.as_ref()).await {
         Some(size) => Some(size),
         None if !remote => counted.map(|counted| counted.usage.size),
@@ -889,13 +934,14 @@ async fn compact_now(
     // n'envoie la consigne vocale qu'avec un message vocal).
     let system = compact::system_tokens(system_prompt(store).await.as_deref());
     let scale = compact::calibration(counted, &sendable, system).unwrap_or(1.0);
-    let (summary, count) =
-        compact::summarize(server, model, &sendable, think, images, size, scale, cancel)
-            .await
-            .map_err(|outcome| match outcome {
-                Outcome::Failed(_, message) => AppError::Ollama(message),
-                Outcome::Cancelled | Outcome::Done => AppError::Invalid(t!("chat.compactStopped")),
-            })?;
+    let (summary, count) = compact::summarize(
+        server, model, &sendable, think, images, size, scale, remote, cancel,
+    )
+    .await
+    .map_err(|outcome| match outcome {
+        Outcome::Failed(_, message) => AppError::Ollama(message),
+        Outcome::Cancelled | Outcome::Done => AppError::Invalid(t!("chat.compactStopped")),
+    })?;
     // Tout résumé : jusqu'au dernier message (messages vides compris) ;
     // sinon jusqu'au dernier message résumé.
     let through = if count == sendable.turns.len() {
@@ -968,6 +1014,9 @@ struct Asking {
     /// Message système placé en tête de chaque requête (pré-prompt, puis
     /// consigne vocale).
     system: Option<String>,
+    /// Modèle qui tourne sur ollama.com : un 401 ou un 402 de `/api/chat` y
+    /// est un refus du cloud (compte, limite d'usage).
+    remote: bool,
 }
 
 /// Message de l'utilisateur à écrire avant la requête.
@@ -1134,10 +1183,21 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
             Err(error) => return error.into(),
         };
 
+        // Modèle cloud, réglage coupé : rien ne part, pas même un
+        // téléchargement de son manifeste.
+        let cloud_name = models::is_cloud_name(&reply.model);
+        if cloud_name && server.refuses(&reply.model, true).is_some() {
+            return cloud_off(&reply.model);
+        }
         let details = match self.prepare(&server.url, &reply.model, cancel).await {
             Ok(details) => details,
             Err(outcome) => return outcome,
         };
+        // Modèle d'ollama.com sous un nom local (`remote_host`).
+        asking.remote = cloud_name || details.as_ref().is_some_and(|details| details.remote);
+        if server.refuses(&reply.model, asking.remote).is_some() {
+            return cloud_off(&reply.model);
+        }
         asking.think = accepted_think(asking.think, details.as_ref());
         asking.images = accepts_images(details.as_ref());
         asking.calls_as_text = refuses_tools(details.as_ref());
@@ -1160,17 +1220,23 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
             };
         }
         let definitions = tool_definitions(web, images.ready.is_some());
-        // Recherche demandée, aucun compte relié au serveur : arrêt avant la
-        // génération. Compte inconnu (ollama.com injoignable...) : l'envoi
-        // part, un 401 d'un outil l'arrêtera.
-        if web {
+        // Recherche demandée ou modèle cloud, aucun compte relié au serveur :
+        // arrêt avant la génération (le modèle cloud d'abord : sans compte,
+        // il ne répondrait pas même sans recherche). Compte inconnu
+        // (ollama.com injoignable...) : l'envoi part, un 401 de `/api/chat`
+        // ou d'un outil l'arrêtera.
+        if web || asking.remote {
             let linked = tokio::select! {
                 biased;
                 () = cancelled(cancel) => return Outcome::Cancelled,
                 linked = linked_unless_cloud_off(&server.url) => linked,
             };
             if linked == Some(false) {
-                return signed_out();
+                return if asking.remote {
+                    cloud_refused(CloudRefusal::SignedOut)
+                } else {
+                    signed_out()
+                };
             }
         }
         // Une fois par envoi, pas à chaque tour d'outils.
@@ -1368,6 +1434,7 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
             asking.images,
             Some(size),
             scale,
+            asking.remote,
             cancel,
         )
         .await?;
@@ -1442,7 +1509,7 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
             if let Some(limit) = limit {
                 body["options"]["num_predict"] = serde_json::json!(limit);
             }
-            match open(&server.url, &body, cancel).await {
+            match open(&server.url, &body, asking.remote, cancel).await {
                 Opened::Stream(response) => return self.read(response, reply, cancel).await,
                 // Modèle sans raisonnement réglable : nouvel essai sans `think`.
                 Opened::ThinkingRefused(_) if asking.think.is_some() => asking.think = None,
@@ -1676,7 +1743,8 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
         details: Option<&ModelDetails>,
         cancel: &mut watch::Receiver<bool>,
     ) -> Result<(), Outcome> {
-        if details.is_some_and(|details| details.remote) {
+        // Modèle du cloud, même aux détails inconnus : rien à charger ici.
+        if models::is_cloud_name(model) || details.is_some_and(|details| details.remote) {
             return Ok(());
         }
         let listed = tokio::select! {
@@ -2104,8 +2172,14 @@ async fn read_error(
     Ok((status_error(status, &message), message))
 }
 
-/// Envoie la requête de chat.
-async fn open(base: &str, body: &serde_json::Value, cancel: &mut watch::Receiver<bool>) -> Opened {
+/// Envoie la requête de chat ; `remote` : modèle d'ollama.com (401 et 402
+/// sont alors des refus du cloud, voir [`CloudRefusal`]).
+async fn open(
+    base: &str,
+    body: &serde_json::Value,
+    remote: bool,
+    cancel: &mut watch::Receiver<bool>,
+) -> Opened {
     let response = match post(base, "/api/chat", body, cancel).await {
         Ok(response) => response,
         Err(outcome) => return Opened::Ended(outcome),
@@ -2120,6 +2194,9 @@ async fn open(base: &str, body: &serde_json::Value, cancel: &mut watch::Receiver
     };
     if status == reqwest::StatusCode::BAD_REQUEST && message.contains("does not support thinking") {
         return Opened::ThinkingRefused(shown);
+    }
+    if let Some(refusal) = CloudRefusal::of(status.as_u16(), remote) {
+        return Opened::Ended(cloud_refused(refusal));
     }
     Opened::Ended(Outcome::Failed(refused_kind(status), shown))
 }
@@ -2462,6 +2539,7 @@ mod tests {
             url: fake.url(),
             context_length: 0,
             keep_alive: 0,
+            cloud: false,
         }
     }
 
@@ -2834,6 +2912,7 @@ mod tests {
             url: fake.url(),
             context_length: 8192,
             keep_alive: 0,
+            cloud: false,
         };
         let (channel, second) = recorder();
         let again = request(Some(&chat_id), "qwen3:0.6b", Some(Think::Enabled(false)));
@@ -2926,6 +3005,7 @@ mod tests {
             show_uncensored: false,
             system_prompt: String::new(),
             unload_on_quit: true,
+            cloud_models: false,
         };
         let server = Server::from_settings(&settings);
         assert_eq!(
@@ -2952,6 +3032,7 @@ mod tests {
             url: fake.url(),
             context_length,
             keep_alive,
+            cloud: false,
         };
         let (engine, staging) = (ChatEngine::default(), Staging::default());
         let ask = request(chat_id, model, None);
@@ -3086,12 +3167,14 @@ mod tests {
         );
     }
 
-    /// Modèle distant (`remote_host` dans `/api/show`) : rien à charger ici.
+    /// Modèle distant (`remote_host` dans `/api/show`), modèles cloud
+    /// permis et compte relié : rien à charger ici.
     #[tokio::test]
     async fn a_remote_model_is_not_loaded() {
         let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        fake.set_signed_in(true);
         let store = Store::open_in_memory().unwrap();
-        let sent = send_with(&store, &fake, None, "chatonlm-polish-remote", (0, 300)).await;
+        let sent = sent_to_cloud(&store, &fake, "chatonlm-polish-remote", true).await;
         let events = sent.events();
         assert_eq!(
             types(&events),
@@ -3355,6 +3438,7 @@ mod tests {
                 url,
                 context_length: 0,
                 keep_alive: 0,
+                cloud: false,
             };
             send(
                 &store,
@@ -3400,6 +3484,7 @@ mod tests {
             url: fake.url(),
             context_length: 0,
             keep_alive: 0,
+            cloud: false,
         };
         let request = request(None, "chatonlm-repeat", None);
         // Sans garde, le faux modèle ne s'arrête jamais.
@@ -3467,6 +3552,7 @@ mod tests {
             url: fake.url(),
             context_length: context,
             keep_alive: 0,
+            cloud: false,
         };
         let mut request = request(chat_id, "chatonlm-context", None);
         request.content = content.into();
@@ -3583,6 +3669,7 @@ mod tests {
             url: fake.url(),
             context_length: 4096,
             keep_alive: 0,
+            cloud: false,
         };
         // Rien encore : conversation inconnue ou vide.
         let chat_id = store.call(|c| chats::create(c, now_ms())).await.unwrap();
@@ -3675,6 +3762,7 @@ mod tests {
             url: fake.url(),
             context_length: 4096,
             keep_alive: 0,
+            cloud: false,
         };
         compact_chat(&store, &engine, server, &chat_id, "chatonlm-context")
             .await
@@ -3686,6 +3774,7 @@ mod tests {
             url: fake.url(),
             context_length: 4096,
             keep_alive: 0,
+            cloud: false,
         };
         send(&store, &engine, &Staging::default(), server, edit, &channel)
             .await
@@ -3909,6 +3998,7 @@ mod tests {
                     url,
                     context_length: 0,
                     keep_alive: 0,
+                    cloud: false,
                 };
                 let request = request(None, model, None);
                 tokio::spawn(async move {
@@ -5334,6 +5424,150 @@ mod tests {
         assert!(reply.thinking_ended_at.is_some());
     }
 
+    /// Envoi à un modèle cloud, réglage `cloud_models` donné.
+    async fn sent_to_cloud(store: &Store, fake: &FakeOllama, model: &str, cloud: bool) -> Recorder {
+        let (channel, recorder) = recorder();
+        let (engine, staging) = (ChatEngine::default(), Staging::default());
+        let server = Server {
+            cloud,
+            ..server(fake)
+        };
+        let ask = request(None, model, None);
+        let sending = send(store, &engine, &staging, server, ask, &channel);
+        tokio::time::timeout(WAIT, sending)
+            .await
+            .unwrap_or_else(|_| panic!("still sending: {:?}", recorder.events()))
+            .unwrap();
+        assert_one_final(&recorder.events());
+        recorder
+    }
+
+    /// Erreur finale d'un envoi à un modèle cloud.
+    fn cloud_error(kind: &str, message: &str) -> Value {
+        json!({ "type": "error", "kind": kind, "message": message })
+    }
+
+    #[tokio::test]
+    async fn nothing_reaches_a_cloud_model_while_they_are_turned_off() {
+        // Réglage coupé (défaut) : ni /api/show, ni téléchargement, ni chat,
+        // même avec un compte relié ; le message de l'utilisateur reste.
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        fake.set_signed_in(true);
+        let store = Store::open_in_memory().unwrap();
+        let recorder = sent_to_cloud(&store, &fake, "kimi-k2.6:cloud", false).await;
+        assert_eq!(
+            recorder.events().last().unwrap(),
+            &cloud_error(
+                "cloudOff",
+                "Cloud models are turned off: kimi-k2.6:cloud runs on ollama.com. Turn them on in Settings › Models to use it."
+            )
+        );
+        assert!(fake.chat_requests().is_empty());
+        assert!(fake.show_requests().is_empty());
+        assert!(fake.pull_requests().is_empty());
+        assert!(fake.load_requests().is_empty());
+        let chat = saved(&store, &recorder.chat_id());
+        assert_eq!(chat.messages.len(), 1);
+        // Nom en majuscules : lu comme le serveur le lit, refusé de même.
+        let recorder = sent_to_cloud(&store, &fake, "kimi-k2.6:Cloud", false).await;
+        assert_eq!(recorder.events().last().unwrap()["kind"], json!("cloudOff"));
+        assert!(fake.show_requests().is_empty());
+        // Modèle d'ollama.com sous un nom local (`remote_host` de /api/show) :
+        // refusé de même, une fois ses détails lus.
+        let recorder = sent_to_cloud(&store, &fake, "chatonlm-polish-remote", false).await;
+        assert_eq!(recorder.events().last().unwrap()["kind"], json!("cloudOff"));
+        assert!(fake.chat_requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_cloud_model_answers_once_turned_on_with_an_account() {
+        // Réglage activé, compte relié : réponse, sans chargement annoncé ni
+        // requête de chargement (rien à charger ici).
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        fake.set_signed_in(true);
+        let store = Store::open_in_memory().unwrap();
+        let recorder = sent_to_cloud(&store, &fake, "kimi-k2.6:cloud", true).await;
+        let events = recorder.events();
+        assert_eq!(events.last().unwrap()["type"], json!("done"));
+        assert!(of_type(&events, "loading").is_empty());
+        assert!(fake.load_requests().is_empty());
+        assert!(fake.pull_requests().is_empty());
+        let requests = fake.chat_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["model"], json!("kimi-k2.6:cloud"));
+        let chat = saved(&store, &recorder.chat_id());
+        assert_eq!(chat.messages.len(), 2);
+        assert_eq!(chat.messages[1].model.as_deref(), Some("kimi-k2.6:cloud"));
+    }
+
+    #[tokio::test]
+    async fn a_cloud_model_without_account_stops_before_answering() {
+        // Compte délié, dit par /api/me : arrêt avant toute requête à
+        // /api/chat, rien d'écrit après le message de l'utilisateur.
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let recorder = sent_to_cloud(&store, &fake, "kimi-k2.6:cloud", true).await;
+        let events = recorder.events();
+        let signed_out = cloud_error("cloudSignedOut", "Cloud models require an Ollama account");
+        assert_eq!(events.last().unwrap(), &signed_out);
+        assert!(of_type(&events, "replyStarted").is_empty());
+        assert!(fake.chat_requests().is_empty());
+        assert_eq!(saved(&store, &recorder.chat_id()).messages.len(), 1);
+        // Compte inconnu (ollama.com injoignable pour /api/me) : l'envoi
+        // part, le 401 du serveur dit la même chose.
+        fake.set_account_unavailable(true);
+        let recorder = sent_to_cloud(&store, &fake, "kimi-k2.6:cloud", true).await;
+        assert_eq!(recorder.events().last().unwrap(), &signed_out);
+        assert_eq!(fake.chat_requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_cloud_usage_limit_is_told_as_such() {
+        // 402 du serveur : limite d'usage du forfait, texte de l'officiel.
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        fake.set_signed_in(true);
+        let store = Store::open_in_memory().unwrap();
+        let recorder = sent_to_cloud(&store, &fake, "chatonlm-limit:cloud", true).await;
+        assert_eq!(
+            recorder.events().last().unwrap(),
+            &cloud_error(
+                "cloudLimit",
+                "You've reached your usage limit, please upgrade to continue"
+            )
+        );
+        assert_eq!(fake.chat_requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_manual_compaction_never_reaches_a_turned_off_cloud_model() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        fake.set_signed_in(true);
+        let store = Store::open_in_memory().unwrap();
+        // Conversation tenue avec le cloud permis, puis réglage coupé.
+        let recorder = sent_to_cloud(&store, &fake, "kimi-k2.6:cloud", true).await;
+        let requests = fake.chat_requests().len();
+        let shows = fake.show_requests().len();
+        let engine = ChatEngine::default();
+        let Err(AppError::Invalid(message)) = compact_chat(
+            &store,
+            &engine,
+            server(&fake),
+            &recorder.chat_id(),
+            "kimi-k2.6:cloud",
+        )
+        .await
+        else {
+            panic!("compacted with the cloud turned off");
+        };
+        assert!(
+            message.starts_with("Cloud models are turned off"),
+            "{message}"
+        );
+        assert_eq!(fake.chat_requests().len(), requests);
+        // Pas même ses détails demandés.
+        assert_eq!(fake.show_requests().len(), shows);
+    }
+
     #[tokio::test]
     async fn the_account_is_checked_only_when_tools_are_offered() {
         // Compte délié, recherche demandée mais pas d'outils (modèle sans
@@ -5810,6 +6044,7 @@ mod tests {
             url: url.to_owned(),
             context_length: 0,
             keep_alive: 0,
+            cloud: false,
         };
         let sending = send(store, engine, staging, server, ask, &channel);
         let result = tokio::time::timeout(WAIT, sending)
@@ -6719,11 +6954,12 @@ mod tests {
         request: &SendRequest,
         cancel_after: Option<(&str, usize)>,
     ) -> (Vec<Value>, AppResult<()>) {
-        play_with(store, staging, url, request, cancel_after, 0, None).await
+        play_with(store, staging, url, request, cancel_after, 0, None, false).await
     }
 
     /// [`play`], avec le réglage du contexte (0 : défaut du serveur) et un
     /// peintre des images.
+    #[allow(clippy::too_many_arguments)]
     async fn play_with(
         store: &Store,
         staging: &Staging,
@@ -6732,6 +6968,7 @@ mod tests {
         cancel_after: Option<(&str, usize)>,
         context_length: u32,
         painter: Option<Arc<FakePainter>>,
+        cloud: bool,
     ) -> (Vec<Value>, AppResult<()>) {
         let engine = engine_painting(painter);
         let (channel, recorder) = recorder();
@@ -6739,6 +6976,7 @@ mod tests {
             url: url.to_owned(),
             context_length,
             keep_alive: 0,
+            cloud,
         };
         let sending = send(store, &engine, staging, server, request.clone(), &channel);
         let cancelling = async {
@@ -7186,6 +7424,30 @@ mod tests {
                 &[][..],
             ),
             (
+                "cloud-off",
+                "Cloud model while cloud models are turned off in the settings: the send stops with a cloudOff error, nothing reaches Ollama's cloud.",
+                Target::SignedIn,
+                ask(hello, "kimi-k2.6:cloud", None),
+                None,
+                &["chatCreated", "userMessage", "error"][..],
+            ),
+            (
+                "cloud-signed-out",
+                "Cloud model while the server has no Ollama account (checked with /api/me before answering): the send stops with a cloudSignedOut error, no answer is created.",
+                Target::Ollama,
+                ask(hello, "kimi-k2.6:cloud", None),
+                None,
+                &["chatCreated", "userMessage", "error"][..],
+            ),
+            (
+                "cloud-limit",
+                "Cloud model whose plan's usage limit is reached (402 from the server): the send stops with a cloudLimit error, no answer is created.",
+                Target::SignedIn,
+                ask(hello, "chatonlm-limit:cloud", None),
+                None,
+                &["chatCreated", "userMessage", "error"][..],
+            ),
+            (
                 "loading",
                 "New chat with a model that isn't in memory and takes 1.5 s to load: loading, loaded, then thinking and the answer.",
                 Target::Ollama,
@@ -7241,8 +7503,17 @@ mod tests {
                     if name == "compacted-auto" {
                         first.content = "Tell me everything. ".repeat(560);
                     }
-                    let (events, result) =
-                        play_with(&store, &staging, &url, &first, None, context_length, None).await;
+                    let (events, result) = play_with(
+                        &store,
+                        &staging,
+                        &url,
+                        &first,
+                        None,
+                        context_length,
+                        None,
+                        false,
+                    )
+                    .await;
                     result.unwrap();
                     let chat_id = events[0]["chatId"].as_str().unwrap().to_owned();
                     replace.push((chat_id.clone(), "chat-1"));
@@ -7284,6 +7555,8 @@ mod tests {
                     _ if name.starts_with("image-") => Some(FakePainter::ready()),
                     _ => None,
                 };
+                // Modèles cloud permis, sauf pour la séquence qui les montre
+                // coupés (sans effet sur un modèle local).
                 let (events, result) = play_with(
                     &store,
                     &staging,
@@ -7292,6 +7565,7 @@ mod tests {
                     cancel_after,
                     context_length,
                     painter,
+                    name != "cloud-off",
                 )
                 .await;
                 assert_eq!(types(&events), expected, "{name}");
@@ -7329,6 +7603,7 @@ mod tests {
             url: TEST_INSTANCE.into(),
             context_length: 4096,
             keep_alive: 0,
+            cloud: false,
         };
         let think = Some(Think::Enabled(true));
         send(
@@ -7425,6 +7700,7 @@ mod tests {
             url: TEST_INSTANCE.into(),
             context_length: 4096,
             keep_alive: 0,
+            cloud: false,
         };
         let mut used = Vec::new();
         let mut chat_id = None;
@@ -7501,6 +7777,7 @@ mod tests {
                 url: TEST_INSTANCE.into(),
                 context_length: 4096,
                 keep_alive: 0,
+                cloud: false,
             };
             send(&store, &engine, &staging, real, ask, &channel)
                 .await
@@ -7554,6 +7831,7 @@ mod tests {
                 url: TEST_INSTANCE.into(),
                 context_length: 4096,
                 keep_alive: 0,
+                cloud: false,
             };
             tokio::spawn(async move {
                 send(&store, &engine, &Staging::default(), real, long, &channel).await
@@ -7637,6 +7915,7 @@ mod tests {
             url: TEST_INSTANCE.into(),
             context_length: 0,
             keep_alive: 0,
+            cloud: false,
         };
         let ask = request(None, "chatonlm-does-not-exist-xyz", None);
         send(&store, &engine, &Staging::default(), real, ask, &channel)
@@ -7656,6 +7935,70 @@ mod tests {
             json!("pull model manifest: file does not exist")
         );
         assert_eq!(saved(&store, &recorder.chat_id()).messages.len(), 1);
+    }
+
+    /// Contrat : un modèle cloud recommandé par l'instance de test (jamais
+    /// reliée à un compte ollama.com) se connaît sans téléchargement ;
+    /// l'envoi s'arrête faute de compte (`/api/me`), et `/api/chat` le refuse
+    /// par un 401, lu comme un refus du cloud ; réglage coupé, rien ne part.
+    #[tokio::test]
+    #[ignore = "instance Ollama de test : scripts/test-ollama.sh start"]
+    async fn contract_a_cloud_model_without_account() {
+        assert_eq!(
+            account::linked(TEST_INSTANCE).await,
+            Some(false),
+            "the test instance must not be signed in to ollama.com"
+        );
+        let model = models::recommended(TEST_INSTANCE)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|recommended| recommended.model)
+            .find(|name| models::is_cloud_name(name))
+            .expect("a cloud model among the recommendations");
+        let real = |cloud| Server {
+            url: TEST_INSTANCE.into(),
+            context_length: 0,
+            keep_alive: 0,
+            cloud,
+        };
+        for (cloud, kind) in [(true, "cloudSignedOut"), (false, "cloudOff")] {
+            let (store, engine) = (Store::open_in_memory().unwrap(), ChatEngine::default());
+            let (channel, recorder) = recorder();
+            let ask = request(None, &model, None);
+            send(
+                &store,
+                &engine,
+                &Staging::default(),
+                real(cloud),
+                ask,
+                &channel,
+            )
+            .await
+            .unwrap();
+            let events = recorder.events();
+            assert_one_final(&events);
+            assert_eq!(
+                types(&events),
+                ["chatCreated", "userMessage", "error"],
+                "{events:?}"
+            );
+            assert_eq!(events.last().unwrap()["kind"], json!(kind), "{events:?}");
+        }
+        let response = client::client(&Url::parse(TEST_INSTANCE).unwrap(), None)
+            .unwrap()
+            .post(format!("{TEST_INSTANCE}/api/chat"))
+            .json(&json!({ "model": model, "messages": [{ "role": "user", "content": "hi" }] }))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status().as_u16();
+        assert_eq!(
+            CloudRefusal::of(status, true),
+            Some(CloudRefusal::SignedOut),
+            "{status} {}",
+            response.text().await.unwrap_or_default()
+        );
     }
 
     /// Envoi complet à l'instance de test : événements reçus. Fin attendue :
@@ -7815,6 +8158,7 @@ mod tests {
             url: TEST_INSTANCE.into(),
             context_length,
             keep_alive,
+            cloud: false,
         };
         // Un vrai chargement prend des secondes, sans rechargement ~2 ms.
         let no_reload = Duration::from_millis(500);

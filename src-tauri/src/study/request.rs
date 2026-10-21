@@ -81,6 +81,9 @@ pub struct Gen<'a> {
     pub server: Server,
     pub model: String,
     pub think_off: bool,
+    /// Modèle qui tourne sur ollama.com : un 401 ou un 402 y est un refus du
+    /// cloud (compte, limite d'usage).
+    pub remote: bool,
     pub cancel: &'a Cancel,
     pub timeouts: Timeouts,
 }
@@ -103,6 +106,10 @@ impl<'a> Gen<'a> {
             )));
         };
         let server = Server::from_settings(&settings);
+        // Nom d'un modèle cloud, réglage coupé : pas même /api/show.
+        if let Some(message) = server.refuses(&model, models::is_cloud_name(&model)) {
+            return Err(Stop::Failed(error(StudyErrorCode::Failed, message)));
+        }
         let shown = tokio::select! {
             biased;
             () = cancel.cancelled() => return Err(Stop::Cancelled),
@@ -126,10 +133,16 @@ impl<'a> Gen<'a> {
             Err(_) => None,
         };
         let think_off = crate::dictation::polish::think_off(details.as_ref(), false);
+        // Modèle cloud, réglage coupé : rien ne part.
+        let remote = models::is_cloud_name(&model) || details.as_ref().is_some_and(|d| d.remote);
+        if let Some(message) = server.refuses(&model, remote) {
+            return Err(Stop::Failed(error(StudyErrorCode::Failed, message)));
+        }
         Ok(Self {
             server,
             model,
             think_off,
+            remote,
             cancel,
             timeouts,
         })
@@ -208,7 +221,9 @@ impl<'a> Gen<'a> {
         }
         let transient = status.is_server_error();
         let status = status.as_u16();
-        let stop = if message.trim().is_empty() {
+        let stop = if let Some(refusal) = models::CloudRefusal::of(status, self.remote) {
+            Stop::Failed(error(StudyErrorCode::Failed, refusal.message()))
+        } else if message.trim().is_empty() {
             failed(&t!("ollama.httpStatus", status = status))
         } else if from_ollama {
             failed(&message)

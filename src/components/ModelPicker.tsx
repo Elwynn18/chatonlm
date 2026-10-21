@@ -7,7 +7,10 @@
  * file app/ui/app/src/components/ModelPicker.tsx, commit 42e911bc3d05.
  * Modified for ChatonLM: the stale-model check is made by the banner itself
  * (StaleModelBanner.tsx, src/hooks/useOutdatedModels.ts), not by the picker;
- * no cloud models; the selected model keeps its state during a search; Escape is consumed so that it never
+ * cloud models only once the "Use cloud models" setting allows them (a typed
+ * cloud name is not looked up otherwise), with a Heroicons cloud instead of
+ * the official glyph, also on the button, and the paid plan they need as a
+ * chip; the selected model keeps its state during a search; Escape is consumed so that it never
  * reaches the rest of the app; typed close handle instead of a method added
  * to the DOM node; a typed name is looked up in the registry 300 ms after the
  * last keystroke (src/hooks/useModels.ts), not at each one; long names are
@@ -17,7 +20,7 @@
  * texts translated into English, Spanish and French (src/i18n).
  */
 
-import { ArrowDownTrayIcon } from "@heroicons/react/24/outline";
+import { ArrowDownTrayIcon, CloudIcon } from "@heroicons/react/24/outline";
 import {
   type JSX,
   type Ref,
@@ -30,16 +33,21 @@ import {
   useState,
 } from "react";
 import { ModelLabel } from "@/components/ModelLabel";
+import type { RecommendedModel } from "@/bindings/RecommendedModel";
 import {
+  useCloudModels,
   useRecommendedModels,
   useSelectedModel,
   useUpstreamModel,
 } from "@/hooks/useModels";
 import { useT } from "@/i18n";
+import { isCloudModel } from "@/lib/dictation";
 import { sameModel } from "@/lib/modelNames";
 import {
   type ModelEntry,
+  paidPlan,
   pickerEntries,
+  recommendedNames,
   upstreamCandidate,
 } from "@/lib/models";
 
@@ -65,7 +73,12 @@ export function ModelPicker({
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const { selected, models, loading, select } = useSelectedModel(chatId);
-  const recommended = useRecommendedModels();
+  const recommendations = useRecommendedModels();
+  const cloud = useCloudModels();
+  const recommended = useMemo(
+    () => recommendedNames(recommendations, cloud),
+    [recommendations, cloud],
+  );
   const listed = useMemo(
     () => pickerEntries(models, selected, searchQuery, recommended),
     [models, selected, searchQuery, recommended],
@@ -73,7 +86,7 @@ export function ModelPicker({
   // Nom tapé qu'aucune ligne ne porte : proposé s'il existe au registre (il
   // sera téléchargé au prochain envoi).
   const upstream = useUpstreamModel(
-    upstreamCandidate(listed, searchQuery) ?? "",
+    upstreamCandidate(listed, searchQuery, cloud) ?? "",
   );
   const entries = useMemo(
     () =>
@@ -167,7 +180,10 @@ export function ModelPicker({
           {isDisabled || loading ? (
             <span>{t("chat.picker.loading")}</span>
           ) : selected ? (
-            <ModelLabel model={selected.model} />
+            <>
+              <ModelLabel model={selected.model} />
+              {isCloudModel(selected.model) && <CloudMark />}
+            </>
           ) : (
             <span>{t("chat.picker.none")}</span>
           )}
@@ -205,6 +221,7 @@ export function ModelPicker({
           <ModelList
             listRef={listRef}
             entries={entries}
+            recommendations={recommendations}
             selected={selected}
             onModelSelect={handleModelSelect}
           />
@@ -224,14 +241,34 @@ function scrollToItem(container: HTMLDivElement | null, index: number) {
     item.offsetTop - containerHeight / 2 + item.clientHeight / 2;
 }
 
+/** Modèle qui tourne sur ollama.com (propre à ChatonLM : nuage de Heroicons). */
+function CloudMark() {
+  const t = useT();
+  // Infobulle portée par l'enveloppe : un <title> dans l'icône s'ajouterait
+  // au texte du bouton.
+  return (
+    <span title={t("chat.picker.cloud")} className="flex flex-none">
+      <CloudIcon
+        className="h-4 w-4 text-neutral-500 dark:text-neutral-400"
+        strokeWidth={1.75}
+        role="img"
+        aria-label={t("chat.picker.cloud")}
+      />
+    </span>
+  );
+}
+
 function ModelList({
   listRef,
   entries,
+  recommendations,
   selected,
   onModelSelect,
 }: {
   listRef: RefObject<HTMLDivElement | null>;
   entries: ModelEntry[];
+  /** Forfait exigé des modèles cloud recommandés. */
+  recommendations: readonly RecommendedModel[];
   selected: ModelEntry | null;
   onModelSelect: (entry: ModelEntry) => void;
 }): JSX.Element {
@@ -305,16 +342,39 @@ function ModelList({
             <span className="min-w-0 flex-1 text-left">
               <ModelLabel model={entry.model} showPublisher />
             </span>
-            {entry.info === null && (
-              <ArrowDownTrayIcon
-                className="h-4 w-4 text-neutral-500 dark:text-neutral-400"
-                strokeWidth={1.75}
-                aria-label={t("chat.picker.notDownloaded")}
-              />
+            {isCloudModel(entry.model) ? (
+              <>
+                <PlanChip plan={paidPlan(recommendations, entry.model)} />
+                <CloudMark />
+              </>
+            ) : (
+              entry.info === null && (
+                <ArrowDownTrayIcon
+                  className="h-4 w-4 text-neutral-500 dark:text-neutral-400"
+                  strokeWidth={1.75}
+                  aria-label={t("chat.picker.notDownloaded")}
+                />
+              )
             )}
           </button>
         ))
       )}
     </div>
+  );
+}
+
+/** Forfait payant qu'exige un modèle cloud (rien s'il est gratuit ou inconnu). */
+function PlanChip({ plan }: { plan: "pro" | "max" | null }) {
+  const t = useT();
+  if (plan === null) return null;
+  const name =
+    plan === "pro" ? t("chat.picker.plans.pro") : t("chat.picker.plans.max");
+  return (
+    <span
+      title={t("chat.picker.planRequired", { plan: name })}
+      className="flex-none rounded-full border border-neutral-300 px-1.5 text-xs/5 text-neutral-600 dark:border-neutral-600 dark:text-neutral-300"
+    >
+      {name}
+    </span>
   );
 }

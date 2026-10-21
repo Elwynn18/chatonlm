@@ -17,6 +17,7 @@ use crate::dictation::audio;
 use crate::i18n::t;
 use crate::ollama::{models, running};
 use crate::store::easy_link::{self as saved, Account, Platform};
+use crate::store::settings::Settings;
 use crate::store::{Store, chats, model_prefs, now_ms};
 
 /// Un message d'un compte lié plus ancien que cela à son arrivée (remis par la
@@ -575,6 +576,11 @@ async fn respond<H: Host>(
             say(messenger, channel, &text).await
         };
     }
+    // Nom d'un modèle cloud, réglage coupé : rien ne part, pas même
+    // /api/show.
+    if models::is_cloud_name(&model) && !settings.cloud_models {
+        return say(messenger, channel, &models::cloud_off(&model)).await;
+    }
     // Modèle absent du serveur (supprimé depuis son choix) : le moteur de
     // chat le téléchargerait de lui-même, ce qu'un bot ne doit pas déclencher.
     // Serveur injoignable ou autre échec : le moteur le dira.
@@ -885,7 +891,7 @@ async fn keep_images<H: Host>(
         }
     };
     let model = model_of(account, &settings.selected_model);
-    if let Err(reply) = sees(&settings.effective_server_url, &model, p).await {
+    if let Err(reply) = sees(&settings, &model, p).await {
         return say(messenger, channel, &reply).await;
     }
     let mut first = false;
@@ -937,11 +943,17 @@ async fn keep_images<H: Host>(
 }
 
 /// Le modèle sait voir (ou n'en dit rien) ; sinon, ce que le bot répond.
-async fn sees(base: &str, model: &str, p: &str) -> Result<(), String> {
+async fn sees(settings: &Settings, model: &str, p: &str) -> Result<(), String> {
     if model.is_empty() {
         return Err(t!("easyLink.bot.noModel", p = p));
     }
-    let details = models::show(base, model).await.ok();
+    // Nom d'un modèle cloud, réglage coupé : pas même /api/show.
+    if models::is_cloud_name(model) && !settings.cloud_models {
+        return Err(models::cloud_off(model));
+    }
+    let details = models::show(&settings.effective_server_url, model)
+        .await
+        .ok();
     if chat::accepts_images(details.as_ref()) {
         Ok(())
     } else {

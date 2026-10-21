@@ -88,6 +88,10 @@ const uncensoredSwitch = () =>
   screen.getByRole<HTMLButtonElement>("switch", {
     name: "Show uncensored models",
   });
+const cloudSwitch = () =>
+  screen.getByRole<HTMLButtonElement>("switch", { name: "Use cloud models" });
+const SERVER_CLOUD_OFF =
+  "This Ollama server has its cloud turned off: cloud models stay hidden.";
 
 /** Carte « Loaded models », liste lue. */
 async function loadedCard() {
@@ -289,6 +293,46 @@ describe("Settings: Models", () => {
         { unloadOnQuit: false },
         { unloadOnQuit: true },
       ]);
+    });
+
+    it("uses the cloud models only once turned on, off by default", async () => {
+      const { simulator, backend } = setup();
+      await screen.findByTestId("models-settings");
+      expect(cloudSwitch().getAttribute("aria-checked")).toBe("false");
+      expect(
+        document.getElementById(cloudSwitch().getAttribute("aria-describedby")!)
+          ?.textContent,
+      ).toBe(
+        "Adds Ollama's cloud models to the model picker. They run on ollama.com, not on this computer: the messages you send them leave this computer. They need an Ollama account (Account tab) and count against its plan.",
+      );
+      // Coupé : l'état du cloud du serveur n'est pas demandé.
+      expect(simulator.callsTo("cloud_status")).toEqual([]);
+      await userEvent.click(cloudSwitch());
+      await screen.findByText("Saved");
+      await waitFor(() =>
+        expect(cloudSwitch().getAttribute("aria-checked")).toBe("true"),
+      );
+      expect(backend.settings.cloudModels).toBe(true);
+      expect(screen.queryByText(SERVER_CLOUD_OFF)).toBeNull();
+      await userEvent.click(cloudSwitch());
+      await waitFor(() =>
+        expect(cloudSwitch().getAttribute("aria-checked")).toBe("false"),
+      );
+      expect(patches(simulator)).toEqual([
+        { cloudModels: true },
+        { cloudModels: false },
+      ]);
+    });
+
+    it("says when the server has its cloud turned off", async () => {
+      setup(
+        (backend) => {
+          backend.cloud = { disabled: true, source: "env" };
+        },
+        { cloudModels: true },
+      );
+      await screen.findByTestId("models-settings");
+      expect(await screen.findByText(SERVER_CLOUD_OFF)).toBeTruthy();
     });
 
     it("shows why the switch was not saved", async () => {

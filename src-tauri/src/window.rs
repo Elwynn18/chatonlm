@@ -307,6 +307,7 @@ mod tests {
             show_uncensored: false,
             system_prompt: String::new(),
             unload_on_quit: true,
+            cloud_models: false,
         }
     }
 

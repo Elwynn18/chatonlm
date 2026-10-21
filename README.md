@@ -47,6 +47,10 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
 - **Ollama account and web search**: sign in to your ollama.com account
   through your Ollama server, then let models search the web, as in the
   official app.
+- **Cloud models** (optional, off by default, in Settings > Models): use
+  Ollama's large cloud models, which run on ollama.com, from the same model
+  picker. They need an Ollama account; a few are free to try, the others
+  need a paid Ollama plan, shown next to their name.
 - **Dictation**: press a global shortcut and speak in any app. Speech is
   transcribed on your computer by Parakeet (25 European languages) or Whisper
   (99 languages), optionally cleaned up by an Ollama model, and copied to the
@@ -299,7 +303,10 @@ ChatonLM itself connects only to:
   your bot is stored in the database of ChatonLM, on your computer.
 
 Everything else goes through your Ollama server: chats, model downloads,
-your Ollama account and web search (handled by Ollama and ollama.com). If
+your Ollama account and web search (handled by Ollama and ollama.com). With
+cloud models turned on in Settings > Models, the messages you send to a cloud
+model are processed on ollama.com; turned off (the default), nothing is sent
+to them. If
 your server is on another computer, your messages, attachments and the
 transcripts cleaned up by dictation are sent to it. Links open in your web
 browser.

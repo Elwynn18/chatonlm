@@ -2,10 +2,12 @@
 //! modèle (`POST /api/show`) et modèles recommandés par le serveur
 //! (`GET /api/experimental/model-recommendations`).
 //!
-//! Seuls les modèles utilisables en conversation sont gardés : capacité
-//! `completion` (ce qui écarte embeddings, modèles d'images et de décision),
-//! et pas de modèle distant (le cloud est hors du périmètre de ChatonLM).
-//! L'ordre est celui d'Ollama : du plus récemment installé au plus ancien.
+//! Seuls les modèles installés utilisables en conversation sont gardés :
+//! capacité `completion` (ce qui écarte embeddings, modèles d'images et de
+//! décision), et pas de modèle distant (un modèle cloud n'est pas installé :
+//! le sélecteur le propose par les recommandations, si le réglage
+//! `cloud_models` le permet). L'ordre est celui d'Ollama : du plus récemment
+//! installé au plus ancien.
 
 use std::time::Duration;
 
@@ -106,7 +108,8 @@ struct ShowResponse {
     remote_model: Value,
 }
 
-/// `api.ModelRecommendationsResponse` : seuls les noms servent.
+/// `api.ModelRecommendationsResponse` : seuls les noms et le forfait exigé
+/// servent.
 #[derive(Deserialize)]
 struct RecommendationsResponse {
     #[serde(default)]
@@ -117,6 +120,23 @@ struct RecommendationsResponse {
 struct Recommendation {
     #[serde(default)]
     model: String,
+    /// Lu à la main : une valeur inattendue ne doit pas faire échouer le
+    /// reste.
+    #[serde(default)]
+    required_plan: Value,
+}
+
+/// Modèle recommandé par le serveur, en tête du sélecteur.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RecommendedModel {
+    /// Nom affiché, sans `:latest`.
+    pub model: String,
+    /// Forfait ollama.com exigé par un modèle cloud (« free », « pro »...),
+    /// tel que le serveur le donne ; absent pour un modèle local ou si le
+    /// serveur ne le dit pas.
+    pub required_plan: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -290,10 +310,55 @@ fn parse_details(model: &str, body: &str) -> AppResult<ModelDetails> {
     })
 }
 
-/// Nom d'un modèle d'ollama.com (`gpt-oss:20b-cloud`, `kimi-k2:cloud`) :
-/// comme `isCloud` de l'officiel, nom qui finit par « cloud ».
+/// Nom d'un modèle d'ollama.com (`gpt-oss:20b-cloud`, `kimi-k2:cloud`),
+/// comme le serveur le lit (`internal/modelref`, `parseSourceSuffix`) :
+/// l'étiquette (après le dernier « : », hors hôte) rognée et sans casse vaut
+/// « cloud » ou finit par « -cloud ». Plus strict que `isCloud` de
+/// l'officiel (nom qui finit par « cloud ») : un modèle local `pointcloud`
+/// reste local, `kimi-k2.6:Cloud` est bien du cloud.
 pub fn is_cloud_name(model: &str) -> bool {
-    model.ends_with("cloud")
+    let Some((_, tag)) = model.rsplit_once(':') else {
+        return false;
+    };
+    if tag.contains('/') {
+        return false;
+    }
+    let tag = tag.trim().to_ascii_lowercase();
+    tag == "cloud" || tag.ends_with("-cloud")
+}
+
+/// Refus d'un modèle cloud, propre au cloud, comme l'officiel (`ui.go`,
+/// `getError`) : 401 → aucun compte ollama.com relié au serveur (« cloud
+/// unauthorized ») ; 402 → limite d'usage du forfait atteinte. Rien pour un
+/// autre statut, ni pour un modèle local (un 401 vient alors d'un proxy).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloudRefusal {
+    SignedOut,
+    UsageLimit,
+}
+
+impl CloudRefusal {
+    pub fn of(status: u16, remote: bool) -> Option<Self> {
+        match status {
+            401 if remote => Some(Self::SignedOut),
+            402 if remote => Some(Self::UsageLimit),
+            _ => None,
+        }
+    }
+
+    /// Texte montré (et dit par un bot d'Easy Link).
+    pub fn message(self) -> String {
+        match self {
+            Self::SignedOut => t!("cloud.signedOut"),
+            Self::UsageLimit => t!("cloud.usageLimit"),
+        }
+    }
+}
+
+/// Modèle cloud demandé alors que le réglage `cloud_models` est coupé :
+/// rien n'est envoyé (texte de l'erreur).
+pub fn cloud_off(model: &str) -> String {
+    t!("cloud.off", model = model)
 }
 
 /// Modèle qui tourne ailleurs : nom de modèle cloud, ou `/api/show` qui
@@ -348,10 +413,10 @@ fn think_value(value: &Value) -> Option<Think> {
 }
 
 /// Modèles recommandés par le serveur, dans son ordre, comme le sélecteur de
-/// l'officiel (`useModels.ts`) : sans ceux du cloud (nom finissant par
-/// « cloud », `isCloud`), noms affichés sans `:latest`, sans doublon. Serveur
-/// sans cette route (404) : liste vide.
-pub async fn recommended(base: &str) -> AppResult<Vec<String>> {
+/// l'officiel (`useModels.ts`) : ceux du cloud compris (le sélecteur les
+/// écarte tant que le réglage `cloud_models` est coupé), noms affichés sans
+/// `:latest`, sans doublon. Serveur sans cette route (404) : liste vide.
+pub async fn recommended(base: &str) -> AppResult<Vec<RecommendedModel>> {
     let url = client::server_url(base)?;
     let client = client::client(&url, Some(RECOMMENDATIONS_TIMEOUT)).map_err(unreachable)?;
     let response = client
@@ -370,21 +435,31 @@ pub async fn recommended(base: &str) -> AppResult<Vec<String>> {
     parse_recommendations(&body)
 }
 
-fn parse_recommendations(body: &str) -> AppResult<Vec<String>> {
+fn parse_recommendations(body: &str) -> AppResult<Vec<RecommendedModel>> {
     let response: RecommendationsResponse = serde_json::from_str(body)
         .map_err(|error| AppError::Ollama(t!("ollama.unexpectedRecommendations", error = error)))?;
-    let mut names: Vec<String> = Vec::new();
+    let mut models: Vec<RecommendedModel> = Vec::new();
     for recommendation in response.recommendations.unwrap_or_default() {
-        let model = recommendation.model;
-        if model.is_empty() || model.ends_with("cloud") {
+        if recommendation.model.is_empty() {
             continue;
         }
-        let name = display_name(&model);
-        if !names.contains(&name) {
-            names.push(name);
+        let model = display_name(&recommendation.model);
+        if models.iter().any(|known| known.model == model) {
+            continue;
         }
+        // Forfait d'un modèle cloud seulement : rien à payer en local.
+        let required_plan = recommendation
+            .required_plan
+            .as_str()
+            .map(str::trim)
+            .filter(|plan| !plan.is_empty() && is_cloud_name(&model))
+            .map(str::to_ascii_lowercase);
+        models.push(RecommendedModel {
+            model,
+            required_plan,
+        });
     }
-    Ok(names)
+    Ok(models)
 }
 
 /// `llama3:latest` → `llama3` ; les autres étiquettes sont gardées.
@@ -774,21 +849,44 @@ mod tests {
         assert_eq!(message, "can't connect to Ollama");
     }
 
+    /// Noms recommandés, dans l'ordre.
+    fn names(models: &[RecommendedModel]) -> Vec<&str> {
+        models.iter().map(|m| m.model.as_str()).collect()
+    }
+
     #[test]
-    fn recommendations_skip_cloud_models_and_duplicates() {
+    fn recommendations_keep_cloud_models_with_their_plan() {
         let body = r#"{"recommendations": [
-            {"model": "kimi-k2.6:cloud", "description": "x", "context_length": 262144},
+            {"model": "kimi-k2.6:cloud", "description": "x", "context_length": 262144, "required_plan": "pro"},
+            {"model": "gemma4:31b-cloud", "required_plan": " Free "},
             {"model": "gpt-oss:120b-cloud"},
-            {"model": "gemma4", "vram_bytes": 12000000000},
+            {"model": "glm-5.3:cloud", "required_plan": 3},
+            {"model": "gemma4", "vram_bytes": 12000000000, "required_plan": "pro"},
             {"model": "qwen3.5:latest"},
             {"model": "qwen3.5"},
+            {"model": "kimi-k2.6:cloud", "required_plan": "free"},
             {"model": "llama3.2:3b", "thinking": {"values": [true]}},
             {"model": ""},
             {"description": "no name"}
         ], "mappings": {"codex": {"model": "gpt-oss:20b"}}}"#;
+        let models = parse_recommendations(body).unwrap();
         assert_eq!(
-            parse_recommendations(body).unwrap(),
-            ["gemma4", "qwen3.5", "llama3.2:3b"]
+            names(&models),
+            [
+                "kimi-k2.6:cloud",
+                "gemma4:31b-cloud",
+                "gpt-oss:120b-cloud",
+                "glm-5.3:cloud",
+                "gemma4",
+                "qwen3.5",
+                "llama3.2:3b"
+            ]
+        );
+        let plans: Vec<_> = models.iter().map(|m| m.required_plan.as_deref()).collect();
+        // Forfait rogné, en minuscules ; illisible ou d'un modèle local : aucun.
+        assert_eq!(
+            plans,
+            [Some("pro"), Some("free"), None, None, None, None, None]
         );
         // Liste absente ou nulle, comme le décodage de Go : vide.
         for empty in [
@@ -815,10 +913,20 @@ mod tests {
         // Aussi sans modèle installé, comme Ollama.
         for mode in [Mode::ollama(), Mode::no_models()] {
             let server = FakeOllama::start(mode).await.unwrap();
+            let models = recommended(&server.url()).await.unwrap();
             assert_eq!(
-                recommended(&server.url()).await.unwrap(),
-                ["gemma4", "qwen3.5"]
+                names(&models),
+                [
+                    "kimi-k2.6:cloud",
+                    "glm-5.1:cloud",
+                    "qwen3.5:cloud",
+                    "minimax-m2.7:cloud",
+                    "gemma4",
+                    "qwen3.5"
+                ]
             );
+            assert_eq!(models[0].required_plan.as_deref(), Some("pro"));
+            assert_eq!(models[2].required_plan.as_deref(), Some("free"));
         }
         // Serveur antérieur à la route : rien à recommander.
         let old = FakeOllama::start(Mode::Status(404)).await.unwrap();
@@ -855,14 +963,57 @@ mod tests {
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         let body: Value = response.json().await.unwrap();
         assert!(body["recommendations"].is_array(), "{body}");
-        let names = recommended(base).await.unwrap();
-        assert!(!names.is_empty(), "{body}");
-        for name in &names {
-            assert!(
-                !name.ends_with("cloud") && !name.ends_with(":latest"),
-                "{name}"
-            );
+        let models = recommended(base).await.unwrap();
+        assert!(!models.is_empty(), "{body}");
+        for model in &models {
+            assert!(!model.model.ends_with(":latest"), "{model:?}");
+            if !is_cloud_name(&model.model) {
+                assert_eq!(model.required_plan, None, "{model:?}");
+            }
         }
+        // Des modèles cloud y sont recommandés, avec le forfait exigé.
+        assert!(
+            models
+                .iter()
+                .any(|model| is_cloud_name(&model.model) && model.required_plan.is_some()),
+            "{body}"
+        );
+    }
+
+    #[test]
+    fn cloud_names_are_read_as_the_server_reads_them() {
+        for cloud in [
+            "kimi-k2.6:cloud",
+            "gpt-oss:120b-cloud",
+            "kimi-k2.6:Cloud",
+            "gpt-oss:120B-CLOUD ",
+            "hf.co/someone/model:cloud",
+        ] {
+            assert!(is_cloud_name(cloud), "{cloud}");
+        }
+        for local in [
+            "pointcloud",
+            "pointcloud:latest",
+            "qwen3:0.6b",
+            "cloud",
+            "registry.example.com:5000/cloud",
+            "model:cloudy",
+            "",
+        ] {
+            assert!(!is_cloud_name(local), "{local}");
+        }
+    }
+
+    #[test]
+    fn cloud_refusals_are_told_apart_for_remote_models_only() {
+        assert_eq!(CloudRefusal::of(401, true), Some(CloudRefusal::SignedOut));
+        assert_eq!(CloudRefusal::of(402, true), Some(CloudRefusal::UsageLimit));
+        for status in [400, 403, 404, 429, 500] {
+            assert_eq!(CloudRefusal::of(status, true), None, "{status}");
+        }
+        // 401 d'un proxy devant un serveur local : pas un compte ollama.com.
+        assert_eq!(CloudRefusal::of(401, false), None);
+        assert_eq!(CloudRefusal::of(402, false), None);
     }
 
     /// Contrat : `/api/show` de l'instance de test répond toujours comme

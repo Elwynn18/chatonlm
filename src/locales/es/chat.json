@@ -148,7 +148,13 @@
     "searchLabel": "Buscar modelo",
     "list": "Modelos",
     "empty": "No se encontraron modelos",
-    "notDownloaded": "No descargado"
+    "notDownloaded": "No descargado",
+    "cloud": "Modelo en la nube: se ejecuta en ollama.com",
+    "plans": {
+      "pro": "Pro",
+      "max": "Max"
+    },
+    "planRequired": "Requiere el plan {plan} de Ollama"
   },
   "think": {
     "label": "Pensar",
@@ -173,6 +179,11 @@
     "unavailable": "La búsqueda web no está disponible: este modelo no sabe usar herramientas.",
     "signIn": "Iniciar sesión",
     "withoutWebSearch": "Generar sin búsqueda web"
+  },
+  "cloud": {
+    "signIn": "Iniciar sesión",
+    "upgrade": "Mejorar plan",
+    "openSettings": "Abrir configuración"
   },
   "copy": {
     "failed": "Error al copiar",

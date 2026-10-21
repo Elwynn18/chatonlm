@@ -78,6 +78,7 @@ import type { ModelDetails } from "@/bindings/ModelDetails";
 import type { ModelInfo } from "@/bindings/ModelInfo";
 import type { MachineMemory } from "@/bindings/MachineMemory";
 import type { ModelsLocation } from "@/bindings/ModelsLocation";
+import type { RecommendedModel } from "@/bindings/RecommendedModel";
 import type { RunningModel } from "@/bindings/RunningModel";
 import type { ServerState } from "@/bindings/ServerState";
 import type { ServerStatus } from "@/bindings/ServerStatus";
@@ -304,7 +305,7 @@ export interface FakeBackend {
    */
   models: string[];
   /** Réponse de recommended_models. */
-  recommended: string[];
+  recommended: RecommendedModel[];
   /** Modèles présents au registre (model_exists_upstream). */
   upstream: Set<string>;
   /**
@@ -551,8 +552,8 @@ export function fakeBackend(
     models?: string[];
     details?: (ModelDetails | [string, AppError])[];
     thinkPrefs?: Record<string, Think>;
-    /** Modèles recommandés par le serveur. */
-    recommended?: string[];
+    /** Modèles recommandés par le serveur (un nom : sans forfait). */
+    recommended?: (string | RecommendedModel)[];
     /** Modèles présents au registre. */
     upstream?: string[];
     /** Disque lu par stage_paths, par chemin. */
@@ -601,6 +602,7 @@ export function fakeBackend(
       showUncensored: false,
       systemPrompt: "",
       unloadOnQuit: true,
+      cloudModels: false,
     },
     settingsErrors: { get: null, update: null },
     details: new Map<string, ModelDetails | AppError>(
@@ -610,7 +612,9 @@ export function fakeBackend(
     ),
     thinkPrefs: new Map(Object.entries(thinkPrefs)),
     models: [...models],
-    recommended: [...recommended],
+    recommended: recommended.map((entry) =>
+      typeof entry === "string" ? { model: entry, requiredPlan: null } : entry,
+    ),
     upstream: new Set(upstream),
     outdated: new Set(),
     outdatedError: null,

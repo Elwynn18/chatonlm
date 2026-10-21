@@ -93,4 +93,11 @@ systemPrompt: string,
  * l'Ollama de la machine (`ollama::target::unload_url_at_exit`) ;
  * activé par défaut. « Reset to defaults » n'y touche pas.
  */
-unloadOnQuit: boolean, };
+unloadOnQuit: boolean, 
+/**
+ * Modèles cloud d'Ollama montrés dans le sélecteur et acceptés à l'envoi
+ * (chat, mode vocal, Easy Link, correction, étude) ; coupé par défaut :
+ * rien ne part alors sur ollama.com. « Reset to defaults » n'y touche
+ * pas.
+ */
+cloudModels: boolean, };

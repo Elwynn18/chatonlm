@@ -8,7 +8,8 @@
  * app/ui/app/src/hooks/useModels.ts and app/ui/app/src/api.ts,
  * commit 42e911bc3d05 (selected model, model of a chat, order of the list,
  * search filter, name looked up in the registry).
- * Modified for ChatonLM: pure functions; no cloud models; default model = the
+ * Modified for ChatonLM: pure functions; cloud models only once allowed
+ * (setting, server cloud not turned off), with the plan they need; default model = the
  * most recently installed one, never a recommended model that is not
  * installed; the selected model is found in the full list, so a search never
  * marks it as not installed; one substring filter for all the entries (the
@@ -23,6 +24,8 @@
 
 import type { Message } from "@/bindings/Message";
 import type { ModelInfo } from "@/bindings/ModelInfo";
+import type { RecommendedModel } from "@/bindings/RecommendedModel";
+import { isCloudModel } from "@/lib/dictation";
 import { sameModel } from "@/lib/modelNames";
 
 /** Ligne du sélecteur ; `info` vaut null pour un modèle non installé. */
@@ -50,9 +53,15 @@ export function selectedEntry(
   return { model: info?.model ?? selected, info };
 }
 
-/** Modèle par défaut quand aucun n'est choisi : le plus récemment installé. */
-export function defaultModel(models: ModelInfo[]): string | null {
-  return models[0]?.model ?? null;
+/**
+ * Modèle par défaut quand aucun n'est choisi : le plus récemment installé ;
+ * `cloud` faux (modèles cloud pas permis) : le plus récent dont le nom n'est
+ * pas celui d'un modèle cloud.
+ */
+export function defaultModel(models: ModelInfo[], cloud = true): string | null {
+  return (
+    models.find((model) => cloud || !isCloudModel(model.model))?.model ?? null
+  );
 }
 
 /** Dernier modèle utilisé dans une conversation. */
@@ -100,16 +109,51 @@ export function pickerEntries(
 
 /**
  * Nom à chercher au registre : la recherche rognée, si aucune ligne du
- * sélecteur ne porte exactement ce nom (sans casse) ; sinon null.
+ * sélecteur ne porte exactement ce nom (sans casse) ; sinon null. Nom d'un
+ * modèle cloud alors qu'ils ne sont pas permis (`cloud` faux) : null.
  */
 export function upstreamCandidate(
   entries: readonly ModelEntry[],
   search: string,
+  cloud = true,
 ): string | null {
   const name = search.trim();
-  if (!name) return null;
+  if (!name || (!cloud && isCloudModel(name))) return null;
   const lower = name.toLowerCase();
   return entries.some((entry) => entry.model.toLowerCase() === lower)
     ? null
     : name;
+}
+
+/**
+ * Noms des modèles recommandés montrés en tête du sélecteur, dans l'ordre du
+ * serveur : ceux du cloud seulement s'ils sont permis (`cloud` : réglage
+ * activé, cloud du serveur pas coupé), comme le filtre `cloudDisabled` de
+ * l'officiel.
+ */
+export function recommendedNames(
+  recommended: readonly RecommendedModel[],
+  cloud: boolean,
+): string[] {
+  return recommended
+    .filter((entry) => cloud || !isCloudModel(entry.model))
+    .map((entry) => entry.model);
+}
+
+/** Forfaits payants qui ont un nom affiché. */
+export type PaidPlan = "pro" | "max";
+
+/**
+ * Forfait payant qu'exige ce modèle cloud d'après les recommandations du
+ * serveur ; null : gratuit, inconnu, ou modèle local.
+ */
+export function paidPlan(
+  recommended: readonly RecommendedModel[],
+  model: string,
+): PaidPlan | null {
+  if (!isCloudModel(model)) return null;
+  const plan = recommended.find((entry) =>
+    sameModel(entry.model, model),
+  )?.requiredPlan;
+  return plan === "pro" || plan === "max" ? plan : null;
 }

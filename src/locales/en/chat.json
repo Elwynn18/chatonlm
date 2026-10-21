@@ -148,7 +148,13 @@
     "searchLabel": "Find model",
     "list": "Models",
     "empty": "No models found",
-    "notDownloaded": "Not downloaded"
+    "notDownloaded": "Not downloaded",
+    "cloud": "Cloud model: runs on ollama.com",
+    "plans": {
+      "pro": "Pro",
+      "max": "Max"
+    },
+    "planRequired": "Needs the Ollama {plan} plan"
   },
   "think": {
     "label": "Think",
@@ -173,6 +179,11 @@
     "unavailable": "Web search isn't available: this model can't use tools.",
     "signIn": "Sign In",
     "withoutWebSearch": "Generate without web search"
+  },
+  "cloud": {
+    "signIn": "Sign In",
+    "upgrade": "Upgrade",
+    "openSettings": "Open settings"
   },
   "copy": {
     "failed": "Copy failed",

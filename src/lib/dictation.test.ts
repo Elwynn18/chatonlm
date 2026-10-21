@@ -178,6 +178,11 @@ describe("isCloudModel", () => {
     expect(isCloudModel("kimi-k2:cloud")).toBe(true);
     expect(isCloudModel("gemma3:4b")).toBe(false);
     expect(isCloudModel("cloudy-model:1b")).toBe(false);
+    // Comme le serveur : étiquette sans casse ; un nom local en « cloud »
+    // reste local.
+    expect(isCloudModel("kimi-k2.6:Cloud")).toBe(true);
+    expect(isCloudModel("pointcloud")).toBe(false);
+    expect(isCloudModel("registry.example.com:5000/cloud")).toBe(false);
   });
 });
 

@@ -258,6 +258,11 @@
       "label": "Afficher les modèles non censurés",
       "description": "Ajoute au ModelHub une rubrique « Non censurés » : des versions communautaires de modèles officiels qui ne refusent plus de répondre. Elles peuvent écrire des contenus choquants ou dangereux, et ChatonLM ne les vérifie pas."
     },
+    "cloud": {
+      "label": "Utiliser les modèles cloud",
+      "description": "Ajoute les modèles cloud d'Ollama au sélecteur de modèles. Ils tournent sur ollama.com, pas sur cet ordinateur : les messages que vous leur envoyez quittent cet ordinateur. Ils nécessitent un compte Ollama (onglet Compte) et sont décomptés de son forfait.",
+      "serverOff": "Le cloud est désactivé sur ce serveur Ollama : les modèles cloud restent masqués."
+    },
     "systemPrompt": {
       "title": "Consignes",
       "label": "Pré-prompt",

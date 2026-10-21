@@ -260,6 +260,11 @@
   "models": {
     "cloudNotLoaded": "{model} runs on ollama.com: cloud models are not loaded on this computer"
   },
+  "cloud": {
+    "signedOut": "Cloud models require an Ollama account",
+    "usageLimit": "You've reached your usage limit, please upgrade to continue",
+    "off": "Cloud models are turned off: {model} runs on ollama.com. Turn them on in Settings › Models to use it."
+  },
   "server": {
     "address": {
       "invalid": "invalid server address: {detail}",

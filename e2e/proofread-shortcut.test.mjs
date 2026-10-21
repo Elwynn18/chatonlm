@@ -166,7 +166,11 @@ const notifiedSince = (desk, since) => desk.notifications().slice(since);
  * { progress, final } (progress : null si aucune notification de
  * progression n'est attendue).
  */
-async function pressProofread(desk, summary, { progress = true } = {}) {
+async function pressProofread(
+  desk,
+  summary,
+  { progress = true, progresses = 1 } = {},
+) {
   const since = desk.notifications().length;
   await desk.command("tap", { id: "proofread" });
   const final = await desk.waitFor(
@@ -182,7 +186,7 @@ async function pressProofread(desk, summary, { progress = true } = {}) {
     assert.deepEqual(started, [], "progression inattendue");
     return { progress: null, final };
   }
-  assert.equal(started.length, 1, JSON.stringify(seen));
+  assert.equal(started.length, progresses, JSON.stringify(seen));
   return { progress: started[0], final };
 }
 
@@ -434,27 +438,43 @@ try {
             await long.release();
           }
 
-          // Modèle absent du serveur : échec, rien de copié.
+          // Modèle absent du serveur : corrigé avec le modèle chargé dans
+          // Ollama (chatonlm-proofread, chargé par les essais d'avant), ce
+          // que la notification dit ; le réglage n'est pas modifié.
           await settings(driver, { proofreadModel: "chatonlm-vanished" });
           const missing = await holdSelection("teh text");
           try {
-            const { final: failed } = await pressProofread(
+            // Deux progressions : la correction est refaite avec l'autre
+            // modèle.
+            const { final: replaced } = await pressProofread(
               desk,
-              "Proofreading failed",
+              "Corrected text copied",
+              { progresses: 2 },
             );
-            assert.match(failed.body, /chatonlm-vanished/);
-            assert.deepEqual(failed.actions, []);
+            assert.equal(
+              replaced.body,
+              "the text\n\nThe model chatonlm-vanished is no longer installed: corrected with chatonlm-proofread, loaded in Ollama.",
+            );
           } finally {
             await missing.release();
           }
-          assert.equal((await readClipboard()).text, OTHER);
+          assert.equal(
+            (await driver.invoke("get_settings")).proofreadModel,
+            "chatonlm-vanished",
+          );
+          // Le texte corrigé est copié ; rien ne le remplace ensuite.
+          const copied = (await readClipboard()).text;
+          assert.equal(copied, "the text");
 
           // Modèle repris du chat (rien de choisi pour la correction), cloud
-          // ou distant (`/api/show`) : rien n'est envoyé.
+          // ou distant (`/api/show`) : rien n'est envoyé, même modèles cloud
+          // permis (sans eux, la page remplace aussitôt un modèle cloud
+          // choisi dans le chat).
           for (const model of ["gpt-oss:20b-cloud", "chatonlm-polish-remote"]) {
             await settings(driver, {
               proofreadModel: "",
               selectedModel: model,
+              cloudModels: true,
             });
             const secret = await holdSelection("teh confidential text");
             try {
@@ -470,7 +490,7 @@ try {
             } finally {
               await secret.release();
             }
-            assert.equal((await readClipboard()).text, OTHER);
+            assert.equal((await readClipboard()).text, copied);
           }
           const chats = await (
             await fetch(new URL("/fake/requests", fake.url))
@@ -481,7 +501,11 @@ try {
           );
 
           // Aucun modèle, ni pour la correction ni dans le chat.
-          await settings(driver, { proofreadModel: "", selectedModel: "" });
+          await settings(driver, {
+            proofreadModel: "",
+            selectedModel: "",
+            cloudModels: false,
+          });
           const noModel = await holdSelection("teh text");
           try {
             const { final: unset } = await pressProofread(
@@ -496,18 +520,19 @@ try {
           } finally {
             await noModel.release();
           }
-          assert.equal((await readClipboard()).text, OTHER);
+          assert.equal((await readClipboard()).text, copied);
         } finally {
           await held.release();
         }
         await settings(driver, { proofreadModel: MODEL });
         // La dernière correction réussie reste celle montrée par « Show »
-        // (pas celle qui a été arrêtée).
+        // (pas celle qui a été arrêtée) : ici celle faite avec le modèle
+        // chargé à la place de chatonlm-vanished.
         assert.equal(
           (await driver.invoke("proofread_last_selection")).parts
             .map((part) => part.text)
             .join(""),
-          "The letter is here.",
+          "teh text",
         );
         assert.equal((await dictationStatus(driver)).phase, "idle");
 

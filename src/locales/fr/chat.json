@@ -148,7 +148,13 @@
     "searchLabel": "Rechercher un modèle",
     "list": "Modèles",
     "empty": "Aucun modèle trouvé",
-    "notDownloaded": "Non téléchargé"
+    "notDownloaded": "Non téléchargé",
+    "cloud": "Modèle cloud : tourne sur ollama.com",
+    "plans": {
+      "pro": "Pro",
+      "max": "Max"
+    },
+    "planRequired": "Nécessite le forfait {plan} d'Ollama"
   },
   "think": {
     "label": "Réfléchir",
@@ -173,6 +179,11 @@
     "unavailable": "Recherche web indisponible : ce modèle ne sait pas utiliser d'outils.",
     "signIn": "Se connecter",
     "withoutWebSearch": "Générer sans recherche web"
+  },
+  "cloud": {
+    "signIn": "Se connecter",
+    "upgrade": "Changer de forfait",
+    "openSettings": "Ouvrir les paramètres"
   },
   "copy": {
     "failed": "Échec de la copie",

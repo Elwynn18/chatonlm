@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ModelInfo } from "@/bindings/ModelInfo";
+import type { RecommendedModel } from "@/bindings/RecommendedModel";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import { ModelPicker } from "./ModelPicker";
 
@@ -35,17 +36,26 @@ const INSTALLED = [info("qwen3.5:0.8b"), info("qwen3:0.6b"), info("llama3")];
 /**
  * Backend simulé : réglages en mémoire, liste de modèles donnée ;
  * `recommended` : réponse de recommended_models (Error : échec) ; `upstream` :
- * réponse du registre par nom (absent : false, Error : registre injoignable).
+ * réponse du registre par nom (absent : false, Error : registre injoignable) ;
+ * `cloudModels` : réglage des modèles cloud ; `cloudDisabled` : cloud coupé
+ * sur le serveur (cloud_status).
  */
 function backend(
   models: ModelInfo[] | Promise<never>,
   selectedModel = "",
   {
-    recommended = [] as string[] | Error,
+    recommended = [] as (string | RecommendedModel)[] | Error,
     upstream = {} as Record<string, boolean | Error>,
+    cloudModels = false,
+    cloudDisabled = false,
   } = {},
 ) {
-  const settings = { serverUrl: "", selectedModel, theme: "system" };
+  const settings = {
+    serverUrl: "",
+    selectedModel,
+    theme: "system",
+    cloudModels,
+  };
   const patches: SettingsPatch[] = [];
   /** Noms demandés au registre, avec l'heure de la demande. */
   const lookups: { model: string; at: number }[] = [];
@@ -61,9 +71,15 @@ function backend(
       }
       case "list_models":
         return models;
+      case "cloud_status":
+        return { disabled: cloudDisabled, source: "none" };
       case "recommended_models":
         if (recommended instanceof Error) throw recommended;
-        return recommended;
+        return recommended.map((entry) =>
+          typeof entry === "string"
+            ? { model: entry, requiredPlan: null }
+            : entry,
+        );
       case "model_exists_upstream": {
         const { model } = args as { model: string };
         lookups.push({ model, at: Date.now() });
@@ -378,5 +394,133 @@ describe("ModelPicker: Hugging Face names", () => {
     expect(screen.getByRole("option").getAttribute("aria-selected")).toBe(
       "true",
     );
+  });
+});
+
+describe("ModelPicker: cloud models", () => {
+  const RECOMMENDED: RecommendedModel[] = [
+    { model: "kimi-k2.6:cloud", requiredPlan: "pro" },
+    { model: "qwen3.5:cloud", requiredPlan: "free" },
+    { model: "gemma4", requiredPlan: null },
+  ];
+  const CLOUD = "Cloud model: runs on ollama.com";
+  /** Pour chaque ligne : porte-t-elle l'icône du nuage ? */
+  const clouds = () =>
+    screen
+      .getAllByRole("option")
+      .map((option) => option.querySelector(`[aria-label='${CLOUD}']`))
+      .map((icon) => icon !== null);
+
+  it("are left out while the setting is off, and never looked up", async () => {
+    const { lookups } = backend(INSTALLED, "llama3", {
+      recommended: RECOMMENDED,
+      upstream: { "kimi-k3:cloud": true },
+    });
+    renderPicker();
+    await waitFor(() => expect(button().textContent).toBe("llama3"));
+    await openWith("gemma4");
+    expect(options()).toEqual([
+      "gemma4",
+      "qwen3.5:0.8b",
+      "qwen3:0.6b",
+      "llama3",
+    ]);
+    await userEvent.keyboard("kimi-k3:cloud");
+    await delay(500);
+    expect(lookups).toEqual([]);
+    expect(screen.getByText("No models found")).toBeTruthy();
+  });
+
+  it("are listed once turned on, with a cloud and the paid plan they need", async () => {
+    backend(INSTALLED, "llama3", {
+      recommended: RECOMMENDED,
+      cloudModels: true,
+    });
+    renderPicker();
+    await waitFor(() => expect(button().textContent).toBe("llama3"));
+    await openWith("kimi-k2.6:cloudPro");
+    expect(options()).toEqual([
+      "kimi-k2.6:cloudPro",
+      "qwen3.5:cloud",
+      "gemma4",
+      "qwen3.5:0.8b",
+      "qwen3:0.6b",
+      "llama3",
+    ]);
+    expect(clouds()).toEqual([true, true, false, false, false, false]);
+    // Rien à télécharger pour un modèle cloud.
+    expect(missing()).toEqual([false, false, true, false, false, false]);
+    expect(screen.getByText("Pro").title).toBe("Needs the Ollama Pro plan");
+  });
+
+  it("stay hidden when the server has its cloud turned off", async () => {
+    backend(INSTALLED, "llama3", {
+      recommended: RECOMMENDED,
+      cloudModels: true,
+      cloudDisabled: true,
+    });
+    renderPicker();
+    await waitFor(() => expect(button().textContent).toBe("llama3"));
+    await userEvent.click(button());
+    await delay(50);
+    expect(options()).toEqual([
+      "gemma4",
+      "qwen3.5:0.8b",
+      "qwen3:0.6b",
+      "llama3",
+    ]);
+  });
+
+  it("a selected one shows its cloud on the button", async () => {
+    const { patches } = backend(INSTALLED, "kimi-k2.6:cloud", {
+      recommended: RECOMMENDED,
+      cloudModels: true,
+    });
+    renderPicker();
+    await waitFor(() => expect(button().textContent).toBe("kimi-k2.6:cloud"));
+    expect(within(button()).getByLabelText(CLOUD)).toBeTruthy();
+    await delay(50);
+    expect(patches).toEqual([]);
+  });
+
+  it.each([
+    ["the setting is off", false, false],
+    ["the server has its cloud turned off", true, true],
+  ])(
+    "a selected one gives way to the most recently installed model when %s",
+    async (_, cloudModels, cloudDisabled) => {
+      const { patches } = backend(INSTALLED, "kimi-k2.6:cloud", {
+        recommended: RECOMMENDED,
+        cloudModels,
+        cloudDisabled,
+      });
+      renderPicker();
+      await waitFor(() =>
+        expect(patches).toEqual([{ selectedModel: "qwen3.5:0.8b" }]),
+      );
+      await waitFor(() => expect(button().textContent).toBe("qwen3.5:0.8b"));
+    },
+  );
+
+  it("a selected one never gives way to a local model named like a cloud one", async () => {
+    // Modèle local à l'étiquette en « -cloud » (ollama create), le plus récent : il
+    // passerait pour un modèle cloud ; une seule écriture, pas de boucle.
+    const { patches } = backend(
+      [info("mine:my-cloud"), ...INSTALLED],
+      "kimi-k2.6:cloud",
+    );
+    renderPicker();
+    await waitFor(() =>
+      expect(patches).toEqual([{ selectedModel: "qwen3.5:0.8b" }]),
+    );
+    await delay(100);
+    expect(patches).toHaveLength(1);
+  });
+
+  it("a selected one with nothing installed leaves no model selected", async () => {
+    const { patches } = backend([], "kimi-k2.6:cloud");
+    renderPicker();
+    await waitFor(() => expect(patches).toEqual([{ selectedModel: "" }]));
+    await waitFor(() => expect(button().textContent).toBe("Select a model"));
   });
 });

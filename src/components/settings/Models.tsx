@@ -6,7 +6,9 @@
 // d'Ollama n'est pas modifié), préchargement du modèle choisi et
 // déchargement des modèles en quittant l'app (activé par défaut ; pas à la
 // fermeture de la fenêtre dans la zone de notification), puis la
-// rubrique « Uncensored » du ModelHub (masquée par défaut) ; chaque
+// rubrique « Uncensored » du ModelHub (masquée par défaut) et les modèles
+// cloud d'Ollama (coupés par défaut : rien ne part sur ollama.com sans ce
+// choix ; cloud coupé sur le serveur : dit sous la ligne) ; chaque
 // changement est enregistré aussitôt (« Saved » de la page, erreur sous la
 // ligne), « Reset to defaults » (General) n'y touche pas. La deuxième règle le
 // pré-prompt, envoyé en message système au début de chaque conversation
@@ -22,6 +24,7 @@ import {
   ArrowPathIcon,
   BoltIcon,
   ClockIcon,
+  CloudIcon,
   PowerIcon,
   ShieldExclamationIcon,
 } from "@heroicons/react/20/solid";
@@ -35,6 +38,7 @@ import { PromptField } from "@/components/settings/PromptField";
 import { Row, RowError, Switch } from "@/components/settings/Row";
 import { Slider } from "@/components/settings/Slider";
 import { VramGauge } from "@/components/settings/VramGauge";
+import { useCloudStatus } from "@/hooks/useCloudStatus";
 import { useFocusRescue } from "@/hooks/useFocusRescue";
 import { machineMemoryKey } from "@/hooks/useMachineMemory";
 import { useModels } from "@/hooks/useModels";
@@ -82,6 +86,7 @@ type Field =
   | "preloadModel"
   | "unloadOnQuit"
   | "showUncensored"
+  | "cloudModels"
   | "systemPrompt";
 
 /** Longueur maximale du pré-prompt (`MAX_SYSTEM_PROMPT_CHARS` du moteur). */
@@ -110,6 +115,11 @@ export function Models({
   // Context length).
   const [pendingKeepAlive, setPendingKeepAlive] = useState<number | null>(null);
   const pendingSaves = useRef(0);
+  // Cloud coupé sur le serveur : lu seulement une fois les modèles cloud
+  // activés.
+  const { cloudDisabled } = useCloudStatus({
+    enabled: settings?.cloudModels ?? false,
+  });
   const ids = {
     keepAlive: useId(),
     keepAliveDescription: useId(),
@@ -119,6 +129,8 @@ export function Models({
     unloadOnQuitDescription: useId(),
     uncensored: useId(),
     uncensoredDescription: useId(),
+    cloud: useId(),
+    cloudDescription: useId(),
     systemPrompt: useId(),
     systemPromptDescription: useId(),
     systemPromptTitle: useId(),
@@ -247,6 +259,32 @@ export function Models({
               describedBy={ids.uncensoredDescription}
               onChange={(showUncensored) =>
                 void save("showUncensored", { showUncensored })
+              }
+            />
+          </div>
+
+          <div className="flex items-start justify-between gap-4">
+            <Row
+              icon={CloudIcon}
+              label={
+                <span id={ids.cloud}>{t("settings.models.cloud.label")}</span>
+              }
+              description={t("settings.models.cloud.description")}
+              descriptionId={ids.cloudDescription}
+            >
+              {settings.cloudModels && cloudDisabled && (
+                <p className={`mt-1 ${MUTED}`}>
+                  {t("settings.models.cloud.serverOff")}
+                </p>
+              )}
+              <RowError message={errors.cloudModels} />
+            </Row>
+            <Switch
+              label={t("settings.models.cloud.label")}
+              checked={settings.cloudModels}
+              describedBy={ids.cloudDescription}
+              onChange={(cloudModels) =>
+                void save("cloudModels", { cloudModels })
               }
             />
           </div>

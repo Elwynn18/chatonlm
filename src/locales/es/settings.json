@@ -258,6 +258,11 @@
       "label": "Mostrar modelos sin censura",
       "description": "Añade al ModelHub una sección «Sin censura»: versiones comunitarias de modelos oficiales que ya no se niegan a responder. Pueden escribir contenido ofensivo o peligroso, y ChatonLM no los revisa."
     },
+    "cloud": {
+      "label": "Usar modelos en la nube",
+      "description": "Añade los modelos en la nube de Ollama al selector de modelos. Se ejecutan en ollama.com, no en este equipo: los mensajes que les envíes salen de este equipo. Requieren una cuenta de Ollama (pestaña Cuenta) y se descuentan de su plan.",
+      "serverOff": "Este servidor de Ollama tiene la nube desactivada: los modelos en la nube siguen ocultos."
+    },
     "systemPrompt": {
       "title": "Instrucciones",
       "label": "Prompt del sistema",

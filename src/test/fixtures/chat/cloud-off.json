@@ -1,0 +1,36 @@
+{
+  "description": "Cloud model while cloud models are turned off in the settings: the send stops with a cloudOff error, nothing reaches Ollama's cloud.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "Say hello in one word.",
+    "model": "kimi-k2.6:cloud"
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "Say hello in one word.",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "kind": "cloudOff",
+      "message": "Cloud models are turned off: kimi-k2.6:cloud runs on ollama.com. Turn them on in Settings › Models to use it.",
+      "type": "error"
+    }
+  ],
+  "error": null
+}

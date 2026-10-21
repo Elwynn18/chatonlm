@@ -342,6 +342,7 @@ mod tests {
             url: url.into(),
             context_length,
             keep_alive,
+            cloud: false,
         }
     }
 

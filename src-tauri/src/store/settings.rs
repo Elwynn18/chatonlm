@@ -110,6 +110,11 @@ pub struct Settings {
     /// l'Ollama de la machine (`ollama::target::unload_url_at_exit`) ;
     /// activé par défaut. « Reset to defaults » n'y touche pas.
     pub unload_on_quit: bool,
+    /// Modèles cloud d'Ollama montrés dans le sélecteur et acceptés à l'envoi
+    /// (chat, mode vocal, Easy Link, correction, étude) ; coupé par défaut :
+    /// rien ne part alors sur ollama.com. « Reset to defaults » n'y touche
+    /// pas.
+    pub cloud_models: bool,
 }
 
 /// Mise à jour partielle : seuls les champs présents changent.
@@ -155,6 +160,8 @@ pub struct SettingsPatch {
     pub system_prompt: Option<String>,
     #[ts(optional)]
     pub unload_on_quit: Option<bool>,
+    #[ts(optional)]
+    pub cloud_models: Option<bool>,
 }
 
 /// `CHATONLM_ONBOARDING` : `show` remontre le premier démarrage au prochain
@@ -184,7 +191,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
                     web_search_enabled, keep_alive, preload_model, language,
                     proofread_model, proofread_shortcut, study_model, auto_read,
                     proofread_paste, onboarding_done, show_uncensored, system_prompt,
-                    unload_on_quit
+                    unload_on_quit, cloud_models
              FROM settings WHERE id = 1",
             [],
             |row| {
@@ -208,6 +215,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
                     row.get::<_, bool>(16)?,
                     row.get::<_, String>(17)?,
                     row.get::<_, bool>(18)?,
+                    row.get::<_, bool>(19)?,
                 ))
             },
         )
@@ -233,6 +241,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         show_uncensored,
         system_prompt,
         unload_on_quit,
+        cloud_models,
     ) = row;
     let language = LanguageChoice::parse(&language)
         .ok_or_else(|| AppError::Internal(format!("unknown language in database: {language}")))?;
@@ -258,6 +267,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         show_uncensored,
         system_prompt,
         unload_on_quit,
+        cloud_models,
     })
 }
 
@@ -421,6 +431,12 @@ pub fn update(
             params![enabled],
         )?;
     }
+    if let Some(enabled) = patch.cloud_models {
+        transaction.execute(
+            "UPDATE settings SET cloud_models = ?1 WHERE id = 1",
+            params![enabled],
+        )?;
+    }
     transaction.commit()?;
     get(connection, ollama_host)
 }
@@ -481,8 +497,42 @@ mod tests {
                 show_uncensored: false,
                 system_prompt: String::new(),
                 unload_on_quit: true,
+                cloud_models: false,
             }
         );
+    }
+
+    /// Modèles cloud : coupés par défaut, enregistrés, et « Reset to
+    /// defaults » (adresse, contexte, thème) n'y touche pas.
+    #[test]
+    fn cloud_models_are_off_until_turned_on() {
+        let store = store();
+        assert!(!store.blocking(|c| get(c, None)).unwrap().cloud_models);
+        let patch: SettingsPatch = serde_json::from_str(r#"{"cloudModels":true}"#).unwrap();
+        assert!(
+            store
+                .blocking(|c| update(c, patch, None))
+                .unwrap()
+                .cloud_models
+        );
+        let reset = SettingsPatch {
+            server_url: Some(String::new()),
+            context_length: Some(0),
+            theme: Some(Theme::System),
+            ..Default::default()
+        };
+        assert!(
+            store
+                .blocking(|c| update(c, reset, None))
+                .unwrap()
+                .cloud_models
+        );
+        let off = SettingsPatch {
+            cloud_models: Some(false),
+            ..Default::default()
+        };
+        store.blocking(|c| update(c, off, None)).unwrap();
+        assert!(!store.blocking(|c| get(c, None)).unwrap().cloud_models);
     }
 
     /// Déchargement des modèles en quittant : activé par défaut, enregistré,

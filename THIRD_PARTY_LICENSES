@@ -40,6 +40,9 @@ Files (ChatonLM path <- Ollama path : copied | adapted | translated to Rust):
   src/components/Chat.tsx <- app/ui/app/src/components/Chat.tsx : adapted
   src/components/ChatForm.tsx <- app/ui/app/src/components/ChatForm.tsx : adapted
   src/components/ChatSidebar.tsx <- app/ui/app/src/components/ChatSidebar.tsx : adapted
+  src/components/CloudErrorActions.tsx <- app/ui/app/src/components/DisplayLogin.tsx : adapted
+  src/components/CloudErrorActions.tsx <- app/ui/app/src/components/DisplayUpgrade.tsx : adapted
+  src/components/CloudErrorActions.tsx <- app/ui/app/src/components/Chat.tsx : adapted
   src/components/ComposerFiles.tsx <- app/ui/app/src/components/ChatForm.tsx : adapted
   src/components/CopyButton.tsx <- app/ui/app/src/components/CopyButton.tsx : adapted
   src/components/Downloading.tsx <- app/ui/app/src/components/Downloading.tsx : adapted
@@ -74,6 +77,7 @@ Files (ChatonLM path <- Ollama path : copied | adapted | translated to Rust):
   src/hooks/useRenameChat.ts <- app/ui/app/src/hooks/useRenameChat.ts : adapted
   src/lib/chatGroups.ts <- app/ui/app/src/components/ChatSidebar.tsx : adapted
   src/lib/clipboard.test.ts <- app/ui/app/src/utils/clipboard.test.ts : adapted
+  src/lib/cloud.ts <- app/ui/app/src/components/Chat.tsx : adapted
   src/lib/contextMenu.ts <- app/ui/app/index.html : adapted
   src/lib/highlighter.ts <- app/ui/app/src/lib/highlighter.ts : adapted
   src/lib/highlighterCore.ts <- app/ui/app/src/lib/highlighter.ts : adapted

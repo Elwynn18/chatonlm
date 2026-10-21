@@ -677,6 +677,7 @@ mod tests {
                         url,
                         context_length: 0,
                         keep_alive: 0,
+                        cloud: false,
                     },
                     model,
                     from_chat,

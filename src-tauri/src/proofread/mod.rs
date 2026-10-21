@@ -303,7 +303,10 @@ impl Job<'_> {
         } else if self.model.trim().is_empty() {
             Some((ProofreadErrorCode::NoModel, t!("proofread.noModel")))
         } else {
-            None
+            // Modèle cloud, réglage coupé : rien ne part.
+            self.server
+                .refuses(self.model, models::is_cloud_name(self.model))
+                .map(|message| (ProofreadErrorCode::Failed, message))
         };
         if let Some((code, message)) = refused {
             return self.fail(outcome, code, message);
@@ -336,6 +339,12 @@ impl Job<'_> {
             Err(_) => None,
         };
         let think_off = crate::dictation::polish::think_off(details.as_ref(), false);
+        // Modèle d'ollama.com sous un nom local : coupé, rien ne part.
+        let remote =
+            models::is_cloud_name(self.model) || details.as_ref().is_some_and(|d| d.remote);
+        if let Some(message) = self.server.refuses(self.model, remote) {
+            return self.fail(outcome, ProofreadErrorCode::Failed, message);
+        }
 
         for index in 0..outcome.parts.len() {
             let original = outcome.parts[index].text.clone();
@@ -344,7 +353,7 @@ impl Job<'_> {
             let asked = if code[index] {
                 Asked::Code
             } else {
-                self.ask(index, &original, think_off).await
+                self.ask(index, &original, think_off, remote).await
             };
             let result = match asked {
                 Asked::Code => PartResult {
@@ -402,7 +411,7 @@ impl Job<'_> {
 
     /// Requête d'un passage, lue jusqu'à `done` ; fragments visibles envoyés
     /// en `Delta`.
-    async fn ask(&self, index: usize, original: &str, think_off: bool) -> Asked {
+    async fn ask(&self, index: usize, original: &str, think_off: bool, remote: bool) -> Asked {
         let base = self.server.url.as_str();
         let mode = self.mode;
         let failed = |detail: &dyn std::fmt::Display| {
@@ -461,6 +470,9 @@ impl Job<'_> {
                 );
             }
             let status = status.as_u16();
+            if let Some(refusal) = models::CloudRefusal::of(status, remote) {
+                return failed(&refusal.message());
+            }
             return if message.trim().is_empty() {
                 failed(&t!("ollama.httpStatus", status = status))
             } else if from_ollama {

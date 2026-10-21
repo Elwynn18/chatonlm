@@ -21,4 +21,4 @@ studyModel?: string, autoRead?: boolean, onboardingDone?: boolean, showUncensore
 /**
  * Chaîne vide = aucun pré-prompt.
  */
-systemPrompt?: string, unloadOnQuit?: boolean, };
+systemPrompt?: string, unloadOnQuit?: boolean, cloudModels?: boolean, };

@@ -258,6 +258,11 @@
       "label": "Show uncensored models",
       "description": "Adds an “Uncensored” section to ModelHub: community versions of official models that no longer refuse to answer. They can write offensive or dangerous content, and ChatonLM doesn't check them."
     },
+    "cloud": {
+      "label": "Use cloud models",
+      "description": "Adds Ollama's cloud models to the model picker. They run on ollama.com, not on this computer: the messages you send them leave this computer. They need an Ollama account (Account tab) and count against its plan.",
+      "serverOff": "This Ollama server has its cloud turned off: cloud models stay hidden."
+    },
     "systemPrompt": {
       "title": "Instructions",
       "label": "System prompt",

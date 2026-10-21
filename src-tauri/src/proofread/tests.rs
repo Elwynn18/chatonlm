@@ -19,6 +19,7 @@ fn server(url: &str) -> Server {
         url: url.into(),
         context_length: 0,
         keep_alive: 0,
+        cloud: false,
     }
 }
 
@@ -792,4 +793,58 @@ async fn contract_proofread_with_a_small_model() {
     // qwen3 sait raisonner : `think: false` lui est envoyé.
     let details = models::show(TEST_INSTANCE, MODEL).await.unwrap();
     assert!(crate::dictation::polish::think_off(Some(&details), false));
+}
+
+/// Modèle cloud : réglage coupé, refusé d'emblée, rien n'est envoyé (ni
+/// détails, ni texte) ; activé sans compte, le 401 du serveur est dit comme
+/// un compte manquant.
+#[tokio::test]
+async fn a_cloud_model_proofreads_only_once_turned_on() {
+    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+    let cloud = |on| Server {
+        cloud: on,
+        ..server(&fake.url())
+    };
+    let events = Events::default();
+    let outcome = run(
+        &cloud(false),
+        "kimi-k2.6:cloud",
+        ProofreadMode::Correct,
+        TEXT,
+        &Cancel::default(),
+        &events.emit(),
+    )
+    .await;
+    let message = "Cloud models are turned off: kimi-k2.6:cloud runs on ollama.com. Turn them on in Settings › Models to use it.";
+    assert_eq!(
+        events.all(),
+        [ProofreadEvent::Error {
+            code: ProofreadErrorCode::Failed,
+            message: message.into(),
+        }]
+    );
+    assert_eq!(
+        outcome.error,
+        Some((ProofreadErrorCode::Failed, message.into()))
+    );
+    assert!(fake.chat_requests().is_empty());
+
+    let events = Events::default();
+    run(
+        &cloud(true),
+        "kimi-k2.6:cloud",
+        ProofreadMode::Correct,
+        TEXT,
+        &Cancel::default(),
+        &events.emit(),
+    )
+    .await;
+    let Some(ProofreadEvent::Error { message, .. }) = events.all().pop() else {
+        panic!("{:?}", events.all());
+    };
+    assert_eq!(
+        message,
+        "Proofreading failed: Cloud models require an Ollama account"
+    );
+    assert_eq!(fake.chat_requests().len(), 1);
 }

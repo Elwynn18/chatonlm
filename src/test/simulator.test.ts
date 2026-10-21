@@ -508,6 +508,9 @@ describe("recorded sequences", () => {
     expect(sequenceNames).toEqual([
       "attachments",
       "cancelled",
+      "cloud-limit",
+      "cloud-off",
+      "cloud-signed-out",
       "compacted-auto",
       "connection-lost",
       "context-full",

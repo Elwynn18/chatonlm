@@ -43,7 +43,11 @@
  * (straight to the image model), its refusal at once shown by the composer
  * (its notice, the text given back) instead of an error; an image created
  * by an Easy Link bot's reply still running in the chat shows as in
- * progress (MessageList.tsx).
+ * progress (MessageList.tsx); the errors of a cloud model are under the
+ * message, not in banners above the composer (CloudErrorActions.tsx): without
+ * an account, Sign In (the account card), then Retry once signed in; usage
+ * limit reached, Upgrade; cloud models turned off in the settings (ChatonLM's
+ * own setting), Open settings (Settings > Models).
  */
 
 import { useNavigate } from "@tanstack/react-router";
@@ -66,6 +70,7 @@ import { OllamaHomeLink } from "@/components/settings/OllamaHome";
 import { RuminationBanner } from "@/components/RuminationBanner";
 import { ServerLostBanner } from "@/components/ServerLostBanner";
 import { useAccount } from "@/hooks/useAccount";
+import { CloudErrorActions } from "@/components/CloudErrorActions";
 import { WebSearchErrorActions } from "@/components/WebSearchErrorActions";
 import { useChat } from "@/hooks/useChats";
 import { isHomeError } from "@/hooks/useOllamaHome";
@@ -82,6 +87,7 @@ import {
   useVoiceModeFor,
   voiceModeSnapshot,
 } from "@/hooks/useVoiceMode";
+import { isCloudError } from "@/lib/cloud";
 import { cancelMessage, voiceModeReplyFailed } from "@/lib/ipc";
 import { isRuminating } from "@/lib/rumination";
 import {
@@ -107,6 +113,14 @@ function useOpenAccountSettings() {
   const navigate = useNavigate();
   return useCallback(() => {
     void navigate({ to: "/settings", search: { section: "account" } });
+  }, [navigate]);
+}
+
+/** Ouvre l'onglet Models des réglages (réglage des modèles cloud). */
+function useOpenModelsSettings() {
+  const navigate = useNavigate();
+  return useCallback(() => {
+    void navigate({ to: "/settings", search: { section: "models" } });
   }, [navigate]);
 }
 
@@ -184,8 +198,9 @@ function NewChat() {
   const sendVoice = useSendVoice();
   const health = useServerHealth();
   const openAccountSettings = useOpenAccountSettings();
-  // Le moteur crée la conversation avant cette erreur : elle n'arrive ici
-  // que par accident, sans message à relancer (Sign In seul).
+  const openModelsSettings = useOpenModelsSettings();
+  // Le moteur crée la conversation avant ces erreurs : elles n'arrivent ici
+  // que par accident, sans message à relancer.
   const banner = (error || !health.healthy) && (
     <>
       {error && (
@@ -193,6 +208,13 @@ function NewChat() {
           <ErrorMessage message={error.message}>
             {isWebSearchSignedOut(error) && (
               <WebSearchErrorActions onSignIn={openAccountSettings} />
+            )}
+            {isCloudError(error.kind) && (
+              <CloudErrorActions
+                kind={error.kind}
+                onSignIn={openAccountSettings}
+                onOpenSettings={openModelsSettings}
+              />
             )}
           </ErrorMessage>
         </div>
@@ -324,10 +346,18 @@ function ChatView({ chatId }: { chatId: string }) {
     isStreaming,
   });
   const openAccountSettings = useOpenAccountSettings();
+  const openModelsSettings = useOpenModelsSettings();
   const signedOutError = isWebSearchSignedOut(error);
+  const cloudError = isCloudError(error?.kind) ? error?.kind : undefined;
   // Compte lu tant que l'erreur est là : relié entre-temps (réglages),
-  // Retry relance avec la recherche web.
-  const { isAuthenticated } = useAccount({ enabled: signedOutError });
+  // Retry relance avec la recherche web, ou vers le modèle cloud ; son
+  // forfait choisit la page « Upgrade ».
+  const { isAuthenticated, account } = useAccount({
+    enabled:
+      signedOutError ||
+      cloudError === "cloudSignedOut" ||
+      cloudError === "cloudLimit",
+  });
   // Dernier message enregistré de l'utilisateur : celui qu'on relance.
   const lastSent = messages.findLast((m) => m.role === "user" && m.id > 0);
   const errorActions = signedOutError ? (
@@ -339,6 +369,16 @@ function ChatView({ chatId }: { chatId: string }) {
           : undefined
       }
       signedIn={isAuthenticated}
+      retryDisabled={isStreaming || manualCompacting || !health.healthy}
+    />
+  ) : cloudError !== undefined ? (
+    <CloudErrorActions
+      kind={cloudError}
+      onSignIn={openAccountSettings}
+      onOpenSettings={openModelsSettings}
+      onRetry={lastSent ? () => formRef.current?.retry(lastSent) : undefined}
+      signedIn={isAuthenticated}
+      plan={account?.state === "signedIn" ? account.plan : undefined}
       retryDisabled={isStreaming || manualCompacting || !health.healthy}
     />
   ) : error?.kind === "contextFull" ? (

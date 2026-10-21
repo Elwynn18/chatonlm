@@ -1,0 +1,36 @@
+{
+  "description": "Cloud model whose plan's usage limit is reached (402 from the server): the send stops with a cloudLimit error, no answer is created.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "Say hello in one word.",
+    "model": "chatonlm-limit:cloud"
+  },
+  "events": [
+    {
+      "chatId": "chat-1",
+      "type": "chatCreated"
+    },
+    {
+      "message": {
+        "attachments": [],
+        "content": "Say hello in one word.",
+        "createdAt": 1700000000000,
+        "id": 1,
+        "model": null,
+        "role": "user",
+        "thinking": "",
+        "thinkingEndedAt": null,
+        "thinkingStartedAt": null,
+        "toolCalls": [],
+        "updatedAt": 1700000000000
+      },
+      "type": "userMessage"
+    },
+    {
+      "kind": "cloudLimit",
+      "message": "You've reached your usage limit, please upgrade to continue",
+      "type": "error"
+    }
+  ],
+  "error": null
+}

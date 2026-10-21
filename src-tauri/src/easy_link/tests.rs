@@ -604,6 +604,26 @@ async fn a_photo_goes_to_a_model_that_sees() {
     assert!(bench.service.shared().pending.lock().is_empty());
 }
 
+/// Modèle cloud choisi dans l'app, réglage coupé : le bot le dit, et rien
+/// ne part (ni détails, ni message), photo comprise.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cloud_model_is_refused_while_turned_off() {
+    let bench = bench("kimi-k2.6:cloud").await;
+    bench.telegram_linked().await;
+    bench.say("hello");
+    bench.wait_told("Cloud models are turned off").await;
+    wait_until("libre", || !bench.busy()).await;
+    bench.telegram.message(json!({
+        "user": ANA, "name": "Ana", "text": "what is this?", "image": true
+    }));
+    wait_until("photo refusée", || {
+        bench.told_count("Cloud models are turned off") == 2
+    })
+    .await;
+    assert!(bench.ollama.chat_requests().is_empty());
+    assert!(bench.ollama.show_requests().is_empty());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_photo_is_refused_by_a_model_that_cannot_see() {
     let bench = bench("chatonlm-search").await;

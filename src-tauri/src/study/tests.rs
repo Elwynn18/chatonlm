@@ -2485,3 +2485,57 @@ async fn questions_get_a_last_chance_with_multiple_choice() {
     assert!(course.levels[0].attempts[1].explanation.is_some());
     bench.idle().await;
 }
+
+/// Modèle cloud pour les cours : réglage coupé, refusé sans rien envoyer ;
+/// activé sans compte, le 401 du serveur est dit comme un compte manquant.
+#[tokio::test]
+async fn a_cloud_model_writes_courses_only_once_turned_on() {
+    let bench = Bench::new("kimi-k2.6:cloud").await;
+    let id = bench.create("Photosynthesis", 10).await;
+    let failed = |store: Store, id: String| async move {
+        let started = std::time::Instant::now();
+        loop {
+            let snapshot = db_load(&store, &id).await;
+            if snapshot.row.status == CourseStatus::Failed {
+                return snapshot.row.error.unwrap();
+            }
+            assert!(started.elapsed() < WAIT);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    let error = failed(bench.store.clone(), id.clone()).await;
+    assert_eq!(
+        error,
+        StudyError {
+            code: StudyErrorCode::Failed,
+            message: "Cloud models are turned off: kimi-k2.6:cloud runs on ollama.com. Turn them on in Settings › Models to use it.".into(),
+        }
+    );
+    assert!(bench.fake.chat_requests().is_empty());
+    assert!(bench.fake.show_requests().is_empty());
+    bench.idle().await;
+    let on = SettingsPatch {
+        cloud_models: Some(true),
+        ..Default::default()
+    };
+    bench
+        .store
+        .blocking(|c| settings::update(c, on, None).map(drop))
+        .unwrap();
+    bench.engine.retry(&bench.ctx, &id, false).await.unwrap();
+    let started = std::time::Instant::now();
+    let error = loop {
+        let snapshot = db_load(&bench.store, &id).await;
+        if snapshot.row.status == CourseStatus::Failed
+            && let Some(error) = snapshot.row.error
+            && error.message.contains("account")
+        {
+            break error;
+        }
+        assert!(started.elapsed() < WAIT);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    assert_eq!(error.code, StudyErrorCode::Failed);
+    assert_eq!(error.message, "Cloud models require an Ollama account");
+    assert!(!bench.fake.chat_requests().is_empty());
+}

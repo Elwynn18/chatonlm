@@ -235,6 +235,7 @@ mod tests {
             url: "http://x".into(),
             context_length,
             keep_alive,
+            cloud: false,
         }
     }
 

@@ -39,6 +39,7 @@ import type { ProofreadMode } from "@/bindings/ProofreadMode";
 import type { MoveEvent } from "@/bindings/MoveEvent";
 import type { Lang } from "@/bindings/Lang";
 import type { MoveOutcome } from "@/bindings/MoveOutcome";
+import type { RecommendedModel } from "@/bindings/RecommendedModel";
 import type { RunningModel } from "@/bindings/RunningModel";
 import type { SelectionResult } from "@/bindings/SelectionResult";
 import type { SendRequest } from "@/bindings/SendRequest";
@@ -331,11 +332,12 @@ export function modelDetails(model: string): Promise<ModelDetails> {
 
 /**
  * Modèles recommandés par le serveur Ollama
- * (/api/experimental/model-recommendations), sans les modèles cloud ni le
- * suffixe `:latest` ; liste vide si le serveur n'en propose pas.
+ * (/api/experimental/model-recommendations), modèles cloud compris (avec le
+ * forfait exigé), sans le suffixe `:latest` ; liste vide si le serveur n'en
+ * propose pas.
  */
-export function recommendedModels(): Promise<string[]> {
-  return invoke<string[]>("recommended_models");
+export function recommendedModels(): Promise<RecommendedModel[]> {
+  return invoke<RecommendedModel[]>("recommended_models");
 }
 
 /**

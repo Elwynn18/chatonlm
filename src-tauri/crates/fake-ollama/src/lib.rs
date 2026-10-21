@@ -28,8 +28,9 @@
 //! le vrai serveur quand ollama.com ne répond pas), `/api/signout`,
 //! `/api/status` (cloud coupé par `POST /fake/cloud`),
 //! `/api/experimental/web_search` et `web_fetch` (voir [`web_search`] et
-//! [`web_fetch`]), avatar (`GET /fake/avatar.png`) ; aucun test ne touche le
-//! vrai réseau.
+//! [`web_fetch`]), avatar (`GET /fake/avatar.png`), et les modèles cloud
+//! (nom qui finit par « cloud », voir [`cloud_chat`]) ; aucun test ne touche
+//! le vrai réseau.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::SocketAddr;
@@ -119,6 +120,8 @@ pub struct FakeOllama {
 #[derive(Default)]
 pub struct Journal {
     chats: Mutex<Vec<serde_json::Value>>,
+    /// Modèles demandés à `/api/show`, dans l'ordre.
+    shows: Mutex<Vec<String>>,
     pulls: Mutex<Vec<serde_json::Value>>,
     manifests: Mutex<Vec<String>>,
     deletes: Mutex<Vec<String>>,
@@ -317,6 +320,11 @@ impl FakeOllama {
     /// Corps des requêtes `/api/chat` reçues, dans l'ordre.
     pub fn chat_requests(&self) -> Vec<serde_json::Value> {
         self.journal.chats.lock().unwrap().clone()
+    }
+
+    /// Modèles demandés à `/api/show`, dans l'ordre.
+    pub fn show_requests(&self) -> Vec<String> {
+        self.journal.shows.lock().unwrap().clone()
     }
 
     /// Corps des requêtes `/api/pull` reçues, dans l'ordre.
@@ -537,7 +545,9 @@ const VOICE_SCENARIOS: &[&str] = &["chatonlm-voice", "chatonlm-voice-long"];
 /// pour tout autre nom.
 async fn show(State(journal): State<Arc<Journal>>, body: String) -> Response {
     let request: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
-    let (status, body) = shown(&journal, request["model"].as_str().unwrap_or_default());
+    let model = request["model"].as_str().unwrap_or_default();
+    journal.shows.lock().unwrap().push(model.to_owned());
+    let (status, body) = shown(&journal, model);
     json(status, body)
 }
 
@@ -548,6 +558,13 @@ fn shown(journal: &Journal, model: &str) -> (StatusCode, String) {
     }
     if let Some(pulled) = journal.pulled(model) {
         return (StatusCode::OK, synthetic_show(pulled.capabilities, None));
+    }
+    // Modèle cloud : connu sans téléchargement, comme Ollama 0.40.
+    if model.ends_with("cloud") {
+        return (
+            StatusCode::OK,
+            synthetic_show(&["completion", "tools"], None),
+        );
     }
     match model {
         "qwen3:0.6b" => (StatusCode::OK, fixtures::SHOW_QWEN3.into()),
@@ -870,6 +887,9 @@ async fn chat(State(journal): State<Arc<Journal>>, body: String) -> Response {
     if model == "chatonlm-loadfail" {
         return load_failure();
     }
+    if model.ends_with("cloud") {
+        return cloud_chat(journal, model);
+    }
     if loadable(&journal, model) {
         let load = load_request(&journal, model, &request);
         if let Some(delay) = load_delay(model).filter(|_| load.needed) {
@@ -996,6 +1016,38 @@ async fn chat(State(journal): State<Arc<Journal>>, body: String) -> Response {
         model if journal.is_pulled(model) => ndjson(journal, answer(), quick, End::Close),
         _ => recorded_error(fixtures::CHAT_MISSING),
     }
+}
+
+/// `/api/chat` d'un modèle cloud (nom qui finit par « cloud »), comme Ollama
+/// 0.40 : rien n'est chargé ; cloud coupé → 403 ; compte délié → 401
+/// `{"error":"Unauthorized"}` (réponse relevée sur l'instance de test) ;
+/// nom qui contient « limit » (`chatonlm-limit:cloud`) → 402, limite d'usage
+/// du forfait atteinte ; sinon la réponse habituelle.
+fn cloud_chat(journal: Arc<Journal>, model: &str) -> Response {
+    if journal.cloud_disabled.load(Ordering::SeqCst) {
+        return json(
+            StatusCode::FORBIDDEN,
+            r#"{"error":"ollama cloud is disabled"}"#.into(),
+        );
+    }
+    if !journal.signed_in.load(Ordering::SeqCst) {
+        return json(
+            StatusCode::UNAUTHORIZED,
+            r#"{"error":"Unauthorized"}"#.into(),
+        );
+    }
+    if model.contains("limit") {
+        return json(
+            StatusCode::PAYMENT_REQUIRED,
+            r#"{"error":"you have reached your usage limit"}"#.into(),
+        );
+    }
+    ndjson(
+        journal,
+        lines(fixtures::CHAT_NO_THINK),
+        Duration::ZERO,
+        End::Close,
+    )
 }
 
 /// Mémoire occupée par un modèle chargé (`/api/ps`, `size`) : 1 Gio.
@@ -2694,15 +2746,23 @@ fn tags(journal: &Journal, installed: bool) -> String {
 
 /// `GET /api/experimental/model-recommendations` : liste par défaut d'Ollama
 /// (`server/model_recommendations.go`, `defaultModelRecommendations`), au
-/// format `api.ModelRecommendationsResponse`.
+/// format `api.ModelRecommendationsResponse`, avec le forfait exigé des
+/// modèles cloud (`required_plan`, servi par Ollama 0.40 : « free » ou
+/// « pro »).
 fn recommendations() -> String {
     const GB: u64 = 1_000_000_000;
     let cloud = |model: &str, description: &str, context: u64, output: u64| {
+        let plan = if model == "qwen3.5:cloud" {
+            "free"
+        } else {
+            "pro"
+        };
         serde_json::json!({
             "model": model,
             "description": description,
             "context_length": context,
             "max_output_tokens": output,
+            "required_plan": plan,
         })
     };
     let local = |model: &str, description: &str, vram: u64| serde_json::json!({ "model": model, "description": description, "vram_bytes": vram });
@@ -3575,6 +3635,24 @@ mod tests {
                 "minimax-m2.7:cloud",
                 "gemma4",
                 "qwen3.5"
+            ]
+        );
+        // Forfait exigé des modèles cloud, comme Ollama 0.40.
+        let plans: Vec<_> = body["recommendations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["required_plan"].as_str())
+            .collect();
+        assert_eq!(
+            plans,
+            [
+                Some("pro"),
+                Some("pro"),
+                Some("free"),
+                Some("pro"),
+                None,
+                None
             ]
         );
         let gemma = &body["recommendations"][4];

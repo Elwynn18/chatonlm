@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "@/bindings/Message";
 import type { ModelInfo } from "@/bindings/ModelInfo";
+import type { RecommendedModel } from "@/bindings/RecommendedModel";
 import {
   chatModel,
   defaultModel,
+  paidPlan,
   pickerEntries,
+  recommendedNames,
   selectedEntry,
   upstreamCandidate,
 } from "./models";
@@ -198,5 +201,49 @@ describe("names without case (Ollama resolves them so)", () => {
     expect(
       pickerEntries([], other, "", ["gemma4"]).map((e) => e.model),
     ).toEqual(["gemma4"]);
+  });
+});
+
+describe("cloud models", () => {
+  const RECOMMENDED: RecommendedModel[] = [
+    { model: "kimi-k2.6:cloud", requiredPlan: "pro" },
+    { model: "gpt-oss:120b-cloud", requiredPlan: "max" },
+    { model: "qwen3.5:cloud", requiredPlan: "free" },
+    { model: "glm-5.3:cloud", requiredPlan: null },
+    { model: "gemma4", requiredPlan: "pro" },
+  ];
+
+  it("are recommended only once allowed", () => {
+    expect(recommendedNames(RECOMMENDED, false)).toEqual(["gemma4"]);
+    expect(recommendedNames(RECOMMENDED, true)).toEqual([
+      "kimi-k2.6:cloud",
+      "gpt-oss:120b-cloud",
+      "qwen3.5:cloud",
+      "glm-5.3:cloud",
+      "gemma4",
+    ]);
+  });
+
+  it("show the paid plan they need, never for a local model", () => {
+    expect(paidPlan(RECOMMENDED, "kimi-k2.6:cloud")).toBe("pro");
+    expect(paidPlan(RECOMMENDED, "KIMI-K2.6:cloud")).toBe("pro");
+    expect(paidPlan(RECOMMENDED, "gpt-oss:120b-cloud")).toBe("max");
+    expect(paidPlan(RECOMMENDED, "qwen3.5:cloud")).toBeNull();
+    expect(paidPlan(RECOMMENDED, "glm-5.3:cloud")).toBeNull();
+    expect(paidPlan(RECOMMENDED, "unknown:cloud")).toBeNull();
+    expect(paidPlan(RECOMMENDED, "gemma4")).toBeNull();
+  });
+
+  it("are never the default model while not allowed", () => {
+    const models = [info("mine:my-cloud"), info("qwen3:0.6b")];
+    expect(defaultModel(models)).toBe("mine:my-cloud");
+    expect(defaultModel(models, false)).toBe("qwen3:0.6b");
+    expect(defaultModel([info("mine:my-cloud")], false)).toBeNull();
+  });
+
+  it("are not looked up in the registry while not allowed", () => {
+    expect(upstreamCandidate([], " kimi-k3:cloud ", false)).toBeNull();
+    expect(upstreamCandidate([], " kimi-k3:cloud ")).toBe("kimi-k3:cloud");
+    expect(upstreamCandidate([], "llama3.2", false)).toBe("llama3.2");
   });
 });

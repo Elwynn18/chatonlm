@@ -151,7 +151,14 @@ export function polishModelNote(
  * proposé pour le nettoyage, le texte dicté quitterait la machine.
  */
 export function isCloudModel(model: string): boolean {
-  return model.trim().toLowerCase().endsWith("cloud");
+  // Comme le serveur (et `is_cloud_name` du moteur) : l'étiquette après le
+  // dernier « : » (hors hôte) vaut « cloud » ou finit par « -cloud ».
+  const colon = model.lastIndexOf(":");
+  if (colon < 0) return false;
+  const tag = model.slice(colon + 1);
+  if (tag.includes("/")) return false;
+  const lower = tag.trim().toLowerCase();
+  return lower === "cloud" || lower.endsWith("-cloud");
 }
 
 /**

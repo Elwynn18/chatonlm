@@ -125,9 +125,13 @@ describe("model commands", () => {
     const calls: [string, unknown][] = [];
     mockIPC((command, args) => {
       calls.push([command, args]);
-      return command === "recommended_models" ? ["gemma4"] : true;
+      return command === "recommended_models"
+        ? [{ model: "gemma4", requiredPlan: null }]
+        : true;
     });
-    await expect(recommendedModels()).resolves.toEqual(["gemma4"]);
+    await expect(recommendedModels()).resolves.toEqual([
+      { model: "gemma4", requiredPlan: null },
+    ]);
     await expect(modelExistsUpstream("llama3.2")).resolves.toBe(true);
     expect(calls).toEqual([
       ["recommended_models", {}],

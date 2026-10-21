@@ -260,6 +260,11 @@
   "models": {
     "cloudNotLoaded": "{model} tourne sur ollama.com : les modèles cloud ne sont pas chargés sur cet ordinateur"
   },
+  "cloud": {
+    "signedOut": "Les modèles cloud nécessitent un compte Ollama",
+    "usageLimit": "Vous avez atteint votre limite d'usage : passez à un forfait supérieur pour continuer",
+    "off": "Les modèles cloud sont désactivés : {model} tourne sur ollama.com. Activez-les dans Paramètres › Modèles pour l'utiliser."
+  },
   "server": {
     "address": {
       "invalid": "adresse du serveur invalide : {detail}",

@@ -260,6 +260,11 @@
   "models": {
     "cloudNotLoaded": "{model} se ejecuta en ollama.com: los modelos en la nube no se cargan en este equipo"
   },
+  "cloud": {
+    "signedOut": "Los modelos en la nube requieren una cuenta de Ollama",
+    "usageLimit": "Has alcanzado tu límite de uso; mejora tu plan para continuar",
+    "off": "Los modelos en la nube están desactivados: {model} se ejecuta en ollama.com. Actívalos en Configuración › Modelos para usarlo."
+  },
   "server": {
     "address": {
       "invalid": "dirección del servidor no válida: {detail}",

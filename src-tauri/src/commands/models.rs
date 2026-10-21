@@ -3,7 +3,7 @@ use tauri::State;
 use crate::chat::stream::Think;
 use crate::error::{AppError, AppResult};
 use crate::i18n::t;
-use crate::ollama::models::{self, ModelDetails, ModelInfo};
+use crate::ollama::models::{self, ModelDetails, ModelInfo, RecommendedModel};
 use crate::ollama::outdated;
 use crate::ollama::registry;
 use crate::ollama::running::{self, RunningModel};
@@ -22,9 +22,10 @@ pub async fn model_details(store: State<'_, Store>, model: String) -> AppResult<
     details(&store, &model).await
 }
 
-/// Modèles recommandés par le serveur, hors cloud, sans `:latest`.
+/// Modèles recommandés par le serveur, cloud compris (avec le forfait
+/// exigé), sans `:latest`.
 #[tauri::command]
-pub async fn recommended_models(store: State<'_, Store>) -> AppResult<Vec<String>> {
+pub async fn recommended_models(store: State<'_, Store>) -> AppResult<Vec<RecommendedModel>> {
     recommended(&store).await
 }
 
@@ -111,7 +112,7 @@ async fn details(store: &Store, model: &str) -> AppResult<ModelDetails> {
     Ok(details)
 }
 
-async fn recommended(store: &Store) -> AppResult<Vec<String>> {
+async fn recommended(store: &Store) -> AppResult<Vec<RecommendedModel>> {
     models::recommended(&server_url(store).await?).await
 }
 
@@ -248,6 +249,8 @@ mod tests {
     async fn recommendations_are_asked_to_the_configured_server() {
         let server = FakeOllama::start(Mode::no_models()).await.unwrap();
         let store = configured(server.url());
-        assert_eq!(recommended(&store).await.unwrap(), ["gemma4", "qwen3.5"]);
+        let models = recommended(&store).await.unwrap();
+        let names: Vec<_> = models.iter().map(|m| m.model.as_str()).collect();
+        assert_eq!(names[4..], ["gemma4", "qwen3.5"]);
     }
 }

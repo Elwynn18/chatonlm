@@ -275,6 +275,7 @@ pub(super) async fn summarize(
     images: bool,
     size: Option<i64>,
     scale: f64,
+    remote: bool,
     cancel: &mut watch::Receiver<bool>,
 ) -> Result<(String, usize), Outcome> {
     let count = covered(sendable, size, scale);
@@ -300,7 +301,7 @@ pub(super) async fn summarize(
             with_system_message(&mut body, &summary_message(summary));
         }
         body["options"]["num_predict"] = json!(summary_budget(size));
-        match open(&server.url, &body, cancel).await {
+        match open(&server.url, &body, remote, cancel).await {
             Opened::Stream(response) => {
                 return read_summary(response, cancel)
                     .await

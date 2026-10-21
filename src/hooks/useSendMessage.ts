@@ -174,7 +174,10 @@ export function useSendMessage() {
               void queryClient.invalidateQueries({ queryKey: healthKey });
             // Le serveur n'a pas (ou plus) de compte : la carte des réglages,
             // où mène l'erreur, ne doit pas montrer un compte périmé.
-            if (event.kind === "webSearchSignedOut")
+            if (
+              event.kind === "webSearchSignedOut" ||
+              event.kind === "cloudSignedOut"
+            )
               void queryClient.invalidateQueries({ queryKey: accountKey });
             finalEvent();
             break;
