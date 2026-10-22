@@ -10,7 +10,9 @@
  * notice shown at the top of the content area when a link can't be opened
  * (main is positioned for it); texts translated into English, Spanish and
  * French (src/i18n); the open state of the sidebar is kept in src/lib/sidebar.ts
- * (same behaviour), so that the first-launch tour can open it.
+ * (same behaviour), so that the first-launch tour can open it; buttons
+ * of the page at the top right of the content area (`actions`: ChatonLM's own
+ * ephemeral chat button).
  */
 
 import { PencilSquareIcon } from "@heroicons/react/24/outline";
@@ -24,10 +26,13 @@ import { setSidebarOpen, useSidebarOpen } from "@/lib/sidebar";
 export function SidebarLayout({
   sidebar,
   title,
+  actions,
   children,
 }: PropsWithChildren<{
   sidebar: ReactNode;
   title?: string;
+  /** Boutons en haut à droite de la zone de contenu. */
+  actions?: ReactNode;
 }>) {
   const t = useT();
   const sidebarOpen = useSidebarOpen();
@@ -86,6 +91,11 @@ export function SidebarLayout({
             </h1>
           )}
         </div>
+        {actions && (
+          <div className="absolute top-0 right-2 z-20 mx-2 flex items-center py-2">
+            {actions}
+          </div>
+        )}
         {children}
         {/* Seul affichage des échecs d'ouverture de lien (ExternalLink) : en
             haut de la zone de contenu, centré sur elle comme les messages,

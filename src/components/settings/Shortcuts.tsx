@@ -71,6 +71,7 @@ const GROUP_LABELS: Record<ShortcutGroup, TKey> = {
 
 const ACTION_LABELS: Record<ShortcutId, TKey> = {
   newChat: "settings.shortcuts.app.actions.newChat",
+  newEphemeralChat: "settings.shortcuts.app.actions.newEphemeralChat",
   settings: "settings.shortcuts.app.actions.settings",
   quit: "settings.shortcuts.app.actions.quit",
   zoomIn: "settings.shortcuts.app.actions.zoomIn",

@@ -211,6 +211,11 @@ pub struct SendRequest {
     /// modèle d'images, sans modèle de langage ; absent = non.
     #[ts(optional)]
     pub image: Option<bool>,
+    /// Nouvelle conversation éphémère (propre à ChatonLM) : absente de
+    /// l'historique, effacée quand on la quitte ; seulement sans `chatId`,
+    /// ignoré sinon ; absent = non.
+    #[ts(optional)]
+    pub ephemeral: Option<bool>,
 }
 
 /// Envoi d'une phrase du mode conversation vocale.
@@ -710,7 +715,10 @@ pub async fn send_to(
     let chat_id = match request.chat_id {
         Some(id) => id,
         None => {
-            let id = store.call(|c| chats::create(c, now_ms())).await?;
+            let ephemeral = request.ephemeral == Some(true);
+            let id = store
+                .call(move |c| chats::create_with(c, now_ms(), ephemeral))
+                .await?;
             let _ = observed.set(id.clone());
             emit(ChatEvent::ChatCreated {
                 chat_id: id.clone(),
@@ -2319,6 +2327,7 @@ mod tests {
             context: None,
             compactions: Vec::new(),
             reply_running: None,
+            ephemeral: false,
         };
         let live = Reply {
             content: "new".into(),
@@ -2361,6 +2370,7 @@ mod tests {
             context: None,
             compactions: Vec::new(),
             reply_running: None,
+            ephemeral: false,
         };
         let live = Reply {
             content: "Hi".into(),
@@ -2531,6 +2541,7 @@ mod tests {
             web_search: None,
             voice: None,
             image: None,
+            ephemeral: None,
         }
     }
 
@@ -2888,6 +2899,80 @@ mod tests {
         assert_one_final(&events);
         assert!(events.iter().any(|event| event["type"] == "thinking"));
         assert!(always("chatonlm-stubborn"));
+    }
+
+    /// Envoi éphémère : la conversation créée l'est, hors de l'historique ;
+    /// la demande est ignorée pour une conversation existante (une
+    /// conversation ordinaire ne devient jamais éphémère).
+    #[tokio::test]
+    async fn an_ephemeral_send_creates_an_ephemeral_chat_only() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let (store, engine) = (Store::open_in_memory().unwrap(), ChatEngine::default());
+        let ephemeral = |chat_id: Option<&str>| SendRequest {
+            ephemeral: Some(true),
+            ..request(chat_id, "qwen3:0.6b", None)
+        };
+        let (channel, created) = recorder();
+        send(
+            &store,
+            &engine,
+            &Staging::default(),
+            server(&fake),
+            ephemeral(None),
+            &channel,
+        )
+        .await
+        .unwrap();
+        assert_one_final(&created.events());
+        let id = created.chat_id();
+        let chat = id.clone();
+        assert!(
+            store
+                .blocking(move |c| chats::is_ephemeral(c, &chat))
+                .unwrap()
+        );
+        assert!(store.blocking(|c| chats::list(c)).unwrap().is_empty());
+
+        let (channel, plain) = recorder();
+        send(
+            &store,
+            &engine,
+            &Staging::default(),
+            server(&fake),
+            request(None, "qwen3:0.6b", None),
+            &channel,
+        )
+        .await
+        .unwrap();
+        let ordinary = plain.chat_id();
+        let (channel, again) = recorder();
+        send(
+            &store,
+            &engine,
+            &Staging::default(),
+            server(&fake),
+            SendRequest {
+                stream_id: "again".into(),
+                ..ephemeral(Some(&ordinary))
+            },
+            &channel,
+        )
+        .await
+        .unwrap();
+        assert_one_final(&again.events());
+        let chat = ordinary.clone();
+        assert!(
+            !store
+                .blocking(move |c| chats::is_ephemeral(c, &chat))
+                .unwrap()
+        );
+        let listed: Vec<String> = store
+            .blocking(|c| chats::list(c))
+            .unwrap()
+            .into_iter()
+            .map(|chat| chat.id)
+            .collect();
+        assert_eq!(listed, vec![ordinary]);
     }
 
     #[tokio::test]
@@ -6843,6 +6928,8 @@ mod tests {
         web_search: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         image: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ephemeral: Option<bool>,
     }
 
     #[derive(Serialize)]
@@ -6924,6 +7011,7 @@ mod tests {
                 kept_attachment_ids: request.kept_attachment_ids.clone(),
                 web_search: request.web_search,
                 image: request.image,
+                ephemeral: request.ephemeral,
             },
             events,
             error,
@@ -7044,6 +7132,7 @@ mod tests {
             web_search: None,
             voice: None,
             image: None,
+            ephemeral: None,
         };
         let hello = "Say hello in one word.";
         // Fichiers préparés avant l'envoi, désignés par leur nom dans
@@ -7093,6 +7182,27 @@ mod tests {
                 "New chat with a thinking model (think left to the model's default), not loaded yet: loading (instant), thinking, then the answer.",
                 Target::Ollama,
                 ask(hello, "qwen3:0.6b", None),
+                None,
+                &[
+                    "chatCreated",
+                    "userMessage",
+                    "loading",
+                    "loaded",
+                    "replyStarted",
+                    "thinking",
+                    "content",
+                    "context",
+                    "done",
+                ][..],
+            ),
+            (
+                "new-chat-ephemeral",
+                "New ephemeral chat (ChatonLM's own): created outside the history, then the same answer as a new chat.",
+                Target::Ollama,
+                SendRequest {
+                    ephemeral: Some(true),
+                    ..ask(hello, "qwen3:0.6b", None)
+                },
                 None,
                 &[
                     "chatCreated",

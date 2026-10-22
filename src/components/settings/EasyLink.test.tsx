@@ -52,6 +52,8 @@ const COMMANDS = [
   "/unload",
   "/status",
   "/web on|off",
+  "/ephemeral on|off",
+  "/keep",
   "/help",
 ];
 
@@ -811,6 +813,8 @@ describe("Easy Link: the commands of the bot", () => {
       "/unload",
       "/status",
       "/web on|off",
+      "/ephemeral on|off",
+      "/keep",
       "/help",
     ]);
     expect(
@@ -824,6 +828,8 @@ describe("Easy Link: the commands of the bot", () => {
       "Unload the model from memory",
       "Show the status",
       "Turn web search on or off",
+      "Ephemeral mode: chats kept out of the history, erased by /new, /ephemeral off or when ChatonLM quits",
+      "Keep the current ephemeral chat in the history",
       "Show this list",
     ]);
     expect(page.textContent).toContain(

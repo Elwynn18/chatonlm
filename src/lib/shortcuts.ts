@@ -84,17 +84,36 @@ export function isSettingsShortcut(event: KeyboardEvent): boolean {
 
 /**
  * Ctrl+N : nouvelle conversation (l'officiel le fait sous Windows ; le menu
- * natif s'en charge sous macOS). Ctrl seul ; « N » accepté sans Maj
- * (verrouillage des majuscules).
+ * natif s'en charge sous macOS). Ctrl seul ; « N » accepté (verrouillage des
+ * majuscules) ; avec Maj, c'est Ctrl+Maj+N (conversation éphémère), même si
+ * le verrouillage donne « n ».
  */
 export function isNewChatShortcut(event: KeyboardEvent): boolean {
   return (
     event.ctrlKey &&
+    !event.shiftKey &&
     !event.altKey &&
     !event.metaKey &&
     !event.repeat &&
     !event.isComposing &&
-    (event.key === "n" || (event.key === "N" && !event.shiftKey))
+    (event.key === "n" || event.key === "N")
+  );
+}
+
+/**
+ * Ctrl+Maj+N : nouvelle conversation éphémère (propre à ChatonLM, comme la
+ * fenêtre privée d'un navigateur). « N » ou « n » (verrouillage des
+ * majuscules).
+ */
+export function isNewEphemeralChatShortcut(event: KeyboardEvent): boolean {
+  return (
+    event.ctrlKey &&
+    event.shiftKey &&
+    !event.altKey &&
+    !event.metaKey &&
+    !event.repeat &&
+    !event.isComposing &&
+    (event.key === "N" || event.key === "n")
   );
 }
 
@@ -331,6 +350,7 @@ export const NAMED_KEYS = ["ctrl", "shift", "enter", "esc", "space"] as const;
 
 export type ShortcutId =
   | "newChat"
+  | "newEphemeralChat"
   | "settings"
   | "quit"
   | "zoomIn"
@@ -382,6 +402,13 @@ export const SHORTCUTS: readonly Shortcut[] = [
     keys: [["ctrl", "N"]],
     aria: "Control+N",
     matches: isNewChatShortcut,
+  },
+  {
+    id: "newEphemeralChat",
+    group: "general",
+    keys: [["ctrl", "shift", "N"]],
+    aria: "Control+Shift+N",
+    matches: isNewEphemeralChatShortcut,
   },
   {
     id: "settings",

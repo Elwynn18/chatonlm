@@ -47,4 +47,10 @@ voice?: VoiceSend,
  * Bouton « Image » (propre à ChatonLM) : le texte part tel quel au
  * modèle d'images, sans modèle de langage ; absent = non.
  */
-image?: boolean, };
+image?: boolean, 
+/**
+ * Nouvelle conversation éphémère (propre à ChatonLM) : absente de
+ * l'historique, effacée quand on la quitte ; seulement sans `chatId`,
+ * ignoré sinon ; absent = non.
+ */
+ephemeral?: boolean, };

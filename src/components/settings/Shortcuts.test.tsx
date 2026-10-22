@@ -61,6 +61,7 @@ describe("Keyboard shortcuts tab", () => {
     ).toEqual(["General", "Chat", "Voice mode", "Proofread", "ModelHub"]);
     expect(group("general")).toEqual([
       ["New chat", "Ctrl+N"],
+      ["New ephemeral chat", "Ctrl+Shift+N"],
       ["Settings", "Ctrl+,"],
       ["Quit", "Ctrl+Q"],
       ["Zoom in", "Ctrl++"],

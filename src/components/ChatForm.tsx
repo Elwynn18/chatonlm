@@ -78,7 +78,9 @@
  * the line breaks and spaces ending a message are removed when it is sent
  * (sentText), in both modes; ChatonLM's own snail (SlowModelSnail.tsx) after
  * the model picker while the chosen model runs partly on the processor
- * (useCpuShare), not in image mode.
+ * (useCpuShare), not in image mode; ChatonLM's own ephemeral chats: the
+ * notice given by the chat view (EphemeralBanner.tsx) above the other
+ * banners, and a dashed outline around the composer.
  */
 
 import { ArrowUpIcon, StopIcon } from "@heroicons/react/20/solid";
@@ -184,6 +186,11 @@ interface ChatFormProps {
   isDisabled: boolean;
   /** Bandeau affiché au-dessus de la zone de saisie. */
   banner?: ReactNode;
+  /**
+   * Conversation éphémère (propre à ChatonLM) : avis au-dessus des bandeaux,
+   * contour en pointillés.
+   */
+  ephemeralNotice?: ReactNode;
   /** Jauge du contexte (conversation existante), près du sélecteur de modèle. */
   contextGauge?: ReactNode;
   /**
@@ -297,6 +304,7 @@ export function ChatForm({
   isStreaming,
   isDisabled,
   banner,
+  ephemeralNotice,
   contextGauge,
   onSubmit,
   onCancel,
@@ -785,6 +793,7 @@ export function ChatForm({
       {chatId === "new" && <Logo />}
       {/* Drop zone overlay */}
       {dragging && <DropOverlay />}
+      {ephemeralNotice && <div className="pb-2">{ephemeralNotice}</div>}
       {banner ? (
         <div className="pb-2">{banner}</div>
       ) : (
@@ -834,7 +843,7 @@ export function ChatForm({
       <div
         ref={composerRef}
         data-tour="composer"
-        className={`relative mx-auto flex min-h-[88px] w-full max-w-[768px] flex-col items-center rounded-3xl bg-white pt-4 pb-2 transition-opacity duration-200 after:pointer-events-none after:absolute after:inset-0 after:rounded-3xl after:ring-[1.5px] after:ring-neutral-300 after:ring-inset dark:bg-neutral-800 dark:after:ring-white/10 ${isDisabled ? "opacity-50" : "opacity-100"}`}
+        className={`relative mx-auto flex min-h-[88px] w-full max-w-[768px] flex-col items-center rounded-3xl bg-white pt-4 pb-2 transition-opacity duration-200 after:pointer-events-none after:absolute after:inset-0 after:rounded-3xl dark:bg-neutral-800 ${ephemeralNotice ? "after:border-[1.5px] after:border-dashed after:border-neutral-500 dark:after:border-neutral-400" : "after:ring-[1.5px] after:ring-neutral-300 after:ring-inset dark:after:ring-white/10"} ${isDisabled ? "opacity-50" : "opacity-100"}`}
       >
         {/* Voile qui bloque la zone ; seul Stop reste au-dessus (stopAboveVeil) */}
         {isDisabled && (

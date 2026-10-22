@@ -168,6 +168,9 @@ pub struct Chat {
     /// (identifiant du message vivant), superposée par le moteur ; la page
     /// n'a pas de flux pour elle (propre à ChatonLM).
     pub reply_running: Option<i64>,
+    /// Conversation éphémère (propre à ChatonLM) : absente de l'historique,
+    /// effacée quand on la quitte ; `keep` la fait passer dans l'historique.
+    pub ephemeral: bool,
 }
 
 /// Contexte consommé (propre à ChatonLM) : jetons du prompt et de la réponse
@@ -196,7 +199,8 @@ pub struct Compaction {
     pub created_at: i64,
 }
 
-/// Historique, de la plus récemment active à la plus ancienne.
+/// Historique, de la plus récemment active à la plus ancienne ; sans les
+/// conversations éphémères.
 pub fn list(connection: &Connection) -> AppResult<Vec<ChatInfo>> {
     let mut statement = connection.prepare(
         "SELECT c.id, c.title, c.created_at, c.updated_at,
@@ -205,6 +209,7 @@ pub fn list(connection: &Connection) -> AppResult<Vec<ChatInfo>> {
                  ORDER BY m.id LIMIT 1),
                 c.favorite, c.source
          FROM chats c
+         WHERE c.ephemeral = 0
          ORDER BY c.updated_at DESC, c.id DESC",
     )?;
     let rows = statement.query_map([], |row| {
@@ -229,7 +234,7 @@ pub fn list(connection: &Connection) -> AppResult<Vec<ChatInfo>> {
 pub fn get(connection: &Connection, id: &str) -> AppResult<Chat> {
     let chat = connection
         .query_row(
-            "SELECT id, title, created_at, updated_at FROM chats WHERE id = ?1",
+            "SELECT id, title, created_at, updated_at, ephemeral FROM chats WHERE id = ?1",
             params![id],
             |row| {
                 Ok(Chat {
@@ -241,6 +246,7 @@ pub fn get(connection: &Connection, id: &str) -> AppResult<Chat> {
                     context: None,
                     compactions: Vec::new(),
                     reply_running: None,
+                    ephemeral: row.get(4)?,
                 })
             },
         )
@@ -551,14 +557,80 @@ pub fn delete(connection: &Connection, id: &str) -> AppResult<()> {
     Ok(())
 }
 
-/// Crée une conversation vide ; renvoie son identifiant.
+/// Crée une conversation ordinaire vide (essais) ; renvoie son identifiant.
+#[cfg(test)]
 pub fn create(connection: &Connection, now: i64) -> AppResult<String> {
+    create_with(connection, now, false)
+}
+
+/// Crée une conversation vide, éphémère ou non ; renvoie son identifiant.
+pub fn create_with(connection: &Connection, now: i64, ephemeral: bool) -> AppResult<String> {
     let id = uuid::Uuid::now_v7().to_string();
     connection.execute(
-        "INSERT INTO chats (id, title, created_at, updated_at) VALUES (?1, '', ?2, ?2)",
-        params![id, now],
+        "INSERT INTO chats (id, title, created_at, updated_at, ephemeral)
+         VALUES (?1, '', ?2, ?2, ?3)",
+        params![id, now, ephemeral],
     )?;
     Ok(id)
+}
+
+/// Conversation éphémère ? Erreur si elle n'existe pas.
+pub fn is_ephemeral(connection: &Connection, id: &str) -> AppResult<bool> {
+    connection
+        .query_row(
+            "SELECT ephemeral FROM chats WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| not_found(id))
+}
+
+/// « Keep » : la conversation éphémère passe dans l'historique, sans toucher
+/// à sa date d'activité (rien à faire pour une conversation ordinaire).
+pub fn keep(connection: &Connection, id: &str) -> AppResult<()> {
+    let changed =
+        connection.execute("UPDATE chats SET ephemeral = 0 WHERE id = ?1", params![id])?;
+    if changed == 0 {
+        return Err(not_found(id));
+    }
+    Ok(())
+}
+
+/// Efface une conversation seulement si elle est éphémère ; renvoie vrai si
+/// elle l'a été. Le contenu effacé est écrasé dans le fichier
+/// (`secure_delete`, voir `store::configure`) et le journal WAL vidé, pour
+/// qu'aucune trace n'en reste sur le disque.
+pub fn forget(connection: &Connection, id: &str) -> AppResult<bool> {
+    let deleted = connection.execute(
+        "DELETE FROM chats WHERE id = ?1 AND ephemeral = 1",
+        params![id],
+    )? > 0;
+    if deleted {
+        truncate_journal(connection);
+    }
+    Ok(deleted)
+}
+
+/// Efface toutes les conversations éphémères (fin de l'app, démarrage après
+/// un arrêt brutal) ; renvoie leur nombre.
+pub fn forget_all(connection: &Connection) -> AppResult<usize> {
+    let deleted = connection.execute("DELETE FROM chats WHERE ephemeral = 1", [])?;
+    if deleted > 0 {
+        truncate_journal(connection);
+    }
+    Ok(deleted)
+}
+
+/// Reporte le journal WAL dans la base et le vide : les pages d'avant
+/// l'effacement n'y restent pas. Seul un lecteur d'un autre processus
+/// pourrait l'empêcher (SQLite répond « busy » sans erreur ; l'app n'a qu'une
+/// connexion) : le journal est alors vidé au prochain effacement, ou supprimé
+/// à la fermeture de la base.
+fn truncate_journal(connection: &Connection) {
+    if let Err(error) = connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())) {
+        eprintln!("chatonlm: cannot truncate the journal: {error}");
+    }
 }
 
 /// Marque une conversation ouverte par un bot d'Easy Link.
@@ -1196,6 +1268,112 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         let ids = store.blocking(|c| seed_demo(c, NOW)).unwrap();
         (store, ids)
+    }
+
+    /// Conversation éphémère : hors de l'historique tant qu'elle n'est pas
+    /// gardée ; « Keep » la remet dans l'historique sans changer sa date.
+    #[test]
+    fn an_ephemeral_chat_stays_out_of_the_history_until_kept() {
+        let store = Store::open_in_memory().unwrap();
+        let ordinary = store.blocking(|c| create(c, NOW)).unwrap();
+        let ephemeral = store.blocking(|c| create_with(c, NOW + 1, true)).unwrap();
+        let listed = |store: &Store| -> Vec<String> {
+            store
+                .blocking(|c| list(c))
+                .unwrap()
+                .into_iter()
+                .map(|chat| chat.id)
+                .collect()
+        };
+        assert_eq!(listed(&store), vec![ordinary.clone()]);
+        let id = ephemeral.clone();
+        let chat = store.blocking(move |c| get(c, &id)).unwrap();
+        assert!(chat.ephemeral);
+        let id = ordinary.clone();
+        assert!(!store.blocking(move |c| get(c, &id)).unwrap().ephemeral);
+
+        let id = ephemeral.clone();
+        store.blocking(move |c| keep(c, &id)).unwrap();
+        assert_eq!(listed(&store), vec![ephemeral.clone(), ordinary]);
+        let id = ephemeral.clone();
+        let kept = store.blocking(move |c| get(c, &id)).unwrap();
+        assert!(!kept.ephemeral);
+        assert_eq!(kept.updated_at, NOW + 1);
+        assert!(matches!(
+            store.blocking(|c| keep(c, "unknown")),
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    /// `forget` n'efface qu'une conversation éphémère ; `forget_all` les
+    /// efface toutes, messages et pièces jointes compris, et garde les autres.
+    #[test]
+    fn forgetting_erases_only_ephemeral_chats() {
+        let store = Store::open_in_memory().unwrap();
+        let ordinary = store.blocking(|c| create(c, NOW)).unwrap();
+        let first = store.blocking(|c| create_with(c, NOW, true)).unwrap();
+        let second = store.blocking(|c| create_with(c, NOW, true)).unwrap();
+        for id in [&ordinary, &first, &second] {
+            let id = id.clone();
+            store
+                .blocking(move |c| add_user_message(c, &id, "Hi", &[text_file("a.txt")], NOW + 1))
+                .unwrap();
+        }
+        let id = ordinary.clone();
+        assert!(!store.blocking(move |c| forget(c, &id)).unwrap());
+        let id = first.clone();
+        assert!(store.blocking(move |c| forget(c, &id)).unwrap());
+        assert!(!store.blocking(|c| forget(c, "unknown")).unwrap());
+        assert_eq!(store.blocking(|c| forget_all(c)).unwrap(), 1);
+        for id in [first, second] {
+            assert!(matches!(
+                store.blocking(move |c| get(c, &id)),
+                Err(AppError::NotFound(_))
+            ));
+        }
+        let id = ordinary.clone();
+        assert_eq!(
+            store.blocking(move |c| get(c, &id)).unwrap().messages.len(),
+            1
+        );
+        let counts = store
+            .blocking(|c| {
+                let count = |table: &str| -> AppResult<i64> {
+                    Ok(c.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))?)
+                };
+                Ok((count("messages")?, count("attachments")?))
+            })
+            .unwrap();
+        assert_eq!(counts, (1, 1));
+    }
+
+    /// Aucune trace d'une conversation éphémère effacée ne reste sur le
+    /// disque : ni dans les pages libres de la base (`secure_delete`), ni dans
+    /// le journal WAL (vidé).
+    #[test]
+    fn a_forgotten_chat_leaves_no_trace_on_disk() {
+        const SECRET: &str = "zebra-violet-4729-confidential";
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.db");
+        let store = Store::open(&path).unwrap();
+        let id = store.blocking(|c| create_with(c, NOW, true)).unwrap();
+        // Assez de texte pour remplir plusieurs pages.
+        let content = SECRET.repeat(400);
+        let chat = id.clone();
+        store
+            .blocking(move |c| add_user_message(c, &chat, &content, &[], NOW + 1))
+            .unwrap();
+        let chat = id.clone();
+        assert!(store.blocking(move |c| forget(c, &chat)).unwrap());
+        let found = |name: &str| -> bool {
+            std::fs::read(dir.path().join(name)).is_ok_and(|bytes| {
+                bytes
+                    .windows(SECRET.len())
+                    .any(|window| window == SECRET.as_bytes())
+            })
+        };
+        assert!(!found("chatonlm.db"));
+        assert!(!found("chatonlm.db-wal"));
     }
 
     #[test]

@@ -171,6 +171,8 @@ fn help(platform: Platform) -> String {
         t!("easyLink.bot.help.unload", p = p),
         t!("easyLink.bot.help.status", p = p),
         t!("easyLink.bot.help.web", p = p),
+        t!("easyLink.bot.help.ephemeral", p = p),
+        t!("easyLink.bot.help.keep", p = p),
         t!("easyLink.bot.help.unlink", p = p),
         String::new(),
         t!("easyLink.bot.help.files"),
@@ -269,12 +271,29 @@ async fn run<H: Host>(
         Command::New => {
             shared.forget_account(account.id);
             let id = account.id;
-            match shared
+            // Conversation éphémère quittée : détachée en même temps que le
+            // compte quitte la conversation en cours, puis effacée (la
+            // suivante le sera aussi si le mode est toujours actif).
+            let detached = shared
                 .store
-                .call(move |c| saved::set_chat(c, id, None))
-                .await
-            {
-                Ok(()) => t!("easyLink.bot.newChat"),
+                .call(move |c| {
+                    let chat = saved::detach_ephemeral(c, id)?;
+                    saved::set_chat(c, id, None)?;
+                    Ok(chat)
+                })
+                .await;
+            let left = match detached {
+                Ok(Some(chat)) => shared.erase_chat(id, chat).await,
+                Ok(None) => Ok(false),
+                Err(error) => Err(error),
+            };
+            match left {
+                Ok(true) => format!(
+                    "{}\n{}",
+                    t!("easyLink.bot.ephemeralErased"),
+                    t!("easyLink.bot.newChat")
+                ),
+                Ok(false) => t!("easyLink.bot.newChat"),
                 Err(error) => t!("easyLink.bot.failed", error = error),
             }
         }
@@ -288,6 +307,9 @@ async fn run<H: Host>(
         Command::Unlink => {
             shared.forget_account(account.id);
             let id = account.id;
+            // Sa conversation éphémère ne survit pas au compte (un échec
+            // n'empêche pas de délier : la fin de l'app l'effacera).
+            shared.forget_ephemeral_chat_or_log(id).await;
             let _ = shared.store.call(move |c| saved::unlink(c, id)).await;
             shared.publish().await;
             {
@@ -309,6 +331,36 @@ async fn run<H: Host>(
                 Err(error) => t!("easyLink.bot.failed", error = error),
             }
         }
+        Command::Ephemeral(Err(_)) => t!("easyLink.bot.ephemeralUsage", p = p),
+        Command::Ephemeral(Ok(None)) => {
+            if account.ephemeral {
+                t!("easyLink.bot.statusEphemeralOn")
+            } else {
+                t!("easyLink.bot.statusEphemeralOff")
+            }
+        }
+        Command::Ephemeral(Ok(Some(enabled))) => {
+            match set_ephemeral(shared, account, enabled).await {
+                Ok(erased) => {
+                    let mut lines = Vec::new();
+                    if erased {
+                        lines.push(t!("easyLink.bot.ephemeralErased"));
+                    }
+                    lines.push(if enabled {
+                        t!("easyLink.bot.ephemeralOn", p = p)
+                    } else {
+                        t!("easyLink.bot.ephemeralOff")
+                    });
+                    lines.join("\n")
+                }
+                Err(error) => t!("easyLink.bot.failed", error = error),
+            }
+        }
+        Command::Keep => match keep(shared, account.id).await {
+            Ok(true) => t!("easyLink.bot.kept"),
+            Ok(false) => t!("easyLink.bot.nothingToKeep"),
+            Err(error) => t!("easyLink.bot.failed", error = error),
+        },
         Command::Unknown(name) => {
             t!(
                 "easyLink.bot.unknownCommand",
@@ -326,6 +378,74 @@ async fn run<H: Host>(
         }
     };
     say(messenger, channel, &reply).await;
+}
+
+/// `/ephemeral on|off`. Activé : une conversation ordinaire en cours reste
+/// dans l'historique et le compte s'en détache (la suivante sera éphémère) ;
+/// une conversation éphémère en cours continue. Coupé : la conversation
+/// éphémère en cours est effacée (réponse arrêtée d'abord), avec les photos
+/// en attente ; une conversation ordinaire continue. Vrai si une conversation
+/// a été effacée.
+async fn set_ephemeral<H: Host>(
+    shared: &Arc<Shared<H>>,
+    account: &Account,
+    enabled: bool,
+) -> crate::error::AppResult<bool> {
+    let id = account.id;
+    if enabled {
+        shared
+            .store
+            .call(move |c| {
+                saved::set_ephemeral(c, id, true)?;
+                if saved::ephemeral_chat(c, id)?.is_none() {
+                    saved::set_chat(c, id, None)?;
+                }
+                Ok(())
+            })
+            .await?;
+        return Ok(false);
+    }
+    // Coupé, et la conversation éphémère détachée, d'un coup : un message qui
+    // arrive pendant l'effacement ouvre une conversation ordinaire.
+    let detached = shared
+        .store
+        .call(move |c| {
+            saved::set_ephemeral(c, id, false)?;
+            saved::detach_ephemeral(c, id)
+        })
+        .await?;
+    if account.ephemeral {
+        // Photos envoyées en mode éphémère : elles ne partent pas dans une
+        // conversation gardée.
+        shared.forget_account(id);
+    }
+    match detached {
+        Some(chat) => shared.erase_chat(id, chat).await,
+        None => Ok(false),
+    }
+}
+
+/// `/keep` : la conversation éphémère en cours passe dans l'historique et le
+/// compte s'en détache (le message suivant en ouvre une nouvelle, éphémère si
+/// le mode l'est toujours). Une réponse en cours y continue : elle est gardée
+/// avec elle. Faux s'il n'y avait pas de conversation éphémère.
+async fn keep<H: Host>(shared: &Arc<Shared<H>>, id: i64) -> crate::error::AppResult<bool> {
+    let kept = shared
+        .store
+        .call(move |c| {
+            let Some(chat) = saved::ephemeral_chat(c, id)? else {
+                return Ok(None);
+            };
+            chats::keep(c, &chat)?;
+            saved::set_chat(c, id, None)?;
+            Ok(Some(chat))
+        })
+        .await?;
+    // La page voit la conversation arriver dans l'historique.
+    if let Some(chat) = &kept {
+        shared.host.chat_updated(chat);
+    }
+    Ok(kept.is_some())
 }
 
 fn web_line(enabled: bool) -> String {
@@ -466,6 +586,8 @@ async fn with_server<H: Host>(
         | Command::Stop
         | Command::Unlink
         | Command::Web(_)
+        | Command::Ephemeral(_)
+        | Command::Keep
         | Command::Unknown(_) => String::new(),
     })
 }
@@ -705,6 +827,8 @@ async fn respond<H: Host>(
         web_search: Some(account.web_search),
         voice: None,
         image: None,
+        // Seulement pour une conversation à ouvrir (ignoré sinon).
+        ephemeral: Some(account.ephemeral),
     };
     let server = Server::from_settings(&settings);
     let (events, mut received) = mpsc::unbounded_channel::<ChatEvent>();
@@ -738,6 +862,9 @@ async fn respond<H: Host>(
 
     let mut relay = Relay::new(messenger, channel);
     let mut chat_id = account.chat_id.clone();
+    // Conversation ouverte par cette réponse, et rattachée au compte ou non.
+    let mut created: Option<String> = None;
+    let mut attached = false;
     let mut failure: Option<(ChatErrorKind, String)> = None;
     let mut done = false;
     let mut ticker = tokio::time::interval(TICK);
@@ -754,13 +881,15 @@ async fn respond<H: Host>(
                 match event {
                     ChatEvent::ChatCreated { chat_id: id } => {
                         let (account_id, platform, chat) = (account.id, account.platform, id.clone());
-                        let _ = shared
+                        attached = shared
                             .store
                             .call(move |c| {
                                 chats::set_source(c, &chat, platform)?;
-                                saved::set_chat(c, account_id, Some(&chat))
+                                saved::attach_chat(c, account_id, &chat)
                             })
-                            .await;
+                            .await
+                            .unwrap_or(false);
+                        created = Some(id.clone());
                         shared.host.chat_updated(&id);
                         chat_id = Some(id);
                     }
@@ -815,6 +944,13 @@ async fn respond<H: Host>(
         }
     }
     let sent = sending.await;
+    // Conversation ouverte selon un mode changé depuis (`/ephemeral` passé
+    // entre la relecture du compte et l'ouverture) : laissée détachée ;
+    // éphémère, elle est effacée maintenant que la réponse est finie
+    // (ordinaire, elle reste dans l'historique).
+    if let Some(chat) = created.filter(|_| !attached) {
+        let _ = shared.store.call(move |c| chats::forget(c, &chat)).await;
+    }
     // La page d'abord : la dernière écriture dans la messagerie peut traîner.
     if let Some(id) = &chat_id {
         shared.host.chat_updated(id);
@@ -1094,6 +1230,7 @@ mod unit {
             chat_id: None,
             model: String::new(),
             web_search: false,
+            ephemeral: false,
         };
         assert_eq!(model_of(&account, " gemma3:4b "), "gemma3:4b");
         assert_eq!(model_of(&account, ""), "");

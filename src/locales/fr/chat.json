@@ -330,5 +330,15 @@
   "adviceWindows": {
     "appStopped": "Ollama est installé, mais il n'est pas démarré. Cliquez sur Démarrer Ollama, ou ouvrez Ollama depuis le menu Démarrer.",
     "appStarting": "L'application Ollama démarre. Si cela prend plus de quelques secondes, consultez son journal :"
+  },
+  "ephemeral": {
+    "toggle": "Conversation éphémère",
+    "turnOn": "Commencer une conversation éphémère",
+    "turnOff": "Désactiver la conversation éphémère",
+    "newEphemeral": "Nouvelle conversation éphémère",
+    "keepThis": "Garder cette conversation",
+    "notice": "Conversation éphémère : elle n'apparaîtra pas dans l'historique et sera effacée quand vous ouvrirez une autre conversation ou quitterez ChatonLM.",
+    "keep": "Garder",
+    "keepFailed": "Impossible de garder cette conversation : {error}"
   }
 }

@@ -509,6 +509,23 @@ export function deleteChat(id: string): Promise<void> {
 }
 
 /**
+ * Conversation éphémère quittée (propre à ChatonLM) : effacée, réponse en
+ * cours arrêtée ; rien pour une conversation gardée entre-temps, ordinaire ou
+ * inconnue.
+ */
+export function forgetChat(id: string): Promise<void> {
+  return invoke<void>("forget_chat", { id });
+}
+
+/**
+ * « Keep » (propre à ChatonLM) : la conversation éphémère passe dans
+ * l'historique ; rejette si elle n'existe plus.
+ */
+export function keepChat(id: string): Promise<void> {
+  return invoke<void>("keep_chat", { id });
+}
+
+/**
  * Événement du moteur quand il crée ou modifie une conversation hors de la
  * page (message reçu par un bot d'Easy Link).
  */

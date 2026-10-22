@@ -98,6 +98,11 @@ const COMMANDS: readonly {
   { command: "/unload", description: "settings.easyLink.commands.unload" },
   { command: "/status", description: "settings.easyLink.commands.status" },
   { command: "/web on|off", description: "settings.easyLink.commands.web" },
+  {
+    command: "/ephemeral on|off",
+    description: "settings.easyLink.commands.ephemeral",
+  },
+  { command: "/keep", description: "settings.easyLink.commands.keep" },
   { command: "/help", description: "settings.easyLink.commands.help" },
 ];
 

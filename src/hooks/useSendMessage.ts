@@ -12,9 +12,11 @@ import type { VoiceSend } from "@/bindings/VoiceSend";
 import { accountKey } from "@/hooks/useAccount";
 import { chatKey, chatsKey } from "@/hooks/useChats";
 import { release } from "@/hooks/useComposerFiles";
+import { forgetLeft } from "@/hooks/useEphemeral";
 import { modelsKey } from "@/hooks/useModels";
 import { healthKey } from "@/hooks/useServerHealth";
 import { modelDetailsKey } from "@/hooks/useThink";
+import { markEphemeral, setNewChatEphemeral } from "@/lib/ephemeral";
 import { cancelMessage, errorMessage, sendMessage } from "@/lib/ipc";
 import * as streams from "@/lib/streams";
 
@@ -71,6 +73,8 @@ export function useImageProgress(
  * de la requête s'il est faux). `voice` : phrase du mode vocal (propre à
  * ChatonLM) ; `image` : bouton « Image » (propre à ChatonLM), le texte part
  * tel quel au modèle d'images (absent de la requête s'il est faux) ;
+ * `ephemeral` : nouvelle conversation éphémère (propre à ChatonLM), suivie
+ * pour être effacée quand on la quitte, le bouton de la page coupé ;
  * `onRefused` reçoit le message d'un envoi refusé d'emblée (rendre `true` :
  * l'appelant le montre lui-même, aucune erreur de flux), `onChatCreated`
  * l'identifiant de la nouvelle conversation, avant d'y aller.
@@ -90,6 +94,7 @@ export function useSendMessage() {
       webSearch = false,
       voice,
       image = false,
+      ephemeral = false,
       onRefused,
       onChatCreated,
     }: {
@@ -102,6 +107,8 @@ export function useSendMessage() {
       webSearch?: boolean;
       voice?: VoiceSend;
       image?: boolean;
+      /** Nouvelle conversation éphémère (propre à ChatonLM). */
+      ephemeral?: boolean;
       onRefused?: (message: string) => boolean | void;
       onChatCreated?: (chatId: string) => void;
     }) => {
@@ -144,7 +151,14 @@ export function useSendMessage() {
               context: null,
               compactions: [],
               replyRunning: null,
+              ephemeral,
             });
+            if (ephemeral) {
+              // Mode du bouton coupé : la prochaine nouvelle conversation
+              // est ordinaire, sauf nouveau clic.
+              setNewChatEphemeral(false);
+              forgetLeft(queryClient, markEphemeral(event.chatId));
+            }
             void queryClient.invalidateQueries({ queryKey: chatsKey });
             onChatCreated?.(event.chatId);
             void navigate({
@@ -202,6 +216,7 @@ export function useSendMessage() {
             ...(webSearch && { webSearch }),
             ...(voice && { voice }),
             ...(image && { image }),
+            ...(existing === null && ephemeral && { ephemeral }),
           },
           channel,
         );

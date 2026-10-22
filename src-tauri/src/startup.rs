@@ -68,6 +68,10 @@ impl Startup {
                 if let Err(error) = store.blocking(|c| chats::repair(c)) {
                     eprintln!("chatonlm: cannot repair interrupted answers: {error}");
                 }
+                // Conversations éphémères restées après un arrêt brutal.
+                if let Err(error) = store.blocking(|c| chats::forget_all(c)) {
+                    eprintln!("chatonlm: cannot erase the ephemeral chats: {error}");
+                }
                 // Premier démarrage montré de nouveau ou passé d'office
                 // (`CHATONLM_ONBOARDING`), avant que la page lise les
                 // réglages ; aussi pour une base recréée après coup.
@@ -263,6 +267,30 @@ mod tests {
             .filter(|name| name.starts_with("chatonlm.sqlite.broken-"))
             .collect();
         assert_eq!(kept.len(), 1, "{kept:?}");
+    }
+
+    /// App arrêtée brutalement : les conversations éphémères restées en base
+    /// sont effacées à l'ouverture suivante, les autres gardées.
+    #[test]
+    fn ephemeral_chats_left_by_a_crash_are_erased_at_the_next_start() {
+        let (_dir, startup) = startup_with(None);
+        let (ordinary, ephemeral) = {
+            let store = startup.open().unwrap();
+            store
+                .blocking(|c| {
+                    Ok((
+                        chats::create_with(c, 1, false)?,
+                        chats::create_with(c, 1, true)?,
+                    ))
+                })
+                .unwrap()
+        };
+        let store = startup.open().unwrap();
+        assert!(store.blocking(move |c| chats::get(c, &ordinary)).is_ok());
+        assert!(matches!(
+            store.blocking(move |c| chats::get(c, &ephemeral)),
+            Err(crate::error::AppError::NotFound(_))
+        ));
     }
 
     #[test]

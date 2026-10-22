@@ -364,7 +364,9 @@ pub fn run() {
             commands::chats::cancel_message,
             commands::chats::compact_chat,
             commands::chats::delete_chat,
+            commands::chats::forget_chat,
             commands::chats::get_chat,
+            commands::chats::keep_chat,
             commands::chats::list_chats,
             commands::chats::rename_chat,
             commands::chats::send_message,
@@ -533,7 +535,8 @@ pub fn run() {
 /// téléchargements du ModelHub ferment leur requête (Ollama garde les
 /// morceaux : un nouveau clic reprend), comme ceux des modèles de
 /// transcription, des voix et des modèles d'images (`.part` gardés) ; la
-/// séance du mode vocal finit (micro fermé) ; la dictée en cours est abandonnée et son moteur libéré ; puis
+/// séance du mode vocal finit (micro fermé) ; les conversations éphémères
+/// sont effacées une fois les réponses arrêtées ; la dictée en cours est abandonnée et son moteur libéré ; puis
 /// le moteur d'images s'arrête (image en cours abandonnée) ; puis les modèles
 /// encore en mémoire dans l'Ollama de la machine sont déchargés (réglage
 /// « Unload models when quitting ») ; puis
@@ -594,8 +597,21 @@ pub async fn stop_services(app: &AppHandle) {
         dictation.shutdown(),
         images
     );
+    forget_ephemeral_chats(app).await;
     unload_models(app).await;
     ollama::builtin::shutdown(app).await;
+}
+
+/// Conversations éphémères (de la page et des bots) effacées, une fois les
+/// réponses arrêtées ; un échec est seulement journalisé (le démarrage
+/// suivant les efface).
+async fn forget_ephemeral_chats(app: &AppHandle) {
+    let Some(store) = app.try_state::<Store>() else {
+        return;
+    };
+    if let Err(error) = store.call(|c| store::chats::forget_all(c)).await {
+        eprintln!("chatonlm: cannot erase the ephemeral chats: {error}");
+    }
 }
 
 /// Délai des déchargements de la fin de l'app : un Ollama lent ou injoignable

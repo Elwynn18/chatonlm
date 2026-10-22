@@ -8,14 +8,18 @@
  * Modified for ChatonLM: no "launch" redirect and no last home view (the Apps
  * view is not reproduced); a deleted or unknown chat shows "Chat not found"
  * instead of an error; texts translated into English, Spanish and French
- * (src/i18n).
+ * (src/i18n); ChatonLM's own ephemeral chats: the ghost kitten button at the
+ * top right (EphemeralButton.tsx), and the ephemeral chat left for another
+ * chat (or a new one) erased (src/hooks/useEphemeral.ts).
  */
 
 import { createFileRoute } from "@tanstack/react-router";
 import { Chat } from "@/components/Chat";
 import { ChatSidebar } from "@/components/ChatSidebar";
+import { EphemeralButton } from "@/components/EphemeralButton";
 import { SidebarLayout } from "@/components/layout/layout";
 import { chatKey, useChat } from "@/hooks/useChats";
+import { useEphemeralRoute } from "@/hooks/useEphemeral";
 import { useT } from "@/i18n";
 import { getChat, isAppError } from "@/lib/ipc";
 
@@ -45,11 +49,17 @@ function RouteComponent() {
     isLoading: chatLoading,
     error: chatError,
   } = useChat(chatId === "new" ? "" : chatId);
+  const ephemeral = chatData?.ephemeral ?? false;
+  useEphemeralRoute(chatId, ephemeral);
+  const actions = <EphemeralButton chatId={chatId} ephemeral={ephemeral} />;
 
   // Handle "new" chat case - just use Chat component which handles everything
   if (chatId === "new") {
     return (
-      <SidebarLayout sidebar={<ChatSidebar currentChatId={chatId} />}>
+      <SidebarLayout
+        sidebar={<ChatSidebar currentChatId={chatId} />}
+        actions={actions}
+      >
         <Chat chatId={chatId} />
       </SidebarLayout>
     );
@@ -84,7 +94,10 @@ function RouteComponent() {
   }
 
   return (
-    <SidebarLayout sidebar={<ChatSidebar currentChatId={chatId} />}>
+    <SidebarLayout
+      sidebar={<ChatSidebar currentChatId={chatId} />}
+      actions={actions}
+    >
       <Chat chatId={chatId} />
     </SidebarLayout>
   );

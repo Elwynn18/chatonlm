@@ -470,6 +470,8 @@
       "unload": "Liberar el modelo de la memoria",
       "status": "Ver el estado",
       "web": "Activar o desactivar la búsqueda web",
+      "ephemeral": "Modo efímero: chats fuera del historial, borrados con /new, /ephemeral off o al cerrar ChatonLM",
+      "keep": "Conservar en el historial el chat efímero actual",
       "help": "Ver esta lista",
       "discord": "En Discord, los comandos también pueden empezar por «!», por ejemplo <code>!models</code>.",
       "media": "También puedes enviar una foto, si el modelo sabe ver imágenes, o un mensaje de voz: lo transcribe el modelo de transcripción del dictado que tengas instalado."
@@ -532,6 +534,7 @@
       },
       "actions": {
         "newChat": "Nuevo chat",
+        "newEphemeralChat": "Nuevo chat efímero",
         "settings": "Configuración",
         "quit": "Salir",
         "zoomIn": "Acercar",

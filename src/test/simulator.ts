@@ -123,6 +123,7 @@ const REQUEST_FIELDS = [
   "keptAttachmentIds",
   "webSearch",
   "image",
+  "ephemeral",
 ] as const;
 type RequestField = (typeof REQUEST_FIELDS)[number];
 

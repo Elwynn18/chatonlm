@@ -58,6 +58,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0027_image_model_timing.sql"),
     include_str!("../../migrations/0028_unload_on_quit.sql"),
     include_str!("../../migrations/0029_cloud_models.sql"),
+    include_str!("../../migrations/0030_ephemeral.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.
@@ -214,6 +215,9 @@ fn configure(connection: &Connection, busy_timeout: Duration) -> AppResult<()> {
     }
     connection.pragma_update(None, "synchronous", "NORMAL")?;
     connection.pragma_update(None, "foreign_keys", true)?;
+    // Contenu effacé écrasé de zéros (conversations éphémères, et toute
+    // suppression) au lieu de rester lisible dans les pages libres.
+    connection.pragma_update(None, "secure_delete", true)?;
     Ok(())
 }
 

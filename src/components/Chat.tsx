@@ -47,7 +47,10 @@
  * message, not in banners above the composer (CloudErrorActions.tsx): without
  * an account, Sign In (the account card), then Retry once signed in; usage
  * limit reached, Upgrade; cloud models turned off in the settings (ChatonLM's
- * own setting), Open settings (Settings > Models).
+ * own setting), Open settings (Settings > Models); ChatonLM's own ephemeral
+ * chats: while the ghost kitten button is on, the new chat page says so above
+ * the composer and its first message creates an ephemeral chat; an
+ * ephemeral chat shows the same notice, with Keep (EphemeralBanner.tsx).
  */
 
 import { useNavigate } from "@tanstack/react-router";
@@ -62,6 +65,7 @@ import {
 } from "@/components/ChatForm";
 import { ContextFullActions } from "@/components/ContextFullActions";
 import { ContextGauge } from "@/components/ContextGauge";
+import { EphemeralBanner } from "@/components/EphemeralBanner";
 import { compactStreamId, useManualCompacting } from "@/hooks/useCompactChat";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { LoopErrorActions } from "@/components/LoopErrorActions";
@@ -88,6 +92,7 @@ import {
   voiceModeSnapshot,
 } from "@/hooks/useVoiceMode";
 import { isCloudError } from "@/lib/cloud";
+import { useNewChatEphemeral } from "@/lib/ephemeral";
 import { cancelMessage, voiceModeReplyFailed } from "@/lib/ipc";
 import { isRuminating } from "@/lib/rumination";
 import {
@@ -130,6 +135,8 @@ interface VoiceSendRequest {
   model: string;
   think: Think | undefined;
   webSearch: boolean;
+  /** Nouvelle conversation éphémère (première phrase d'une nouvelle). */
+  ephemeral?: boolean;
 }
 
 /**
@@ -199,6 +206,7 @@ function NewChat() {
   const health = useServerHealth();
   const openAccountSettings = useOpenAccountSettings();
   const openModelsSettings = useOpenModelsSettings();
+  const ephemeral = useNewChatEphemeral();
   // Le moteur crée la conversation avant ces erreurs : elles n'arrivent ici
   // que par accident, sans message à relancer.
   const banner = (error || !health.healthy) && (
@@ -241,6 +249,7 @@ function NewChat() {
           isStreaming={stream !== null}
           isDisabled={!health.healthy}
           banner={banner}
+          ephemeralNotice={ephemeral && <EphemeralBanner />}
           onSubmit={(
             content,
             model,
@@ -254,7 +263,11 @@ function NewChat() {
             onRefused,
           ) =>
             void (voice
-              ? sendVoice(NEW_CHAT, { content, model, think, webSearch }, voice)
+              ? sendVoice(
+                  NEW_CHAT,
+                  { content, model, think, webSearch, ephemeral },
+                  voice,
+                )
               : send({
                   chatId: "new",
                   content,
@@ -263,6 +276,7 @@ function NewChat() {
                   attachments,
                   webSearch,
                   image,
+                  ephemeral,
                   onRefused,
                 }))
           }
@@ -427,6 +441,9 @@ function ChatView({ chatId }: { chatId: string }) {
           hasMessages={messages.length > 0}
           isStreaming={isStreaming || manualCompacting}
           isDisabled={!health.healthy}
+          ephemeralNotice={
+            chat?.ephemeral && <EphemeralBanner chatId={chatId} />
+          }
           contextGauge={
             context && (
               <ContextGauge

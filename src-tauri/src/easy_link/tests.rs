@@ -1251,6 +1251,7 @@ async fn a_conversation_busy_in_the_app_refuses_the_message_and_keeps_its_photo(
                 web_search: None,
                 voice: None,
                 image: None,
+                ephemeral: None,
             };
             chat::send_to(
                 &store,
@@ -1967,4 +1968,352 @@ async fn the_final_note_waits_for_a_long_rate_limit() {
     // Le seul envoi, refusé ; ni nouvel essai, ni « réponse incomplète ».
     assert_eq!(bench.telegram_calls(&["sendMessage"]), before + 1);
     assert_eq!(bench.telegram_calls(&["editMessageText"]), 0);
+}
+
+// Mode éphémère d'un compte (`/ephemeral`, `/keep`).
+
+impl Bench {
+    /// Conversation en cours du compte d'`ANA`.
+    fn current_chat(&self) -> Option<String> {
+        self.account().chat_id
+    }
+
+    fn is_ephemeral(&self, id: &str) -> bool {
+        let id = id.to_owned();
+        self.store
+            .blocking(move |c| chats::is_ephemeral(c, &id))
+            .unwrap()
+    }
+
+    /// La conversation n'existe plus.
+    fn erased(&self, id: &str) -> bool {
+        let id = id.to_owned();
+        matches!(
+            self.store.blocking(move |c| chats::get(c, &id)),
+            Err(AppError::NotFound(_))
+        )
+    }
+
+    /// Identifiants de l'historique de l'app.
+    fn history(&self) -> Vec<String> {
+        self.store
+            .blocking(|c| chats::list(c))
+            .unwrap()
+            .into_iter()
+            .map(|chat| chat.id)
+            .collect()
+    }
+
+    /// Conversations en base, éphémères comprises.
+    fn chat_count(&self) -> i64 {
+        self.store
+            .blocking(|c| Ok(c.query_row("SELECT COUNT(*) FROM chats", [], |r| r.get(0))?))
+            .unwrap()
+    }
+}
+
+/// Mode actif : chaque nouvelle conversation est éphémère (hors de
+/// l'historique) ; `/new` l'efface et la suivante l'est aussi ;
+/// `/ephemeral off` efface la conversation en cours, et la suivante est
+/// ordinaire.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_ephemeral_mode_opens_conversations_that_are_erased_when_left() {
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram_linked().await;
+    // L'accueil liste les deux commandes.
+    assert!(
+        bench
+            .told()
+            .iter()
+            .any(|text| text.contains("/ephemeral on"))
+    );
+    assert!(bench.told().iter().any(|text| text.contains("/keep")));
+    bench.say("/ephemeral");
+    bench.wait_told("Ephemeral conversations: off").await;
+    bench.say("/ephemeral maybe");
+    bench.wait_told("/ephemeral on or /ephemeral off").await;
+    assert!(!bench.account().ephemeral);
+
+    bench.say("/ephemeral on");
+    bench.wait_told("Ephemeral conversations are on").await;
+    assert!(bench.account().ephemeral);
+    bench.say("hello");
+    bench.wait_answered(1).await;
+    let first = bench.current_chat().expect("conversation ouverte");
+    assert!(bench.is_ephemeral(&first));
+    assert!(bench.history().is_empty());
+    // Le message suivant la continue.
+    bench.say("and then?");
+    bench.wait_answered(2).await;
+    assert_eq!(bench.current_chat().as_deref(), Some(first.as_str()));
+    assert_eq!(
+        bench.ollama.chat_requests()[1]["messages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+
+    // `/new` l'efface ; la suivante est éphémère aussi.
+    bench.say("/new");
+    bench.wait_told("New conversation").await;
+    assert!(bench.erased(&first));
+    assert_eq!(bench.current_chat(), None);
+    assert!(
+        bench
+            .told()
+            .iter()
+            .any(|text| text.contains("The ephemeral conversation has been erased"))
+    );
+    bench.say("fresh start");
+    bench.wait_answered(3).await;
+    let second = bench.current_chat().expect("conversation ouverte");
+    assert_ne!(second, first);
+    assert!(bench.is_ephemeral(&second));
+    assert!(bench.history().is_empty());
+    bench.say("/ephemeral");
+    bench.wait_told("Ephemeral conversations: on").await;
+
+    // Coupé : la conversation en cours est effacée, la suivante est gardée.
+    bench.say("/ephemeral off");
+    bench.wait_told("Ephemeral conversations are off").await;
+    assert!(!bench.account().ephemeral);
+    assert!(bench.erased(&second));
+    assert_eq!(bench.current_chat(), None);
+    bench.say("keep this one");
+    bench.wait_answered(4).await;
+    let third = bench.current_chat().expect("conversation ouverte");
+    assert!(!bench.is_ephemeral(&third));
+    assert_eq!(bench.history(), std::slice::from_ref(&third));
+    // Coupé de nouveau : une conversation ordinaire continue.
+    bench.say("/ephemeral off");
+    wait_until("second avis", || {
+        bench.told_count("Ephemeral conversations are off") == 2
+    })
+    .await;
+    assert_eq!(bench.current_chat(), Some(third));
+}
+
+/// `/ephemeral on` pendant une conversation ordinaire la laisse dans
+/// l'historique ; `/keep` fait passer la conversation éphémère dans
+/// l'historique, et le message suivant en ouvre une nouvelle, éphémère.
+#[tokio::test(flavor = "multi_thread")]
+async fn keep_puts_the_ephemeral_conversation_in_the_history() {
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram_linked().await;
+    bench.say("/keep");
+    bench.wait_told("no ephemeral conversation to keep").await;
+
+    bench.say("hello");
+    bench.wait_answered(1).await;
+    let ordinary = bench.current_chat().expect("conversation ouverte");
+    bench.say("/ephemeral on");
+    bench.wait_told("Ephemeral conversations are on").await;
+    assert_eq!(bench.current_chat(), None);
+    assert_eq!(bench.history(), std::slice::from_ref(&ordinary));
+    assert!(!bench.is_ephemeral(&ordinary));
+
+    bench.say("a secret");
+    bench.wait_answered(2).await;
+    let secret = bench.current_chat().expect("conversation ouverte");
+    assert_ne!(secret, ordinary);
+    assert!(bench.is_ephemeral(&secret));
+    // Nouvelle conversation : seul le message envoyé part au modèle.
+    assert_eq!(
+        bench.ollama.chat_requests()[1]["messages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    // `/ephemeral on` de nouveau : la conversation éphémère continue.
+    bench.say("/ephemeral on");
+    wait_until("second avis", || {
+        bench.told_count("Ephemeral conversations are on") == 2
+    })
+    .await;
+    assert_eq!(bench.current_chat().as_deref(), Some(secret.as_str()));
+
+    bench.updated.lock().clear();
+    bench.say("/keep");
+    bench.wait_told("now in ChatonLM's history").await;
+    assert!(!bench.is_ephemeral(&secret));
+    assert!(bench.history().contains(&secret));
+    assert_eq!(bench.current_chat(), None);
+    // La page est prévenue.
+    assert!(bench.updated.lock().contains(&secret));
+
+    bench.say("next one");
+    bench.wait_answered(3).await;
+    let next = bench.current_chat().expect("conversation ouverte");
+    assert!(next != secret && next != ordinary);
+    assert!(bench.is_ephemeral(&next));
+    assert_eq!(bench.history().len(), 2);
+}
+
+/// `/new` pendant une réponse dans une conversation éphémère : la réponse
+/// s'arrête et rien n'en reste.
+#[tokio::test(flavor = "multi_thread")]
+async fn new_during_an_ephemeral_answer_stops_it_and_leaves_nothing() {
+    let bench = bench("chatonlm-markdown-slow").await;
+    bench.telegram_linked().await;
+    bench.say("/ephemeral on");
+    bench.wait_told("Ephemeral conversations are on").await;
+    let before = bench.told().len();
+    bench.say("write slowly");
+    wait_until("réponse commencée", || bench.told().len() > before).await;
+    let chat = bench.current_chat().expect("conversation ouverte");
+    let started = std::time::Instant::now();
+    bench.say("/new");
+    bench.wait_told("New conversation").await;
+    wait_until("réponse arrêtée", || !bench.busy()).await;
+    // Bien avant la fin naturelle de la réponse (8 s environ).
+    assert!(started.elapsed() < Duration::from_secs(4));
+    assert!(bench.erased(&chat));
+    assert_eq!(bench.chat_count(), 0);
+    assert_eq!(bench.current_chat(), None);
+}
+
+/// Délier le compte, par le bot, par la page ou en retirant le bot, efface sa
+/// conversation éphémère ; une conversation ordinaire reste.
+#[tokio::test(flavor = "multi_thread")]
+async fn unlinking_erases_the_ephemeral_conversation() {
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram_linked().await;
+    bench.say("/ephemeral on");
+    bench.wait_told("Ephemeral conversations are on").await;
+    bench.say("hello");
+    bench.wait_answered(1).await;
+    let chat = bench.current_chat().expect("conversation ouverte");
+    bench.say("/unlink");
+    bench.wait_told("This account is unlinked").await;
+    assert!(bench.erased(&chat));
+    assert!(bench.state().accounts.is_empty());
+
+    // Lié de nouveau, délié par la page.
+    let link_again = async || {
+        let code = bench
+            .service
+            .pair(Platform::Telegram)
+            .await
+            .unwrap()
+            .pairing
+            .unwrap()
+            .code;
+        bench.say(&format!("/start {code}"));
+        wait_until("compte lié", || bench.state().accounts.len() == 1).await;
+        bench.say("/ephemeral on");
+        wait_until("mode actif", || bench.account().ephemeral).await;
+    };
+    link_again().await;
+    bench.say("hello again");
+    bench.wait_answered(2).await;
+    let chat = bench.current_chat().expect("conversation ouverte");
+    let account = bench.state().accounts[0].id;
+    bench.service.unlink(account).await.unwrap();
+    assert!(bench.erased(&chat));
+
+    // Lié de nouveau, bot retiré.
+    link_again().await;
+    bench.say("one more");
+    bench.wait_answered(3).await;
+    let chat = bench.current_chat().expect("conversation ouverte");
+    bench.service.disconnect(Platform::Telegram).await.unwrap();
+    assert!(bench.erased(&chat));
+    assert_eq!(bench.chat_count(), 0);
+}
+
+/// `/ephemeral` passé entre la relecture du compte et l'ouverture de la
+/// conversation (simulé au premier accès au moteur, celui de l'envoi) : la
+/// conversation ouverte selon l'ancien mode n'est pas rattachée au compte ;
+/// éphémère, elle est effacée à la fin de la réponse ; ordinaire, elle reste
+/// dans l'historique. Le message suivant suit le nouveau mode.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_mode_changed_while_a_conversation_opens_does_not_attach_it() {
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram_linked().await;
+    bench.say("/ephemeral on");
+    bench.wait_told("Ephemeral conversations are on").await;
+    let account = bench.account().id;
+    let switch_to = |enabled: bool| {
+        let store = bench.store.clone();
+        *bench.on_engine.lock() = Some(Box::new(move || {
+            tokio::task::block_in_place(|| {
+                store.blocking(|c| saved::set_ephemeral(c, account, enabled))
+            })
+            .unwrap();
+        }));
+    };
+
+    // Coupé pendant l'ouverture d'une conversation éphémère.
+    switch_to(false);
+    bench.say("hello");
+    bench.wait_answered(1).await;
+    assert!(bench.on_engine.lock().is_none(), "crochet jamais lancé");
+    assert_eq!(bench.current_chat(), None);
+    assert_eq!(bench.chat_count(), 0);
+    bench.say("again");
+    bench.wait_answered(2).await;
+    let ordinary = bench.current_chat().expect("conversation ouverte");
+    assert!(!bench.is_ephemeral(&ordinary));
+
+    // Activé pendant l'ouverture d'une conversation ordinaire.
+    bench.say("/new");
+    bench.wait_told("New conversation").await;
+    switch_to(true);
+    bench.say("still ordinary");
+    bench.wait_answered(3).await;
+    assert_eq!(bench.current_chat(), None);
+    let history = bench.history();
+    assert_eq!(history.len(), 2);
+    bench.say("secret");
+    bench.wait_answered(4).await;
+    let secret = bench.current_chat().expect("conversation ouverte");
+    assert!(bench.is_ephemeral(&secret));
+    assert_eq!(bench.history(), history);
+}
+
+/// `/new` et `/ephemeral off` détachent la conversation éphémère avant
+/// d'arrêter sa réponse et de l'effacer : un message arrivé entre-temps en
+/// ouvre une autre au lieu de partir dans celle-ci.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_ephemeral_chat_is_detached_before_it_is_erased() {
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram_linked().await;
+    bench.say("/ephemeral on");
+    bench.wait_told("Ephemeral conversations are on").await;
+    let account = bench.account().id;
+    let seen: Arc<Mutex<Option<Option<String>>>> = Arc::default();
+    // Au premier accès au moteur (l'arrêt de la réponse) : conversation du
+    // compte à cet instant.
+    let watch = || {
+        let (store, seen) = (bench.store.clone(), Arc::clone(&seen));
+        *bench.on_engine.lock() = Some(Box::new(move || {
+            let current = tokio::task::block_in_place(|| {
+                store.blocking(|c| saved::account_by_id(c, account))
+            })
+            .unwrap()
+            .unwrap()
+            .chat_id;
+            *seen.lock() = Some(current);
+        }));
+    };
+
+    bench.say("hello");
+    bench.wait_answered(1).await;
+    let first = bench.current_chat().expect("conversation ouverte");
+    watch();
+    bench.say("/new");
+    bench.wait_told("New conversation").await;
+    assert_eq!(seen.lock().take(), Some(None));
+    assert!(bench.erased(&first));
+
+    bench.say("hello again");
+    bench.wait_answered(2).await;
+    let second = bench.current_chat().expect("conversation ouverte");
+    watch();
+    bench.say("/ephemeral off");
+    bench.wait_told("Ephemeral conversations are off").await;
+    assert_eq!(seen.lock().take(), Some(None));
+    assert!(bench.erased(&second));
 }

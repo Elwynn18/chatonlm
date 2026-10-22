@@ -470,6 +470,8 @@
       "unload": "Décharger le modèle de la mémoire",
       "status": "Voir l'état",
       "web": "Activer ou désactiver la recherche web",
+      "ephemeral": "Mode éphémère : conversations hors de l'historique, effacées par /new, /ephemeral off ou à la fermeture de ChatonLM",
+      "keep": "Garder la conversation éphémère en cours dans l'historique",
       "help": "Voir cette liste",
       "discord": "Sur Discord, les commandes s'écrivent aussi avec « ! », par exemple <code>!models</code>.",
       "media": "Vous pouvez aussi envoyer une photo, si le modèle sait voir les images, ou un message vocal : il est transcrit par le modèle de transcription de la dictée que vous avez installé."
@@ -532,6 +534,7 @@
       },
       "actions": {
         "newChat": "Nouvelle conversation",
+        "newEphemeralChat": "Nouvelle conversation éphémère",
         "settings": "Paramètres",
         "quit": "Quitter",
         "zoomIn": "Zoom avant",

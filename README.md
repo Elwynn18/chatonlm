@@ -28,6 +28,10 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
   model supports it. A gauge shows how full the model's context is, and long
   conversations can be compacted, automatically or on demand. A model that
   loops is stopped or flagged.
+- **Ephemeral chats**: click the ghost kitten at the top right (or press
+  Ctrl+Shift+N) for a chat that stays out of your history and is erased as
+  soon as you leave it, or when ChatonLM quits. Keep saves it if you change
+  your mind.
 - **Attachments**: images (for vision models), PDFs, text and code files, added
   with the + button, by drag and drop, or by pasting.
 - **Image generation**: create pictures right in the chat, with the Image
@@ -123,8 +127,8 @@ icon.
   your account with the 6-digit pairing code that ChatonLM shows. Only linked
   accounts are answered; you can link several and unlink them at any time.
 - **Commands**: `/new`, `/stop`, `/models`, `/model`, `/load`, `/unload`,
-  `/status`, `/web on` and `/web off`, `/help` (on Discord, `!models` also
-  works). Models cannot be downloaded or deleted from the bot, and settings
+  `/status`, `/web on` and `/web off`, `/ephemeral on` and `/ephemeral off`,
+  `/keep`, `/help` (on Discord, `!models` also works). Models cannot be downloaded or deleted from the bot, and settings
   cannot be changed.
 - **Photos and voice messages**: a photo goes to a model that can see; a voice
   message is transcribed on your computer by the speech recognition model of
@@ -132,6 +136,9 @@ icon.
 - **Pictures**: ask the bot for a picture, and if the model can use tools and
   an image model is chosen in ChatonLM, the image arrives as a photo.
 - **Web search**, with `/web on`, if your Ollama account is connected.
+- **Ephemeral mode**, with `/ephemeral on`: the bot's conversations stay out
+  of ChatonLM's history and are erased by `/new`, `/ephemeral off` or when
+  ChatonLM quits; `/keep` saves the current one.
 - **ChatonLM must be running** on your computer (it keeps running in the tray
   when you close the window). Nothing is hosted elsewhere, and no port is
   opened on your computer.

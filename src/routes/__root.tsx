@@ -36,7 +36,8 @@
  * until it is finished or skipped, the app under it being inert meanwhile;
  * ChatonLM's own Easy Link (Telegram and Discord bots) is followed here: its
  * state, and the chats the backend creates or changes for a bot, read again
- * by the history and by the page of that chat.
+ * by the history and by the page of that chat; Ctrl+Shift+N opens a new
+ * ephemeral chat (ChatonLM's own, src/lib/ephemeral.ts).
  */
 
 import type { QueryClient } from "@tanstack/react-query";
@@ -62,11 +63,14 @@ import { navigablePath } from "@/lib/dictation";
 import { listenNavigate, proofreadCancelAll } from "@/lib/ipc";
 import { preventPageSelectAll } from "@/lib/keyboard";
 import { allowsNativeMenu } from "@/lib/contextMenu";
+import { setNewChatEphemeral } from "@/lib/ephemeral";
 import { shouldBlockKey, shouldBlockMouse } from "@/lib/navigationGuard";
+import { pendingNewStream } from "@/lib/streams";
 import { overlayOpen } from "@/lib/overlay";
 import { quit } from "@/lib/quit";
 import {
   isNewChatShortcut,
+  isNewEphemeralChatShortcut,
   isQuitShortcut,
   isSettingsShortcut,
   recordingShortcut,
@@ -189,10 +193,18 @@ function RootComponent() {
         return;
       }
       const settings = isSettingsShortcut(event);
-      if (!settings && !isNewChatShortcut(event)) return;
+      const ephemeral = isNewEphemeralChatShortcut(event);
+      if (!settings && !ephemeral && !isNewChatShortcut(event)) return;
       event.preventDefault();
       // Une boîte ou un menu ouvert garde la main (pas de fermeture muette).
       if (overlayOpen()) return;
+      // Ctrl+Maj+N : la nouvelle conversation sera éphémère ; Ctrl+N la
+      // laisse comme elle est. Pas pendant l'envoi du premier message d'une
+      // nouvelle conversation (son mode est déjà décidé).
+      if (ephemeral) {
+        if (pendingNewStream()) return;
+        setNewChatEphemeral(true);
+      }
       void (settings
         ? navigate({ to: "/settings" })
         : navigate({ to: "/c/$chatId", params: { chatId: "new" } }));

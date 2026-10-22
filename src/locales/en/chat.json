@@ -330,5 +330,15 @@
   "adviceWindows": {
     "appStopped": "Ollama is installed, but it isn't running. Click Start Ollama, or open Ollama from the Start menu.",
     "appStarting": "The Ollama app is starting. If this takes more than a few seconds, check its log:"
+  },
+  "ephemeral": {
+    "toggle": "Ephemeral chat",
+    "turnOn": "Start an ephemeral chat",
+    "turnOff": "Turn off ephemeral chat",
+    "newEphemeral": "New ephemeral chat",
+    "keepThis": "Keep this chat",
+    "notice": "Ephemeral chat: it won't appear in your history and will be erased when you open another chat or quit ChatonLM.",
+    "keep": "Keep",
+    "keepFailed": "Couldn't keep this chat: {error}"
   }
 }

@@ -359,6 +359,8 @@ impl<H: Host> EasyLink<H> {
         let accounts = self.0.store.call(|c| saved::accounts(c)).await?;
         for account in accounts.iter().filter(|a| a.platform == platform) {
             self.0.forget_account(account.id);
+            // Sa conversation éphémère ne survit pas au compte.
+            self.0.forget_ephemeral_chat_or_log(account.id).await;
         }
         self.0
             .store
@@ -414,9 +416,11 @@ impl<H: Host> EasyLink<H> {
         self.0.state().await
     }
 
-    /// Délie un compte et arrête sa réponse en cours.
+    /// Délie un compte, arrête sa réponse en cours et efface sa conversation
+    /// éphémère.
     pub async fn unlink(&self, account_id: i64) -> AppResult<EasyLinkState> {
         self.0.forget_account(account_id);
+        self.0.forget_ephemeral_chat_or_log(account_id).await;
         self.0
             .store
             .call(move |c| saved::unlink(c, account_id))
@@ -636,6 +640,39 @@ impl<H: Host> Shared<H> {
             self.staging.unstage(&files);
         }
         self.missed.lock().remove(&account_id);
+    }
+
+    /// Efface la conversation en cours d'un compte si elle est éphémère : le
+    /// compte s'en détache d'abord, puis elle est effacée (voir
+    /// [`Self::erase_chat`]). Vrai si elle l'a été.
+    pub(crate) async fn forget_ephemeral_chat(&self, account_id: i64) -> AppResult<bool> {
+        let chat = self
+            .store
+            .call(move |c| saved::detach_ephemeral(c, account_id))
+            .await?;
+        match chat {
+            Some(chat) => self.erase_chat(account_id, chat).await,
+            None => Ok(false),
+        }
+    }
+
+    /// [`Self::forget_ephemeral_chat`] pour un compte délié : un échec est
+    /// journalisé sans empêcher de délier (la fin de l'app l'effacera).
+    pub(crate) async fn forget_ephemeral_chat_or_log(&self, account_id: i64) {
+        if let Err(error) = self.forget_ephemeral_chat(account_id).await {
+            eprintln!("chatonlm: cannot erase the ephemeral chat of a linked account: {error}");
+        }
+    }
+
+    /// Efface une conversation éphémère déjà détachée de son compte, sa
+    /// réponse arrêtée et finie d'abord (comme la suppression d'une
+    /// conversation). Vrai si elle l'a été.
+    pub(crate) async fn erase_chat(&self, account_id: i64, chat: String) -> AppResult<bool> {
+        self.stop_answer(account_id);
+        self.host.engine().stop_chat(&chat).await;
+        self.store
+            .call(move |c| crate::store::chats::forget(c, &chat))
+            .await
     }
 
     pub(crate) async fn state(&self) -> AppResult<EasyLinkState> {

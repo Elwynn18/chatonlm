@@ -98,6 +98,9 @@ pub struct Account {
     /// Vide : modèle de l'app.
     pub model: String,
     pub web_search: bool,
+    /// Mode éphémère (`/ephemeral on`) : ses nouvelles conversations sont
+    /// éphémères. Jamais montré à la page.
+    pub ephemeral: bool,
 }
 
 /// Les deux bots, Telegram puis Discord.
@@ -209,7 +212,7 @@ pub fn accounts(connection: &Connection) -> AppResult<Vec<EasyLinkAccount>> {
     .collect()
 }
 
-const ACCOUNT_COLUMNS: &str = "id, platform, user_id, name, chat_id, model, web_search";
+const ACCOUNT_COLUMNS: &str = "id, platform, user_id, name, chat_id, model, web_search, ephemeral";
 
 fn read_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Account, String)> {
     let platform: String = row.get(1)?;
@@ -223,6 +226,7 @@ fn read_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Account, String)> 
             chat_id: row.get(4)?,
             model: row.get(5)?,
             web_search: row.get(6)?,
+            ephemeral: row.get(7)?,
         },
         platform,
     ))
@@ -325,6 +329,52 @@ pub fn set_web_search(connection: &Connection, id: i64, enabled: bool) -> AppRes
     Ok(())
 }
 
+pub fn set_ephemeral(connection: &Connection, id: i64, enabled: bool) -> AppResult<()> {
+    connection.execute(
+        "UPDATE easy_link_accounts SET ephemeral = ?2 WHERE id = ?1",
+        params![id, enabled],
+    )?;
+    Ok(())
+}
+
+/// Conversation en cours d'un compte si elle est éphémère.
+pub fn ephemeral_chat(connection: &Connection, id: i64) -> AppResult<Option<String>> {
+    Ok(connection
+        .query_row(
+            "SELECT chats.id FROM easy_link_accounts
+             JOIN chats ON chats.id = easy_link_accounts.chat_id
+             WHERE easy_link_accounts.id = ?1 AND chats.ephemeral = 1",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
+/// Détache la conversation en cours d'un compte si elle est éphémère, et la
+/// rend, à effacer par l'appelant : un message arrivé ensuite en ouvre une
+/// autre au lieu de partir dans celle qui va être effacée.
+pub fn detach_ephemeral(connection: &Connection, id: i64) -> AppResult<Option<String>> {
+    let chat = ephemeral_chat(connection, id)?;
+    if chat.is_some() {
+        set_chat(connection, id, None)?;
+    }
+    Ok(chat)
+}
+
+/// Rattache au compte la conversation que sa réponse vient d'ouvrir, s'il
+/// n'en a pas d'autre et que son mode éphémère est encore celui de la
+/// conversation : `/ephemeral`, passé entre la lecture du compte et
+/// l'ouverture, a pu le changer. Vrai si elle l'est.
+pub fn attach_chat(connection: &Connection, id: i64, chat_id: &str) -> AppResult<bool> {
+    let attached = connection.execute(
+        "UPDATE easy_link_accounts SET chat_id = ?2
+         WHERE id = ?1 AND chat_id IS NULL
+           AND ephemeral = (SELECT ephemeral FROM chats WHERE id = ?2)",
+        params![id, chat_id],
+    )?;
+    Ok(attached > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,6 +471,86 @@ mod tests {
                 );
                 chats::delete(c, &chat)?;
                 assert_eq!(account_by_id(c, account.id)?.unwrap().chat_id, None);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn the_ephemeral_mode_is_kept_and_only_an_ephemeral_chat_is_found() {
+        let store = store();
+        store
+            .blocking(|c| {
+                let account = link(c, Platform::Telegram, "7", "Ana", 10)?;
+                assert!(!account.ephemeral);
+                set_ephemeral(c, account.id, true)?;
+                // Gardé d'une liaison à l'autre, comme les autres choix.
+                assert!(link(c, Platform::Telegram, "7", "Ana", 11)?.ephemeral);
+                assert_eq!(ephemeral_chat(c, account.id)?, None);
+                let ordinary = chats::create(c, 20)?;
+                set_chat(c, account.id, Some(&ordinary))?;
+                assert_eq!(ephemeral_chat(c, account.id)?, None);
+                let ephemeral = chats::create_with(c, 21, true)?;
+                set_chat(c, account.id, Some(&ephemeral))?;
+                assert_eq!(ephemeral_chat(c, account.id)?, Some(ephemeral.clone()));
+                // Effacée : le compte n'a plus de conversation.
+                assert!(chats::forget(c, &ephemeral)?);
+                assert_eq!(account_by_id(c, account.id)?.unwrap().chat_id, None);
+                set_ephemeral(c, account.id, false)?;
+                assert!(!account_by_id(c, account.id)?.unwrap().ephemeral);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn an_ephemeral_chat_is_detached_before_it_is_erased() {
+        let store = store();
+        store
+            .blocking(|c| {
+                let account = link(c, Platform::Telegram, "7", "Ana", 10)?;
+                let ordinary = chats::create(c, 20)?;
+                set_chat(c, account.id, Some(&ordinary))?;
+                // Une conversation ordinaire reste rattachée.
+                assert_eq!(detach_ephemeral(c, account.id)?, None);
+                assert_eq!(
+                    account_by_id(c, account.id)?.unwrap().chat_id.as_deref(),
+                    Some(ordinary.as_str())
+                );
+                let ephemeral = chats::create_with(c, 21, true)?;
+                set_chat(c, account.id, Some(&ephemeral))?;
+                assert_eq!(detach_ephemeral(c, account.id)?, Some(ephemeral.clone()));
+                // Détachée, pas encore effacée.
+                assert_eq!(account_by_id(c, account.id)?.unwrap().chat_id, None);
+                assert!(chats::is_ephemeral(c, &ephemeral)?);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn a_new_chat_is_attached_only_if_it_matches_the_mode() {
+        let store = store();
+        store
+            .blocking(|c| {
+                let account = link(c, Platform::Telegram, "7", "Ana", 10)?;
+                let ordinary = chats::create(c, 20)?;
+                let ephemeral = chats::create_with(c, 21, true)?;
+                // Mode coupé : une conversation éphémère n'est pas rattachée.
+                assert!(!attach_chat(c, account.id, &ephemeral)?);
+                assert!(attach_chat(c, account.id, &ordinary)?);
+                // Déjà rattaché : rien ne change.
+                let other = chats::create(c, 22)?;
+                assert!(!attach_chat(c, account.id, &other)?);
+                set_chat(c, account.id, None)?;
+                set_ephemeral(c, account.id, true)?;
+                // Mode actif : seulement une conversation éphémère.
+                assert!(!attach_chat(c, account.id, &other)?);
+                assert!(attach_chat(c, account.id, &ephemeral)?);
+                assert_eq!(
+                    account_by_id(c, account.id)?.unwrap().chat_id.as_deref(),
+                    Some(ephemeral.as_str())
+                );
                 Ok(())
             })
             .unwrap();

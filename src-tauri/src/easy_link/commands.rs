@@ -20,6 +20,10 @@ pub enum Command {
     Status,
     /// Recherche web ; sans argument : la dit. `Err` : argument incompris.
     Web(Result<Option<bool>, String>),
+    /// Mode éphémère ; sans argument : le dit. `Err` : argument incompris.
+    Ephemeral(Result<Option<bool>, String>),
+    /// Garde la conversation éphémère en cours dans l'historique.
+    Keep,
     /// Délie ce compte.
     Unlink,
     /// `/nom` inconnu.
@@ -54,19 +58,26 @@ pub fn parse(text: &str) -> Option<Command> {
         "load" => Command::Load(argument),
         "unload" => Command::Unload(argument),
         "status" => Command::Status,
-        "web" | "search" => Command::Web(match argument.as_deref() {
-            None => Ok(None),
-            Some(value) => match value.to_ascii_lowercase().as_str() {
-                "on" | "1" | "yes" | "true" => Ok(Some(true)),
-                "off" | "0" | "no" | "false" => Ok(Some(false)),
-                _ => Err(value.to_owned()),
-            },
-        }),
+        "web" | "search" => Command::Web(switch(argument.as_deref())),
+        "ephemeral" => Command::Ephemeral(switch(argument.as_deref())),
+        "keep" => Command::Keep,
         "unlink" => Command::Unlink,
         _ if bang => return None,
         other => Command::Unknown(other.to_owned()),
     };
     Some(command)
+}
+
+/// Argument d'un réglage à deux états : absent, on, off ; `Err` : incompris.
+fn switch(argument: Option<&str>) -> Result<Option<bool>, String> {
+    match argument {
+        None => Ok(None),
+        Some(value) => match value.to_ascii_lowercase().as_str() {
+            "on" | "1" | "yes" | "true" => Ok(Some(true)),
+            "off" | "0" | "no" | "false" => Ok(Some(false)),
+            _ => Err(value.to_owned()),
+        },
+    }
 }
 
 #[cfg(test)]
@@ -94,7 +105,32 @@ mod tests {
             );
             assert_eq!(parse("status"), Some(Command::Status));
             assert_eq!(parse("unlink"), Some(Command::Unlink));
+            assert_eq!(parse("keep"), Some(Command::Keep));
+            assert_eq!(parse("ephemeral"), Some(Command::Ephemeral(Ok(None))));
         }
+    }
+
+    #[test]
+    fn ephemeral_mode_reads_on_and_off() {
+        assert_eq!(
+            parse("/ephemeral on"),
+            Some(Command::Ephemeral(Ok(Some(true))))
+        );
+        assert_eq!(
+            parse("!ephemeral OFF"),
+            Some(Command::Ephemeral(Ok(Some(false))))
+        );
+        assert_eq!(
+            parse("/ephemeral@chaton_bot yes"),
+            Some(Command::Ephemeral(Ok(Some(true))))
+        );
+        assert_eq!(
+            parse("/ephemeral xyz"),
+            Some(Command::Ephemeral(Err("xyz".into())))
+        );
+        assert_eq!(parse("!keep"), Some(Command::Keep));
+        // Mot inconnu après « ! » : du texte pour le modèle.
+        assert_eq!(parse("!ephemerals"), None);
     }
 
     #[test]

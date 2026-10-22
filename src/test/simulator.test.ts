@@ -527,6 +527,7 @@ describe("recorded sequences", () => {
       "loop-stopped",
       "model-error",
       "model-missing",
+      "new-chat-ephemeral",
       "new-chat-thinking",
       "refused-edit-unknown-message",
       "refused-empty",

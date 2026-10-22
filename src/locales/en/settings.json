@@ -470,6 +470,8 @@
       "unload": "Unload the model from memory",
       "status": "Show the status",
       "web": "Turn web search on or off",
+      "ephemeral": "Ephemeral mode: chats kept out of the history, erased by /new, /ephemeral off or when ChatonLM quits",
+      "keep": "Keep the current ephemeral chat in the history",
       "help": "Show this list",
       "discord": "On Discord, commands can also start with “!”, for example <code>!models</code>.",
       "media": "You can also send a photo, if the model can see images, or a voice message: it is transcribed by the speech model of dictation you have installed."
@@ -532,6 +534,7 @@
       },
       "actions": {
         "newChat": "New chat",
+        "newEphemeralChat": "New ephemeral chat",
         "settings": "Settings",
         "quit": "Quit",
         "zoomIn": "Zoom in",

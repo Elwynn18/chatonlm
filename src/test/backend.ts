@@ -246,11 +246,13 @@ type FakeEntry = FakeFile | { error: string };
  */
 export type StoredChat = Omit<
   Chat,
-  "context" | "compactions" | "replyRunning"
+  "context" | "compactions" | "replyRunning" | "ephemeral"
 > & {
   context?: ContextUsage | null;
   compactions?: Compaction[];
   replyRunning?: number | null;
+  /** Conversation éphémère (absente : non). */
+  ephemeral?: boolean;
   favorite?: boolean;
   source?: EasyLinkPlatform | null;
 };
@@ -683,6 +685,7 @@ export function fakeBackend(
       const context = {
         chatId: sequence.request.chatId ?? null,
         model: sequence.request.model,
+        ephemeral: sequence.request.ephemeral === true,
       };
       for (const event of sequence.events) {
         if (event.type === "chatCreated") context.chatId = event.chatId;
@@ -743,7 +746,11 @@ export function fakeBackend(
   /** Applique un événement à la base, comme le moteur l'a enregistré. */
   function apply(
     event: ChatEvent,
-    { chatId, model }: { chatId: string | null; model: string },
+    {
+      chatId,
+      model,
+      ephemeral = false,
+    }: { chatId: string | null; model: string; ephemeral?: boolean },
     now: number,
   ) {
     if (event.type === "download") {
@@ -760,6 +767,7 @@ export function fakeBackend(
         createdAt: now,
         updatedAt: now,
         messages: [],
+        ...(ephemeral && { ephemeral }),
       });
       return;
     }
@@ -849,7 +857,11 @@ export function fakeBackend(
     }
     apply(
       event,
-      { chatId: replay.chatId, model: replay.request?.model ?? "" },
+      {
+        chatId: replay.chatId,
+        model: replay.request?.model ?? "",
+        ephemeral: replay.request?.ephemeral === true,
+      },
       Date.now(),
     );
   });
@@ -1214,6 +1226,7 @@ export function fakeBackend(
       context: chat.context ?? null,
       compactions: chat.compactions ?? [],
       replyRunning: chat.replyRunning ?? null,
+      ephemeral: chat.ephemeral ?? false,
     };
   });
   // Compactage manuel : tout ce qui suit le dernier compactage, résumé par
@@ -1243,6 +1256,7 @@ export function fakeBackend(
   });
   simulator.handle("list_chats", (): ChatInfo[] =>
     [...backend.chats.values()]
+      .filter((chat) => chat.ephemeral !== true)
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map((chat) => ({
         id: chat.id,
@@ -1263,6 +1277,22 @@ export function fakeBackend(
       throw { kind: "notFound", message: `chat not found: ${args.id}` };
     }
     chat.favorite = args.favorite as boolean;
+    return null;
+  });
+
+  // Conversation éphémère quittée : effacée seulement si elle l'est encore.
+  simulator.handle("forget_chat", (args: Args) => {
+    const chat = backend.chats.get(args.id as string);
+    if (chat?.ephemeral === true) backend.chats.delete(chat.id);
+    return null;
+  });
+
+  simulator.handle("keep_chat", (args: Args) => {
+    const chat = backend.chats.get(args.id as string);
+    if (!chat) {
+      throw { kind: "notFound", message: `chat not found: ${args.id}` };
+    }
+    delete chat.ephemeral;
     return null;
   });
 

@@ -18,4 +18,9 @@ compactions: Array<Compaction>,
  * (identifiant du message vivant), superposée par le moteur ; la page
  * n'a pas de flux pour elle (propre à ChatonLM).
  */
-replyRunning: number | null, };
+replyRunning: number | null, 
+/**
+ * Conversation éphémère (propre à ChatonLM) : absente de l'historique,
+ * effacée quand on la quitte ; `keep` la fait passer dans l'historique.
+ */
+ephemeral: boolean, };

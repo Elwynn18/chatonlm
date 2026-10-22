@@ -189,6 +189,7 @@ describe("Chat", () => {
           context: null,
           compactions: [],
           replyRunning: null,
+          ephemeral: false,
           messages: [
             message(1, "user", "Hi"),
             message(2, "assistant", "Hello"),
@@ -237,6 +238,7 @@ describe("editing a message", () => {
     context: null,
     compactions: [],
     replyRunning: null,
+    ephemeral: false,
     messages: [
       message(1, "user", "First"),
       message(2, "assistant", "Ok"),

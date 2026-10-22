@@ -330,5 +330,15 @@
   "adviceWindows": {
     "appStopped": "Ollama está instalado, pero no se está ejecutando. Haz clic en Iniciar Ollama o abre Ollama desde el menú Inicio.",
     "appStarting": "La aplicación de Ollama se está iniciando. Si tarda más de unos segundos, consulta su registro:"
+  },
+  "ephemeral": {
+    "toggle": "Chat efímero",
+    "turnOn": "Iniciar un chat efímero",
+    "turnOff": "Desactivar el chat efímero",
+    "newEphemeral": "Nuevo chat efímero",
+    "keepThis": "Conservar este chat",
+    "notice": "Chat efímero: no aparecerá en tu historial y se borrará cuando abras otro chat o cierres ChatonLM.",
+    "keep": "Conservar",
+    "keepFailed": "No se pudo conservar este chat: {error}"
   }
 }

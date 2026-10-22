@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isCorrectShortcut,
   isNewChatShortcut,
+  isNewEphemeralChatShortcut,
   isQuitShortcut,
   isRephraseShortcut,
   isSendShortcut,
@@ -90,6 +91,8 @@ describe("isNewChatShortcut", () => {
     const refused: KeyboardEventInit[] = [
       { key: "n" },
       { key: "N", ctrlKey: true, shiftKey: true },
+      // Ctrl+Maj+N avec le verrouillage des majuscules.
+      { key: "n", ctrlKey: true, shiftKey: true },
       { key: "n", ctrlKey: true, altKey: true },
       { key: "n", ctrlKey: true, metaKey: true },
       { key: "n", ctrlKey: true, repeat: true },
@@ -98,6 +101,35 @@ describe("isNewChatShortcut", () => {
     ];
     for (const init of refused) {
       expect(isNewChatShortcut(key(init)), JSON.stringify(init)).toBe(false);
+    }
+  });
+});
+
+describe("isNewEphemeralChatShortcut", () => {
+  it("accepts Ctrl+Shift+N, also with Caps Lock", () => {
+    for (const k of ["N", "n"]) {
+      expect(
+        isNewEphemeralChatShortcut(
+          key({ key: k, ctrlKey: true, shiftKey: true }),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("refuses Ctrl+N, other modifiers, repeats and other keys", () => {
+    const refused: KeyboardEventInit[] = [
+      { key: "n", ctrlKey: true },
+      { key: "N", shiftKey: true },
+      { key: "N", ctrlKey: true, shiftKey: true, altKey: true },
+      { key: "N", ctrlKey: true, shiftKey: true, metaKey: true },
+      { key: "N", ctrlKey: true, shiftKey: true, repeat: true },
+      { key: "N", ctrlKey: true, shiftKey: true, isComposing: true },
+      { key: "M", ctrlKey: true, shiftKey: true },
+    ];
+    for (const init of refused) {
+      expect(isNewEphemeralChatShortcut(key(init)), JSON.stringify(init)).toBe(
+        false,
+      );
     }
   });
 });

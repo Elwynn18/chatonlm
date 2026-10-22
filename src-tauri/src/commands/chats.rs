@@ -55,10 +55,64 @@ pub async fn delete_chat(
     voice_mode: State<'_, crate::voice_mode::VoiceMode>,
     id: String,
 ) -> AppResult<()> {
-    voice_mode.chat_deleted(&id);
-    engine.stop_chat(&id).await;
-    // Lecture à voix haute d'une réponse de cette conversation : arrêtée.
+    stop_work(&store, &engine, &read_aloud, &voice_mode, &id).await?;
+    store
+        .call(move |connection| chats::delete(connection, &id))
+        .await
+}
+
+/// Conversation éphémère quittée (propre à ChatonLM) : effacée comme par
+/// `delete_chat`, seulement si elle est toujours éphémère (une conversation
+/// gardée entre-temps, ou ordinaire, reste) ; rien pour une conversation
+/// inconnue.
+#[tauri::command]
+pub async fn forget_chat(
+    store: State<'_, Store>,
+    engine: State<'_, ChatEngine>,
+    read_aloud: State<'_, crate::tts::ReadAloud>,
+    voice_mode: State<'_, crate::voice_mode::VoiceMode>,
+    id: String,
+) -> AppResult<()> {
     let chat = id.clone();
+    let ephemeral = store
+        .call(
+            move |connection| match chats::is_ephemeral(connection, &chat) {
+                Err(crate::error::AppError::NotFound(_)) => Ok(false),
+                result => result,
+            },
+        )
+        .await?;
+    if !ephemeral {
+        return Ok(());
+    }
+    stop_work(&store, &engine, &read_aloud, &voice_mode, &id).await?;
+    store
+        .call(move |connection| chats::forget(connection, &id).map(|_| ()))
+        .await
+}
+
+/// « Keep » d'une conversation éphémère (propre à ChatonLM) : elle passe dans
+/// l'historique.
+#[tauri::command]
+pub async fn keep_chat(store: State<'_, Store>, id: String) -> AppResult<()> {
+    store
+        .call(move |connection| chats::keep(connection, &id))
+        .await
+}
+
+/// Arrête ce qui touche une conversation avant de l'effacer : la séance du
+/// mode vocal qui s'y tient, sa réponse en cours, la lecture à voix haute
+/// d'une de ses réponses.
+async fn stop_work(
+    store: &Store,
+    engine: &ChatEngine,
+    read_aloud: &crate::tts::ReadAloud,
+    voice_mode: &crate::voice_mode::VoiceMode,
+    id: &str,
+) -> AppResult<()> {
+    voice_mode.chat_deleted(id);
+    engine.stop_chat(id).await;
+    let chat = id.to_owned();
     let messages: Vec<i64> = store
         .call(move |connection| {
             Ok(chats::get(connection, &chat)
@@ -67,9 +121,7 @@ pub async fn delete_chat(
         })
         .await?;
     read_aloud.stop_if_reading(&messages);
-    store
-        .call(move |connection| chats::delete(connection, &id))
-        .await
+    Ok(())
 }
 
 /// Envoie un message ; la réponse arrive par `on_event`, et la commande se
