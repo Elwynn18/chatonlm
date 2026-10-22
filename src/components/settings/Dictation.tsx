@@ -4,7 +4,8 @@
 // à lier soi-même quand le portail manque, ou, sous Windows, saisie de la
 // combinaison dans l'app : ShortcutRecorder.tsx ; bascule ou push-to-talk),
 // « Transcription » (modèle, langue, dictionnaire, copie automatique dans le
-// presse-papiers), « Polish » (modèle et
+// presse-papiers, puis collage là où se trouve le curseur, activé par défaut
+// et grisé sans la copie), « Polish » (modèle et
 // consignes du nettoyage), « Notifications » (texte dans les notifications),
 // puis l'essai depuis la page et le dernier résultat.
 // Chaque changement est enregistré aussitôt (« Saved » de la page, erreur
@@ -25,6 +26,7 @@ import {
   ArrowPathIcon,
   BellIcon,
   BookOpenIcon,
+  ClipboardDocumentCheckIcon,
   ClipboardDocumentIcon,
   CommandLineIcon,
   HandRaisedIcon,
@@ -79,6 +81,7 @@ import {
 } from "@/lib/dictation";
 import { errorMessage } from "@/lib/ipc";
 import { sameModel } from "@/lib/modelNames";
+import { isWindows } from "@/lib/platform";
 import { onBeforeQuit } from "@/lib/quit";
 
 /** Bascule ou push-to-talk, dans la langue de `t`. */
@@ -180,6 +183,8 @@ export function Dictation({
     notifyDescription: useId(),
     autoCopy: useId(),
     autoCopyDescription: useId(),
+    autoPaste: useId(),
+    autoPasteDescription: useId(),
     transcription: useId(),
     polish: useId(),
     notifications: useId(),
@@ -521,6 +526,39 @@ export function Dictation({
               checked={settings.autoCopy}
               describedBy={ids.autoCopyDescription}
               onChange={(autoCopy) => void save("autoCopy", { autoCopy })}
+            />
+          </div>
+
+          <div className="flex items-start justify-between gap-4">
+            <Row
+              icon={ClipboardDocumentCheckIcon}
+              label={
+                <span id={ids.autoPaste}>
+                  {t("dictation.transcription.autoPaste.label")}
+                </span>
+              }
+              description={
+                <>
+                  {t("dictation.transcription.autoPaste.description")}
+                  {/* Linux : le bureau demande une fois l'autorisation
+                      d'envoyer la touche (portail RemoteDesktop). */}
+                  {!isWindows() && (
+                    <> {t("dictation.transcription.autoPaste.askHint")}</>
+                  )}
+                </>
+              }
+              descriptionId={ids.autoPasteDescription}
+            >
+              <RowError message={errors.autoPaste} />
+            </Row>
+            {/* Sans la copie automatique, le presse-papiers n'a pas le
+                texte : rien à coller. */}
+            <Switch
+              label={t("dictation.transcription.autoPaste.label")}
+              checked={settings.autoPaste}
+              describedBy={ids.autoPasteDescription}
+              disabled={!settings.autoCopy}
+              onChange={(autoPaste) => void save("autoPaste", { autoPaste })}
             />
           </div>
         </Card>
@@ -1281,7 +1319,9 @@ function LastResult({
             <CopyLast />
             {result.copied && (
               <span className="text-green-700 dark:text-green-400">
-                {t("dictation.lastResult.copied")}
+                {result.pasted
+                  ? t("dictation.lastResult.pasted")
+                  : t("dictation.lastResult.copied")}
               </span>
             )}
             {copyFailed && (
@@ -1304,6 +1344,11 @@ function LastResult({
               }`}
             >
               {error}
+            </p>
+          )}
+          {result.pasteError && (
+            <p className="mt-1 text-xs break-words text-amber-700 dark:text-amber-400">
+              {result.pasteError}
             </p>
           )}
         </>

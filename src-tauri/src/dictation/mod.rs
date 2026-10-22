@@ -7,8 +7,11 @@
 //! par `chatonlm --dictate` et par la page (réglages).
 //!
 //! Machine d'états : Idle → Recording → Transcribing → (Polishing) → Idle.
-//! Le texte est copié dans le presse-papiers à la fin, sauf si la copie
-//! automatique est coupée : la notification propose alors « Copy », et la
+//! Le texte est copié dans le presse-papiers à la fin, puis collé là où se
+//! trouve le curseur (réglage `auto_paste`, activé par défaut : Ctrl+V envoyé
+//! à l'application au premier plan par [`Clipboard::paste`] ; échec : la
+//! notification dit de coller par Ctrl+V), sauf si la copie automatique est
+//! coupée : rien n'est collé, la notification propose alors « Copy », et la
 //! page `dictation_copy_last`.
 //! `toggle`, `start`, `stop` et `cancel` sont idempotents ; pendant
 //! Transcribing et Polishing, `start` et `toggle` sont ignorés. Les réglages
@@ -44,7 +47,7 @@ use tokio::sync::{oneshot, watch};
 use ts_rs::TS;
 
 use audio::Microphone;
-use clipboard::{BoxFuture, Clipboard};
+use clipboard::{BoxFuture, Clipboard, PasteError};
 use engine::{Engine, ModelSpec, Request};
 use models::SpeechEngine;
 use notify::{Notice, Notifier, Offer, Title};
@@ -98,6 +101,11 @@ pub struct DictationResult {
     /// `error` est l'échec de la copie automatique (pas un texte laissé à
     /// copier parce qu'elle est coupée).
     pub copy_failed: bool,
+    /// `text` a été collé là où se trouvait le curseur.
+    pub pasted: bool,
+    /// Pourquoi le collage automatique n'a pas eu lieu (le texte reste dans
+    /// le presse-papiers) ; `None` s'il a réussi ou n'était pas demandé.
+    pub paste_error: Option<String>,
 }
 
 impl DictationResult {
@@ -111,6 +119,8 @@ impl DictationResult {
             copied: false,
             error: Some(reason),
             copy_failed: false,
+            pasted: false,
+            paste_error: None,
         }
     }
 }
@@ -153,6 +163,8 @@ impl DictationInfo {
 pub struct Dictation {
     core: Arc<Core>,
     notifier: Arc<notify::DesktopNotifier>,
+    /// Le vrai presse-papiers de `core` (fichier de l'autorisation de coller).
+    clipboard: Arc<clipboard::SystemClipboard>,
 }
 
 impl Default for Dictation {
@@ -164,10 +176,11 @@ impl Default for Dictation {
 impl Dictation {
     pub fn new() -> Self {
         let notifier = Arc::new(notify::DesktopNotifier::default());
+        let clipboard = Arc::new(clipboard::SystemClipboard::default());
         let services = Services {
             microphone: microphone(),
             engine: Engine::new(),
-            clipboard: Arc::new(clipboard::SystemClipboard::default()),
+            clipboard: clipboard.clone(),
             notifier: notifier.clone(),
             max_recording: audio::MAX_DURATION,
             support: engine_support,
@@ -175,12 +188,18 @@ impl Dictation {
         Self {
             core: Arc::new(Core::new(services)),
             notifier,
+            clipboard,
         }
     }
 
     /// Démarrage de l'app : identité des notifications et icône écrite sur le
-    /// disque (une fois, ou si elle a changé).
+    /// disque (une fois, ou si elle a changé) ; fichier de l'autorisation de
+    /// coller (commun avec la correction).
     pub fn setup(&self, app: &AppHandle) {
+        if let Ok(data) = crate::paths::data_dir(app) {
+            self.clipboard
+                .set_paste_token_file(data.join(clipboard::PASTE_TOKEN_FILE));
+        }
         // ONNX Runtime de Parakeet, installé par les paquets avec les
         // ressources ; chargé seulement à la première demande.
         if let Ok(resources) = app.path().resource_dir() {
@@ -245,6 +264,13 @@ impl Dictation {
     /// nettoyage.
     pub fn toggle(&self, app: &AppHandle) {
         self.core.toggle(host(app));
+    }
+
+    /// [`Self::toggle`] depuis la page (« Try dictation ») : une dictée
+    /// commencée ainsi n'est jamais collée (le curseur est dans ChatonLM, sur
+    /// le bouton) ; son texte se lit sous « Last dictation ».
+    pub fn toggle_from_page(&self, app: &AppHandle) {
+        self.core.toggle_from(host(app), Origin::Page);
     }
 
     /// Commence l'enregistrement ; sans effet si une dictée est en cours.
@@ -493,6 +519,14 @@ enum Stage {
     Processing,
 }
 
+/// D'où vient une dictée : du bureau (raccourci, zone de notification,
+/// `--dictate`) ou de la page de ChatonLM.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Origin {
+    Desktop,
+    Page,
+}
+
 /// Échec de `dictation_copy_last`.
 #[derive(Debug, PartialEq, Eq)]
 enum CopyError {
@@ -522,15 +556,23 @@ impl Core {
     }
 
     fn toggle(self: &Arc<Self>, host: Arc<dyn Host>) {
+        self.toggle_from(host, Origin::Desktop);
+    }
+
+    fn toggle_from(self: &Arc<Self>, host: Arc<dyn Host>, origin: Origin) {
         let stage = self.inner.lock().stage;
         match stage {
-            Stage::Idle => self.start(host),
+            Stage::Idle => self.start_from(host, origin),
             Stage::Recording => self.stop(),
             Stage::Processing => {}
         }
     }
 
     fn start(self: &Arc<Self>, host: Arc<dyn Host>) {
+        self.start_from(host, Origin::Desktop);
+    }
+
+    fn start_from(self: &Arc<Self>, host: Arc<dyn Host>, origin: Origin) {
         let mut inner = self.inner.lock();
         if inner.closed || inner.stage != Stage::Idle {
             return;
@@ -559,7 +601,7 @@ impl Core {
         let core = self.clone();
         let task_host = host.clone();
         inner.task = Some(tauri::async_runtime::spawn(async move {
-            core.run(task_host, session, stopped, abort).await;
+            core.run(task_host, session, stopped, abort, origin).await;
         }));
         self.phase.send_replace(DictationPhase::Recording);
         drop(inner);
@@ -629,8 +671,9 @@ impl Core {
         session: u64,
         stopped: oneshot::Receiver<()>,
         abort: Arc<AtomicBool>,
+        origin: Origin,
     ) {
-        let end = self.dictate(&host, session, stopped, abort).await;
+        let end = self.dictate(&host, session, stopped, abort, origin).await;
         if self.finish(session, end) {
             host.changed(DictationPhase::Idle);
         }
@@ -671,6 +714,7 @@ impl Core {
         session: u64,
         mut stopped: oneshot::Receiver<()>,
         abort: Arc<AtomicBool>,
+        origin: Origin,
     ) -> End {
         let prepared = match host.prepare().await {
             Ok(prepared) => prepared,
@@ -785,10 +829,27 @@ impl Core {
 
         let raw_copy = polishing && !polished;
         let mut copy_failed = false;
+        let mut pasted = false;
+        let mut paste_error = None;
         let (title, copied) = if settings.auto_copy {
             match self.services.clipboard.copy(text.clone()).await {
-                Ok(()) if raw_copy => (Title::CopiedRaw, true),
-                Ok(()) => (Title::Copied, true),
+                Ok(()) => {
+                    // Collé là où se trouve le curseur ; sinon le texte reste
+                    // dans le presse-papiers et la raison est dite.
+                    if settings.auto_paste && origin == Origin::Desktop {
+                        match self.paste().await {
+                            Ok(()) => pasted = true,
+                            Err(error) => paste_error = Some(error.explain()),
+                        }
+                    }
+                    let title = match (pasted, raw_copy) {
+                        (true, true) => Title::PastedRaw,
+                        (true, false) => Title::Pasted,
+                        (false, true) => Title::CopiedRaw,
+                        (false, false) => Title::Copied,
+                    };
+                    (title, true)
+                }
                 Err(reason) => {
                     error = Some(copy_error(&reason));
                     copy_failed = true;
@@ -801,11 +862,15 @@ impl Core {
         } else {
             (Title::Ready, false)
         };
-        let body = match &error {
+        let mut body = match &error {
             Some(reason) if title == Title::NotCopied => notify::escape(reason),
             _ if !settings.notify_text => notify::text_hidden(),
             _ => notify::preview(&text),
         };
+        if let Some(reason) = &paste_error {
+            body.push_str("\n\n");
+            body.push_str(&notify::escape(reason));
+        }
         let mut notice = Notice::last(title, body);
         if !settings.auto_copy {
             notice = notice.offering(Offer {
@@ -822,6 +887,8 @@ impl Core {
                 copied,
                 error,
                 copy_failed,
+                pasted,
+                paste_error,
             },
             notice,
         }
@@ -856,6 +923,17 @@ impl Core {
 }
 
 impl Core {
+    /// Colle le presse-papiers (Ctrl+V) dans une tâche à part : une dictée
+    /// abandonnée pendant le collage (boîte d'autorisation du bureau
+    /// ouverte) ne l'interrompt pas, et la session du portail est toujours
+    /// fermée.
+    async fn paste(&self) -> Result<(), PasteError> {
+        let clipboard = self.services.clipboard.clone();
+        tauri::async_runtime::spawn(async move { clipboard.paste().await })
+            .await
+            .map_err(|error| PasteError::Other(error.to_string()))?
+    }
+
     /// Copie le texte d'un résultat (action « Copy ») ; vrai si c'est encore
     /// le dernier résultat, désormais copié.
     async fn copy_offer(&self, offer: Offer) -> Result<bool, String> {

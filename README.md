@@ -57,8 +57,8 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
   need a paid Ollama plan, shown next to their name.
 - **Dictation**: press a global shortcut and speak in any app. Speech is
   transcribed on your computer by Parakeet (25 European languages) or Whisper
-  (99 languages), optionally cleaned up by an Ollama model, and copied to the
-  clipboard.
+  (99 languages), optionally cleaned up by an Ollama model, copied to the
+  clipboard and pasted where your cursor is.
 - **Read aloud and voice mode**: answers can be read aloud by a natural voice
   (English, French or Spanish), and in [voice mode](#voice-mode) you talk
   with the model hands-free: ChatonLM transcribes what you say, sends it, reads
@@ -221,12 +221,13 @@ sudo apt install ./chatonlm_*_amd64.deb
   Plasma 6 or GNOME 48 and later; on other desktops, bind
   `chatonlm --dictate` and `chatonlm --proofread` to keys in your desktop's
   own shortcut settings.
-- **Replacing the selected text** after a correction. On Linux, ChatonLM
-  sends the paste keystroke through the desktop's RemoteDesktop portal (KDE
-  Plasma, GNOME), which asks for your permission the first time; on other
-  desktops the corrected text is copied, and you paste it with Ctrl+V. On
-  Windows, it can't reach an app started as administrator. Turn it off in
-  Settings › Keyboard shortcuts to only copy the corrected text.
+- **Pasting for you**: the dictated text where your cursor is, the corrected
+  text over the selection. On Linux, ChatonLM sends the paste keystroke
+  through the desktop's RemoteDesktop portal (KDE Plasma, GNOME), which asks
+  for your permission the first time; on other desktops the text is copied,
+  and you paste it with Ctrl+V. On Windows, it can't reach an app started as
+  administrator. Turn it off in Settings › Dictation or Settings › Keyboard
+  shortcuts to only copy the text.
 - **Tray icon**: the notification area on Windows; on Linux, built into KDE
   Plasma and most desktops, while GNOME needs the AppIndicator extension.
   Without a tray, closing the window quits ChatonLM.

@@ -1142,6 +1142,69 @@ describe("Dictation without automatic copy", () => {
     );
   });
 
+  it("Paste where the cursor is: on by default, saved, greyed out without automatic copy", async () => {
+    const { simulator } = setup(ready());
+    const element = await card();
+    const toggle = within(element).getByRole("switch", {
+      name: "Paste where the cursor is",
+    });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(toggle.hasAttribute("disabled")).toBe(false);
+    expect(
+      document.getElementById(toggle.getAttribute("aria-describedby")!)
+        ?.textContent,
+    ).toBe(
+      "ChatonLM pastes the text into the app you are typing in, right after copying it. Needs automatic copy. The first time, your desktop asks to let ChatonLM send the paste keystroke.",
+    );
+    await userEvent.click(toggle);
+    expect(patches(simulator)).toEqual([{ autoPaste: false }]);
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("false"),
+    );
+    await userEvent.click(toggle);
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("true"),
+    );
+    // Sans la copie automatique : grisé, rien d'enregistré au clic.
+    await userEvent.click(
+      within(element).getByRole("switch", {
+        name: "Copy to clipboard automatically",
+      }),
+    );
+    await waitFor(() => expect(toggle.hasAttribute("disabled")).toBe(true));
+    await userEvent.click(toggle);
+    expect(patches(simulator)).toEqual([
+      { autoPaste: false },
+      { autoPaste: true },
+      { autoCopy: false },
+    ]);
+  });
+
+  it("a pasted dictation says so; a failed paste says why", async () => {
+    const { dictation } = setup(ready());
+    const element = await card();
+    await dictation.complete({
+      text: "Hello world.",
+      raw: "hello world",
+      polished: true,
+      pasted: true,
+    });
+    const last = await within(element).findByTestId("last-dictation");
+    await within(last).findByText("Pasted where the cursor was");
+    expect(within(last).queryByText("Copied to the clipboard")).toBeNull();
+
+    await dictation.complete({
+      text: "Second text.",
+      raw: "second text",
+      polished: true,
+      pasteError: "Pasting was not allowed: press Ctrl+V.",
+    });
+    await within(last).findByText("Second text.");
+    within(last).getByText("Copied to the clipboard");
+    within(last).getByText("Pasting was not allowed: press Ctrl+V.");
+    expect(within(last).queryByText("Pasted where the cursor was")).toBeNull();
+  });
+
   it("a text left to copy: no error, a Copy button that copies it", async () => {
     const { simulator, dictation } = setup(ready({ autoCopy: false }));
     const element = await card();

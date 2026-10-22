@@ -64,6 +64,10 @@ pub struct DictationSettings {
     /// Texte copié dans le presse-papiers dès la fin de la dictée ; sinon,
     /// la notification propose « Copy ».
     pub auto_copy: bool,
+    /// Texte collé là où se trouve le curseur (Ctrl+V envoyé à
+    /// l'application au premier plan) après la copie automatique ; sans
+    /// effet quand elle est coupée.
+    pub auto_paste: bool,
 }
 
 /// Mise à jour partielle : seuls les champs présents changent.
@@ -89,13 +93,15 @@ pub struct DictationPatch {
     pub notify_text: Option<bool>,
     #[ts(optional)]
     pub auto_copy: Option<bool>,
+    #[ts(optional)]
+    pub auto_paste: Option<bool>,
 }
 
 pub fn get(connection: &Connection) -> AppResult<DictationSettings> {
     let row = connection
         .query_row(
             "SELECT enabled, mode, speech_model, language, polish_model, polish_prompt,
-                    dictionary, notify_text, auto_copy
+                    dictionary, notify_text, auto_copy, auto_paste
              FROM dictation_settings WHERE id = 1",
             [],
             |row| {
@@ -109,6 +115,7 @@ pub fn get(connection: &Connection) -> AppResult<DictationSettings> {
                     row.get::<_, String>(6)?,
                     row.get::<_, bool>(7)?,
                     row.get::<_, bool>(8)?,
+                    row.get::<_, bool>(9)?,
                 ))
             },
         )
@@ -124,6 +131,7 @@ pub fn get(connection: &Connection) -> AppResult<DictationSettings> {
         dictionary,
         notify,
         auto_copy,
+        auto_paste,
     ) = row;
     // Un dictionnaire illisible (modifié à la main) ne bloque pas la dictée.
     let dictionary = serde_json::from_str(&dictionary).unwrap_or_default();
@@ -137,6 +145,7 @@ pub fn get(connection: &Connection) -> AppResult<DictationSettings> {
         dictionary,
         notify_text: notify,
         auto_copy,
+        auto_paste,
     })
 }
 
@@ -254,6 +263,9 @@ pub fn update(connection: &mut Connection, patch: DictationPatch) -> AppResult<D
     if let Some(auto_copy) = patch.auto_copy {
         set("auto_copy", &auto_copy)?;
     }
+    if let Some(auto_paste) = patch.auto_paste {
+        set("auto_paste", &auto_paste)?;
+    }
     transaction.commit()?;
     get(connection)
 }
@@ -287,7 +299,7 @@ mod tests {
                 assert_eq!(settings.mode, DictationMode::Toggle);
                 assert_eq!(settings.language, "auto");
                 assert!(settings.notify_text && settings.dictionary.is_empty());
-                assert!(settings.auto_copy);
+                assert!(settings.auto_copy && settings.auto_paste);
 
                 let updated = update(
                     connection,
@@ -419,6 +431,55 @@ mod tests {
         let settings = store.blocking(|connection| get(connection)).unwrap();
         assert!(settings.enabled && settings.auto_copy);
         assert_eq!(settings.language, "fr");
+    }
+
+    #[test]
+    fn auto_paste_can_be_turned_off_on_its_own() {
+        let store = store();
+        store
+            .blocking(|connection| {
+                let patch = DictationPatch {
+                    auto_paste: Some(false),
+                    ..Default::default()
+                };
+                let updated = update(connection, patch)?;
+                assert!(!updated.auto_paste && updated.auto_copy);
+                assert!(!get(connection)?.auto_paste);
+                let patch = DictationPatch {
+                    auto_copy: Some(false),
+                    ..Default::default()
+                };
+                assert!(!update(connection, patch)?.auto_paste);
+                let patch = DictationPatch {
+                    auto_paste: Some(true),
+                    ..Default::default()
+                };
+                let updated = update(connection, patch)?;
+                assert!(updated.auto_paste && !updated.auto_copy);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    /// Base de la version 0.9.2 et suivantes (schéma 30) : la migration 0031
+    /// ajoute le collage, activé, sans toucher aux autres réglages.
+    #[test]
+    fn a_version_30_database_gains_auto_paste() {
+        use crate::store::MIGRATIONS;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        let connection = Connection::open(&path).unwrap();
+        for sql in &MIGRATIONS[..30] {
+            connection.execute_batch(sql).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 30).unwrap();
+        connection
+            .execute_batch("UPDATE dictation_settings SET enabled = 1, auto_copy = 0")
+            .unwrap();
+        drop(connection);
+        let store = Store::open(&path).unwrap();
+        let settings = store.blocking(|connection| get(connection)).unwrap();
+        assert!(settings.enabled && settings.auto_paste && !settings.auto_copy);
     }
 
     #[test]

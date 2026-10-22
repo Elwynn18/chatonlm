@@ -6,7 +6,7 @@
 //! jeton rendu par `Start` (`persist_mode` 2 : jusqu'à révocation) est gardé
 //! dans un fichier des données de l'app et redonné à la session suivante, qui
 //! démarre alors sans boîte de dialogue. Une session par collage, fermée
-//! aussitôt : rien ne reste « en contrôle » du bureau entre deux corrections.
+//! aussitôt : rien ne reste « en contrôle » du bureau entre deux collages.
 //! Bureau sans ce portail (Cinnamon, XFCE, bureaux wlroots…) :
 //! [`PasteError::Unsupported`], l'appelant garde le presse-papiers et sa
 //! notification.
@@ -47,9 +47,14 @@ const FOCUS_BACK: Duration = Duration::from_millis(500);
 /// Attente maximale du bureau, boîte d'autorisation comprise.
 const TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Un collage à la fois (correction et dictée ont chacune leur
+/// presse-papiers, mais un seul fichier de jeton, à usage unique).
+static PASTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Colle le presse-papiers dans l'application au premier plan ;
 /// `token_file` : fichier du jeton d'autorisation (lu, puis récrit).
 pub(super) async fn paste(token_file: Option<&Path>) -> Result<(), PasteError> {
+    let _turn = PASTING.lock().await;
     match tokio::time::timeout(TIMEOUT, send(token_file)).await {
         Ok(result) => result,
         Err(_) => Err(PasteError::Other("the desktop did not answer".into())),

@@ -170,7 +170,7 @@ function invalid(message: string): AppError {
   return { kind: "invalid", message };
 }
 
-/** Réglages par défaut (migration 0006). */
+/** Réglages par défaut (migrations 0006, 0007 et 0031). */
 export function defaultDictationSettings(): DictationSettings {
   return {
     enabled: false,
@@ -182,6 +182,7 @@ export function defaultDictationSettings(): DictationSettings {
     dictionary: [],
     notifyText: true,
     autoCopy: true,
+    autoPaste: true,
   };
 }
 
@@ -252,6 +253,8 @@ export function fakeDictation(simulator: Simulator): FakeDictation {
             dictation.settings.autoCopy,
           error: null,
           copyFailed: false,
+          pasted: false,
+          pasteError: null,
           ...result,
         },
       };
@@ -410,6 +413,8 @@ export function fakeDictation(simulator: Simulator): FakeDictation {
               copied: false,
               error: refused,
               copyFailed: false,
+              pasted: false,
+              pasteError: null,
             },
           }
         : { ...dictation.status, phase: "recording" };

@@ -655,6 +655,7 @@ describe("Settings tabs", () => {
       "Language",
       "Dictionary",
       "Copy to clipboard automatically",
+      "Paste where the cursor is",
     ]);
     expect(controls("Polish")).toEqual(["Polish model", "Instructions"]);
     expect(controls("Notifications")).toEqual([

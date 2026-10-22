@@ -1182,6 +1182,7 @@ fn dictation(speech_model: &str, language: &str) -> DictationSettings {
         dictionary: vec!["Ollama".into()],
         notify_text: true,
         auto_copy: true,
+        auto_paste: false,
     }
 }
 

@@ -65,6 +65,11 @@
     "autoCopy": {
       "label": "Copy to clipboard automatically",
       "description": "When off, copy the text from the notification or from the last result below."
+    },
+    "autoPaste": {
+      "label": "Paste where the cursor is",
+      "description": "ChatonLM pastes the text into the app you are typing in, right after copying it. Needs automatic copy.",
+      "askHint": "The first time, your desktop asks to let ChatonLM send the paste keystroke."
     }
   },
   "polish": {
@@ -103,6 +108,7 @@
   "lastResult": {
     "title": "Last dictation",
     "copied": "Copied to the clipboard",
+    "pasted": "Pasted where the cursor was",
     "notCopied": "Not copied: select the text to copy it",
     "notPolished": "not polished",
     "failed": "Dictation failed.",

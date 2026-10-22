@@ -44,6 +44,9 @@ pub enum Title {
     Copied,
     /// Copié sans le nettoyage (échoué ou écarté).
     CopiedRaw,
+    /// Copié, puis collé là où se trouve le curseur.
+    Pasted,
+    PastedRaw,
     NotCopied,
     /// Copie automatique coupée : « Copy » proposé.
     Ready,
@@ -59,6 +62,8 @@ impl Title {
             Title::Transcribing => t!("notifications.transcribing" in lang),
             Title::Copied => t!("notifications.copied" in lang),
             Title::CopiedRaw => t!("notifications.copiedRaw" in lang),
+            Title::Pasted => t!("notifications.pasted" in lang),
+            Title::PastedRaw => t!("notifications.pastedRaw" in lang),
             Title::NotCopied => t!("notifications.notCopied" in lang),
             Title::Ready => t!("notifications.ready" in lang),
             Title::ReadyRaw => t!("notifications.readyRaw" in lang),

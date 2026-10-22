@@ -65,6 +65,11 @@
     "autoCopy": {
       "label": "Copiar automáticamente al portapapeles",
       "description": "Si está desactivado, copia el texto desde la notificación o desde el último resultado de abajo."
+    },
+    "autoPaste": {
+      "label": "Pegar donde está el cursor",
+      "description": "ChatonLM pega el texto en la aplicación donde escribes, justo después de copiarlo. Requiere la copia automática.",
+      "askHint": "La primera vez, tu escritorio pide permiso para que ChatonLM envíe la tecla de pegado."
     }
   },
   "polish": {
@@ -103,6 +108,7 @@
   "lastResult": {
     "title": "Último dictado",
     "copied": "Copiado al portapapeles",
+    "pasted": "Pegado donde estaba el cursor",
     "notCopied": "No copiado: selecciona el texto para copiarlo",
     "notPolished": "sin pulir",
     "failed": "El dictado falló.",

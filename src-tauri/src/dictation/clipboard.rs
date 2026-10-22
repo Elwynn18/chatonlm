@@ -14,9 +14,10 @@
 //! [`SELECTION_TIMEOUT`] (une application figée qui détient la sélection ne
 //! bloque ni les copies, ni la lecture suivante).
 //!
-//! Collage ([`Clipboard::paste`], correction de la sélection) : Ctrl+V envoyé
-//! à l'application au premier plan, par le portail RemoteDesktop du bureau
-//! sous Linux (`portal.rs`), par `SendInput` sous Windows (`windows.rs`).
+//! Collage ([`Clipboard::paste`], correction de la sélection et dictée) :
+//! Ctrl+V envoyé à l'application au premier plan, par le portail
+//! RemoteDesktop du bureau sous Linux (`portal.rs`, une autorisation commune,
+//! [`PASTE_TOKEN_FILE`]), par `SendInput` sous Windows (`windows.rs`).
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -27,6 +28,8 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use tokio::sync::oneshot;
+
+use crate::i18n::t;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -75,6 +78,18 @@ pub enum PasteError {
     Other(String),
 }
 
+impl PasteError {
+    /// Pourquoi le texte n'a pas été collé, et quoi faire (Ctrl+V), dans la
+    /// langue de l'interface.
+    pub fn explain(self) -> String {
+        match self {
+            PasteError::Unsupported => t!("notifications.pasteUnsupported"),
+            PasteError::Refused => t!("notifications.pasteRefused"),
+            PasteError::Other(reason) => t!("notifications.pasteFailed", reason = reason),
+        }
+    }
+}
+
 /// Destination du texte dicté, source du texte sélectionné (le vrai
 /// presse-papiers, ou un faux).
 pub trait Clipboard: Send + Sync {
@@ -88,11 +103,17 @@ pub trait Clipboard: Send + Sync {
     }
 
     /// Colle le presse-papiers dans l'application au premier plan (Ctrl+V
-    /// simulé) : le texte sélectionné y est remplacé.
+    /// simulé), là où se trouve le curseur : le texte sélectionné y est
+    /// remplacé.
     fn paste(&self) -> BoxFuture<Result<(), PasteError>> {
         Box::pin(async { Err(PasteError::Unsupported) })
     }
 }
+
+/// Fichier, dans les données de l'app, de l'autorisation de coller donnée
+/// par le bureau (jeton du portail RemoteDesktop, Linux), commun à la
+/// correction et à la dictée.
+pub const PASTE_TOKEN_FILE: &str = "paste.token";
 
 type Request = (String, oneshot::Sender<Result<(), String>>);
 

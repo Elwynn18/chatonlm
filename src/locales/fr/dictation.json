@@ -65,6 +65,11 @@
     "autoCopy": {
       "label": "Copier automatiquement dans le presse-papiers",
       "description": "Si l'option est désactivée, copiez le texte depuis la notification ou depuis le dernier résultat ci-dessous."
+    },
+    "autoPaste": {
+      "label": "Coller là où se trouve le curseur",
+      "description": "ChatonLM colle le texte dans l'application où vous écrivez, juste après l'avoir copié. Demande la copie automatique.",
+      "askHint": "La première fois, votre bureau demande d'autoriser ChatonLM à envoyer la touche de collage."
     }
   },
   "polish": {
@@ -103,6 +108,7 @@
   "lastResult": {
     "title": "Dernière dictée",
     "copied": "Copié dans le presse-papiers",
+    "pasted": "Collé là où se trouvait le curseur",
     "notCopied": "Non copié : sélectionnez le texte pour le copier",
     "notPolished": "sans mise au propre",
     "failed": "La dictée a échoué.",

@@ -12,7 +12,10 @@
 //   de réglage, refus puis nouvel essai (page de réglage du bureau ouverte),
 //   liaison en attente abandonnée quand la dictée est coupée ;
 // - dictée de bout en bout (micro simulé par un WAV, Whisper tiny, nettoyage
-//   par le faux modèle `chatonlm-polish`) : presse-papiers, notifications,
+//   par le faux modèle `chatonlm-polish`) : presse-papiers, collage là où se
+//   trouve le curseur (Ctrl+V par le portail RemoteDesktop, autorisation
+//   gardée ; refusée : copié seulement, et la raison ; jamais pour l'essai
+//   lancé depuis la page), notifications,
 //   silence (« No speech detected ») ; copie automatique coupée par
 //   l'interrupteur de la page : presse-papiers inchangé, « Transcription
 //   ready » avec l'action « Copy » qui copie, bouton « Copy » du dernier
@@ -178,8 +181,18 @@ try {
       version: 2,
       trigger: "Ctrl+Alt+D",
       configureTrigger: "Ctrl+Alt+F",
+      remoteDesktop: "ok",
     },
   });
+  const of = (name) => desk.events.filter((e) => e.event === name);
+  const keys = () => of("rd-key").map((e) => [e.keysym, e.state]);
+  // Ctrl+V (keysyms X11 de Ctrl gauche et de « v ») : appuis, relâchements.
+  const CHORD = [
+    [0xffe3, 1],
+    [0x76, 1],
+    [0x76, 0],
+    [0xffe3, 0],
+  ];
   try {
     await withApp(
       binary,
@@ -319,13 +332,28 @@ try {
         assert.equal(s.lastResult.polished, true);
         assert.match(s.lastResult.text, /^Polished: .*country/is);
         assert.equal((await readClipboard()).text, s.lastResult.text);
-        const copied = await desk.waitFor(
-          (e) => e.event === "notify" && e.summary === "Copied to clipboard",
+        // Collage activé par défaut : copié, puis Ctrl+V envoyé par le
+        // portail (clavier seul, autorisation gardée jusqu'à révocation).
+        assert.equal(s.lastResult.pasted, true);
+        assert.equal(s.lastResult.pasteError, null);
+        const pasted = await desk.waitFor(
+          (e) => e.event === "notify" && e.summary === "Text pasted",
         );
-        assert.match(copied.body, /country/);
-        assert.equal(copied.hints["desktop-entry"], IDENTIFIER);
+        assert.match(pasted.body, /country/);
+        assert.doesNotMatch(pasted.body, /Ctrl\+V/);
+        assert.equal(pasted.hints["desktop-entry"], IDENTIFIER);
         // Déjà copié : pas d'action « Copy ».
-        assert.deepEqual(copied.actions, []);
+        assert.deepEqual(pasted.actions, []);
+        assert.deepEqual(keys(), CHORD);
+        assert.deepEqual(
+          of("rd-select").map((e) => [e.types, e.persistMode, e.restoreToken]),
+          [[1, 2, null]],
+        );
+        const pasteSession = of("rd-start")[0].session;
+        assert.ok(of("rd-key").every((e) => e.session === pasteSession));
+        await desk.waitFor(
+          (e) => e.event === "close-session" && e.session === pasteSession,
+        );
         await desk.waitFor(
           (e) =>
             e.event === "notify" &&
@@ -349,6 +377,13 @@ try {
         await desk.command("deactivated", { id: "dictation" });
         s = await finished(driver, first);
         assert.match(s.lastResult.text, /^Polished: /);
+        // Deuxième collage : le jeton rendu évite la boîte du bureau.
+        assert.equal(s.lastResult.pasted, true);
+        assert.deepEqual(
+          of("rd-select").map((e) => e.restoreToken),
+          [null, "rd-token-1"],
+        );
+        assert.deepEqual(keys(), [...CHORD, ...CHORD]);
         // Touche à peine effleurée : appui et relâchement arrivent ensemble,
         // traités dans l'ordre (sinon l'écoute ne s'arrêterait pas : la
         // phase resterait « recording »). Sous la charge, l'appui peut
@@ -376,6 +411,47 @@ try {
         await driver.invoke("update_dictation_settings", {
           patch: { mode: "toggle" },
         });
+
+        // Collage refusé par le bureau : copié seulement, et la raison.
+        await desk.command("portal-options", { remoteDesktop: "cancel" });
+        const sent = of("rd-key").length;
+        const beforeRefusal = s.lastResult.at;
+        await desk.command("activated", { id: "dictation" });
+        await waitStatus(driver, (x) => x.phase === "recording", "écoute");
+        await desk.command("deactivated", { id: "dictation" });
+        await desk.command("activated", { id: "dictation" });
+        await desk.command("deactivated", { id: "dictation" });
+        s = await finished(driver, beforeRefusal);
+        assert.equal(s.lastResult.copied, true);
+        assert.equal(s.lastResult.pasted, false);
+        assert.equal(
+          s.lastResult.pasteError,
+          "Pasting was not allowed: press Ctrl+V.",
+        );
+        assert.equal((await readClipboard()).text, s.lastResult.text);
+        const refused = await desk.waitFor(
+          (e) =>
+            e.event === "notify" &&
+            e.summary === "Copied to clipboard" &&
+            e.body.endsWith("Pasting was not allowed: press Ctrl+V."),
+        );
+        assert.match(refused.body, /country/);
+        assert.equal(of("rd-start").at(-1).granted, false);
+        assert.equal(of("rd-key").length, sent);
+        await desk.command("portal-options", { remoteDesktop: "ok" });
+        const asked = of("rd-select").length;
+
+        // Essai depuis la page (« Try dictation ») : copié, jamais collé (le
+        // curseur est dans ChatonLM), le portail n'est pas sollicité.
+        const beforeTry = s.lastResult.at;
+        await driver.invoke("dictation_toggle");
+        await waitStatus(driver, (x) => x.phase === "recording", "écoute");
+        await driver.invoke("dictation_toggle");
+        s = await finished(driver, beforeTry);
+        assert.equal(s.lastResult.copied, true);
+        assert.equal(s.lastResult.pasted, false);
+        assert.equal(s.lastResult.pasteError, null);
+        assert.equal(of("rd-select").length, asked, "essai de la page collé");
 
         // Copie automatique coupée par l'interrupteur de la page : le
         // presse-papiers (tenu par une autre app) ne change pas ; la
@@ -445,6 +521,8 @@ try {
           (settings) => settings.autoCopy === true,
           { what: "copie automatique rétablie" },
         );
+        // Sans la copie automatique, ni la dictée ni « Copy » ne collent.
+        assert.equal(of("rd-select").length, asked, "collage sans la copie");
 
         // Touche changée par le bureau, puis par sa boîte de réglage.
         await desk.command("shortcuts-changed", { trigger: "Meta+D" });

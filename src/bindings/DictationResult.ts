@@ -30,4 +30,13 @@ error: string | null,
  * `error` est l'échec de la copie automatique (pas un texte laissé à
  * copier parce qu'elle est coupée).
  */
-copyFailed: boolean, };
+copyFailed: boolean, 
+/**
+ * `text` a été collé là où se trouvait le curseur.
+ */
+pasted: boolean, 
+/**
+ * Pourquoi le collage automatique n'a pas eu lieu (le texte reste dans
+ * le presse-papiers) ; `None` s'il a réussi ou n'était pas demandé.
+ */
+pasteError: string | null, };

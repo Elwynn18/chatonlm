@@ -39,7 +39,7 @@ use super::{
 };
 use crate::chat::Server;
 use crate::dictation::clipboard::{
-    BoxFuture, Clipboard, PasteError, SelectionError, SystemClipboard,
+    BoxFuture, Clipboard, PASTE_TOKEN_FILE, SelectionError, SystemClipboard,
 };
 use crate::dictation::notify::{self, Action, DesktopNotifier, Notice, Notifier, Offer};
 use crate::i18n::t;
@@ -334,7 +334,7 @@ impl Selection {
                 Ok(()) => Notice::lasting(t!("proofread.selection.pasted"), body),
                 Err(error) => {
                     body.push_str("\n\n");
-                    body.push_str(&notify::escape(&not_pasted(error)));
+                    body.push_str(&notify::escape(&error.explain()));
                     Notice::lasting(summary, body)
                 }
             },
@@ -413,16 +413,6 @@ async fn runs_elsewhere(base: &str, model: &str) -> bool {
         || models::show(base, model)
             .await
             .is_ok_and(|details| details.remote)
-}
-
-/// Pourquoi le texte corrigé n'a pas été collé, et quoi faire, dans la
-/// langue de l'interface.
-fn not_pasted(error: PasteError) -> String {
-    match error {
-        PasteError::Unsupported => t!("proofread.selection.pasteUnsupported"),
-        PasteError::Refused => t!("proofread.selection.pasteRefused"),
-        PasteError::Other(reason) => t!("proofread.selection.pasteFailed", reason = reason),
-    }
 }
 
 /// Raison d'une sélection illisible, dans la langue de l'interface ; seul le
@@ -506,10 +496,6 @@ impl Host for AppHost {
     }
 }
 
-/// Fichier, dans les données de l'app, de l'autorisation de coller donnée
-/// par le bureau (jeton du portail RemoteDesktop, Linux).
-const PASTE_TOKEN_FILE: &str = "paste.token";
-
 /// Démarrage de l'app : identité des notifications (icône écrite par la
 /// dictée) et clic sur « Show » (fenêtre montrée, page Proofread qui charge
 /// la dernière correction ; nouvelle demande à chaque clic) ; fichier de
@@ -563,6 +549,7 @@ mod tests {
     use tokio::sync::Notify;
 
     use super::*;
+    use crate::dictation::clipboard::PasteError;
     use crate::proofread::{PartResult, ProofreadErrorCode, ProofreadPart};
 
     /// Faux presse-papiers : sélection donnée (ou jamais rendue), copies

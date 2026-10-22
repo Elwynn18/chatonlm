@@ -52,7 +52,7 @@ pub async fn dictation_status(
 /// Commence ou arrête (bouton « Try dictation » des réglages).
 #[tauri::command]
 pub async fn dictation_toggle(app: AppHandle, dictation: State<'_, Dictation>) -> AppResult<()> {
-    dictation.toggle(&app);
+    dictation.toggle_from_page(&app);
     Ok(())
 }
 

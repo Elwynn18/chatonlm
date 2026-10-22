@@ -4,4 +4,4 @@ import type { DictationMode } from "./DictationMode";
 /**
  * Mise à jour partielle : seuls les champs présents changent.
  */
-export type DictationPatch = { enabled?: boolean, mode?: DictationMode, speechModel?: string, language?: string, polishModel?: string, polishPrompt?: string, dictionary?: Array<string>, notifyText?: boolean, autoCopy?: boolean, };
+export type DictationPatch = { enabled?: boolean, mode?: DictationMode, speechModel?: string, language?: string, polishModel?: string, polishPrompt?: string, dictionary?: Array<string>, notifyText?: boolean, autoCopy?: boolean, autoPaste?: boolean, };

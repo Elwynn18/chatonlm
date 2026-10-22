@@ -331,6 +331,7 @@ mod tests {
             dictionary: Vec::new(),
             notify_text: true,
             auto_copy: true,
+            auto_paste: true,
         }
     }
 

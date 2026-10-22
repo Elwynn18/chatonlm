@@ -7,6 +7,7 @@ use std::time::Instant;
 use fake_ollama::{FakeOllama, Mode};
 
 use super::audio::{Captured, Prerecorded, Recording};
+use super::clipboard::PasteError;
 use super::engine::Recognizer;
 use super::*;
 
@@ -62,6 +63,13 @@ struct FakeClipboard {
     /// Copie bloquée (sans rendre la main) jusqu'au feu vert du test.
     gate: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
     entered: std::sync::atomic::AtomicBool,
+    /// Collages : dernier texte copié au moment du Ctrl+V.
+    pastes: Mutex<Vec<Option<String>>>,
+    paste_error: Mutex<Option<PasteError>>,
+    /// Collage retenu jusqu'au feu vert du test (boîte du bureau ouverte) ;
+    /// collages menés à leur terme.
+    paste_gate: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    pastes_finished: Arc<AtomicUsize>,
 }
 
 impl Clipboard for FakeClipboard {
@@ -79,6 +87,23 @@ impl Clipboard for FakeClipboard {
             }
         };
         Box::pin(async move { result })
+    }
+
+    fn paste(&self) -> BoxFuture<Result<(), PasteError>> {
+        self.pastes.lock().push(self.copied.lock().last().cloned());
+        let result = match self.paste_error.lock().clone() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        };
+        let gate = self.paste_gate.lock().clone();
+        let finished = self.pastes_finished.clone();
+        Box::pin(async move {
+            if let Some(gate) = gate {
+                gate.notified().await;
+            }
+            finished.fetch_add(1, Ordering::SeqCst);
+            result
+        })
     }
 }
 
@@ -222,6 +247,8 @@ async fn rig_on(polish_model: &str, support: fn(SpeechEngine) -> Result<(), Stri
             dictionary: Vec::new(),
             notify_text: true,
             auto_copy: true,
+            // Collage essayé à part (`paste_*`).
+            auto_paste: false,
         }),
         models_dir,
         server: server.url(),
@@ -542,6 +569,169 @@ async fn without_auto_copy_a_skipped_polish_is_still_said() {
     assert_eq!(notice.body, notify::text_hidden());
     assert!(notice.copy.is_some());
     assert!(rig.clipboard.copied.lock().is_empty());
+}
+
+/// Collage activé : le texte est copié, puis collé là où se trouve le
+/// curseur (Ctrl+V après la copie) ; la notification le dit.
+#[tokio::test]
+async fn auto_paste_pastes_the_copied_text_where_the_cursor_is() {
+    let rig = rig("chatonlm-polish").await;
+    rig.host.settings.lock().auto_paste = true;
+    rig.dictate().await;
+    let polished = format!("Polished: {SPOKEN}");
+    assert_eq!(*rig.clipboard.pastes.lock(), [Some(polished.clone())]);
+    let result = rig.last_result().unwrap();
+    assert!(result.copied && result.pasted);
+    assert_eq!((result.error, result.paste_error), (None, None));
+    assert_eq!(rig.last_notice(), Notice::last(Title::Pasted, polished));
+    assert_eq!(Title::Pasted.text(), "Text pasted");
+
+    // Nettoyage écarté : collé quand même, le titre le dit.
+    let raw = self::rig("chatonlm-polish-poem").await;
+    raw.host.settings.lock().auto_paste = true;
+    raw.dictate().await;
+    assert_eq!(*raw.clipboard.pastes.lock(), [Some(SPOKEN.into())]);
+    let result = raw.last_result().unwrap();
+    assert!(result.pasted && !result.polished);
+    assert_eq!(result.error.as_deref(), Some(polish::skipped().as_str()));
+    assert_eq!(raw.last_notice().summary, "Text pasted (not polished)");
+}
+
+/// Collage impossible : le texte reste copié, la notification et le
+/// résultat disent pourquoi et de coller par Ctrl+V.
+#[tokio::test]
+async fn a_failed_paste_leaves_the_text_copied_and_says_why() {
+    for (error, reason) in [
+        (
+            PasteError::Unsupported,
+            "This desktop does not let ChatonLM paste for you: press Ctrl+V.",
+        ),
+        (
+            PasteError::Refused,
+            "Pasting was not allowed: press Ctrl+V.",
+        ),
+        (
+            PasteError::Other("no <reply>".into()),
+            "Pasting failed (no <reply>): press Ctrl+V.",
+        ),
+    ] {
+        let rig = rig("").await;
+        rig.host.settings.lock().auto_paste = true;
+        *rig.clipboard.paste_error.lock() = Some(error.clone());
+        rig.dictate().await;
+        assert_eq!(*rig.clipboard.copied.lock(), [SPOKEN], "{error:?}");
+        assert_eq!(rig.clipboard.pastes.lock().len(), 1, "{error:?}");
+        let result = rig.last_result().unwrap();
+        assert!(result.copied && !result.pasted, "{error:?}");
+        assert_eq!(result.error, None, "{error:?}");
+        assert_eq!(result.paste_error.as_deref(), Some(reason), "{error:?}");
+        let notice = rig.last_notice();
+        assert_eq!(notice.summary, Title::Copied.text(), "{error:?}");
+        assert_eq!(
+            notice.body,
+            format!("{SPOKEN}\n\n{}", notify::escape(reason)),
+            "{error:?}"
+        );
+    }
+    // Texte masqué : la raison reste dite.
+    let rig = rig("").await;
+    {
+        let mut settings = rig.host.settings.lock();
+        settings.auto_paste = true;
+        settings.notify_text = false;
+    }
+    *rig.clipboard.paste_error.lock() = Some(PasteError::Refused);
+    rig.dictate().await;
+    assert_eq!(
+        rig.last_notice().body,
+        format!(
+            "{}\n\nPasting was not allowed: press Ctrl+V.",
+            notify::text_hidden()
+        )
+    );
+}
+
+/// Dictée abandonnée pendant le collage (boîte d'autorisation du bureau
+/// ouverte) : le collage va à son terme (session du portail fermée), sans
+/// résultat ni notification de fin.
+#[tokio::test]
+async fn a_dictation_cancelled_while_pasting_lets_the_paste_finish() {
+    let rig = rig("").await;
+    rig.host.settings.lock().auto_paste = true;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    *rig.clipboard.paste_gate.lock() = Some(gate.clone());
+    rig.toggle();
+    rig.wait_listening().await;
+    rig.toggle();
+    rig.wait("collage commencé", |rig| {
+        rig.clipboard.pastes.lock().len() == 1
+    })
+    .await;
+    assert!(rig.core.cancel());
+    gate.notify_one();
+    rig.wait("collage fini", |rig| {
+        rig.clipboard.pastes_finished.load(Ordering::SeqCst) == 1
+    })
+    .await;
+    assert_eq!(rig.last_result(), None);
+    assert_eq!(rig.shown().last(), Some(&Shown::Withdrawn));
+}
+
+/// Essai lancé depuis la page : copié, jamais collé (le curseur est dans
+/// ChatonLM).
+#[tokio::test]
+async fn a_dictation_started_from_the_page_is_not_pasted() {
+    let rig = rig("").await;
+    rig.host.settings.lock().auto_paste = true;
+    rig.core.toggle_from(rig.host(), Origin::Page);
+    rig.wait_listening().await;
+    rig.core.toggle_from(rig.host(), Origin::Page);
+    rig.wait_idle().await;
+    assert_eq!(*rig.clipboard.copied.lock(), [SPOKEN]);
+    assert!(rig.clipboard.pastes.lock().is_empty());
+    let result = rig.last_result().unwrap();
+    assert!(result.copied && !result.pasted && result.paste_error.is_none());
+    assert_eq!(rig.last_notice().summary, Title::Copied.text());
+    // Commencée au raccourci, arrêtée depuis la page : collée.
+    rig.toggle();
+    rig.wait_listening().await;
+    rig.core.toggle_from(rig.host(), Origin::Page);
+    rig.wait_idle().await;
+    assert_eq!(rig.clipboard.pastes.lock().len(), 1);
+}
+
+/// Rien n'est collé sans le réglage, sans copie automatique (le
+/// presse-papiers n'a pas le texte), si la copie échoue, ni par « Copy ».
+#[tokio::test]
+async fn nothing_is_pasted_without_the_text_in_the_clipboard() {
+    let off = rig("").await;
+    off.dictate().await;
+    assert!(off.clipboard.pastes.lock().is_empty());
+    assert!(!off.last_result().unwrap().pasted);
+    assert_eq!(off.last_notice().summary, Title::Copied.text());
+
+    let no_copy = rig("").await;
+    {
+        let mut settings = no_copy.host.settings.lock();
+        settings.auto_paste = true;
+        settings.auto_copy = false;
+    }
+    no_copy.dictate().await;
+    let offer = no_copy.last_notice().copy.unwrap();
+    assert_eq!(no_copy.core.copy_offer(offer).await, Ok(true));
+    assert_eq!(no_copy.core.copy_last().await, Ok(()));
+    assert_eq!(no_copy.clipboard.copied.lock().len(), 2);
+    assert!(no_copy.clipboard.pastes.lock().is_empty());
+    let result = no_copy.last_result().unwrap();
+    assert!(!result.pasted && result.paste_error.is_none());
+
+    let failed = rig("").await;
+    failed.host.settings.lock().auto_paste = true;
+    *failed.clipboard.fail.lock() = Some("no data-control protocol".into());
+    failed.dictate().await;
+    assert!(failed.clipboard.pastes.lock().is_empty());
+    let result = failed.last_result().unwrap();
+    assert!(result.copy_failed && !result.pasted && result.paste_error.is_none());
 }
 
 /// L'action d'une notification plus ancienne copie son propre texte, sans

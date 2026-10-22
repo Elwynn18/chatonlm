@@ -26,4 +26,10 @@ notifyText: boolean,
  * Texte copié dans le presse-papiers dès la fin de la dictée ; sinon,
  * la notification propose « Copy ».
  */
-autoCopy: boolean, };
+autoCopy: boolean, 
+/**
+ * Texte collé là où se trouve le curseur (Ctrl+V envoyé à
+ * l'application au premier plan) après la copie automatique ; sans
+ * effet quand elle est coupée.
+ */
+autoPaste: boolean, };
