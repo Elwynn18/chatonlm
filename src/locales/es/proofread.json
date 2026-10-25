@@ -3,8 +3,7 @@
   "description": "Pega o escribe un texto y luego corrige sus errores o reformúlalo. El texto conserva su idioma y su sentido.",
   "model": {
     "label": "Modelo",
-    "sameAsChat": "El del chat ({model})",
-    "sameAsChatNone": "El del chat",
+    "auto": "Auto",
     "notInstalled": "{name} (no instalado)",
     "saveError": "No se pudo guardar el modelo: {message}"
   },

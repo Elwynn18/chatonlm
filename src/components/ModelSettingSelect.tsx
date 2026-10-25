@@ -1,8 +1,8 @@
 // Sélecteur du modèle propre à une page de ChatonLM (Proofread : réglage
-// `proofreadModel` ; Study : `studyModel`) : « Same as chat » (le modèle du
-// chat entre parenthèses), puis les modèles installés ; un modèle réglé absent
-// de la liste reste montré. Les textes viennent de la page (son espace de
-// langue).
+// `proofreadModel` ; Study : `studyModel`) : « Auto » (réglage vide : le
+// meilleur modèle en mémoire, sinon celui du chat, choisi par le moteur à
+// chaque travail), puis les modèles installés ; un modèle réglé absent de la
+// liste reste montré. Les textes viennent de la page (son espace de langue).
 
 import { type Ref, useState } from "react";
 import { useModels } from "@/hooks/useModels";
@@ -16,8 +16,7 @@ const SELECT =
 /** Textes du sélecteur, traduits par la page. */
 export interface ModelSelectTexts {
   label: string;
-  sameAsChat: (model: string) => string;
-  sameAsChatNone: string;
+  auto: string;
   notInstalled: (name: string) => string;
   saveError: (message: string) => string;
 }
@@ -42,7 +41,6 @@ export function ModelSettingSelect({
   // Même modèle à la casse près : l'option de la liste.
   const listedName =
     value === "" ? "" : names.find((name) => sameModel(name, value));
-  const chatModel = settings?.selectedModel ?? "";
   const save = (model: string) => {
     setSaveError(null);
     setSettings({ [setting]: model }).catch((cause: unknown) =>
@@ -66,9 +64,7 @@ export function ModelSettingSelect({
           disabled={!settings}
           onChange={(event) => save(event.target.value)}
         >
-          <option value="">
-            {chatModel ? texts.sameAsChat(chatModel) : texts.sameAsChatNone}
-          </option>
+          <option value="">{texts.auto}</option>
           {listedName === undefined && (
             <option value={value}>
               {read ? texts.notInstalled(value) : value}

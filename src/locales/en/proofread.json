@@ -3,8 +3,7 @@
   "description": "Paste or type some text, then correct its mistakes or rephrase it. The text keeps its language and meaning.",
   "model": {
     "label": "Model",
-    "sameAsChat": "Same as chat ({model})",
-    "sameAsChatNone": "Same as chat",
+    "auto": "Auto",
     "notInstalled": "{name} (not installed)",
     "saveError": "Couldn't save the model: {message}"
   },

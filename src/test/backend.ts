@@ -94,6 +94,7 @@ import type { OllamaRuntime } from "@/bindings/OllamaRuntime";
 import type { ServiceStart } from "@/bindings/ServiceStart";
 import type { UpdateStatus } from "@/bindings/UpdateStatus";
 import type { Platform } from "@/lib/platform";
+import { autoModelOf } from "@/test/autoModel";
 import { type FakeDictation, fakeDictation } from "@/test/dictation";
 import { type FakeEasyLink, fakeEasyLink } from "@/test/easyLink";
 import { canonicalModel, type FakeHub, fakeHub } from "@/test/hub";
@@ -1050,6 +1051,13 @@ export function fakeBackend(
   });
   simulator.handle("list_models", () => backend.models.map(modelInfo));
   simulator.handle("machine_memory", () => backend.machine);
+  simulator.handle("auto_model", () => {
+    if (backend.runningErrors.list)
+      return backend.settings.selectedModel || null;
+    return (
+      autoModelOf("", backend.settings.selectedModel, backend.running) || null
+    );
+  });
   simulator.handle("running_models", () => {
     if (backend.runningErrors.list) throw backend.runningErrors.list;
     return backend.running;

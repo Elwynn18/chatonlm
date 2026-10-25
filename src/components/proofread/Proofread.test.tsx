@@ -813,7 +813,7 @@ describe("Proofread page", () => {
     expect(editor().value).toBe(TEXT);
   });
 
-  it("model picker: same as chat first, installed models, saved value shown even when missing", async () => {
+  it("model picker: Auto first, installed models, saved value shown even when missing", async () => {
     const user = userEvent.setup();
     const { simulator } = setup((backend) => {
       backend.settings.proofreadModel = "mistral:7b";
@@ -822,7 +822,7 @@ describe("Proofread page", () => {
     const select = screen.getByLabelText<HTMLSelectElement>("Model");
     await waitFor(() =>
       expect([...select.options].map((option) => option.text)).toEqual([
-        "Same as chat (qwen3:0.6b)",
+        "Auto",
         "mistral:7b (not installed)",
         "qwen3:0.6b",
         "qwen3.5:0.8b",
@@ -838,7 +838,7 @@ describe("Proofread page", () => {
     ).toEqual([{ proofreadModel: "qwen3.5:0.8b" }, { proofreadModel: "" }]);
     await waitFor(() =>
       expect([...select.options].map((option) => option.text)).toEqual([
-        "Same as chat (qwen3:0.6b)",
+        "Auto",
         "qwen3:0.6b",
         "qwen3.5:0.8b",
       ]),

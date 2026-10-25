@@ -1,7 +1,7 @@
 // Page Proofread (propre à ChatonLM) : un volet unique. En édition, une
 // grande zone de texte ; « Correct » (Ctrl+Entrée) ou « Rephrase »
 // (Ctrl+Maj+Entrée) envoie le texte au modèle de la correction (sélecteur en
-// tête : réglage `proofreadModel`, vide = celui du chat). Pendant le travail,
+// tête : réglage `proofreadModel`, vide = « Auto »). Pendant le travail,
 // les passages terminés sont montrés corrigés, le passage en cours en flux,
 // les suivants atténués ; « Stop » (Échap) remplace les boutons. En revue,
 // le texte final : après Correct, mots supprimés et ajoutés marqués (diff de
@@ -820,8 +820,7 @@ function ModelSelect({
       selectRef={selectRef}
       texts={{
         label: t("proofread.model.label"),
-        sameAsChat: (model) => t("proofread.model.sameAsChat", { model }),
-        sameAsChatNone: t("proofread.model.sameAsChatNone"),
+        auto: t("proofread.model.auto"),
         notInstalled: (name) => t("proofread.model.notInstalled", { name }),
         saveError: (message) => t("proofread.model.saveError", { message }),
       }}

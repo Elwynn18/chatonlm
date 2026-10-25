@@ -3,8 +3,7 @@
   "description": "Collez ou tapez un texte, puis corrigez ses fautes ou reformulez-le. Le texte garde sa langue et son sens.",
   "model": {
     "label": "Modèle",
-    "sameAsChat": "Celui de la conversation ({model})",
-    "sameAsChatNone": "Celui de la conversation",
+    "auto": "Auto",
     "notInstalled": "{name} (non installé)",
     "saveError": "Impossible d'enregistrer le modèle : {message}"
   },

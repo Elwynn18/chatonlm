@@ -17,7 +17,12 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import { setLanguage } from "@/i18n";
-import { type FakeBackend, fakeBackend, modelInfo } from "@/test/backend";
+import {
+  type FakeBackend,
+  fakeBackend,
+  modelInfo,
+  runningModel,
+} from "@/test/backend";
 import { untranslatedTexts, usePseudoLanguage } from "@/test/i18n";
 import { renderApp } from "@/test/renderApp";
 import { installSimulator } from "@/test/simulator";
@@ -288,7 +293,7 @@ describe("Study home", () => {
     expect(createButton().disabled).toBe(true);
   });
 
-  it("model picker: same as chat first, saves the course model", async () => {
+  it("model picker: Auto first, saves the course model", async () => {
     const user = userEvent.setup();
     const { simulator } = setup();
     await home();
@@ -297,7 +302,7 @@ describe("Study home", () => {
     });
     await waitFor(() =>
       expect([...select.options].map((option) => option.textContent)).toEqual([
-        "Same as chat (qwen3:0.6b)",
+        "Auto",
         "qwen3:0.6b",
         "qwen3.5:0.8b",
       ]),
@@ -325,6 +330,52 @@ describe("Study home", () => {
     await waitFor(() =>
       expect(screen.queryByTestId("study-small-model")).toBeNull(),
     );
+  });
+
+  it("Auto: a loaded model is enough without a chat model", async () => {
+    const user = userEvent.setup();
+    const { simulator } = setup(
+      (backend) => {
+        backend.running = [runningModel("qwen3.5:0.8b")];
+      },
+      "/study",
+      { selectedModel: "" },
+    );
+    await home();
+    await user.type(topic(), "Stars");
+    await waitFor(() => expect(createButton().disabled).toBe(false));
+    await user.click(createButton());
+    await waitFor(() =>
+      expect(simulator.callsTo("study_create")).toHaveLength(1),
+    );
+  });
+
+  it("Auto: the small model note follows the best loaded model", async () => {
+    const { backend, app, simulator } = setup((backend) => {
+      backend.running = [runningModel("big:8b")];
+    });
+    backend.models.push("big:8b");
+    const listed = [
+      modelInfo("qwen3:0.6b"),
+      { ...modelInfo("big:8b"), parameterSize: "8.2B" },
+    ];
+    simulator.handle("list_models", () => listed);
+    await home();
+    await act(() =>
+      app.queryClient.invalidateQueries({ queryKey: ["models"] }),
+    );
+    // Le modèle du chat (qwen3:0.6b) est petit, mais « Auto » prend big:8b.
+    await waitFor(() =>
+      expect(simulator.callsTo("auto_model").length).toBeGreaterThan(0),
+    );
+    await waitFor(() =>
+      expect(screen.queryByTestId("study-small-model")).toBeNull(),
+    );
+    backend.running = [];
+    await act(() =>
+      app.queryClient.invalidateQueries({ queryKey: ["autoModel"] }),
+    );
+    await screen.findByTestId("study-small-model");
   });
 
   it("shows a refused creation", async () => {

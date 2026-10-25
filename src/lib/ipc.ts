@@ -367,6 +367,14 @@ export function runningModels(): Promise<RunningModel[]> {
 }
 
 /**
+ * Modèle que prend « Auto » (pages Proofread et Study, rien de choisi) en ce
+ * moment : le meilleur modèle en mémoire, sinon celui du chat ; null si aucun.
+ */
+export function autoModel(): Promise<string | null> {
+  return invoke<string | null>("auto_model");
+}
+
+/**
  * Charge un modèle avec le contexte et la durée des réglages ; résout une
  * fois le modèle chargé, rejette avec l'erreur d'Ollama (modèle absent,
  * mémoire insuffisante...).

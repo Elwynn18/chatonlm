@@ -601,15 +601,28 @@ fn channel(fail_from: Option<usize>) -> (Channel<ProofreadEvent>, Arc<Mutex<Vec<
 
 #[tokio::test]
 async fn a_job_uses_the_proofread_model_then_the_chat_model() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-    for (chat, proofread, used) in [
+    // Mémoire vide (nouveau serveur) : « Auto » prend le modèle du chat.
+    // Même serveur d'un cas à l'autre : chatonlm-proofread, chargé par le
+    // premier, est pris par « Auto » à la place de chatonlm-error.
+    let empty = || async { FakeOllama::start(Mode::ollama()).await.unwrap() };
+    let shared = empty().await;
+    let fresh_a = empty().await;
+    let fresh_b = empty().await;
+    for (fake, chat, proofread, used) in [
         (
+            &shared,
             "chatonlm-error",
             "chatonlm-proofread",
             Some("chatonlm-proofread"),
         ),
-        ("chatonlm-proofread", "", Some("chatonlm-proofread")),
-        ("", "", None),
+        (&shared, "chatonlm-error", "", Some("chatonlm-proofread")),
+        (
+            &fresh_a,
+            "chatonlm-proofread",
+            "",
+            Some("chatonlm-proofread"),
+        ),
+        (&fresh_b, "", "", None),
     ] {
         let store = configured(&fake.url(), chat, proofread);
         let (channel, events) = channel(None);

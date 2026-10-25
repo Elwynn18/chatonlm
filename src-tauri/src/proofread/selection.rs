@@ -43,17 +43,18 @@ use crate::dictation::clipboard::{
 };
 use crate::dictation::notify::{self, Action, DesktopNotifier, Notice, Notifier, Offer};
 use crate::i18n::t;
-use crate::ollama::{models, running};
+use crate::ollama::{auto, models, running};
 use crate::store::Store;
 
 /// Ce que la correction lit de l'app au moment de l'appui.
 pub(crate) struct Prepared {
     /// Adresse effective d'Ollama, contexte et durée en mémoire de l'app.
     pub server: Server,
-    /// Modèle de la correction (réglé, sinon celui du chat) ; `None` : aucun.
+    /// Modèle de la correction (réglé, sinon « Auto » : le meilleur modèle
+    /// en mémoire, sinon celui du chat) ; `None` : aucun.
     pub model: Option<String>,
-    /// Modèle repris du chat : aucun n'est choisi sur la page Proofread.
-    pub from_chat: bool,
+    /// « Auto » : aucun modèle n'est choisi sur la page Proofread.
+    pub auto: bool,
     /// Coller le texte corrigé à la place de la sélection (réglage).
     pub paste: bool,
 }
@@ -237,9 +238,10 @@ impl Selection {
                 &t!("proofread.selection.noModelHint"),
             );
         };
-        // Modèle repris du chat : un modèle cloud ou distant n'est utilisé
-        // que s'il est choisi sur la page Proofread.
-        if prepared.from_chat {
+        // « Auto » : un modèle cloud ou distant n'est utilisé que s'il est
+        // choisi sur la page Proofread (un modèle en mémoire retenu par
+        // « Auto » tourne déjà sur la machine ; reste celui du chat).
+        if prepared.auto {
             let elsewhere = tokio::select! {
                 biased;
                 () = cancel.cancelled() => return stopped(),
@@ -376,33 +378,15 @@ impl Selection {
 
 /// Modèle chargé dans Ollama qui peut remplacer `missing`, introuvable : le
 /// premier de la liste qui n'est pas `missing` et qui corrige sur la machine
-/// (voir [`corrects_here`]) ; nom sans `:latest`, comme dans les réglages.
+/// (voir [`auto::serves_here`]) ; nom sans `:latest`, comme dans les réglages.
 async fn loaded_instead(host: &dyn Host, base: &str, missing: &str) -> Option<String> {
     for name in host.loaded(base.to_owned()).await {
         let name = models::display_name(&name);
-        if !running::same_model(&name, missing) && corrects_here(base, &name).await {
+        if !running::same_model(&name, missing) && auto::serves_here(base, &name).await {
             return Some(name);
         }
     }
     None
-}
-
-/// Modèle qui tourne sur la machine (jamais un modèle cloud ou distant : la
-/// sélection ne la quitte pas sans choix explicite) et produit du texte
-/// (pas un modèle d'embedding). Détails illisibles : la requête dira ce qui
-/// ne va pas.
-async fn corrects_here(base: &str, model: &str) -> bool {
-    if models::is_cloud_name(model) {
-        return false;
-    }
-    match models::show(base, model).await {
-        Ok(details) => {
-            !details.remote
-                && (details.capabilities.is_empty()
-                    || details.capabilities.iter().any(|c| c == "completion"))
-        }
-        Err(_) => true,
-    }
 }
 
 /// Modèle qui tourne hors de la machine : nom de modèle cloud, ou
@@ -479,8 +463,8 @@ impl Host for AppHost {
                 .map_err(|error| error.to_string())?;
             Ok(Prepared {
                 server: Server::from_settings(&settings),
-                model: model_of(&settings),
-                from_chat: settings.proofread_model.is_empty(),
+                model: model_of(&settings).await,
+                auto: settings.proofread_model.is_empty(),
                 paste: settings.proofread_paste,
             })
         })
@@ -624,11 +608,11 @@ mod tests {
         fn withdraw(&self) {}
     }
 
-    /// Réglages : modèle (choisi pour la correction, ou repris du chat) et
+    /// Réglages : modèle (choisi pour la correction, ou par « Auto ») et
     /// adresse d'Ollama (rien n'écoute par défaut).
     struct FakeHost {
         model: Option<&'static str>,
-        from_chat: bool,
+        auto: bool,
         url: Option<String>,
         /// Réglage « coller à la place de la sélection ».
         paste: bool,
@@ -637,11 +621,11 @@ mod tests {
     }
 
     impl FakeHost {
-        /// Modèle repris du chat (rien de choisi sur la page Proofread).
+        /// « Auto », ici le modèle du chat (rien de choisi sur la page Proofread).
         fn chat(model: &'static str, url: Option<String>) -> Self {
             Self {
                 model: Some(model),
-                from_chat: true,
+                auto: true,
                 url,
                 paste: false,
                 loaded: &[],
@@ -652,7 +636,7 @@ mod tests {
     impl Host for FakeHost {
         fn prepare(&self) -> BoxFuture<Result<Prepared, String>> {
             let model = self.model.map(str::to_owned);
-            let from_chat = self.from_chat;
+            let auto = self.auto;
             let paste = self.paste;
             let url = self
                 .url
@@ -667,7 +651,7 @@ mod tests {
                         cloud: false,
                     },
                     model,
-                    from_chat,
+                    auto,
                     paste,
                 })
             })
@@ -855,7 +839,7 @@ mod tests {
     /// Réglage « coller » coupé : le presse-papiers seul.
     const MODEL: FakeHost = FakeHost {
         model: Some("gemma3:4b"),
-        from_chat: false,
+        auto: false,
         url: None,
         paste: false,
         loaded: &[],
@@ -1265,7 +1249,7 @@ mod tests {
             let rig = Rig::new("teh text");
             rig.press(&FakeHost {
                 model: Some(model),
-                from_chat: false,
+                auto: false,
                 url: url.clone(),
                 paste: false,
                 loaded: &[],

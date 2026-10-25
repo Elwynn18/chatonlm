@@ -16,8 +16,7 @@
   },
   "model": {
     "label": "Modèle",
-    "sameAsChat": "Celui de la conversation ({model})",
-    "sameAsChatNone": "Celui de la conversation",
+    "auto": "Auto",
     "notInstalled": "{name} (non installé)",
     "saveError": "Impossible d'enregistrer le modèle : {message}",
     "small": "Les petits modèles font plus d'erreurs dans les cours. Un modèle plus grand donne de meilleures leçons."

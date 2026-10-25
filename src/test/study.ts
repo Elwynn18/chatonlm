@@ -42,10 +42,12 @@ import type { NewCourse } from "@/bindings/NewCourse";
 import type { Plan } from "@/bindings/Plan";
 import type { Question } from "@/bindings/Question";
 import type { QuestionBody } from "@/bindings/QuestionBody";
+import type { RunningModel } from "@/bindings/RunningModel";
 import type { Settings } from "@/bindings/Settings";
 import type { StagedFile } from "@/bindings/StagedFile";
 import type { StudyError } from "@/bindings/StudyError";
 import type { StudyStreamEvent } from "@/bindings/StudyStreamEvent";
+import { autoModelOf } from "@/test/autoModel";
 import type { Args, FakeChannel, Simulator } from "@/test/simulator";
 
 export type QuestionType = QuestionBody["type"];
@@ -358,7 +360,11 @@ function grade(given: AnswerValue, solution: Solution): Answered {
 /** Gestionnaires des commandes study_*. */
 export function fakeStudy(
   simulator: Simulator,
-  backend: { settings: Settings; staged: Map<string, StagedFile> },
+  backend: {
+    settings: Settings;
+    staged: Map<string, StagedFile>;
+    running: RunningModel[];
+  },
 ): FakeStudy {
   const solutions = new Map<string, Solution>();
   /** Paliers passés par « Continue anyway », par cours. */
@@ -732,7 +738,12 @@ export function fakeStudy(
       if (file.kind === "image") throw invalid("Images can't be used");
       return file;
     });
-    if (!(backend.settings.studyModel || backend.settings.selectedModel)) {
+    const model = autoModelOf(
+      backend.settings.studyModel,
+      backend.settings.selectedModel,
+      backend.running,
+    );
+    if (!model) {
       throw invalid("Choose a model for your courses first");
     }
     for (const file of documents) backend.staged.delete(file.id);
@@ -742,7 +753,7 @@ export function fakeStudy(
       minutes: request.minutes,
       level: request.level,
       web: request.web,
-      model: backend.settings.studyModel || backend.settings.selectedModel,
+      model,
       sources: documents.map((file) => ({
         kind: "document",
         title: file.filename,
@@ -1129,5 +1140,6 @@ export function standaloneStudy(): FakeStudy {
   return fakeStudy(stub, {
     settings: { studyModel: "", selectedModel: "qwen3:0.6b" } as Settings,
     staged: new Map(),
+    running: [],
   });
 }

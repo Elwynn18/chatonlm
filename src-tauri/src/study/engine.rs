@@ -386,9 +386,11 @@ impl StudyEngine {
         if topic.is_empty() && new.document_ids.is_empty() {
             return Err(AppError::Invalid(t!("study.emptyTopic")));
         }
-        // Réglages seulement (modèle des cours) : rien à attendre d'Ollama.
+        // Modèle des cours ou du chat réglé : rien à attendre d'Ollama ;
+        // aucun des deux : « Auto » n'a que les modèles en mémoire.
         let settings = crate::ollama::target::display_settings(&ctx.store).await?;
-        if super::model_of(&settings).is_none() {
+        let configured = !settings.study_model.is_empty() || !settings.selected_model.is_empty();
+        if !configured && super::model_of(&settings).await.is_none() {
             return Err(AppError::Invalid(t!("study.noModel")));
         }
         // Retirés de la zone ; remis en place si la création échoue.

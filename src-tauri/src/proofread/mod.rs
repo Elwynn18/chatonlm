@@ -204,13 +204,16 @@ pub fn assemble(parts: &[ProofreadPart], results: &[Option<PartResult>]) -> Stri
     text
 }
 
-/// Modèle de la correction : celui réglé, sinon celui du chat ; `None` si
+/// Modèle de la correction : celui réglé, sinon « Auto » (le meilleur
+/// modèle en mémoire, sinon celui du chat, voir `ollama::auto`) ; `None` si
 /// aucun.
-pub fn model_of(settings: &Settings) -> Option<String> {
-    [&settings.proofread_model, &settings.selected_model]
-        .into_iter()
-        .find(|model| !model.is_empty())
-        .cloned()
+pub async fn model_of(settings: &Settings) -> Option<String> {
+    crate::ollama::auto::model_of(
+        &settings.effective_server_url,
+        &settings.proofread_model,
+        &settings.selected_model,
+    )
+    .await
 }
 
 /// Délai d'un passage, réponse comprise (connexion : 2 s, voir `client`).
@@ -599,7 +602,7 @@ pub async fn run_job(
             return Ok(());
         }
     };
-    let model = model_of(&settings).unwrap_or_default();
+    let model = model_of(&settings).await.unwrap_or_default();
     run(
         &Server::from_settings(&settings),
         &model,

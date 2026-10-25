@@ -2,8 +2,8 @@
 // simulateur (tests vitest seulement).
 //
 // proofread_run : comme le moteur, erreur seule avant le découpage (texte
-// vide, trop long, aucun modèle : réglage `proofreadModel`, sinon celui du
-// chat), puis `started` (passages coupés aux lignes vides, blancs autour de
+// vide, trop long, aucun modèle : réglage `proofreadModel`, sinon « Auto »,
+// voir autoModel.ts), puis `started` (passages coupés aux lignes vides, blancs autour de
 // chaque passage dans before/after), et pour chaque passage deux `delta`
 // puis `partDone`, enfin `done`. Correction déterministe (table fixe, comme
 // le modèle `chatonlm-proofread` du faux serveur) ; Rephrase la complète de
@@ -32,10 +32,12 @@ import type { ProofreadEvent } from "@/bindings/ProofreadEvent";
 import type { ProofreadMode } from "@/bindings/ProofreadMode";
 import type { ProofreadPart } from "@/bindings/ProofreadPart";
 import type { SelectionResult } from "@/bindings/SelectionResult";
+import type { RunningModel } from "@/bindings/RunningModel";
 import type { Settings } from "@/bindings/Settings";
 import type { ShortcutKeys } from "@/bindings/ShortcutKeys";
 import type { ShortcutsStatus } from "@/bindings/ShortcutsStatus";
 import type { ShortcutStatus } from "@/bindings/ShortcutStatus";
+import { autoModelOf } from "@/test/autoModel";
 import type { Args, FakeChannel, Simulator } from "@/test/simulator";
 
 /** Taille maximale d'un texte (MAX_CHARS du moteur). */
@@ -195,7 +197,11 @@ function invalid(message: string): AppError {
 /** Gestionnaires de proofread_* et shortcuts_*. */
 export function fakeProofread(
   simulator: Simulator,
-  backend: { settings: Settings; models: string[] },
+  backend: {
+    settings: Settings;
+    models: string[];
+    running: RunningModel[];
+  },
 ): FakeProofread {
   const fake: FakeProofread = {
     lastSelection: null,
@@ -284,8 +290,11 @@ export function fakeProofread(
     const channel: FakeChannel = simulator.channel(args.onEvent);
     const text = args.text as string;
     const mode = args.mode as ProofreadMode;
-    const model =
-      backend.settings.proofreadModel || backend.settings.selectedModel;
+    const model = autoModelOf(
+      backend.settings.proofreadModel,
+      backend.settings.selectedModel,
+      backend.running,
+    );
     let resolve: () => void = () => {};
     const answered = new Promise<null>((ok) => {
       resolve = () => ok(null);

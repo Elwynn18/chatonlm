@@ -432,6 +432,7 @@ pub fn run() {
             commands::image_models::image_search,
             commands::image_models::image_use_model,
             commands::models::get_think_pref,
+            commands::models::auto_model,
             commands::models::list_models,
             commands::models::load_model,
             commands::models::model_details,

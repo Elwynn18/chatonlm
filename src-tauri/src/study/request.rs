@@ -99,7 +99,7 @@ impl<'a> Gen<'a> {
         let settings = crate::commands::models::app_settings(store)
             .await
             .map_err(|error| failed(&error))?;
-        let Some(model) = model_of(&settings) else {
+        let Some(model) = model_of(&settings).await else {
             return Err(Stop::Failed(error(
                 StudyErrorCode::NoModel,
                 t!("study.noModel"),

@@ -16,8 +16,7 @@
   },
   "model": {
     "label": "Model",
-    "sameAsChat": "Same as chat ({model})",
-    "sameAsChatNone": "Same as chat",
+    "auto": "Auto",
     "notInstalled": "{name} (not installed)",
     "saveError": "Couldn't save the model: {message}",
     "small": "Small models make more mistakes in courses. A larger model gives better lessons."

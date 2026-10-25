@@ -27,6 +27,15 @@ fn configured(url: &str, chat: &str, study: &str) -> Store {
     store
 }
 
+/// Décharge tous les modèles en mémoire sur `url` (« Auto » n'en trouve plus).
+async fn unload_all(url: &str) {
+    for model in crate::ollama::running::list(url).await.unwrap() {
+        crate::ollama::running::unload(url, &model.name)
+            .await
+            .unwrap();
+    }
+}
+
 fn set_models(store: &Store, url: Option<&str>, chat: &str, study: &str) {
     let patch = SettingsPatch {
         server_url: url.map(str::to_owned),
@@ -744,8 +753,16 @@ async fn documents_become_sources_and_requests_are_checked() {
     assert!(
         matches!(&refused, Err(AppError::Invalid(m)) if m == "Enter a topic or add a document")
     );
-    // Aucun modèle, ni des cours ni du chat.
+    // Aucun modèle, ni des cours ni du chat : « Auto » prend le modèle en
+    // mémoire, puis refuse une fois la mémoire vide.
     set_models(&bench.store, None, "", "");
+    bench
+        .engine
+        .create(&bench.ctx, &staging, new_course("Plants", 10))
+        .await
+        .unwrap();
+    bench.idle().await;
+    unload_all(&bench.fake.url()).await;
     let refused = bench
         .engine
         .create(&bench.ctx, &staging, new_course("Plants", 10))
@@ -804,6 +821,7 @@ async fn a_missing_model_fails_a_part_until_retried() {
     bench.until(&id, level_ready(0)).await;
     bench.idle().await;
     set_models(&bench.store, None, "", "");
+    unload_all(&bench.fake.url()).await;
     bench.engine.start(&bench.ctx, &id).await.unwrap();
     let course = bench
         .until(&id, |c| c.levels[1].state == GenState::Failed)

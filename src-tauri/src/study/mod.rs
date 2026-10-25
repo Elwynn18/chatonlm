@@ -527,12 +527,15 @@ pub enum StudyStreamEvent {
     },
 }
 
-/// Modèle des cours : celui réglé, sinon celui du chat ; `None` si aucun.
-pub fn model_of(settings: &Settings) -> Option<String> {
-    [&settings.study_model, &settings.selected_model]
-        .into_iter()
-        .find(|model| !model.is_empty())
-        .cloned()
+/// Modèle des cours : celui réglé, sinon « Auto » (le meilleur modèle en
+/// mémoire, sinon celui du chat, voir `ollama::auto`) ; `None` si aucun.
+pub async fn model_of(settings: &Settings) -> Option<String> {
+    crate::ollama::auto::model_of(
+        &settings.effective_server_url,
+        &settings.study_model,
+        &settings.selected_model,
+    )
+    .await
 }
 
 #[cfg(test)]

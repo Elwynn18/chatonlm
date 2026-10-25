@@ -70,6 +70,18 @@ pub async fn running_models(store: State<'_, Store>) -> AppResult<Vec<RunningMod
     running::list(&server_url(&store).await?).await
 }
 
+/// Modèle que prend « Auto » (pages Proofread et Study, rien de choisi) en ce
+/// moment : le meilleur modèle en mémoire, sinon celui du chat ; `None` si
+/// aucun. Réglages à montrer : la page ne patiente pas pour l'intégré.
+#[tauri::command]
+pub async fn auto_model(store: State<'_, Store>) -> AppResult<Option<String>> {
+    let settings = crate::ollama::target::display_settings(&store).await?;
+    Ok(
+        crate::ollama::auto::model_of(&settings.effective_server_url, "", &settings.selected_model)
+            .await,
+    )
+}
+
 /// Charge un modèle avec le contexte et la durée des réglages ; rend la main
 /// une fois chargé (bouton Load, préchargement du modèle choisi).
 #[tauri::command]

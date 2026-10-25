@@ -216,7 +216,7 @@ await withApp(
     );
     assert.equal(loaded?.context_length, 8192, "contexte du modèle chargé");
 
-    // Page Proofread avec le modèle du chat (« Same as chat ») : Correct par
+    // Page Proofread en « Auto » (le modèle du chat, chargé) : Correct par
     // Ctrl+Entrée puis Rephrase par Ctrl+Maj+Entrée (vraies touches), deux
     // passages, revue sans erreur ; réponses variables : forme seulement.
     if (await exists(driver, "button[aria-label='Show sidebar']")) {

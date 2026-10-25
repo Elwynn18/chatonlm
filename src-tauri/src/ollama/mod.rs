@@ -2,6 +2,7 @@
 
 pub mod account;
 pub mod address;
+pub mod auto;
 pub mod builtin;
 pub mod client;
 pub mod detect;

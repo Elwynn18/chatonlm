@@ -1,5 +1,5 @@
 // Accueil de l'onglet Study (propre à ChatonLM) : en tête, le modèle des
-// cours (réglage `studyModel`, vide = celui du chat) et un avertissement
+// cours (réglage `studyModel`, vide = « Auto ») et un avertissement
 // discret pour un petit modèle ; puis le formulaire d'un nouveau cours
 // (sujet, niveau, durée, documents, recherche web) et les cours, en cours
 // puis terminés (jamais dans l'historique de la barre latérale) ; un cours
@@ -33,6 +33,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ModelSettingSelect } from "@/components/ModelSettingSelect";
 import { PRIMARY_BUTTON, QUIET_BUTTON } from "@/components/study/ui";
 import { WebSearchButton } from "@/components/WebSearchButton";
+import { useAutoModel } from "@/hooks/useAutoModel";
 import { useCloudStatus } from "@/hooks/useCloudStatus";
 import { release, useComposerFiles } from "@/hooks/useComposerFiles";
 import { useModels } from "@/hooks/useModels";
@@ -87,8 +88,7 @@ export function StudyModelSelect({ id }: { id: string }) {
       setting="studyModel"
       texts={{
         label: t("study.model.label"),
-        sameAsChat: (model) => t("study.model.sameAsChat", { model }),
-        sameAsChatNone: t("study.model.sameAsChatNone"),
+        auto: t("study.model.auto"),
         notInstalled: (name) => t("study.model.notInstalled", { name }),
         saveError: (message) => t("study.model.saveError", { message }),
       }}
@@ -96,11 +96,17 @@ export function StudyModelSelect({ id }: { id: string }) {
   );
 }
 
-/** Modèle des cours effectif : le sien, sinon celui du chat ("" : aucun). */
+/**
+ * Modèle des cours effectif : le sien, sinon celui d'« Auto » (le modèle du
+ * chat tant qu'« Auto » n'est pas lu) ; "" : aucun.
+ */
 function useStudyModel(): { model: string; known: boolean } {
   const { settings } = useSettings();
+  const own = settings?.studyModel ?? "";
+  const chat = settings?.selectedModel ?? "";
+  const auto = useAutoModel(chat, settings !== undefined && own === "");
   return {
-    model: settings?.studyModel || settings?.selectedModel || "",
+    model: own || (auto === undefined ? chat : (auto ?? "")),
     known: settings !== undefined,
   };
 }

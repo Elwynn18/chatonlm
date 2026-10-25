@@ -16,8 +16,7 @@
   },
   "model": {
     "label": "Modelo",
-    "sameAsChat": "El del chat ({model})",
-    "sameAsChatNone": "El del chat",
+    "auto": "Auto",
     "notInstalled": "{name} (no instalado)",
     "saveError": "No se pudo guardar el modelo: {message}",
     "small": "Los modelos pequeños cometen más errores en los cursos. Un modelo más grande da mejores lecciones."
