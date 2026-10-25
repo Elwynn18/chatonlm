@@ -58,6 +58,10 @@
     "choose": {
       "title": "Pourquoi choisir ChatonLM : l’IA locale tout-en-un",
       "description": "Sept outils d’IA locale dans une seule app gratuite, une voix qui lit juste, une conversation qui ne déborde pas, la VRAM sous les yeux : pourquoi ChatonLM."
+    },
+    "donate": {
+      "title": "Soutenir ChatonLM : faire un don",
+      "description": "ChatonLM est gratuit et le restera. Vos dons l’aident à grandir : nouvelles fonctions, et serveurs à lui pour une recherche web qui ne dépend plus d’Ollama."
     }
   },
   "nav": {
@@ -69,7 +73,8 @@
     "privacy": "Vie privée",
     "contact": "Contact",
     "language": "Langue",
-    "download": "Télécharger"
+    "download": "Télécharger",
+    "donate": "Faire un don"
   },
   "footer": {
     "tagline": "Une IA d’intérieur.",
@@ -356,6 +361,32 @@
     "lead": "Ce site ne vous suit pas : ni cookie, ni mesure d’audience, ni contenu chargé chez un tiers.",
     "body": "<h2>Quand vous visitez ce site</h2><p>Aucun cookie n’est déposé et aucun outil de mesure d’audience n’est installé. Les polices et les images viennent du site lui-même.</p><p>Comme tout serveur web, le nôtre note dans un journal technique l’adresse IP, la date, la page demandée, le navigateur utilisé et la page d’origine. Ce journal sert à la sécurité et au bon fonctionnement du site ; il est effacé automatiquement au bout de quelques semaines.</p><h2>Quand vous nous écrivez</h2><p>Le formulaire nous transmet votre nom, votre adresse électronique et votre message par courriel, dans une boîte Gmail (Google). Ils ne servent qu’à vous répondre et ne sont enregistrés nulle part ailleurs. Le responsable de ce traitement est l’éditeur du site, qui se fonde sur son intérêt légitime à vous répondre. Google peut conserver ces courriels hors de l’Union européenne. Ils sont supprimés au plus tard un an après notre dernier échange.</p><p>Pour limiter les envois abusifs, votre adresse IP est gardée en mémoire vive un jour au plus, jamais sur le disque.</p><h2>Quand vous téléchargez ChatonLM</h2><p>Les fichiers sont hébergés par GitHub : votre navigateur les télécharge chez lui, et GitHub voit donc votre adresse IP, selon sa propre politique de confidentialité.</p><h2>Dans l’app ChatonLM</h2><p>ChatonLM n’a ni compte, ni télémétrie, ni mesure d’audience. Vos conversations, vos pièces jointes, les images créées et vos réglages restent sur votre ordinateur ; la dictée et le mode vocal sont transcrits sur place, et les images y sont créées.</p><p>L’app ne se connecte qu’à :</p><ul><li><strong>Hugging Face</strong>, quand vous ouvrez ModelHub (listes et fiches des modèles, modèles d’images compris), quand vous téléchargez un modèle d’images, un modèle de reconnaissance de la parole ou une voix, et pour savoir si un modèle installé depuis Hugging Face a une version plus récente ;</li><li><strong>ollama.com</strong>, pour vérifier qu’un nom de modèle existe et si un modèle installé a une version plus récente et, si vous vous y connectez, pour afficher l’image de votre compte ;</li><li><strong>GitHub</strong>, pour vérifier et télécharger les mises à jour, et pour télécharger les fichiers d’une voix ;</li><li><strong>Telegram ou Discord</strong>, seulement si vous reliez un bot avec Easy Link (voir plus bas).</li></ul><p>Tout le reste passe par le moteur Ollama, sur votre ordinateur par défaut : les conversations, le téléchargement des modèles et, si vous les activez, le compte Ollama et la recherche web, alors traités par ollama.com. Si vous réglez l’app sur un serveur situé sur une autre machine, vos messages, vos pièces jointes et les dictées mises au propre lui sont envoyés.</p><h2>Quand vous créez une image</h2><p>L’image est créée sur votre ordinateur par le moteur d’images inclus dans ChatonLM (stable-diffusion.cpp), qui tourne sur place et ne se connecte pas à Internet. Votre description et l’image restent sur votre ordinateur ; l’image est enregistrée avec la conversation et n’est jamais renvoyée au modèle de langage. Quand c’est le modèle de langage qui demande l’image, votre message passe par le moteur Ollama, comme tout message.</p><h2>Avec Easy Link</h2><p>Easy Link vous permet d’écrire à vos modèles depuis Telegram ou Discord, par un bot que vous créez vous-même. Tant que vous n’avez relié aucun bot, l’app ne se connecte ni à l’un ni à l’autre. Une fois un bot relié, et tant que l’app tourne, vos messages au bot (textes, photos, messages vocaux) et tout ce qu’il vous répond, réponses du modèle et images créées comprises, passent par les serveurs de cette messagerie, selon sa propre politique de confidentialité. L’app s’adresse directement à elle : aucun autre serveur ne s’intercale, et rien n’est envoyé à l’éditeur de ChatonLM.</p><p>Le jeton du bot est gardé dans la base de données de l’app, sur votre ordinateur, et n’est envoyé qu’à cette messagerie. Les messages vocaux sont transcrits sur votre ordinateur, le modèle répond par le moteur Ollama comme dans l’app, et ces conversations sont enregistrées sur votre ordinateur avec les autres.</p><h2>Vos droits</h2><p>Vous pouvez demander à consulter, à corriger ou à faire supprimer les données qui vous concernent, ou vous opposer à leur traitement, en écrivant à <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>. Vous pouvez aussi adresser une réclamation à la CNIL (cnil.fr).</p>",
     "updated": "Dernière mise à jour : octobre 2026."
+  },
+  "donate": {
+    "eyebrow": "Soutenir le projet",
+    "title": "Aidez le chaton <em>à grandir.</em>",
+    "lead": "ChatonLM est gratuit et le restera : pas d’abonnement, pas de version « Pro », pas de publicité. Les dons lui permettent de continuer à se développer. Ils sont libres, ponctuels ou mensuels, et chacun compte.",
+    "cta": "Faire un don sur Ko-fi",
+    "soon": "Les dons ouvrent très bientôt : la page de Ko-fi est en préparation.",
+    "secure": "Le paiement se fait chez Ko-fi : ChatonLM ne voit jamais vos coordonnées bancaires.",
+    "uses_title": "À quoi servent <em>vos dons.</em>",
+    "use1_title": "Faire avancer l’app",
+    "use1_text": "Du temps pour développer ChatonLM : de nouveaux outils, des corrections, et des réponses aux idées et aux retours de chacun.",
+    "use2_title": "Des serveurs à lui",
+    "use2_text": "Louer des serveurs, pour que la recherche web de ChatonLM ne dépende plus d’Ollama.",
+    "use3_title": "Rester gratuit pour tous",
+    "use3_text": "Garder ChatonLM entier et gratuit pour tout le monde, sans publicité, sans pisteur et sans version payante.",
+    "faq_title": "Vos <em>questions.</em>",
+    "q1": "ChatonLM va-t-il devenir payant ?",
+    "a1": "Non. Toutes les fonctions restent gratuites pour tout le monde, que vous donniez ou non. Un don ne débloque rien : il aide le projet à avancer.",
+    "q2": "Comment se passe le paiement ?",
+    "a2": "Sur Ko-fi, un service fait pour les dons aux créateurs. Vous choisissez le montant, pour une fois ou chaque mois. ChatonLM ne reçoit jamais vos coordonnées bancaires.",
+    "q3": "Puis-je arrêter un don mensuel ?",
+    "a3": "Oui, à tout moment, depuis Ko-fi. Rien ne change dans l’app.",
+    "q4": "Je ne peux pas donner : comment aider autrement ?",
+    "a4": "En parlant de ChatonLM autour de vous, en signalant un problème ou en proposant une idée par la <a href='/{{lang}}/contact/' data-contact>page de contact</a>. Ça compte aussi.",
+    "end_title": "Merci, <em>vraiment.</em>",
+    "end_lead": "Chaque don, même petit, aide ChatonLM à grandir."
   },
   "toolpage": {
     "back": "Les sept outils",

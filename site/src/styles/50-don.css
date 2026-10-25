@@ -1,0 +1,33 @@
+/* chatonlm.com : page des dons (src/pages/donate.html). Elle reprend le haut de
+   page des outils (30-outil.css) et le chaton à la pelote de « Pourquoi
+   ChatonLM » (40-choix.css), les perles des étapes, les questions et la fin
+   de page de l'accueil ; seuls s'y ajoutent les avis sous le bouton et le cœur
+   qui bat au-dessus du chaton (immobile en mouvement réduit, 10-base.css). */
+
+.outil-tete .don-avis {
+  margin-top: 16px;
+  max-width: 46ch;
+  animation-delay: 0.34s;
+}
+.outil-tete .don-avis + .don-avis {
+  margin-top: 6px;
+}
+
+.don-art .coeur {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bat 1.6s var(--doux) infinite;
+}
+@keyframes bat {
+  0%,
+  60%,
+  100% {
+    transform: scale(1);
+  }
+  20% {
+    transform: scale(1.14);
+  }
+  40% {
+    transform: scale(0.96);
+  }
+}

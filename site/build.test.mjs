@@ -7,6 +7,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  KOFI_URL,
   LANGS,
   PAGES,
   TOOLS,
@@ -488,6 +489,81 @@ describe("fabrication complète", () => {
         `<input type="hidden" name="lang" value="${lang}" />`,
       );
     }
+  });
+});
+
+describe("page des dons", () => {
+  const OUT3 = path.join(ROOT, ".tools", "site-test-dist-don");
+  afterAll(() => rmSync(OUT3, { recursive: true, force: true }));
+  const lire = (file) => readFileSync(path.join(OUT3, file), "utf8");
+  // Les deux boutons de la page (haut et fin de page).
+  const boutons = (html) =>
+    [...html.matchAll(/<a class="bouton[^"]*" data-don[^>]*>/g)].map(
+      (m) => m[0],
+    );
+
+  it("est reliée au pied de page de chaque page, et marquée sur la sienne", async () => {
+    await build({ out: OUT3, kofi: "" });
+    for (const lang of LANGS) {
+      const lien = `href="/${lang}/donate/"`;
+      for (const page of Object.keys(PAGES)) {
+        const html = lire(`${lang}/${pathOf(page, lang)}index.html`);
+        expect(html, `${lang} ${page}`).toContain(
+          page === "donate" ? `${lien} aria-current="page"` : lien,
+        );
+      }
+    }
+    expect(lire("llms.txt")).toContain("](https://chatonlm.com/en/donate/)");
+  });
+
+  it("sans adresse Ko-fi : boutons inactifs et avis « bientôt » visible", async () => {
+    await build({ out: OUT3, kofi: "" });
+    for (const lang of LANGS) {
+      const html = lire(`${lang}/donate/index.html`);
+      const liste = boutons(html);
+      expect(liste, lang).toHaveLength(2);
+      for (const bouton of liste) {
+        expect(bouton).toContain('aria-disabled="true"');
+        expect(bouton).not.toContain("href=");
+      }
+      expect(html).toMatch(/<p class="discret don-avis" data-don-bientot>/);
+    }
+  });
+
+  it("avec une adresse Ko-fi : boutons vers elle et avis caché", async () => {
+    await build({ out: OUT3, kofi: "https://ko-fi.com/essai?a=1&b=2" });
+    for (const lang of LANGS) {
+      const html = lire(`${lang}/donate/index.html`);
+      const liste = boutons(html);
+      expect(liste, lang).toHaveLength(2);
+      for (const bouton of liste) {
+        expect(bouton).toContain(
+          'href="https://ko-fi.com/essai?a=1&amp;b=2" rel="noopener"',
+        );
+        expect(bouton).not.toContain("aria-disabled");
+      }
+      expect(html).toMatch(
+        /<p class="discret don-avis" data-don-bientot hidden>/,
+      );
+    }
+  });
+
+  it("l'adresse de Ko-fi, si elle est posée, est une page Ko-fi", () => {
+    if (KOFI_URL)
+      expect(KOFI_URL).toMatch(/^https:\/\/ko-fi\.com\/[A-Za-z0-9_]+$/);
+  });
+
+  it("chatonlm.com/donate renvoie vers la page dans la langue du navigateur", () => {
+    const nginx = readFileSync(
+      path.join(ROOT, "site", "server", "nginx-chatonlm.conf"),
+      "utf8",
+    );
+    expect(nginx).toMatch(
+      /location ~ \^\/donate\/\?\$ \{\s*return 302 \/\$chatonlm_lang\/donate\/;\s*\}/,
+    );
+    // La réponse dépend de la langue : les caches le savent.
+    expect(nginx).toContain('"~^/donate/?$" "Accept-Language";');
+    expect(pathOf("donate", "fr")).toBe("donate/");
   });
 });
 

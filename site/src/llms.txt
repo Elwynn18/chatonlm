@@ -38,6 +38,7 @@ Facts:
 - [Voice mode]({{origin}}/en/{{path:voice}}): hands-free voice conversations and read aloud
 - [Proofreading]({{origin}}/en/{{path:proofread}}): correct or rephrase a text with a local model
 - [Learn with AI]({{origin}}/en/{{path:study}}): courses and quizzes on any topic
+- [Donate]({{origin}}/en/{{path:donate}}): ChatonLM stays free; donations (on Ko-fi) pay for its development and for servers of its own, so that web search no longer depends on Ollama
 - [Privacy]({{origin}}/en/privacy/): every connection the website and the app make
 - [Contact]({{origin}}/en/contact/)
 

@@ -48,6 +48,9 @@ export const PAGES = {
   "contact-error": "contact/error/",
   legal: "legal/",
   privacy: "privacy/",
+  // Même adresse dans les trois langues : chatonlm.com/donate (lien de l'app)
+  // y renvoie d'après la langue du navigateur (nginx).
+  donate: "donate/",
   "not-found": "404/",
   soon: "soon/",
   chat: {
@@ -122,12 +125,19 @@ export const UNLISTED = new Set([
  */
 export const SAME_AS = [];
 const CONTACT = "contact.chatonlm@gmail.com";
+/**
+ * Page de dons de ChatonLM sur Ko-fi (https://ko-fi.com/…). Vide tant que le
+ * compte n'existe pas : le bouton de la page des dons est alors inactif et un
+ * avis dit que les dons ouvrent bientôt.
+ */
+export const KOFI_URL = "";
 /** Nom d'une page dans son fil d'Ariane : la clé du lien qui y mène. */
 const CRUMBS = {
   contact: "nav.contact",
   legal: "footer.notice",
   privacy: "footer.privacy",
   choose: "nav.why",
+  donate: "nav.donate",
 };
 const OG_LOCALES = { fr: "fr_FR", en: "en_US", es: "es_ES" };
 
@@ -411,6 +421,7 @@ export async function build({
   dates = path.join(ROOT, "lastmod.json"),
   saveDates = false,
   today = localDate(),
+  kofi = KOFI_URL,
 } = {}) {
   const locales = {};
   for (const lang of LANGS) {
@@ -504,6 +515,11 @@ export async function build({
         url: `/${lang}/${pagePath}`,
         origin: ORIGIN,
         year,
+        // Bouton de don : le lien vers Ko-fi, ou inactif avec l'avis « bientôt ».
+        donate_link: kofi
+          ? ` href="${escapeHtml(kofi)}" rel="noopener"`
+          : ' aria-disabled="true"',
+        donate_soon: kofi ? " hidden" : "",
       };
       // Chemin d'une autre page dans cette langue : {{path:dictation}} ; et la
       // marque de la page en cours dans une liste de liens : {{here:dictation}}.

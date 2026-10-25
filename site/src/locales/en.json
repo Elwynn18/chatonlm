@@ -58,6 +58,10 @@
     "choose": {
       "title": "Why choose ChatonLM: all-in-one local AI",
       "description": "Seven local AI tools in one free app, a voice that reads correctly, conversations that don’t overflow, graphics memory in plain sight: why choose ChatonLM."
+    },
+    "donate": {
+      "title": "Support ChatonLM: make a donation",
+      "description": "ChatonLM is free and will stay free. Your donations help it grow: new features, and servers of its own so that web search no longer depends on Ollama."
     }
   },
   "nav": {
@@ -69,7 +73,8 @@
     "privacy": "Privacy",
     "contact": "Contact",
     "language": "Language",
-    "download": "Download"
+    "download": "Download",
+    "donate": "Donate"
   },
   "footer": {
     "tagline": "An indoor AI.",
@@ -356,6 +361,32 @@
     "lead": "This site doesn’t track you: no cookies, no analytics, no content loaded from a third party.",
     "body": "<h2>When you visit this site</h2><p>No cookie is set and no analytics tool is installed. The fonts and images come from the site itself.</p><p>Like any web server, ours records the IP address, the date, the requested page, the browser used and the referring page in a technical log. This log is used for the security and proper running of the site; it is deleted automatically after a few weeks.</p><h2>When you write to us</h2><p>The form sends us your name, your email address and your message by email, to a Gmail (Google) mailbox. They are used only to reply to you and are not stored anywhere else. The controller of this processing is the site’s publisher, relying on its legitimate interest in replying to you. Google may store these emails outside the European Union. They are deleted at the latest one year after our last exchange.</p><p>To limit abusive submissions, your IP address is kept in working memory for one day at most, never on disk.</p><h2>When you download ChatonLM</h2><p>The files are hosted by GitHub: your browser downloads them from GitHub, which therefore sees your IP address, under its own privacy policy.</p><h2>In the ChatonLM app</h2><p>ChatonLM has no account, no telemetry and no analytics. Your conversations, attachments, the images you create and your settings stay on your computer; dictation and voice mode are transcribed locally, and images are made there too.</p><p>The app only connects to:</p><ul><li><strong>Hugging Face</strong>, when you open ModelHub (model lists and model pages, image models included), when you download an image model, a speech recognition model or a voice, and to check whether a model installed from Hugging Face has a newer version;</li><li><strong>ollama.com</strong>, to check that a model name exists and whether an installed model has a newer version and, if you sign in to it, to show your account picture;</li><li><strong>GitHub</strong>, to check for and download updates, and to download the files of a voice;</li><li><strong>Telegram or Discord</strong>, only if you connect a bot with Easy Link (see below).</li></ul><p>Everything else goes through the Ollama engine, on your computer by default: conversations, model downloads and, if you turn them on, the Ollama account and web search, which are then handled by ollama.com. If you point the app at a server on another machine, your messages, attachments and the transcripts cleaned up by dictation are sent to it.</p><h2>When you create an image</h2><p>The image is made on your computer by the image engine built into ChatonLM (stable-diffusion.cpp), which runs locally and does not connect to the internet. Your description and the image stay on your computer; the image is saved with the conversation and is never sent back to the language model. When the language model is the one asking for the image, your message goes through the Ollama engine, like any message.</p><h2>With Easy Link</h2><p>Easy Link lets you write to your models from Telegram or Discord, through a bot you create yourself. As long as you haven’t connected a bot, the app doesn’t connect to either service. Once a bot is connected, and while the app is running, your messages to the bot (text, photos, voice messages) and everything it replies, the model’s answers and the images it creates included, go through the servers of that service, under its own privacy policy. The app talks to that service directly: no other server sits in between, and nothing is sent to ChatonLM’s publisher.</p><p>The bot’s token is kept in the app’s database, on your computer, and is only sent to that service. Voice messages are transcribed on your computer, the model answers through the Ollama engine as it does in the app, and these conversations are saved on your computer with the others.</p><h2>Your rights</h2><p>You can ask to see, correct or delete the data about you, or object to its processing, by writing to <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>. You can also lodge a complaint with the CNIL (cnil.fr).</p>",
     "updated": "Last updated: October 2026."
+  },
+  "donate": {
+    "eyebrow": "Support the project",
+    "title": "Help the kitten <em>grow.</em>",
+    "lead": "ChatonLM is free and will stay free: no subscription, no “Pro” version, no ads. Donations let it keep growing. They are optional, one-time or monthly, and every one counts.",
+    "cta": "Donate on Ko-fi",
+    "soon": "Donations open very soon: the Ko-fi page is being set up.",
+    "secure": "Payment happens on Ko-fi: ChatonLM never sees your bank details.",
+    "uses_title": "What your <em>donations do.</em>",
+    "use1_title": "Move the app forward",
+    "use1_text": "Time to develop ChatonLM: new tools, fixes, and answers to everyone’s ideas and feedback.",
+    "use2_title": "Servers of its own",
+    "use2_text": "Renting servers, so that ChatonLM’s web search no longer depends on Ollama.",
+    "use3_title": "Free for everyone",
+    "use3_text": "Keeping ChatonLM whole and free for everyone, with no ads, no trackers and no paid version.",
+    "faq_title": "Your <em>questions.</em>",
+    "q1": "Will ChatonLM become paid?",
+    "a1": "No. Every feature stays free for everyone, whether you donate or not. A donation unlocks nothing: it helps the project move forward.",
+    "q2": "How does payment work?",
+    "a2": "On Ko-fi, a service made for donations to creators. You choose the amount, once or every month. ChatonLM never receives your bank details.",
+    "q3": "Can I stop a monthly donation?",
+    "a3": "Yes, at any time, from Ko-fi. Nothing changes in the app.",
+    "q4": "I can’t donate: how else can I help?",
+    "a4": "By telling people about ChatonLM, reporting a problem or suggesting an idea on the <a href='/{{lang}}/contact/' data-contact>contact page</a>. That counts too.",
+    "end_title": "Thank you, <em>truly.</em>",
+    "end_lead": "Every donation, however small, helps ChatonLM grow."
   },
   "toolpage": {
     "back": "All seven tools",

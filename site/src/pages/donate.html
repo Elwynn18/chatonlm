@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="{{lang}}" class="sans-js">
+  <head>
+    {{>head.html}}
+    <title>{{t:meta.donate.title}}</title>
+    <meta name="description" content="{{t:meta.donate.description}}" />
+    <meta property="og:title" content="{{t:meta.donate.title}}" />
+    <meta property="og:description" content="{{t:meta.donate.description}}" />
+    {{>head-index.html}}
+  </head>
+  <body class="page-outil page-don">
+    {{>header.html}}
+    <main id="contenu">
+      <section class="outil-tete cadre">
+        <div class="outil-tete-texte">
+          <a class="retour" href="/{{lang}}/">{{t:nav.home}}</a>
+          <h1><span class="surtitre">{{t:donate.eyebrow}}</span> <span class="outil-titre">{{h:donate.title}}</span></h1>
+          <p class="chapo">{{t:donate.lead}}</p>
+          <!-- Bouton de la plateforme de dons (KOFI_URL de build.mjs) ; sans adresse, il est
+               inactif et l'avis « bientôt » s'affiche. -->
+          <div class="actions">
+            <a class="bouton bouton--roux" data-don{{donate_link}}>{{>i-heart.svg}}<span>{{t:donate.cta}}</span></a>
+          </div>
+          <p class="discret don-avis" data-don-bientot{{donate_soon}}>{{t:donate.soon}}</p>
+          <p class="discret don-avis">{{t:donate.secure}}</p>
+        </div>
+        <!-- Le chaton de l'accueil, sa pelote et un cœur : un décor. -->
+        <div class="choix-art don-art" aria-hidden="true">
+          <svg viewBox="-170 -10 620 470" data-chaton>
+            <ellipse cx="150" cy="432" rx="250" ry="16" fill="#F0DCC5" />
+            {{>cat-body.svg}}
+            <ellipse cx="166" cy="416" rx="32" ry="17" fill="#FFF4E8" />
+            <ellipse cx="234" cy="416" rx="32" ry="17" fill="#FFF4E8" />
+            <path d="M158 412v10M174 412v10M226 412v10M242 412v10" stroke="#2A1A10" stroke-opacity=".28" stroke-width="3.500" stroke-linecap="round" />
+            <g transform="translate(31 -44) scale(.66)">{{>cat-head.svg}}</g>
+            <g transform="translate(360 40)">
+              <path class="coeur" d="M0 22C-14 4-40 10-40 32c0 20 24 36 40 50 16-14 40-30 40-50 0-22-26-28-40-10z" fill="#F28A38" />
+            </g>
+            <g transform="translate(14 346)">
+              <g class="pelote-entree">
+                <circle r="93" fill="#FFF4E8" />
+                <g class="pelote">{{>yarn.svg}}</g>
+              </g>
+            </g>
+          </svg>
+        </div>
+      </section>
+
+      <!-- À quoi servent les dons : trois perles sur le fil, comme les étapes des outils. -->
+      <section class="etapes cadre">
+        <h2>{{h:donate.uses_title}}</h2>
+        <ol class="etapes-liste" role="list">
+          <li><h3>{{t:donate.use1_title}}</h3><p>{{t:donate.use1_text}}</p></li>
+          <li><h3>{{t:donate.use2_title}}</h3><p>{{t:donate.use2_text}}</p></li>
+          <li><h3>{{t:donate.use3_title}}</h3><p>{{t:donate.use3_text}}</p></li>
+        </ol>
+      </section>
+
+      <section class="questions cadre">
+        <h2>{{h:donate.faq_title}}</h2>
+        <div class="questions-liste">
+          <details><summary>{{t:donate.q1}}</summary><p>{{t:donate.a1}}</p></details>
+          <details><summary>{{t:donate.q2}}</summary><p>{{t:donate.a2}}</p></details>
+          <details><summary>{{t:donate.q3}}</summary><p>{{t:donate.a3}}</p></details>
+          <details><summary>{{t:donate.q4}}</summary><p>{{h:donate.a4}}</p></details>
+        </div>
+      </section>
+
+      <section class="bout cadre">
+        <div class="bout-dessin" aria-hidden="true">
+          <svg viewBox="-30 40 450 420" data-chaton>
+            <ellipse cx="200" cy="432" rx="190" ry="15" fill="#F0DCC5" />
+            {{>cat-body.svg}}
+            <ellipse cx="234" cy="416" rx="32" ry="17" fill="#FFF4E8" />
+            <path d="M226 412v10M242 412v10" stroke="#2A1A10" stroke-opacity=".28" stroke-width="3.500" stroke-linecap="round" />
+            <g transform="rotate(-7 200 190) translate(31 -44) scale(.66)">{{>cat-head.svg}}</g>
+            <g class="bras">
+              <path d="M128 312C94 296 60 262 44 212" fill="none" stroke="#F28A38" stroke-width="36" stroke-linecap="round" />
+              <path d="M34 208l6 14M52 202l6 14" stroke="#D9701F" stroke-width="5.500" stroke-linecap="round" />
+            </g>
+          </svg>
+        </div>
+        <div class="bout-texte">
+          <h2>{{h:donate.end_title}}</h2>
+          <p class="chapo">{{t:donate.end_lead}}</p>
+          <a class="bouton bouton--roux" data-don{{donate_link}}>{{>i-heart.svg}}<span>{{t:donate.cta}}</span></a>
+        </div>
+      </section>
+    </main>
+    {{>footer.html}}
+    {{>contact-dialog.html}}
+  </body>
+</html>
