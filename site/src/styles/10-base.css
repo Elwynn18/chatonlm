@@ -255,12 +255,14 @@ h3 {
 }
 .menu a {
   text-decoration: none;
+  white-space: nowrap;
   padding: 6px 0;
   background: linear-gradient(var(--laine), var(--laine)) 0 100% / 0 2px
     no-repeat;
   transition: background-size 0.25s var(--doux);
 }
-.menu a:hover {
+.menu a:hover,
+.menu a[aria-current] {
   background-size: 100% 2px;
 }
 .entete .bouton svg {
@@ -285,7 +287,10 @@ h3 {
   background: var(--encre);
   color: var(--creme);
 }
-@media (max-width: 1000px) {
+/* Cinq liens : en français et en espagnol, le menu ne tient sur une ligne
+   qu'à partir de 1100 px environ. En dessous, il laisse la place (le pied de
+   page porte les mêmes liens). */
+@media (max-width: 1120px) {
   .menu {
     display: none;
   }

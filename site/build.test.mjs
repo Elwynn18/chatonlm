@@ -502,15 +502,21 @@ describe("page des dons", () => {
       (m) => m[0],
     );
 
-  it("est reliée au pied de page de chaque page, et marquée sur la sienne", async () => {
+  it("est reliée à l'en-tête et au pied de page de chaque page, et marquée sur la sienne", async () => {
     await build({ out: OUT3, kofi: "" });
     for (const lang of LANGS) {
       const lien = `href="/${lang}/donate/"`;
       for (const page of Object.keys(PAGES)) {
         const html = lire(`${lang}/${pathOf(page, lang)}index.html`);
-        expect(html, `${lang} ${page}`).toContain(
-          page === "donate" ? `${lien} aria-current="page"` : lien,
+        const attendu =
+          page === "donate" ? `${lien} aria-current="page"` : lien;
+        // En-tête et pied de page.
+        expect(html.split(attendu).length - 1, `${lang} ${page}`).toBe(2);
+        const entete = html.slice(
+          html.indexOf('<nav class="menu"'),
+          html.indexOf("</nav>", html.indexOf('<nav class="menu"')),
         );
+        expect(entete, `${lang} ${page}`).toContain(attendu);
       }
     }
     expect(lire("llms.txt")).toContain("](https://chatonlm.com/en/donate/)");
