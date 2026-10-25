@@ -136,6 +136,11 @@
     },
     "loadError": "Impossible de lire l'état des mises à jour : {message}"
   },
+  "donate": {
+    "title": "Soutenir ChatonLM",
+    "description": "Les dons permettent à ChatonLM de continuer à se développer. Ils serviront notamment à louer ses propres serveurs, pour que la recherche web ne dépende plus d'Ollama.",
+    "button": "Faire un don"
+  },
   "modelLocation": {
     "remoteField": "Sur {host}",
     "unknownField": "Inconnu",
