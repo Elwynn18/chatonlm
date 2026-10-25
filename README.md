@@ -245,7 +245,7 @@ ChatonLM talks to an Ollama server, and finds one on its own:
   for your password to start the service), or **Use the built-in Ollama
   instead**. It never starts the built-in one silently in this case.
 - **Ollama isn't installed**: ChatonLM starts the copy it includes (Ollama
-  0.40.3, processor and Vulkan). It listens only on 127.0.0.1, on a private
+  0.40.11, processor and Vulkan). It listens only on 127.0.0.1, on a private
   port, so only apps on your computer can reach it, and it stops when you
   quit ChatonLM.
 - **You entered a server address** (Settings › General › Server address, or
@@ -423,7 +423,7 @@ folder of the installation on Windows.
 - The interface follows, and partly adapts, the official
   [Ollama](https://github.com/ollama/ollama) app (MIT License, Copyright (c)
   Ollama); the adapted files are listed in THIRD_PARTY_LICENSES, part 1.
-- The packages include [Ollama](https://github.com/ollama/ollama) 0.40.3 (MIT)
+- The packages include [Ollama](https://github.com/ollama/ollama) 0.40.11 (MIT)
   and [ONNX Runtime](https://github.com/microsoft/onnxruntime) 1.28.3 (MIT),
   unmodified. The built-in Ollama also contains the GNU OpenMP library
   (libgomp), under the GPL 3 with the GCC Runtime Library Exception.

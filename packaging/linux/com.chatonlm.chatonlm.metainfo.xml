@@ -43,6 +43,21 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.9.3" date="2026-10-25" type="development">
+      <description>
+        <p>What's new:</p>
+        <ul>
+          <li>Proofread and Study: the new Auto model choice uses the best model already loaded, or the chat model when none is loaded.</li>
+          <li>Ephemeral chats: click the ghost kitten at the top right; the chat stays out of your history and is erased when you open another chat or quit, unless you keep it. Works from Easy Link too.</li>
+          <li>Ollama cloud models, optional and off by default (Settings › Models).</li>
+          <li>Dictation: the text is pasted where the cursor is.</li>
+          <li>Models still loaded are unloaded when you quit ChatonLM (can be turned off).</li>
+          <li>Settings › General: choose whether the close button keeps ChatonLM in the system tray or quits it, and a way to support ChatonLM with a donation.</li>
+          <li>A snail shows when a model runs partly on the processor because graphics memory is short.</li>
+          <li>Built-in Ollama updated to 0.40.11.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.9.2" date="2026-10-17" type="development">
       <description>
         <p>What's new:</p>

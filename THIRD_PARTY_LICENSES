@@ -819,8 +819,8 @@ chatonlm_<version>_amd64.AppImage-sources.tar.
 
 == Part 5. Built-in Ollama ==
 
-Program:  Ollama 0.40.3, https://github.com/ollama/ollama, official build
-          for Linux (ollama-linux-amd64.tar.zst of the v0.40.3 release),
+Program:  Ollama 0.40.11, https://github.com/ollama/ollama, official build
+          for Linux (ollama-linux-amd64.tar.zst of the v0.40.11 release),
           shipped unmodified in /usr/lib/chatonlm/ollama (in the AppImage:
           usr/libexec/chatonlm/ollama) and run as a separate program,
           without its CUDA, ROCm and MLX libraries
