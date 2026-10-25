@@ -8,6 +8,7 @@ import {
   LIMITS,
   buildMessage,
   configFromEnv,
+  contactHtml,
   createLimiter,
   visitorKey,
   createReleaseSource,
@@ -238,6 +239,67 @@ describe("courriel", () => {
     expect(Buffer.from(body, "base64").toString()).toBe(
       text.replace(/\n/g, "\r\n"),
     );
+  });
+});
+
+describe("courriel mis en forme", () => {
+  /** Découpe un message multipart/alternative en ses parties décodées. */
+  function parts(raw) {
+    const [head, ...rest] = raw.split("\r\n\r\n");
+    const mark = /boundary="([^"]+)"/.exec(head)[1];
+    return rest
+      .join("\r\n\r\n")
+      .split(`--${mark}`)
+      .slice(1, -1)
+      .map((chunk) => {
+        const [partHead, body] = chunk.trim().split("\r\n\r\n");
+        return {
+          type: /Content-Type: ([^;]+)/.exec(partHead)[1],
+          text: Buffer.from(body, "base64").toString(),
+        };
+      });
+  }
+
+  it("porte le texte brut, puis la version HTML", () => {
+    const raw = buildMessage({
+      from: '"ChatonLM (site)" <contact@example.org>',
+      to: "contact@example.org",
+      subject: "Sujet",
+      text: "Bonjour.\n",
+      html: "<p>Bonjour.</p>\n",
+      id: "abc@chatonlm.com",
+      boundary: "=_essai",
+    });
+    const head = raw.split("\r\n\r\n")[0];
+    expect(head).toContain(
+      'Content-Type: multipart/alternative; boundary="=_essai"',
+    );
+    expect(head).not.toContain("text/plain");
+    expect(raw.endsWith("--=_essai--")).toBe(true);
+    expect(parts(raw)).toEqual([
+      { type: "text/plain", text: "Bonjour.\r\n" },
+      { type: "text/html", text: "<p>Bonjour.</p>\r\n" },
+    ]);
+  });
+
+  it("échappe tout ce que le visiteur a saisi et garde ses retours à la ligne", () => {
+    const html = contactHtml({
+      name: 'Ève <b>"x"</b>',
+      email: "eve&co@example.org",
+      message: "Ligne 1 <script>alert('x')</script>\nLigne 2 & fin",
+      lang: "es",
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("<b>");
+    expect(html).toContain("Ève &lt;b&gt;&quot;x&quot;&lt;/b&gt;");
+    expect(html).toContain(
+      "Ligne 1 &lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;<br>Ligne 2 &amp; fin",
+    );
+    expect(html).toContain('href="mailto:eve&amp;co@example.org"');
+    expect(html).toContain(
+      "mailto:eve&amp;co@example.org?subject=Re%3A%20%5BChatonLM%5D%20Message%20de%20%C3%88ve%20%3Cb%3E%22x%22%3C%2Fb%3E",
+    );
+    expect(html).toContain("site en espagnol");
   });
 });
 
@@ -530,6 +592,12 @@ describe("service HTTP", () => {
         replyTo: "elodie@example.org",
         subject: "[ChatonLM] Message de Élodie Martin",
         text: "De : Élodie Martin <elodie@example.org>\nLangue du site : fr\n\nBonjour, une question sur la dictée.\n",
+        html: contactHtml({
+          name: "Élodie Martin",
+          email: "elodie@example.org",
+          message: "Bonjour, une question sur la dictée.",
+          lang: "fr",
+        }),
       },
     ]);
   });

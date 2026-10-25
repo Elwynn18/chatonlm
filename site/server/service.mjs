@@ -181,19 +181,31 @@ export function encodeHeader(text) {
     .join("\r\n ");
 }
 
-/** Le message au format d'Internet (RFC 5322), corps en base64. */
+/** Corps en base64, en lignes de 76 caractères. */
+function base64Lines(text) {
+  const body = Buffer.from(text.replace(/\r?\n/g, "\r\n")).toString("base64");
+  return body.match(/.{1,76}/g) ?? [];
+}
+
+/**
+ * Le message au format d'Internet (RFC 5322), corps en base64. Avec `html`,
+ * le message porte deux versions (multipart/alternative) : le texte brut
+ * d'abord, pour les messageries qui n'affichent pas le HTML, puis la version
+ * mise en forme.
+ */
 export function buildMessage({
   from,
   to,
   replyTo,
   subject,
   text,
+  html,
   date = new Date(),
   id,
+  boundary,
 }) {
   const messageId = id ?? `${randomBytes(12).toString("hex")}@chatonlm.com`;
-  const body = Buffer.from(text.replace(/\r?\n/g, "\r\n")).toString("base64");
-  return [
+  const head = [
     `From: ${from}`,
     `To: <${to}>`,
     ...(replyTo ? [`Reply-To: <${replyTo}>`] : []),
@@ -201,11 +213,91 @@ export function buildMessage({
     `Date: ${date.toUTCString().replace("GMT", "+0000")}`,
     `Message-ID: <${messageId}>`,
     "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=utf-8",
+  ];
+  const part = (type, content) => [
+    `Content-Type: ${type}; charset=utf-8`,
     "Content-Transfer-Encoding: base64",
     "",
-    ...(body.match(/.{1,76}/g) ?? []),
+    ...base64Lines(content),
+  ];
+  if (!html) return [...head, ...part("text/plain", text)].join("\r\n");
+  // Une frontière commençant par « =_ » ne peut pas apparaître en base64.
+  const mark = boundary ?? `=_chatonlm_${randomBytes(12).toString("hex")}`;
+  return [
+    ...head,
+    `Content-Type: multipart/alternative; boundary="${mark}"`,
+    "",
+    `--${mark}`,
+    ...part("text/plain", text),
+    `--${mark}`,
+    ...part("text/html", html),
+    `--${mark}--`,
   ].join("\r\n");
+}
+
+const HTML_ESCAPES = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+const escapeHtml = (text) => text.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+
+const LANG_NAMES = { fr: "français", en: "anglais", es: "espagnol" };
+
+/**
+ * Version mise en forme du courriel d'un message du formulaire, aux couleurs
+ * du site (contrat de la direction visuelle : crème, encre, roux). HTML de
+ * courriel : tableaux et styles en ligne, ni image, ni police, ni feuille de
+ * style externes, que Gmail retirerait. Tout ce que le visiteur a saisi est
+ * échappé.
+ */
+export function contactHtml({ name, email, message, lang }) {
+  const who = escapeHtml(name);
+  const address = escapeHtml(email);
+  const reply = escapeHtml(
+    `mailto:${email}?subject=${encodeURIComponent(`Re: [ChatonLM] Message de ${name}`)}`,
+  );
+  const body = escapeHtml(message).replace(/\n/g, "<br>");
+  const preview = escapeHtml(message.replace(/\s+/g, " ").slice(0, 120));
+  const sans =
+    "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+  return `<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Message de ${who}</title>
+</head>
+<body style="margin:0;padding:0;background:#FFF4E8;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${preview}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#FFF4E8;">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#FFFCF8;border:1px solid #E8D2BA;border-radius:24px;">
+<tr><td style="padding:28px 28px 8px 28px;font-family:${sans};">
+<span style="display:inline-block;background:#F28A38;color:#2A1A10;font-size:12px;font-weight:700;letter-spacing:0.04em;padding:5px 12px;border-radius:999px;">ChatonLM</span>
+<h1 style="margin:16px 0 0 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25;font-weight:700;color:#2A1A10;">Nouveau message du site</h1>
+</td></tr>
+<tr><td style="padding:16px 28px 0 28px;font-family:${sans};">
+<p style="margin:0;font-size:17px;font-weight:700;color:#2A1A10;">${who}</p>
+<p style="margin:4px 0 0 0;font-size:15px;"><a href="mailto:${address}" style="color:#B84A12;text-decoration:underline;">${address}</a></p>
+<p style="margin:4px 0 0 0;font-size:13px;color:#6B5647;">Écrit depuis le site en ${LANG_NAMES[lang] ?? lang}</p>
+</td></tr>
+<tr><td style="padding:20px 28px 0 28px;font-family:${sans};">
+<div style="background:#FBF1E4;border-radius:16px;padding:18px 20px;font-size:15px;line-height:1.6;color:#2A1A10;word-break:break-word;overflow-wrap:anywhere;">${body}</div>
+</td></tr>
+<tr><td style="padding:24px 28px 28px 28px;font-family:${sans};">
+<a href="${reply}" style="display:inline-block;background:#2A1A10;color:#FFF4E8;font-size:15px;font-weight:700;text-decoration:none;padding:12px 24px;border-radius:999px;">Répondre à ${who}</a>
+<p style="margin:20px 0 0 0;font-size:12px;line-height:1.5;color:#6B5647;">Reçu par le formulaire de contact de chatonlm.com. « Répondre » dans la messagerie écrit aussi directement à cette adresse.</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>
+`;
 }
 
 function openSocket({ host, port, secure = true, connectTimeout = 8000 }) {
@@ -533,6 +625,7 @@ export function createService(config, deps = {}) {
         replyTo: email,
         subject: `[ChatonLM] Message de ${name}`,
         text: `De : ${name} <${email}>\nLangue du site : ${lang}\n\n${message}\n`,
+        html: contactHtml(checked.value),
       });
     } catch (error) {
       // Un envoi raté ne compte pas : sinon une panne de la messagerie fermerait
