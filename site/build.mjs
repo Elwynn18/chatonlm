@@ -130,7 +130,7 @@ const CONTACT = "contact.chatonlm@gmail.com";
  * compte n'existe pas : le bouton de la page des dons est alors inactif et un
  * avis dit que les dons ouvrent bientôt.
  */
-export const KOFI_URL = "";
+export const KOFI_URL = "https://ko-fi.com/chatonlm";
 /** Nom d'une page dans son fil d'Ariane : la clé du lien qui y mène. */
 const CRUMBS = {
   contact: "nav.contact",
