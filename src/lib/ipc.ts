@@ -8,6 +8,7 @@ import type { AppError } from "@/bindings/AppError";
 import type { Chat } from "@/bindings/Chat";
 import type { ChatEvent } from "@/bindings/ChatEvent";
 import type { ChatInfo } from "@/bindings/ChatInfo";
+import type { CloseButtonStatus } from "@/bindings/CloseButtonStatus";
 import type { CloudStatus } from "@/bindings/CloudStatus";
 import type { Compaction } from "@/bindings/Compaction";
 import type { DatabaseProblem } from "@/bindings/DatabaseProblem";
@@ -121,6 +122,19 @@ export function getSettings(): Promise<Settings> {
 
 export function updateSettings(patch: SettingsPatch): Promise<Settings> {
   return invoke<Settings>("update_settings", { patch });
+}
+
+/**
+ * Croix de la fenêtre (Settings › General) : réglage enregistré (masquer dans
+ * la zone de notification, ou quitter) et présence de la zone.
+ */
+export function closeButtonStatus(): Promise<CloseButtonStatus> {
+  return invoke<CloseButtonStatus>("close_button_status");
+}
+
+/** Enregistre le choix de la croix ; il vaut dès la prochaine fermeture. */
+export function setCloseToTray(enabled: boolean): Promise<CloseButtonStatus> {
+  return invoke<CloseButtonStatus>("set_close_to_tray", { enabled });
 }
 
 /**

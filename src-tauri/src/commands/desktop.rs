@@ -1,7 +1,10 @@
 //! Commandes de l'intégration au bureau (étape 18a) : entrée du menu des
-//! applications d'une AppImage (ligne de Settings › General).
+//! applications d'une AppImage et croix de la fenêtre (lignes de Settings ›
+//! General).
 
+use serde::Serialize;
 use tauri::{AppHandle, State};
+use ts_rs::TS;
 
 use crate::desktop::menu_entry::{self, MenuEntryStatus};
 use crate::error::{AppError, AppResult};
@@ -39,4 +42,48 @@ pub async fn set_menu_entry(
             t!("menuEntry.removeFailed", error = error)
         })
     })
+}
+
+/// Ligne « Close button » de Settings › General.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CloseButtonStatus {
+    /// Zone de notification présente : sans elle, la croix quitte toujours.
+    pub tray_available: bool,
+    /// Réglage : la croix masque la fenêtre (vrai, par défaut) ou quitte.
+    pub close_to_tray: bool,
+}
+
+fn close_button(app: &AppHandle, close_to_tray: bool) -> CloseButtonStatus {
+    CloseButtonStatus {
+        tray_available: crate::desktop::state(app).tray_available(),
+        close_to_tray,
+    }
+}
+
+/// Réglage de la croix enregistré, et la zone de notification.
+#[tauri::command]
+pub async fn close_button_status(
+    app: AppHandle,
+    store: State<'_, Store>,
+) -> AppResult<CloseButtonStatus> {
+    let enabled = store
+        .call(|connection| crate::store::desktop::close_to_tray(connection))
+        .await?;
+    Ok(close_button(&app, enabled))
+}
+
+/// Enregistre le choix ; il vaut dès la prochaine fermeture.
+#[tauri::command]
+pub async fn set_close_to_tray(
+    app: AppHandle,
+    store: State<'_, Store>,
+    enabled: bool,
+) -> AppResult<CloseButtonStatus> {
+    store
+        .call(move |connection| crate::store::desktop::set_close_to_tray(connection, enabled))
+        .await?;
+    crate::desktop::state(&app).set_close_to_tray(enabled);
+    Ok(close_button(&app, enabled))
 }

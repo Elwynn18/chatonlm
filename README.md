@@ -139,8 +139,8 @@ icon.
 - **Ephemeral mode**, with `/ephemeral on`: the bot's conversations stay out
   of ChatonLM's history and are erased by `/new`, `/ephemeral off` or when
   ChatonLM quits; `/keep` saves the current one.
-- **ChatonLM must be running** on your computer (it keeps running in the tray
-  when you close the window). Nothing is hosted elsewhere, and no port is
+- **ChatonLM must be running** on your computer (by default, it keeps running
+  in the tray when you close the window). Nothing is hosted elsewhere, and no port is
   opened on your computer.
 - **On Discord**, the bot answers private messages only, and Discord lets you
   write to a bot only if you share a server with it: ChatonLM gives you the
@@ -230,7 +230,9 @@ sudo apt install ./chatonlm_*_amd64.deb
   shortcuts to only copy the text.
 - **Tray icon**: the notification area on Windows; on Linux, built into KDE
   Plasma and most desktops, while GNOME needs the AppIndicator extension.
-  Without a tray, closing the window quits ChatonLM.
+  Closing the window hides ChatonLM in the tray; turn off "Keep running in the
+  system tray" in Settings › General to quit instead. Without a tray, closing
+  the window quits ChatonLM.
 
 ## Ollama
 

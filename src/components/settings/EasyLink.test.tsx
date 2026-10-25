@@ -115,7 +115,7 @@ describe("Easy Link settings", () => {
   it("says that ChatonLM must stay open and where the messages go", async () => {
     const { page } = await setup();
     expect(page.textContent).toContain(
-      "The bot only replies while ChatonLM is running on this computer. When you close the window, ChatonLM keeps running in the system tray.",
+      "The bot only replies while ChatonLM is running on this computer. By default, closing the window keeps ChatonLM running in the system tray (Settings › General).",
     );
     expect(page.textContent).toContain(
       "the messages you exchange with the bot pass through the servers of Telegram or Discord.",
@@ -892,7 +892,7 @@ describe("Easy Link in other languages", () => {
       "Easy Link",
     );
     expect(page.textContent).toContain(
-      "Fenêtre fermée, ChatonLM continue dans la zone de notification.",
+      "Par défaut, fenêtre fermée, ChatonLM continue dans la zone de notification (Paramètres › Général).",
     );
     expect(
       inCard("telegram").getByLabelText("Jeton du bot Telegram"),

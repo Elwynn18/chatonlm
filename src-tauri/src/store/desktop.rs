@@ -1,6 +1,7 @@
 //! Réglages de l'intégration au bureau (table `desktop_settings`, une seule
 //! ligne, migration 0013) : à part de `settings`, que « Reset to defaults »
-//! remet à zéro en partie.
+//! remet à zéro en partie. Entrée du menu des applications, raccourcis
+//! (Windows), croix de la fenêtre.
 
 use rusqlite::{Connection, params};
 
@@ -19,6 +20,24 @@ pub fn menu_entry(connection: &Connection) -> AppResult<bool> {
 pub fn set_menu_entry(connection: &Connection, enabled: bool) -> AppResult<()> {
     connection.execute(
         "UPDATE desktop_settings SET menu_entry = ?1 WHERE id = 1",
+        params![enabled],
+    )?;
+    Ok(())
+}
+
+/// Croix de la fenêtre : vrai (par défaut) = masquée dans la zone de
+/// notification, faux = l'app quitte. Migration 0032.
+pub fn close_to_tray(connection: &Connection) -> AppResult<bool> {
+    Ok(connection.query_row(
+        "SELECT close_to_tray FROM desktop_settings WHERE id = 1",
+        [],
+        |row| row.get(0),
+    )?)
+}
+
+pub fn set_close_to_tray(connection: &Connection, enabled: bool) -> AppResult<()> {
+    connection.execute(
+        "UPDATE desktop_settings SET close_to_tray = ?1 WHERE id = 1",
         params![enabled],
     )?;
     Ok(())
@@ -75,6 +94,35 @@ mod tests {
                 assert!(!menu_entry(connection)?);
                 set_menu_entry(connection, true)?;
                 assert!(menu_entry(connection)?);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn the_close_button_hides_until_set_to_quit() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .blocking(|connection| {
+                assert!(close_to_tray(connection)?);
+                set_close_to_tray(connection, false)?;
+                assert!(!close_to_tray(connection)?);
+                // « Reset to defaults » n'y touche pas, ni l'entrée de menu.
+                let reset = SettingsPatch {
+                    server_url: Some(String::new()),
+                    theme: Some(Theme::System),
+                    ..SettingsPatch::default()
+                };
+                settings::update(connection, reset, None)?;
+                set_menu_entry(connection, true)?;
+                assert!(!close_to_tray(connection)?);
+                assert!(
+                    connection
+                        .execute("UPDATE desktop_settings SET close_to_tray = 2", [])
+                        .is_err()
+                );
+                set_close_to_tray(connection, true)?;
+                assert!(close_to_tray(connection)?);
                 Ok(())
             })
             .unwrap();

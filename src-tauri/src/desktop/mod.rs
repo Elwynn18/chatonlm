@@ -196,6 +196,9 @@ impl<T> Gate<T> {
 #[derive(Default)]
 pub struct Desktop {
     tray_available: AtomicBool,
+    /// Réglage « croix = quitter » (inverse de `close_to_tray`, pour que le
+    /// défaut, avant la lecture de la base, reste « masquer »).
+    close_quits: AtomicBool,
     shortcuts: shortcut::Shortcuts,
     tray: tray::TrayState,
     requests: Gate<Request>,
@@ -220,10 +223,30 @@ impl Desktop {
         self.shortcuts.proofread_status()
     }
 
+    /// La croix masque la fenêtre (zone de notification présente et réglage
+    /// « masquer ») ; sinon elle quitte l'app.
+    pub fn close_hides(&self) -> bool {
+        close_hides(
+            self.tray_available(),
+            !self.close_quits.load(Ordering::Relaxed),
+        )
+    }
+
+    /// Réglage de la croix lu ou changé (`close_to_tray`).
+    pub fn set_close_to_tray(&self, enabled: bool) {
+        self.close_quits.store(!enabled, Ordering::Relaxed);
+    }
+
     /// Vrai si la valeur a changé.
     fn set_tray_available(&self, available: bool) -> bool {
         self.tray_available.swap(available, Ordering::Relaxed) != available
     }
+}
+
+/// La croix masque la fenêtre seulement avec une zone de notification (sans
+/// elle, rien pour la faire revenir) et le réglage « masquer ».
+fn close_hides(tray_available: bool, close_to_tray: bool) -> bool {
+    tray_available && close_to_tray
 }
 
 /// État géré ; `Desktop::default()` si `setup` n'a pas encore tourné.
@@ -502,9 +525,11 @@ fn end_voice_mode<R: Runtime>(app: &tauri::AppHandle<R>) {
     }
 }
 
-/// Fermeture de la fenêtre : avec une zone de notification, elle n'est que
-/// masquée (la dictée reste disponible) ; la première fois, une notification
-/// l'explique. Sans zone de notification, l'app quitte comme avant, et son
+/// Fermeture de la fenêtre : avec une zone de notification et le réglage
+/// « masquer » (par défaut, Settings › General), elle n'est que masquée (la
+/// dictée reste disponible) ; la première fois, une notification l'explique.
+/// Sans zone de notification, ou réglage « quitter », l'app quitte (fin
+/// commune : services arrêtés, modèles déchargés selon le réglage), et son
 /// processus web s'arrête tout de suite (la fenêtre, détruite avant
 /// `ExitRequested`, n'y serait plus : voir [`terminate_web_processes`]). Dans
 /// les deux cas, la séance du mode vocal finit.
@@ -517,7 +542,7 @@ pub fn on_close_requested<R: Runtime>(window: &Window<R>, api: &CloseRequestApi)
     let Some(desktop) = app.try_state::<Desktop>() else {
         return;
     };
-    if !desktop.tray_available() {
+    if !desktop.close_hides() {
         if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
             terminate_web_process(&window);
         }
@@ -627,11 +652,13 @@ pub fn setup(app: &AppHandle) {
                         crate::store::dictation::get(connection)?,
                         crate::store::settings::get(connection, None)?,
                         crate::store::desktop::menu_entry(connection)?,
+                        crate::store::desktop::close_to_tray(connection)?,
                     ))
                 })
                 .await
             {
-                Ok((dictation, settings, menu_entry)) => {
+                Ok((dictation, settings, menu_entry, close_to_tray)) => {
+                    state(&app).set_close_to_tray(close_to_tray);
                     menu_entry::at_startup(&app, menu_entry).await;
                     let wanted = shortcut::Wanted {
                         dictation: dictation.enabled,
@@ -661,6 +688,24 @@ pub fn setup(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_close_button_hides_only_with_a_tray_and_the_setting() {
+        assert!(close_hides(true, true));
+        assert!(!close_hides(true, false));
+        assert!(!close_hides(false, true));
+        assert!(!close_hides(false, false));
+        // Avant la lecture de la base : « masquer » (comportement d'avant).
+        let desktop = Desktop::default();
+        desktop.set_tray_available(true);
+        assert!(desktop.close_hides());
+        desktop.set_close_to_tray(false);
+        assert!(!desktop.close_hides());
+        desktop.set_close_to_tray(true);
+        assert!(desktop.close_hides());
+        desktop.set_tray_available(false);
+        assert!(!desktop.close_hides());
+    }
 
     #[test]
     fn dictate_argument_is_found_after_the_program() {

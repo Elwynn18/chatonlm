@@ -39,6 +39,12 @@
       "light": "Clair",
       "dark": "Sombre"
     },
+    "closeButton": {
+      "label": "Bouton de fermeture",
+      "description": "Fermer la fenêtre laisse ChatonLM tourner dans la zone de notification : les raccourcis et les bots Easy Link restent disponibles. Désactivez pour quitter ChatonLM.",
+      "switch": "Rester dans la zone de notification",
+      "noTray": "Ce bureau n'a pas de zone de notification : fermer la fenêtre quitte ChatonLM."
+    },
     "menuEntry": {
       "label": "Menu des applications",
       "description": "Afficher ChatonLM dans le menu des applications du bureau, pour lancer cette AppImage. Désactivez pour l'en retirer.",
@@ -391,7 +397,7 @@
       "description": "Parlez à vos modèles locaux depuis Telegram ou Discord, sur votre téléphone par exemple : reliez un bot à ChatonLM, liez votre compte, puis écrivez au bot comme dans une conversation.",
       "keepOpen": {
         "label": "ChatonLM doit rester ouvert",
-        "description": "Le bot ne répond que si ChatonLM tourne sur cet ordinateur. Fenêtre fermée, ChatonLM continue dans la zone de notification."
+        "description": "Le bot ne répond que si ChatonLM tourne sur cet ordinateur. Par défaut, fenêtre fermée, ChatonLM continue dans la zone de notification (Paramètres › Général)."
       },
       "privacy": {
         "label": "Confidentialité",

@@ -39,6 +39,12 @@
       "light": "Light",
       "dark": "Dark"
     },
+    "closeButton": {
+      "label": "Close button",
+      "description": "Closing the window keeps ChatonLM running in the system tray, so the shortcuts and the Easy Link bots stay available. Turn off to quit ChatonLM instead.",
+      "switch": "Keep running in the system tray",
+      "noTray": "There is no system tray on this desktop: closing the window quits ChatonLM."
+    },
     "menuEntry": {
       "label": "Applications menu",
       "description": "Show ChatonLM in the applications menu of your desktop, to launch this AppImage. Turn off to remove it.",
@@ -391,7 +397,7 @@
       "description": "Talk to your local models from Telegram or Discord, on your phone for example: connect a bot to ChatonLM, link your account, then write to the bot as you would in a chat.",
       "keepOpen": {
         "label": "ChatonLM must stay open",
-        "description": "The bot only replies while ChatonLM is running on this computer. When you close the window, ChatonLM keeps running in the system tray."
+        "description": "The bot only replies while ChatonLM is running on this computer. By default, closing the window keeps ChatonLM running in the system tray (Settings › General)."
       },
       "privacy": {
         "label": "Privacy",

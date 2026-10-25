@@ -26,7 +26,8 @@
 // les réglages et reprend les fichiers de la zone de préparation. Entrée du
 // menu des applications (AppImage) : menu_entry_status et set_menu_entry sur
 // menuEntry, échec forcé par menuEntryError (choix enregistré quand même,
-// comme le moteur). Ollama qui sert (runtime : celui de la machine ou
+// comme le moteur). Croix de la fenêtre : close_button_status et
+// set_close_to_tray sur closeButton. Ollama qui sert (runtime : celui de la machine ou
 // l'intégré) : ollama_runtime, set_ollama_source (qui change l'adresse
 // effective et l'état du serveur), start_ollama_service (issue
 // serviceStart, service démarré), restart_builtin_ollama (l'intégré prend
@@ -64,6 +65,7 @@ import type { AppVersions } from "@/bindings/AppVersions";
 import type { AppError } from "@/bindings/AppError";
 import type { AttachmentKind } from "@/bindings/AttachmentKind";
 import type { Chat } from "@/bindings/Chat";
+import type { CloseButtonStatus } from "@/bindings/CloseButtonStatus";
 import type { CloudStatus } from "@/bindings/CloudStatus";
 import type { Compaction } from "@/bindings/Compaction";
 import type { ContextUsage } from "@/bindings/ContextUsage";
@@ -433,6 +435,11 @@ export interface FakeBackend {
    */
   menuEntry: MenuEntryStatus;
   /**
+   * Croix de la fenêtre (close_button_status) : zone de notification présente
+   * et réglage « masquer » par défaut ; set_close_to_tray change le réglage.
+   */
+  closeButton: CloseButtonStatus;
+  /**
    * Échec forcé de set_menu_entry (fichier impossible à écrire) : le choix
    * est enregistré, puis cette erreur renvoyée (null : réponse normale).
    */
@@ -665,6 +672,7 @@ export function fakeBackend(
     runningErrors: { list: null, load: new Map(), unload: null },
     platform: "linux",
     menuEntry: { available: false, enabled: true },
+    closeButton: { trayAvailable: true, closeToTray: true },
     menuEntryError: null,
     updates: {
       state: { state: "upToDate" },
@@ -713,6 +721,11 @@ export function fakeBackend(
     return backend.imageSave;
   });
   simulator.handle("app_platform", () => backend.platform);
+  simulator.handle("close_button_status", () => ({ ...backend.closeButton }));
+  simulator.handle("set_close_to_tray", (args: Args) => {
+    backend.closeButton.closeToTray = args.enabled as boolean;
+    return { ...backend.closeButton };
+  });
   simulator.handle("menu_entry_status", () => ({ ...backend.menuEntry }));
   simulator.handle("set_menu_entry", (args: Args) => {
     backend.menuEntry.enabled = args.enabled as boolean;

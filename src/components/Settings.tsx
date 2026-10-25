@@ -52,8 +52,10 @@
  * (settings/Shortcuts.tsx: system-wide shortcuts of dictation and of the
  * correction of the selected text, then the app shortcuts),
  * untouched by "Reset to defaults". General also has ChatonLM's own
- * "Applications menu" row, last, only when running from an AppImage
- * (settings/MenuEntry.tsx), untouched by "Reset to defaults". Read aloud:
+ * "Close button" row (settings/CloseButton.tsx: hide to the system tray or
+ * quit) and "Applications menu" row, last, only when running from an
+ * AppImage (settings/MenuEntry.tsx), both untouched by "Reset to defaults".
+ * Read aloud:
  * ChatonLM's own cards (settings/ReadAloud.tsx: reading new responses aloud
  * automatically, the state of the voices), the switch turned off by "Reset
  * to defaults" in the same write. Voice mode: ChatonLM's own cards
@@ -80,6 +82,7 @@ import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import type { Theme } from "@/bindings/Theme";
 import { AddressField } from "@/components/AddressField";
 import { Dictation } from "@/components/settings/Dictation";
+import { CloseButtonRow } from "@/components/settings/CloseButton";
 import { Donate } from "@/components/settings/Donate";
 import { EasyLink } from "@/components/settings/EasyLink";
 import { MenuEntryRow } from "@/components/settings/MenuEntry";
@@ -557,6 +560,9 @@ export function Settings({
                     />
                   </div>
                 </div>
+
+                {/* Réglage à part : Reset n'y touche pas. */}
+                <CloseButtonRow onSaved={showSavedConfirmation} />
 
                 {/* AppImage seulement ; réglage à part : Reset n'y touche
                     pas. */}
