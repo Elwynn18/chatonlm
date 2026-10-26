@@ -30,6 +30,7 @@ import {
   isOllamaLicenseFile,
   OLLAMA_WINDOWS_EXTRA_TEXTS,
   OLLAMA_WINDOWS_LICENSES,
+  OLLAMA_WINDOWS_REQUIRED,
   ollamaWindowsArchive,
   ollamaWindowsErrors,
   ollamaWindowsLicenseFiles,
@@ -665,7 +666,7 @@ describe("notices Windows", () => {
     ]);
   });
 
-  it("exige la version épinglée et chaque licence attendue", () => {
+  it("exige la version épinglée et les licences du code livré", () => {
     const env = "OLLAMA_VERSION=0.40.0\n";
     const kept = ollamaWindowsLicenseFiles(archive);
     expect(ollamaWindowsErrors(env, "0.40.0", kept)).toEqual([]);
@@ -676,11 +677,30 @@ describe("notices Windows", () => {
       ollamaWindowsErrors(
         env,
         "0.40.0",
-        kept.filter((f) => f !== "JSON_LICENSE.MIT"),
+        kept.filter((f) => f !== "LLAMA_CPP_LICENSE"),
       ),
     ).toEqual([
-      "Licence d'Ollama absente (archive Windows) : JSON_LICENSE.MIT",
+      "Licence d'Ollama absente (archive Windows) : LLAMA_CPP_LICENSE",
     ]);
+    // Archive 0.40.11 : plus les licences du moteur MLX (livré à part) ;
+    // celles du code livré suffisent.
+    const recent = [
+      "CPP_HTTPLIB_LICENSE",
+      "GO_LICENSE",
+      "LLAMA_CPP_LICENSE",
+      "LLAMA_CPP_VENDORS_LICENSE",
+    ];
+    expect(OLLAMA_WINDOWS_REQUIRED.slice().sort()).toEqual(recent);
+    expect(
+      ollamaWindowsErrors(env, "0.40.0", ollamaWindowsLicenseFiles(recent)),
+    ).toEqual([]);
+    expect(
+      ollamaWindowsErrors(
+        env,
+        "0.40.0",
+        recent.filter((f) => f !== "GO_LICENSE"),
+      ),
+    ).toEqual(["Licence d'Ollama absente (archive Windows) : GO_LICENSE"]);
     expect(ollamaWindowsErrors("", "0.40.0", kept)).toEqual([
       "OLLAMA_VERSION absent de packaging/ollama.env.",
     ]);

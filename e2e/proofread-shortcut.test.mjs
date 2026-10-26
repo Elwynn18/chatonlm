@@ -23,9 +23,10 @@
 //   l'arrête (`chatonlm-proofread-slow` : « Proofreading stopped », rien de
 //   copié) ; sans sélection (« No text selected », presse-papiers d'une autre
 //   application intact) ; sélection trop longue ; modèle absent du serveur
-//   (« Proofreading failed », rien de copié) ; modèle du chat cloud ou
-//   distant sans modèle choisi pour la correction (rien d'envoyé) ; aucun
-//   modèle (« No model selected ») ; la dictée n'est jamais déclenchée ;
+//   (« Proofreading failed », rien de copié) ; « Auto » (rien de choisi pour
+//   la correction), rien en mémoire : modèle du chat cloud ou distant (rien
+//   d'envoyé), aucun modèle (« No model selected ») ; « Auto » avec un modèle
+//   en mémoire : corrigé avec lui, même si le modèle du chat est cloud ; la dictée n'est jamais déclenchée ;
 // - `--proofread` : premier lancement fenêtre masquée et sélection corrigée
 //   une fois l'app prête, relance qui corrige de nouveau sans montrer la
 //   fenêtre, relance sans argument qui la montre ; sans portail
@@ -157,6 +158,28 @@ async function runInstance(args, name) {
 
 /** Évènements « bind » du faux portail. */
 const binds = (desk) => desk.events.filter((e) => e.event === "bind");
+/** Décharge du faux serveur tous les modèles en mémoire (`/api/ps`). */
+async function unloadAll() {
+  const ps = await (await fetch(new URL("/api/ps", fake.url))).json();
+  for (const { name } of ps.models) {
+    await fetch(new URL("/api/generate", fake.url), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: name, keep_alive: 0 }),
+    });
+  }
+}
+
+/** Charge `model` sur le faux serveur, sans échéance. */
+async function loadOnFake(model) {
+  const response = await fetch(new URL("/api/generate", fake.url), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, keep_alive: -1 }),
+  });
+  assert.equal(response.status, 200, `chargement de ${model}`);
+}
+
 /** Notifications reçues après la `since`-ième. */
 const notifiedSince = (desk, since) => desk.notifications().slice(since);
 
@@ -466,10 +489,11 @@ try {
           const copied = (await readClipboard()).text;
           assert.equal(copied, "the text");
 
-          // Modèle repris du chat (rien de choisi pour la correction), cloud
-          // ou distant (`/api/show`) : rien n'est envoyé, même modèles cloud
-          // permis (sans eux, la page remplace aussitôt un modèle cloud
-          // choisi dans le chat).
+          // « Auto » (rien de choisi pour la correction) sans modèle en
+          // mémoire : celui du chat ; cloud ou distant (`/api/show`), rien
+          // n'est envoyé, même modèles cloud permis (sans eux, la page
+          // remplace aussitôt un modèle cloud choisi dans le chat).
+          await unloadAll();
           for (const model of ["gpt-oss:20b-cloud", "chatonlm-polish-remote"]) {
             await settings(driver, {
               proofreadModel: "",
@@ -521,6 +545,25 @@ try {
             await noModel.release();
           }
           assert.equal((await readClipboard()).text, copied);
+
+          // « Auto » avec un modèle en mémoire : corrigé avec lui (il tourne
+          // sur la machine), même si le modèle du chat est cloud.
+          await loadOnFake(MODEL);
+          await settings(driver, {
+            proofreadModel: "",
+            selectedModel: "gpt-oss:20b-cloud",
+            cloudModels: true,
+          });
+          const auto = await holdSelection("teh text");
+          try {
+            const { progress, final } = await pressProofread(desk, CORRECTED);
+            assert.equal(progress.body, PROGRESS);
+            assert.equal(final.body, "the text");
+          } finally {
+            await auto.release();
+          }
+          assert.equal((await readClipboard()).text, copied);
+          await settings(driver, { cloudModels: false });
         } finally {
           await held.release();
         }

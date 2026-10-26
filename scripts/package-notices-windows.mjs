@@ -60,14 +60,31 @@ export const WINDOWS_TARGET = "x86_64-pc-windows-msvc";
 export const WINDOWS_NOTICES_DIR = ".tools/package/notices/windows";
 
 /**
- * Licences livrées par Ollama dans lib\ollama de l'archive Windows (0.40.0),
- * exigées : celles de Linux, plus deux propres à Windows.
+ * Licences que livre Ollama dans lib\ollama de l'archive Windows : nom du
+ * fichier → ce qu'il couvre (celles de Linux, plus deux propres à Windows).
+ * Toutes sont livrées quand l'archive les contient ; seules celles de
+ * OLLAMA_WINDOWS_REQUIRED sont exigées.
  */
 export const OLLAMA_WINDOWS_LICENSES = {
   ...OLLAMA_LICENSES,
   DLFCN_WIN32_COPYING: "dlfcn-win32 (MIT)",
   "JSON_LICENSE.MIT": "JSON for Modern C++ (MIT)",
 };
+
+/**
+ * Licences exigées dans l'archive Windows : celles du code livré (ollama.exe,
+ * llama.cpp et ggml, ce qu'ils incluent). Depuis la 0.40.11, l'archive ne
+ * livre plus celles du moteur MLX (XGrammar, DLPack, fmt, PicoJSON,
+ * nlohmann/json, dlfcn-win32), dont les bibliothèques sont dans l'archive MLX
+ * à part, jamais embarquée : ollama.exe ne fait que les charger s'il les
+ * trouve (vérifié sur 0.40.11 : aucune trace de leur code dans ollama.exe).
+ */
+export const OLLAMA_WINDOWS_REQUIRED = [
+  "GO_LICENSE",
+  "LLAMA_CPP_LICENSE",
+  "LLAMA_CPP_VENDORS_LICENSE",
+  "CPP_HTTPLIB_LICENSE",
+];
 
 /**
  * Fichiers de licence de l'archive qui ne sont pas livrés : ils couvrent les
@@ -122,9 +139,9 @@ export function ollamaWindowsErrors(envText, fetchedVersion, licenseFiles) {
         `de ${pinned} : lancer scripts/fetch-ollama.sh.`,
     ];
   }
-  return Object.keys(OLLAMA_WINDOWS_LICENSES)
-    .filter((file) => !licenseFiles.includes(file))
-    .map((file) => `Licence d'Ollama absente (archive Windows) : ${file}`);
+  return OLLAMA_WINDOWS_REQUIRED.filter(
+    (file) => !licenseFiles.includes(file),
+  ).map((file) => `Licence d'Ollama absente (archive Windows) : ${file}`);
 }
 
 /**
