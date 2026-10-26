@@ -134,7 +134,7 @@
     },
     "dictation": {
       "name": "Dictée",
-      "text": "Un raccourci, vous parlez, où que vous soyez. Le texte est transcrit sur votre ordinateur et copié, prêt à coller."
+      "text": "Un raccourci, vous parlez, où que vous soyez. Le texte est transcrit sur votre ordinateur et s’écrit là où se trouve votre curseur."
     },
     "voice": {
       "name": "Voix",
@@ -142,7 +142,7 @@
     },
     "proofread": {
       "name": "Correction",
-      "text": "Corrigez ou reformulez un texte dans l’app. Ailleurs, un raccourci corrige votre sélection et copie le résultat, prêt à coller."
+      "text": "Corrigez ou reformulez un texte dans l’app. Ailleurs, un raccourci corrige votre sélection et colle le résultat à sa place."
     },
     "study": {
       "name": "Étude",
@@ -183,7 +183,7 @@
     "dictation": {
       "title": "Dictée · à l’écoute",
       "quote": "« Bonjour Camille, je vous confirme notre rendez-vous de jeudi à dix heures. »",
-      "copied": "Copié, prêt à coller"
+      "copied": "Collé là où se trouvait le curseur"
     },
     "voice": {
       "question": "Il fait froid sur Mars ?",
@@ -282,7 +282,7 @@
     "goes": "Passe par Internet",
     "goes1": "Le catalogue et le téléchargement des modèles et des voix",
     "goes2": "La vérification des mises à jour, toutes signées",
-    "goes3": "La recherche web (avec un compte en ligne) et Easy Link, si vous les activez",
+    "goes3": "La recherche web et les modèles cloud (avec un compte Ollama), et Easy Link, si vous les activez",
     "more": "Le détail, connexion par connexion"
   },
   "faq": {
@@ -302,7 +302,7 @@
     "what_q": "Qu’est-ce que ChatonLM ?",
     "what_a": "ChatonLM est une application d’IA locale, gratuite et open source, pour Windows 11 et Linux. Elle réunit sept outils dans une seule fenêtre : conversation avec un modèle de langage (LLM), catalogue de modèles, dictée vocale, voix (lecture à voix haute et mode vocal), correction de texte, étude et création d’images. Les modèles tournent sur votre ordinateur, sans compte ni abonnement.",
     "offline_q": "Est-ce que ça marche sans Internet ?",
-    "offline_a": "Oui, une fois les modèles, les voix et la reconnaissance de la parole téléchargés. La conversation, la création d’images, la dictée, la voix, la correction et l’étude fonctionnent hors ligne. Internet ne sert qu’à parcourir le catalogue, à télécharger les modèles et les voix, à vérifier les mises à jour et, si vous les activez, à la recherche web et à Easy Link.",
+    "offline_a": "Oui, une fois les modèles, les voix et la reconnaissance de la parole téléchargés. La conversation, la création d’images, la dictée, la voix, la correction et l’étude fonctionnent hors ligne. Internet ne sert qu’à parcourir le catalogue, à télécharger les modèles et les voix, à vérifier les mises à jour et, si vous les activez, à la recherche web, aux modèles cloud d’Ollama et à Easy Link.",
     "models_q": "Quels modèles peut-on utiliser ?",
     "models_a": "Les modèles que l’on peut télécharger et faire tourner en local, comme Gemma, Qwen, Mistral ou Llama. ModelHub les réunit dans un catalogue, vous indique ceux qui tiennent dans votre machine et les installe en un clic.",
     "images_q": "ChatonLM peut-il créer des images ?",
@@ -359,7 +359,7 @@
   "privacy": {
     "title": "Confidentialité",
     "lead": "Ce site ne vous suit pas : ni cookie, ni mesure d’audience, ni contenu chargé chez un tiers.",
-    "body": "<h2>Quand vous visitez ce site</h2><p>Aucun cookie n’est déposé et aucun outil de mesure d’audience n’est installé. Les polices et les images viennent du site lui-même.</p><p>Comme tout serveur web, le nôtre note dans un journal technique l’adresse IP, la date, la page demandée, le navigateur utilisé et la page d’origine. Ce journal sert à la sécurité et au bon fonctionnement du site ; il est effacé automatiquement au bout de quelques semaines.</p><h2>Quand vous nous écrivez</h2><p>Le formulaire nous transmet votre nom, votre adresse électronique et votre message par courriel, dans une boîte Gmail (Google). Ils ne servent qu’à vous répondre et ne sont enregistrés nulle part ailleurs. Le responsable de ce traitement est l’éditeur du site, qui se fonde sur son intérêt légitime à vous répondre. Google peut conserver ces courriels hors de l’Union européenne. Ils sont supprimés au plus tard un an après notre dernier échange.</p><p>Pour limiter les envois abusifs, votre adresse IP est gardée en mémoire vive un jour au plus, jamais sur le disque.</p><h2>Quand vous téléchargez ChatonLM</h2><p>Les fichiers sont hébergés par GitHub : votre navigateur les télécharge chez lui, et GitHub voit donc votre adresse IP, selon sa propre politique de confidentialité.</p><h2>Dans l’app ChatonLM</h2><p>ChatonLM n’a ni compte, ni télémétrie, ni mesure d’audience. Vos conversations, vos pièces jointes, les images créées et vos réglages restent sur votre ordinateur ; la dictée et le mode vocal sont transcrits sur place, et les images y sont créées.</p><p>L’app ne se connecte qu’à :</p><ul><li><strong>Hugging Face</strong>, quand vous ouvrez ModelHub (listes et fiches des modèles, modèles d’images compris), quand vous téléchargez un modèle d’images, un modèle de reconnaissance de la parole ou une voix, et pour savoir si un modèle installé depuis Hugging Face a une version plus récente ;</li><li><strong>ollama.com</strong>, pour vérifier qu’un nom de modèle existe et si un modèle installé a une version plus récente et, si vous vous y connectez, pour afficher l’image de votre compte ;</li><li><strong>GitHub</strong>, pour vérifier et télécharger les mises à jour, et pour télécharger les fichiers d’une voix ;</li><li><strong>Telegram ou Discord</strong>, seulement si vous reliez un bot avec Easy Link (voir plus bas).</li></ul><p>Tout le reste passe par le moteur Ollama, sur votre ordinateur par défaut : les conversations, le téléchargement des modèles et, si vous les activez, le compte Ollama et la recherche web, alors traités par ollama.com. Si vous réglez l’app sur un serveur situé sur une autre machine, vos messages, vos pièces jointes et les dictées mises au propre lui sont envoyés.</p><h2>Quand vous créez une image</h2><p>L’image est créée sur votre ordinateur par le moteur d’images inclus dans ChatonLM (stable-diffusion.cpp), qui tourne sur place et ne se connecte pas à Internet. Votre description et l’image restent sur votre ordinateur ; l’image est enregistrée avec la conversation et n’est jamais renvoyée au modèle de langage. Quand c’est le modèle de langage qui demande l’image, votre message passe par le moteur Ollama, comme tout message.</p><h2>Avec Easy Link</h2><p>Easy Link vous permet d’écrire à vos modèles depuis Telegram ou Discord, par un bot que vous créez vous-même. Tant que vous n’avez relié aucun bot, l’app ne se connecte ni à l’un ni à l’autre. Une fois un bot relié, et tant que l’app tourne, vos messages au bot (textes, photos, messages vocaux) et tout ce qu’il vous répond, réponses du modèle et images créées comprises, passent par les serveurs de cette messagerie, selon sa propre politique de confidentialité. L’app s’adresse directement à elle : aucun autre serveur ne s’intercale, et rien n’est envoyé à l’éditeur de ChatonLM.</p><p>Le jeton du bot est gardé dans la base de données de l’app, sur votre ordinateur, et n’est envoyé qu’à cette messagerie. Les messages vocaux sont transcrits sur votre ordinateur, le modèle répond par le moteur Ollama comme dans l’app, et ces conversations sont enregistrées sur votre ordinateur avec les autres.</p><h2>Vos droits</h2><p>Vous pouvez demander à consulter, à corriger ou à faire supprimer les données qui vous concernent, ou vous opposer à leur traitement, en écrivant à <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>. Vous pouvez aussi adresser une réclamation à la CNIL (cnil.fr).</p>",
+    "body": "<h2>Quand vous visitez ce site</h2><p>Aucun cookie n’est déposé et aucun outil de mesure d’audience n’est installé. Les polices et les images viennent du site lui-même.</p><p>Comme tout serveur web, le nôtre note dans un journal technique l’adresse IP, la date, la page demandée, le navigateur utilisé et la page d’origine. Ce journal sert à la sécurité et au bon fonctionnement du site ; il est effacé automatiquement au bout de quelques semaines.</p><h2>Quand vous nous écrivez</h2><p>Le formulaire nous transmet votre nom, votre adresse électronique et votre message par courriel, dans une boîte Gmail (Google). Ils ne servent qu’à vous répondre et ne sont enregistrés nulle part ailleurs. Le responsable de ce traitement est l’éditeur du site, qui se fonde sur son intérêt légitime à vous répondre. Google peut conserver ces courriels hors de l’Union européenne. Ils sont supprimés au plus tard un an après notre dernier échange.</p><p>Pour limiter les envois abusifs, votre adresse IP est gardée en mémoire vive un jour au plus, jamais sur le disque.</p><h2>Quand vous téléchargez ChatonLM</h2><p>Les fichiers sont hébergés par GitHub : votre navigateur les télécharge chez lui, et GitHub voit donc votre adresse IP, selon sa propre politique de confidentialité.</p><h2>Dans l’app ChatonLM</h2><p>ChatonLM n’a ni compte, ni télémétrie, ni mesure d’audience. Vos conversations, vos pièces jointes, les images créées et vos réglages restent sur votre ordinateur ; la dictée et le mode vocal sont transcrits sur place, et les images y sont créées.</p><p>Une conversation éphémère, ouverte par le chaton-fantôme, n’entre pas dans l’historique : elle est effacée, jusque dans les fichiers de la base de données, dès que vous ouvrez une autre conversation ou quittez l’app, sauf si vous choisissez de la garder.</p><p>L’app ne se connecte qu’à :</p><ul><li><strong>Hugging Face</strong>, quand vous ouvrez ModelHub (listes et fiches des modèles, modèles d’images compris), quand vous téléchargez un modèle d’images, un modèle de reconnaissance de la parole ou une voix, et pour savoir si un modèle installé depuis Hugging Face a une version plus récente ;</li><li><strong>ollama.com</strong>, pour vérifier qu’un nom de modèle existe et si un modèle installé a une version plus récente et, si vous vous y connectez, pour afficher l’image de votre compte ;</li><li><strong>GitHub</strong>, pour vérifier et télécharger les mises à jour, et pour télécharger les fichiers d’une voix ;</li><li><strong>Telegram ou Discord</strong>, seulement si vous reliez un bot avec Easy Link (voir plus bas).</li></ul><p>Tout le reste passe par le moteur Ollama, sur votre ordinateur par défaut : les conversations, le téléchargement des modèles et, si vous les activez, le compte Ollama et la recherche web, alors traités par ollama.com. Les modèles cloud d’Ollama sont désactivés par défaut : si vous les activez dans les réglages et en choisissez un, vos messages et leurs pièces jointes lui sont envoyés et traités sur les serveurs d’ollama.com. Les dictées ne sont jamais envoyées à un modèle cloud. Si vous réglez l’app sur un serveur situé sur une autre machine, vos messages, vos pièces jointes et les dictées mises au propre lui sont envoyés.</p><h2>Quand vous créez une image</h2><p>L’image est créée sur votre ordinateur par le moteur d’images inclus dans ChatonLM (stable-diffusion.cpp), qui tourne sur place et ne se connecte pas à Internet. Votre description et l’image restent sur votre ordinateur ; l’image est enregistrée avec la conversation et n’est jamais renvoyée au modèle de langage. Quand c’est le modèle de langage qui demande l’image, votre message passe par le moteur Ollama, comme tout message.</p><h2>Avec Easy Link</h2><p>Easy Link vous permet d’écrire à vos modèles depuis Telegram ou Discord, par un bot que vous créez vous-même. Tant que vous n’avez relié aucun bot, l’app ne se connecte ni à l’un ni à l’autre. Une fois un bot relié, et tant que l’app tourne, vos messages au bot (textes, photos, messages vocaux) et tout ce qu’il vous répond, réponses du modèle et images créées comprises, passent par les serveurs de cette messagerie, selon sa propre politique de confidentialité. L’app s’adresse directement à elle : aucun autre serveur ne s’intercale, et rien n’est envoyé à l’éditeur de ChatonLM.</p><p>Le jeton du bot est gardé dans la base de données de l’app, sur votre ordinateur, et n’est envoyé qu’à cette messagerie. Les messages vocaux sont transcrits sur votre ordinateur, le modèle répond par le moteur Ollama comme dans l’app, et ces conversations sont enregistrées sur votre ordinateur avec les autres, sauf en mode éphémère (commande /ephemeral on), où elles sont effacées comme dans l’app.</p><h2>Vos droits</h2><p>Vous pouvez demander à consulter, à corriger ou à faire supprimer les données qui vous concernent, ou vous opposer à leur traitement, en écrivant à <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>. Vous pouvez aussi adresser une réclamation à la CNIL (cnil.fr).</p>",
     "updated": "Dernière mise à jour : octobre 2026."
   },
   "donate": {
@@ -399,14 +399,14 @@
     "dictation": {
       "eyebrow": "Dictée vocale hors ligne · Windows et Linux",
       "title": "Vous parlez, <em>ça s’écrit.</em>",
-      "lead": "La dictée de ChatonLM transforme votre voix en texte, sur votre ordinateur. Un raccourci clavier, vous parlez dans n’importe quelle application, et le texte est copié, prêt à coller. Rien ne part en ligne.",
-      "steps_title": "Trois gestes, <em>pas un de plus.</em>",
+      "lead": "La dictée de ChatonLM transforme votre voix en texte, sur votre ordinateur. Un raccourci clavier, vous parlez dans n’importe quelle application, et le texte s’écrit là où se trouve votre curseur. Rien ne part en ligne.",
+      "steps_title": "Deux gestes, <em>pas un de plus.</em>",
       "step1_title": "Appuyez sur le raccourci",
       "step1_text": "Où que vous soyez : dans un courriel, un document, une messagerie. Ctrl+Alt+D par défaut, et vous pouvez le changer.",
       "step2_title": "Parlez",
       "step2_text": "Normalement, à votre rythme. ChatonLM reconnaît la parole sur votre ordinateur ; un modèle peut ensuite remettre la ponctuation et retirer les hésitations.",
-      "step3_title": "Collez",
-      "step3_text": "Le texte est déjà dans le presse-papiers. Ctrl+V, et il est là où vous écriviez.",
+      "step3_title": "Le texte s’écrit",
+      "step3_text": "Il est collé là où se trouve votre curseur, et reste dans le presse-papiers. Un réglage permet de seulement le copier.",
       "facts_title": "Ce qu’elle <em>sait faire.</em>",
       "fact1_title": "99 langues",
       "fact1_text": "Deux moteurs au choix : Parakeet, rapide, pour 25 langues européennes, qui détecte seul la langue parlée ; Whisper, pour 99 langues.",
@@ -428,7 +428,7 @@
       "q2": "Dans quelles langues peut-on dicter ?",
       "a2": "Dans 99 langues avec Whisper, dont le français, l’anglais et l’espagnol. Parakeet couvre 25 langues européennes et reconnaît seul celle que vous parlez.",
       "q3": "Ça marche dans toutes les applications ?",
-      "a3": "Oui : le raccourci est global, et le texte est copié dans le presse-papiers pour que vous le colliez où vous voulez. Sous Windows, le raccourci se choisit dans les réglages. Sous Linux, il passe par KDE Plasma 6 ou GNOME 48 et plus ; sur un autre bureau, vous liez une commande à la touche de votre choix.",
+      "a3": "Oui : le raccourci est global, et le texte est collé là où se trouve votre curseur. Sous Windows, le raccourci se choisit dans les réglages. Sous Linux, il passe par KDE Plasma 6 ou GNOME 48 et plus ; sur un autre bureau, vous liez une commande à la touche de votre choix. Sous Linux, le bureau demande votre autorisation la première fois que ChatonLM colle ; s’il ne le permet pas, le texte reste copié, prêt à coller.",
       "q4": "Faut-il un ordinateur puissant ?",
       "a4": "Non. La reconnaissance tourne sur le processeur, sans carte graphique. Whisper demande un processeur récent (AVX2) ; Parakeet fonctionne sur tout PC 64 bits.",
       "q5": "Est-ce vraiment gratuit ?",
@@ -453,14 +453,14 @@
       "fact2_text": "Les modèles qui raisonnent ont leur bouton de réflexion, avec un niveau quand le modèle le permet.",
       "fact3_title": "Un historique à vous",
       "fact3_text": "Vos conversations sont gardées sur votre ordinateur, avec des favoris. Chaque message reste modifiable. Les longues conversations se compactent, automatiquement ou à la demande, pour tenir dans la mémoire du modèle.",
-      "fact4_title": "Des réponses lisibles",
-      "fact4_text": "Markdown, code coloré et formules mathématiques, affichés pendant que la réponse s’écrit.",
+      "fact4_title": "Sans laisser de trace",
+      "fact4_text": "Le chaton-fantôme ouvre une conversation éphémère : elle n’entre pas dans l’historique et s’efface dès que vous passez à une autre ou quittez l’app, sauf si vous la gardez.",
       "fact5_title": "Le web, si vous voulez",
       "fact5_text": "Reliez un compte Ollama, et le modèle peut chercher sur le web. C’est facultatif : sans compte, rien ne sort.",
       "fact6_title": "Un modèle toujours prêt",
-      "fact6_text": "Gardez un modèle en mémoire aussi longtemps que vous voulez, ou chargez-le dès l’ouverture pour que la première réponse n’attende pas.",
+      "fact6_text": "Gardez un modèle en mémoire aussi longtemps que vous voulez, ou chargez-le dès l’ouverture pour que la première réponse n’attende pas. En quittant l’app, la mémoire est libérée.",
       "privacy_title": "Vos conversations <em>restent chez vous.</em>",
-      "privacy_text": "Les services d’IA en ligne reçoivent tout ce que vous leur écrivez. Ici, le modèle tourne sur votre ordinateur : vos messages, vos pièces jointes et votre historique n’en sortent pas. Deux exceptions, que vous décidez : la recherche web, traitée par votre compte Ollama, et un serveur Ollama que vous auriez placé sur une autre machine.",
+      "privacy_text": "Les services d’IA en ligne reçoivent tout ce que vous leur écrivez. Ici, le modèle tourne sur votre ordinateur : vos messages, vos pièces jointes et votre historique n’en sortent pas. Trois exceptions, que vous décidez : la recherche web, traitée par votre compte Ollama ; un modèle cloud d’Ollama, si vous activez les modèles cloud et en choisissez un ; et un serveur Ollama que vous auriez placé sur une autre machine.",
       "faq_title": "Questions sur <em>la conversation</em>",
       "q1": "Est-ce que ça marche sans Internet ?",
       "a1": "Oui, une fois le modèle téléchargé. La conversation se passe entièrement sur votre ordinateur.",
@@ -469,9 +469,9 @@
       "q3": "Quels modèles peut-on utiliser ?",
       "a3": "Les modèles que l’on peut télécharger et faire tourner en local, comme Gemma, Qwen, Mistral ou Llama. ModelHub vous indique ceux qui tiennent dans votre machine.",
       "q4": "Est-ce aussi fort que les grandes IA en ligne ?",
-      "a4": "Pas sur tout. Un modèle qui tient sur votre ordinateur est plus petit que ceux des grands services en ligne. Pour discuter, résumer, corriger, traduire ou réviser, il fait très bien l’affaire, et vos données restent chez vous.",
+      "a4": "Pas sur tout. Un modèle qui tient sur votre ordinateur est plus petit que ceux des grands services en ligne. Pour discuter, résumer, corriger, traduire ou réviser, il fait très bien l’affaire, et vos données restent chez vous. Pour aller plus loin, les modèles cloud d’Ollama sont proposés en option, désactivés par défaut : ils tournent alors sur les serveurs d’ollama.com.",
       "q5": "Faut-il créer un compte ?",
-      "a5": "Non. ChatonLM n’a ni compte, ni abonnement. Un compte Ollama ne sert que si vous voulez la recherche web.",
+      "a5": "Non. ChatonLM n’a ni compte, ni abonnement. Un compte Ollama ne sert que si vous voulez la recherche web ou les modèles cloud.",
       "end_title": "Prêt à <em>discuter ?</em>"
     },
     "hub": {
@@ -538,7 +538,7 @@
       "fact6_title": "Tout reste écrit",
       "fact6_text": "La conversation s’affiche et s’enregistre comme d’habitude : vous la retrouvez dans l’historique.",
       "privacy_title": "Rien de ce que vous dites <em>ne sort.</em>",
-      "privacy_text": "La détection de la parole, la transcription, l’annulation d’écho et la voix tournent sur votre ordinateur. Seul le texte transcrit est envoyé au moteur Ollama, comme un message tapé au clavier ; par défaut, ce moteur est lui aussi sur votre machine.",
+      "privacy_text": "La détection de la parole, la transcription, l’annulation d’écho et la voix tournent sur votre ordinateur. Seul le texte transcrit est envoyé au moteur Ollama, comme un message tapé au clavier ; par défaut, ce moteur est lui aussi sur votre machine. Avec un modèle cloud d’Ollama, si vous en choisissez un, ce texte est traité par ollama.com.",
       "faq_title": "Questions sur <em>la voix</em>",
       "q1": "Le mode vocal fonctionne-t-il sans Internet ?",
       "a1": "Oui, une fois la voix et le modèle de reconnaissance de la parole téléchargés. ChatonLM propose de les télécharger la première fois, en indiquant leur taille.",
@@ -573,11 +573,11 @@
       "fact4_title": "Dans la langue du texte",
       "fact4_text": "Le texte garde sa langue et son sens : la correction ne traduit pas et n’invente rien.",
       "fact5_title": "Le modèle de votre choix",
-      "fact5_text": "La correction a son propre modèle, réglé une fois : le même que la conversation, ou un autre.",
+      "fact5_text": "En « Auto », la correction prend le plus grand modèle déjà chargé, sinon celui de la conversation. Ou choisissez-en un, une fois pour toutes.",
       "fact6_title": "Les longs textes aussi",
       "fact6_text": "Un long texte est corrigé partie par partie, et vous pouvez arrêter en cours de route.",
       "privacy_title": "Vos textes <em>restent chez vous.</em>",
-      "privacy_text": "Un correcteur en ligne lit tout ce que vous lui confiez : courriers, rapports, messages. Ici, c’est un modèle installé sur votre ordinateur qui relit, et vos textes n’en sortent pas. Une seule exception, que vous décidez : un serveur Ollama que vous auriez placé sur une autre machine.",
+      "privacy_text": "Un correcteur en ligne lit tout ce que vous lui confiez : courriers, rapports, messages. Ici, c’est un modèle installé sur votre ordinateur qui relit, et vos textes n’en sortent pas. Deux exceptions, que vous décidez : un modèle cloud d’Ollama, si vous les activez et que la correction en utilise un, et un serveur Ollama que vous auriez placé sur une autre machine.",
       "faq_title": "Questions sur <em>la correction</em>",
       "q1": "La correction fonctionne-t-elle sans Internet ?",
       "a1": "Oui, une fois le modèle téléchargé. Le texte est relu sur votre ordinateur.",
@@ -616,12 +616,12 @@
       "fact6_title": "Vos cours gardés",
       "fact6_text": "Les cours terminés restent dans l’onglet Étudier : vous les relisez quand vous voulez.",
       "privacy_title": "Vos cours <em>restent chez vous.</em>",
-      "privacy_text": "Vos sujets, vos documents et vos réponses ne quittent pas votre ordinateur : c’est votre modèle qui écrit le cours. Une seule exception, que vous décidez : la recherche web, si vous l’activez, passe par votre compte Ollama.",
+      "privacy_text": "Vos sujets, vos documents et vos réponses ne quittent pas votre ordinateur : c’est votre modèle qui écrit le cours. Trois exceptions, que vous décidez : la recherche web, si vous l’activez, passe par votre compte Ollama ; un modèle cloud d’Ollama, si l’étude en utilise un, et un serveur Ollama placé sur une autre machine reçoivent ce que le modèle lit.",
       "faq_title": "Questions sur <em>l’étude</em>",
       "q1": "Sur quels sujets peut-on créer un cours ?",
       "a1": "Sur n’importe lequel : une notion de biologie, une règle de grammaire, un chapitre d’histoire, un langage de programmation. Plus le sujet est précis, meilleur est le cours.",
       "q2": "Les cours sont-ils fiables ?",
-      "a2": "Un modèle peut se tromper, surtout un petit. Un modèle plus grand écrit de meilleures leçons, et un cours appuyé sur vos documents s’y tient davantage. Pour un examen, vérifiez avec vos supports.",
+      "a2": "Un modèle peut se tromper, surtout un petit. Un modèle plus grand écrit de meilleures leçons (en « Auto », ChatonLM prend le plus grand déjà chargé), et un cours appuyé sur vos documents s’y tient davantage. Pour un examen, vérifiez avec vos supports.",
       "q3": "Combien de temps dure un cours ?",
       "a3": "Le temps que vous choisissez : une vingtaine de minutes est un bon repère, plus ou moins selon ce que vous voulez apprendre.",
       "q4": "Peut-on réviser à partir de ses propres cours ?",
@@ -655,7 +655,7 @@
       "fact6_title": "Jusque sur votre téléphone",
       "fact6_text": "Avec Easy Link, demandez une image à votre bot Telegram ou Discord : si son modèle sait appeler des outils et qu’un modèle d’images est choisi dans ChatonLM, l’image vous arrive en photo.",
       "privacy_title": "Vos idées <em>restent chez vous.</em>",
-      "privacy_text": "Un générateur d’images en ligne reçoit chacune de vos descriptions et crée l’image sur ses serveurs. Ici, le moteur d’images tourne sur votre ordinateur : vos descriptions et vos images n’en sortent pas. Internet ne sert qu’à parcourir les modèles d’images et à les télécharger depuis Hugging Face. Deux exceptions, que vous décidez : avec Easy Link, les images passent par votre messagerie ; et un serveur Ollama que vous auriez placé sur une autre machine reçoit vos messages, mais jamais les images créées.",
+      "privacy_text": "Un générateur d’images en ligne reçoit chacune de vos descriptions et crée l’image sur ses serveurs. Ici, le moteur d’images tourne sur votre ordinateur : vos descriptions et vos images n’en sortent pas. Internet ne sert qu’à parcourir les modèles d’images et à les télécharger depuis Hugging Face. Deux exceptions, que vous décidez : avec Easy Link, les images passent par votre messagerie ; et un serveur Ollama que vous auriez placé sur une autre machine, ou un modèle cloud d’Ollama si vous en choisissez un, reçoit vos messages, mais jamais les images créées.",
       "faq_title": "Questions sur <em>les images</em>",
       "q1": "Faut-il une carte graphique ?",
       "a1": "Elle est fortement conseillée. Avec une carte graphique, une image prend de quelques secondes à une minute environ avec les modèles conseillés, davantage avec les plus lourds ou sur une carte modeste. Sans elle, le processeur s’en charge, en plusieurs minutes par image. Le moteur d’images demande aussi un processeur récent (avec AVX2).",
@@ -664,7 +664,7 @@
       "q3": "D’où viennent les modèles, et sous quelle licence ?",
       "a3": "De Hugging Face, la grande bibliothèque de modèles ouverts ; ils se téléchargent sans compte. Chaque modèle a sa licence, et ModelHub la traduit en clair : usage libre, usage non commercial, ou licence à lire. Les deux modèles conseillés, FLUX.2 klein 4B et Z-Image-Turbo, sont sous licence Apache 2.0 : usage libre.",
       "q4": "Est-ce que quelque chose quitte l’ordinateur ?",
-      "a4": "Non : votre description et l’image sont traitées sur votre ordinateur, par le moteur d’images inclus. Seuls la liste des modèles et leur téléchargement passent par Internet. Avec Easy Link, l’image est envoyée à votre bot, puisque c’est là que vous l’avez demandée. Et si vous réglez ChatonLM sur un serveur Ollama situé sur une autre machine, vos messages lui sont envoyés, mais jamais les images créées.",
+      "a4": "Non : votre description et l’image sont traitées sur votre ordinateur, par le moteur d’images inclus. Seuls la liste des modèles et leur téléchargement passent par Internet. Avec Easy Link, l’image est envoyée à votre bot, puisque c’est là que vous l’avez demandée. Et si vous réglez ChatonLM sur un serveur Ollama situé sur une autre machine, ou choisissez un modèle cloud d’Ollama, vos messages lui sont envoyés, mais jamais les images créées.",
       "q5": "C’est vraiment gratuit ?",
       "a5": "Oui. La création d’images fait partie de ChatonLM, logiciel libre sous licence MIT : pas de crédits à acheter, pas d’abonnement, pas de compte. Les modèles se téléchargent gratuitement ; leur licence dit ce que vous pouvez faire des images.",
       "end_title": "Prêt à <em>dessiner ?</em>"
@@ -758,7 +758,7 @@
     "q4": "Puis-je garder les modèles que j’ai déjà ?",
     "a4": "Oui. Si Ollama est déjà installé sur votre ordinateur, ChatonLM s’y connecte et retrouve vos modèles : rien à retélécharger.",
     "q5": "Qu’est-ce qui sort de mon ordinateur ?",
-    "a5": "Presque rien : ni compte, ni télémétrie, ni publicité. Internet sert à parcourir et télécharger les modèles et les voix, à vérifier les mises à jour et, si vous les activez, à la recherche web et à Easy Link. <a href='/{{lang}}/privacy/'>La page Confidentialité</a> détaille chaque connexion.",
+    "a5": "Presque rien : ni compte, ni télémétrie, ni publicité. Internet sert à parcourir et télécharger les modèles et les voix, à vérifier les mises à jour et, si vous les activez, à la recherche web, aux modèles cloud d’Ollama et à Easy Link. <a href='/{{lang}}/privacy/'>La page Confidentialité</a> détaille chaque connexion.",
     "end_title": "Un chaton, <em>tous les outils.</em>"
   }
 }

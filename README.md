@@ -65,13 +65,15 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
   the answer aloud and listens again. Everything runs on your computer.
 - **Proofread**: correct or rephrase a text in the app, or the text selected
   in any app with a global shortcut, which puts the corrected text in its
-  place.
+  place. On "Auto", it uses the largest model already loaded, or else the
+  chat model.
 - **Study**: pick a topic, and your model writes a short course with lessons,
   worked examples and quizzes, from your own documents and the web if you
-  want.
+  want. Like proofreading, it can pick its model on "Auto".
 - **Models settings**: keep models loaded for as long as you want, preload the
-  chosen model, see loaded models and unload them, follow a graphics memory
-  gauge, and set a system prompt sent at the start of every chat.
+  chosen model, see loaded models and unload them (all of them when you quit,
+  unless you turn it off), follow a graphics memory gauge, and set a system
+  prompt sent at the start of every chat.
 - **Easy Link**: talk to your models from your phone, through your own
   Telegram or Discord bot, and get the pictures they create (see
   [Easy Link](#easy-link)).

@@ -1,15 +1,15 @@
 {
   "fr/": {
-    "hash": "d7b3356a0e906c56",
-    "date": "2026-10-25"
+    "hash": "b822090ea6579a4a",
+    "date": "2026-10-26"
   },
   "en/": {
-    "hash": "4e0b7ccfc6edd2f3",
-    "date": "2026-10-25"
+    "hash": "6cee541339424923",
+    "date": "2026-10-26"
   },
   "es/": {
-    "hash": "fa2ee2cb3485a2fe",
-    "date": "2026-10-25"
+    "hash": "0c86b5f5e4bb0c86",
+    "date": "2026-10-26"
   },
   "fr/contact/": {
     "hash": "bc2ad751abe54723",
@@ -36,16 +36,16 @@
     "date": "2026-10-25"
   },
   "fr/privacy/": {
-    "hash": "e78d34421b807f2b",
-    "date": "2026-10-25"
+    "hash": "0f95234654620fa9",
+    "date": "2026-10-26"
   },
   "en/privacy/": {
-    "hash": "1e1ecb83417ab6cb",
-    "date": "2026-10-25"
+    "hash": "43bfa603de54d975",
+    "date": "2026-10-26"
   },
   "es/privacy/": {
-    "hash": "29ffbdb28b72589f",
-    "date": "2026-10-25"
+    "hash": "7299e95744fc5ec5",
+    "date": "2026-10-26"
   },
   "fr/donate/": {
     "hash": "af554c821d378431",
@@ -60,16 +60,16 @@
     "date": "2026-10-25"
   },
   "fr/conversation-ia-locale/": {
-    "hash": "e52d22ce40cd12a5",
-    "date": "2026-10-25"
+    "hash": "424ed68866cc7dba",
+    "date": "2026-10-26"
   },
   "en/local-ai-chat/": {
-    "hash": "abde31a5c1f7a44f",
-    "date": "2026-10-25"
+    "hash": "91799e7fd5c60498",
+    "date": "2026-10-26"
   },
   "es/chat-ia-local/": {
-    "hash": "8ce2cedcf37133df",
-    "date": "2026-10-25"
+    "hash": "0313164969a7cb32",
+    "date": "2026-10-26"
   },
   "fr/modeles-ia-locaux/": {
     "hash": "2c9da2d524ab43eb",
@@ -84,75 +84,75 @@
     "date": "2026-10-25"
   },
   "fr/dictee-vocale/": {
-    "hash": "f7b5dff13a9111be",
-    "date": "2026-10-25"
+    "hash": "84d0492422b79548",
+    "date": "2026-10-26"
   },
   "en/voice-dictation/": {
-    "hash": "d3de10ef96552dd1",
-    "date": "2026-10-25"
+    "hash": "1f6f8c45e1501632",
+    "date": "2026-10-26"
   },
   "es/dictado-por-voz/": {
-    "hash": "289babedc3791141",
-    "date": "2026-10-25"
+    "hash": "0c951ffcb752d53d",
+    "date": "2026-10-26"
   },
   "fr/mode-vocal/": {
-    "hash": "5d38b6a1456f71df",
-    "date": "2026-10-25"
+    "hash": "d273d9d713a0cd0b",
+    "date": "2026-10-26"
   },
   "en/voice-mode/": {
-    "hash": "b1945b70a05a70b4",
-    "date": "2026-10-25"
+    "hash": "7c249921909803c6",
+    "date": "2026-10-26"
   },
   "es/modo-de-voz/": {
-    "hash": "4d34711f52339113",
-    "date": "2026-10-25"
+    "hash": "c07884f876febdfb",
+    "date": "2026-10-26"
   },
   "fr/correcteur-de-texte/": {
-    "hash": "03d1559fc797c12a",
-    "date": "2026-10-25"
+    "hash": "bc1d1980f3704c92",
+    "date": "2026-10-26"
   },
   "en/proofreading/": {
-    "hash": "a85b635fc10e5963",
-    "date": "2026-10-25"
+    "hash": "1b16718ead31ddf8",
+    "date": "2026-10-26"
   },
   "es/corrector-de-textos/": {
-    "hash": "0977ee78a0331403",
-    "date": "2026-10-25"
+    "hash": "2a68446c60f2dff5",
+    "date": "2026-10-26"
   },
   "fr/apprendre-avec-une-ia/": {
-    "hash": "27ceef29ccd277c7",
-    "date": "2026-10-25"
+    "hash": "b4e5bf5ef9127451",
+    "date": "2026-10-26"
   },
   "en/learn-with-ai/": {
-    "hash": "c58dd1c7fda96516",
-    "date": "2026-10-25"
+    "hash": "707a94b4888fe0e9",
+    "date": "2026-10-26"
   },
   "es/aprender-con-ia/": {
-    "hash": "ad1da4317b235aa5",
-    "date": "2026-10-25"
+    "hash": "b47b32fd1120d176",
+    "date": "2026-10-26"
   },
   "fr/pourquoi-chatonlm/": {
-    "hash": "7d58b2634f0cbc00",
-    "date": "2026-10-25"
+    "hash": "8a997992bae4cdff",
+    "date": "2026-10-26"
   },
   "en/why-chatonlm/": {
-    "hash": "12f41342984fc122",
-    "date": "2026-10-25"
+    "hash": "ce2e96fdaa640016",
+    "date": "2026-10-26"
   },
   "es/por-que-chatonlm/": {
-    "hash": "3e4de2adf6ea7456",
-    "date": "2026-10-25"
+    "hash": "1cc22b3763f2b162",
+    "date": "2026-10-26"
   },
   "fr/generateur-d-images-ia/": {
-    "hash": "ed7628f0ff2169f7",
-    "date": "2026-10-25"
+    "hash": "a6993b36d3b4912b",
+    "date": "2026-10-26"
   },
   "en/local-ai-image-generator/": {
-    "hash": "2a4f3e60135e34c2",
-    "date": "2026-10-25"
+    "hash": "f15e28d585546f37",
+    "date": "2026-10-26"
   },
   "es/generador-de-imagenes-ia/": {
-    "hash": "e870b955381ee408",
-    "date": "2026-10-25"
+    "hash": "00a95ff31644ce6f",
+    "date": "2026-10-26"
   }
 }
