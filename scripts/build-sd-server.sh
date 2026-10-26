@@ -77,8 +77,11 @@ done
 command -v glslc >/dev/null || fail "glslc manquant (SDK Vulkan, ou paquet shaderc)"
 
 # Une construction à la fois : deux lancements (check.sh et package.sh)
-# videraient le même dossier de travail.
+# videraient le même dossier de travail. .tools/ peut manquer (machine de CI
+# neuve, sans cache) : il est créé avant, sinon l'échec passerait pour un
+# verrou déjà pris.
 lock="$root/.tools/sdcpp-build.lock"
+mkdir -p "$root/.tools"
 mkdir "$lock" 2>/dev/null || fail "une autre construction est en cours (sinon supprimer $lock)"
 trap 'rm -rf "$lock"' EXIT
 
