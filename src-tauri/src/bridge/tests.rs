@@ -2964,7 +2964,15 @@ async fn an_image_comes_back_as_bytes_and_is_never_written() {
             "params": { "prompt": "a red kitten" } }),
         )
         .await;
-    let _ = client.notification("image.event").await;
+    // L'image 901 a commencé (et non un avancement resté de la 900) : sinon
+    // l'arrêt arriverait avant le dessin, qui ne serait jamais « lâché ».
+    loop {
+        let event = client.notification("image.event").await;
+        if event["requestId"] == 901 {
+            break;
+        }
+    }
+    wait_for("image 901 painting", || painter.requests.lock().len() == 2).await;
     client
         .send(&json!({ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": 901 } }))
         .await;
