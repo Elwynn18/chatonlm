@@ -77,6 +77,25 @@
           "default": false,
           "scope": "application",
           "markdownDescription": "%config.completion.ignoreOthers%"
+        },
+        "chatonlm.notify.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "%config.notify.enabled%"
+        },
+        "chatonlm.notify.minDurationSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 0,
+          "scope": "application",
+          "description": "%config.notify.minDurationSeconds%"
+        },
+        "chatonlm.notify.includeFolderName": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "description": "%config.notify.includeFolderName%"
         }
       }
     },
@@ -179,6 +198,47 @@
         "command": "chatonlm.completionToggle",
         "title": "%command.completionToggle%",
         "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.notifyWhenDone",
+        "title": "%command.notifyWhenDone%",
+        "category": "ChatonLM",
+        "icon": "$(bell)"
+      },
+      {
+        "command": "chatonlm.notifyCancel",
+        "title": "%command.notifyCancel%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.studyProject",
+        "title": "%command.studyProject%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.studyLanguage",
+        "title": "%command.studyLanguage%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.generateImage",
+        "title": "%command.generateImage%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.saveImage",
+        "title": "%command.saveImage%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.proofreadComments",
+        "title": "%command.proofreadComments%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.proofreadDocument",
+        "title": "%command.proofreadDocument%",
+        "category": "ChatonLM"
       }
     ],
     "menus": {
@@ -197,6 +257,16 @@
           "command": "chatonlm.tour",
           "when": "editorTextFocus",
           "group": "chatonlm@3"
+        },
+        {
+          "command": "chatonlm.proofreadComments",
+          "when": "editorTextFocus && editorLangId != markdown && editorLangId != plaintext",
+          "group": "chatonlm@4"
+        },
+        {
+          "command": "chatonlm.proofreadDocument",
+          "when": "editorTextFocus && editorLangId =~ /^(markdown|plaintext)$/",
+          "group": "chatonlm@4"
         }
       ],
       "scm/title": [
@@ -246,12 +316,42 @@
         {
           "command": "chatonlm.stopTalking",
           "when": "chatonlm.talking"
+        },
+        {
+          "command": "chatonlm.notifyCancel",
+          "when": "false"
+        },
+        {
+          "command": "chatonlm.generateImage",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "chatonlm.studyLanguage",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "chatonlm.proofreadComments",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "chatonlm.proofreadDocument",
+          "when": "editorLangId =~ /^(markdown|plaintext)$/"
+        },
+        {
+          "command": "chatonlm.saveImage",
+          "when": "false"
         }
       ],
       "scm/resourceState/context": [
         {
           "command": "chatonlm.tourChanges",
           "when": "scmProvider == git",
+          "group": "chatonlm@1"
+        }
+      ],
+      "terminal/context": [
+        {
+          "command": "chatonlm.notifyWhenDone",
           "group": "chatonlm@1"
         }
       ]

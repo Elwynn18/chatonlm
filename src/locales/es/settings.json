@@ -487,6 +487,11 @@
       "help": "Ver esta lista",
       "discord": "En Discord, los comandos también pueden empezar por «!», por ejemplo <code>!models</code>.",
       "media": "También puedes enviar una foto, si el modelo sabe ver imágenes, o un mensaje de voz: lo transcribe el modelo de transcripción del dictado que tengas instalado."
+    },
+    "vscode": {
+      "title": "VS Code",
+      "label": "Dejar que VS Code me avise por Easy Link",
+      "description": "Cuando una tarea larga termina en VS Code (un comando del terminal, una compilación, una respuesta larga), la extensión de ChatonLM puede enviar un mensaje breve a tus cuentas vinculadas: el nombre de la tarea, cuánto ha tardado y si ha salido bien. Nunca tu código ni la salida del terminal. El comando status también muestra las tareas en curso."
     }
   },
   "vscode": {

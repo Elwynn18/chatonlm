@@ -139,6 +139,47 @@ struct TestHost {
     machine: Arc<Mutex<Option<crate::hub::hardware::Machine>>>,
     /// Modèles proposés au téléchargement par l'éditeur.
     offers: Arc<Mutex<Vec<String>>>,
+    /// Easy Link simulé (lot 4a) ; absent : service indisponible.
+    notifier: Arc<Mutex<Option<Arc<FakeNotifier>>>>,
+    study: Arc<crate::study::StudyEngine>,
+    /// Cours annoncés à la page.
+    studied: Arc<Mutex<Vec<String>>>,
+    /// Fenêtre montrée (`app.show`), avec la page demandée.
+    shown: Arc<Mutex<Vec<Option<String>>>>,
+}
+
+/// Easy Link simulé : ce que le pont lui demande, et sa réponse.
+#[derive(Default)]
+struct FakeNotifier {
+    notes: Mutex<Vec<crate::easy_link::notify::Note>>,
+    tasks: Mutex<Vec<(u64, crate::easy_link::notify::TaskUpdate)>>,
+    ended: Mutex<Vec<u64>>,
+    refusal: Mutex<Option<crate::easy_link::notify::NotifyError>>,
+}
+
+impl crate::easy_link::notify::Notifier for FakeNotifier {
+    fn notify(
+        &self,
+        note: crate::easy_link::notify::Note,
+    ) -> BoxFuture<Result<u32, crate::easy_link::notify::NotifyError>> {
+        self.notes.lock().push(note);
+        let refusal = self.refusal.lock().clone();
+        Box::pin(async move { refusal.map_or(Ok(1), Err) })
+    }
+
+    fn task(
+        &self,
+        connection: u64,
+        update: crate::easy_link::notify::TaskUpdate,
+    ) -> BoxFuture<Result<(), crate::easy_link::notify::NotifyError>> {
+        self.tasks.lock().push((connection, update));
+        let refusal = self.refusal.lock().clone();
+        Box::pin(async move { refusal.map_or(Ok(()), Err) })
+    }
+
+    fn connection_ended(&self, connection: u64) {
+        self.ended.lock().push(connection);
+    }
 }
 
 impl Host for TestHost {
@@ -169,6 +210,21 @@ impl Host for TestHost {
     fn machine(&self, _server_url: String) -> BoxFuture<Option<crate::hub::hardware::Machine>> {
         let machine = self.machine.lock().clone();
         Box::pin(async move { machine })
+    }
+    fn notifier(&self) -> Option<Arc<dyn crate::easy_link::notify::Notifier>> {
+        self.notifier
+            .lock()
+            .clone()
+            .map(|notifier| notifier as Arc<dyn crate::easy_link::notify::Notifier>)
+    }
+    fn study(&self) -> Option<&crate::study::StudyEngine> {
+        Some(&self.study)
+    }
+    fn study_updated(&self, updated: &crate::study::StudyUpdated) {
+        self.studied.lock().push(updated.course_id.clone());
+    }
+    fn show(&self, route: Option<&str>) {
+        self.shown.lock().push(route.map(str::to_owned));
     }
     fn offer_pull(&self, model: &str, commercial_use: bool) {
         self.offers.lock().push(if commercial_use {
@@ -2445,4 +2501,673 @@ async fn switching_off_and_on_quickly_always_reopens() {
     let state = bench.bridge.set_enabled(true).await.unwrap();
     assert_eq!(state.status, BridgeStatus::Listening);
     bench.bridge.shutdown();
+}
+
+// Lot 4a : Easy Link prévient, cours de l'Étude, image, correction.
+
+impl Bench {
+    async fn select_model(&self, model: &str) {
+        let patch = SettingsPatch {
+            selected_model: Some(model.to_owned()),
+            ..Default::default()
+        };
+        self.store
+            .call(move |c| settings::update(c, patch, None).map(drop))
+            .await
+            .unwrap();
+    }
+
+    fn notifier(&self) -> Arc<FakeNotifier> {
+        let notifier = Arc::new(FakeNotifier::default());
+        *self.host.notifier.lock() = Some(Arc::clone(&notifier));
+        notifier
+    }
+}
+
+async fn wait_for(what: &str, ready: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !ready() {
+        assert!(std::time::Instant::now() < deadline, "never: {what}");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test]
+async fn the_editor_notifies_through_easy_link_with_its_own_codes() {
+    use crate::easy_link::notify::{NotifyError, Outcome, TaskState};
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    let done = json!({
+        "title": "npm run build",
+        "outcome": "success",
+        "durationMs": 61_000,
+        "workspace": "/home/ana/web",
+    });
+    // Easy Link indisponible : comme aucun compte lié.
+    let answer = client.request("notify.send", done.clone()).await;
+    assert_eq!(error_code(&answer), code::NOT_LINKED);
+
+    let notifier = bench.notifier();
+    let answer = client.request("notify.send", done.clone()).await;
+    assert_eq!(answer["result"], json!({ "sent": 1 }), "{answer}");
+    {
+        let notes = notifier.notes.lock();
+        assert_eq!(notes[0].title, "npm run build");
+        assert_eq!(notes[0].outcome, Outcome::Success);
+        assert_eq!(notes[0].duration_ms, 61_000);
+        assert_eq!(notes[0].workspace.as_deref(), Some("/home/ana/web"));
+    }
+    *notifier.refusal.lock() = Some(NotifyError::Disabled);
+    let answer = client.request("notify.send", done.clone()).await;
+    assert_eq!(error_code(&answer), code::NOTIFY_OFF);
+    let task = json!({ "id": "t1", "title": "build", "state": "running", "startedAt": 1 });
+    let answer = client.request("notify.task", task.clone()).await;
+    assert_eq!(error_code(&answer), code::NOTIFY_OFF);
+    *notifier.refusal.lock() = Some(NotifyError::NotLinked);
+    let answer = client.request("notify.send", done.clone()).await;
+    assert_eq!(error_code(&answer), code::NOT_LINKED);
+    *notifier.refusal.lock() = None;
+
+    for bad in [
+        json!({ "title": "x", "outcome": "maybe", "durationMs": 1 }),
+        json!({ "title": "x", "outcome": "done", "durationMs": -1 }),
+        json!({ "title": "x", "outcome": "done", "durationMs": 1, "output": "error: …" }),
+        json!({ "title": "x".repeat(5000), "outcome": "done", "durationMs": 1 }),
+    ] {
+        let answer = client.request("notify.send", bad).await;
+        assert_eq!(error_code(&answer), code::INVALID_PARAMS, "{answer}");
+    }
+    let answer = client.request("notify.task", task).await;
+    assert_eq!(answer["result"], json!({}), "{answer}");
+    let answer = client
+        .request(
+            "notify.task",
+            json!({ "id": "", "title": "build", "state": "running", "startedAt": 1 }),
+        )
+        .await;
+    assert_eq!(error_code(&answer), code::INVALID_PARAMS);
+    let connection = {
+        let tasks = notifier.tasks.lock();
+        // Le refus (réglage coupé) puis l'acceptée ; l'invalide n'arrive pas.
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[1].1.state, TaskState::Running);
+        assert_eq!(tasks[1].1.id, "t1");
+        tasks[1].0
+    };
+    // La connexion finie : ses tâches en cours ne se finiront plus.
+    drop(client);
+    wait_for("tasks of the connection dropped", || {
+        notifier.ended.lock().contains(&connection)
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_course_is_made_from_texts_sent_by_the_editor() {
+    let bench = bench().await;
+    bench.select_model("chatonlm-study").await;
+    let (mut client, _, _) = bench.paired().await;
+    let created = client
+        .request(
+            "study.create",
+            json!({
+                "topic": "This project",
+                "level": "beginner",
+                "duration": 10,
+                "documents": [{ "name": "/home/ana/web/README.md", "text": "# Web\n\nA small site about photosynthesis." }],
+                "language": "fr",
+            }),
+        )
+        .await;
+    let course = created["result"]["courseId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{created}"))
+        .to_owned();
+    // Progression : jusqu'au plan prêt.
+    loop {
+        let event = client.notification("study.event").await;
+        assert_eq!(event["courseId"], course.as_str());
+        if event["course"]["status"] == "planned" {
+            break;
+        }
+        assert_eq!(event["course"]["status"], "planning", "{event}");
+    }
+    assert!(
+        bench.host.studied.lock().contains(&course),
+        "the page learns it"
+    );
+    let listed = client.request("study.list", json!({})).await;
+    let listed = listed["result"].as_array().unwrap();
+    assert!(
+        listed
+            .iter()
+            .any(|summary| summary["id"] == course.as_str())
+    );
+    let row = bench
+        .store
+        .call({
+            let course = course.clone();
+            move |c| crate::store::study::load(c, &course)
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.row.language, crate::i18n::Lang::Fr);
+    assert_eq!(
+        row.sources[0].source.title, "README.md",
+        "only the file name is kept"
+    );
+
+    // Au-delà de 200 000 caractères : refus clair, rien de créé.
+    let long = "word ".repeat(15_000);
+    let documents: Vec<Value> = (0..3)
+        .map(|index| json!({ "name": format!("{index}.md"), "text": long }))
+        .collect();
+    let answer = client
+        .request(
+            "study.create",
+            json!({ "topic": "x", "level": "advanced", "duration": 20, "documents": documents }),
+        )
+        .await;
+    assert_eq!(error_code(&answer), code::REFUSED);
+    assert!(
+        answer["error"]["data"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("200,000"),
+        "{answer}"
+    );
+    let four: Vec<Value> = (0..4)
+        .map(|index| json!({ "name": format!("{index}.md"), "text": "a" }))
+        .collect();
+    let answer = client
+        .request(
+            "study.create",
+            json!({ "topic": "x", "level": "advanced", "duration": 20, "documents": four }),
+        )
+        .await;
+    assert_eq!(error_code(&answer), code::REFUSED);
+    let answer = client
+        .request(
+            "study.create",
+            json!({ "topic": "x", "level": "advanced", "duration": 15 }),
+        )
+        .await;
+    assert_eq!(error_code(&answer), code::REFUSED);
+    let answer = client
+        .request(
+            "study.create",
+            json!({ "topic": "x", "level": "expert", "duration": 10 }),
+        )
+        .await;
+    assert_eq!(error_code(&answer), code::INVALID_PARAMS);
+    let answer = client.request("study.list", json!({ "all": true })).await;
+    assert_eq!(error_code(&answer), code::INVALID_PARAMS);
+    let listed = client.request("study.list", json!({})).await;
+    assert_eq!(listed["result"].as_array().unwrap().len(), 1);
+}
+
+/// La progression d'un cours créé par l'éditeur lui arrive même quand la
+/// file de l'Étude est déjà tenue par un autre appel (onglet Study), pour deux
+/// cours de suite, et sur une connexion revenue (après `study.list`).
+#[tokio::test]
+async fn the_editor_follows_its_courses_whoever_runs_the_study_queue() {
+    use crate::i18n::Lang;
+    use crate::study::StudyLevel;
+    let bench = bench().await;
+    bench.select_model("chatonlm-study-slow").await;
+    // L'onglet Study prépare déjà un cours : la file tourne avec son `Ctx`.
+    let page = crate::study::Ctx::new(bench.store.clone(), |_| {});
+    let engine = Arc::clone(&bench.host.study);
+    engine
+        .create_from_texts(
+            &page,
+            "Photosynthesis",
+            StudyLevel::Beginner,
+            10,
+            Vec::new(),
+            Lang::En,
+        )
+        .await
+        .unwrap();
+    let (mut client, id, secret) = bench.paired().await;
+    let mut courses = Vec::new();
+    for topic in ["This project", "Rust lifetimes"] {
+        let created = client
+            .request(
+                "study.create",
+                json!({ "topic": topic, "level": "beginner", "duration": 10 }),
+            )
+            .await;
+        courses.push(
+            created["result"]["courseId"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{created}"))
+                .to_owned(),
+        );
+    }
+    let mut planned = std::collections::HashSet::new();
+    while planned.len() < courses.len() {
+        let event = client.notification("study.event").await;
+        let course = event["courseId"].as_str().unwrap().to_owned();
+        assert_eq!(event["course"]["id"], course.as_str(), "{event}");
+        if courses.contains(&course) && event["course"]["status"] == "planned" {
+            planned.insert(course);
+        }
+    }
+
+    // Connexion revenue : après `study.list`, elle suit de nouveau les cours.
+    drop(client);
+    let mut again = bench.connect();
+    again.initialize().await;
+    let authed = again.auth(&id, &secret).await;
+    assert!(authed.get("result").is_some(), "{authed}");
+    let listed = again.request("study.list", json!({})).await;
+    assert_eq!(listed["result"].as_array().unwrap().len(), 3, "{listed}");
+    let later = engine
+        .create_from_texts(
+            &page,
+            "Chemistry",
+            StudyLevel::Beginner,
+            10,
+            Vec::new(),
+            Lang::En,
+        )
+        .await
+        .unwrap();
+    loop {
+        let event = again.notification("study.event").await;
+        if event["courseId"] == later.as_str() && event["course"]["status"] == "planned" {
+            break;
+        }
+    }
+}
+
+/// Peintre simulé : prêt (ou refus), avancement, image retenue jusqu'au feu
+/// vert ; note s'il a été lâché (arrêt).
+#[derive(Default)]
+struct FakePainter {
+    refusal: Mutex<Option<crate::chat::images::PaintRefusal>>,
+    gate: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    requests: Mutex<Vec<crate::chat::images::PaintRequest>>,
+    dropped: std::sync::atomic::AtomicBool,
+}
+
+struct DropFlag<'a>(&'a std::sync::atomic::AtomicBool);
+
+impl Drop for DropFlag<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// PNG de 1 × 1 (en-tête seulement : il n'est jamais décodé ici).
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\nfake";
+
+impl crate::chat::images::Painter for FakePainter {
+    fn ready(
+        &self,
+    ) -> crate::chat::images::PaintFuture<
+        '_,
+        Result<crate::chat::images::Ready, crate::chat::images::PaintRefusal>,
+    > {
+        let refusal = self.refusal.lock().clone();
+        Box::pin(async move {
+            match refusal {
+                Some(refusal) => Err(refusal),
+                None => Ok(crate::chat::images::Ready {
+                    model_name: "FLUX.2 klein 4B".to_owned(),
+                    default_side: 1024,
+                }),
+            }
+        })
+    }
+
+    fn cpu(&self) -> crate::chat::images::PaintFuture<'_, bool> {
+        Box::pin(async { false })
+    }
+
+    fn paint<'a>(
+        &'a self,
+        request: crate::chat::images::PaintRequest,
+        progress: &'a mut (dyn FnMut(crate::chat::images::ImageProgress) + Send),
+    ) -> crate::chat::images::PaintFuture<'a, Result<crate::chat::images::Painted, String>> {
+        use crate::chat::images::{ImageProgress, ImageStage, Painted};
+        let gate = self.gate.lock().clone();
+        Box::pin(async move {
+            let _flag = DropFlag(&self.dropped);
+            let (width, height) = (request.width, request.height);
+            self.requests.lock().push(request);
+            progress(ImageProgress::at(
+                ImageStage::Starting,
+                false,
+                width,
+                height,
+            ));
+            progress(ImageProgress {
+                step: Some(1),
+                total: Some(4),
+                ..ImageProgress::at(ImageStage::Generating, false, width, height)
+            });
+            if let Some(gate) = gate {
+                gate.notified().await;
+            }
+            Ok(Painted {
+                png: PNG.to_vec(),
+                width,
+                height,
+                seed: 42,
+                model_name: "FLUX.2 klein 4B".to_owned(),
+            })
+        })
+    }
+}
+
+/// Fichiers PNG écrits sous `dir`.
+fn pngs_under(dir: &std::path::Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(pngs_under(&path));
+        } else if std::fs::read(&path).is_ok_and(|bytes| bytes.starts_with(b"\x89PNG")) {
+            found.push(path);
+        }
+    }
+    found
+}
+
+#[tokio::test]
+async fn an_image_comes_back_as_bytes_and_is_never_written() {
+    use base64::Engine as _;
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    // Aucun moteur d'images : refus -32036.
+    let answer = client
+        .request("image.generate", json!({ "prompt": "a red kitten" }))
+        .await;
+    assert_eq!(error_code(&answer), code::NO_IMAGE_MODEL);
+    assert_eq!(answer["error"]["data"]["reason"], "unavailable");
+
+    let painter = Arc::new(FakePainter::default());
+    bench
+        .host
+        .engine
+        .set_painter(Arc::clone(&painter) as Arc<dyn crate::chat::images::Painter>);
+    *painter.refusal.lock() = Some(crate::chat::images::PaintRefusal::NoModel);
+    let answer = client
+        .request("image.generate", json!({ "prompt": "a red kitten" }))
+        .await;
+    assert_eq!(error_code(&answer), code::NO_IMAGE_MODEL);
+    assert_eq!(answer["error"]["data"]["reason"], "noModel");
+    assert!(answer["error"]["data"]["message"].is_string());
+    *painter.refusal.lock() = None;
+
+    for bad in [
+        json!({ "prompt": "  " }),
+        json!({ "prompt": "x", "model": "other" }),
+        json!({ "prompt": "x".repeat(5000) }),
+    ] {
+        let answer = client.request("image.generate", bad).await;
+        assert_eq!(error_code(&answer), code::INVALID_PARAMS, "{answer}");
+    }
+
+    let gate = Arc::new(tokio::sync::Notify::new());
+    *painter.gate.lock() = Some(Arc::clone(&gate));
+    client
+        .send(
+            &json!({ "jsonrpc": "2.0", "id": 900, "method": "image.generate",
+            "params": { "prompt": "a red kitten", "width": 1000 } }),
+        )
+        .await;
+    let event = client.notification("image.event").await;
+    assert_eq!(event["requestId"], 900);
+    assert_eq!(event["progress"]["stage"], "starting");
+    // Pendant l'image, l'autocomplétion attend (compteur d'activité).
+    wait_for("image painting", || !painter.requests.lock().is_empty()).await;
+    assert!(
+        bench.host.engine.is_working(),
+        "the image holds the activity"
+    );
+    gate.notify_one();
+    let answer = client.response(900).await;
+    let result = &answer["result"];
+    assert_eq!(
+        base64::engine::general_purpose::STANDARD
+            .decode(result["pngBase64"].as_str().unwrap())
+            .unwrap(),
+        PNG
+    );
+    assert_eq!(result["seed"], 42);
+    assert_eq!(result["model"], "FLUX.2 klein 4B");
+    // Côtés arrondis comme ceux de l'outil ; l'autre prend celui du modèle.
+    assert_eq!(
+        (result["width"].clone(), result["height"].clone()),
+        (json!(1008), json!(1024))
+    );
+    assert!(!bench.host.engine.is_working(), "released after the image");
+    assert!(
+        pngs_under(bench.dir.path()).is_empty(),
+        "the app writes no image file"
+    );
+
+    // Arrêt par l'éditeur : l'image est lâchée.
+    let gate = Arc::new(tokio::sync::Notify::new());
+    *painter.gate.lock() = Some(gate);
+    painter.dropped.store(false, Ordering::SeqCst);
+    client
+        .send(
+            &json!({ "jsonrpc": "2.0", "id": 901, "method": "image.generate",
+            "params": { "prompt": "a red kitten" } }),
+        )
+        .await;
+    let _ = client.notification("image.event").await;
+    client
+        .send(&json!({ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": 901 } }))
+        .await;
+    let answer = client.response(901).await;
+    assert_eq!(error_code(&answer), code::CANCELLED);
+    wait_for("image dropped", || painter.dropped.load(Ordering::SeqCst)).await;
+    wait_for("activity released", || !bench.host.engine.is_working()).await;
+}
+
+#[tokio::test]
+async fn the_editor_proofreads_a_text_part_by_part() {
+    let bench = bench().await;
+    bench.select_model("chatonlm-proofread").await;
+    let (mut client, _, _) = bench.paired().await;
+    let text = "I recieve teh letter.\n\nThe second paragraph.";
+    let answer = client
+        .request(
+            "proofread.run",
+            json!({ "text": text, "mode": "correct", "language": "en" }),
+        )
+        .await;
+    assert_eq!(
+        answer["result"],
+        json!({ "text": "I receive the letter.\n\nThe second paragraph.", "model": "chatonlm-proofread" }),
+        "{answer}"
+    );
+    let started = client.notification("proofread.event").await;
+    assert_eq!(started["event"]["event"], "started");
+    let first = client.notification("proofread.event").await;
+    assert_eq!(first["event"]["event"], "partDone");
+    assert_eq!(first["event"]["result"]["text"], "I receive the letter.");
+    let second = client.notification("proofread.event").await;
+    assert_eq!(second["event"]["index"], 1);
+
+    let answer = client
+        .request("proofread.run", json!({ "text": "  ", "mode": "correct" }))
+        .await;
+    assert_eq!(error_code(&answer), code::REFUSED);
+    assert_eq!(answer["error"]["data"]["code"], "empty");
+    let answer = client
+        .request("proofread.run", json!({ "text": "x", "mode": "translate" }))
+        .await;
+    assert_eq!(error_code(&answer), code::INVALID_PARAMS);
+
+    // Arrêt par l'éditeur pendant un passage ; l'activité tenue est lâchée.
+    bench.select_model("chatonlm-proofread-slow").await;
+    client
+        .send(&json!({ "jsonrpc": "2.0", "id": 700, "method": "proofread.run",
+            "params": { "text": "I recieve teh letter, slowly, word after word.", "mode": "rephrase" } }))
+        .await;
+    let _ = client.notification("proofread.event").await;
+    assert!(
+        bench.host.engine.is_working(),
+        "proofreading holds the activity"
+    );
+    client
+        .send(&json!({ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": 700 } }))
+        .await;
+    let answer = client.response(700).await;
+    assert_eq!(error_code(&answer), code::CANCELLED);
+    wait_for("activity released", || !bench.host.engine.is_working()).await;
+}
+
+/// « Auto » ne retombe jamais sur un modèle du chat qui tourne hors de la
+/// machine (cloud, même activé, ou distant) : refus, et rien ne part ;
+/// choisi sur la page Proofread, il est utilisé.
+#[tokio::test]
+async fn auto_never_sends_the_text_to_a_cloud_or_remote_chat_model() {
+    let bench = bench().await;
+    let patch = SettingsPatch {
+        cloud_models: Some(true),
+        ..Default::default()
+    };
+    bench
+        .store
+        .call(move |c| settings::update(c, patch, None).map(drop))
+        .await
+        .unwrap();
+    let (mut client, _, _) = bench.paired().await;
+    for model in ["gpt-oss:20b-cloud", "chatonlm-polish-remote"] {
+        bench.select_model(model).await;
+        let answer = client
+            .request(
+                "proofread.run",
+                json!({ "text": "My password is hunter2.", "mode": "correct" }),
+            )
+            .await;
+        assert_eq!(error_code(&answer), code::REFUSED, "{answer}");
+        assert_eq!(answer["error"]["data"]["code"], "noModel", "{answer}");
+        assert_eq!(
+            answer["error"]["data"]["message"],
+            format!(
+                "The chat model ({model}) runs outside this computer. To proofread with it, \
+                 choose it on the Proofread page of ChatonLM."
+            ),
+        );
+    }
+    assert!(
+        bench._ollama.chat_requests().is_empty(),
+        "{:?}",
+        bench._ollama.chat_requests()
+    );
+    // Choisi sur la page Proofread : il est utilisé.
+    let patch = SettingsPatch {
+        proofread_model: Some("chatonlm-polish-remote".to_owned()),
+        ..Default::default()
+    };
+    bench
+        .store
+        .call(move |c| settings::update(c, patch, None).map(drop))
+        .await
+        .unwrap();
+    let _ = client
+        .request(
+            "proofread.run",
+            json!({ "text": "I recieve teh letter.", "mode": "correct" }),
+        )
+        .await;
+    assert!(
+        bench
+            ._ollama
+            .chat_requests()
+            .iter()
+            .any(|sent| sent["model"] == "chatonlm-polish-remote")
+    );
+}
+
+#[test]
+fn only_listed_pages_can_be_shown() {
+    use super::work::{Shown, shown_route};
+    let id = "019a3b2c-1d2e-7f30-8a4b-5c6d7e8f9a0b";
+    assert_eq!(shown_route("/hub/images"), Some(Shown::Page));
+    assert_eq!(shown_route("/settings?section=easyLink"), Some(Shown::Page));
+    assert_eq!(shown_route("/settings?section=vscode"), Some(Shown::Page));
+    assert_eq!(
+        shown_route(&format!("/study/{id}")),
+        Some(Shown::Study(id.to_owned()))
+    );
+    assert_eq!(
+        shown_route(&format!("/c/{id}")),
+        Some(Shown::Chat(id.to_owned()))
+    );
+    for refused in [
+        "",
+        "/",
+        "/settings",
+        "/settings?section=general",
+        "/settings?section=vscode&x=1",
+        "/hub/images/",
+        "/hub/images/a/b",
+        "/c/new",
+        "/study/../settings",
+        "https://example.com",
+        &format!("/c/{id}/x"),
+        &format!("/study/{}", id.to_uppercase()),
+        &format!("/study/{}", id.replace('-', "")),
+    ] {
+        assert_eq!(shown_route(refused), None, "{refused}");
+    }
+}
+
+#[tokio::test]
+async fn the_editor_shows_the_app_on_a_listed_page_only() {
+    let bench = bench().await;
+    bench.select_model("chatonlm-study").await;
+    let (mut client, _, _) = bench.paired().await;
+    let answer = client.request("app.show", json!({})).await;
+    assert_eq!(answer["result"], json!({}), "{answer}");
+    let answer = client
+        .request("app.show", json!({ "route": "/settings?section=vscode" }))
+        .await;
+    assert_eq!(answer["result"], json!({}), "{answer}");
+    // Une conversation ou un cours qui n'existe pas : rien ne s'ouvre.
+    let unknown = "019a3b2c-1d2e-7f30-8a4b-5c6d7e8f9a0b";
+    for route in [
+        format!("/c/{unknown}"),
+        format!("/study/{unknown}"),
+        "/settings?section=general".to_owned(),
+        "/proofread".to_owned(),
+    ] {
+        let answer = client.request("app.show", json!({ "route": route })).await;
+        assert_eq!(error_code(&answer), code::INVALID_PARAMS, "{route}");
+    }
+    let answer = client
+        .request("app.show", json!({ "route": "/hub/images", "focus": true }))
+        .await;
+    assert_eq!(error_code(&answer), code::INVALID_PARAMS);
+    let created = client
+        .request(
+            "study.create",
+            json!({ "topic": "Rust", "level": "beginner", "duration": 10 }),
+        )
+        .await;
+    let course = created["result"]["courseId"].as_str().unwrap().to_owned();
+    let route = format!("/study/{course}");
+    let answer = client.request("app.show", json!({ "route": route })).await;
+    assert_eq!(answer["result"], json!({}), "{answer}");
+    assert_eq!(
+        *bench.host.shown.lock(),
+        vec![
+            None,
+            Some("/settings?section=vscode".to_owned()),
+            Some(route),
+        ]
+    );
 }

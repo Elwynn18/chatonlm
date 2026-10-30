@@ -15,6 +15,8 @@
 //   code à six chiffres, épelé aux lecteurs d'écran, et son heure de fin :
 //   pas de minuterie, le moteur retire le code consommé ou expiré), « Remove
 //   bot » après confirmation (les comptes sont déliés avec lui).
+// - « Let VS Code notify me through Easy Link » (coupé par défaut) : à la fin
+//   d'une longue tâche de VS Code, un court message aux comptes liés.
 // - Rappel des commandes du bot.
 // Un bouton focalisé qui disparaît laisse le focus dans sa carte (code
 // montré, bouton « Link an account » revenu, sinon le titre). Réglages à
@@ -23,6 +25,7 @@
 
 import {
   ArrowPathIcon,
+  BellAlertIcon,
   ComputerDesktopIcon,
   LockClosedIcon,
 } from "@heroicons/react/20/solid";
@@ -39,7 +42,7 @@ import type { EasyLinkBot } from "@/bindings/EasyLinkBot";
 import type { EasyLinkPairing } from "@/bindings/EasyLinkPairing";
 import type { EasyLinkPlatform } from "@/bindings/EasyLinkPlatform";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { Row, Switch } from "@/components/settings/Row";
+import { Row, RowError, Switch } from "@/components/settings/Row";
 import { useEasyLink, useEasyLinkCommand } from "@/hooks/useEasyLink";
 import { useFocusRescue } from "@/hooks/useFocusRescue";
 import { type TKey, useT } from "@/i18n";
@@ -51,6 +54,7 @@ import {
   easyLinkDisconnect,
   easyLinkPair,
   easyLinkSetEnabled,
+  easyLinkSetVscodeNotify,
   easyLinkUnlink,
   errorMessage,
 } from "@/lib/ipc";
@@ -218,6 +222,8 @@ export function EasyLink({
 
       {cards}
 
+      {data && <VsCodeNotify enabled={data.vscodeNotify} onSaved={onSaved} />}
+
       <section aria-labelledby={ids.commands} className={CARD}>
         <div className="space-y-3 p-4">
           <div>
@@ -249,6 +255,62 @@ export function EasyLink({
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * « Let VS Code notify me through Easy Link » (lien VS Code, coupé par
+ * défaut) : l'extension ChatonLM peut faire prévenir les comptes liés à la
+ * fin d'une longue tâche, et `/status` montre ses tâches.
+ */
+function VsCodeNotify({
+  enabled,
+  onSaved,
+}: {
+  enabled: boolean;
+  onSaved: () => void;
+}) {
+  const t = useT();
+  const titleId = useId();
+  const descriptionId = useId();
+  const [failure, setFailure] = useState<string | null>(null);
+  const setNotify = useEasyLinkCommand(easyLinkSetVscodeNotify);
+
+  function change(next: boolean) {
+    if (setNotify.isPending) return;
+    setFailure(null);
+    setNotify
+      .mutateAsync(next)
+      .then(onSaved, (cause: unknown) => setFailure(errorMessage(cause)));
+  }
+
+  return (
+    <section
+      aria-labelledby={titleId}
+      data-testid="easy-link-vscode"
+      className={CARD}
+    >
+      <div className="space-y-2 p-4">
+        <h2 id={titleId} className={TITLE}>
+          {t("settings.easyLink.vscode.title")}
+        </h2>
+        <div className="flex items-start justify-between gap-4">
+          <Row
+            icon={BellAlertIcon}
+            label={t("settings.easyLink.vscode.label")}
+            description={t("settings.easyLink.vscode.description")}
+            descriptionId={descriptionId}
+          />
+          <Switch
+            label={t("settings.easyLink.vscode.label")}
+            describedBy={descriptionId}
+            checked={enabled}
+            onChange={change}
+          />
+        </div>
+        <RowError message={failure} />
+      </div>
+    </section>
   );
 }
 

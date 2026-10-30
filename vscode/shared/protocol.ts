@@ -1,7 +1,8 @@
 // Messages entre l'hôte de l'extension (Node) et le panneau (webview React).
 // Contrats : .tools/research/87-lot1b-contract.md, 89-lot2-voice-contract.md
 // (X : visite guidée parlée, chaton en caoutchouc), 91-lot3-gpu-completion-contract.md
-// (X : autocomplétion locale, carte « Graphics card »).
+// (X : autocomplétion locale, carte « Graphics card »), 93-lot4a-contract.md
+// (cours de l'Étude sur un dépôt, image vers un fichier).
 
 import type { Chat } from "../../src/bindings/Chat";
 import type { ChatEvent } from "../../src/bindings/ChatEvent";
@@ -262,6 +263,50 @@ export type CompletionCommand =
    * sont plus cherchées (réglage `chatonlm.completion.ignoreOthers`). */
   | "ignoreOthers";
 
+/** Cours de l'Étude demandé depuis VS Code (sur le projet ou un langage). */
+export type StudyView = {
+  /** Augmente à chaque nouvelle demande. */
+  id: number;
+  kind: "project" | "language";
+  /** Sujet demandé. */
+  topic: string;
+  /** `creating` : demande envoyée ; `planning` : l'app écrit le plan ;
+   * `ready` : des paliers sont prêts ; `failed` : `error` dit pourquoi. */
+  status: "creating" | "planning" | "ready" | "failed";
+  courseId: string | null;
+  levelsReady: number;
+  levelsTotal: number;
+  /** Texte déjà traduit. */
+  error: string | null;
+  /** Fichiers partis (chemins relatifs au dossier ouvert). */
+  files: string[];
+  /** Retiré avant l'envoi (fichiers sensibles, lignes à secret). */
+  blocked: Receipt["blocked"];
+};
+
+/** Image demandée pour un chemin absent du dossier ouvert. */
+export type ImageView = {
+  id: number;
+  /** Chemin relatif au dossier ouvert. */
+  target: string;
+  prompt: string;
+  /** `ready` : aperçu montré, rien n'est encore écrit. */
+  status: "generating" | "ready" | "saving" | "saved" | "failed" | "cancelled";
+  stage: "starting" | "queued" | "loading" | "generating" | null;
+  step: number | null;
+  total: number | null;
+  /** Calcul par le processeur (plusieurs minutes). */
+  cpu: boolean;
+  /** Aperçu (`data:image/png;base64,…`). */
+  preview: string | null;
+  width: number | null;
+  height: number | null;
+  /** Un fichier existe déjà à ce chemin (écrasement à confirmer). */
+  exists: boolean;
+  /** Texte déjà traduit. */
+  error: string | null;
+};
+
 /** Hôte → panneau. */
 export type HostMessage =
   | { type: "init"; locale: Locale; theme: Theme; state: PanelState }
@@ -284,7 +329,11 @@ export type HostMessage =
   | { type: "completion"; completion: CompletionView | null }
   /** Montre la carte « Graphics card » (demande ponctuelle de l'hôte, gardée
    * jusqu'au `ready` d'un panneau en cours d'ouverture). */
-  | { type: "revealGpu" };
+  | { type: "revealGpu" }
+  /** Cours de l'Étude demandé depuis VS Code, null : aucun. */
+  | { type: "study"; study: StudyView | null }
+  /** Image en cours ou prête à écrire, null : aucune. */
+  | { type: "image"; image: ImageView | null };
 
 /** Panneau → hôte. */
 export type PanelMessage =
@@ -325,4 +374,8 @@ export type PanelMessage =
   /** Modèle d'autocomplétion choisi dans la carte. */
   | { type: "completionModel"; model: string }
   /** « Install in ChatonLM » : l'app montre sa proposition. */
-  | { type: "offerPull"; model: string };
+  | { type: "offerPull"; model: string }
+  /** Cours : l'ouvrir dans l'app, ou fermer la carte. */
+  | { type: "study"; command: "open" | "close" }
+  /** Image : écrire le fichier, l'abandonner, arrêter la génération. */
+  | { type: "image"; command: "save" | "discard" | "cancel" };

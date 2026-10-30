@@ -8,6 +8,7 @@
 // comme des envois, sous des numéros négatifs. Autocomplétion et carte
 // « Graphics card » (lot 3) : état de l'hôte tel quel ; la carte s'ouvre par
 // le bouton de l'en-tête ou à la demande de l'hôte (`reveal` qui augmente).
+// Cours de l'Étude et image vers un fichier (lot 4a) : état de l'hôte tel quel.
 import type { Chat } from "@/bindings/Chat";
 import type { ChatErrorKind } from "@/bindings/ChatErrorKind";
 import type { ChatEvent } from "@/bindings/ChatEvent";
@@ -15,9 +16,11 @@ import type { Message } from "@/bindings/Message";
 import type {
   CompletionView,
   HostMessage,
+  ImageView,
   Locale,
   PanelState,
   Receipt,
+  StudyView,
   Theme,
   TourView,
   VoiceView,
@@ -76,6 +79,10 @@ export interface PanelModel {
   completion: CompletionView | null;
   /** Carte « Graphics card » ouverte. */
   gpuOpen: boolean;
+  /** Cours de l'Étude demandé depuis VS Code (null : aucun). */
+  study: StudyView | null;
+  /** Image en cours ou prête à écrire (null : aucune). */
+  image: ImageView | null;
 }
 
 export type PanelAction =
@@ -119,6 +126,8 @@ export function initialModel(): PanelModel {
     voiceLevel: 0,
     completion: null,
     gpuOpen: false,
+    study: null,
+    image: null,
   };
 }
 
@@ -448,6 +457,10 @@ function applyHost(
     // Demande ponctuelle de l'hôte (menu de la barre d'état).
     case "revealGpu":
       return { ...model, gpuOpen: true };
+    case "study":
+      return { ...model, study: message.study };
+    case "image":
+      return { ...model, image: message.image };
     case "receipt": {
       const bound = bindTurn(model, message.requestId);
       return {

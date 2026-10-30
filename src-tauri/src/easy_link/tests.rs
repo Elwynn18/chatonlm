@@ -2317,3 +2317,237 @@ async fn the_ephemeral_chat_is_detached_before_it_is_erased() {
     assert_eq!(seen.lock().take(), Some(None));
     assert!(bench.erased(&second));
 }
+
+// Easy Link prévient à la fin d'une tâche de VS Code (lot 4a du lien VS
+// Code) : envoi spontané borné, réglage coupé par défaut, tâches dans
+// `/status`.
+
+fn note(title: &str) -> notify::Note {
+    notify::Note {
+        title: title.to_owned(),
+        outcome: notify::Outcome::Success,
+        duration_ms: 185_000,
+        workspace: Some("/home/ana/projets/chaton-web".to_owned()),
+    }
+}
+
+/// Messages envoyés par le bot Telegram (`sendMessage`).
+fn telegram_sends(bench: &Bench) -> Vec<Value> {
+    bench
+        .telegram
+        .sent()
+        .into_iter()
+        .filter(|sent| sent["kind"] == "send")
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_vscode_notice_needs_the_setting_and_a_linked_account() {
+    let bench = bench("qwen3:0.6b").await;
+    // Coupé par défaut.
+    assert!(!bench.state().vscode_notify);
+    let shared = bench.service.shared();
+    assert_eq!(
+        shared.notify(&note("build")).await,
+        Err(notify::NotifyError::Disabled)
+    );
+    let update = notify::TaskUpdate {
+        id: "1".to_owned(),
+        title: "build".to_owned(),
+        state: notify::TaskState::Running,
+        started_at: now_ms(),
+    };
+    assert_eq!(
+        shared.task(1, update.clone()).await,
+        Err(notify::NotifyError::Disabled)
+    );
+    let state = bench.service.set_vscode_notify(true).await.unwrap();
+    assert!(state.vscode_notify);
+    // Aucun bot relié : personne à prévenir.
+    assert_eq!(
+        shared.notify(&note("build")).await,
+        Err(notify::NotifyError::NotLinked)
+    );
+    shared.task(1, update).await.unwrap();
+
+    bench.telegram_linked().await;
+    // Coupé de nouveau : rien ne part, les tâches sont oubliées.
+    bench.service.set_vscode_notify(false).await.unwrap();
+    let before = telegram_sends(&bench).len();
+    assert_eq!(
+        shared.notify(&note("build")).await,
+        Err(notify::NotifyError::Disabled)
+    );
+    assert_eq!(telegram_sends(&bench).len(), before);
+    bench.service.set_vscode_notify(true).await.unwrap();
+    assert!(shared.task_lines().await.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_vscode_notice_is_bounded_in_rate_and_content() {
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram_linked().await;
+    bench.service.set_vscode_notify(true).await.unwrap();
+    let shared = bench.service.shared();
+    let before = telegram_sends(&bench).len();
+    let title = format!(
+        "cargo test --manifest-path /home/ana/projets/secret/Cargo.toml\n```\nerror: {}\n```",
+        "x".repeat(3000)
+    );
+    assert_eq!(shared.notify(&note(&title)).await, Ok(1));
+    let sends = telegram_sends(&bench);
+    assert_eq!(sends.len(), before + 1);
+    let sent = &sends[before];
+    // Écrit en privé, sans message reçu juste avant : à l'identifiant du
+    // compte.
+    assert_eq!(sent["channel"], ANA);
+    let text = sent["text"].as_str().unwrap();
+    assert!(text.contains("Succeeded"), "{text}");
+    assert!(text.contains("3 min 05 s"), "{text}");
+    assert!(text.contains("Cargo.toml"), "{text}");
+    assert!(text.contains("chaton-web"), "{text}");
+    for leak in [
+        "/home",
+        "ana/projets",
+        "secret",
+        "```",
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    ] {
+        assert!(!text.contains(leak), "{leak} dans {text}");
+    }
+    let shown = notify::message(&note(&title));
+    assert!(shown.chars().count() <= notify::MAX_CHARS);
+    assert!(
+        !shown.contains('\n') || shown.lines().count() == 2,
+        "{shown}"
+    );
+
+    // Moins de 30 s après : rien ne part pour ce compte.
+    assert_eq!(shared.notify(&note("build")).await, Ok(0));
+    assert_eq!(telegram_sends(&bench).len(), before + 1);
+    // 30 s plus tard : de nouveau.
+    let account = bench.account().id;
+    shared.board.sent_at(
+        account,
+        std::time::Instant::now() - notify::MIN_INTERVAL - Duration::from_secs(1),
+    );
+    assert_eq!(shared.notify(&note("build")).await, Ok(1));
+    assert_eq!(telegram_sends(&bench).len(), before + 2);
+}
+
+/// Envoi raté (le destinataire a bloqué le bot) : rien n'est parti, et le
+/// compte n'est pas tenu 30 s pour autant.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_vscode_notice_does_not_hold_the_account_for_30_seconds() {
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram_linked().await;
+    bench.service.set_vscode_notify(true).await.unwrap();
+    let shared = bench.service.shared();
+    let account = bench.account().id;
+    bench.telegram.block(ANA);
+    assert_eq!(shared.notify(&note("build")).await, Ok(0));
+    assert_eq!(shared.board.last_sent(account), None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_vscode_notice_opens_the_private_channel_on_discord() {
+    let bench = bench("qwen3:0.6b").await;
+    bench
+        .service
+        .connect(Platform::Discord, fake_discord::TOKEN)
+        .await
+        .unwrap();
+    wait_until("Discord connecté", || {
+        bench.link_of(Platform::Discord) == EasyLinkLink::Connected
+    })
+    .await;
+    let pairing = bench.service.pair(Platform::Discord).await.unwrap();
+    bench.discord.message(json!({
+        "user": "3003", "name": "Luis", "text": pairing.pairing.unwrap().code
+    }));
+    wait_until("compte Discord lié", || bench.state().accounts.len() == 1).await;
+    bench.service.set_vscode_notify(true).await.unwrap();
+    let mut done = note("npm run build");
+    done.outcome = notify::Outcome::Failure;
+    done.workspace = None;
+    assert_eq!(bench.service.shared().notify(&done).await, Ok(1));
+    let sent = bench.discord.sent();
+    let opened = sent
+        .iter()
+        .position(|action| action == &json!({"kind": "dm", "recipient": "3003"}))
+        .expect("salon privé ouvert");
+    let message = &sent[opened + 1];
+    assert_eq!(message["kind"], "send");
+    assert_eq!(message["channel"], "93003");
+    let text = message["text"].as_str().unwrap();
+    assert!(
+        text.contains("Failed") && text.contains("`npm run build`"),
+        "{text}"
+    );
+    assert!(!text.contains("Folder"), "{text}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn status_shows_the_vscode_tasks_running_or_finished_within_an_hour() {
+    let bench = bench("qwen3:0.6b").await;
+    bench.telegram_linked().await;
+    bench.service.set_vscode_notify(true).await.unwrap();
+    let shared = bench.service.shared();
+    let now = now_ms();
+    let task = |id: &str, title: &str, state| notify::TaskUpdate {
+        id: id.to_owned(),
+        title: title.to_owned(),
+        state,
+        started_at: now - 120_000,
+    };
+    shared
+        .task(7, task("a", "npm run build", notify::TaskState::Running))
+        .await
+        .unwrap();
+    shared
+        .task(
+            7,
+            task("b", "cargo test /home/ana/x", notify::TaskState::Failure),
+        )
+        .await
+        .unwrap();
+    shared
+        .task(8, task("c", "lint", notify::TaskState::Running))
+        .await
+        .unwrap();
+    // La connexion 8 finit : sa tâche en cours ne se finira plus.
+    shared.board.connection_ended(8);
+    // Une tâche finie il y a plus d'une heure n'est plus montrée.
+    shared
+        .task(7, task("d", "old", notify::TaskState::Success))
+        .await
+        .unwrap();
+    shared.board.ended_at(7, "d", now - 2 * 3600 * 1000);
+
+    bench.say("/status");
+    bench.wait_told("VS Code tasks:").await;
+    let status = bench
+        .told()
+        .into_iter()
+        .find(|text| text.contains("VS Code tasks:"))
+        .unwrap();
+    assert!(
+        status.contains("npm run build") && status.contains("running for 2 min"),
+        "{status}"
+    );
+    assert!(
+        status.contains("cargo test x") && status.contains("failed 0 s ago"),
+        "{status}"
+    );
+    assert!(!status.contains("/home"), "{status}");
+    assert!(!status.contains("lint"), "{status}");
+    assert!(!status.contains("old"), "{status}");
+
+    // Réglage coupé : `/status` ne les montre plus.
+    bench.service.set_vscode_notify(false).await.unwrap();
+    let before = bench.told_count("VS Code tasks:");
+    bench.say("/status");
+    bench.wait_told("Web search: off").await;
+    wait_until("second statut", || bench.told_count("Web search: off") >= 2).await;
+    assert_eq!(bench.told_count("VS Code tasks:"), before);
+}

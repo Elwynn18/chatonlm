@@ -14,6 +14,11 @@
 //! reviennent pas tant qu'il n'est pas repris ; les autres cours continuent.
 //! Une demande de l'apprenant qui exige une génération (nouvel essai, palier
 //! refait, nouveau plan, précision du sujet, « Retry ») reprend le cours.
+//!
+//! Changements des cours : envoyés au `Ctx` de l'appel (ou, pour la file, à
+//! celui de l'appel qui a lancé sa tâche : page ou lien VS Code), et diffusés
+//! à tous les abonnés ([`StudyEngine::subscribe`]) quel que soit ce `Ctx` :
+//! le lien VS Code suit ainsi un cours que la file prépare pour un autre.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -51,13 +56,6 @@ impl Ctx {
             store,
             notify: Arc::new(notify),
         }
-    }
-
-    fn changed(&self, course: &str) {
-        (self.notify)(StudyUpdated {
-            course_id: course.to_owned(),
-            deleted: false,
-        });
     }
 }
 
@@ -132,6 +130,69 @@ struct Shared {
     /// Parties « en cours » d'une session précédente remises en attente.
     recovered: tokio::sync::OnceCell<()>,
     timeouts: Timeouts,
+    /// Diffusion de tous les changements, quel que soit le `Ctx`.
+    updates: tokio::sync::broadcast::Sender<StudyUpdated>,
+}
+
+/// Changements gardés pour un abonné en retard (au-delà, il en saute).
+const UPDATES_KEPT: usize = 64;
+
+impl Shared {
+    /// Un cours a changé : le `Ctx` de l'appel, puis tous les abonnés.
+    fn announce(&self, ctx: &Ctx, updated: StudyUpdated) {
+        (ctx.notify)(updated.clone());
+        // Aucun abonné : rien à faire.
+        let _ = self.updates.send(updated);
+    }
+
+    fn changed(&self, ctx: &Ctx, course: &str) {
+        self.announce(
+            ctx,
+            StudyUpdated {
+                course_id: course.to_owned(),
+                deleted: false,
+            },
+        );
+    }
+}
+
+/// Cours à créer, demande vérifiée.
+struct Planned {
+    topic: String,
+    level: super::StudyLevel,
+    minutes: u32,
+    web: bool,
+    language: crate::i18n::Lang,
+}
+
+/// Sujet nettoyé, ou le refus d'une demande (sujet trop long, durée, nombre
+/// de documents, ni sujet ni document).
+fn checked(topic: &str, minutes: u32, documents: usize) -> AppResult<String> {
+    let topic = topic.trim().to_owned();
+    if topic.chars().count() > MAX_TOPIC_CHARS {
+        return Err(AppError::Invalid(t!("study.topicTooLong")));
+    }
+    if ![10, 20, 30].contains(&minutes) {
+        return Err(AppError::Invalid(t!("study.badDuration")));
+    }
+    if documents > MAX_DOCUMENTS {
+        return Err(AppError::Invalid(t!("study.tooManyDocuments")));
+    }
+    if topic.is_empty() && documents == 0 {
+        return Err(AppError::Invalid(t!("study.emptyTopic")));
+    }
+    Ok(topic)
+}
+
+/// Un modèle servira : celui des cours ou du chat réglé (rien à attendre
+/// d'Ollama), sinon « Auto », qui n'a que les modèles en mémoire.
+async fn any_model(ctx: &Ctx) -> AppResult<()> {
+    let settings = crate::ollama::target::display_settings(&ctx.store).await?;
+    let configured = !settings.study_model.is_empty() || !settings.selected_model.is_empty();
+    if !configured && super::model_of(&settings).await.is_none() {
+        return Err(AppError::Invalid(t!("study.noModel")));
+    }
+    Ok(())
 }
 
 /// Moteur des cours (état géré par Tauri).
@@ -175,8 +236,16 @@ impl StudyEngine {
                 tokens: std::sync::atomic::AtomicU64::new(0),
                 recovered: tokio::sync::OnceCell::new(),
                 timeouts,
+                updates: tokio::sync::broadcast::channel(UPDATES_KEPT).0,
             }),
         }
+    }
+
+    /// Tous les changements des cours à partir de maintenant, quel que soit
+    /// l'appel qui les cause (page, lien VS Code, file lancée par l'un ou
+    /// l'autre).
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<StudyUpdated> {
+        self.shared.updates.subscribe()
     }
 
     /// Premier accès de la session à la base des cours : les parties
@@ -294,7 +363,7 @@ impl StudyEngine {
                 })
             })
             .await?;
-        ctx.changed(course);
+        self.shared.changed(ctx, course);
         self.resume(ctx, &snapshot);
         Ok(result)
     }
@@ -324,7 +393,7 @@ impl StudyEngine {
                     })
                 })
                 .await?;
-            ctx.changed(course);
+            self.shared.changed(ctx, course);
         }
         self.resume(ctx, &snapshot);
         let mut read = data::assemble(snapshot);
@@ -373,26 +442,8 @@ impl StudyEngine {
 
     pub async fn create(&self, ctx: &Ctx, staging: &Staging, new: NewCourse) -> AppResult<String> {
         self.ready(&ctx.store).await?;
-        let topic = new.topic.trim().to_owned();
-        if topic.chars().count() > MAX_TOPIC_CHARS {
-            return Err(AppError::Invalid(t!("study.topicTooLong")));
-        }
-        if ![10, 20, 30].contains(&new.minutes) {
-            return Err(AppError::Invalid(t!("study.badDuration")));
-        }
-        if new.document_ids.len() > MAX_DOCUMENTS {
-            return Err(AppError::Invalid(t!("study.tooManyDocuments")));
-        }
-        if topic.is_empty() && new.document_ids.is_empty() {
-            return Err(AppError::Invalid(t!("study.emptyTopic")));
-        }
-        // Modèle des cours ou du chat réglé : rien à attendre d'Ollama ;
-        // aucun des deux : « Auto » n'a que les modèles en mémoire.
-        let settings = crate::ollama::target::display_settings(&ctx.store).await?;
-        let configured = !settings.study_model.is_empty() || !settings.selected_model.is_empty();
-        if !configured && super::model_of(&settings).await.is_none() {
-            return Err(AppError::Invalid(t!("study.noModel")));
-        }
+        let topic = checked(&new.topic, new.minutes, new.document_ids.len())?;
+        any_model(ctx).await?;
         // Retirés de la zone ; remis en place si la création échoue.
         let taken = staging
             .take(&new.document_ids)
@@ -409,7 +460,52 @@ impl StudyEngine {
                 }
             }
         }
-        let (rows, cut) = sources::documents(&files);
+        let course = Planned {
+            topic,
+            level: new.level,
+            minutes: new.minutes,
+            web: new.web,
+            language: crate::i18n::current(),
+        };
+        let id = self.insert(ctx, course, &files).await?;
+        taken.keep();
+        Ok(id)
+    }
+
+    /// Crée un cours sur des textes donnés (nom, texte) au lieu de fichiers
+    /// préparés (lien VS Code : fichiers d'un dépôt lus par l'éditeur), sans
+    /// recherche web, dans la langue `language`. Mêmes refus que
+    /// [`Self::create`].
+    pub async fn create_from_texts(
+        &self,
+        ctx: &Ctx,
+        topic: &str,
+        level: super::StudyLevel,
+        minutes: u32,
+        files: Vec<(String, String)>,
+        language: crate::i18n::Lang,
+    ) -> AppResult<String> {
+        self.ready(&ctx.store).await?;
+        let topic = checked(topic, minutes, files.len())?;
+        any_model(ctx).await?;
+        let course = Planned {
+            topic,
+            level,
+            minutes,
+            web: false,
+            language,
+        };
+        self.insert(ctx, course, &files).await
+    }
+
+    /// Enregistre le cours et met la préparation de son plan en file.
+    async fn insert(
+        &self,
+        ctx: &Ctx,
+        course: Planned,
+        files: &[(String, String)],
+    ) -> AppResult<String> {
+        let (rows, cut) = sources::documents(files);
         if cut {
             // i18n-ignore : journal.
             eprintln!(
@@ -420,12 +516,12 @@ impl StudyEngine {
         let now = now_ms();
         let row = CourseRow {
             id: uuid::Uuid::now_v7().to_string(),
-            topic,
-            level: new.level,
-            minutes: new.minutes,
-            language: crate::i18n::current(),
+            topic: course.topic,
+            level: course.level,
+            minutes: course.minutes,
+            language: course.language,
             model: String::new(),
-            web: new.web,
+            web: course.web,
             status: CourseStatus::Planning,
             error: None,
             clarify: None,
@@ -440,8 +536,7 @@ impl StudyEngine {
         };
         let id = row.id.clone();
         ctx.store.call(move |c| db::insert(c, &row, &rows)).await?;
-        taken.keep();
-        ctx.changed(&id);
+        self.shared.changed(ctx, &id);
         self.enqueue(ctx, &id, Part::Plan);
         Ok(id)
     }
@@ -578,7 +673,7 @@ impl StudyEngine {
             .call(move |c| answer_in(c, &id, &question_id, given))
             .await?;
         if changed {
-            ctx.changed(course);
+            self.shared.changed(ctx, course);
         }
         Ok(answered)
     }
@@ -883,7 +978,7 @@ impl StudyEngine {
                     })
                     .await?;
                 if saved {
-                    ctx.changed(course);
+                    self.shared.changed(ctx, course);
                 }
                 send(StudyStreamEvent::Done {
                     text,
@@ -963,10 +1058,13 @@ impl StudyEngine {
         self.cancel_streams_of(course, None);
         let id = course.to_owned();
         if ctx.store.call(move |c| db::delete(c, &id)).await? {
-            (ctx.notify)(StudyUpdated {
-                course_id: course.to_owned(),
-                deleted: true,
-            });
+            self.shared.announce(
+                ctx,
+                StudyUpdated {
+                    course_id: course.to_owned(),
+                    deleted: true,
+                },
+            );
         }
         Ok(())
     }
@@ -1086,8 +1184,8 @@ async fn work(shared: Arc<Shared>, ctx: Ctx) {
             (job, cancel)
         };
         let changed = {
-            let (ctx, course) = (ctx.clone(), job.course.clone());
-            move || ctx.changed(&course)
+            let (shared, ctx, course) = (shared.clone(), ctx.clone(), job.course.clone());
+            move || shared.changed(&ctx, &course)
         };
         let runner = Job {
             store: &ctx.store,

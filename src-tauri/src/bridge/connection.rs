@@ -22,7 +22,11 @@
 //! `complete.fim` (une seule en vol par connexion : la nouvelle annule
 //! l'ancienne), `completion.measure`, `completion.suggest`,
 //! `models.offerPull` ; une proposition ou une mesure s'arrête en pause dès
-//! qu'une réponse de conversation commence.
+//! qu'une réponse de conversation commence. Lot 4a ([`super::work`]) :
+//! `notify.send`, `notify.task` (Easy Link prévient, `/status`),
+//! `study.create`, `study.list` (puis `study.event`), `image.generate` (puis
+//! `image.event`) et `proofread.run` (puis `proofread.event`), ces deux-là
+//! annulables par `$/cancelRequest`, et `app.show` (liste blanche de pages).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -66,6 +70,12 @@ pub mod code {
     /// L'autocomplétion attend (`data: { reason }`).
     pub const PAUSED: i64 = -32007;
     pub const REFUSED: i64 = -32020;
+    /// Easy Link : aucun compte lié à un bot connecté (`notify.*`).
+    pub const NOT_LINKED: i64 = -32034;
+    /// « Let VS Code notify me through Easy Link » coupé (`notify.*`).
+    pub const NOTIFY_OFF: i64 = -32035;
+    /// Aucune image possible (`image.generate`, `data: { reason, message }`).
+    pub const NO_IMAGE_MODEL: i64 = -32036;
     /// Requête arrêtée par l'éditeur (`voice.stop` pendant `voice.start`,
     /// `$/cancelRequest` d'un `tour.plan`) : `RequestCancelled` de LSP.
     pub const CANCELLED: i64 = -32800;
@@ -339,6 +349,61 @@ async fn handle<H: Host>(
                     super::voice::voice_start(&shared, &out, &id, talk).await;
                 });
             }
+        }
+        "image.generate" | "proofread.run" => {
+            // Annulables par `$/cancelRequest` : inscrits avant toute attente.
+            let wake = Arc::new(tokio::sync::Notify::new());
+            running.lock().insert(
+                id.to_string(),
+                Pending {
+                    stream: None,
+                    cancelled: false,
+                    wake: Some(Arc::clone(&wake)),
+                    fim: false,
+                    measure: false,
+                },
+            );
+            let image = method == "image.generate";
+            let (shared, out, running) = (Arc::clone(shared), out.clone(), Arc::clone(running));
+            tauri::async_runtime::spawn(async move {
+                let _registered = Registered {
+                    running: &running,
+                    key: id.to_string(),
+                };
+                // Lâcher le futur arrête l'image (`sd-server`) ou la requête
+                // de correction (Ollama arrête).
+                tokio::select! {
+                    () = async {
+                        if image {
+                            super::work::image_generate(&shared, &out, &id, params).await;
+                        } else {
+                            super::work::proofread_run(&shared, &out, &id, params).await;
+                        }
+                    } => {}
+                    () = wake.notified() => {
+                        out.error(&id, code::CANCELLED, "cancelled", None);
+                    }
+                }
+            });
+        }
+        "notify.send" | "notify.task" | "study.create" | "study.list" | "app.show" => {
+            let (shared, out) = (Arc::clone(shared), out.clone());
+            let method = method.to_owned();
+            tauri::async_runtime::spawn(async move {
+                match method.as_str() {
+                    "notify.send" => super::work::notify_send(&shared, &out, &id, params).await,
+                    "notify.task" => {
+                        super::work::notify_task(&shared, connection, &out, &id, params).await;
+                    }
+                    "study.create" => {
+                        super::work::study_create(&shared, connection, &out, &id, params).await;
+                    }
+                    "app.show" => super::work::app_show(&shared, &out, &id, params).await,
+                    _ => {
+                        super::work::study_list(&shared, connection, &out, &id, &params).await;
+                    }
+                }
+            });
         }
         "tour.plan" => {
             // Annulable par `$/cancelRequest` : inscrit avant toute attente.

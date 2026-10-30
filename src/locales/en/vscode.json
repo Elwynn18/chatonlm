@@ -223,5 +223,45 @@
     },
     "measureDetail": "First word in {ms} ms, {speed} tokens per second.",
     "measurePartial": "Part of the model runs on the processor."
+  },
+  "study": {
+    "label": "Course",
+    "title": "Course: {topic}",
+    "creating": "Sending the files to ChatonLM…",
+    "planning": "ChatonLM is planning the course…",
+    "ready": "The course is ready in ChatonLM.",
+    "levels": {
+      "one": "{ready} of {count} level ready",
+      "other": "{ready} of {count} levels ready"
+    },
+    "failed": "ChatonLM could not make this course.",
+    "files": "Sent: {files}",
+    "noFiles": "No file was sent.",
+    "blocked": "Removed before sending",
+    "blockedFile": "Not sent: {label} (may hold secrets)",
+    "blockedValue": "Secret removed: {label}",
+    "open": "Open in ChatonLM",
+    "close": "Close"
+  },
+  "image": {
+    "label": "Image",
+    "starting": "Starting…",
+    "queued": "Waiting for another image to finish…",
+    "loading": "Loading the image model…",
+    "making": "Making the image…",
+    "step": "Step {step} of {total}",
+    "progress": "Image progress",
+    "cpu": "Made by the processor: this can take several minutes.",
+    "ready": "Not saved yet. Save it to {path}?",
+    "readyExists": "{path} already exists. Replace it with this image?",
+    "saving": "Saving…",
+    "saved": "Saved to {path}.",
+    "cancelled": "Stopped.",
+    "failed": "ChatonLM could not make this image.",
+    "stop": "Stop",
+    "save": "Save",
+    "replace": "Replace",
+    "discard": "Discard",
+    "close": "Close"
   }
 }

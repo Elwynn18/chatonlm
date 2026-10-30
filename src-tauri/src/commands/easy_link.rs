@@ -63,3 +63,13 @@ pub async fn easy_link_cancel_pairing(app: AppHandle) -> AppResult<EasyLinkState
 pub async fn easy_link_unlink(app: AppHandle, account_id: i64) -> AppResult<EasyLinkState> {
     service(&app)?.unlink(account_id).await
 }
+
+/// « Let VS Code notify me through Easy Link » (lien VS Code, coupé par
+/// défaut).
+#[tauri::command]
+pub async fn easy_link_set_vscode_notify(
+    app: AppHandle,
+    enabled: bool,
+) -> AppResult<EasyLinkState> {
+    service(&app)?.set_vscode_notify(enabled).await
+}

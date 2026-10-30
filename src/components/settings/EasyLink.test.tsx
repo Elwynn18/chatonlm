@@ -133,7 +133,7 @@ describe("Easy Link settings", () => {
             document.getElementById(region.getAttribute("aria-labelledby")!)
               ?.textContent,
         ),
-    ).toEqual(["Easy Link", "Telegram", "Discord", "Bot commands"]);
+    ).toEqual(["Easy Link", "Telegram", "Discord", "VS Code", "Bot commands"]);
     expect(screen.getByRole("region", { name: "Telegram" })).toBe(
       card("telegram"),
     );
@@ -839,6 +839,67 @@ describe("Easy Link: the commands of the bot", () => {
     expect(page.textContent).toContain(
       "You can also send a photo, if the model can see images, or a voice message: it is transcribed by the speech model of dictation you have installed.",
     );
+  });
+});
+
+describe("Easy Link: VS Code may notify the linked accounts", () => {
+  it("off by default; the switch turns it on and off, then “Saved”", async () => {
+    const { simulator } = await setup((fake) => fake.configure("telegram"));
+    const section = within(await screen.findByTestId("easy-link-vscode"));
+    expect(section.getByRole("heading").textContent).toBe("VS Code");
+    const toggle = section.getByRole("switch", {
+      name: "Let VS Code notify me through Easy Link",
+    });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(toggle.getAttribute("aria-describedby")).toBeTruthy();
+    expect(
+      document.getElementById(toggle.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toContain("Never your code or the terminal's output.");
+    await userEvent.click(toggle);
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("true"),
+    );
+    await screen.findByText("Saved");
+    await userEvent.click(toggle);
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("false"),
+    );
+    expect(simulator.callsTo("easy_link_set_vscode_notify")).toEqual([
+      { enabled: true },
+      { enabled: false },
+    ]);
+  });
+
+  it("a refused change: the reason of the backend, the switch unchanged", async () => {
+    await setup((fake) =>
+      fake.failures.set("easy_link_set_vscode_notify", {
+        kind: "internal",
+        message: "database is locked",
+      }),
+    );
+    const section = within(await screen.findByTestId("easy-link-vscode"));
+    const toggle = section.getByRole("switch", {
+      name: "Let VS Code notify me through Easy Link",
+    });
+    await userEvent.click(toggle);
+    expect((await section.findByRole("alert")).textContent).toContain(
+      "database is locked",
+    );
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(screen.queryByText("Saved")).toBeNull();
+  });
+
+  it("in French", async () => {
+    await setup();
+    act(() => setLanguage("fr"));
+    const section = within(await screen.findByTestId("easy-link-vscode"));
+    expect(
+      section.getByRole("switch", {
+        name: "Laisser VS Code me prévenir par Easy Link",
+      }),
+    ).toBeTruthy();
+    act(() => setLanguage("en"));
   });
 });
 

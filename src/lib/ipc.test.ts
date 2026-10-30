@@ -23,6 +23,7 @@ import {
   easyLinkDisconnect,
   easyLinkPair,
   easyLinkSetEnabled,
+  easyLinkSetVscodeNotify,
   easyLinkState,
   easyLinkUnlink,
   getDictationSettings,
@@ -372,9 +373,14 @@ describe("VS Code bridge commands", () => {
 });
 
 describe("Easy Link commands", () => {
-  const state = { bots: [], accounts: [], pairing: null };
+  const state = {
+    bots: [],
+    accounts: [],
+    pairing: null,
+    vscodeNotify: false,
+  };
 
-  it("names the seven commands of the backend, arguments in camelCase, each giving the state", async () => {
+  it("names the eight commands of the backend, arguments in camelCase, each giving the state", async () => {
     const calls: [string, unknown][] = [];
     mockIPC((command, args) => {
       calls.push([command, args]);
@@ -389,6 +395,7 @@ describe("Easy Link commands", () => {
     await expect(easyLinkCancelPairing()).resolves.toEqual(state);
     await expect(easyLinkUnlink(7)).resolves.toEqual(state);
     await expect(easyLinkDisconnect("discord")).resolves.toEqual(state);
+    await expect(easyLinkSetVscodeNotify(true)).resolves.toEqual(state);
     expect(calls).toEqual([
       ["easy_link_state", {}],
       ["easy_link_connect", { platform: "telegram", token: "123:abc" }],
@@ -397,6 +404,7 @@ describe("Easy Link commands", () => {
       ["easy_link_cancel_pairing", {}],
       ["easy_link_unlink", { accountId: 7 }],
       ["easy_link_disconnect", { platform: "discord" }],
+      ["easy_link_set_vscode_notify", { enabled: true }],
     ]);
   });
 

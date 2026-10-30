@@ -9,7 +9,8 @@
 // la relance de même. easy_link_disconnect oublie le bot, ses comptes et son
 // code. easy_link_pair donne un nouveau code (un seul à la fois, dix
 // minutes), easy_link_cancel_pairing l'abandonne, easy_link_unlink retire un
-// compte. Le test joue ce que fait le moteur de lui-même : linkAccount() (un
+// compte, easy_link_set_vscode_notify règle « Let VS Code notify me through
+// Easy Link » (coupé par défaut). Le test joue ce que fait le moteur de lui-même : linkAccount() (un
 // compte envoie le code au bot : compte lié, code consommé), expirePairing(),
 // setLink() (liaison perdue, refusée...), chacun suivi de « easy-link ».
 // Une panne d'une commande se force par `failures`.
@@ -133,6 +134,7 @@ export function fakeEasyLink(simulator: Simulator): FakeEasyLink {
       bots: EASY_LINK_PLATFORMS.map(emptyBot),
       accounts: [],
       pairing: null,
+      vscodeNotify: false,
     },
     refusedTokens: new Set(),
     failures: new Map(),
@@ -253,6 +255,16 @@ export function fakeEasyLink(simulator: Simulator): FakeEasyLink {
       link: { state: args.enabled ? "connecting" : "off" },
     });
     if (args.enabled) connectLater(platform);
+    return snapshot();
+  });
+  simulator.handle("easy_link_set_vscode_notify", (args: Args) => {
+    if (typeof args.enabled !== "boolean") {
+      throw simulator.fail(
+        `easy_link_set_vscode_notify: bad arguments ${JSON.stringify(args)}`,
+      );
+    }
+    failure("easy_link_set_vscode_notify");
+    easy.state.vscodeNotify = args.enabled;
     return snapshot();
   });
   simulator.handle("easy_link_pair", (args: Args) => {

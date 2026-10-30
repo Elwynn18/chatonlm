@@ -17,7 +17,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -87,6 +87,7 @@ export function prepare(name, files) {
   mkdirSync(workspace, { recursive: true });
   mkdirSync(join(userData, "User"), { recursive: true });
   for (const [file, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(workspace, file)), { recursive: true });
     writeFileSync(join(workspace, file), content);
   }
   const stepFile = join(run, "step.txt");

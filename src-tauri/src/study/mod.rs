@@ -24,6 +24,7 @@ mod request;
 mod sources;
 
 pub use engine::{Ctx, StudyEngine};
+pub use sources::DOCUMENTS_CHARS;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;

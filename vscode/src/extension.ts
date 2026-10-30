@@ -25,7 +25,9 @@ import {
 } from "./bridge/launcher";
 import { type Credentials, Link, PairError } from "./bridge/link";
 import { Controller } from "./controller";
+import { ImageMaker } from "./image";
 import { ChatPanel, panelLocale, panelTheme, VIEW_ID } from "./panel";
+import { SCHEME as PROOFREAD_SCHEME } from "./proofread";
 import { TerminalWatcher } from "./terminal";
 
 const SECRET_KEY = "chatonlm.client";
@@ -282,6 +284,7 @@ export function activate(context: vscode.ExtensionContext): void {
     pair,
     locale,
     theme,
+    paired: () => paired,
   });
   const ctl = controller;
 
@@ -365,6 +368,42 @@ export function activate(context: vscode.ExtensionContext): void {
       "*",
       new FixProvider(() => paired),
       { providedCodeActionKinds: FixProvider.kinds },
+    ),
+    // Lot 4a : fin de tâche par Easy Link, cours de l'Étude, image vers un
+    // fichier du dossier ouvert, correction des commentaires et documents.
+    vscode.commands.registerCommand("chatonlm.notifyWhenDone", () =>
+      ctl.notifier.armTerminal(),
+    ),
+    vscode.commands.registerCommand("chatonlm.notifyCancel", () =>
+      ctl.notifier.disarm(),
+    ),
+    vscode.commands.registerCommand("chatonlm.studyProject", () =>
+      ctl.study.fromProject(),
+    ),
+    vscode.commands.registerCommand("chatonlm.studyLanguage", () =>
+      ctl.study.fromLanguage(),
+    ),
+    vscode.commands.registerCommand(
+      "chatonlm.generateImage",
+      (...args: unknown[]) => ctl.image.generate(args),
+    ),
+    vscode.commands.registerCommand("chatonlm.saveImage", () =>
+      ctl.image.save(),
+    ),
+    vscode.languages.registerCodeActionsProvider(
+      [{ scheme: "file" }],
+      ctl.image,
+      { providedCodeActionKinds: ImageMaker.kinds },
+    ),
+    vscode.commands.registerCommand("chatonlm.proofreadComments", () =>
+      ctl.proofreader.comments(),
+    ),
+    vscode.commands.registerCommand("chatonlm.proofreadDocument", () =>
+      ctl.proofreader.document(),
+    ),
+    vscode.workspace.registerTextDocumentContentProvider(
+      PROOFREAD_SCHEME,
+      ctl.proofreader,
     ),
     vscode.window.onDidChangeActiveColorTheme(() =>
       panel.post({ type: "theme", theme: theme() }),

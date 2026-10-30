@@ -2,7 +2,9 @@
 // leur reçu) et actions ; visite guidée parlée et séance vocale (lot 2).
 // Contrats : .tools/research/87-lot1b-contract.md (B et « Panneau ↔ hôte »),
 // 88-fix-contract.md (corrections de la relecture), 89-lot2-voice-contract.md (X),
-// 91-lot3-gpu-completion-contract.md (X : autocomplétion, carte graphique).
+// 91-lot3-gpu-completion-contract.md (X : autocomplétion, carte graphique),
+// 93-lot4a-contract.md (notification de fin de tâche, cours de l'Étude, image
+// vers un fichier, correction des textes).
 import * as vscode from "vscode";
 import type { Chat } from "../../src/bindings/Chat";
 import type { ChatEvent } from "../../src/bindings/ChatEvent";
@@ -32,6 +34,9 @@ import {
   TooLargeError,
 } from "./bridge/rpc";
 import { Completion } from "./completion";
+import { ImageMaker } from "./image";
+import { Notifier, type TerminalEvents } from "./notify";
+import { Proofreader } from "./proofread";
 import { commitMessageFrom, compose } from "./prompts";
 import {
   buildReceipt,
@@ -43,6 +48,7 @@ import {
   maskSecrets,
   type Piece,
 } from "./receipt";
+import { Study } from "./study";
 import type { TerminalFailure } from "./terminal";
 import { Tour } from "./tour";
 import {
@@ -86,11 +92,18 @@ export type ControllerDeps = {
   theme(): Theme;
   /** Journal de l'extension (sortie « ChatonLM »). */
   log?(message: string): void;
-  /** Dernière commande échouée du terminal (intégration du shell). */
+  /** Dernière commande échouée du terminal (intégration du shell) ; début
+   * et fin de chaque commande (notification de fin de tâche). */
   terminal?: {
     readonly last: TerminalFailure | null;
     onChange(listener: () => void): () => void;
-  };
+  } & Partial<TerminalEvents>;
+  /** Éditeur appairé (actions rapides proposées seulement alors). */
+  paired?(): boolean;
+  /** Chemin réel, liens suivis (essais : disque simulé). */
+  realpath?(p: string): Promise<string>;
+  /** Lien symbolique ? (null : absent) ; essais : disque simulé. */
+  isLink?(p: string): Promise<boolean | null>;
 };
 
 const MODEL_KEY = "chatonlm.model";
@@ -108,6 +121,9 @@ type SendResult = {
   chatId: string | null;
   outcome: "done" | "error" | "cancelled";
 };
+
+/** Titre de la notification de fin d'une réponse (sans son contenu). */
+const replyTitle = () => vscode.l10n.t("ChatonLM reply in VS Code");
 
 /** Envoi en cours, du clic jusqu'à la réponse de `chat.send`. */
 type Sending = {
@@ -175,6 +191,10 @@ export class Controller {
   readonly #tour: Tour;
   readonly #voice: Voice;
   readonly #completion: Completion;
+  readonly #notifier: Notifier;
+  readonly #study: Study;
+  readonly #image: ImageMaker;
+  readonly #proofreader: Proofreader;
   /** Passage d'une visite joint au prochain message tapé. */
   #attachment: Piece | null = null;
   /** Séance vocale : destination du modèle ; pour chaque tour de parole pas
@@ -227,6 +247,32 @@ export class Controller {
       post: (message) => deps.post(message),
       reveal: () => deps.reveal(),
     });
+    const show = (route: string) => this.showInApp(route);
+    const terminal = deps.terminal;
+    this.#notifier = new Notifier({
+      link: deps.link,
+      terminal:
+        terminal?.onCommandStart && terminal.onCommandEnd && terminal.runningIn
+          ? (terminal as TerminalEvents)
+          : undefined,
+      show,
+    });
+    this.#study = new Study({
+      link: deps.link,
+      post: (message) => deps.post(message),
+      reveal: () => deps.reveal(),
+      show,
+    });
+    this.#image = new ImageMaker({
+      link: deps.link,
+      post: (message) => deps.post(message),
+      reveal: () => deps.reveal(),
+      show,
+      paired: () => deps.paired?.() ?? deps.link.connected,
+      realpath: deps.realpath,
+      isLink: deps.isLink,
+    });
+    this.#proofreader = new Proofreader({ link: deps.link });
     this.#disposers.push(
       deps.link.onState((state) => {
         if (state.connection !== "connected") {
@@ -248,6 +294,42 @@ export class Controller {
     this.#tour.dispose();
     this.#voice.dispose();
     this.#completion.dispose();
+    this.#notifier.dispose();
+    this.#study.dispose();
+  }
+
+  /** Notification de fin de tâche par Easy Link (lot 4a). */
+  get notifier(): Notifier {
+    return this.#notifier;
+  }
+
+  /** Cours de l'Étude sur le projet ou un langage. */
+  get study(): Study {
+    return this.#study;
+  }
+
+  /** « Generate this image ». */
+  get image(): ImageMaker {
+    return this.#image;
+  }
+
+  /** Correction des commentaires et des documents. */
+  get proofreader(): Proofreader {
+    return this.#proofreader;
+  }
+
+  /** Ouvre l'app sur une page (`app.show`) ; app d'avant le lot 4a, ou
+   * liaison perdue : l'app est seulement montrée. */
+  async showInApp(route: string): Promise<void> {
+    if (this.#deps.link.connected) {
+      try {
+        await this.#deps.link.request("app.show", { route });
+        return;
+      } catch {
+        // Méthode inconnue (app plus ancienne) : l'app est montrée.
+      }
+    }
+    await this.launch(false);
   }
 
   /** Autocomplétion locale et carte « Graphics card » (lot 3). */
@@ -321,6 +403,9 @@ export class Controller {
         this.#deps.post({ type: "tour", tour: this.#tour.view });
         this.#deps.post({ type: "voice", voice: this.#voice.view });
         this.#completion.postView();
+        this.#deps.post({ type: "study", study: this.#study.view });
+        this.#study.resync();
+        this.#deps.post({ type: "image", image: this.#image.view });
         // Modèles relus à l'ouverture du panneau (installés depuis dans l'app).
         if (this.#deps.link.connected) await this.refresh();
         if (this.#chatId) await this.#syncChat();
@@ -378,6 +463,12 @@ export class Controller {
         return;
       case "offerPull":
         await this.#completion.offerPull(message.model);
+        return;
+      case "study":
+        await this.#study.command(message.command);
+        return;
+      case "image":
+        await this.#image.command(message.command);
         return;
       case "stop":
         this.stop();
@@ -586,7 +677,11 @@ export class Controller {
     }
   }
 
-  #onNotification({ method, params }: Notification): void {
+  #onNotification(notification: Notification): void {
+    const { method, params } = notification;
+    this.#study.onNotification(notification);
+    this.#image.onNotification(notification);
+    this.#proofreader.onNotification(notification);
     if (method !== "chat.event") return;
     const { requestId, event } = (params ?? {}) as {
       requestId?: unknown;
@@ -1089,6 +1184,8 @@ export class Controller {
       params,
     );
     sending.id = call.id;
+    // Réponse longue : Easy Link peut prévenir à sa fin (réglage).
+    this.#notifier.start(sending, "reply", replyTitle());
     this.#replies.set(call.id, "");
     this.#pendingReceipts.set(call.id, receipt);
     this.#deps.post({ type: "receipt", requestId: call.id, receipt });
@@ -1107,6 +1204,17 @@ export class Controller {
       }
       failure = error;
     }
+    // Arrêtée par l'utilisateur : il est là, pas de notification ; liaison
+    // perdue : rien ne pourrait partir. Réponse finie : « done » (fin d'une
+    // réponse de ChatonLM, pas le succès d'une commande).
+    void this.#notifier.end(
+      sending,
+      result?.outcome === "done"
+        ? "done"
+        : result?.outcome === "error" || failure instanceof RpcError
+          ? "failure"
+          : null,
+    );
     const reply = this.#replies.get(call.id) ?? "";
     this.#replies.delete(call.id);
     this.#pendingReceipts.delete(call.id);

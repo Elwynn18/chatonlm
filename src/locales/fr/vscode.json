@@ -223,5 +223,45 @@
     },
     "measureDetail": "Premier mot en {ms} ms, {speed} tokens par seconde.",
     "measurePartial": "Une partie du modèle tourne sur le processeur."
+  },
+  "study": {
+    "label": "Cours",
+    "title": "Cours : {topic}",
+    "creating": "Envoi des fichiers à ChatonLM…",
+    "planning": "ChatonLM prépare le plan du cours…",
+    "ready": "Le cours est prêt dans ChatonLM.",
+    "levels": {
+      "one": "Paliers prêts : {ready} sur {count}",
+      "other": "Paliers prêts : {ready} sur {count}"
+    },
+    "failed": "ChatonLM n'a pas pu faire ce cours.",
+    "files": "Envoyés : {files}",
+    "noFiles": "Aucun fichier envoyé.",
+    "blocked": "Retiré avant l'envoi",
+    "blockedFile": "Non envoyé : {label} (peut contenir des secrets)",
+    "blockedValue": "Secret retiré : {label}",
+    "open": "Ouvrir dans ChatonLM",
+    "close": "Fermer"
+  },
+  "image": {
+    "label": "Image",
+    "starting": "Démarrage…",
+    "queued": "En attente de la fin d'une autre image…",
+    "loading": "Chargement du modèle d'images…",
+    "making": "Création de l'image…",
+    "step": "Étape {step} sur {total}",
+    "progress": "Avancement de l'image",
+    "cpu": "Calculée par le processeur : cela peut prendre plusieurs minutes.",
+    "ready": "Pas encore enregistrée. L'enregistrer dans {path} ?",
+    "readyExists": "{path} existe déjà. Le remplacer par cette image ?",
+    "saving": "Enregistrement…",
+    "saved": "Enregistrée dans {path}.",
+    "cancelled": "Arrêtée.",
+    "failed": "ChatonLM n'a pas pu faire cette image.",
+    "stop": "Arrêter",
+    "save": "Enregistrer",
+    "replace": "Remplacer",
+    "discard": "Abandonner",
+    "close": "Fermer"
   }
 }

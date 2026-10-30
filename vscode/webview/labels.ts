@@ -7,8 +7,10 @@ import type {
   Connection,
   GpuPlan,
   GpuSlot,
+  ImageView,
   Receipt,
   ReceiptItem,
+  StudyView,
   TourView,
   VoiceView,
 } from "../shared/protocol";
@@ -276,4 +278,67 @@ export function slotLabel(t: TFunction, slot: GpuSlot): string {
   ]
     .filter((part): part is string => part !== null)
     .join(" · ");
+}
+
+/** Où en est le cours demandé depuis VS Code. */
+export function studyProgress(t: TFunction, study: StudyView): string {
+  switch (study.status) {
+    case "creating":
+      return t("vscode.study.creating");
+    case "planning":
+      return t("vscode.study.planning");
+    case "ready":
+      return study.levelsTotal > 0
+        ? t("vscode.study.levels", {
+            count: study.levelsTotal,
+            ready: study.levelsReady,
+          })
+        : t("vscode.study.ready");
+    case "failed":
+      return study.error ?? t("vscode.study.failed");
+  }
+}
+
+/** Ligne de ce qui a été retiré avant l'envoi (fichier sensible, secret). */
+export function blockedLabel(
+  t: TFunction,
+  blocked: StudyView["blocked"][number],
+): string {
+  return blocked.reason === "secretFile"
+    ? t("vscode.study.blockedFile", { label: blocked.label })
+    : t("vscode.study.blockedValue", { label: blocked.label });
+}
+
+/** Où en est l'image demandée. */
+/** Ce que le lecteur d'écran annonce de l'image : l'étape, jamais chaque
+ * pas d'échantillonnage (20 à 30 annonces sinon). */
+export function imageAnnouncement(t: TFunction, image: ImageView): string {
+  if (image.status === "generating" && image.stage === "generating") {
+    return t("vscode.image.making");
+  }
+  return imageProgress(t, image);
+}
+
+export function imageProgress(t: TFunction, image: ImageView): string {
+  switch (image.status) {
+    case "generating":
+      if (image.stage === "generating" && image.step !== null && image.total) {
+        return t("vscode.image.step", { step: image.step, total: image.total });
+      }
+      if (image.stage === "queued") return t("vscode.image.queued");
+      if (image.stage === "loading") return t("vscode.image.loading");
+      return t("vscode.image.starting");
+    case "ready":
+      return image.exists
+        ? t("vscode.image.readyExists", { path: image.target })
+        : t("vscode.image.ready", { path: image.target });
+    case "saving":
+      return t("vscode.image.saving");
+    case "saved":
+      return t("vscode.image.saved", { path: image.target });
+    case "cancelled":
+      return t("vscode.image.cancelled");
+    case "failed":
+      return image.error ?? t("vscode.image.failed");
+  }
 }

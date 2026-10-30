@@ -5,6 +5,7 @@ import {
   buildReceipt,
   filterPieces,
   historyOf,
+  holdsSecret,
   isSecretFile,
   looksRemote,
   maskSecrets,
@@ -153,6 +154,23 @@ describe("secret values", () => {
       "primary_key = id",
     ].join("\n");
     expect(maskSecrets(source, "[x]").masked).toEqual([]);
+  });
+});
+
+describe("holdsSecret", () => {
+  it("tests a whole text line by line, private keys included", () => {
+    // Rapport 94 (S3) : un passage de plusieurs lignes, pas une seule ligne.
+    expect(
+      holdsSecret(
+        "Setup\n\nConfigure the database:\npassword: hunter2xyz\n\nThen run it.",
+      ),
+    ).toBe(true);
+    expect(
+      holdsSecret(
+        "Key:\n-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----",
+      ),
+    ).toBe(true);
+    expect(holdsSecret("Explain why the tokenizer runs twice.")).toBe(false);
   });
 });
 

@@ -71,6 +71,10 @@ export async function setupController() {
     locale: () => "fr" as const,
     theme: () => "dark" as const,
     terminal,
+    // Disque simulé : les chemins sont déjà réels.
+    realpath: async (p: string) => p,
+    isLink: async (p: string) =>
+      testState.links.has(p) ? true : testState.files.has(p) ? false : null,
   };
   const controller = new Controller(deps);
   cleanups.push(() => {

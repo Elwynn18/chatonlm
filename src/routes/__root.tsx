@@ -134,8 +134,9 @@ function RootComponent() {
   useChatsEvents();
 
   // Page demandée par le moteur (menu de la zone de notification, action
-  // « Show » de la correction de la sélection) : les réglages, le ModelHub
-  // ou la page Proofread seulement.
+  // « Show » de la correction de la sélection, `app.show` du lien VS Code) :
+  // les réglages, le ModelHub, la page Proofread, une conversation ou un
+  // cours désigné par son identifiant seulement.
   useEffect(() => {
     let active = true;
     let unlisten: (() => void) | null = null;

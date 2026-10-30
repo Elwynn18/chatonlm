@@ -6,7 +6,8 @@
 //! intentions que `DIRECT_MESSAGES` en 4014. Écarts voulus, pour des essais
 //! sans attente : un message posté avant la première session est gardé et
 //! remis après `READY` (le vrai Discord le perdrait), et le salon privé d'un
-//! compte est « 9 » suivi de son identifiant (compte 42 : salon 942).
+//! compte est « 9 » suivi de son identifiant (compte 42 : salon 942), rendu
+//! aussi par `POST /users/@me/channels` (ouverture d'un salon privé).
 //!
 //! Un message à pièce jointe (`multipart/form-data` : `payload_json` et
 //! `files[0]`) est lu comme le ferait Discord : pièce jointe de 10 Mio au
@@ -473,6 +474,7 @@ impl Shared {
 fn router(shared: Arc<Shared>) -> Router {
     let api = Router::new()
         .route("/users/@me", get(me))
+        .route("/users/@me/channels", post(open_dm))
         .route("/applications/@me", get(application))
         .route("/gateway/bot", get(gateway_bot))
         .route("/channels/{channel}/messages", post(send))
@@ -720,6 +722,27 @@ async fn edit(
         "flags": flags,
     }));
     Json(json!({"id": id, "channel_id": channel, "content": text})).into_response()
+}
+
+/// Salon privé avec un compte : « 9 » suivi de son identifiant, comme pour
+/// ses messages ; noté `{"kind": "dm", "recipient"}` dans `/fake/sent`.
+async fn open_dm(State(shared): State<Arc<Shared>>, headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(response) = unwelcome(&headers).or_else(|| shared.failure("dm")) {
+        return response;
+    }
+    let recipient = serde_json::from_slice::<Value>(&body)
+        .ok()
+        .and_then(|body| body["recipient_id"].as_str().map(str::to_owned))
+        .filter(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()));
+    let Some(recipient) = recipient else {
+        return refusal(StatusCode::BAD_REQUEST, "Invalid Form Body", 50035);
+    };
+    shared
+        .sent
+        .lock()
+        .unwrap()
+        .push(json!({"kind": "dm", "recipient": recipient}));
+    Json(json!({"id": format!("9{recipient}"), "type": 1})).into_response()
 }
 
 async fn typing(

@@ -186,18 +186,22 @@ export function isLocalAddress(address: string): boolean {
   );
 }
 
+/** Identifiant d'une conversation ou d'un cours (UUID). */
+const UUID = "[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}";
+
 /**
  * Chemin d'une page demandée par le moteur (événement « navigate »), gardé
- * seulement s'il mène aux réglages, au ModelHub ou à la page Proofread :
- * « /settings », « /settings?section=dictation », « /hub/transcription »,
- * « /proofread?selection=1 » (action « Show » du raccourci de correction)...
- * ; null sinon (autre page, adresse avec un schéma, « //hôte »).
+ * seulement s'il mène aux réglages, au ModelHub, à la page Proofread, ou à
+ * une conversation ou un cours désigné par son identifiant (`app.show` du
+ * lien VS Code) : « /settings », « /settings?section=dictation »,
+ * « /hub/transcription », « /proofread?selection=1 » (action « Show » du
+ * raccourci de correction), « /study/<id> », « /c/<id> »... ; null sinon
+ * (autre page, « /c/new », adresse avec un schéma, « //hôte »).
  */
 export function navigablePath(path: unknown): string | null {
   if (typeof path !== "string") return null;
-  return /^\/(settings|hub|proofread)(\/[\w.$-]+)*\/?([?#][^\s\\]*)?$/.test(
-    path,
-  )
-    ? path
-    : null;
+  const page =
+    /^\/(settings|hub|proofread)(\/[\w.$-]+)*\/?([?#][^\s\\]*)?$/.test(path);
+  const item = new RegExp(`^/(study|c)/${UUID}$`).test(path);
+  return page || item ? path : null;
 }

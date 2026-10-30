@@ -420,6 +420,7 @@ pub fn run() {
             commands::easy_link::easy_link_disconnect,
             commands::easy_link::easy_link_pair,
             commands::easy_link::easy_link_set_enabled,
+            commands::easy_link::easy_link_set_vscode_notify,
             commands::easy_link::easy_link_state,
             commands::easy_link::easy_link_unlink,
             commands::hub::hub_browse,

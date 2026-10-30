@@ -188,6 +188,20 @@ impl Client {
             .ok_or_else(unreadable)
     }
 
+    /// Salon privé avec le compte `user` (`POST /users/@me/channels`) : le
+    /// bot peut alors écrire le premier, sans message reçu (fin d'une tâche
+    /// de l'éditeur). Discord rend le salon existant s'il y en a un.
+    pub async fn open_dm(&self, user: &str) -> Result<String, Problem> {
+        let request = self
+            .api(Method::POST, "/users/@me/channels", SEND_TIMEOUT)
+            .json(&json!({ "recipient_id": snowflake(user)? }));
+        let answer = self.call(request).await?;
+        answer["id"]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(unreadable)
+    }
+
     /// Image PNG en pièce jointe d'un nouveau message (`payload_json` et
     /// `files[0]`) ; `filename` déjà assaini, `caption` non vide.
     pub(crate) async fn send_photo(
@@ -1303,6 +1317,23 @@ mod tests {
         for text in texts {
             assert!(!text.contains("secret-token"), "jeton divulgué : {text}");
         }
+    }
+
+    #[tokio::test]
+    async fn the_bot_opens_a_private_channel_to_write_first() {
+        let fake = FakeDiscord::start().await;
+        let client = client(&fake);
+        let channel = client.open_dm("42").await.unwrap();
+        assert_eq!(channel, "942");
+        client.send(&channel, "Build finished").await.unwrap();
+        let sent = fake.sent();
+        assert_eq!(sent[0], json!({"kind": "dm", "recipient": "42"}));
+        assert_eq!(sent[1]["channel"], "942");
+        // Un identifiant qui n'en est pas un ne part pas.
+        assert!(client.open_dm("../42").await.is_err());
+        assert_eq!(fake.sent().len(), 2);
+        let messenger = crate::Messenger::Discord(client);
+        assert_eq!(messenger.direct_channel("7").await.as_deref(), Ok("97"));
     }
 
     #[tokio::test]

@@ -271,6 +271,33 @@ pub fn account_by_id(connection: &Connection, id: i64) -> AppResult<Option<Accou
         .transpose()
 }
 
+/// Comptes liés, pour le moteur (envoi spontané), du plus ancien au plus
+/// récent.
+pub fn linked(connection: &Connection) -> AppResult<Vec<Account>> {
+    let mut statement = connection.prepare(&format!(
+        "SELECT {ACCOUNT_COLUMNS} FROM easy_link_accounts ORDER BY id"
+    ))?;
+    let rows = statement.query_map([], read_account)?;
+    rows.map(|row| with_platform(row?)).collect()
+}
+
+/// « Let VS Code notify me through Easy Link » (coupé par défaut).
+pub fn vscode_notify(connection: &Connection) -> AppResult<bool> {
+    Ok(connection.query_row(
+        "SELECT vscode_notify FROM easy_link_settings WHERE id = 1",
+        [],
+        |row| row.get(0),
+    )?)
+}
+
+pub fn set_vscode_notify(connection: &Connection, enabled: bool) -> AppResult<()> {
+    connection.execute(
+        "UPDATE easy_link_settings SET vscode_notify = ?1 WHERE id = 1",
+        params![enabled],
+    )?;
+    Ok(())
+}
+
 /// Lie un compte (ou rafraîchit le nom d'un compte déjà lié).
 pub fn link(
     connection: &Connection,

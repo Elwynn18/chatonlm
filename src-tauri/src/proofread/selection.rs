@@ -391,8 +391,9 @@ async fn loaded_instead(host: &dyn Host, base: &str, missing: &str) -> Option<St
 
 /// Modèle qui tourne hors de la machine : nom de modèle cloud, ou
 /// `/api/show` qui le dit distant (comme le polish de la dictée ; détails
-/// illisibles : la requête dira ce qui ne va pas).
-async fn runs_elsewhere(base: &str, model: &str) -> bool {
+/// illisibles : la requête dira ce qui ne va pas). Aussi la garde de
+/// `proofread.run` du lien VS Code.
+pub(crate) async fn runs_elsewhere(base: &str, model: &str) -> bool {
     models::is_cloud_name(model)
         || models::show(base, model)
             .await

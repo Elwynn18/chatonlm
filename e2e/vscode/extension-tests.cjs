@@ -133,6 +133,90 @@ const scenarios = {
     await vscode.commands.executeCommand("chatonlm.completionToggle");
     step("off");
   },
+  // Lot 4a : fin d'une commande du terminal (notification par Easy Link),
+  // correction des commentaires (vue de différences), image écrite.
+  async notify() {
+    const terminal = vscode.window.createTerminal({
+      name: "build",
+      shellPath: "/bin/bash",
+      cwd: vscode.workspace.workspaceFolders[0].uri,
+    });
+    terminal.show();
+    const deadline = Date.now() + 20_000;
+    while (!terminal.shellIntegration) {
+      if (Date.now() > deadline) throw new Error("no shell integration");
+      await delay(200);
+    }
+    const ended = new Promise((resolve) => {
+      const listener = vscode.window.onDidEndTerminalShellExecution((event) => {
+        if (event.terminal === terminal) {
+          listener.dispose();
+          resolve(event.exitCode);
+        }
+      });
+    });
+    terminal.shellIntegration.executeCommand(
+      "./build.sh production Hunter2Summer",
+    );
+    const code = await ended;
+    step(`ended:${code}`);
+  },
+  async proofread() {
+    const folder = vscode.workspace.workspaceFolders[0].uri;
+    const file = vscode.Uri.joinPath(folder, "src/a.ts");
+    const document = await vscode.workspace.openTextDocument(file);
+    await vscode.window.showTextDocument(document);
+    void vscode.commands.executeCommand("chatonlm.proofreadComments");
+    const deadline = Date.now() + 60_000;
+    let diff = null;
+    while (!diff) {
+      if (Date.now() > deadline) throw new Error("no proofreading diff");
+      for (const group of vscode.window.tabGroups.all) {
+        for (const tab of group.tabs) {
+          if (
+            tab.input instanceof vscode.TabInputTextDiff &&
+            tab.input.modified.scheme === "chatonlm-proofread"
+          ) {
+            diff = tab.input;
+          }
+        }
+      }
+      await delay(300);
+    }
+    const proposed = (
+      await vscode.workspace.openTextDocument(diff.modified)
+    ).getText();
+    const disk = fs.readFileSync(file.fsPath, "utf8");
+    if (!proposed.includes('const s = "teh-server";')) {
+      throw new Error(`code changed in the proposal: ${proposed}`);
+    }
+    if (disk !== document.getText() || document.isDirty) {
+      throw new Error("the file changed without consent");
+    }
+    step("diff");
+  },
+  async image() {
+    const folder = vscode.workspace.workspaceFolders[0].uri;
+    const page = vscode.Uri.joinPath(folder, "site/index.html");
+    await vscode.window.showTextDocument(page);
+    void vscode.commands.executeCommand("chatonlm.generateImage", page, 0, 12);
+    await delay(1500);
+    await vscode.commands.executeCommand(
+      "workbench.action.acceptSelectedQuickOpenItem",
+    );
+    const deadline = Date.now() + 120_000;
+    while (!(await vscode.commands.executeCommand("chatonlm.saveImage"))) {
+      if (Date.now() > deadline) throw new Error("image never saved");
+      await delay(1000);
+    }
+    const written = fs.readFileSync(
+      vscode.Uri.joinPath(folder, "site/img/hero.png").fsPath,
+    );
+    if (written.subarray(1, 4).toString() !== "PNG") {
+      throw new Error("not a PNG");
+    }
+    step("written");
+  },
 };
 
 exports.run = async function run() {

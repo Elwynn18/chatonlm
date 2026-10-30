@@ -9,7 +9,10 @@
 // E ; formes réelles : 87-lot1a-contract.md, lot 3) : chef de la carte
 // graphique simulé (`gpu`), `gpu.status { model? }`,
 // `completion.suggest|prepare|measure`, `complete.fim` (`timedOut`, -32020 pour
-// un modèle sans FIM), `models.offerPull` (`{ installed }`, -32602, -32007).
+// un modèle sans FIM), `models.offerPull` (`{ installed }`, -32602, -32007) ;
+// lot 4a (93-lot4a-contract.md) : `notify.send` (refus -32034/-32035 réglé par
+// `notifyRefusal`), `notify.task`, `app.show` (pages relevées dans `shown`) ;
+// `study.*`, `image.generate`, `proofread.run` donnés par chaque essai.
 import { createHmac, randomBytes } from "node:crypto";
 import { type Duplex, duplexPair } from "node:stream";
 import type { GpuPlan, GpuSlot } from "../../shared/protocol";
@@ -80,6 +83,11 @@ export class FakeBridge {
   readonly noFim = new Set(["chatonlm-nofim"]);
   /** Modèles dont l'app a montré la proposition de téléchargement. */
   readonly offered: string[] = [];
+  /** Refus de `notify.send` (-32034 : Easy Link non relié ; -32035 :
+   * réglage de l'app coupé), ou null : envoyé. */
+  notifyRefusal: number | null = null;
+  /** Pages ouvertes par `app.show`. */
+  readonly shown: string[] = [];
 
   /** Plan du faux chef. */
   plan(): GpuPlan {
@@ -158,6 +166,17 @@ export class FakeBridge {
     },
     "chat.keep": (params) => {
       this.kept.push(params.chatId as string);
+      return {};
+    },
+    "notify.send": () => {
+      if (this.notifyRefusal !== null) {
+        throw new RpcFailure(this.notifyRefusal, "refused");
+      }
+      return { sent: 1 };
+    },
+    "notify.task": () => ({}),
+    "app.show": (params) => {
+      this.shown.push(params.route as string);
       return {};
     },
     "speech.stop": () => ({}),

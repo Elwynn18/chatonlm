@@ -390,6 +390,9 @@
     "completion": {
       "noFim": "{model} can't fill in code at the cursor. Choose a code model such as Qwen2.5-Coder.",
       "failed": "The autocomplete model couldn't answer: {detail}"
+    },
+    "study": {
+      "tooLong": "These files are too long for a course: 200,000 characters at most. Choose fewer or shorter files."
     }
   },
   "easyLink": {
@@ -473,6 +476,20 @@
       "emptyAnswer": "The model answered nothing.",
       "incomplete": "This answer could not be written here in full. It is complete in ChatonLM.",
       "contextFull": "The answer was cut: this conversation no longer fits in the model's memory. Send your message again: the conversation will be summarized first."
+    },
+    "notify": {
+      "untitled": "VS Code task",
+      "seconds": "{s} s",
+      "minutes": "{m} min {s} s",
+      "hours": "{h} h {m} min",
+      "success": "✅ Succeeded: {title} ({duration})",
+      "failure": "❌ Failed: {title} (after {duration})",
+      "done": "🔔 Done: {title} ({duration})",
+      "folder": "Folder: {folder}",
+      "tasksTitle": "VS Code tasks:",
+      "taskRunning": "• {title} — running for {duration}",
+      "taskSuccess": "• {title} — succeeded {duration} ago",
+      "taskFailure": "• {title} — failed {duration} ago"
     }
   },
   "imageGen": {

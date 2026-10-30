@@ -7,4 +7,8 @@ export type EasyLinkState = {
 /**
  * Toujours deux : Telegram, puis Discord.
  */
-bots: Array<EasyLinkBot>, accounts: Array<EasyLinkAccount>, pairing: EasyLinkPairing | null, };
+bots: Array<EasyLinkBot>, accounts: Array<EasyLinkAccount>, pairing: EasyLinkPairing | null, 
+/**
+ * « Let VS Code notify me through Easy Link » (coupé par défaut).
+ */
+vscodeNotify: boolean, };

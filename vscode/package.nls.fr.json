@@ -23,5 +23,16 @@
   "config.completion.enabled": "Propose du code pendant la frappe avec un modèle de ChatonLM sur cet ordinateur. Coupée par défaut : le modèle n'est chargé que lorsque vous l'activez ou choisissez **Préparer**, et seulement s'il tient à côté du modèle de la conversation. Une fois activée, si le modèle a été déchargé après un moment sans frappe, la frappe le recharge quand les deux tiennent ensemble.",
   "config.completion.model": "Modèle de l'autocomplétion, installé dans ChatonLM. `auto` : le modèle que ChatonLM recommande pour cet ordinateur.",
   "config.completion.multiline": "Propose plusieurs lignes quand le curseur est en fin de ligne.",
-  "config.completion.ignoreOthers": "Propose avec ChatonLM même là où une autre extension (GitHub Copilot, Continue, Windsurf…) est activée pour le même langage. Par défaut, ChatonLM n'y propose rien quand l'autre extension est clairement activée, et le signale seulement quand on ne peut pas le savoir."
+  "config.completion.ignoreOthers": "Propose avec ChatonLM même là où une autre extension (GitHub Copilot, Continue, Windsurf…) est activée pour le même langage. Par défaut, ChatonLM n'y propose rien quand l'autre extension est clairement activée, et le signale seulement quand on ne peut pas le savoir.",
+  "command.notifyWhenDone": "Me prévenir quand ce sera fini",
+  "command.notifyCancel": "Annuler la notification",
+  "command.studyProject": "Faire un cours sur ce projet",
+  "command.studyLanguage": "Faire un cours sur ce langage",
+  "command.generateImage": "Générer cette image",
+  "command.proofreadComments": "Corriger les commentaires",
+  "command.proofreadDocument": "Corriger ce document",
+  "config.notify.enabled": "Envoie un message par Easy Link (Telegram, Discord) à la fin d'une commande du terminal, d'une tâche ou d'une réponse de ChatonLM qui a pris du temps. Seuls son nom, sa durée et sa réussite partent, jamais de code ni de sortie. Coupé par défaut ; **Laisser VS Code me prévenir par Easy Link** doit aussi être activé dans ChatonLM, sous Paramètres › Easy Link.",
+  "config.notify.minDurationSeconds": "Ne prévenir que de ce qui a duré au moins ce nombre de secondes.",
+  "config.notify.includeFolderName": "Ajouter au message le nom du dossier ouvert.",
+  "command.saveImage": "Enregistrer l'image générée"
 }

@@ -25,6 +25,9 @@
 //!   en mémoire (jamais chargé par une proposition), mesure de la vitesse,
 //!   modèles proposés ; un téléchargement se demande à l'app, qui le
 //!   propose à l'utilisateur.
+//! - Travaux de l'app ([`work`], lot 4a) : Easy Link prévient à la fin d'une
+//!   tâche (réglage coupé par défaut), cours de l'Étude sur des textes du
+//!   dépôt, image rendue en octets (jamais écrite par l'app), correction.
 //!
 //! Modèle de menace : un programme du même compte peut de toute façon lire
 //! les données de l'app ; l'appairage sert au consentement et à la
@@ -36,6 +39,7 @@ mod gpu;
 pub mod proof;
 mod tour;
 pub mod voice;
+mod work;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -219,6 +223,16 @@ pub trait Host: Send + Sync + 'static {
     /// à l'utilisateur (fenêtre montrée), avec la mention de sa licence si
     /// elle ne permet pas l'usage commercial.
     fn offer_pull(&self, model: &str, commercial_use: bool);
+    /// Easy Link (envoi spontané, tâches de l'éditeur) ; absent sans base
+    /// lisible.
+    fn notifier(&self) -> Option<Arc<dyn crate::easy_link::notify::Notifier>>;
+    /// Moteur des cours ; absent sans base lisible.
+    fn study(&self) -> Option<&crate::study::StudyEngine>;
+    /// Un cours a changé : la page le relit (`study-updated`).
+    fn study_updated(&self, updated: &crate::study::StudyUpdated);
+    /// Montre la fenêtre, et la mène à `route` (déjà vérifiée) s'il y en a
+    /// une.
+    fn show(&self, route: Option<&str>);
 }
 
 /// Où le pont s'installe.
@@ -292,6 +306,9 @@ struct Open {
     voice_turns: Arc<AtomicU32>,
     /// Écoute le plan de la carte graphique (`gpu.changed`).
     gpu: bool,
+    /// Suit les changements des cours (`study.event`), depuis son premier
+    /// `study.create` ou `study.list`.
+    study: bool,
 }
 
 impl Open {
@@ -301,6 +318,7 @@ impl Open {
             close,
             voice_turns: Arc::default(),
             gpu: false,
+            study: false,
         }
     }
 }
@@ -621,6 +639,10 @@ impl<H: Host> Shared<H> {
             open.close.send_replace(true);
         }
         voice::closed(self, connection);
+        // Ses tâches en cours ne se finiront plus (`/status` d'Easy Link).
+        if let Some(notifier) = self.host.notifier() {
+            notifier.connection_ended(connection);
+        }
     }
 
     /// Inscrit la séance de la connexion ; faux (rien ne change) si elle en
@@ -650,6 +672,17 @@ impl<H: Host> Shared<H> {
             .lock()
             .get_mut(&connection)
             .is_some_and(|open| !std::mem::replace(&mut open.gpu, true))
+    }
+
+    /// La connexion se met à suivre les cours : sa fin à attendre, ou
+    /// `None` si elle les suit déjà (ou si elle est finie).
+    pub(crate) fn listen_study(&self, connection: u64) -> Option<watch::Receiver<bool>> {
+        let mut connections = self.connections.lock();
+        let open = connections.get_mut(&connection)?;
+        if std::mem::replace(&mut open.study, true) {
+            return None;
+        }
+        Some(open.close.subscribe())
     }
 
     /// Compteur des tours vocaux de la connexion (neuf si elle est finie).
@@ -885,6 +918,28 @@ impl Host for AppHost {
             let catalog = app.try_state::<crate::hub::state::Catalog>()?;
             catalog.memory(&server_url).await
         })
+    }
+
+    fn notifier(&self) -> Option<Arc<dyn crate::easy_link::notify::Notifier>> {
+        let service = self.app.try_state::<crate::easy_link::EasyLink>()?;
+        Some(Arc::new(service.inner().clone()))
+    }
+
+    fn study(&self) -> Option<&crate::study::StudyEngine> {
+        self.app
+            .try_state::<crate::study::StudyEngine>()
+            .map(|engine| engine.inner())
+    }
+
+    fn study_updated(&self, updated: &crate::study::StudyUpdated) {
+        let _ = self.app.emit(crate::study::UPDATED_EVENT, updated);
+    }
+
+    fn show(&self, route: Option<&str>) {
+        match route {
+            Some(route) => crate::desktop::open_route(&self.app, route),
+            None => crate::desktop::show_main_window(&self.app),
+        }
     }
 
     fn offer_pull(&self, model: &str, commercial_use: bool) {

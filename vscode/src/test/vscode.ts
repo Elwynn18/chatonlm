@@ -128,6 +128,7 @@ export class DocumentSymbol {
 
 export class CodeActionKind {
   static readonly QuickFix = new CodeActionKind("quickfix");
+  static readonly Empty = new CodeActionKind("");
   private constructor(readonly value: string) {}
 }
 
@@ -150,6 +151,8 @@ export enum ColorThemeKind {
 /** Document en mémoire. */
 export class TextDocument {
   readonly uri: Uri;
+  /** Augmente à chaque modification (`workspace.applyEdit`). */
+  version = 1;
   readonly #lines: string[];
   /** Fin de ligne du document (CRLF sous Windows) : hors de `lineAt().text`,
    * comme dans VS Code. */
@@ -179,6 +182,46 @@ export class TextDocument {
   getText(range?: Range): string {
     if (!range) return this.text;
     return this.text.slice(this.#offset(range.start), this.#offset(range.end));
+  }
+  offsetAt(p: Position): number {
+    return this.#offset(p);
+  }
+  positionAt(offset: number): Position {
+    let rest = offset;
+    for (let line = 0; line < this.#lines.length; line++) {
+      const size = this.#lines[line].length;
+      if (rest <= size) return new Position(line, rest);
+      rest -= size + this.#eol;
+    }
+    const last = this.#lines.length - 1;
+    return new Position(last, this.#lines[last].length);
+  }
+}
+
+/** Modification d'un ou plusieurs documents. */
+export class WorkspaceEdit {
+  readonly replaced: { uri: Uri; range: Range; text: string }[] = [];
+  replace(uri: Uri, range: Range, text: string): void {
+    this.replaced.push({ uri, range, text });
+  }
+}
+
+export enum ProgressLocation {
+  SourceControl = 1,
+  Window = 10,
+  Notification = 15,
+}
+
+export enum FileType {
+  Unknown = 0,
+  File = 1,
+  Directory = 2,
+}
+
+/** Erreur de `workspace.fs` (fichier absent). */
+export class FileSystemError extends Error {
+  static FileNotFound(uri: Uri): FileSystemError {
+    return new FileSystemError(`not found: ${uri.path}`);
   }
 }
 
@@ -363,6 +406,29 @@ export const testState = {
     ((items: { label: string }[]) => { label: string } | undefined) | undefined,
   quickPicks: [] as { label: string }[][],
   inlineProviders: [] as { selector: unknown; provider: unknown }[],
+  /** Choix dans un `showQuickPick` à plusieurs choix : rend les éléments
+   * cochés (par défaut, ceux cochés d'avance). */
+  pickMany: undefined as
+    | ((items: { label: string; picked?: boolean }[]) => { label: string }[])
+    | undefined,
+  /** Fichiers du disque simulé (`workspace.fs`), par chemin. */
+  files: new Map<string, Uint8Array>(),
+  /** Écritures faites par `workspace.fs.writeFile`. */
+  written: [] as string[],
+  /** Lectures faites par `workspace.fs.readFile`. */
+  reads: [] as string[],
+  /** Liens symboliques du disque simulé (`isLink` de l'image). */
+  links: new Set<string>(),
+  /** Barres de progression ouvertes (`withProgress`) : messages, annulation. */
+  progress: [] as { messages: string[]; cancel(): void }[],
+  contentProviders: new Map<
+    string,
+    { provideTextDocumentContent(uri: Uri): string }
+  >(),
+  /** Modifications appliquées par `workspace.applyEdit`. */
+  edits: [] as WorkspaceEdit[],
+  /** Nom de l'espace de travail (`workspace.name`). */
+  workspaceName: "work" as string | undefined,
   events: newEvents(),
 };
 
@@ -377,15 +443,21 @@ function newEvents() {
       document: TextDocument;
       contentChanges: { range: Range; text: string }[];
     }>(),
-    shellStart: new EventEmitter<{ execution: unknown }>(),
+    shellStart: new EventEmitter<{ execution: unknown; terminal?: unknown }>(),
     shellEnd: new EventEmitter<{
       execution: unknown;
       exitCode: number | undefined;
     }>(),
+    terminalClose: new EventEmitter<unknown>(),
     configuration: new EventEmitter<{
       affectsConfiguration(section: string): boolean;
     }>(),
     windowState: new EventEmitter<{ focused: boolean }>(),
+    taskStart: new EventEmitter<{ execution: unknown }>(),
+    taskEnd: new EventEmitter<{
+      execution: unknown;
+      exitCode: number | undefined;
+    }>(),
   };
 }
 
@@ -408,7 +480,17 @@ export function resetTestState(): void {
   testState.pick = undefined;
   testState.quickPicks = [];
   testState.inlineProviders = [];
+  testState.pickMany = undefined;
+  testState.files = new Map();
+  testState.written = [];
+  testState.reads = [];
+  testState.links = new Set();
+  testState.progress = [];
+  testState.contentProviders = new Map();
+  testState.edits = [];
+  testState.workspaceName = "work";
   testState.events = newEvents();
+  window.activeTerminal = undefined;
   window.activeTextEditor = undefined;
   window.visibleTextEditors = [];
   window.activeColorTheme = { kind: ColorThemeKind.Light };
@@ -474,7 +556,7 @@ export const window = {
   onDidChangeTextEditorVisibleRanges: (listener: (value: unknown) => void) =>
     testState.events.visibleRanges.event(listener),
   onDidStartTerminalShellExecution: (
-    listener: (value: { execution: unknown }) => void,
+    listener: (value: { execution: unknown; terminal?: unknown }) => void,
   ) => testState.events.shellStart.event(listener),
   onDidEndTerminalShellExecution: (
     listener: (value: {
@@ -482,16 +564,45 @@ export const window = {
       exitCode: number | undefined;
     }) => void,
   ) => testState.events.shellEnd.event(listener),
+  onDidCloseTerminal: (listener: (terminal: unknown) => void) =>
+    testState.events.terminalClose.event(listener),
   activeColorTheme: { kind: ColorThemeKind.Light },
   showInformationMessage: show("info"),
   showWarningMessage: show("warning"),
   showErrorMessage: show("error"),
   showInputBox: async () => testState.inputBox,
-  async showQuickPick<T extends { label: string }>(
+  async showQuickPick<T extends { label: string; picked?: boolean }>(
     items: T[],
-  ): Promise<T | undefined> {
+    options?: { canPickMany?: boolean },
+  ): Promise<T | T[] | undefined> {
     testState.quickPicks.push(items);
+    if (options?.canPickMany) {
+      return (testState.pickMany?.(items) ??
+        items.filter((item) => item.picked)) as T[];
+    }
     return testState.pick?.(items) as T | undefined;
+  },
+  /** Terminal actif (« Notify me when this finishes »). */
+  activeTerminal: undefined as
+    { name: string; shellIntegration?: unknown } | undefined,
+  async withProgress<R>(
+    _options: unknown,
+    task: (
+      progress: { report(value: { message?: string }): void },
+      token: CancellationTokenSource["token"],
+    ) => Promise<R>,
+  ): Promise<R> {
+    const source = new CancellationTokenSource();
+    const entry = { messages: [] as string[], cancel: () => source.cancel() };
+    testState.progress.push(entry);
+    return task(
+      {
+        report: (value) => {
+          if (value.message) entry.messages.push(value.message);
+        },
+      },
+      source.token,
+    );
   },
   onDidChangeWindowState: (listener: (value: { focused: boolean }) => void) =>
     testState.events.windowState.event(listener),
@@ -551,6 +662,88 @@ export const workspace = {
   fs: {
     isWritableFileSystem: (scheme: string) =>
       testState.readOnlySchemes.includes(scheme) ? false : true,
+    async stat(uri: Uri) {
+      const file = testState.files.get(uri.path);
+      if (file) return { type: FileType.File, size: file.length };
+      const dir = `${uri.path.replace(/\/$/, "")}/`;
+      for (const key of testState.files.keys()) {
+        if (key.startsWith(dir)) return { type: FileType.Directory, size: 0 };
+      }
+      throw FileSystemError.FileNotFound(uri);
+    },
+    async readFile(uri: Uri): Promise<Uint8Array> {
+      testState.reads.push(uri.path);
+      const file = testState.files.get(uri.path);
+      if (!file) throw FileSystemError.FileNotFound(uri);
+      return file;
+    },
+    async writeFile(uri: Uri, content: Uint8Array): Promise<void> {
+      testState.files.set(uri.path, content);
+      testState.written.push(uri.path);
+    },
+    async createDirectory(): Promise<void> {},
+  },
+  get name(): string | undefined {
+    return testState.workspaceName;
+  },
+  getWorkspaceFolder(uri: Uri) {
+    const root = testState.workspaceRoot;
+    return uri.scheme === "file" &&
+      (uri.path === root || uri.path.startsWith(`${root}/`))
+      ? { uri: Uri.file(root), name: "work", index: 0 }
+      : undefined;
+  },
+  /** Fichiers du disque simulé qui répondent au motif (relatif à sa base). */
+  async findFiles(
+    include: RelativePattern | string,
+    exclude?: RelativePattern | string | null,
+    max?: number,
+  ): Promise<Uri[]> {
+    const test = (pattern: RelativePattern | string, file: string) => {
+      if (typeof pattern === "string") return globToRegExp(pattern).test(file);
+      const base = `${pattern.baseUri.path.replace(/\/$/, "")}/`;
+      return (
+        file.startsWith(base) &&
+        globToRegExp(pattern.pattern).test(file.slice(base.length))
+      );
+    };
+    const found = [...testState.files.keys()]
+      .filter((file) => test(include, file))
+      .filter((file) => !exclude || !test(exclude, file))
+      .sort()
+      .map((file) => Uri.file(file));
+    return max === undefined ? found : found.slice(0, max);
+  },
+  registerTextDocumentContentProvider(
+    scheme: string,
+    provider: { provideTextDocumentContent(uri: Uri): string },
+  ) {
+    testState.contentProviders.set(scheme, provider);
+    return { dispose: () => testState.contentProviders.delete(scheme) };
+  },
+  /** Remplacements appliqués aux documents simulés (un document neuf, version
+   * augmentée). */
+  async applyEdit(edit: WorkspaceEdit): Promise<boolean> {
+    testState.edits.push(edit);
+    for (const [file, document] of testState.documents) {
+      const mine = edit.replaced.filter((r) => r.uri.path === file);
+      if (mine.length === 0) continue;
+      let text = document.text;
+      const sorted = [...mine].sort(
+        (a, b) =>
+          document.offsetAt(b.range.start) - document.offsetAt(a.range.start),
+      );
+      for (const r of sorted) {
+        text =
+          text.slice(0, document.offsetAt(r.range.start)) +
+          r.text +
+          text.slice(document.offsetAt(r.range.end));
+      }
+      const next = new TextDocument(file, text, document.languageId);
+      next.version = document.version + 1;
+      testState.documents.set(file, next);
+    }
+    return true;
   },
   onDidChangeTextDocument: (
     listener: (value: {
@@ -581,6 +774,17 @@ export const languages = {
     testState.inlineProviders.push({ selector, provider });
     return { dispose: () => {} };
   },
+};
+
+export const tasks = {
+  onDidStartTaskProcess: (listener: (value: { execution: unknown }) => void) =>
+    testState.events.taskStart.event(listener),
+  onDidEndTaskProcess: (
+    listener: (value: {
+      execution: unknown;
+      exitCode: number | undefined;
+    }) => void,
+  ) => testState.events.taskEnd.event(listener),
 };
 
 export const extensions = {

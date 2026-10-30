@@ -578,6 +578,8 @@ async fn with_server<H: Host>(
                 Err(error) => lines.push(t!("easyLink.bot.statusUnreachable", error = error)),
             }
             lines.push(web_line(account.web_search));
+            // Tâches de VS Code (réglage activé seulement).
+            lines.extend(shared.task_lines().await);
             lines.join("\n")
         }
         // Traitées par `run`.

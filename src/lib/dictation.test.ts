@@ -45,6 +45,8 @@ describe("navigablePath", () => {
       "/hub/transcription",
       "/hub/model/unsloth/Qwen3.5-9B-GGUF",
       "/hub?q=qwen#top",
+      "/study/019a3b2c-1d2e-7f30-8a4b-5c6d7e8f9a0b",
+      "/c/019a3b2c-1d2e-7f30-8a4b-5c6d7e8f9a0b",
     ]) {
       expect(navigablePath(path), path).toBe(path);
     }
@@ -55,6 +57,10 @@ describe("navigablePath", () => {
       "",
       "/",
       "/c/new",
+      "/c/019a3b2c-1d2e-7f30-8a4b-5c6d7e8f9a0b/x",
+      "/study/../settings",
+      "/study/019a3b2c",
+      "/study",
       "/settingsX",
       "/hubs",
       "/proofreading",

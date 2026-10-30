@@ -390,6 +390,9 @@
     "completion": {
       "noFim": "{model} no sabe completar el código en el cursor. Elige un modelo de código como Qwen2.5-Coder.",
       "failed": "El modelo de autocompletado no pudo responder: {detail}"
+    },
+    "study": {
+      "tooLong": "Estos archivos son demasiado largos para un curso: 200.000 caracteres como máximo. Elige menos archivos o más cortos."
     }
   },
   "easyLink": {
@@ -473,6 +476,20 @@
       "emptyAnswer": "El modelo no respondió nada.",
       "incomplete": "Esta respuesta no se pudo escribir entera aquí. Está completa en ChatonLM.",
       "contextFull": "La respuesta se cortó: esta conversación ya no cabe en la memoria del modelo. Vuelve a enviar tu mensaje: primero se resumirá la conversación."
+    },
+    "notify": {
+      "untitled": "Tarea de VS Code",
+      "seconds": "{s} s",
+      "minutes": "{m} min {s} s",
+      "hours": "{h} h {m} min",
+      "success": "✅ Completada: {title} ({duration})",
+      "failure": "❌ Falló: {title} (tras {duration})",
+      "done": "🔔 Terminada: {title} ({duration})",
+      "folder": "Carpeta: {folder}",
+      "tasksTitle": "Tareas de VS Code:",
+      "taskRunning": "• {title} — en curso desde hace {duration}",
+      "taskSuccess": "• {title} — completada hace {duration}",
+      "taskFailure": "• {title} — falló hace {duration}"
     }
   },
   "imageGen": {

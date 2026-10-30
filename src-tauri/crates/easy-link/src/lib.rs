@@ -207,6 +207,16 @@ impl Messenger {
         }
     }
 
+    /// Où écrire en privé au compte `user` sans qu'il ait écrit d'abord :
+    /// Telegram, sa conversation privée porte son identifiant ; Discord, son
+    /// salon privé est ouvert (ou retrouvé) par une requête.
+    pub async fn direct_channel(&self, user: &str) -> Result<String, Problem> {
+        match self {
+            Messenger::Telegram(_) => Ok(user.to_owned()),
+            Messenger::Discord(client) => client.open_dm(user).await,
+        }
+    }
+
     /// Remplace le texte d'un message du bot. Un texte identique à celui
     /// déjà affiché n'est pas une erreur.
     pub async fn edit(&self, channel: &str, message: &str, markdown: &str) -> Result<(), Problem> {

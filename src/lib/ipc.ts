@@ -1425,6 +1425,16 @@ export function easyLinkDisconnect(
   return invoke<EasyLinkState>("easy_link_disconnect", { platform });
 }
 
+/**
+ * « Let VS Code notify me through Easy Link » (coupé par défaut) : l'extension
+ * peut faire envoyer un court message aux comptes liés à la fin d'une tâche.
+ */
+export function easyLinkSetVscodeNotify(
+  enabled: boolean,
+): Promise<EasyLinkState> {
+  return invoke<EasyLinkState>("easy_link_set_vscode_notify", { enabled });
+}
+
 /** Active ou désactive un bot, sans oublier son jeton ni ses comptes. */
 export function easyLinkSetEnabled(
   platform: EasyLinkPlatform,

@@ -19,6 +19,7 @@
 
 mod bot;
 pub mod commands;
+pub mod notify;
 pub mod pairing;
 mod relay;
 #[cfg(test)]
@@ -144,6 +145,8 @@ pub struct EasyLinkState {
     pub bots: Vec<EasyLinkBot>,
     pub accounts: Vec<EasyLinkAccount>,
     pub pairing: Option<EasyLinkPairing>,
+    /// « Let VS Code notify me through Easy Link » (coupé par défaut).
+    pub vscode_notify: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
@@ -280,6 +283,8 @@ pub(crate) struct Shared<H: Host> {
     /// nouveau à la suivante (Telegram, s'il n'était pas encore acquitté),
     /// n'est servi qu'une fois.
     served: Mutex<VecDeque<(Platform, String, String)>>,
+    /// Tâches de VS Code et derniers messages spontanés ([`notify`]).
+    pub(crate) board: notify::Board,
     closed: AtomicBool,
 }
 
@@ -307,6 +312,7 @@ impl<H: Host> EasyLink<H> {
             pending: Mutex::default(),
             missed: Mutex::default(),
             served: Mutex::default(),
+            board: notify::Board::default(),
             closed: AtomicBool::new(false),
         }))
     }
@@ -408,6 +414,19 @@ impl<H: Host> EasyLink<H> {
             tokio::time::sleep(Duration::from_millis(wait + 50)).await;
             shared.publish().await;
         });
+        self.0.state().await
+    }
+
+    /// « Let VS Code notify me through Easy Link » ; coupé, les tâches de
+    /// l'éditeur sont oubliées.
+    pub async fn set_vscode_notify(&self, enabled: bool) -> AppResult<EasyLinkState> {
+        self.0
+            .store
+            .call(move |c| saved::set_vscode_notify(c, enabled))
+            .await?;
+        if !enabled {
+            self.0.board.clear();
+        }
         self.0.state().await
     }
 
@@ -676,9 +695,15 @@ impl<H: Host> Shared<H> {
     }
 
     pub(crate) async fn state(&self) -> AppResult<EasyLinkState> {
-        let (bots, accounts) = self
+        let (bots, accounts, vscode_notify) = self
             .store
-            .call(|c| Ok((saved::bots(c)?, saved::accounts(c)?)))
+            .call(|c| {
+                Ok((
+                    saved::bots(c)?,
+                    saved::accounts(c)?,
+                    saved::vscode_notify(c)?,
+                ))
+            })
             .await?;
         let pairing = self.pairings.lock().current(now_ms()).cloned();
         let live = self.live.lock();
@@ -709,6 +734,7 @@ impl<H: Host> Shared<H> {
             bots,
             accounts,
             pairing,
+            vscode_notify,
         })
     }
 

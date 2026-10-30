@@ -8,6 +8,7 @@ import type { HostMessage, Theme } from "../shared/protocol";
 import { Composer } from "./Composer";
 import { Conversation } from "./Conversation";
 import { GpuCard } from "./GpuCard";
+import { ImageCard } from "./ImageCard";
 import { Header } from "./Header";
 import {
   initialModel,
@@ -18,6 +19,7 @@ import {
 } from "./model";
 import { panelHost } from "./panelHost";
 import { ConnectionScreen, EmptyChat, NoModelsScreen } from "./Screens";
+import { StudyCard } from "./StudyCard";
 import { TourCard } from "./TourCard";
 import { VoiceBar } from "./VoiceBar";
 import type { Post } from "./vscodeApi";
@@ -37,6 +39,8 @@ const HOST_TYPES: Record<HostMessage["type"], true> = {
   voiceLevel: true,
   completion: true,
   revealGpu: true,
+  study: true,
+  image: true,
 };
 
 function isHostMessage(data: unknown): data is HostMessage {
@@ -153,6 +157,19 @@ export function Panel({ post }: { post: Post }) {
                   .querySelector<HTMLButtonElement>("[data-testid=gpu-button]")
                   ?.focus();
               }}
+            />
+          )}
+          {connected && model.study && (
+            <StudyCard
+              study={model.study}
+              onOpen={() => post({ type: "study", command: "open" })}
+              onClose={() => post({ type: "study", command: "close" })}
+            />
+          )}
+          {connected && model.image && (
+            <ImageCard
+              image={model.image}
+              onCommand={(command) => post({ type: "image", command })}
             />
           )}
           {body}

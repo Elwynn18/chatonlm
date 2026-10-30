@@ -23,5 +23,16 @@
   "config.completion.enabled": "Suggest code as you type with a model of ChatonLM on this computer. Off by default: the model is loaded only when you turn this on or choose **Prepare**, and only if there is room for it next to the chat model. Once on, if the model was unloaded after a while without typing, typing loads it again when both fit together.",
   "config.completion.model": "Autocomplete model, installed in ChatonLM. `auto`: the model ChatonLM recommends for this computer.",
   "config.completion.multiline": "Suggest several lines when the cursor is at the end of a line.",
-  "config.completion.ignoreOthers": "Suggest with ChatonLM even where another extension (GitHub Copilot, Continue, Windsurf…) is turned on for the same language. By default ChatonLM stays quiet where another extension is clearly turned on, and only mentions it where this can't be known."
+  "config.completion.ignoreOthers": "Suggest with ChatonLM even where another extension (GitHub Copilot, Continue, Windsurf…) is turned on for the same language. By default ChatonLM stays quiet where another extension is clearly turned on, and only mentions it where this can't be known.",
+  "command.notifyWhenDone": "Notify Me When This Finishes",
+  "command.notifyCancel": "Cancel the Notification",
+  "command.studyProject": "Make a Course About This Project",
+  "command.studyLanguage": "Make a Course About This Language",
+  "command.generateImage": "Generate This Image",
+  "command.proofreadComments": "Proofread Comments",
+  "command.proofreadDocument": "Proofread This Document",
+  "config.notify.enabled": "Send a message through Easy Link (Telegram, Discord) when a terminal command, a task or a ChatonLM reply that took a while finishes. Only its name, how long it took and whether it worked are sent, never code or output. Off by default; **Let VS Code notify me through Easy Link** must also be on in ChatonLM, under Settings › Easy Link.",
+  "config.notify.minDurationSeconds": "Only notify about what took at least this many seconds.",
+  "config.notify.includeFolderName": "Add the name of the open folder to the message.",
+  "command.saveImage": "Save the Generated Image"
 }

@@ -223,5 +223,45 @@
     },
     "measureDetail": "Primera palabra en {ms} ms, {speed} tokens por segundo.",
     "measurePartial": "Parte del modelo se ejecuta en el procesador."
+  },
+  "study": {
+    "label": "Curso",
+    "title": "Curso: {topic}",
+    "creating": "Enviando los archivos a ChatonLM…",
+    "planning": "ChatonLM está preparando el plan del curso…",
+    "ready": "El curso está listo en ChatonLM.",
+    "levels": {
+      "one": "{ready} de {count} nivel listo",
+      "other": "{ready} de {count} niveles listos"
+    },
+    "failed": "ChatonLM no ha podido crear este curso.",
+    "files": "Enviados: {files}",
+    "noFiles": "No se ha enviado ningún archivo.",
+    "blocked": "Quitado antes del envío",
+    "blockedFile": "No enviado: {label} (puede contener secretos)",
+    "blockedValue": "Secreto quitado: {label}",
+    "open": "Abrir en ChatonLM",
+    "close": "Cerrar"
+  },
+  "image": {
+    "label": "Imagen",
+    "starting": "Iniciando…",
+    "queued": "Esperando a que termine otra imagen…",
+    "loading": "Cargando el modelo de imágenes…",
+    "making": "Creando la imagen…",
+    "step": "Paso {step} de {total}",
+    "progress": "Progreso de la imagen",
+    "cpu": "La calcula el procesador: puede tardar varios minutos.",
+    "ready": "Aún no se ha guardado. ¿Guardarla en {path}?",
+    "readyExists": "{path} ya existe. ¿Reemplazarlo por esta imagen?",
+    "saving": "Guardando…",
+    "saved": "Guardada en {path}.",
+    "cancelled": "Detenida.",
+    "failed": "ChatonLM no ha podido crear esta imagen.",
+    "stop": "Detener",
+    "save": "Guardar",
+    "replace": "Reemplazar",
+    "discard": "Descartar",
+    "close": "Cerrar"
   }
 }

@@ -487,6 +487,11 @@
       "help": "Voir cette liste",
       "discord": "Sur Discord, les commandes s'écrivent aussi avec « ! », par exemple <code>!models</code>.",
       "media": "Vous pouvez aussi envoyer une photo, si le modèle sait voir les images, ou un message vocal : il est transcrit par le modèle de transcription de la dictée que vous avez installé."
+    },
+    "vscode": {
+      "title": "VS Code",
+      "label": "Laisser VS Code me prévenir par Easy Link",
+      "description": "Quand une longue tâche se termine dans VS Code (commande du terminal, compilation, longue réponse), l'extension ChatonLM peut envoyer un court message à vos comptes liés : le nom de la tâche, sa durée et son issue. Jamais votre code ni la sortie du terminal. La commande status montre aussi les tâches en cours."
     }
   },
   "vscode": {

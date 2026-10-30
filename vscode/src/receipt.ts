@@ -133,6 +133,12 @@ export function maskSecrets(
   return { text: lines.join("\n"), masked };
 }
 
+/** Le texte porte-t-il un secret ? Même filtre que le reçu (`maskSecrets`) :
+ * ligne par ligne, clés privées (PEM, suites de lignes en base64) comprises. */
+export function holdsSecret(text: string): boolean {
+  return maskSecrets(text, "").masked.length > 0;
+}
+
 /**
  * Chemin cité par git (`"b/caf\303\251.txt"` : nom non ASCII, espaces…),
  * octets en octal décodés en UTF-8.

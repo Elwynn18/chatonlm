@@ -470,7 +470,7 @@ impl ChatEngine {
         let _ = self.painter.set(painter);
     }
 
-    fn painter(&self) -> Option<Arc<dyn Painter>> {
+    pub(crate) fn painter(&self) -> Option<Arc<dyn Painter>> {
         self.painter.get().cloned()
     }
 
