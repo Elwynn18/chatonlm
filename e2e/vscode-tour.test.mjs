@@ -15,7 +15,7 @@ import { withApp } from "./lib/app.mjs";
 import { findDiscovery } from "./lib/bridge.mjs";
 import { startFake } from "./lib/fake.mjs";
 import { linkVoice } from "./lib/voice.mjs";
-import { prepare, shot, waitUntil } from "./lib/vscodium.mjs";
+import { chooseModel, prepare, shot, waitUntil } from "./lib/vscodium.mjs";
 
 const binary = process.argv[2];
 const DATA = process.env.CHATONLM_DATA_DIR;
@@ -40,9 +40,7 @@ try {
     { name: "vscode-tour", env: { OLLAMA_HOST: fake.url } },
     async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
-      await driver.invoke("update_settings", {
-        patch: { selectedModel: "chatonlm-tour" },
-      });
+      await chooseModel(driver, "chatonlm-tour");
       await driver.invoke("bridge_set_enabled", { enabled: true });
       const { pairing } = await driver.invoke("bridge_pair");
       const found = await waitUntil(findDiscovery, "bridge.json");

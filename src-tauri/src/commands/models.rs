@@ -84,21 +84,43 @@ pub async fn auto_model(store: State<'_, Store>) -> AppResult<Option<String>> {
 
 /// Charge un modèle avec le contexte et la durée des réglages ; rend la main
 /// une fois chargé (bouton Load, préchargement du modèle choisi).
+/// Le chef de la carte graphique replanifie aussitôt (lien VS Code).
 #[tauri::command]
-pub async fn load_model(store: State<'_, Store>, model: String) -> AppResult<()> {
-    load(&store, &model).await
+pub async fn load_model(
+    store: State<'_, Store>,
+    gpu: State<'_, crate::gpu::GpuChief>,
+    model: String,
+) -> AppResult<()> {
+    let loaded = load(&store, &model).await;
+    gpu.poke();
+    loaded
 }
 
 /// Décharge un modèle.
 #[tauri::command]
-pub async fn unload_model(store: State<'_, Store>, model: String) -> AppResult<()> {
-    running::unload(&server_url(&store).await?, &model).await
+pub async fn unload_model(
+    store: State<'_, Store>,
+    gpu: State<'_, crate::gpu::GpuChief>,
+    model: String,
+) -> AppResult<()> {
+    let working = crate::gpu::activity::hold();
+    let unloaded = running::unload(&server_url(&store).await?, &model).await;
+    drop(working);
+    gpu.poke();
+    unloaded
 }
 
 /// Décharge tous les modèles en mémoire (la première erreur est rendue).
 #[tauri::command]
-pub async fn unload_all_models(store: State<'_, Store>) -> AppResult<()> {
-    running::unload_all(&server_url(&store).await?).await
+pub async fn unload_all_models(
+    store: State<'_, Store>,
+    gpu: State<'_, crate::gpu::GpuChief>,
+) -> AppResult<()> {
+    let working = crate::gpu::activity::hold();
+    let unloaded = running::unload_all(&server_url(&store).await?).await;
+    drop(working);
+    gpu.poke();
+    unloaded
 }
 
 /// Adresse du serveur auquel parler : celle de la cible (`ollama::target` :
@@ -133,6 +155,9 @@ async fn recommended(store: &Store) -> AppResult<Vec<RecommendedModel>> {
 /// Refusé pour un modèle distant (nom cloud, ou `/api/show` qui le dit) :
 /// rien à charger ici.
 pub(crate) async fn load(store: &Store, model: &str) -> AppResult<()> {
+    // L'autocomplétion de l'éditeur attend pendant ce temps (une
+    // proposition mise en file pendant le chargement le rechargerait).
+    let _working = crate::gpu::activity::hold();
     let settings = app_settings(store).await?;
     let base = &settings.effective_server_url;
     if models::is_cloud_name(model)

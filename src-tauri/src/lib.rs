@@ -10,6 +10,7 @@ mod dictation;
 mod disk;
 mod easy_link;
 mod error;
+mod gpu;
 mod graphics;
 mod hub;
 mod i18n;
@@ -273,6 +274,10 @@ pub fn run() {
             // « Image ») : moteur, modèle choisi et base relus à chaque image.
             app.state::<ChatEngine>()
                 .set_painter(Arc::new(chat::images::AppPainter(app.handle().clone())));
+            // Travail sur Ollama hors des réponses (Correction, Étude,
+            // polissage, chargements…) : l'autocomplétion de l'éditeur
+            // attend pendant ce temps (lien VS Code).
+            gpu::activity::install(app.state::<ChatEngine>().work());
             app.state::<Dictation>().setup(app.handle());
             window::create_main_window(app, store.as_ref())?;
             if let Some(store) = store {
@@ -345,6 +350,7 @@ pub fn run() {
             },
         )
         .manage(ChatEngine::default())
+        .manage(gpu::GpuChief::default())
         .manage(Staging::default())
         .manage(desktop::Desktop::default())
         .manage(Dictation::new())

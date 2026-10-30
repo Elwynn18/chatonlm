@@ -159,5 +159,69 @@
       "remote": "El modelo se ejecuta en otro equipo: lo que dices se envía por la red.",
       "unknown": "ChatonLM no pudo saber dónde se ejecuta el modelo: lo que dices se trata como si saliera de este equipo."
     }
+  },
+  "gpu": {
+    "open": "Tarjeta gráfica",
+    "close": "Cerrar la tarjeta gráfica",
+    "autocomplete": "Autocompletado",
+    "status": {
+      "off": "Desactivado. Cuando está activado, un modelo de este equipo sugiere código mientras escribes.",
+      "disconnected": "ChatonLM no está conectado.",
+      "notHere": "No disponible en este archivo.",
+      "remoteWindow": "No disponible en ventanas remotas: los archivos no están en este equipo.",
+      "otherProvider": "{name} ya sugiere código en este archivo, así que ChatonLM no sugiere nada ahí.",
+      "notLocal": "El autocompletado necesita un modelo en este equipo.",
+      "missing": "{model} no está instalado en ChatonLM.",
+      "checking": "Buscando el modelo del autocompletado…",
+      "ready": "Listo, con {model}.",
+      "slow": "Demasiado lento: las últimas sugerencias llegaron tarde. Mide la velocidad o elige un modelo más pequeño."
+    },
+    "alsoSuggests": "{name} también puede sugerir código aquí.",
+    "ignoreOthers": "Sugerir siempre con ChatonLM",
+    "paused": {
+      "exclusive": "En pausa: el modelo del chat está usando la tarjeta gráfica.",
+      "chatBusy": "En pausa mientras se escribe una respuesta.",
+      "doesNotFit": "En pausa: el modelo del autocompletado no cabe en la memoria de este equipo.",
+      "notInstalled": "En pausa: el modelo del autocompletado no está instalado en ChatonLM.",
+      "notLocal": "El autocompletado necesita un modelo en este equipo.",
+      "notLoaded": "En pausa: el modelo del autocompletado no está cargado. Prepáralo para empezar."
+    },
+    "mode": {
+      "together": "El chat y el autocompletado caben juntos",
+      "exclusive": "Un modelo a la vez",
+      "doesNotFit": "El modelo del autocompletado no cabe",
+      "unknown": "Memoria libre desconocida"
+    },
+    "memory": "Memoria gráfica",
+    "memoryUsed": "{used} de {total} en uso",
+    "ram": "Memoria",
+    "memoryTotal": "{total} en total",
+    "ramNote": "No se encontró ninguna tarjeta gráfica: los modelos se ejecutan en la memoria del equipo.",
+    "otherUse": "Otros usos · {size}",
+    "chat": "Chat",
+    "completion": "Autocompletado",
+    "loaded": "en memoria",
+    "notLoaded": "sin cargar",
+    "partial": "en parte en el procesador",
+    "models": "Modelos del autocompletado",
+    "recommended": "Recomendado",
+    "inUse": "En uso",
+    "use": "Usar",
+    "useModel": "Usar {model}",
+    "install": "Instalar en ChatonLM",
+    "installModel": "Instalar {model} en ChatonLM",
+    "nonCommercial": "Solo uso no comercial",
+    "mayNotFit": "Puede que no quepa en este equipo",
+    "prepare": "Preparar",
+    "preparing": "Preparando…",
+    "measure": "Medir la velocidad",
+    "measuring": "Midiendo…",
+    "rating": {
+      "smooth": "Fluido",
+      "usable": "Utilizable, algo lento",
+      "tooSlow": "Demasiado lento aquí: elige un modelo más pequeño"
+    },
+    "measureDetail": "Primera palabra en {ms} ms, {speed} tokens por segundo.",
+    "measurePartial": "Parte del modelo se ejecuta en el procesador."
   }
 }

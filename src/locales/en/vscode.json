@@ -159,5 +159,69 @@
       "remote": "The model runs on another computer: what you say is sent over the network.",
       "unknown": "ChatonLM couldn't tell where the model runs: what you say is handled as if it left this computer."
     }
+  },
+  "gpu": {
+    "open": "Graphics card",
+    "close": "Close the graphics card",
+    "autocomplete": "Autocomplete",
+    "status": {
+      "off": "Off. When on, a model on this computer suggests code as you type.",
+      "disconnected": "ChatonLM isn't connected.",
+      "notHere": "Not available in this file.",
+      "remoteWindow": "Not available in remote windows: the files aren't on this computer.",
+      "otherProvider": "{name} already suggests code in this file, so ChatonLM stays quiet there.",
+      "notLocal": "Autocomplete needs a model on this computer.",
+      "missing": "{model} isn't installed in ChatonLM.",
+      "checking": "Looking for the autocomplete model…",
+      "ready": "Ready, with {model}.",
+      "slow": "Too slow: the last suggestions came too late. Measure the speed, or choose a smaller model."
+    },
+    "alsoSuggests": "{name} may also suggest code here.",
+    "ignoreOthers": "Always suggest with ChatonLM",
+    "paused": {
+      "exclusive": "Paused: the chat model is using the graphics card.",
+      "chatBusy": "Paused while a reply is being written.",
+      "doesNotFit": "Paused: the autocomplete model doesn't fit in this computer's memory.",
+      "notInstalled": "Paused: the autocomplete model isn't installed in ChatonLM.",
+      "notLocal": "Autocomplete needs a model on this computer.",
+      "notLoaded": "Paused: the autocomplete model isn't loaded. Prepare it to start."
+    },
+    "mode": {
+      "together": "Chat and autocomplete fit together",
+      "exclusive": "One model at a time",
+      "doesNotFit": "The autocomplete model doesn't fit",
+      "unknown": "Free memory unknown"
+    },
+    "memory": "Graphics memory",
+    "memoryUsed": "{used} of {total} used",
+    "ram": "Memory",
+    "memoryTotal": "{total} in all",
+    "ramNote": "No graphics card found: models run in the computer's memory.",
+    "otherUse": "Other use · {size}",
+    "chat": "Chat",
+    "completion": "Autocomplete",
+    "loaded": "in memory",
+    "notLoaded": "not loaded",
+    "partial": "partly on the processor",
+    "models": "Autocomplete models",
+    "recommended": "Recommended",
+    "inUse": "In use",
+    "use": "Use",
+    "useModel": "Use {model}",
+    "install": "Install in ChatonLM",
+    "installModel": "Install {model} in ChatonLM",
+    "nonCommercial": "Non-commercial use only",
+    "mayNotFit": "May not fit on this computer",
+    "prepare": "Prepare",
+    "preparing": "Preparing…",
+    "measure": "Measure speed",
+    "measuring": "Measuring…",
+    "rating": {
+      "smooth": "Smooth",
+      "usable": "Usable, a little slow",
+      "tooSlow": "Too slow here: choose a smaller model"
+    },
+    "measureDetail": "First word in {ms} ms, {speed} tokens per second.",
+    "measurePartial": "Part of the model runs on the processor."
   }
 }

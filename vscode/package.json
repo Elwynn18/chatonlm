@@ -51,6 +51,35 @@
         }
       ]
     },
+    "configuration": {
+      "title": "ChatonLM",
+      "properties": {
+        "chatonlm.completion.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "%config.completion.enabled%"
+        },
+        "chatonlm.completion.model": {
+          "type": "string",
+          "default": "auto",
+          "scope": "application",
+          "markdownDescription": "%config.completion.model%"
+        },
+        "chatonlm.completion.multiline": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "%config.completion.multiline%"
+        },
+        "chatonlm.completion.ignoreOthers": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "%config.completion.ignoreOthers%"
+        }
+      }
+    },
     "commands": [
       {
         "command": "chatonlm.pair",
@@ -139,6 +168,16 @@
       {
         "command": "chatonlm.stopTalking",
         "title": "%command.stopTalking%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.completionMenu",
+        "title": "%command.completionMenu%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.completionToggle",
+        "title": "%command.completionToggle%",
         "category": "ChatonLM"
       }
     ],

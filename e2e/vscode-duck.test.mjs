@@ -21,7 +21,13 @@ import {
   linkVoice,
   writePhrase,
 } from "./lib/voice.mjs";
-import { ROOT, prepare, shot, waitUntil } from "./lib/vscodium.mjs";
+import {
+  ROOT,
+  chooseModel,
+  prepare,
+  shot,
+  waitUntil,
+} from "./lib/vscodium.mjs";
 
 const binary = process.argv[2];
 const DATA = process.env.CHATONLM_DATA_DIR;
@@ -66,9 +72,7 @@ try {
       await driver.invoke("update_dictation_settings", {
         patch: { speechModel: PARAKEET, language: "fr" },
       });
-      await driver.invoke("update_settings", {
-        patch: { selectedModel: "chatonlm-voice" },
-      });
+      await chooseModel(driver, "chatonlm-voice");
       await driver.invoke("bridge_set_enabled", { enabled: true });
       const { pairing } = await driver.invoke("bridge_pair");
       const found = await waitUntil(findDiscovery, "bridge.json");

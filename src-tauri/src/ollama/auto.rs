@@ -5,7 +5,10 @@
 //!
 //! Un modèle en mémoire n'est retenu que s'il tourne sur la machine (ni
 //! modèle cloud, ni distant) et produit du texte (pas un modèle
-//! d'embedding).
+//! d'embedding), et s'il n'est pas un modèle de code d'autocomplétion
+//! (capacité `insert` ou famille « fill in the middle » : modèle « base »
+//! non instruit que le lien VS Code met en mémoire), sauf s'il est celui du
+//! chat.
 
 use std::cmp::Ordering;
 use std::time::Duration;
@@ -23,39 +26,53 @@ pub async fn model_of(base: &str, own: &str, chat: &str) -> Option<String> {
     if !own.is_empty() {
         return Some(own.to_owned());
     }
-    if let Some(best) = best_loaded(base).await {
+    if let Some(best) = best_loaded(base, chat).await {
         return Some(best);
     }
     (!chat.is_empty()).then(|| chat.to_owned())
 }
 
 /// Meilleur modèle en mémoire sur `base` qui sert ici (voir
-/// [`serves_here`]) ; `None` : aucun, ou liste illisible.
-pub async fn best_loaded(base: &str) -> Option<String> {
+/// [`serves_here`] ; `chat`, le modèle du chat, peut être un modèle de
+/// code) ; `None` : aucun, ou liste illisible.
+pub async fn best_loaded(base: &str, chat: &str) -> Option<String> {
     let loaded = running::list_within(base, LIST_TIMEOUT).await.ok()?;
-    first_serving(base, ranked(&loaded)).await
+    first_serving(base, ranked(&loaded), chat).await
 }
 
 /// Premier de ces noms qui sert ici, dans l'ordre.
-async fn first_serving(base: &str, names: Vec<String>) -> Option<String> {
+async fn first_serving(base: &str, names: Vec<String>, chat: &str) -> Option<String> {
     for name in names {
-        if serves_here(base, &name).await {
+        let code = !chat.is_empty() && running::same_model(&name, chat);
+        if serves(base, &name, code).await {
             return Some(name);
         }
     }
     None
 }
 
-/// Modèle qui tourne sur la machine (jamais un modèle cloud ou distant) et
-/// produit du texte (pas un modèle d'embedding). Détails illisibles : la
-/// requête dira ce qui ne va pas.
+/// Modèle qui tourne sur la machine (jamais un modèle cloud ou distant),
+/// produit du texte (pas un modèle d'embedding) et n'est pas un modèle de
+/// code d'autocomplétion. Détails illisibles : la requête dira ce qui ne va
+/// pas.
 pub async fn serves_here(base: &str, model: &str) -> bool {
+    serves(base, model, false).await
+}
+
+/// Comme [`serves_here`] ; `code` : un modèle de code est permis (celui du
+/// chat).
+async fn serves(base: &str, model: &str, code: bool) -> bool {
     if models::is_cloud_name(model) {
+        return false;
+    }
+    // Famille « fill in the middle » d'après le nom : modèle de code.
+    if !code && crate::gpu::fim::family(model).is_some() {
         return false;
     }
     match models::show(base, model).await {
         Ok(details) => {
             !details.remote
+                && (code || !details.capabilities.iter().any(|c| c == "insert"))
                 && (details.capabilities.is_empty()
                     || details.capabilities.iter().any(|c| c == "completion"))
         }
@@ -90,7 +107,7 @@ fn ranked(loaded: &[RunningModel]) -> Vec<String> {
 
 /// Nombre de paramètres d'après le texte d'Ollama (« 8.2B », « 751.63M »,
 /// « 1.2T », « 270K ») ; `None` si illisible.
-fn parameters(size: &str) -> Option<f64> {
+pub(crate) fn parameters(size: &str) -> Option<f64> {
     let size = size.trim();
     let unit = size.chars().last()?;
     let factor = match unit.to_ascii_uppercase() {
@@ -182,14 +199,15 @@ mod tests {
         assert_eq!(
             first_serving(
                 &fake.url(),
-                names(&["chatonlm-embed", "chatonlm-polish-remote", "qwen3:0.6b"])
+                names(&["chatonlm-embed", "chatonlm-polish-remote", "qwen3:0.6b"]),
+                ""
             )
             .await
             .as_deref(),
             Some("qwen3:0.6b")
         );
         assert_eq!(
-            first_serving(&fake.url(), names(&["chatonlm-embed"])).await,
+            first_serving(&fake.url(), names(&["chatonlm-embed"]), "").await,
             None
         );
     }
@@ -237,6 +255,48 @@ mod tests {
         );
     }
 
+    /// Rapport 92, M4 : un modèle d'autocomplétion en mémoire (capacité
+    /// `insert`, ou famille « fill in the middle ») n'est jamais pris, même
+    /// le plus grand, sauf s'il est celui du chat.
+    #[tokio::test]
+    async fn auto_never_takes_an_autocomplete_model() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let base = fake.url();
+        let names = |list: &[&str]| list.iter().map(|&n| n.to_owned()).collect::<Vec<_>>();
+        // `insert` annoncé, puis famille lue dans le nom.
+        for code in ["chatonlm-fim", "chatonlm-qwen-coder-raw"] {
+            assert_eq!(
+                first_serving(&base, names(&[code, "qwen3:0.6b"]), "qwen3:0.6b")
+                    .await
+                    .as_deref(),
+                Some("qwen3:0.6b"),
+                "{code}"
+            );
+            // Celui du chat : permis.
+            assert_eq!(
+                first_serving(&base, names(&[code, "qwen3:0.6b"]), code)
+                    .await
+                    .as_deref(),
+                Some(code)
+            );
+            assert!(!serves_here(&base, code).await, "{code}");
+        }
+        // Seul en mémoire : le modèle du chat, pas lui.
+        running::load(&base, "chatonlm-fim", 4096, 600)
+            .await
+            .unwrap();
+        assert_eq!(
+            model_of(&base, "", "qwen3:0.6b").await.as_deref(),
+            Some("qwen3:0.6b")
+        );
+        // À côté d'un modèle du chat chargé : celui du chat.
+        running::load(&base, "qwen3:0.6b", 0, 0).await.unwrap();
+        assert_eq!(
+            model_of(&base, "", "qwen3:0.6b").await.as_deref(),
+            Some("qwen3:0.6b")
+        );
+    }
+
     /// Contre l'instance de test : tailles de `/api/ps` lisibles, « Auto »
     /// prend le plus grand des modèles en mémoire (d'autres contrats peuvent
     /// en charger en même temps : comparaison à la liste lue).
@@ -257,7 +317,7 @@ mod tests {
             .unwrap();
         let size = parameters(&gemma.parameter_size).unwrap();
         assert!((1e8..1e9).contains(&size), "{}", gemma.parameter_size);
-        let best = best_loaded(TEST_INSTANCE).await.unwrap();
+        let best = best_loaded(TEST_INSTANCE, "").await.unwrap();
         let largest = loaded
             .iter()
             .filter_map(|m| parameters(&m.parameter_size))

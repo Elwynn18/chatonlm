@@ -1,7 +1,8 @@
 // Cœur de l'extension : état du panneau, relais panneau ↔ pont, envois (avec
 // leur reçu) et actions ; visite guidée parlée et séance vocale (lot 2).
 // Contrats : .tools/research/87-lot1b-contract.md (B et « Panneau ↔ hôte »),
-// 88-fix-contract.md (corrections de la relecture), 89-lot2-voice-contract.md (X).
+// 88-fix-contract.md (corrections de la relecture), 89-lot2-voice-contract.md (X),
+// 91-lot3-gpu-completion-contract.md (X : autocomplétion, carte graphique).
 import * as vscode from "vscode";
 import type { Chat } from "../../src/bindings/Chat";
 import type { ChatEvent } from "../../src/bindings/ChatEvent";
@@ -30,6 +31,7 @@ import {
   RpcError,
   TooLargeError,
 } from "./bridge/rpc";
+import { Completion } from "./completion";
 import { commitMessageFrom, compose } from "./prompts";
 import {
   buildReceipt,
@@ -60,7 +62,7 @@ export type LinkLike = {
   onState(listener: (state: LinkState) => void): () => void;
   onConnected(listener: () => void): () => void;
   onNotification(listener: (n: Notification) => void): () => void;
-  call<T>(method: string, params?: unknown): Call<T>;
+  call<T>(method: string, params?: unknown, timeoutMs?: number): Call<T>;
   request<T>(method: string, params?: unknown): Promise<T>;
   cancel(id: number): void;
   retryNow(): Promise<void>;
@@ -172,6 +174,7 @@ export class Controller {
   readonly #disposers: (() => void)[] = [];
   readonly #tour: Tour;
   readonly #voice: Voice;
+  readonly #completion: Completion;
   /** Passage d'une visite joint au prochain message tapé. */
   #attachment: Piece | null = null;
   /** Séance vocale : destination du modèle ; pour chaque tour de parole pas
@@ -219,6 +222,11 @@ export class Controller {
       onHearing: () => this.#tour.pause(),
       openApp,
     });
+    this.#completion = new Completion({
+      link: deps.link,
+      post: (message) => deps.post(message),
+      reveal: () => deps.reveal(),
+    });
     this.#disposers.push(
       deps.link.onState((state) => {
         if (state.connection !== "connected") {
@@ -239,6 +247,12 @@ export class Controller {
     this.#unwatchEditor();
     this.#tour.dispose();
     this.#voice.dispose();
+    this.#completion.dispose();
+  }
+
+  /** Autocomplétion locale et carte « Graphics card » (lot 3). */
+  get completion(): Completion {
+    return this.#completion;
   }
 
   /** Visite guidée (commandes de l'éditeur). */
@@ -306,6 +320,7 @@ export class Controller {
         // Visite et séance vocale en cours (panneau ouvert ou rechargé après).
         this.#deps.post({ type: "tour", tour: this.#tour.view });
         this.#deps.post({ type: "voice", voice: this.#voice.view });
+        this.#completion.postView();
         // Modèles relus à l'ouverture du panneau (installés depuis dans l'app).
         if (this.#deps.link.connected) await this.refresh();
         if (this.#chatId) await this.#syncChat();
@@ -354,6 +369,15 @@ export class Controller {
             await this.#voice.mute(message.command === "mute");
             return;
         }
+        return;
+      case "completion":
+        await this.#completion.command(message.command);
+        return;
+      case "completionModel":
+        await this.#completion.setModel(message.model);
+        return;
+      case "offerPull":
+        await this.#completion.offerPull(message.model);
         return;
       case "stop":
         this.stop();

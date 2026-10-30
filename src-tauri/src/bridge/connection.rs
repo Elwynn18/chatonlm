@@ -17,7 +17,12 @@
 //! (notifications `voice.state`, `voice.level`, `voice.chat`) ; la fin de la
 //! connexion, même par une panique de sa tâche, arrête sa séance et sa
 //! lecture. `$/cancelRequest` arrête aussi un `tour.plan` (requête au modèle
-//! abandonnée, réponse -32800).
+//! abandonnée, réponse -32800). Carte graphique et autocomplétion (lot 3,
+//! [`super::gpu`]) : `gpu.status` (puis `gpu.changed`), `completion.prepare`,
+//! `complete.fim` (une seule en vol par connexion : la nouvelle annule
+//! l'ancienne), `completion.measure`, `completion.suggest`,
+//! `models.offerPull` ; une proposition ou une mesure s'arrête en pause dès
+//! qu'une réponse de conversation commence.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -58,6 +63,8 @@ pub mod code {
     pub const TOO_MANY_ATTEMPTS: i64 = -32004;
     pub const WRONG_CODE: i64 = -32005;
     pub const INCOMPATIBLE: i64 = -32010;
+    /// L'autocomplétion attend (`data: { reason }`).
+    pub const PAUSED: i64 = -32007;
     pub const REFUSED: i64 = -32020;
     /// Requête arrêtée par l'éditeur (`voice.stop` pendant `voice.start`,
     /// `$/cancelRequest` d'un `tour.plan`) : `RequestCancelled` de LSP.
@@ -128,6 +135,11 @@ struct Pending {
     cancelled: bool,
     /// Réveille la requête qui attend (`tour.plan`) : elle abandonne.
     wake: Option<Arc<tokio::sync::Notify>>,
+    /// Proposition d'autocomplétion (`complete.fim`) : une seule en vol.
+    fim: bool,
+    /// Mesure de la vitesse (`completion.measure`) : pas de proposition
+    /// pendant ce temps (elle fausserait la mesure).
+    measure: bool,
 }
 
 /// Requêtes annulables en cours, par identifiant de requête.
@@ -295,6 +307,8 @@ async fn handle<H: Host>(
                     stream: Some(stream.clone()),
                     cancelled: false,
                     wake: None,
+                    fim: false,
+                    measure: false,
                 },
             );
             let sender = Sender {
@@ -335,6 +349,8 @@ async fn handle<H: Host>(
                     stream: None,
                     cancelled: false,
                     wake: Some(Arc::clone(&wake)),
+                    fim: false,
+                    measure: false,
                 },
             );
             let (shared, out, running) = (Arc::clone(shared), out.clone(), Arc::clone(running));
@@ -350,6 +366,81 @@ async fn handle<H: Host>(
                     () = wake.notified() => {
                         out.error(&id, code::CANCELLED, "cancelled", None);
                     }
+                }
+            });
+        }
+        "complete.fim" | "completion.measure" => {
+            // Annulable (`$/cancelRequest`) : inscrite avant toute attente.
+            let wake = Arc::new(tokio::sync::Notify::new());
+            let fim = method == "complete.fim";
+            {
+                let mut running = running.lock();
+                // Une mesure en cours : la proposition n'est pas envoyée
+                // (elle fausserait la mesure), réponse -32800 comme une
+                // proposition remplacée.
+                if fim && running.values().any(|pending| pending.measure) {
+                    drop(running);
+                    out.error(&id, code::CANCELLED, "cancelled", None);
+                    return;
+                }
+                // Une seule proposition en vol : la nouvelle (ou une mesure)
+                // annule l'ancienne (réponse -32800).
+                for pending in running.values_mut().filter(|pending| pending.fim) {
+                    pending.cancelled = true;
+                    if let Some(wake) = &pending.wake {
+                        wake.notify_one();
+                    }
+                }
+                running.insert(
+                    id.to_string(),
+                    Pending {
+                        stream: None,
+                        cancelled: false,
+                        wake: Some(Arc::clone(&wake)),
+                        fim,
+                        measure: !fim,
+                    },
+                );
+            }
+            let (shared, out, running) = (Arc::clone(shared), out.clone(), Arc::clone(running));
+            tauri::async_runtime::spawn(async move {
+                let _registered = Registered {
+                    running: &running,
+                    key: id.to_string(),
+                };
+                // Abandonner le futur ferme la requête HTTP : Ollama arrête.
+                tokio::select! {
+                    () = async {
+                        if fim {
+                            super::gpu::complete(&shared, &out, &id, params).await;
+                        } else {
+                            super::gpu::measure(&shared, &out, &id, params).await;
+                        }
+                    } => {}
+                    () = wake.notified() => {
+                        out.error(&id, code::CANCELLED, "cancelled", None);
+                    }
+                    // Une réponse de conversation commence : calcul partagé.
+                    () = super::gpu::chat_begins(&shared) => {
+                        super::gpu::paused(&out, &id, crate::gpu::plan::Reason::ChatBusy);
+                    }
+                }
+            });
+        }
+        "gpu.status" => {
+            let (shared, out) = (Arc::clone(shared), out.clone());
+            tauri::async_runtime::spawn(async move {
+                super::gpu::status(&shared, connection, &out, &id, params).await;
+            });
+        }
+        "completion.prepare" | "completion.suggest" | "models.offerPull" => {
+            let (shared, out) = (Arc::clone(shared), out.clone());
+            let method = method.to_owned();
+            tauri::async_runtime::spawn(async move {
+                match method.as_str() {
+                    "completion.prepare" => super::gpu::prepare(&shared, &out, &id, params).await,
+                    "completion.suggest" => super::gpu::suggest(&shared, &out, &id).await,
+                    _ => super::gpu::offer_pull(&shared, &out, &id, params).await,
                 }
             });
         }
@@ -605,7 +696,7 @@ async fn app_state<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value) {
 }
 
 /// Adresse sur cette machine (illisible : non, par prudence).
-fn is_local(url: &str) -> bool {
+pub(super) fn is_local(url: &str) -> bool {
     url::Url::parse(url).is_ok_and(|url| crate::ollama::client::is_local(&url))
 }
 
@@ -756,6 +847,8 @@ async fn tour_plan<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value, p
         .filter(|model| !model.trim().is_empty())
         .unwrap_or_else(|| settings.selected_model.clone());
     let server = Server::from_settings(&settings);
+    // L'autocomplétion attend pendant ce temps (calcul partagé).
+    let _working = shared.host.engine().hold();
     match super::tour::plan(&server, &model, &params).await {
         Ok(segments) => {
             let segments: Vec<Value> = segments

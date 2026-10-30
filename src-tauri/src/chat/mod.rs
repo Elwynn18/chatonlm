@@ -440,6 +440,11 @@ pub struct ChatEngine {
     /// Fait les images (outil `generate_image`, bouton « Image ») ; posé une
     /// fois au démarrage. Absent : aucune image possible.
     painter: std::sync::OnceLock<Arc<dyn Painter>>,
+    /// Travail de l'app sur Ollama hors des réponses (Correction, Étude…),
+    /// et réveil à chaque début et fin de réponse ou de travail : le chef
+    /// de la carte graphique met l'autocomplétion en pause pendant ce temps
+    /// (voir [`crate::gpu::activity`]).
+    activity: Arc<crate::gpu::activity::Activity>,
 }
 
 type Observer = Box<dyn Fn(&str, &ChatEvent, Option<&VoiceSend>) + Send + Sync>;
@@ -496,12 +501,37 @@ impl ChatEngine {
                 finished,
             },
         );
+        drop(running);
+        self.activity.changed().notify_waiters();
         Ok((cancelled, finish))
     }
 
     fn end(&self, chat_id: &str) {
         self.running.lock().remove(chat_id);
         self.live.lock().remove(chat_id);
+        self.activity.changed().notify_waiters();
+    }
+
+    /// Réveillé à chaque début et fin de réponse, ou d'un autre travail
+    /// tenu sur Ollama.
+    pub fn activity(&self) -> &tokio::sync::Notify {
+        self.activity.changed()
+    }
+
+    /// Compteur des travaux sur Ollama hors des réponses (posé au démarrage
+    /// pour toute l'app, voir [`crate::gpu::activity::install`]).
+    pub fn work(&self) -> Arc<crate::gpu::activity::Activity> {
+        Arc::clone(&self.activity)
+    }
+
+    /// Tient un travail sur Ollama hors des réponses.
+    pub fn hold(&self) -> crate::gpu::activity::Hold {
+        self.activity.hold()
+    }
+
+    /// Une réponse s'écrit, ou un autre travail est tenu sur Ollama.
+    pub fn is_working(&self) -> bool {
+        self.is_busy() || self.activity.active()
     }
 
     fn update_live(&self, chat_id: &str, message_id: i64, reply: &Reply) {
@@ -2107,7 +2137,7 @@ pub(crate) fn accepted_think(
 /// retiendra (le réglage, ramené au maximum du modèle s'il est connu). Un
 /// contexte que `/api/ps` ne dit pas (serveur ancien) compte comme différent :
 /// le chargement est sans effet si les options sont les mêmes.
-fn needs_loading(
+pub(crate) fn needs_loading(
     model: &str,
     listed: &[RunningModel],
     context_length: u32,

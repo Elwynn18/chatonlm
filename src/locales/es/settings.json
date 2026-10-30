@@ -514,6 +514,12 @@
       "codeLabel": "Código de emparejamiento: {code}",
       "expires": "Hora de caducidad: {time}.",
       "instructions": "En VS Code, ejecuta <code>ChatonLM: Pair</code> y escribe este código."
+    },
+    "offerPull": {
+      "title": "¿Descargar {model}?",
+      "message": "VS Code pide {model} para sugerir código mientras escribes. El modelo funciona en este equipo; nada de lo que escribes sale de él.",
+      "download": "Descargar",
+      "nonCommercial": "Su licencia solo permite el uso no comercial."
     }
   },
   "account": {

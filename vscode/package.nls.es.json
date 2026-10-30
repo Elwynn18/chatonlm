@@ -17,5 +17,11 @@
   "command.tourNext": "Parte siguiente de la visita",
   "command.tourStop": "Detener la visita",
   "command.talkItThrough": "Explicarlo en voz alta",
-  "command.stopTalking": "Terminar la sesión de voz"
+  "command.stopTalking": "Terminar la sesión de voz",
+  "command.completionMenu": "Opciones del autocompletado",
+  "command.completionToggle": "Activar o desactivar el autocompletado",
+  "config.completion.enabled": "Sugiere código mientras escribes con un modelo de ChatonLM en este equipo. Desactivado por defecto: el modelo solo se carga cuando lo activas o eliges **Preparar**, y solo si cabe junto al modelo del chat. Una vez activado, si el modelo se descargó tras un rato sin escribir, al escribir se vuelve a cargar cuando los dos caben juntos.",
+  "config.completion.model": "Modelo del autocompletado, instalado en ChatonLM. `auto`: el modelo que ChatonLM recomienda para este equipo.",
+  "config.completion.multiline": "Sugiere varias líneas cuando el cursor está al final de una línea.",
+  "config.completion.ignoreOthers": "Sugiere con ChatonLM incluso donde otra extensión (GitHub Copilot, Continue, Windsurf…) está activada para el mismo lenguaje. Por defecto, ChatonLM no sugiere nada donde otra extensión está claramente activada, y solo lo menciona donde no se puede saber."
 }

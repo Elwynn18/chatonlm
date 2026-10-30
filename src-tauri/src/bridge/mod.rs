@@ -20,6 +20,11 @@
 //!   plan demandé au modèle par [`tour`]) et séance du mode vocal tenue par
 //!   une connexion ; son micro s'arrête avec la connexion, au retrait de
 //!   l'éditeur, à la coupure du pont et à la sortie de l'app.
+//! - Carte graphique et autocomplétion ([`gpu`], lot 3) : plan du chef
+//!   ([`crate::gpu`]), propositions « fill in the middle » d'un modèle déjà
+//!   en mémoire (jamais chargé par une proposition), mesure de la vitesse,
+//!   modèles proposés ; un téléchargement se demande à l'app, qui le
+//!   propose à l'utilisateur.
 //!
 //! Modèle de menace : un programme du même compte peut de toute façon lire
 //! les données de l'app ; l'appairage sert au consentement et à la
@@ -27,6 +32,7 @@
 
 mod connection;
 mod frame;
+mod gpu;
 pub mod proof;
 mod tour;
 pub mod voice;
@@ -202,6 +208,17 @@ pub trait Host: Send + Sync + 'static {
     fn chat_updated(&self, chat_id: &str);
     /// Lecture à voix haute et mode vocal de l'app.
     fn voice(&self) -> &dyn voice::Voice;
+    /// Chef de la carte graphique.
+    fn gpu(&self) -> &crate::gpu::GpuChief;
+    /// Mémoire de la machine du serveur (`None` : distant ou illisible).
+    fn machine(
+        &self,
+        server_url: String,
+    ) -> crate::dictation::clipboard::BoxFuture<Option<crate::hub::hardware::Machine>>;
+    /// L'éditeur demande le téléchargement de ce modèle : l'app le propose
+    /// à l'utilisateur (fenêtre montrée), avec la mention de sa licence si
+    /// elle ne permet pas l'usage commercial.
+    fn offer_pull(&self, model: &str, commercial_use: bool);
 }
 
 /// Où le pont s'installe.
@@ -216,6 +233,9 @@ pub struct Config {
     pub app_version: String,
     /// Délai pour s'authentifier après l'ouverture d'une connexion.
     pub auth_timeout: std::time::Duration,
+    /// Essais : fermeture du point d'accès retardée (machine chargée).
+    #[cfg(test)]
+    pub close_delay: std::time::Duration,
 }
 
 impl Config {
@@ -237,6 +257,8 @@ impl Config {
             launcher,
             app_version: app.package_info().version.to_string(),
             auth_timeout: connection::AUTH_TIMEOUT,
+            #[cfg(test)]
+            close_delay: std::time::Duration::ZERO,
         })
     }
 }
@@ -268,6 +290,8 @@ struct Open {
     /// Dernier tour vocal de la connexion (ses séances successives
     /// continuent la numérotation).
     voice_turns: Arc<AtomicU32>,
+    /// Écoute le plan de la carte graphique (`gpu.changed`).
+    gpu: bool,
 }
 
 impl Open {
@@ -276,6 +300,7 @@ impl Open {
             client: None,
             close,
             voice_turns: Arc::default(),
+            gpu: false,
         }
     }
 }
@@ -288,6 +313,10 @@ pub(crate) struct Shared<H: Host> {
     pub(crate) config: Config,
     pairings: Mutex<Pairings>,
     listening: Mutex<Option<Listening>>,
+    /// Fin de la fermeture du point d'accès précédent (tâche d'écoute
+    /// arrêtée, socket retiré) : une réouverture l'attend, sinon elle
+    /// trouverait l'ancien point d'accès encore servi.
+    closing: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
     status: Mutex<BridgeStatus>,
     connections: Mutex<HashMap<u64, Open>>,
     next_connection: AtomicU64,
@@ -324,6 +353,7 @@ impl<H: Host> Bridge<H> {
             config,
             pairings: Mutex::new(Pairings::default()),
             listening: Mutex::new(None),
+            closing: Mutex::new(None),
             status: Mutex::new(BridgeStatus::Off),
             connections: Mutex::new(HashMap::new()),
             next_connection: AtomicU64::new(1),
@@ -479,6 +509,11 @@ impl<H: Host> Shared<H> {
 
     /// Ouvre le point d'accès et écrit les fichiers de découverte.
     async fn open(this: &Arc<Self>) {
+        // Point d'accès précédent en cours de fermeture : attendu (borné).
+        let closing = this.closing.lock().take();
+        if let Some(closing) = closing {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), closing).await;
+        }
         let Some(dir) = this.config.dir.clone() else {
             *this.status.lock() = BridgeStatus::Unavailable;
             return;
@@ -511,6 +546,8 @@ impl<H: Host> Shared<H> {
             let _ = write_private(&this.config.data_dir.join(LAUNCHER), &launcher);
         }
         let (stop, mut stopped) = watch::channel(false);
+        let (closed, closing) = tokio::sync::oneshot::channel();
+        *this.closing.lock() = Some(closing);
         *this.listening.lock() = Some(Listening { stop, instance });
         *this.status.lock() = BridgeStatus::Listening;
         let shared = Arc::clone(this);
@@ -528,7 +565,10 @@ impl<H: Host> Shared<H> {
                     },
                 }
             }
+            #[cfg(test)]
+            tokio::time::sleep(shared.config.close_delay).await;
             listener.close();
+            let _ = closed.send(());
         });
     }
 
@@ -601,6 +641,15 @@ impl<H: Host> Shared<H> {
             .lock()
             .get(&connection)
             .is_some_and(|kept| std::ptr::eq(Arc::as_ptr(kept) as *const (), talk))
+    }
+
+    /// La connexion se met à écouter le plan ; faux si elle l'écoute déjà
+    /// (ou si elle est finie).
+    pub(crate) fn listen_gpu(&self, connection: u64) -> bool {
+        self.connections
+            .lock()
+            .get_mut(&connection)
+            .is_some_and(|open| !std::mem::replace(&mut open.gpu, true))
     }
 
     /// Compteur des tours vocaux de la connexion (neuf si elle est finie).
@@ -822,6 +871,46 @@ impl Host for AppHost {
     fn voice(&self) -> &dyn voice::Voice {
         &self.voice
     }
+
+    fn gpu(&self) -> &crate::gpu::GpuChief {
+        self.app.state::<crate::gpu::GpuChief>().inner()
+    }
+
+    fn machine(
+        &self,
+        server_url: String,
+    ) -> crate::dictation::clipboard::BoxFuture<Option<crate::hub::hardware::Machine>> {
+        let app = self.app.clone();
+        Box::pin(async move {
+            let catalog = app.try_state::<crate::hub::state::Catalog>()?;
+            catalog.memory(&server_url).await
+        })
+    }
+
+    fn offer_pull(&self, model: &str, commercial_use: bool) {
+        crate::desktop::show_main_window(&self.app);
+        let _ = self.app.emit(
+            OFFER_PULL_EVENT,
+            OfferPull {
+                model: model.to_owned(),
+                commercial_use,
+            },
+        );
+    }
+}
+
+/// Événement : l'éditeur demande un modèle d'autocomplétion ([`OfferPull`]) ;
+/// la page propose de le télécharger.
+pub const OFFER_PULL_EVENT: &str = "vscode-offer-pull";
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct OfferPull {
+    pub model: String,
+    /// Faux : licence d'usage non commercial (Qwen2.5-Coder 3B), dite dans
+    /// la proposition.
+    pub commercial_use: bool,
 }
 
 /// Démarre le service : point d'accès ouvert dès le lancement s'il est

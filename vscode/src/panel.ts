@@ -88,7 +88,13 @@ export const MAX_QUEUED = 5000;
  * événements) et les conversations relues ; pas les états, dont `init`
  * donne le dernier, ni les reçus gardés, redonnés à `ready`.
  */
-const REPLAYED = new Set<HostMessage["type"]>(["event", "receipt", "chat"]);
+const REPLAYED = new Set<HostMessage["type"]>([
+  "event",
+  "receipt",
+  "chat",
+  // Carte demandée panneau fermé : montrée une fois le panneau prêt.
+  "revealGpu",
+]);
 
 /** Fournit la vue et relaie ses messages. */
 export class ChatPanel implements vscode.WebviewViewProvider {

@@ -80,6 +80,59 @@ const scenarios = {
     await vscode.commands.executeCommand("chatonlm.talkItThrough");
     step("talking");
   },
+  // Autocomplétion : activée et préparée, proposition demandée puis acceptée ;
+  // rien depuis un fichier sensible ni après la coupure.
+  async completion() {
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri;
+    const document = await vscode.workspace.openTextDocument(
+      vscode.Uri.joinPath(folder, "completion.js"),
+    );
+    const editor = await vscode.window.showTextDocument(document);
+    // Coupée par défaut : l'essai extérieur vérifie que rien n'est parti.
+    // Ailleurs que la position essayée ensuite : l'éditeur garderait sinon
+    // cette réponse vide pour la même version du texte.
+    editor.selection = new vscode.Selection(0, 20, 0, 20);
+    await vscode.commands.executeCommand("editor.action.inlineSuggest.trigger");
+    await delay(1500);
+    step("ready");
+    await waitFor("enable");
+    await vscode.commands.executeCommand("chatonlm.completionToggle");
+    step("enabled");
+    // L'essai extérieur attend que le modèle soit chargé.
+    await waitFor("trigger");
+    const before = document.lineAt(1).text;
+    const deadline = Date.now() + 30_000;
+    let shotTaken = false;
+    while (document.lineAt(1).text === before) {
+      if (Date.now() > deadline)
+        throw new Error("no inline suggestion accepted");
+      editor.selection = new vscode.Selection(1, 2, 1, 2);
+      await vscode.commands.executeCommand(
+        "editor.action.inlineSuggest.trigger",
+      );
+      await delay(1500);
+      if (!shotTaken) {
+        step("suggested");
+        await waitFor("shot");
+        shotTaken = true;
+      }
+      await vscode.commands.executeCommand(
+        "editor.action.inlineSuggest.commit",
+      );
+      await delay(300);
+    }
+    step(`accepted:${document.lineAt(1).text.trim()}`);
+    await waitFor("secret");
+    const secret = await vscode.workspace.openTextDocument(
+      vscode.Uri.joinPath(folder, ".env"),
+    );
+    const secretEditor = await vscode.window.showTextDocument(secret);
+    secretEditor.selection = new vscode.Selection(0, 4, 0, 4);
+    await vscode.commands.executeCommand("editor.action.inlineSuggest.trigger");
+    await delay(1500);
+    await vscode.commands.executeCommand("chatonlm.completionToggle");
+    step("off");
+  },
 };
 
 exports.run = async function run() {

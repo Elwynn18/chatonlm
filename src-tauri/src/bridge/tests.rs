@@ -134,6 +134,11 @@ struct TestHost {
     /// Marque de la conversation au moment où la page l'apprend.
     marks: Arc<Mutex<Vec<Mark>>>,
     voice: Arc<FakeVoice>,
+    gpu: Arc<crate::gpu::GpuChief>,
+    /// Machine du serveur rendue au chef (aucune par défaut).
+    machine: Arc<Mutex<Option<crate::hub::hardware::Machine>>>,
+    /// Modèles proposés au téléchargement par l'éditeur.
+    offers: Arc<Mutex<Vec<String>>>,
 }
 
 impl Host for TestHost {
@@ -157,6 +162,20 @@ impl Host for TestHost {
     }
     fn voice(&self) -> &dyn Voice {
         &*self.voice
+    }
+    fn gpu(&self) -> &crate::gpu::GpuChief {
+        &self.gpu
+    }
+    fn machine(&self, _server_url: String) -> BoxFuture<Option<crate::hub::hardware::Machine>> {
+        let machine = self.machine.lock().clone();
+        Box::pin(async move { machine })
+    }
+    fn offer_pull(&self, model: &str, commercial_use: bool) {
+        self.offers.lock().push(if commercial_use {
+            model.to_owned()
+        } else {
+            format!("{model} (non-commercial)")
+        });
     }
 }
 
@@ -192,6 +211,7 @@ async fn bench_with(auth_timeout: std::time::Duration) -> Bench {
         launcher: Some(PathBuf::from("/opt/chatonlm/chatonlm")),
         app_version: "9.9.9".to_owned(),
         auth_timeout,
+        close_delay: std::time::Duration::ZERO,
     };
     let host = TestHost::default();
     host.store.set(store.clone()).ok();
@@ -2043,4 +2063,386 @@ async fn a_tour_plan_is_cancelled_by_cancel_request() {
         bench._ollama.disconnects() > 0
     })
     .await;
+}
+
+/// Envoie une requête sans attendre sa réponse ; rend son identifiant.
+async fn start(client: &mut Client, method: &str, params: Value) -> i64 {
+    let id = client.next;
+    client.next += 1;
+    client
+        .send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
+        .await;
+    id
+}
+
+fn paused_reason(answer: &Value) -> &str {
+    assert_eq!(error_code(answer), code::PAUSED, "{answer}");
+    answer["error"]["data"]["reason"].as_str().unwrap()
+}
+
+#[tokio::test]
+async fn the_gpu_methods_are_served_after_authentication_only() {
+    let bench = bench().await;
+    let mut client = bench.connect();
+    for method in [
+        "gpu.status",
+        "completion.prepare",
+        "complete.fim",
+        "completion.measure",
+        "completion.suggest",
+        "models.offerPull",
+    ] {
+        assert_eq!(
+            error_code(
+                &client
+                    .request(method, json!({ "model": "chatonlm-fim" }))
+                    .await
+            ),
+            code::UNAUTHENTICATED,
+            "{method}"
+        );
+    }
+    assert!(bench._ollama.load_requests().is_empty());
+}
+
+/// Une proposition ne charge jamais : en pause tant que le modèle n'est pas
+/// en mémoire ; « Préparer » le charge, puis elle répond ; le plan suit, et
+/// l'éditeur à l'écoute apprend le changement.
+#[tokio::test(flavor = "multi_thread")]
+async fn completion_waits_for_prepare_and_the_plan_is_followed() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    let fim = json!({ "model": "chatonlm-fim", "prefix": "def f(", "suffix": ")\n",
+        "language": "python", "path": "a.py" });
+    let answer = client.request("complete.fim", fim.clone()).await;
+    assert_eq!(paused_reason(&answer), "notLoaded");
+    assert!(bench._ollama.generate_requests().is_empty());
+    assert!(bench._ollama.load_requests().is_empty());
+
+    let status = client
+        .request("gpu.status", json!({ "model": "chatonlm-fim" }))
+        .await;
+    let plan = &status["result"];
+    assert_eq!(plan["completion"]["model"], "chatonlm-fim", "{status}");
+    assert_eq!(plan["completion"]["loaded"], false);
+    assert_eq!(plan["chat"]["model"], "qwen3:0.6b");
+    assert_eq!(plan["reason"], "notLoaded");
+
+    let prepared = client
+        .request("completion.prepare", json!({ "model": "chatonlm-fim" }))
+        .await;
+    assert_eq!(
+        prepared["result"]["plan"]["completion"]["loaded"], true,
+        "{prepared}"
+    );
+    let changed = client.notification("gpu.changed").await;
+    assert_eq!(changed["plan"]["completion"]["loaded"], true, "{changed}");
+
+    let answer = client.request("complete.fim", fim).await;
+    assert_eq!(
+        answer["result"]["text"], "value(6|2)\n    second line",
+        "{answer}"
+    );
+    assert_eq!(answer["result"]["timedOut"], false);
+    assert!(answer["result"]["firstTokenMs"].is_u64());
+    assert!(answer["result"]["totalMs"].is_u64());
+    assert!(answer["result"]["cachedTokens"].is_u64());
+    // Paramètres invalides.
+    for params in [
+        json!({ "model": "chatonlm-fim" }),
+        json!({ "model": "", "prefix": "a" }),
+        json!({ "model": "chatonlm-fim", "prefix": "a", "maxTokens": 0 }),
+    ] {
+        assert_eq!(
+            error_code(&client.request("complete.fim", params.clone()).await),
+            code::INVALID_PARAMS,
+            "{params}"
+        );
+    }
+    assert_eq!(
+        error_code(&client.request("completion.prepare", json!({})).await),
+        code::INVALID_PARAMS
+    );
+}
+
+/// Une seule proposition en vol par connexion : la nouvelle arrête
+/// l'ancienne (-32800) ; `$/cancelRequest` aussi.
+#[tokio::test(flavor = "multi_thread")]
+async fn one_completion_in_flight_and_cancel_request() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    let prepared = client
+        .request(
+            "completion.prepare",
+            json!({ "model": "chatonlm-fim-long" }),
+        )
+        .await;
+    assert!(prepared.get("result").is_some(), "{prepared}");
+    let long = json!({ "model": "chatonlm-fim-long", "prefix": "a", "suffix": "" });
+    let first = start(&mut client, "complete.fim", long.clone()).await;
+    until("the first request reached the model", || {
+        bench._ollama.generate_requests().len() == 1
+    })
+    .await;
+    let second = start(&mut client, "complete.fim", long.clone()).await;
+    let answer = client.response(first).await;
+    assert_eq!(error_code(&answer), code::CANCELLED, "{answer}");
+    until("the second request reached the model", || {
+        bench._ollama.generate_requests().len() == 2
+    })
+    .await;
+    client
+        .send(&json!({ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": second } }))
+        .await;
+    let answer = client.response(second).await;
+    assert_eq!(error_code(&answer), code::CANCELLED, "{answer}");
+    // Les deux requêtes au modèle ont été abandonnées.
+    until("the model requests were dropped", || {
+        bench._ollama.disconnects() >= 2
+    })
+    .await;
+    // Une autre connexion a sa propre proposition en vol.
+    let (mut other, _, _) = bench.paired().await;
+    let mine = start(&mut client, "complete.fim", long.clone()).await;
+    let quick =
+        json!({ "model": "chatonlm-fim-long", "prefix": "b", "suffix": "", "maxTokens": 1 });
+    let theirs = other.request("complete.fim", quick).await;
+    assert!(theirs.get("result").is_some(), "{theirs}");
+    let answer = client.response(mine).await;
+    assert!(answer.get("result").is_some(), "{answer}");
+}
+
+/// Pendant une réponse de conversation, l'autocomplétion attend ; une
+/// proposition en cours s'arrête quand une réponse commence.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_reply_pauses_completion() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    client
+        .request(
+            "completion.prepare",
+            json!({ "model": "chatonlm-fim-long" }),
+        )
+        .await;
+    let long = json!({ "model": "chatonlm-fim-long", "prefix": "a", "suffix": "" });
+    let fim = start(&mut client, "complete.fim", long.clone()).await;
+    until("the request reached the model", || {
+        bench._ollama.generate_requests().len() == 1
+    })
+    .await;
+    let (mut chatting, _, _) = bench.paired().await;
+    let send = start(
+        &mut chatting,
+        "chat.send",
+        json!({ "content": "Wait", "model": "chatonlm-hang" }),
+    )
+    .await;
+    let answer = client.response(fim).await;
+    assert_eq!(paused_reason(&answer), "chatBusy");
+    // Une nouvelle n'est même pas envoyée.
+    let answer = client.request("complete.fim", long.clone()).await;
+    assert_eq!(paused_reason(&answer), "chatBusy");
+    let answer = client
+        .request(
+            "completion.measure",
+            json!({ "model": "chatonlm-fim-long" }),
+        )
+        .await;
+    assert_eq!(paused_reason(&answer), "chatBusy");
+    assert_eq!(bench._ollama.generate_requests().len(), 1);
+    let status = client.request("gpu.status", json!({})).await;
+    assert_eq!(status["result"]["chatBusy"], true, "{status}");
+    chatting
+        .send(&json!({ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": send } }))
+        .await;
+    chatting.response(send).await;
+    // Réponse finie : le modèle chargé répond de nouveau.
+    let quick = json!({ "model": "chatonlm-fim-long", "prefix": "b", "maxTokens": 1 });
+    let answer = client.request("complete.fim", quick).await;
+    assert!(answer.get("result").is_some(), "{answer}");
+    let answer = client
+        .request(
+            "complete.fim",
+            json!({ "model": "chatonlm-fim", "prefix": "a" }),
+        )
+        .await;
+    // Un modèle pas chargé : en pause, mais plus pour la conversation.
+    assert_eq!(paused_reason(&answer), "notLoaded");
+}
+
+/// Rapport 92, M5 et M6 : un autre travail de l'app sur Ollama
+/// (Correction, Étude, polissage, chargement par la page…) met
+/// l'autocomplétion en pause comme une réponse : la proposition en cours
+/// s'arrête, la suivante n'est pas envoyée ; reprise à la fin.
+#[tokio::test(flavor = "multi_thread")]
+async fn other_work_on_ollama_pauses_completion() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    client
+        .request(
+            "completion.prepare",
+            json!({ "model": "chatonlm-fim-long" }),
+        )
+        .await;
+    let long = json!({ "model": "chatonlm-fim-long", "prefix": "a", "suffix": "" });
+    let fim = start(&mut client, "complete.fim", long.clone()).await;
+    until("the request reached the model", || {
+        bench._ollama.generate_requests().len() == 1
+    })
+    .await;
+    let working = bench.host.engine.hold();
+    let answer = client.response(fim).await;
+    assert_eq!(paused_reason(&answer), "chatBusy");
+    let answer = client.request("complete.fim", long.clone()).await;
+    assert_eq!(paused_reason(&answer), "chatBusy");
+    assert_eq!(
+        paused_reason(
+            &client
+                .request("completion.prepare", json!({ "model": "chatonlm-fim" }))
+                .await
+        ),
+        "chatBusy"
+    );
+    let status = client.request("gpu.status", json!({})).await;
+    assert_eq!(status["result"]["chatBusy"], true, "{status}");
+    assert_eq!(bench._ollama.generate_requests().len(), 1);
+    drop(working);
+    let quick = json!({ "model": "chatonlm-fim-long", "prefix": "b", "maxTokens": 1 });
+    let answer = client.request("complete.fim", quick).await;
+    assert!(answer.get("result").is_some(), "{answer}");
+}
+
+/// Rapport 92, m6 : pendant une mesure, aucune proposition ne part de la
+/// même connexion (elle fausserait la mesure) : -32800 aussitôt.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_completion_while_measuring() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    client
+        .request(
+            "completion.prepare",
+            json!({ "model": "chatonlm-fim-slow" }),
+        )
+        .await;
+    let measure = start(
+        &mut client,
+        "completion.measure",
+        json!({ "model": "chatonlm-fim-slow" }),
+    )
+    .await;
+    until("the measure reached the model", || {
+        bench._ollama.generate_requests().len() == 1
+    })
+    .await;
+    let answer = client
+        .request(
+            "complete.fim",
+            json!({ "model": "chatonlm-fim-slow", "prefix": "a" }),
+        )
+        .await;
+    assert_eq!(error_code(&answer), code::CANCELLED, "{answer}");
+    assert_eq!(bench._ollama.generate_requests().len(), 1);
+    client
+        .send(
+            &json!({ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": measure } }),
+        )
+        .await;
+    assert_eq!(error_code(&client.response(measure).await), code::CANCELLED);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn measure_suggest_and_offer_pull() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    let answer = client
+        .request("completion.measure", json!({ "model": "chatonlm-fim" }))
+        .await;
+    assert_eq!(paused_reason(&answer), "notLoaded");
+    client
+        .request("completion.prepare", json!({ "model": "chatonlm-fim" }))
+        .await;
+    let measure = client
+        .request("completion.measure", json!({ "model": "chatonlm-fim" }))
+        .await;
+    let result = &measure["result"];
+    assert_eq!(result["tokensPerSecond"], 200.0, "{measure}");
+    assert!(["smooth", "usable", "tooSlow"].contains(&result["rating"].as_str().unwrap()));
+    assert_eq!(result["partialGpu"], false);
+
+    *bench.host.machine.lock() = Some(crate::hub::hardware::Machine {
+        gpus: vec![],
+        ram_total: 16 << 30,
+        ram_available: 8 << 30,
+    });
+    let suggested = client.request("completion.suggest", json!({})).await;
+    let result = &suggested["result"];
+    assert_eq!(
+        result["recommended"], "qwen2.5-coder:0.5b-base",
+        "{suggested}"
+    );
+    let options = result["options"].as_array().unwrap();
+    assert_eq!(options.len(), 4);
+    let three = options
+        .iter()
+        .find(|option| option["model"] == "qwen2.5-coder:3b-base")
+        .unwrap();
+    assert_eq!(three["commercialUse"], false);
+    assert_eq!(three["installed"], false);
+
+    // Licence d'usage non commercial : dite dans la proposition de l'app.
+    let offered = client
+        .request(
+            "models.offerPull",
+            json!({ "model": "qwen2.5-coder:3b-base" }),
+        )
+        .await;
+    assert_eq!(offered["result"]["installed"], false, "{offered}");
+    assert_eq!(
+        *bench.host.offers.lock(),
+        ["qwen2.5-coder:3b-base (non-commercial)"]
+    );
+    // Une seule proposition montrée par 10 s : un éditeur qui insiste ne
+    // ramène pas la fenêtre à chaque appel.
+    let offered = client
+        .request(
+            "models.offerPull",
+            json!({ "model": "qwen2.5-coder:1.5b-base" }),
+        )
+        .await;
+    assert_eq!(offered["result"]["installed"], false, "{offered}");
+    assert_eq!(bench.host.offers.lock().len(), 1);
+    // Seulement un nom proposé ; jamais de téléchargement par le pont.
+    for model in ["qwen3:0.6b", "chatonlm-fim", ""] {
+        assert_eq!(
+            error_code(
+                &client
+                    .request("models.offerPull", json!({ "model": model }))
+                    .await
+            ),
+            code::INVALID_PARAMS,
+            "{model}"
+        );
+    }
+    assert_eq!(bench.host.offers.lock().len(), 1);
+    assert!(bench._ollama.pull_requests().is_empty());
+}
+
+#[tokio::test]
+async fn switching_off_and_on_quickly_always_reopens() {
+    // Fermeture de l'ancien point d'accès retardée, comme sur une machine
+    // chargée : la réouverture l'attend au lieu de le croire servi par une
+    // autre instance.
+    let mut bench = bench().await;
+    let mut config = bench.bridge.shared().config.clone();
+    config.close_delay = std::time::Duration::from_millis(300);
+    bench.bridge = Bridge::new(bench.host.clone(), bench.store.clone(), config);
+    for round in 0..3 {
+        let state = bench.bridge.set_enabled(true).await.unwrap();
+        assert_eq!(state.status, BridgeStatus::Listening, "round {round}");
+        let state = bench.bridge.set_enabled(false).await.unwrap();
+        assert_eq!(state.status, BridgeStatus::Off, "round {round}");
+    }
+    let state = bench.bridge.set_enabled(true).await.unwrap();
+    assert_eq!(state.status, BridgeStatus::Listening);
+    bench.bridge.shutdown();
 }

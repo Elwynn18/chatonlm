@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { withApp } from "./lib/app.mjs";
 import { findDiscovery } from "./lib/bridge.mjs";
 import { startFake } from "./lib/fake.mjs";
-import { prepare, shot, waitUntil } from "./lib/vscodium.mjs";
+import { chooseModel, prepare, shot, waitUntil } from "./lib/vscodium.mjs";
 
 const binary = process.argv[2];
 const MODEL = "qwen3:0.6b";
@@ -28,9 +28,7 @@ try {
     { name: "vscode-extension", env: { OLLAMA_HOST: fake.url } },
     async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
-      await driver.invoke("update_settings", {
-        patch: { selectedModel: MODEL },
-      });
+      await chooseModel(driver, MODEL);
       await driver.invoke("bridge_set_enabled", { enabled: true });
       const { pairing } = await driver.invoke("bridge_pair");
       const found = await waitUntil(findDiscovery, "bridge.json");

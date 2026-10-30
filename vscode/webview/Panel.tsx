@@ -7,6 +7,7 @@ import { HostContext } from "@/lib/host";
 import type { HostMessage, Theme } from "../shared/protocol";
 import { Composer } from "./Composer";
 import { Conversation } from "./Conversation";
+import { GpuCard } from "./GpuCard";
 import { Header } from "./Header";
 import {
   initialModel,
@@ -34,6 +35,8 @@ const HOST_TYPES: Record<HostMessage["type"], true> = {
   tour: true,
   voice: true,
   voiceLevel: true,
+  completion: true,
+  revealGpu: true,
 };
 
 function isHostMessage(data: unknown): data is HostMessage {
@@ -110,6 +113,12 @@ export function Panel({ post }: { post: Post }) {
           post={post}
           onNewChat={(ephemeral) => post({ type: "newChat", ephemeral })}
           onKeep={() => post({ type: "keep" })}
+          gpuOpen={model.gpuOpen}
+          onGpu={(open) => {
+            dispatch({ type: "gpuCard", open });
+            // Carte ouverte : plan et modèles proposés relus.
+            if (open) post({ type: "completion", command: "refresh" });
+          }}
         />
         <main className="flex min-h-0 flex-1 flex-col">
           {connected && tour && tour.id !== closedTour && (
@@ -128,6 +137,22 @@ export function Panel({ post }: { post: Post }) {
                 }
               }}
               onClose={() => setClosedTour(tour.id)}
+            />
+          )}
+          {connected && model.gpuOpen && model.completion && (
+            <GpuCard
+              view={model.completion}
+              onCommand={(command) => post({ type: "completion", command })}
+              onModel={(name) => post({ type: "completionModel", model: name })}
+              onInstall={(name) => post({ type: "offerPull", model: name })}
+              onClose={() => {
+                dispatch({ type: "gpuCard", open: false });
+                // Le bouton de fermeture disparaît : le focus revient au
+                // bouton de l'en-tête qui rouvre la carte.
+                document
+                  .querySelector<HTMLButtonElement>("[data-testid=gpu-button]")
+                  ?.focus();
+              }}
             />
           )}
           {body}

@@ -514,6 +514,12 @@
       "codeLabel": "Code d'appairage : {code}",
       "expires": "Valable jusqu'à {time}.",
       "instructions": "Dans VS Code, lancez <code>ChatonLM: Pair</code> et tapez ce code."
+    },
+    "offerPull": {
+      "title": "Télécharger {model} ?",
+      "message": "VS Code demande {model} pour proposer du code pendant que vous tapez. Le modèle tourne sur cet ordinateur ; rien de ce que vous tapez n'en sort.",
+      "download": "Télécharger",
+      "nonCommercial": "Sa licence n'autorise que l'usage non commercial."
     }
   },
   "account": {

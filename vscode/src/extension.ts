@@ -349,6 +349,18 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("chatonlm.stopTalking", () =>
       ctl.voice.stop(),
     ),
+    // Autocomplétion locale (lot 3), coupée par défaut : fichiers du disque
+    // et nouveaux fichiers, tous les langages.
+    vscode.languages.registerInlineCompletionItemProvider(
+      [{ scheme: "file" }, { scheme: "untitled" }],
+      ctl.completion,
+    ),
+    vscode.commands.registerCommand("chatonlm.completionMenu", () =>
+      ctl.completion.menu(),
+    ),
+    vscode.commands.registerCommand("chatonlm.completionToggle", () =>
+      ctl.completion.setEnabled(!ctl.completion.enabled),
+    ),
     vscode.languages.registerCodeActionsProvider(
       "*",
       new FixProvider(() => paired),

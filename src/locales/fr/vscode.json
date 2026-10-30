@@ -159,5 +159,69 @@
       "remote": "Le modèle tourne sur un autre ordinateur : ce que vous dites est envoyé par le réseau.",
       "unknown": "ChatonLM n'a pas pu savoir où tourne le modèle : ce que vous dites est traité comme s'il quittait cet ordinateur."
     }
+  },
+  "gpu": {
+    "open": "Carte graphique",
+    "close": "Fermer la carte graphique",
+    "autocomplete": "Autocomplétion",
+    "status": {
+      "off": "Coupée. Activée, un modèle de cet ordinateur propose du code pendant la frappe.",
+      "disconnected": "ChatonLM n'est pas connecté.",
+      "notHere": "Indisponible dans ce fichier.",
+      "remoteWindow": "Indisponible dans une fenêtre distante : les fichiers ne sont pas sur cet ordinateur.",
+      "otherProvider": "{name} propose déjà du code dans ce fichier : ChatonLM n'y propose donc rien.",
+      "notLocal": "L'autocomplétion a besoin d'un modèle sur cet ordinateur.",
+      "missing": "{model} n'est pas installé dans ChatonLM.",
+      "checking": "Recherche du modèle de l'autocomplétion…",
+      "ready": "Prête, avec {model}.",
+      "slow": "Trop lente : les dernières propositions sont arrivées trop tard. Mesurez la vitesse, ou choisissez un modèle plus petit."
+    },
+    "alsoSuggests": "{name} peut aussi proposer du code ici.",
+    "ignoreOthers": "Toujours proposer avec ChatonLM",
+    "paused": {
+      "exclusive": "En pause : le modèle de la conversation occupe la carte graphique.",
+      "chatBusy": "En pause pendant qu'une réponse s'écrit.",
+      "doesNotFit": "En pause : le modèle de l'autocomplétion ne tient pas dans la mémoire de cet ordinateur.",
+      "notInstalled": "En pause : le modèle de l'autocomplétion n'est pas installé dans ChatonLM.",
+      "notLocal": "L'autocomplétion a besoin d'un modèle sur cet ordinateur.",
+      "notLoaded": "En pause : le modèle de l'autocomplétion n'est pas chargé. Préparez-le pour commencer."
+    },
+    "mode": {
+      "together": "Conversation et autocomplétion tiennent ensemble",
+      "exclusive": "Un modèle à la fois",
+      "doesNotFit": "Le modèle de l'autocomplétion ne tient pas",
+      "unknown": "Mémoire libre inconnue"
+    },
+    "memory": "Mémoire graphique",
+    "memoryUsed": "{used} sur {total} occupés",
+    "ram": "Mémoire",
+    "memoryTotal": "{total} en tout",
+    "ramNote": "Aucune carte graphique trouvée : les modèles tournent dans la mémoire de l'ordinateur.",
+    "otherUse": "Autres usages · {size}",
+    "chat": "Conversation",
+    "completion": "Autocomplétion",
+    "loaded": "en mémoire",
+    "notLoaded": "pas chargé",
+    "partial": "en partie sur le processeur",
+    "models": "Modèles de l'autocomplétion",
+    "recommended": "Recommandé",
+    "inUse": "Utilisé",
+    "use": "Utiliser",
+    "useModel": "Utiliser {model}",
+    "install": "Installer dans ChatonLM",
+    "installModel": "Installer {model} dans ChatonLM",
+    "nonCommercial": "Usage non commercial seulement",
+    "mayNotFit": "Risque de ne pas tenir sur cet ordinateur",
+    "prepare": "Préparer",
+    "preparing": "Préparation…",
+    "measure": "Mesurer la vitesse",
+    "measuring": "Mesure…",
+    "rating": {
+      "smooth": "Fluide",
+      "usable": "Utilisable, un peu lente",
+      "tooSlow": "Trop lente ici : choisissez un modèle plus petit"
+    },
+    "measureDetail": "Premier mot en {ms} ms, {speed} tokens par seconde.",
+    "measurePartial": "Une partie du modèle tourne sur le processeur."
   }
 }

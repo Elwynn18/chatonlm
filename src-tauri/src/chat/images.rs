@@ -244,6 +244,7 @@ impl Painter for AppPainter {
                 engine: &engine,
                 models: &models,
                 store: &store,
+                gpu: None,
             }
             .ready()
             .await
@@ -263,6 +264,7 @@ impl Painter for AppPainter {
                         engine: &engine,
                         models: &models,
                         store: &store,
+                        gpu: None,
                     }
                     .cpu()
                     .await
@@ -288,10 +290,12 @@ impl Painter for AppPainter {
             let Some(store) = app.try_state::<Store>() else {
                 return Err(PaintRefusal::NoModel.message());
             };
+            let gpu = app.try_state::<crate::gpu::GpuChief>();
             EnginePainter {
                 engine: &engine,
                 models: &models,
                 store: &store,
+                gpu: gpu.as_deref(),
             }
             .paint(request, progress)
             .await
@@ -305,6 +309,9 @@ pub(crate) struct EnginePainter<'a> {
     pub engine: &'a ImageGen,
     pub models: &'a ImageModels,
     pub store: &'a Store,
+    /// Chef de la carte graphique : décharge l'autocomplétion avant une
+    /// image (le serveur d'images ne prend que la VRAM libre).
+    pub gpu: Option<&'a crate::gpu::GpuChief>,
 }
 
 impl EnginePainter<'_> {
@@ -343,6 +350,10 @@ impl EnginePainter<'_> {
             .selected_spec(self.store)
             .await
             .ok_or_else(|| PaintRefusal::NoModel.message())?;
+        // L'autocomplétion de l'éditeur rend sa VRAM avant l'image.
+        if let Some(gpu) = self.gpu {
+            gpu.before_image().await;
+        }
         let cpu = !self.models.gpu().await;
         let (width, height) = (request.width, request.height);
         let wanted = image_gen::Request {
@@ -733,6 +744,7 @@ mod tests {
                 engine: &engine,
                 models: &models,
                 store: &store,
+                gpu: None,
             };
             // Aucun modèle choisi.
             assert_eq!(painter.ready().await, Err(PaintRefusal::NoModel));
@@ -814,6 +826,52 @@ mod tests {
                 .unwrap()
         }
 
+        /// Avant l'image, le modèle d'autocomplétion de l'éditeur quitte la
+        /// mémoire (le serveur d'images ne prend que la VRAM libre).
+        #[tokio::test(flavor = "multi_thread")]
+        async fn the_completion_model_is_unloaded_before_an_image() {
+            let ollama = fake_ollama::FakeOllama::start(fake_ollama::Mode::ollama())
+                .await
+                .unwrap();
+            let url = ollama.url();
+            let chief = crate::gpu::GpuChief::default();
+            let inputs = crate::gpu::Inputs {
+                server: crate::chat::Server {
+                    url: url.clone(),
+                    context_length: 0,
+                    keep_alive: 0,
+                    cloud: false,
+                },
+                chat_model: "qwen3:0.6b".into(),
+                local: true,
+                busy: Box::new(|| false),
+                machine: None,
+            };
+            chief.prepare(&inputs, "chatonlm-fim").await.unwrap();
+            let (dir, root, cache) = (temp_dir(), temp_dir(), temp_dir());
+            let store = Store::open_in_memory().unwrap();
+            let engine = ImageGen::new(fake_config(dir.path()));
+            let models = models(root.path(), cache.path(), true);
+            install(&store, root.path(), "tiny", "Tiny Q4");
+            let painter = EnginePainter {
+                engine: &engine,
+                models: &models,
+                store: &store,
+                gpu: Some(&chief),
+            };
+            let request = PaintRequest {
+                prompt: "a ginger kitten".into(),
+                width: 256,
+                height: 256,
+            };
+            painter.paint(request, &mut |_| {}).await.unwrap();
+            assert!(
+                crate::ollama::running::list(&url).await.unwrap().is_empty(),
+                "the completion model left the memory"
+            );
+            assert_eq!(ollama.load_requests().last().unwrap()["kind"], "unload");
+        }
+
         #[tokio::test(flavor = "multi_thread")]
         async fn the_painter_notes_the_time_of_a_finished_image_only() {
             let (dir, root, cache) = (temp_dir(), temp_dir(), temp_dir());
@@ -825,6 +883,7 @@ mod tests {
                 engine: &engine,
                 models: &models,
                 store: &store,
+                gpu: None,
             };
             let request = |prompt: &str| PaintRequest {
                 prompt: prompt.into(),
@@ -889,6 +948,7 @@ mod tests {
                 engine: &engine,
                 models: &models,
                 store: &store,
+                gpu: None,
             };
             let ready = painter.ready().await.unwrap();
             assert_eq!(
@@ -925,6 +985,7 @@ mod tests {
                 engine: &engine,
                 models: &models,
                 store: &store,
+                gpu: None,
             };
             assert_eq!(painter.ready().await.unwrap().side(false), 512);
 
@@ -936,6 +997,7 @@ mod tests {
                 engine: &absent,
                 models: &models,
                 store: &store,
+                gpu: None,
             };
             assert_eq!(painter.ready().await, Err(PaintRefusal::Unavailable));
             let mut old = fake_config(dir.path());
@@ -945,6 +1007,7 @@ mod tests {
                 engine: &old,
                 models: &models,
                 store: &store,
+                gpu: None,
             };
             assert_eq!(
                 painter.ready().await,

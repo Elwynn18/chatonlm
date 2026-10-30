@@ -1,8 +1,12 @@
 // Textes du panneau construits à partir d'une donnée (état de la liaison,
 // reçu) : une fonction pure qui reçoit `t`, comme dans src/lib.
 import type { TFunction } from "@/i18n";
+import { formatBytes } from "@/i18n/format";
 import type {
+  CompletionView,
   Connection,
+  GpuPlan,
+  GpuSlot,
   Receipt,
   ReceiptItem,
   TourView,
@@ -199,4 +203,77 @@ export function sharedItems(t: TFunction, voice: VoiceView): string[] {
           })
         : item.label,
   );
+}
+
+/** État de l'autocomplétion en une phrase (carte « Graphics card »). */
+export function completionStatus(t: TFunction, view: CompletionView): string {
+  switch (view.status) {
+    case "off":
+      return t("vscode.gpu.status.off");
+    case "disconnected":
+      return t("vscode.gpu.status.disconnected");
+    case "notHere":
+      return t("vscode.gpu.status.notHere");
+    case "remoteWindow":
+      return t("vscode.gpu.status.remoteWindow");
+    case "otherProvider":
+      return t("vscode.gpu.status.otherProvider", {
+        name: view.otherProvider ?? "",
+      });
+    case "notLocal":
+      return t("vscode.gpu.status.notLocal");
+    case "missing":
+      return t("vscode.gpu.status.missing", { model: view.model ?? "" });
+    case "checking":
+      return t("vscode.gpu.status.checking");
+    case "unusable":
+      // Texte de l'app, déjà traduit (modèle sans FIM…).
+      return view.error ?? t("vscode.gpu.status.disconnected");
+    case "ready":
+      return t("vscode.gpu.status.ready", { model: view.model ?? "" });
+    case "slow":
+      return t("vscode.gpu.status.slow");
+    case "paused":
+      switch (view.reason ?? "notLoaded") {
+        case "exclusive":
+          return t("vscode.gpu.paused.exclusive");
+        case "chatBusy":
+          return t("vscode.gpu.paused.chatBusy");
+        case "doesNotFit":
+          return t("vscode.gpu.paused.doesNotFit");
+        case "notInstalled":
+          return t("vscode.gpu.paused.notInstalled");
+        case "notLocal":
+          return t("vscode.gpu.paused.notLocal");
+        case "notLoaded":
+          return t("vscode.gpu.paused.notLoaded");
+      }
+  }
+}
+
+/** Mode du plan : ensemble, l'un après l'autre, ne tient pas, inconnu. */
+export function gpuModeLabel(t: TFunction, mode: GpuPlan["mode"]): string {
+  switch (mode) {
+    case "together":
+      return t("vscode.gpu.mode.together");
+    case "exclusive":
+      return t("vscode.gpu.mode.exclusive");
+    case "doesNotFit":
+      return t("vscode.gpu.mode.doesNotFit");
+    case "unknown":
+      return t("vscode.gpu.mode.unknown");
+  }
+}
+
+/** Modèle tenu par le chef : nom, taille, en mémoire ou non. */
+export function slotLabel(t: TFunction, slot: GpuSlot): string {
+  const size = slot.loaded ? slot.sizeBytes : (slot.estimatedBytes ?? 0);
+  return [
+    slot.model,
+    size > 0 ? formatBytes(t, size) : null,
+    t(slot.loaded ? "vscode.gpu.loaded" : "vscode.gpu.notLoaded"),
+    slot.partialGpu ? t("vscode.gpu.partial") : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
 }

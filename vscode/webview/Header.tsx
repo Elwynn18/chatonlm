@@ -1,7 +1,8 @@
 // En-tête du panneau : modèle choisi (modèles cloud marqués), nouvelle
 // conversation, chaton-fantôme (conversation éphémère ; dans une conversation
-// éphémère, « Keep this chat », comme dans l'app) et état de la liaison.
-import { PencilSquareIcon } from "@heroicons/react/24/outline";
+// éphémère, « Keep this chat », comme dans l'app), carte « Graphics card »
+// (autocomplétion, lot 3) et état de la liaison.
+import { CpuChipIcon, PencilSquareIcon } from "@heroicons/react/24/outline";
 import type { MouseEvent } from "react";
 import { GhostCatIcon } from "@/components/icons";
 import { useT } from "@/i18n";
@@ -35,6 +36,8 @@ export function Header({
   post,
   onNewChat,
   onKeep,
+  gpuOpen,
+  onGpu,
 }: {
   state: PanelState;
   busy: boolean;
@@ -43,6 +46,10 @@ export function Header({
   onNewChat: (ephemeral: boolean) => void;
   /** Garde la conversation éphémère ouverte. */
   onKeep: () => void;
+  /** Carte « Graphics card » ouverte. */
+  gpuOpen: boolean;
+  /** Ouvre ou ferme la carte. */
+  onGpu: (open: boolean) => void;
 }) {
   const t = useT();
   const connected = state.connection === "connected";
@@ -126,6 +133,18 @@ export function Header({
         onClick={onGhost}
       >
         <GhostCatIcon className="h-5 w-5" />
+      </button>
+      <button
+        type="button"
+        data-testid="gpu-button"
+        className={gpuOpen ? ICON_BUTTON_ON : ICON_BUTTON_IDLE}
+        aria-pressed={gpuOpen}
+        aria-label={t("vscode.gpu.open")}
+        title={t("vscode.gpu.open")}
+        disabled={!connected}
+        onClick={() => onGpu(!gpuOpen)}
+      >
+        <CpuChipIcon className="h-5 w-5" />
       </button>
       <span
         role="img"

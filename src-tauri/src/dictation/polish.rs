@@ -146,6 +146,8 @@ pub async fn polish(
     always_thinks: bool,
     transcript: &str,
 ) -> Result<String, String> {
+    // L'autocomplétion de l'éditeur attend pendant ce temps.
+    let _working = crate::gpu::activity::hold();
     let failed = |detail: &dyn std::fmt::Display| t!("dictation.polish.failed", detail = detail);
     let base = server.url.as_str();
     // Ce qui est dicté ne quitte pas la machine (ni le réseau local) pour

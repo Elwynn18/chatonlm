@@ -386,6 +386,10 @@
       "failed": "Le modèle n'a pas pu préparer la visite : {detail}",
       "invalid": "Le plan de visite du modèle était inutilisable, deux fois de suite. Réessayez ou choisissez un autre modèle.",
       "noModel": "Aucun modèle n'est choisi"
+    },
+    "completion": {
+      "noFim": "{model} ne sait pas compléter le code au curseur. Choisissez un modèle de code comme Qwen2.5-Coder.",
+      "failed": "Le modèle d'autocomplétion n'a pas pu répondre : {detail}"
     }
   },
   "easyLink": {

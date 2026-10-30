@@ -86,6 +86,9 @@ pub struct Gen<'a> {
     pub remote: bool,
     pub cancel: &'a Cancel,
     pub timeouts: Timeouts,
+    /// Travail tenu sur Ollama tant que la connexion vit : l'autocomplétion
+    /// de l'éditeur attend (voir `gpu::activity`).
+    _working: Option<crate::gpu::activity::Hold>,
 }
 
 impl<'a> Gen<'a> {
@@ -145,6 +148,7 @@ impl<'a> Gen<'a> {
             remote,
             cancel,
             timeouts,
+            _working: crate::gpu::activity::hold(),
         })
     }
 

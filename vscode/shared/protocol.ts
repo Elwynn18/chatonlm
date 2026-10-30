@@ -1,6 +1,7 @@
 // Messages entre l'hôte de l'extension (Node) et le panneau (webview React).
 // Contrats : .tools/research/87-lot1b-contract.md, 89-lot2-voice-contract.md
-// (X : visite guidée parlée, chaton en caoutchouc).
+// (X : visite guidée parlée, chaton en caoutchouc), 91-lot3-gpu-completion-contract.md
+// (X : autocomplétion locale, carte « Graphics card »).
 
 import type { Chat } from "../../src/bindings/Chat";
 import type { ChatEvent } from "../../src/bindings/ChatEvent";
@@ -128,6 +129,139 @@ export type VoiceView = {
 
 export type TourCommand = "previous" | "next" | "pause" | "resume" | "stop";
 
+/** Modèle tenu par le chef de la carte graphique de l'app (`gpu.status`). */
+export type GpuSlot = {
+  model: string;
+  /** En mémoire (constat de `/api/ps`). */
+  loaded: boolean;
+  sizeBytes: number;
+  /** Part dans la mémoire de la carte graphique. */
+  vramBytes: number;
+  /** Estimation avant chargement, ou null. */
+  estimatedBytes: number | null;
+  /** Une partie tourne sur le processeur. */
+  partialGpu: boolean;
+};
+
+/** Plan du chef : conversation et autocomplétion ensemble, l'une après
+ * l'autre, ou l'autocomplétion ne tient pas (`unknown` : pas de mesure). */
+export type GpuPlan = {
+  mode: "together" | "exclusive" | "doesNotFit" | "unknown";
+  chat: GpuSlot | null;
+  completion: GpuSlot | null;
+  /** VRAM d'une carte reconnue (`gpu`), sinon mémoire vive ; `free` null :
+   * inconnue (AMD sous Windows) ; null : serveur d'une autre machine. */
+  memory: { total: number; free: number | null; gpu: boolean } | null;
+  /** Une réponse de conversation s'écrit (page, bot, pont, voix). */
+  chatBusy: boolean;
+  /** Pourquoi l'autocomplétion ne peut pas servir ; absent : prête. */
+  reason?: CompletionPause;
+};
+
+/** Raison d'une autocomplétion en pause (plan, ou refus -32007 `paused`). */
+export type CompletionPause =
+  | "exclusive"
+  | "chatBusy"
+  | "doesNotFit"
+  | "notInstalled"
+  | "notLocal"
+  | "notLoaded";
+
+/** Modèle d'autocomplétion proposé (`completion.suggest`). */
+export type CompletionOption = {
+  model: string;
+  installed: boolean;
+  license: string;
+  /** Faux : licence non commerciale (Qwen2.5-Coder 3B). */
+  commercialUse: boolean;
+  /** Tient dans la mémoire de cette machine (estimation) ; null : machine
+   * inconnue. */
+  fits: boolean | null;
+  /** Taille estimée en mémoire, ou null. */
+  estimatedBytes: number | null;
+};
+
+/** Verdict de `completion.measure`. */
+export type CompletionMeasure = {
+  rating: "smooth" | "usable" | "tooSlow";
+  firstTokenMs: number;
+  tokensPerSecond: number;
+  partialGpu: boolean;
+};
+
+/** Autocomplétion, telle que la barre d'état et le panneau la montrent. */
+export type CompletionView = {
+  enabled: boolean;
+  /** `off` : coupée ; `disconnected` : app non reliée ; `notHere` : rien
+   * n'est proposé dans le fichier actif (fichier sensible, sortie, réglages…) ;
+   * `remoteWindow` : fenêtre distante (WSL, SSH, conteneur), fichiers hors de
+   * cette machine ; `otherProvider` : une autre complétion en ligne (Copilot)
+   * suggère sûrement dans le fichier actif ; `notLocal` : serveur ou modèle
+   * hors de cette machine ; `missing` : modèle pas installé ; `checking` :
+   * modèle pas encore connu ; `unusable` : l'app ne peut pas compléter avec
+   * ce modèle (`error`) ; `slow` : prête, mais les dernières propositions
+   * sont arrivées trop tard (délai de garde du moteur, plusieurs fois). */
+  status:
+    | "off"
+    | "disconnected"
+    | "notHere"
+    | "remoteWindow"
+    | "otherProvider"
+    | "notLocal"
+    | "missing"
+    | "checking"
+    | "paused"
+    | "unusable"
+    | "slow"
+    | "ready";
+  /** Raison de `paused`. */
+  reason: CompletionPause | null;
+  /** Texte de l'app (déjà traduit) pour `unusable`. */
+  error: string | null;
+  /** Modèle employé (réglage, ou celui recommandé pour `auto`). */
+  model: string | null;
+  /** Réglage `chatonlm.completion.model` (`auto` = recommandé). */
+  setting: string;
+  /** Nom de l'autre complétion en ligne (`otherProvider`). */
+  otherProvider: string | null;
+  /** Autre complétion en ligne installée, peut-être active ici (on ne peut
+   * pas le savoir) : ChatonLM propose quand même et le dit. */
+  alsoSuggests: string | null;
+  plan: GpuPlan | null;
+  recommended: string | null;
+  options: CompletionOption[];
+  preparing: boolean;
+  /** Mesure du modèle employé. */
+  measure:
+    | { state: "running" }
+    | { state: "done"; result: CompletionMeasure }
+    | { state: "failed"; message: string }
+    | null;
+};
+
+/** « Prepare » peut réussir : modèle pas chargé, ou l'un après l'autre avec
+ * la conversation absente de la mémoire. Pas pour une pause que la
+ * préparation ne lèverait pas (ne tient pas, pas installé, réponse en cours,
+ * serveur distant). */
+export function canPrepare(
+  view: Pick<CompletionView, "enabled" | "status" | "reason" | "plan">,
+): boolean {
+  if (!view.enabled || view.status !== "paused") return false;
+  if (view.reason === "notLoaded") return true;
+  return view.reason === "exclusive" && view.plan?.chat?.loaded !== true;
+}
+
+export type CompletionCommand =
+  | "enable"
+  | "disable"
+  | "prepare"
+  | "measure"
+  /** Carte ouverte : plan et propositions relus. */
+  | "refresh"
+  /** « Always suggest with ChatonLM » : les autres complétions en ligne ne
+   * sont plus cherchées (réglage `chatonlm.completion.ignoreOthers`). */
+  | "ignoreOthers";
+
 /** Hôte → panneau. */
 export type HostMessage =
   | { type: "init"; locale: Locale; theme: Theme; state: PanelState }
@@ -145,7 +279,12 @@ export type HostMessage =
   /** Séance vocale tenue par VS Code, null : aucune. */
   | { type: "voice"; voice: VoiceView | null }
   /** Niveau du micro, 0 à 1 (à part : jusqu'à ~15 par seconde). */
-  | { type: "voiceLevel"; level: number };
+  | { type: "voiceLevel"; level: number }
+  /** Autocomplétion et carte graphique (null : avant la première lecture). */
+  | { type: "completion"; completion: CompletionView | null }
+  /** Montre la carte « Graphics card » (demande ponctuelle de l'hôte, gardée
+   * jusqu'au `ready` d'un panneau en cours d'ouverture). */
+  | { type: "revealGpu" };
 
 /** Panneau → hôte. */
 export type PanelMessage =
@@ -180,4 +319,10 @@ export type PanelMessage =
   | {
       type: "voice";
       command: "start" | "stop" | "mute" | "unmute" | "resume";
-    };
+    }
+  /** Autocomplétion : activer, couper, préparer, mesurer, relire. */
+  | { type: "completion"; command: CompletionCommand }
+  /** Modèle d'autocomplétion choisi dans la carte. */
+  | { type: "completionModel"; model: string }
+  /** « Install in ChatonLM » : l'app montre sa proposition. */
+  | { type: "offerPull"; model: string };

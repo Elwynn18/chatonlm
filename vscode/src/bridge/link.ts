@@ -180,12 +180,13 @@ export class Link {
     return this.#attempt();
   }
 
-  /** Requête authentifiée ; ClosedError si l'app n'est pas reliée. */
-  call<T>(method: string, params: unknown = {}): Call<T> {
+  /** Requête authentifiée ; ClosedError si l'app n'est pas reliée ;
+   * `timeoutMs` : TimeoutError (et requête oubliée) si l'app ne répond pas. */
+  call<T>(method: string, params: unknown = {}, timeoutMs?: number): Call<T> {
     if (!this.#rpc || !this.connected) {
       return { id: 0, result: Promise.reject(new ClosedError()) };
     }
-    return this.#rpc.call<T>(method, params);
+    return this.#rpc.call<T>(method, params, timeoutMs);
   }
 
   request<T>(method: string, params: unknown = {}): Promise<T> {

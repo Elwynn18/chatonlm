@@ -40,7 +40,9 @@
  * ephemeral chat (ChatonLM's own, src/lib/ephemeral.ts); so is the state of
  * ChatonLM's own bridge for its VS Code extension (paired editors, pairing
  * code); while the VS Code extension holds a voice session, ChatonLM's own
- * banner says so on every page, with a button that ends it.
+ * banner says so on every page, with a button that ends it; a code model
+ * the extension asks for (autocomplete) is offered for download here, on any
+ * page, and only downloaded once the user accepts.
  */
 
 import type { QueryClient } from "@tanstack/react-query";
@@ -52,6 +54,7 @@ import {
 } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { EditorVoiceBanner } from "@/components/EditorVoiceBanner";
+import { OfferPullDialog } from "@/components/OfferPullDialog";
 import { ModelPreloader } from "@/components/ModelPreloader";
 import { Tour } from "@/components/onboarding/Tour";
 import { useChatsEvents } from "@/hooks/useChats";
@@ -285,6 +288,8 @@ function RootComponent() {
         {/* Micro tenu par l'extension VS Code : dit sur toute page, avec
             Stop. */}
         <EditorVoiceBanner />
+        {/* Modèle d'autocomplétion demandé par VS Code : proposé ici. */}
+        <OfferPullDialog />
       </div>
       {touring && <Tour />}
     </>

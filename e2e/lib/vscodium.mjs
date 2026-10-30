@@ -103,10 +103,11 @@ export function prepare(name, files) {
     /** Verdict de l'essai extérieur : l'essai intérieur le lit et finit. */
     done: (verdict) => writeFileSync(verdictFile, verdict),
     /** Lance VSCodium (réglages de l'utilisateur, scénario, variables). */
-    start({ bridgeDir, scenario, env = {} }) {
+    start({ bridgeDir, scenario, env = {}, settings = {} }) {
       writeFileSync(
         join(userData, "User", "settings.json"),
         JSON.stringify({
+          ...settings,
           "chatonlm.bridgeDir": bridgeDir,
           "security.workspace.trust.enabled": false,
           "telemetry.telemetryLevel": "off",
@@ -168,4 +169,21 @@ export function prepare(name, files) {
       rmSync(run, { recursive: true, force: true });
     },
   };
+}
+
+/**
+ * Choisit le modèle de conversation de l'app et s'assure que le choix tient :
+ * au démarrage, la page peut elle-même choisir un modèle juste après.
+ */
+export async function chooseModel(driver, model) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await driver.invoke("update_settings", { patch: { selectedModel: model } });
+    await delay(1000);
+    const settings = await driver.invoke("get_settings");
+    if (settings.selectedModel === model) {
+      await delay(1000);
+      if ((await driver.invoke("get_settings")).selectedModel === model) return;
+    }
+  }
+  throw new Error(`le modèle ${model} n'a pas pu être choisi`);
 }

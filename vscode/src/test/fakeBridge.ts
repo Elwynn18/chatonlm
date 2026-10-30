@@ -5,9 +5,14 @@
 // (89-lot2-voice-contract.md, E) : arrêts de lecture et de séance, reprise
 // d'une séance en pause (relecture 90) acceptés,
 // le reste (`tour.plan`, `speech.read`, `voice.start`…) donné par chaque essai,
-// notifications envoyées par `notify`.
+// notifications envoyées par `notify` ; lot 3 (91-lot3-gpu-completion-contract.md,
+// E ; formes réelles : 87-lot1a-contract.md, lot 3) : chef de la carte
+// graphique simulé (`gpu`), `gpu.status { model? }`,
+// `completion.suggest|prepare|measure`, `complete.fim` (`timedOut`, -32020 pour
+// un modèle sans FIM), `models.offerPull` (`{ installed }`, -32602, -32007).
 import { createHmac, randomBytes } from "node:crypto";
 import { type Duplex, duplexPair } from "node:stream";
+import type { GpuPlan, GpuSlot } from "../../shared/protocol";
 import type { Discovery } from "../bridge/discovery";
 import { encode, FrameReader } from "../bridge/frame";
 
@@ -55,6 +60,75 @@ export class FakeBridge {
   /** Conversations effacées par `chat.forget`, gardées par `chat.keep`. */
   readonly forgotten: string[] = [];
   readonly kept: string[] = [];
+  /** Chef de la carte graphique simulé : mode du plan, modèle
+   * d'autocomplétion en mémoire, réponse de conversation en cours. */
+  readonly gpu = {
+    mode: "together" as GpuPlan["mode"],
+    completion: null as string | null,
+    chatBusy: false,
+    /** Modèle de la conversation en mémoire. */
+    chatLoaded: true,
+    /** Modèle passé à `gpu.status`. */
+    watched: null as string | null,
+    installed: new Set(["qwen2.5-coder:1.5b-base", "qwen2.5-coder:0.5b-base"]),
+  };
+  /** Texte rendu par `complete.fim`. */
+  fimText = "return a + b;";
+  /** Premier jeton trop lent : `complete.fim` rend `timedOut`. */
+  fimTimedOut = false;
+  /** Modèles sans FIM (refus -32020 du moteur). */
+  readonly noFim = new Set(["chatonlm-nofim"]);
+  /** Modèles dont l'app a montré la proposition de téléchargement. */
+  readonly offered: string[] = [];
+
+  /** Plan du faux chef. */
+  plan(): GpuPlan {
+    const slot = (model: string, size: number, loaded = true): GpuSlot => ({
+      model,
+      loaded,
+      sizeBytes: size,
+      vramBytes: size,
+      estimatedBytes: null,
+      partialGpu: false,
+    });
+    return {
+      mode: this.gpu.mode,
+      chat: slot("qwen3:0.6b", 1_000_000_000, this.gpu.chatLoaded),
+      completion: this.gpu.completion
+        ? slot(this.gpu.completion, 1_200_000_000)
+        : null,
+      memory: { total: 8_000_000_000, free: 5_800_000_000, gpu: true },
+      chatBusy: this.gpu.chatBusy,
+      ...(this.#planReason() ? { reason: this.#planReason() } : {}),
+    };
+  }
+
+  /** Raison du plan, dans l'ordre de l'app (absente : prête). */
+  #planReason(): GpuPlan["reason"] {
+    const model = this.gpu.watched ?? this.gpu.completion;
+    if (!this.local || (model && /[:-]cloud$/.test(model))) return "notLocal";
+    if (this.gpu.chatBusy) return "chatBusy";
+    if (model && this.gpu.completion === model) return undefined;
+    if (this.gpu.mode === "doesNotFit") return "doesNotFit";
+    if (this.gpu.mode === "exclusive" && this.gpu.chatLoaded) {
+      return "exclusive";
+    }
+    return "notLoaded";
+  }
+
+  /** Refus « en pause » de l'app (-32007). */
+  #paused(reason: string): RpcFailure {
+    return new RpcFailure(-32007, "paused", { reason });
+  }
+
+  /** Raison d'un refus pour ce modèle, ou null : il est prêt. */
+  #notReady(model: string): string | null {
+    if (!this.local || /[:-]cloud$/.test(model)) return "notLocal";
+    if (!this.gpu.installed.has(model)) return "notInstalled";
+    if (this.gpu.chatBusy) return "chatBusy";
+    if (this.gpu.completion !== model) return "notLoaded";
+    return null;
+  }
   readonly handlers: Record<string, Handler> = {
     ping: () => ({}),
     "app.state": () => ({
@@ -91,6 +165,84 @@ export class FakeBridge {
     "voice.resume": () => ({}),
     "voice.mute": () => ({}),
     "voice.context": () => ({}),
+    "gpu.status": (params) => {
+      if (typeof params.model === "string") this.gpu.watched = params.model;
+      return this.plan();
+    },
+    "completion.suggest": () => ({
+      recommended: "qwen2.5-coder:1.5b-base",
+      options: [
+        ["qwen2.5-coder:0.5b-base", "Apache-2.0", true],
+        ["qwen2.5-coder:1.5b-base", "Apache-2.0", true],
+        ["qwen2.5-coder:3b-base", "Qwen Research", false],
+        ["qwen2.5-coder:7b-base", "Apache-2.0", true],
+      ].map(([model, license, commercialUse]) => ({
+        model,
+        installed: this.gpu.installed.has(model as string),
+        license,
+        commercialUse,
+        fits: model !== "qwen2.5-coder:7b-base",
+        estimatedBytes: 1_000_000_000,
+      })),
+    }),
+    // Charge seulement si le plan le permet (jamais pendant une réponse).
+    "completion.prepare": (params) => {
+      const model = params.model as string;
+      if (!this.local) throw this.#paused("notLocal");
+      if (!this.gpu.installed.has(model)) throw this.#paused("notInstalled");
+      if (this.gpu.mode === "exclusive" && this.gpu.chatLoaded) {
+        throw this.#paused("exclusive");
+      }
+      if (this.gpu.mode === "doesNotFit") throw this.#paused("doesNotFit");
+      if (this.gpu.chatBusy) throw this.#paused("chatBusy");
+      this.gpu.completion = model;
+      return { plan: this.plan() };
+    },
+    // Jamais de chargement : modèle absent de la mémoire → en pause.
+    "complete.fim": (params) => {
+      const reason = this.#notReady(params.model as string);
+      if (reason) throw this.#paused(reason);
+      if (this.noFim.has(params.model as string)) {
+        throw new RpcFailure(-32020, "refused", {
+          message: "This model can't complete code in the middle of a file.",
+        });
+      }
+      return this.fimTimedOut
+        ? {
+            text: "",
+            firstTokenMs: 0,
+            totalMs: 1500,
+            cachedTokens: 0,
+            timedOut: true,
+          }
+        : {
+            text: this.fimText,
+            firstTokenMs: 30,
+            totalMs: 80,
+            cachedTokens: 0,
+            timedOut: false,
+          };
+    },
+    "completion.measure": (params) => {
+      const reason = this.#notReady(params.model as string);
+      if (reason) throw this.#paused(reason);
+      return {
+        rating: "smooth",
+        firstTokenMs: 120,
+        tokensPerSecond: 85,
+        partialGpu: false,
+      };
+    },
+    // Seulement un nom proposé ; serveur distant : en pause `notLocal`.
+    "models.offerPull": (params) => {
+      const model = params.model as string;
+      if (!/^qwen2\.5-coder:(0\.5|1\.5|3|7)b-base$/.test(model)) {
+        throw new RpcFailure(-32602, "invalid params");
+      }
+      if (!this.local) throw this.#paused("notLocal");
+      this.offered.push(model);
+      return { installed: this.gpu.installed.has(model) };
+    },
   };
 
   readonly discovery: Discovery = {

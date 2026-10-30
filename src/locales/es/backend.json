@@ -386,6 +386,10 @@
       "failed": "El modelo no pudo preparar la visita: {detail}",
       "invalid": "El plan de la visita del modelo fue inutilizable dos veces. Inténtalo de nuevo o elige otro modelo.",
       "noModel": "No hay ningún modelo seleccionado"
+    },
+    "completion": {
+      "noFim": "{model} no sabe completar el código en el cursor. Elige un modelo de código como Qwen2.5-Coder.",
+      "failed": "El modelo de autocompletado no pudo responder: {detail}"
     }
   },
   "easyLink": {

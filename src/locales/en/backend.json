@@ -386,6 +386,10 @@
       "failed": "The model couldn't plan the tour: {detail}",
       "invalid": "The model's tour plan was unusable twice. Try again, or choose another model.",
       "noModel": "No model is selected"
+    },
+    "completion": {
+      "noFim": "{model} can't fill in code at the cursor. Choose a code model such as Qwen2.5-Coder.",
+      "failed": "The autocomplete model couldn't answer: {detail}"
     }
   },
   "easyLink": {

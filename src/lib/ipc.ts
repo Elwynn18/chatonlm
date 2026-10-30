@@ -83,6 +83,7 @@ import type { Platform } from "@/bindings/Platform";
 import type { ShortcutKeys } from "@/bindings/ShortcutKeys";
 import type { ChatsUpdated } from "@/bindings/ChatsUpdated";
 import type { BridgeState } from "@/bindings/BridgeState";
+import type { OfferPull } from "@/bindings/OfferPull";
 import type { EasyLinkPlatform } from "@/bindings/EasyLinkPlatform";
 import type { EasyLinkState } from "@/bindings/EasyLinkState";
 
@@ -1509,6 +1510,18 @@ export function listenBridge(
   onChange: (state: BridgeState) => void,
 ): Promise<UnlistenFn> {
   return listen<BridgeState>(BRIDGE_EVENT, (event) => onChange(event.payload));
+}
+
+/**
+ * Événement du moteur : l'extension VS Code demande un modèle
+ * d'autocomplétion (`models.offerPull`) ; la page propose de le télécharger.
+ */
+export const OFFER_PULL_EVENT = "vscode-offer-pull";
+
+export function listenOfferPull(
+  onOffer: (offer: OfferPull) => void,
+): Promise<UnlistenFn> {
+  return listen<OfferPull>(OFFER_PULL_EVENT, (event) => onOffer(event.payload));
 }
 
 /** Quitte l'app (Ctrl+Q, menu de la zone de notification). */

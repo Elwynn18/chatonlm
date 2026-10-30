@@ -61,9 +61,12 @@ pub mod sdcpp;
 /// Cours de ChatonLM (modèles `chatonlm-study*`) : voir [`study`].
 pub mod study;
 pub use study::STUDY_SLOW;
+/// Autocomplétion du pont VS Code (modèles `chatonlm-fim*`) : voir [`fim`].
+pub mod fim;
 /// Visite guidée parlée du pont VS Code (modèles `chatonlm-tour*`) : voir
 /// [`tour`].
 pub mod tour;
+pub use fim::{FIM_LONG_STEP, FIM_SIZE, FIM_SLOW_FIRST};
 
 /// Comportement du serveur.
 #[derive(Clone, Debug)]
@@ -148,6 +151,17 @@ pub struct Journal {
     /// Chargements et déchargements demandés à `/api/generate`, dans l'ordre :
     /// `{"model", "kind": "load"|"unload", "keep_alive"?, "num_ctx"?}`.
     loads: Mutex<Vec<serde_json::Value>>,
+    /// Corps des requêtes `/api/generate` avec un prompt (autocomplétion),
+    /// dans l'ordre (`GET /fake/generates`).
+    generates: Mutex<Vec<serde_json::Value>>,
+    /// Dernier prompt par modèle (cache de préfixe simulé).
+    prompts: Mutex<std::collections::HashMap<String, String>>,
+    /// Carte graphique simulée (`POST /fake/vram {"total"}`) : mémoire
+    /// totale en octets ; un chargement qui ne tient pas évince d'abord le
+    /// modèle à l'échéance la plus proche, puis déborde sur le processeur
+    /// (`size_vram < size`). `None` : rien d'évincé, tout en VRAM (sauf
+    /// `split`).
+    vram: Mutex<Option<u64>>,
 }
 
 /// Modèle téléchargé sur ce serveur.
@@ -285,6 +299,21 @@ impl Journal {
         let deleted = self.deleted.lock().unwrap();
         deleted.iter().any(|name| same_model(name, model))
     }
+
+    /// Caractères du début commun avec le prompt précédent de ce modèle
+    /// (cache de préfixe simulé) ; garde ce prompt.
+    fn cached_prefix(&self, model: &str, prompt: &str) -> usize {
+        let mut prompts = self.prompts.lock().unwrap();
+        let common = prompts.get(base_name(model)).map_or(0, |previous| {
+            previous
+                .chars()
+                .zip(prompt.chars())
+                .take_while(|(a, b)| a == b)
+                .count()
+        });
+        prompts.insert(base_name(model).to_owned(), prompt.to_owned());
+        common
+    }
 }
 
 impl FakeOllama {
@@ -358,6 +387,16 @@ impl FakeOllama {
     /// `{"path": "/api/experimental/web_search", "body": {"query": …}}`.
     pub fn web_requests(&self) -> Vec<serde_json::Value> {
         self.journal.web.lock().unwrap().clone()
+    }
+
+    /// Requêtes `/api/generate` avec un prompt, dans l'ordre.
+    pub fn generate_requests(&self) -> Vec<serde_json::Value> {
+        self.journal.generates.lock().unwrap().clone()
+    }
+
+    /// Carte graphique simulée (voir [`Journal`]) ; `None` : aucune.
+    pub fn set_vram(&self, total: Option<u64>) {
+        *self.journal.vram.lock().unwrap() = total;
     }
 
     /// Chargements et déchargements reçus par `/api/generate`, dans l'ordre :
@@ -579,6 +618,13 @@ fn shown(journal: &Journal, model: &str) -> (StatusCode, String) {
             synthetic_show(&["completion", "vision"], None),
         ),
         "chatonlm-embed" => (StatusCode::OK, synthetic_show(&["embedding"], None)),
+        model if fim::INSERT_MODELS.contains(&model) => (
+            StatusCode::OK,
+            synthetic_show(&["completion", "insert"], None),
+        ),
+        model if fim::RAW_MODELS.contains(&model) => {
+            (StatusCode::OK, synthetic_show(&["completion"], None))
+        }
         "chatonlm-nothink" => (
             StatusCode::INTERNAL_SERVER_ERROR,
             r#"{"error":"unable to read the model metadata"}"#.into(),
@@ -1095,6 +1141,19 @@ struct Loaded {
     context: u64,
     /// Échéance du déchargement, en nanosecondes depuis l'époque.
     expires: i128,
+    /// Mémoire occupée (`size`) et part en VRAM (`size_vram`).
+    size: u64,
+    vram: u64,
+}
+
+/// Mémoire d'un modèle chargé : [`FIM_SIZE`] pour les modèles
+/// d'autocomplétion, [`LOADED_SIZE`] sinon.
+fn model_size(model: &str) -> u64 {
+    if fim::is_fim_model(base_name(model)) {
+        FIM_SIZE
+    } else {
+        LOADED_SIZE
+    }
 }
 
 /// Nom complet d'un modèle, comme `/api/ps` le donne.
@@ -1124,6 +1183,7 @@ fn loadable(journal: &Journal, model: &str) -> bool {
         || TOOL_SCENARIOS.contains(&model)
         || thinking_scenario(model).is_some()
         || VOICE_SCENARIOS.contains(&model)
+        || fim::is_fim_model(model)
 }
 
 /// Contexte maximal du modèle d'après son `/api/show`
@@ -1204,10 +1264,31 @@ fn apply_load(journal: &Journal, model: &str, load: &LoadRequest) {
         now_nanos() + i128::from(seconds) * 1_000_000_000
     };
     loaded.retain(|l| !same_model(&l.name, model));
+    let size = model_size(model);
+    let vram = match *journal.vram.lock().unwrap() {
+        // Carte simulée : éviction du plus proche de son échéance tant que
+        // le nouveau ne tient pas, puis débordement sur le processeur.
+        Some(total) => {
+            while !loaded.is_empty() && loaded.iter().map(|l| l.vram).sum::<u64>() + size > total {
+                let victim = loaded
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, l)| l.expires)
+                    .map(|(index, _)| index)
+                    .unwrap_or_default();
+                loaded.remove(victim);
+            }
+            size.min(total.saturating_sub(loaded.iter().map(|l| l.vram).sum()))
+        }
+        None if model.contains("split") => size / 4 * 3,
+        None => size,
+    };
     loaded.push(Loaded {
         name: full_name(model),
         context: load.context,
         expires,
+        size,
+        vram,
     });
 }
 
@@ -1237,10 +1318,32 @@ fn load_failure() -> Response {
 async fn generate(State(journal): State<Arc<Journal>>, body: String) -> Response {
     let request: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
     let model = request["model"].as_str().unwrap_or_default().to_owned();
-    if request["prompt"]
+    let prompted = request["prompt"]
         .as_str()
-        .is_some_and(|prompt| !prompt.is_empty())
-    {
+        .is_some_and(|prompt| !prompt.is_empty());
+    if prompted && fim::is_fim_model(base_name(&model)) {
+        journal.generates.lock().unwrap().push(request.clone());
+        // Pas en mémoire, ou avec un autre contexte : (re)chargé, comme
+        // Ollama (`needsReload`), et journalisé : l'app ne doit jamais le
+        // demander ainsi.
+        let load = load_request(&journal, &model, &request);
+        if load.needed {
+            let mut entry = serde_json::json!({ "model": model, "kind": "byPrompt" });
+            if let Some(context) = request["options"]["num_ctx"].as_u64() {
+                entry["num_ctx"] = context.into();
+            }
+            journal.loads.lock().unwrap().push(entry);
+        }
+        apply_load(&journal, &model, &load);
+        // Ollama n'écrit les en-têtes qu'avec le premier jeton.
+        if base_name(&model) == "chatonlm-fim-slow" {
+            let mut guard = DisconnectGuard::new(journal.clone());
+            tokio::time::sleep(FIM_SLOW_FIRST).await;
+            guard.finish();
+        }
+        return fim::generate(journal.clone(), base_name(&model), &request);
+    }
+    if prompted {
         return json(
             StatusCode::BAD_REQUEST,
             r#"{"error":"the fake server only loads and unloads models: no prompt"}"#.into(),
@@ -1286,8 +1389,10 @@ async fn generate(State(journal): State<Arc<Journal>>, body: String) -> Response
 }
 
 /// `GET /api/ps`, au format d'Ollama : modèles en mémoire, de l'échéance la
-/// plus lointaine à la plus proche ; [`LOADED_SIZE`] chacun, tout en VRAM
-/// sauf un modèle dont le nom contient `split` (75 %) ; détails de son
+/// plus lointaine à la plus proche ; [`LOADED_SIZE`] chacun ([`FIM_SIZE`]
+/// pour un modèle d'autocomplétion), tout en VRAM sauf un modèle dont le nom
+/// contient `split` (75 %) ou ce que la carte simulée ne loge pas (voir
+/// [`Journal`]) ; détails de son
 /// `/api/show` ; échéance avec 9 chiffres de fraction et le décalage `+02:00`.
 fn ps(journal: &Journal) -> String {
     let mut loaded = journal.loaded.lock().unwrap().clone();
@@ -1300,15 +1405,11 @@ fn ps(journal: &Journal) -> String {
                 .then(|| serde_json::from_str::<serde_json::Value>(&body).ok())
                 .flatten()
                 .map_or_else(|| serde_json::json!({}), |show| show["details"].clone());
-            let vram = if l.name.contains("split") {
-                LOADED_SIZE / 4 * 3
-            } else {
-                LOADED_SIZE
-            };
+            let vram = l.vram;
             serde_json::json!({
                 "name": l.name,
                 "model": l.name,
-                "size": LOADED_SIZE,
+                "size": l.size,
                 "digest": fake_digest(&l.name),
                 "details": details,
                 "expires_at": date_text(l.expires, 120),
@@ -2977,6 +3078,24 @@ fn router(mode: Mode, journal: Arc<Journal>) -> Router {
                     get(|State(journal): State<Arc<Journal>>| async move {
                         let seen = journal.manifests.lock().unwrap().clone();
                         json(StatusCode::OK, serde_json::json!(seen).to_string())
+                    }),
+                )
+                .route(
+                    "/fake/vram",
+                    post(
+                        |State(journal): State<Arc<Journal>>, body: String| async move {
+                            let value: serde_json::Value =
+                                serde_json::from_str(&body).unwrap_or_default();
+                            *journal.vram.lock().unwrap() = value["total"].as_u64();
+                            json(StatusCode::OK, "{}".into())
+                        },
+                    ),
+                )
+                .route(
+                    "/fake/generates",
+                    get(|State(journal): State<Arc<Journal>>| async move {
+                        let seen = journal.generates.lock().unwrap().clone();
+                        json(StatusCode::OK, serde_json::Value::Array(seen).to_string())
                     }),
                 )
                 .route(

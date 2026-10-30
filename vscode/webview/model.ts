@@ -5,12 +5,15 @@
 // texte, fin quelle qu'elle soit), sans ce qui n'existe pas ici (modification
 // d'un message, images, compactage manuel). Visite guidée et séance vocale
 // (lot 2) : leur état vient de l'hôte tel quel ; les tours de parole arrivent
-// comme des envois, sous des numéros négatifs.
+// comme des envois, sous des numéros négatifs. Autocomplétion et carte
+// « Graphics card » (lot 3) : état de l'hôte tel quel ; la carte s'ouvre par
+// le bouton de l'en-tête ou à la demande de l'hôte (`reveal` qui augmente).
 import type { Chat } from "@/bindings/Chat";
 import type { ChatErrorKind } from "@/bindings/ChatErrorKind";
 import type { ChatEvent } from "@/bindings/ChatEvent";
 import type { Message } from "@/bindings/Message";
 import type {
+  CompletionView,
   HostMessage,
   Locale,
   PanelState,
@@ -69,6 +72,10 @@ export interface PanelModel {
   voice: VoiceView | null;
   /** Niveau du micro, 0 à 1. */
   voiceLevel: number;
+  /** Autocomplétion et plan de la carte graphique (null : pas encore lu). */
+  completion: CompletionView | null;
+  /** Carte « Graphics card » ouverte. */
+  gpuOpen: boolean;
 }
 
 export type PanelAction =
@@ -78,7 +85,9 @@ export type PanelAction =
   | { type: "sent"; text: string }
   /** Bouton Stop : les envois que l'hôte n'a pas encore pris s'arrêtent (et
    * tous, si l'hôte ne dit plus rien écrire). */
-  | { type: "stopped"; now: number };
+  | { type: "stopped"; now: number }
+  /** Carte « Graphics card » ouverte ou fermée par l'utilisateur. */
+  | { type: "gpuCard"; open: boolean };
 
 export const INITIAL_STATE: PanelState = {
   connection: "connecting",
@@ -108,6 +117,8 @@ export function initialModel(): PanelModel {
     tour: null,
     voice: null,
     voiceLevel: 0,
+    completion: null,
+    gpuOpen: false,
   };
 }
 
@@ -393,6 +404,8 @@ export function reduce(model: PanelModel, action: PanelAction): PanelModel {
     }
     case "host":
       return applyHost(model, action.message, action.now);
+    case "gpuCard":
+      return { ...model, gpuOpen: action.open };
   }
 }
 
@@ -430,6 +443,11 @@ function applyHost(
       };
     case "voiceLevel":
       return model.voice ? { ...model, voiceLevel: message.level } : model;
+    case "completion":
+      return { ...model, completion: message.completion };
+    // Demande ponctuelle de l'hôte (menu de la barre d'état).
+    case "revealGpu":
+      return { ...model, gpuOpen: true };
     case "receipt": {
       const bound = bindTurn(model, message.requestId);
       return {

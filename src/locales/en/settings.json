@@ -514,6 +514,12 @@
       "codeLabel": "Pairing code: {code}",
       "expires": "Valid until {time}.",
       "instructions": "In VS Code, run <code>ChatonLM: Pair</code> and type this code."
+    },
+    "offerPull": {
+      "title": "Download {model}?",
+      "message": "VS Code asks for {model} to suggest code as you type. The model runs on this computer; nothing you type leaves it.",
+      "download": "Download",
+      "nonCommercial": "Its license allows non-commercial use only."
     }
   },
   "account": {

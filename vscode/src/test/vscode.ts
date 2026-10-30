@@ -151,13 +151,17 @@ export enum ColorThemeKind {
 export class TextDocument {
   readonly uri: Uri;
   readonly #lines: string[];
+  /** Fin de ligne du document (CRLF sous Windows) : hors de `lineAt().text`,
+   * comme dans VS Code. */
+  readonly #eol: number;
   constructor(
     file: string,
     readonly text: string,
     readonly languageId = "typescript",
   ) {
-    this.uri = Uri.file(file);
-    this.#lines = text.split("\n");
+    this.uri = file.includes("://") ? Uri.parse(file) : Uri.file(file);
+    this.#lines = text.split(/\r?\n/);
+    this.#eol = text.includes("\r\n") ? 2 : 1;
   }
   get lineCount(): number {
     return this.#lines.length;
@@ -167,7 +171,9 @@ export class TextDocument {
   }
   #offset(p: Position): number {
     let offset = 0;
-    for (let i = 0; i < p.line; i++) offset += this.#lines[i].length + 1;
+    for (let i = 0; i < p.line; i++) {
+      offset += this.#lines[i].length + this.#eol;
+    }
     return offset + p.character;
   }
   getText(range?: Range): string {
@@ -198,6 +204,87 @@ export enum TextEditorRevealType {
   InCenter = 1,
   InCenterIfOutsideViewport = 2,
   AtTop = 3,
+}
+
+/** Motif relatif à un dossier (`files.readonlyInclude`…). */
+export class RelativePattern {
+  readonly baseUri: Uri;
+  constructor(
+    base: { uri: Uri } | Uri | string,
+    readonly pattern: string,
+  ) {
+    this.baseUri =
+      typeof base === "string"
+        ? Uri.file(base)
+        : base instanceof Uri
+          ? base
+          : base.uri;
+  }
+}
+
+/** Motif glob (`**`, `*`, `?`, `{a,b}`) en expression régulière. */
+function globToRegExp(glob: string): RegExp {
+  let out = "";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === "*" && glob[i + 1] === "*") {
+      i++;
+      if (glob[i + 1] === "/") {
+        i++;
+        out += "(?:.*/)?";
+      } else out += ".*";
+    } else if (c === "*") out += "[^/]*";
+    else if (c === "?") out += "[^/]";
+    else if (c === "{") out += "(?:";
+    else if (c === "}") out += ")";
+    else if (c === ",") out += "|";
+    else out += c.replace(/[.+^$()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${out}$`);
+}
+
+/** Proposition en ligne (autocomplétion). */
+export class InlineCompletionItem {
+  constructor(
+    readonly insertText: string,
+    readonly range?: Range,
+  ) {}
+}
+
+export enum InlineCompletionTriggerKind {
+  Invoke = 0,
+  Automatic = 1,
+}
+
+export enum ConfigurationTarget {
+  Global = 1,
+  Workspace = 2,
+  WorkspaceFolder = 3,
+}
+
+/** Jeton d'annulation, comme celui que VS Code passe à un fournisseur. */
+export class CancellationTokenSource {
+  readonly #emitter = new EventEmitter<void>();
+  #cancelled = false;
+  readonly token: {
+    readonly isCancellationRequested: boolean;
+    onCancellationRequested(listener: () => void): { dispose(): void };
+  };
+  constructor() {
+    const state = () => this.#cancelled;
+    const emitter = this.#emitter;
+    this.token = {
+      get isCancellationRequested() {
+        return state();
+      },
+      onCancellationRequested: (listener) => emitter.event(listener),
+    };
+  }
+  cancel(): void {
+    if (this.#cancelled) return;
+    this.#cancelled = true;
+    this.#emitter.fire();
+  }
 }
 
 export enum StatusBarAlignment {
@@ -238,7 +325,9 @@ export class TextEditor {
 
 export type StatusItem = {
   text: string;
+  name?: string;
   tooltip?: string;
+  accessibilityInformation?: { label: string };
   command?: string;
   visible: boolean;
   show(): void;
@@ -265,6 +354,15 @@ export const testState = {
   decorationTypes: [] as { options: Record<string, unknown> }[],
   statusItems: [] as StatusItem[],
   contexts: {} as Record<string, unknown>,
+  /** Réglages (clé complète, ex. « chatonlm.completion.enabled »). */
+  config: {} as Record<string, unknown>,
+  /** Schémas en lecture seule (`workspace.fs.isWritableFileSystem`). */
+  readOnlySchemes: [] as string[],
+  /** Choix dans un `showQuickPick` : rend l'élément à prendre. */
+  pick: undefined as
+    ((items: { label: string }[]) => { label: string } | undefined) | undefined,
+  quickPicks: [] as { label: string }[][],
+  inlineProviders: [] as { selector: unknown; provider: unknown }[],
   events: newEvents(),
 };
 
@@ -284,6 +382,10 @@ function newEvents() {
       execution: unknown;
       exitCode: number | undefined;
     }>(),
+    configuration: new EventEmitter<{
+      affectsConfiguration(section: string): boolean;
+    }>(),
+    windowState: new EventEmitter<{ focused: boolean }>(),
   };
 }
 
@@ -301,11 +403,17 @@ export function resetTestState(): void {
   testState.decorationTypes = [];
   testState.statusItems = [];
   testState.contexts = {};
+  testState.config = {};
+  testState.readOnlySchemes = [];
+  testState.pick = undefined;
+  testState.quickPicks = [];
+  testState.inlineProviders = [];
   testState.events = newEvents();
   window.activeTextEditor = undefined;
   window.visibleTextEditors = [];
   window.activeColorTheme = { kind: ColorThemeKind.Light };
   env.language = "en";
+  env.remoteName = undefined;
 }
 
 export const l10n = {
@@ -379,6 +487,14 @@ export const window = {
   showWarningMessage: show("warning"),
   showErrorMessage: show("error"),
   showInputBox: async () => testState.inputBox,
+  async showQuickPick<T extends { label: string }>(
+    items: T[],
+  ): Promise<T | undefined> {
+    testState.quickPicks.push(items);
+    return testState.pick?.(items) as T | undefined;
+  },
+  onDidChangeWindowState: (listener: (value: { focused: boolean }) => void) =>
+    testState.events.windowState.event(listener),
 };
 
 export const commands = {
@@ -394,6 +510,9 @@ export const commands = {
 };
 
 export const workspace = {
+  get workspaceFolders() {
+    return [{ uri: Uri.file(testState.workspaceRoot), name: "work", index: 0 }];
+  },
   asRelativePath(uri: Uri | string): string {
     const p = typeof uri === "string" ? uri : uri.path;
     const root = `${testState.workspaceRoot}/`;
@@ -404,8 +523,34 @@ export const workspace = {
     if (!document) throw new Error(`no document ${uri.path}`);
     return document;
   },
-  getConfiguration() {
-    return { get: () => undefined };
+  getConfiguration(section?: string) {
+    const full = (key: string) => (section ? `${section}.${key}` : key);
+    return {
+      get<T>(key: string, fallback?: T): T | undefined {
+        const value = testState.config[full(key)];
+        return value === undefined ? fallback : (value as T);
+      },
+      inspect(key: string) {
+        return { globalValue: testState.config[full(key)] };
+      },
+      async update(key: string, value: unknown) {
+        const name = full(key);
+        testState.config[name] = value;
+        testState.events.configuration.fire({
+          affectsConfiguration: (prefix: string) =>
+            name === prefix || name.startsWith(`${prefix}.`),
+        });
+      },
+    };
+  },
+  onDidChangeConfiguration: (
+    listener: (value: {
+      affectsConfiguration(section: string): boolean;
+    }) => void,
+  ) => testState.events.configuration.event(listener),
+  fs: {
+    isWritableFileSystem: (scheme: string) =>
+      testState.readOnlySchemes.includes(scheme) ? false : true,
   },
   onDidChangeTextDocument: (
     listener: (value: {
@@ -417,6 +562,25 @@ export const workspace = {
 
 export const languages = {
   getDiagnostics: () => testState.diagnostics,
+  /** Filtre `{ pattern }` seulement : 10 si le chemin du document y répond. */
+  match(
+    selector: { pattern?: string | RelativePattern },
+    document: TextDocument,
+  ): number {
+    const { pattern } = selector;
+    if (pattern === undefined) return 0;
+    const file = document.uri.path;
+    if (typeof pattern === "string") {
+      return globToRegExp(pattern).test(file) ? 10 : 0;
+    }
+    const base = `${pattern.baseUri.path.replace(/\/$/, "")}/`;
+    if (!file.startsWith(base)) return 0;
+    return globToRegExp(pattern.pattern).test(file.slice(base.length)) ? 10 : 0;
+  },
+  registerInlineCompletionItemProvider(selector: unknown, provider: unknown) {
+    testState.inlineProviders.push({ selector, provider });
+    return { dispose: () => {} };
+  },
 };
 
 export const extensions = {
@@ -430,6 +594,8 @@ export const extensions = {
 
 export const env = {
   language: "en",
+  /** Fenêtre distante (« wsl », « ssh-remote »…), sinon undefined. */
+  remoteName: undefined as string | undefined,
   appName: "Visual Studio Code",
   clipboard: {
     async writeText(text: string) {

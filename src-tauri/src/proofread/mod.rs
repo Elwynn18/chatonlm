@@ -232,6 +232,8 @@ pub async fn run(
     cancel: &Cancel,
     emit: &(dyn Fn(ProofreadEvent) + Send + Sync),
 ) -> Outcome {
+    // L'autocomplétion de l'éditeur attend pendant ce temps.
+    let _working = crate::gpu::activity::hold();
     Job {
         server,
         model,

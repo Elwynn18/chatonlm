@@ -244,7 +244,11 @@ describe("Tour", () => {
     const reveal = editor.revealed.at(-1);
     expect(reveal?.type).toBe(TextEditorRevealType.InCenter);
     expect([reveal?.range.start.line, reveal?.range.end.line]).toEqual([3, 5]);
-    const status = testState.statusItems[0];
+    // Item de la visite (l'autocomplétion a le sien).
+    const status = testState.statusItems.find(
+      (item) => item.command === "chatonlm.tourTogglePause",
+    );
+    if (!status) throw new Error("no tour status item");
     expect(status.visible).toBe(true);
     expect(status.text).toContain("ChatonLM tour 2/3");
     expect(status.command).toBe("chatonlm.tourTogglePause");
@@ -295,7 +299,11 @@ describe("Tour", () => {
     expect(tourOf(posted)?.status).toBe("paused");
     await until(() => fake.calls("speech.stop").length === 1);
     expect(fake.calls("speech.stop")[0]).toEqual({ readId: "r1" });
-    expect(testState.statusItems[0].text).toContain("2/3, paused");
+    expect(
+      testState.statusItems.find(
+        (item) => item.command === "chatonlm.tourTogglePause",
+      )?.text,
+    ).toContain("2/3, paused");
 
     // Reprise : le segment en cours est relu depuis son début.
     await controller.tourCommand("resume");
