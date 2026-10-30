@@ -40,7 +40,8 @@
     "favorite": "Favori",
     "source": {
       "telegram": "Conversation Telegram",
-      "discord": "Conversation Discord"
+      "discord": "Conversation Discord",
+      "vscode": "Conversation VS Code"
     },
     "addFavorite": "Ajouter aux favoris",
     "removeFavorite": "Retirer des favoris",

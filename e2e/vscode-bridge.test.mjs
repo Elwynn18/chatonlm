@@ -7,8 +7,14 @@
 //   nouvelle connexion se prouve dans les deux sens, l'éditeur apparaît
 //   « Connected » dans l'onglet ;
 // - chat.send : la réponse du modèle arrive en flux, la conversation apparaît
-//   dans la barre latérale sans rechargement ;
-// - « Remove » ferme la connexion et l'éditeur n'est plus reconnu ;
+//   dans la barre latérale sans rechargement, marquée « VS Code » ;
+// - chat.get rend la conversation, chat.list les seules conversations de
+//   l'éditeur (pas celle écrite dans l'app), models.details dit où tourne le
+//   modèle et son contexte, app.state si le serveur est sur la machine ;
+// - conversation éphémère de l'éditeur : hors de l'historique ; chat.keep la
+//   fait apparaître dans la barre latérale, chat.forget l'efface ;
+// - « Remove » ferme la connexion, efface l'éphémère restée de l'éditeur, et
+//   l'éditeur n'est plus reconnu ;
 // - coupé de nouveau : socket et bridge.json retirés ;
 // - aucune violation de la CSP ni erreur dans la console.
 import assert from "node:assert/strict";
@@ -82,6 +88,28 @@ const editors = (driver) =>
   driver.execute(
     `return [...document.querySelectorAll("[data-testid=vscode-editor]")].map((row) => row.textContent)`,
   );
+
+/** Envoie un message depuis la page ; rend la conversation créée, répondue. */
+async function sendFromPage(driver, text) {
+  const textarea = await driver.waitFor("textarea[aria-label='Message']");
+  await driver.type(textarea, text);
+  await driver.execute(
+    `document.querySelector("textarea[aria-label='Message']").dispatchEvent(
+       new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));`,
+  );
+  const id = await waitUntil(async () => {
+    const shown = await driver.execute("return location.pathname");
+    return shown.startsWith("/c/") && shown !== "/c/new" && shown.slice(3);
+  }, "conversation créée par la page");
+  await waitUntil(
+    () =>
+      driver.execute(
+        `return !!document.querySelector("button[aria-label='Send message']")`,
+      ),
+    "fin de la réponse",
+  );
+  return id;
+}
 
 const sidebarTitles = (driver) =>
   driver.execute(
@@ -168,6 +196,9 @@ try {
       // Conversation par le pont.
       const state = await client.request("app.state");
       assert.equal(state.result.selectedModel, MODEL);
+      // Faux Ollama sur 127.0.0.1 : sur cette machine ; contexte du serveur.
+      assert.equal(state.result.local, true, JSON.stringify(state));
+      assert.equal(state.result.contextLength, 0);
       const models = await client.request("models.list");
       assert.ok(Array.isArray(models.result), JSON.stringify(models));
       // La page est sur une conversation vide : la barre latérale suit
@@ -197,6 +228,108 @@ try {
       });
       assert.equal(chat.messages[0].content, "Hello from VS Code");
       assert.ok(chat.messages[1].content.length > 0);
+      // Une conversation écrite dans l'app, à côté : sans marque, et absente
+      // de chat.list.
+      const own = await sendFromPage(driver, "Hello from the app");
+      await waitUntil(
+        async () => (await sidebarTitles(driver)).length === 2,
+        "deux conversations dans la barre latérale",
+      );
+      // Marque « VS Code » devant son titre, et seulement devant le sien.
+      const marks = await waitUntil(async () => {
+        const found = await driver.execute(
+          `return [...document.querySelectorAll("a[href^='/c/']")]
+             .filter((a) => a.querySelector("[data-testid=chat-source]"))
+             .map((a) => {
+               const mark = a.querySelector("[data-testid=chat-source]");
+               return { href: a.getAttribute("href"), label: mark.getAttribute("aria-label"),
+                        title: mark.title, svg: !!mark.querySelector("svg") };
+             })`,
+        );
+        return found.length > 0 ? found : null;
+      }, "marque VS Code dans la barre latérale");
+      assert.deepEqual(marks, [
+        {
+          href: `/c/${sent.result.chatId}`,
+          label: "VS Code chat",
+          title: "VS Code chat",
+          svg: true,
+        },
+      ]);
+
+      // chat.get : la même conversation que la page lit.
+      const got = await client.request("chat.get", {
+        chatId: sent.result.chatId,
+      });
+      assert.equal(got.result?.id, sent.result.chatId, JSON.stringify(got));
+      assert.deepEqual(
+        got.result.messages.map((m) => [m.role, m.content]),
+        chat.messages.map((m) => [m.role, m.content]),
+      );
+      const unknown = await client.request("chat.get", { chatId: "nowhere" });
+      assert.equal(unknown.error?.code, -32020, JSON.stringify(unknown));
+
+      // chat.list : les conversations de l'éditeur seulement.
+      const listed = await client.request("chat.list");
+      assert.deepEqual(
+        listed.result?.map((c) => [c.id, c.source]),
+        [[sent.result.chatId, "vscode"]],
+        JSON.stringify(listed),
+      );
+      assert.ok(!listed.result.some((c) => c.id === own));
+
+      // models.details : modèle local, pas de cloud.
+      const details = await client.request("models.details", { model: MODEL });
+      assert.equal(details.result?.model, MODEL, JSON.stringify(details));
+      assert.equal(details.result.remote, false);
+      assert.ok(
+        "contextLength" in details.result,
+        "contexte employé (null : défaut du serveur)",
+      );
+
+      // Conversations éphémères de l'éditeur.
+      const exists = (id) =>
+        driver.invoke("get_chat", { id }).then(
+          () => true,
+          () => false,
+        );
+      const ephemeral = async (content) => {
+        const sent = await client.request("chat.send", {
+          content,
+          ephemeral: true,
+        });
+        assert.equal(sent.result?.outcome, "done", JSON.stringify(sent));
+        return sent.result.chatId;
+      };
+      const kept = await ephemeral("Keep me");
+      assert.equal(
+        (await driver.invoke("get_chat", { id: kept })).ephemeral,
+        true,
+      );
+      assert.equal((await sidebarTitles(driver)).length, 2, "hors historique");
+      const keep = await client.request("chat.keep", { chatId: kept });
+      assert.deepEqual(keep.result, {}, JSON.stringify(keep));
+      await waitUntil(
+        async () => (await sidebarTitles(driver)).length === 3,
+        "conversation gardée dans la barre latérale",
+      );
+      assert.ok(
+        (await client.request("chat.list")).result.some((c) => c.id === kept),
+      );
+      const refusedKeep = await client.request("chat.keep", { chatId: own });
+      assert.equal(refusedKeep.error?.code, -32020);
+      const forgotten = await ephemeral("Forget me");
+      const forget = await client.request("chat.forget", {
+        chatId: forgotten,
+      });
+      assert.deepEqual(forget.result, { forgotten: true });
+      assert.equal(await exists(forgotten), false, "effacée");
+      const notMine = await client.request("chat.forget", { chatId: own });
+      assert.deepEqual(notMine.result, { forgotten: false });
+      assert.equal(await exists(own), true);
+      // Restée ouverte dans l'éditeur : effacée au retrait.
+      const left = await ephemeral("Left open");
+      assert.equal(await exists(left), true);
 
       // Retrait : connexion fermée, éditeur oublié.
       await navigate(driver, "/settings?section=vscode");
@@ -212,6 +345,8 @@ try {
         async () => (await editors(driver)).length === 0,
         "éditeur retiré de l'onglet",
       );
+      assert.equal(await exists(left), false, "éphémère effacée au retrait");
+      assert.equal(await exists(kept), true, "conversation gardée intacte");
       const again = await BridgeClient.connect(discovery.endpoint);
       await again.initialize();
       const refused = await again.auth(clientId, secret);

@@ -49,8 +49,8 @@
 // main.tsx appelle dans l'app.
 // Easy Link : faux moteur de src/test/easyLink.ts (backend.easyLink) : deux
 // bots sans jeton, aucun compte lié, pas de code d'appairage. Une
-// conversation venue d'un bot porte sa messagerie (`source`, rendue par
-// list_chats ; null pour une conversation de l'app).
+// conversation venue d'un bot ou de l'extension VS Code porte son origine
+// (`source`, rendue par list_chats ; null pour une conversation de l'app).
 // Pont de l'extension VS Code : faux moteur de src/test/bridge.ts
 // (backend.bridge) : pont coupé, aucun éditeur appairé, pas de code.
 // Contexte (propre à ChatonLM) : les événements context et compacted
@@ -76,7 +76,7 @@ import type { HiddenHome } from "@/bindings/HiddenHome";
 import type { MenuEntryStatus } from "@/bindings/MenuEntryStatus";
 import type { ChatEvent } from "@/bindings/ChatEvent";
 import type { ChatInfo } from "@/bindings/ChatInfo";
-import type { EasyLinkPlatform } from "@/bindings/EasyLinkPlatform";
+import type { ChatSource } from "@/bindings/ChatSource";
 import type { Message } from "@/bindings/Message";
 import type { ModelDetails } from "@/bindings/ModelDetails";
 import type { ModelInfo } from "@/bindings/ModelInfo";
@@ -260,7 +260,7 @@ export type StoredChat = Omit<
   /** Conversation éphémère (absente : non). */
   ephemeral?: boolean;
   favorite?: boolean;
-  source?: EasyLinkPlatform | null;
+  source?: ChatSource | null;
 };
 
 export function modelInfo(model: string): ModelInfo {

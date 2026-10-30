@@ -33,9 +33,31 @@ pub struct ChatInfo {
     pub updated_at: i64,
     /// Rangée dans « Favorites », en tête de l'historique (propre à ChatonLM).
     pub favorite: bool,
-    /// Messagerie d'où vient la conversation (Easy Link, propre à ChatonLM) ;
-    /// absente : écrite dans l'app.
-    pub source: Option<Platform>,
+    /// D'où vient la conversation (bot d'Easy Link ou extension VS Code,
+    /// propre à ChatonLM) ; absente : écrite dans l'app.
+    pub source: Option<ChatSource>,
+}
+
+/// Origine d'une conversation venue d'ailleurs que l'app (propre à ChatonLM).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum ChatSource {
+    /// Bot Telegram d'Easy Link.
+    Telegram,
+    /// Bot Discord d'Easy Link.
+    Discord,
+    /// Extension ChatonLM pour VS Code (pont local).
+    Vscode,
+}
+
+impl From<Platform> for ChatSource {
+    fn from(platform: Platform) -> Self {
+        match platform {
+            Platform::Telegram => ChatSource::Telegram,
+            Platform::Discord => ChatSource::Discord,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -202,17 +224,41 @@ pub struct Compaction {
 /// Historique, de la plus récemment active à la plus ancienne ; sans les
 /// conversations éphémères.
 pub fn list(connection: &Connection) -> AppResult<Vec<ChatInfo>> {
-    let mut statement = connection.prepare(
+    infos(connection, "c.ephemeral = 0", -1)
+}
+
+/// Conversations ouvertes par l'extension VS Code (marquées par
+/// [`set_editor`]), de la plus récemment active à la plus ancienne, `limit`
+/// au plus ; sans les conversations éphémères.
+pub fn list_editor(connection: &Connection, limit: u32) -> AppResult<Vec<ChatInfo>> {
+    infos(
+        connection,
+        "c.ephemeral = 0 AND c.editor = 1",
+        i64::from(limit),
+    )
+}
+
+/// Entrées de l'historique qui vérifient `filter` (SQL écrit ici, jamais
+/// reçu), `limit` au plus (-1 : toutes).
+fn infos(connection: &Connection, filter: &str, limit: i64) -> AppResult<Vec<ChatInfo>> {
+    let mut statement = connection.prepare(&format!(
         "SELECT c.id, c.title, c.created_at, c.updated_at,
                 (SELECT m.content FROM messages m
                  WHERE m.chat_id = c.id AND m.role = 'user'
                  ORDER BY m.id LIMIT 1),
-                c.favorite, c.source
+                c.favorite, c.source, c.editor
          FROM chats c
-         WHERE c.ephemeral = 0
-         ORDER BY c.updated_at DESC, c.id DESC",
-    )?;
-    let rows = statement.query_map([], |row| {
+         WHERE {filter}
+         ORDER BY c.updated_at DESC, c.id DESC
+         LIMIT ?1"
+    ))?;
+    let rows = statement.query_map(params![limit], |row| {
+        // Valeur inconnue (base d'une version plus récente) : sans marque.
+        let platform = row
+            .get::<_, Option<String>>(6)?
+            .and_then(|source| easy_link::Platform::parse(&source))
+            .map(|platform| ChatSource::from(Platform::from(platform)));
+        let editor: bool = row.get(7)?;
         Ok(ChatInfo {
             id: row.get(0)?,
             title: row.get(1)?,
@@ -220,11 +266,11 @@ pub fn list(connection: &Connection) -> AppResult<Vec<ChatInfo>> {
             updated_at: row.get(3)?,
             user_excerpt: excerpt(&row.get::<_, Option<String>>(4)?.unwrap_or_default()),
             favorite: row.get(5)?,
-            // Valeur inconnue (base d'une version plus récente) : sans marque.
-            source: row
-                .get::<_, Option<String>>(6)?
-                .and_then(|source| easy_link::Platform::parse(&source))
-                .map(Platform::from),
+            source: if editor {
+                Some(ChatSource::Vscode)
+            } else {
+                platform
+            },
         })
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
@@ -639,6 +685,52 @@ pub fn set_source(connection: &Connection, id: &str, source: Platform) -> AppRes
         "UPDATE chats SET source = ?2 WHERE id = ?1",
         params![id, source.as_str()],
     )?;
+    Ok(())
+}
+
+/// Marque une conversation ouverte par l'extension VS Code (pont local).
+pub fn set_editor(connection: &Connection, id: &str) -> AppResult<()> {
+    connection.execute("UPDATE chats SET editor = 1 WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Conversation éphémère ouverte par l'extension VS Code ? Faux pour une
+/// conversation inconnue, ordinaire, ou qui n'est pas celle de l'éditeur.
+pub fn is_editor_ephemeral(connection: &Connection, id: &str) -> AppResult<bool> {
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM chats WHERE id = ?1 AND ephemeral = 1 AND editor = 1",
+            params![id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// [`forget`] restreint aux conversations de l'éditeur (pont VS Code) : le
+/// pont n'efface jamais une conversation de l'app ni d'un bot.
+pub fn forget_editor(connection: &Connection, id: &str) -> AppResult<bool> {
+    let deleted = connection.execute(
+        "DELETE FROM chats WHERE id = ?1 AND ephemeral = 1 AND editor = 1",
+        params![id],
+    )? > 0;
+    if deleted {
+        truncate_journal(connection);
+    }
+    Ok(deleted)
+}
+
+/// [`keep`] restreint aux conversations de l'éditeur : une autre (ou une
+/// inconnue) est introuvable pour lui. Rien à faire pour une conversation de
+/// l'éditeur déjà gardée.
+pub fn keep_editor(connection: &Connection, id: &str) -> AppResult<()> {
+    let changed = connection.execute(
+        "UPDATE chats SET ephemeral = 0 WHERE id = ?1 AND editor = 1",
+        params![id],
+    )?;
+    if changed == 0 {
+        return Err(not_found(id));
+    }
     Ok(())
 }
 
@@ -1345,6 +1437,60 @@ mod tests {
             })
             .unwrap();
         assert_eq!(counts, (1, 1));
+    }
+
+    /// Le pont VS Code n'efface ni ne garde que les conversations de
+    /// l'éditeur : jamais une conversation de l'app, éphémère ou non.
+    #[test]
+    fn the_editor_forgets_and_keeps_only_its_own_chats() {
+        let store = Store::open_in_memory().unwrap();
+        let (app, kept, forgotten, ordinary) = store
+            .blocking(|c| {
+                let app = create_with(c, NOW, true)?;
+                let kept = create_with(c, NOW, true)?;
+                let forgotten = create_with(c, NOW, true)?;
+                let ordinary = create_with(c, NOW, false)?;
+                for id in [&kept, &forgotten, &ordinary] {
+                    set_editor(c, id)?;
+                }
+                Ok((app, kept, forgotten, ordinary))
+            })
+            .unwrap();
+        let check = |id: &str| {
+            let id = id.to_owned();
+            store
+                .blocking(move |c| is_editor_ephemeral(c, &id))
+                .unwrap()
+        };
+        assert!(!check(&app), "an ephemeral chat of the app");
+        assert!(check(&kept) && check(&forgotten));
+        assert!(!check(&ordinary));
+        assert!(!check("unknown"));
+
+        let id = app.clone();
+        assert!(!store.blocking(move |c| forget_editor(c, &id)).unwrap());
+        let id = ordinary.clone();
+        assert!(!store.blocking(move |c| forget_editor(c, &id)).unwrap());
+        let id = forgotten.clone();
+        assert!(store.blocking(move |c| forget_editor(c, &id)).unwrap());
+        let id = forgotten.clone();
+        assert!(store.blocking(move |c| get(c, &id)).is_err());
+
+        let id = app.clone();
+        assert!(matches!(
+            store.blocking(move |c| keep_editor(c, &id)),
+            Err(AppError::NotFound(_))
+        ));
+        let id = app.clone();
+        assert!(store.blocking(move |c| get(c, &id)).unwrap().ephemeral);
+        let id = kept.clone();
+        store.blocking(move |c| keep_editor(c, &id)).unwrap();
+        let id = kept.clone();
+        assert!(!store.blocking(move |c| get(c, &id)).unwrap().ephemeral);
+        // Déjà gardée : rien à faire, pas d'erreur.
+        let id = kept.clone();
+        store.blocking(move |c| keep_editor(c, &id)).unwrap();
+        assert!(store.blocking(|c| keep_editor(c, "unknown")).is_err());
     }
 
     /// Aucune trace d'une conversation éphémère effacée ne reste sur le

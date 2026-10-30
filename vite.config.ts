@@ -167,6 +167,17 @@ export default defineConfig({
       "src/**/*.test.{ts,tsx}",
       "scripts/**/*.test.mjs",
       "site/**/*.test.mjs",
+      "vscode/**/*.test.{ts,tsx}",
+    ],
+    // Essais de l'hôte de l'extension VS Code : module « vscode » simulé.
+    alias: [
+      {
+        find: /^vscode$/,
+        replacement: path.resolve(
+          import.meta.dirname,
+          "vscode/src/test/vscode.ts",
+        ),
+      },
     ],
     setupFiles: ["src/test/setup.ts"],
     // Passés par Vite : CSS de KaTeX importée par Streamdown, alias llm-math

@@ -13,7 +13,9 @@
 //!   chaque connexion se prouve dans les deux sens ([`proof`]). Retirer un
 //!   éditeur ferme aussi ses connexions.
 //! - Par le pont, on converse et on lit l'état ; ni réglage, ni suppression,
-//!   ni téléchargement.
+//!   ni téléchargement. Seule exception : une conversation éphémère ouverte
+//!   par l'éditeur, qu'il efface en la quittant (`chat.forget`) ou garde
+//!   (`chat.keep`) ; retirer l'éditeur ou couper le pont l'efface aussi.
 //!
 //! Modèle de menace : un programme du même compte peut de toute façon lire
 //! les données de l'app ; l'appairage sert au consentement et à la
@@ -91,6 +93,35 @@ impl std::fmt::Display for OpenError {
             OpenError::InUse => f.write_str("another instance serves it"),
             OpenError::PathTooLong => f.write_str("the socket path is too long"),
             OpenError::Io(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+/// Après l'attente d'un client sur l'instance `next` d'un tube Windows
+/// (logique pure, essayée sous Linux) : client connecté, l'instance suivante
+/// est créée avant de rendre celle-ci (le nom n'est jamais libre entre deux
+/// clients) ; attente en échec (client parti avant `ConnectNamedPipe`,
+/// `ERROR_NO_DATA`), l'instance, inutilisable, est remplacée, sinon chaque
+/// nouvel essai échouerait sur elle et plus personne ne se connecterait.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn after_connect<P>(
+    next: &mut P,
+    connected: std::io::Result<()>,
+    create: impl FnOnce() -> std::io::Result<P>,
+) -> std::io::Result<P> {
+    match connected {
+        Ok(()) => {
+            let fresh = create()?;
+            Ok(std::mem::replace(next, fresh))
+        }
+        Err(error) => {
+            match create() {
+                Ok(fresh) => *next = fresh,
+                Err(again) => {
+                    eprintln!("ChatonLM: VS Code bridge pipe instance not replaced: {again}");
+                }
+            }
+            Err(error)
         }
     }
 }
@@ -241,8 +272,13 @@ pub(crate) struct Shared<H: Host> {
     next_connection: AtomicU64,
     /// Numéro des flux de conversation du pont.
     pub(crate) next_stream: AtomicU64,
-    /// Une commande de cycle de vie à la fois.
-    changing: tokio::sync::Mutex<()>,
+    /// Une commande de cycle de vie à la fois ; `auth` le prend aussi, pour
+    /// qu'un retrait ne croise jamais une authentification.
+    pub(crate) changing: tokio::sync::Mutex<()>,
+    /// Conversations éphémères ouvertes par l'éditeur : conversation →
+    /// éditeur. Effacées au retrait de l'éditeur et à la coupure du pont
+    /// (sinon par `chat.forget`, ou à la fin de l'app comme toute éphémère).
+    ephemerals: Mutex<HashMap<String, String>>,
     closed: AtomicBool,
 }
 
@@ -269,6 +305,7 @@ impl<H: Host> Bridge<H> {
             next_connection: AtomicU64::new(1),
             next_stream: AtomicU64::new(1),
             changing: tokio::sync::Mutex::new(()),
+            ephemerals: Mutex::new(HashMap::new()),
             closed: AtomicBool::new(false),
         }))
     }
@@ -306,6 +343,8 @@ impl<H: Host> Bridge<H> {
         } else {
             self.0.close();
             self.0.pairings.lock().cancel();
+            let chats = self.0.take_ephemerals(None);
+            self.0.erase_editor_chats(chats).await;
         }
         self.0.emit_now().await
     }
@@ -339,7 +378,8 @@ impl<H: Host> Bridge<H> {
         self.0.emit_now().await
     }
 
-    /// Oublie un éditeur et ferme ses connexions.
+    /// Oublie un éditeur, ferme ses connexions et efface ses conversations
+    /// éphémères (comme un compte délié d'Easy Link).
     pub async fn unlink(&self, client_id: String) -> AppResult<BridgeState> {
         let _changing = self.0.changing.lock().await;
         let id = client_id.clone();
@@ -348,6 +388,8 @@ impl<H: Host> Bridge<H> {
             .call(move |c| saved::remove_client(c, &id))
             .await?;
         self.0.close_client(&client_id);
+        let chats = self.0.take_ephemerals(Some(&client_id));
+        self.0.erase_editor_chats(chats).await;
         self.0.emit_now().await
     }
 
@@ -529,6 +571,66 @@ impl<H: Host> Shared<H> {
             .call(move |c| saved::touch_client(c, &id, now_ms()))
             .await;
         self.emit().await;
+    }
+
+    /// Conversation éphémère ouverte par `client` sur la connexion
+    /// `connection` : suivie, pour être effacée au retrait de l'éditeur ou à
+    /// la coupure du pont. Faux si la connexion est déjà fermée (retrait ou
+    /// coupure passés entre-temps, ou éditeur parti sans l'apprendre) : elle
+    /// n'est pas suivie et l'appelant l'efface lui-même.
+    ///
+    /// Sans course avec [`Self::take_ephemerals`] : le retrait ferme les
+    /// connexions avant de relever les conversations suivies ; une
+    /// conversation suivie avant ce relevé est effacée par lui, une suivie
+    /// après voit sa connexion fermée.
+    pub(crate) fn track_ephemeral(&self, connection: u64, client: &str, chat: &str) -> bool {
+        let mut ephemerals = self.ephemerals.lock();
+        let open = self
+            .connections
+            .lock()
+            .get(&connection)
+            .is_some_and(|open| !*open.close.borrow());
+        if open {
+            ephemerals.insert(chat.to_owned(), client.to_owned());
+        }
+        open
+    }
+
+    /// Conversation effacée ou gardée par l'éditeur : plus suivie.
+    pub(crate) fn untrack_ephemeral(&self, chat: &str) {
+        self.ephemerals.lock().remove(chat);
+    }
+
+    /// Relève les conversations éphémères suivies de `client` (toutes avec
+    /// `None`).
+    fn take_ephemerals(&self, client: Option<&str>) -> Vec<String> {
+        let mut ephemerals = self.ephemerals.lock();
+        let chats: Vec<String> = ephemerals
+            .iter()
+            .filter(|(_, owner)| client.is_none_or(|client| client == owner.as_str()))
+            .map(|(chat, _)| chat.clone())
+            .collect();
+        for chat in &chats {
+            ephemerals.remove(chat);
+        }
+        chats
+    }
+
+    /// Efface des conversations éphémères de l'éditeur, leur réponse arrêtée
+    /// et finie d'abord (comme `forget_chat` de la page). Un échec est
+    /// journalisé : la fin de l'app les effacera.
+    pub(crate) async fn erase_editor_chats(&self, chats: Vec<String>) {
+        for chat in chats {
+            self.host.engine().stop_chat(&chat).await;
+            let id = chat.clone();
+            if let Err(error) = self
+                .store
+                .call(move |c| crate::store::chats::forget_editor(c, &id))
+                .await
+            {
+                eprintln!("chatonlm: cannot erase an ephemeral editor chat: {error}");
+            }
+        }
     }
 
     /// Code tapé dans l'éditeur.

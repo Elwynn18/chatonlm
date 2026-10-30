@@ -1,0 +1,105 @@
+{
+  "header": {
+    "model": "Modèle",
+    "noModels": "Aucun modèle",
+    "newChat": "Nouvelle conversation",
+    "ephemeral": "Conversation éphémère",
+    "ephemeralOn": "Commencer une conversation éphémère",
+    "ephemeralOff": "Désactiver la conversation éphémère",
+    "chooseModel": "Choisir un modèle",
+    "cloudModel": "{model} (cloud)",
+    "keepThis": "Garder cette conversation"
+  },
+  "status": {
+    "connecting": "Connexion à ChatonLM…",
+    "connected": "Connecté à ChatonLM",
+    "notPaired": "Pas encore appairé avec ChatonLM",
+    "appClosed": "ChatonLM n'est pas lancé",
+    "bridgeOff": "Le lien avec VS Code est désactivé dans ChatonLM",
+    "incompatible": "Cette extension ne correspond pas à votre version de ChatonLM",
+    "error": "Impossible de joindre ChatonLM"
+  },
+  "screen": {
+    "openApp": "Ouvrir ChatonLM",
+    "appClosed": "Ouvrez ChatonLM pour converser avec vos modèles locaux depuis VS Code.",
+    "bridgeOff": "Activez le lien avec VS Code dans les paramètres de ChatonLM : Paramètres, onglet VS Code, Autoriser VS Code à se connecter.",
+    "notPaired": "Dans ChatonLM, ouvrez Paramètres, onglet VS Code, et choisissez Appairer un éditeur. Tapez ensuite le code qui s'y affiche.",
+    "pair": "Appairer",
+    "incompatible": "Mettez à jour ChatonLM et cette extension vers leurs dernières versions.",
+    "noModels": "Aucun modèle n'est encore installé dans ChatonLM. Téléchargez-en un pour commencer.",
+    "checkAgain": "Vérifier à nouveau"
+  },
+  "empty": {
+    "title": "Posez une question sur votre code",
+    "body": "Sélectionnez du code dans l'éditeur, puis choisissez une action ou posez une question. Rien n'est modifié dans vos fichiers."
+  },
+  "actions": {
+    "label": "Actions rapides",
+    "explain": "Expliquer",
+    "fix": "Corriger",
+    "tests": "Écrire des tests",
+    "commitMessage": "Message de commit"
+  },
+  "composer": {
+    "label": "Message à ChatonLM",
+    "placeholder": "Posez une question sur votre code",
+    "send": "Envoyer le message",
+    "stop": "Arrêter",
+    "ephemeral": "Conversation éphémère : elle n'apparaîtra pas dans l'historique de ChatonLM et sera effacée quand vous en commencerez une autre ou fermerez VS Code.",
+    "keep": "Garder",
+    "offMachineNewChat": "Ce modèle tourne hors de cet ordinateur : une nouvelle conversation a commencé, pour que le code de la précédente reste ici."
+  },
+  "reply": {
+    "writing": "Écriture d'une réponse…",
+    "loading": "Chargement du modèle…",
+    "download": "Téléchargement du modèle… {percent} %",
+    "compacting": "Compactage de la conversation…"
+  },
+  "receipt": {
+    "summary": "{items} · {tokens} · {destination}",
+    "summaryHistory": "{items} · {history} · {tokens} · {destination}",
+    "messageOnly": "votre message seulement",
+    "message": "votre message",
+    "history": {
+      "one": "+ {count} message précédent",
+      "other": "+ {count} messages précédents"
+    },
+    "items": {
+      "one": "{count} élément",
+      "other": "{count} éléments"
+    },
+    "tokens": {
+      "one": "~{count} token",
+      "other": "~{count} tokens"
+    },
+    "local": "reste sur cet ordinateur",
+    "cloud": "part dans le cloud",
+    "remote": "part vers un autre ordinateur",
+    "unknown": "peut quitter cet ordinateur",
+    "localDetail": "Le modèle tourne sur cet ordinateur : rien n'en sort.",
+    "cloudDetail": "Le modèle tourne dans le cloud : ce texte est envoyé par le réseau.",
+    "remoteDetail": "Le modèle tourne sur un autre ordinateur (emplacement réglé dans ChatonLM) : ce texte est envoyé par le réseau.",
+    "unknownDetail": "ChatonLM n'a pas pu dire où tourne le modèle : ce texte est traité comme s'il quittait cet ordinateur.",
+    "bestEffort": "Les secrets sont retirés au mieux, d'après des motifs connus : vérifiez ce que vous envoyez.",
+    "historyDetail": {
+      "one": "Part aussi, tel quel : {count} message précédent de cette conversation ({chars}).",
+      "other": "Partent aussi, tels quels : {count} messages précédents de cette conversation ({chars})."
+    },
+    "context": "Environ {percent} % du contexte du modèle ({size} tokens).",
+    "kind": {
+      "selection": "Sélection",
+      "file": "Fichier",
+      "diagnostic": "Problème",
+      "diff": "Modifications"
+    },
+    "line": "ligne {line}",
+    "lines": "lignes {start} à {end}",
+    "chars": {
+      "one": "{count} caractère",
+      "other": "{count} caractères"
+    },
+    "blocked": "Retiré avant l'envoi :",
+    "secretFile": "fichier qui peut contenir des secrets",
+    "secretValue": "ligne qui ressemble à un secret"
+  }
+}

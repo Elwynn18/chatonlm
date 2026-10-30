@@ -1,0 +1,10 @@
+<!-- Tête du chaton de ChatonLM (assets/logo.svg), d'une seule couleur pour la barre d'activité : rayures et yeux évidés. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="62 62 388 388" width="24" height="24">
+  <mask id="cutouts">
+    <rect x="62" y="62" width="388" height="388" fill="#fff"/>
+    <path d="M230 204V232M256 204V242M282 204V232" fill="none" stroke="#000" stroke-width="16" stroke-linecap="round"/>
+    <ellipse cx="192" cy="330" rx="23" ry="30" fill="#000"/>
+    <ellipse cx="320" cy="330" rx="23" ry="30" fill="#000"/>
+  </mask>
+  <path mask="url(#cutouts)" fill="#c5c5c5" d="M256 182C282 182 300 172 316 152L370 90C384 74 408 80 410 102L424 246C434 272 438 294 438 312C438 388 356 440 256 440C156 440 74 388 74 312C74 294 78 272 88 246L102 102C104 80 128 74 142 90L196 152C212 172 230 182 256 182Z"/>
+</svg>

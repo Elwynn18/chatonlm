@@ -115,7 +115,7 @@ pub(crate) async fn app_settings(store: &Store) -> AppResult<Settings> {
 
 /// Détails d'Ollama, plus ce que ChatonLM a observé : le modèle raisonne même
 /// avec `think: false`.
-async fn details(store: &Store, model: &str) -> AppResult<ModelDetails> {
+pub(crate) async fn details(store: &Store, model: &str) -> AppResult<ModelDetails> {
     let mut details = models::details(&server_url(store).await?, model).await?;
     let name = model.to_owned();
     details.always_thinks = store

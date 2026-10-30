@@ -6,6 +6,9 @@
   "license": "MIT",
   "author": "Elwynn18 and ChatonLM contributors",
   "type": "module",
+  "workspaces": [
+    "vscode"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

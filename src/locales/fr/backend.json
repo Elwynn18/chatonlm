@@ -365,7 +365,8 @@
   },
   "bridge": {
     "unavailable": "Le lien VS Code est indisponible : impossible d'ouvrir la base de données",
-    "off": "Activez d'abord le lien VS Code"
+    "off": "Activez d'abord le lien VS Code",
+    "tooLarge": "Cette conversation est trop longue pour s'ouvrir dans VS Code. Ouvrez-la dans ChatonLM."
   },
   "easyLink": {
     "tokenEmpty": "Collez d'abord le jeton du bot",

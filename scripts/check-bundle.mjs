@@ -7,8 +7,15 @@
 // revenir sans qu'aucun test ne le voie. Les sources (src/, index.html) ne
 // doivent pas utiliser la classe not-prose.
 //
+// Panneau de l'extension VS Code (--webview, vscode/dist/webview par défaut,
+// build de vscode/webview.vite.config.mts) : mêmes règles, sans index.html
+// (la page est écrite par l'hôte de l'extension) ; entrée index.js et feuille
+// index.css à noms fixes, rien de Tauri, aucune ressource distante, seuils
+// propres.
+//
 // Usage : node scripts/check-bundle.mjs [dossier du build, dist/ par défaut]
-import { readFileSync, readdirSync, statSync } from "node:fs";
+//         node scripts/check-bundle.mjs --webview [dossier du build]
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -154,6 +161,32 @@ const LIMITS = {
   woff2: 280_000,
 };
 
+/**
+ * Seuils du panneau VS Code, ≈ 10 % au-dessus du premier build (lot 1b,
+ * 30 octobre 2026) : entrée 1 091 010 o (React, rendu des réponses, les
+ * catalogues en/es/fr de toute l'app, chargés par src/i18n), surligneur
+ * 1 993 080 o, CSS 138 840 o (thème de l'app et classes de src/ et du
+ * panneau), woff2 256 168 o (KaTeX).
+ */
+export const WEBVIEW_LIMITS = {
+  jsEntry: 1_200_000,
+  highlighter: 2_200_000,
+  css: 153_000,
+  woff2: 280_000,
+};
+
+/** Entrée et feuille du panneau, à noms fixes : l'hôte les lit par leur nom. */
+export const WEBVIEW_ENTRY = "index.js";
+export const WEBVIEW_CSS = "index.css";
+
+/** Code de Tauri, absent du panneau (src/lib/appHost.ts remplacé au build). */
+const TAURI_MARKERS = ["__TAURI_INTERNALS__", "__TAURI__", "@tauri-apps"];
+
+/** Ressource distante : CSP du panneau sans réseau, rien ne doit en venir. */
+const REMOTE_CSS = /(?:url\(\s*["']?|@import\s+["'])(?:https?:)?\/\//i;
+const REMOTE_IMPORT =
+  /(?:\bimport\s*\(\s*|\bfrom\s*|\bimport\s*)["'`](?:https?:)?\/\//i;
+
 const LIMIT_LABELS = {
   jsEntry: "JS d'entrée",
   highlighter: "morceau du surligneur",
@@ -255,7 +288,7 @@ function formatBytes(bytes) {
  * lisibles, un par règle enfreinte), les mesures et ce qui a été trouvé ; ne
  * lève que si le dossier est illisible.
  */
-export function checkBundle(dist, { limits = LIMITS } = {}) {
+export function checkBundle(dist, { limits = LIMITS, entry: fixedEntry } = {}) {
   const errors = [];
   // Ordre alphabétique : même sortie quel que soit le système de fichiers.
   const files = walk(dist).sort();
@@ -303,14 +336,22 @@ export function checkBundle(dist, { limits = LIMITS } = {}) {
 
   // 3. index.html : script d'entrée, rien en ligne. Un <style> ferait
   //    ajouter par Tauri un nonce à style-src, et 'unsafe-inline' cesserait
-  //    de valoir pour les styles en ligne de KaTeX.
+  //    de valoir pour les styles en ligne de KaTeX. Entrée donnée (panneau
+  //    VS Code) : pas d'index.html.
   let entry = null;
   let preloaded = [];
   let html = "";
-  try {
-    html = read("index.html");
-  } catch {
-    errors.push("index.html introuvable dans le build");
+  if (fixedEntry !== undefined) {
+    entry = code.has(fixedEntry) ? fixedEntry : null;
+    if (!entry) {
+      errors.push(`Script d'entrée ${fixedEntry} introuvable dans le build`);
+    }
+  } else {
+    try {
+      html = read("index.html");
+    } catch {
+      errors.push("index.html introuvable dans le build");
+    }
   }
   if (html) {
     const src = /<script\b[^>]*\bsrc\s*=\s*["']([^"']+\.js)["']/i.exec(html);
@@ -467,6 +508,44 @@ export function checkBundle(dist, { limits = LIMITS } = {}) {
   };
 }
 
+/**
+ * Build du panneau de l'extension VS Code : les règles de checkBundle (entrée
+ * index.js, seuils propres), plus la feuille index.css, rien de Tauri et
+ * aucune ressource distante. Renvoie comme checkBundle.
+ */
+export function checkWebviewBundle(dist, { limits = WEBVIEW_LIMITS } = {}) {
+  const result = checkBundle(dist, { limits, entry: WEBVIEW_ENTRY });
+  const errors = [...result.errors];
+  const files = walk(dist);
+  const read = (file) => readFileSync(path.join(dist, file), "utf8");
+  if (!files.includes(WEBVIEW_CSS)) {
+    errors.push(
+      `Feuille ${WEBVIEW_CSS} introuvable : l'hôte de l'extension la lit sous ce nom (assetFileNames de vscode/webview.vite.config.mts)`,
+    );
+  }
+  const js = files.filter((file) => file.endsWith(".js"));
+  const tauri = js.filter((file) =>
+    TAURI_MARKERS.some((marker) => read(file).includes(marker)),
+  );
+  if (tauri.length > 0) {
+    errors.push(
+      `Code de Tauri dans le panneau (alias @/lib/appHost de vscode/webview.vite.config.mts ?) : ${list(tauri)}`,
+    );
+  }
+  const remote = [
+    ...files
+      .filter((file) => file.endsWith(".css"))
+      .filter((file) => REMOTE_CSS.test(read(file))),
+    ...js.filter((file) => REMOTE_IMPORT.test(read(file))),
+  ];
+  if (remote.length > 0) {
+    errors.push(
+      `Ressource distante dans le panneau (la CSP n'autorise que les fichiers de l'extension) : ${list(remote)}`,
+    );
+  }
+  return { ...result, errors };
+}
+
 /** Sources de l'app lues par checkSources. */
 const SOURCE_EXTENSIONS = new Set([
   ".ts",
@@ -479,15 +558,20 @@ const SOURCE_EXTENSIONS = new Set([
 ]);
 
 /**
- * Sources de l'app (src/ et index.html du dossier `base`) : aucune classe
- * not-prose, que le retrait de la garde de typography rendrait sans effet.
- * Renvoie les erreurs.
+ * Sources de l'app (src/ et index.html du dossier `base`) et du panneau VS
+ * Code (vscode/webview, s'il existe) : aucune classe not-prose, que le
+ * retrait de la garde de typography rendrait sans effet. Renvoie les erreurs.
  */
 export function checkSources(base) {
+  const under = (dir) =>
+    existsSync(path.join(base, dir))
+      ? walk(path.join(base, dir))
+          .sort()
+          .map((file) => `${dir}/${file}`)
+      : [];
   const files = [
-    ...walk(path.join(base, "src"))
-      .sort()
-      .map((file) => `src/${file}`),
+    ...under("src"),
+    ...under("vscode/webview"),
     "index.html",
   ].filter((file) => SOURCE_EXTENSIONS.has(path.extname(file)));
   const hits = files.flatMap((file) => {
@@ -509,13 +593,22 @@ export function checkSources(base) {
 }
 
 function main() {
-  const dist = path.resolve(process.argv[2] ?? path.join(root, "dist"));
+  const args = process.argv.slice(2);
+  const webview = args[0] === "--webview";
+  if (webview) args.shift();
+  const dist = path.resolve(
+    args[0] ?? path.join(root, webview ? "vscode/dist/webview" : "dist"),
+  );
   let result;
   try {
-    result = checkBundle(dist);
+    result = webview ? checkWebviewBundle(dist) : checkBundle(dist);
   } catch (error) {
     console.error(`Build illisible (${dist}) : ${error.message}`);
-    console.error("Lancer d'abord vite build.");
+    console.error(
+      webview
+        ? "Lancer d'abord vite build -c vscode/webview.vite.config.mts."
+        : "Lancer d'abord vite build.",
+    );
     process.exit(1);
   }
   const { measures, packages, scopes, js } = result;

@@ -2,11 +2,16 @@
 //!
 //! Avant l'authentification, seulement `initialize`, `pair` et `auth`, et
 //! cinq secondes pour s'authentifier. Ensuite : `ping`, `app.state`,
-//! `models.list`, `chat.send` (flux en notifications `chat.event`), et
-//! `$/cancelRequest` pour arrêter un envoi. Chaque requête authentifiée tourne
-//! dans sa tâche : la lecture continue (annulation possible pendant un flux).
-//! Une connexion fermée n'arrête pas un envoi en cours : il s'enregistre,
-//! comme celui d'un bot.
+//! `models.list`, `models.details`, `chat.send` (flux en notifications
+//! `chat.event`), `chat.get`, `chat.list`, `chat.forget` et `chat.keep` (une
+//! éphémère de l'éditeur seulement), et `$/cancelRequest` pour arrêter un
+//! envoi, même pas encore commencé. Une conversation ouverte par l'éditeur
+//! est marquée « VS Code ». Chaque requête authentifiée tourne dans sa
+//! tâche : la lecture continue (annulation possible pendant un flux). Une
+//! connexion fermée n'arrête pas un envoi en cours : il s'enregistre, comme
+//! celui d'un bot (sauf dans une conversation éphémère, alors effacée).
+//! Aucun message écrit ne dépasse la trame ([`frame::MAX_BODY`]) : une
+//! réponse trop grosse devient un refus.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,8 +29,12 @@ use super::proof::{self, PairError};
 use super::{Host, Io, PROTOCOL, STREAM_PREFIX, Shared};
 use crate::chat::stream::Think;
 use crate::chat::{self, ChatEvent, Origin, SendRequest, Server};
+use crate::i18n::t;
 use crate::store::bridge::{self as saved, Client};
-use crate::store::{model_prefs, now_ms};
+use crate::store::{chats, model_prefs, now_ms};
+
+/// Conversations de l'éditeur rendues par `chat.list`, au plus.
+pub const LISTED_CHATS: u32 = 50;
 
 /// Délai pour s'authentifier après l'ouverture.
 pub const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
@@ -51,12 +60,27 @@ pub mod code {
 struct Outbox(mpsc::UnboundedSender<Vec<u8>>);
 
 impl Outbox {
-    fn send(&self, value: &Value) {
-        let _ = self.0.send(frame::encode(value.to_string().as_bytes()));
+    /// Faux si le message dépasse la trame : rien n'est écrit (l'éditeur
+    /// fermerait la connexion, et la relirait en boucle).
+    fn send(&self, value: &Value) -> bool {
+        let body = value.to_string();
+        if body.len() > frame::MAX_BODY {
+            return false;
+        }
+        let _ = self.0.send(frame::encode(body.as_bytes()));
+        true
     }
 
+    /// Réponse ; trop grosse pour la trame, un refus à la place.
     fn result(&self, id: &Value, result: Value) {
-        self.send(&json!({ "jsonrpc": "2.0", "id": id, "result": result }));
+        if !self.send(&json!({ "jsonrpc": "2.0", "id": id, "result": result })) {
+            self.error(
+                id,
+                code::REFUSED,
+                "too large",
+                Some(json!({ "message": t!("bridge.tooLarge") })),
+            );
+        }
     }
 
     fn error(&self, id: &Value, code: i64, message: &str, data: Option<Value>) {
@@ -67,8 +91,12 @@ impl Outbox {
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "error": error }));
     }
 
+    /// Notification ; trop grosse pour la trame, elle est perdue (la
+    /// conversation se relit par `chat.get`).
     fn notify(&self, method: &str, params: Value) {
-        self.send(&json!({ "jsonrpc": "2.0", "method": method, "params": params }));
+        if !self.send(&json!({ "jsonrpc": "2.0", "method": method, "params": params })) {
+            eprintln!("chatonlm: a {method} notification is too large for the bridge");
+        }
     }
 }
 
@@ -81,8 +109,44 @@ struct Session {
     client: Option<String>,
 }
 
-/// Flux de conversation en cours, par identifiant de requête.
-type Running = Arc<Mutex<HashMap<String, String>>>;
+/// Envoi demandé par l'éditeur, inscrit dès sa lecture (avant toute attente).
+struct Pending {
+    /// Flux du moteur.
+    stream: String,
+    /// `$/cancelRequest` reçu : l'envoi s'arrête même si le moteur ne l'a pas
+    /// encore commencé.
+    cancelled: bool,
+}
+
+/// Envois en cours, par identifiant de requête.
+type Running = Arc<Mutex<HashMap<String, Pending>>>;
+
+/// Retire un envoi de [`Running`] quand il finit, quelle que soit l'issue.
+struct Registered<'a> {
+    running: &'a Running,
+    key: String,
+}
+
+impl Registered<'_> {
+    fn cancelled(&self) -> bool {
+        self.running
+            .lock()
+            .get(&self.key)
+            .is_some_and(|pending| pending.cancelled)
+    }
+
+    fn cancel(&self) {
+        if let Some(pending) = self.running.lock().get_mut(&self.key) {
+            pending.cancelled = true;
+        }
+    }
+}
+
+impl Drop for Registered<'_> {
+    fn drop(&mut self) {
+        self.running.lock().remove(&self.key);
+    }
+}
 
 pub(super) async fn serve<H: Host>(
     shared: &Arc<Shared<H>>,
@@ -167,9 +231,12 @@ async fn handle<H: Host>(
     if method == "$/cancelRequest" {
         if session.client.is_some()
             && let Some(id) = params.get("id")
-            && let Some(stream) = running.lock().get(&id.to_string())
+            && let Some(pending) = running.lock().get_mut(&id.to_string())
         {
-            shared.host.engine().cancel(stream);
+            // Sans effet sur le moteur avant `begin` : le drapeau prend le
+            // relais (voir `chat_send`).
+            pending.cancelled = true;
+            shared.host.engine().cancel(&pending.stream);
         }
         return;
     }
@@ -184,14 +251,41 @@ async fn handle<H: Host>(
             out.error(&id, code::UNAUTHENTICATED, "not authenticated", None);
         }
         "ping" => out.result(&id, json!({})),
-        "app.state" | "models.list" | "chat.send" => {
+        "chat.send" => {
+            // Inscrit avant toute attente : un `$/cancelRequest` lu juste
+            // après le trouve.
+            let number = shared.next_stream.fetch_add(1, Ordering::SeqCst);
+            let stream = format!("{STREAM_PREFIX}{connection}:{number}");
+            running.lock().insert(
+                id.to_string(),
+                Pending {
+                    stream: stream.clone(),
+                    cancelled: false,
+                },
+            );
+            let sender = Sender {
+                connection,
+                client: session.client.clone().unwrap_or_default(),
+                stream,
+            };
             let (shared, out, running) = (Arc::clone(shared), out.clone(), Arc::clone(running));
+            tauri::async_runtime::spawn(async move {
+                chat_send(&shared, sender, &running, &out, &id, params).await;
+            });
+        }
+        "app.state" | "models.list" | "models.details" | "chat.get" | "chat.list"
+        | "chat.forget" | "chat.keep" => {
+            let (shared, out) = (Arc::clone(shared), out.clone());
             let method = method.to_owned();
             tauri::async_runtime::spawn(async move {
                 match method.as_str() {
                     "app.state" => app_state(&shared, &out, &id).await,
                     "models.list" => models_list(&shared, &out, &id).await,
-                    _ => chat_send(&shared, connection, &running, &out, &id, params).await,
+                    "models.details" => models_details(&shared, &out, &id, params).await,
+                    "chat.get" => chat_get(&shared, &out, &id, params).await,
+                    "chat.list" => chat_list(&shared, &out, &id).await,
+                    "chat.forget" => chat_forget(&shared, &out, &id, params).await,
+                    _ => chat_keep(&shared, &out, &id, params).await,
                 }
             });
         }
@@ -351,6 +445,10 @@ async fn auth<H: Host>(
     let Ok(params) = serde_json::from_value::<AuthParams>(params) else {
         return invalid(out, id);
     };
+    // Lecture de l'éditeur et marque de la connexion d'un seul tenant face à
+    // un retrait (`Bridge::unlink`) : retiré avant, l'éditeur est inconnu ;
+    // après, la connexion déjà marquée est fermée par lui.
+    let _changing = shared.changing.lock().await;
     let client_id = params.client_id.clone();
     let client = match shared
         .store
@@ -395,6 +493,9 @@ fn refused(out: &Outbox, id: &Value, error: &crate::error::AppError) {
     );
 }
 
+/// État de l'app, plus `local` : le serveur Ollama visé est sur cette
+/// machine (adresse de bouclage ; l'Ollama intégré en est une), et
+/// `contextLength` : contexte réglé (0 = défaut du serveur).
 async fn app_state<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value) {
     match crate::ollama::target::request_settings(&shared.store).await {
         Ok(settings) => out.result(
@@ -404,10 +505,17 @@ async fn app_state<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value) {
                 "platform": platform(),
                 "selectedModel": settings.selected_model,
                 "language": crate::i18n::current().code(),
+                "local": is_local(&settings.effective_server_url),
+                "contextLength": settings.context_length,
             }),
         ),
         Err(error) => refused(out, id, &error),
     }
+}
+
+/// Adresse sur cette machine (illisible : non, par prudence).
+fn is_local(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|url| crate::ollama::client::is_local(&url))
 }
 
 async fn models_list<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value) {
@@ -417,6 +525,127 @@ async fn models_list<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value)
     };
     match listed {
         Ok(models) => out.result(id, json!(models)),
+        Err(error) => refused(out, id, &error),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DetailsParams {
+    model: String,
+}
+
+/// Détails d'un modèle, comme `model_details` de la page, plus `remote` :
+/// le modèle tourne ailleurs (cloud), ce que l'extension dit avant d'envoyer ;
+/// et `contextLength` : contexte que le moteur emploiera pour lui (même
+/// calcul que l'envoi : réglage borné par le maximum du modèle, sinon celui
+/// du modèle chargé ; `null` si inconnu, et pour un modèle du cloud).
+async fn models_details<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value, params: Value) {
+    let Ok(params) = serde_json::from_value::<DetailsParams>(params) else {
+        return invalid(out, id);
+    };
+    let settings = match crate::ollama::target::request_settings(&shared.store).await {
+        Ok(settings) => settings,
+        Err(error) => return refused(out, id, &error),
+    };
+    match crate::commands::models::details(&shared.store, &params.model).await {
+        Ok(details) => {
+            let server = Server::from_settings(&settings);
+            let context = chat::context_size(&server, &params.model, Some(&details)).await;
+            let mut result = json!(details);
+            result["remote"] = json!(details.remote);
+            result["contextLength"] = json!(context);
+            out.result(id, result);
+        }
+        Err(error) => refused(out, id, &error),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChatParams {
+    chat_id: String,
+}
+
+/// Conversation complète, comme `get_chat` de la page : la réponse en cours y
+/// est superposée. Inconnue : refus du moteur.
+async fn chat_get<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value, params: Value) {
+    let Ok(params) = serde_json::from_value::<ChatParams>(params) else {
+        return invalid(out, id);
+    };
+    let chat_id = params.chat_id;
+    match shared.store.call(move |c| chats::get(c, &chat_id)).await {
+        Ok(mut chat) => {
+            shared.host.engine().overlay(&mut chat);
+            out.result(id, json!(chat));
+        }
+        Err(error) => refused(out, id, &error),
+    }
+}
+
+/// Conversation éphémère quittée par l'éditeur : effacée si elle est
+/// éphémère et à lui (sa réponse arrêtée et finie d'abord), sinon rien
+/// (`forgotten: false`).
+async fn chat_forget<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value, params: Value) {
+    let Ok(params) = serde_json::from_value::<ChatParams>(params) else {
+        return invalid(out, id);
+    };
+    let chat = params.chat_id;
+    let checked = chat.clone();
+    let ephemeral = match shared
+        .store
+        .call(move |c| chats::is_editor_ephemeral(c, &checked))
+        .await
+    {
+        Ok(ephemeral) => ephemeral,
+        Err(error) => return refused(out, id, &error),
+    };
+    if !ephemeral {
+        return out.result(id, json!({ "forgotten": false }));
+    }
+    shared.untrack_ephemeral(&chat);
+    shared.host.engine().stop_chat(&chat).await;
+    match shared
+        .store
+        .call(move |c| chats::forget_editor(c, &chat))
+        .await
+    {
+        Ok(forgotten) => out.result(id, json!({ "forgotten": forgotten })),
+        Err(error) => refused(out, id, &error),
+    }
+}
+
+/// « Keep » d'une conversation éphémère de l'éditeur : elle passe dans
+/// l'historique (la page l'apprend). Une conversation qui n'est pas à
+/// l'éditeur est refusée.
+async fn chat_keep<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value, params: Value) {
+    let Ok(params) = serde_json::from_value::<ChatParams>(params) else {
+        return invalid(out, id);
+    };
+    let chat = params.chat_id;
+    let kept = chat.clone();
+    match shared
+        .store
+        .call(move |c| chats::keep_editor(c, &kept))
+        .await
+    {
+        Ok(()) => {
+            shared.untrack_ephemeral(&chat);
+            shared.host.chat_updated(&chat);
+            out.result(id, json!({}));
+        }
+        Err(error) => refused(out, id, &error),
+    }
+}
+
+/// Conversations ouvertes par l'éditeur, récentes d'abord.
+async fn chat_list<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value) {
+    match shared
+        .store
+        .call(|c| chats::list_editor(c, LISTED_CHATS))
+        .await
+    {
+        Ok(listed) => out.result(id, json!(listed)),
         Err(error) => refused(out, id, &error),
     }
 }
@@ -435,14 +664,25 @@ struct SendParams {
     think: Option<Think>,
 }
 
+/// Qui envoie : connexion, éditeur authentifié, flux du moteur.
+struct Sender {
+    connection: u64,
+    client: String,
+    stream: String,
+}
+
 async fn chat_send<H: Host>(
     shared: &Arc<Shared<H>>,
-    connection: u64,
+    sender: Sender,
     running: &Running,
     out: &Outbox,
     id: &Value,
     params: Value,
 ) {
+    let registered = Registered {
+        running,
+        key: id.to_string(),
+    };
     let Ok(params) = serde_json::from_value::<SendParams>(params) else {
         return invalid(out, id);
     };
@@ -467,13 +707,18 @@ async fn chat_send<H: Host>(
                 .flatten()
         }
     };
-    let number = shared.next_stream.fetch_add(1, Ordering::SeqCst);
-    let stream_id = format!("{STREAM_PREFIX}{connection}:{number}");
-    let key = id.to_string();
-    running.lock().insert(key.clone(), stream_id.clone());
+    // Arrêt demandé pendant la préparation (démarrage de l'Ollama intégré
+    // attendu par `request_settings`) : rien n'est envoyé ni écrit.
+    if registered.cancelled() {
+        return out.result(
+            id,
+            json!({ "chatId": params.chat_id, "outcome": "cancelled" }),
+        );
+    }
+    let ephemeral = params.chat_id.is_none() && params.ephemeral == Some(true);
     let request = SendRequest {
         chat_id: params.chat_id.clone(),
-        stream_id,
+        stream_id: sender.stream.clone(),
         content: params.content,
         model,
         think,
@@ -485,43 +730,80 @@ async fn chat_send<H: Host>(
         image: None,
         ephemeral: params.ephemeral,
     };
-    let chat_id = Mutex::new(params.chat_id);
-    let outcome = Mutex::new("done");
-    let sink = |event: ChatEvent| {
-        match &event {
-            ChatEvent::ChatCreated { chat_id: created } => {
-                *chat_id.lock() = Some(created.clone());
-                shared.host.chat_updated(created);
-            }
-            ChatEvent::UserMessage { .. } | ChatEvent::Done { .. } => {
-                if let Some(chat) = chat_id.lock().as_deref() {
-                    shared.host.chat_updated(chat);
-                }
-            }
-            ChatEvent::Error { .. } => *outcome.lock() = "error",
-            ChatEvent::Cancelled => *outcome.lock() = "cancelled",
-            _ => {}
-        }
-        out.notify("chat.event", json!({ "requestId": id, "event": event }));
+    // Les évènements passent par un canal : une conversation créée est
+    // marquée dans la base (écriture attendue, hors du flux du moteur) avant
+    // que la page l'apprenne.
+    let (events, mut received) = mpsc::unbounded_channel::<ChatEvent>();
+    let sending = async move {
+        let sink = move |event: ChatEvent| {
+            let _ = events.send(event);
+        };
+        chat::send_to(
+            &shared.store,
+            shared.host.engine(),
+            &shared.staging,
+            Server::from_settings(&settings),
+            request,
+            Origin::Bridge,
+            &sink,
+        )
+        .await
     };
-    let sent = chat::send_to(
-        &shared.store,
-        shared.host.engine(),
-        &shared.staging,
-        Server::from_settings(&settings),
-        request,
-        Origin::Bridge,
-        &sink,
-    )
-    .await;
-    running.lock().remove(&key);
+    let relaying = async {
+        let mut chat_id = params.chat_id;
+        let mut outcome = "done";
+        // Conversation éphémère dont l'éditeur est déjà parti : effacée à la
+        // fin de l'envoi, arrêté.
+        let mut erase = false;
+        while let Some(event) = received.recv().await {
+            match &event {
+                ChatEvent::ChatCreated { chat_id: created } => {
+                    let marked = created.clone();
+                    if let Err(error) = shared
+                        .store
+                        .call(move |c| chats::set_editor(c, &marked))
+                        .await
+                    {
+                        eprintln!("chatonlm: cannot mark an editor chat: {error}");
+                    }
+                    if ephemeral
+                        && !shared.track_ephemeral(sender.connection, &sender.client, created)
+                    {
+                        erase = true;
+                        registered.cancel();
+                    }
+                    chat_id = Some(created.clone());
+                    shared.host.chat_updated(created);
+                }
+                ChatEvent::UserMessage { .. } | ChatEvent::Done { .. } => {
+                    if let Some(chat) = chat_id.as_deref() {
+                        shared.host.chat_updated(chat);
+                    }
+                }
+                ChatEvent::Error { .. } => outcome = "error",
+                ChatEvent::Cancelled => outcome = "cancelled",
+                _ => {}
+            }
+            // Tout évènement autre que `chatCreated` suit `begin` : un arrêt
+            // demandé avant (sans effet sur le moteur alors) est rejoué.
+            if !matches!(event, ChatEvent::ChatCreated { .. }) && registered.cancelled() {
+                shared.host.engine().cancel(&sender.stream);
+            }
+            out.notify("chat.event", json!({ "requestId": id, "event": event }));
+        }
+        (chat_id, outcome, erase)
+    };
+    let (sent, (chat_id, outcome, erase)) = tokio::join!(sending, relaying);
+    drop(registered);
+    if erase && let Some(chat) = chat_id.clone() {
+        shared.erase_editor_chats(vec![chat]).await;
+    }
     match sent {
         Ok(()) => {
-            let chat_id = chat_id.lock().clone();
             if let Some(chat) = &chat_id {
                 shared.host.chat_updated(chat);
             }
-            out.result(id, json!({ "chatId": chat_id, "outcome": *outcome.lock() }));
+            out.result(id, json!({ "chatId": chat_id, "outcome": outcome }));
         }
         Err(error) => refused(out, id, &error),
     }

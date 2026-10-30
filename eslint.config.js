@@ -15,12 +15,19 @@ const JSX_CHILD = ":matches(JSXElement, JSXFragment) > JSXExpressionContainer";
 const BRANCH = ":matches(ConditionalExpression, LogicalExpression)";
 /** Chaîne avec des lettres qui n'est pas une clé de traduction. */
 const UI_TEXT =
-  "/^(?!(common|chat|settings|dictation|hub)[.][A-Za-z]).*[A-Za-z]{2,}/s";
+  "/^(?!(common|chat|settings|dictation|hub|vscode)[.][A-Za-z]).*[A-Za-z]{2,}/s";
+
+/** Appel qui montre un texte dans VS Code (hôte de l'extension). */
+const VSCODE_SHOW =
+  "CallExpression[callee.property.name=/^show(Information|Warning|Error)Message$/]";
+/** Propriétés d'options de VS Code qui portent un texte montré. */
+const VSCODE_TEXT_PROPS = "/^(title|prompt|placeHolder|tooltip|label|detail)$/";
 
 export default defineConfig([
   globalIgnores([
     ".tools/",
     "dist/",
+    "vscode/dist/",
     "site/dist/",
     "src-tauri/",
     "src/bindings/",
@@ -50,8 +57,8 @@ export default defineConfig([
   {
     // Textes de l'interface : toujours par t() (src/i18n), dans les trois
     // langues (src/locales/*). Les essais peuvent écrire du texte en dur.
-    files: ["src/**/*.tsx"],
-    ignores: ["src/**/*.test.tsx", "src/test/**"],
+    files: ["src/**/*.tsx", "vscode/webview/**/*.tsx"],
+    ignores: ["src/**/*.test.tsx", "src/test/**", "vscode/**/*.test.tsx"],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -89,6 +96,31 @@ export default defineConfig([
           ].join(", "),
           message:
             "Texte d'interface en dur dans une expression JSX : passer par t() (src/i18n).",
+        },
+      ],
+    },
+  },
+  {
+    // Hôte de l'extension VS Code : Node, textes par vscode.l10n.t (anglais
+    // = clé, traductions dans vscode/l10n/bundle.l10n.{es,fr}.json).
+    files: ["vscode/src/**/*.ts"],
+    languageOptions: { globals: globals.node },
+  },
+  {
+    files: ["vscode/src/**/*.ts"],
+    ignores: ["vscode/src/**/*.test.ts", "vscode/src/test/**"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: `${VSCODE_SHOW} > :matches(Literal, TemplateLiteral)`,
+          message:
+            "Texte montré en dur : passer par vscode.l10n.t et l'écrire dans vscode/l10n (es, fr).",
+        },
+        {
+          selector: `Property[key.name=${VSCODE_TEXT_PROPS}] > :matches(Literal[value=/[A-Za-z]{2,}/], TemplateLiteral)`,
+          message:
+            "Texte montré en dur : passer par vscode.l10n.t et l'écrire dans vscode/l10n (es, fr).",
         },
       ],
     },

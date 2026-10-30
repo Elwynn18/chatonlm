@@ -95,6 +95,13 @@ packaging_files() {
   fi
 }
 
+vscode_extension() {
+  # Hôte de l'extension (Node, CommonJS : vscode/dist/extension.cjs), puis
+  # panneau (React : vscode/dist/webview/), lu par l'hôte sous des noms fixes.
+  bin vite build -c vscode/vite.extension.config.mts &&
+    bin vite build -c vscode/webview.vite.config.mts
+}
+
 # Conditions réelles : l'instance Ollama de test (port 11435, jamais le service
 # du système) sert aux contrats, à e2e/real-ollama.test.mjs et à
 # e2e/real-voice-mode.test.mjs (un tour du mode vocal avec qwen3:0.6b, latence
@@ -181,6 +188,9 @@ real_app_checks() {
   # vérifié à l'écran et tests WebDriver dans la vraie webview.
   local binary test
   binary="$(scripts/e2e-build.sh)" || return 1
+  # VSCodium épinglé (packaging/vscodium.env) pour l'essai de l'extension
+  # dans un vrai éditeur (e2e/vscode-extension.test.mjs).
+  scripts/fetch-vscodium.sh >/dev/null || return 1
   scripts/e2e-session.sh e2e/launch.sh "$binary" check-launch >/dev/null || return 1
   for test in e2e/*.test.mjs; do
     # Mises à jour : AppImages d'essai à part (update_checks).
@@ -234,6 +244,8 @@ if [ -d src/bindings ] || [ -d src/test/fixtures ]; then
 fi
 step "Build du frontend" bin vite build
 step "Contenu du bundle" node scripts/check-bundle.mjs
+step "Extension VS Code (hôte et panneau)" vscode_extension
+step "Contenu du panneau de l'extension" node scripts/check-bundle.mjs --webview vscode/dist/webview
 step "Licences Rust" cargo deny --manifest-path "$manifest" check licenses
 step "Licences npm (paquets embarqués)" node scripts/check-npm-licenses.mjs
 step "Attribution Ollama" node scripts/check-headers.mjs

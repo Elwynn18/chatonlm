@@ -1,0 +1,142 @@
+{
+  "name": "chatonlm",
+  "displayName": "ChatonLM",
+  "description": "%extension.description%",
+  "version": "0.1.0",
+  "publisher": "chatonlm",
+  "private": true,
+  "license": "MIT",
+  "author": "Elwynn18 and ChatonLM contributors",
+  "homepage": "https://chatonlm.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Elwynn18/chatonlm"
+  },
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.cjs",
+  "l10n": "./l10n",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "chatonlm",
+          "title": "ChatonLM",
+          "icon": "media/chatonlm.svg"
+        }
+      ]
+    },
+    "views": {
+      "chatonlm": [
+        {
+          "type": "webview",
+          "id": "chatonlm.chat",
+          "name": "%view.chat%"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "chatonlm.pair",
+        "title": "%command.pair%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.unpair",
+        "title": "%command.unpair%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.openApp",
+        "title": "%command.openApp%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.newChat",
+        "title": "%command.newChat%",
+        "category": "ChatonLM",
+        "icon": "$(add)"
+      },
+      {
+        "command": "chatonlm.newEphemeralChat",
+        "title": "%command.newEphemeralChat%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.explain",
+        "title": "%command.explain%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.fix",
+        "title": "%command.fix%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.tests",
+        "title": "%command.tests%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.commitMessage",
+        "title": "%command.commitMessage%",
+        "category": "ChatonLM",
+        "icon": "$(sparkle)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "chatonlm.explain",
+          "when": "editorTextFocus",
+          "group": "chatonlm@1"
+        },
+        {
+          "command": "chatonlm.tests",
+          "when": "editorTextFocus",
+          "group": "chatonlm@2"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "chatonlm.commitMessage",
+          "when": "scmProvider == git",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "chatonlm.explain",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "chatonlm.fix",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "chatonlm.tests",
+          "when": "editorIsOpen"
+        }
+      ]
+    }
+  },
+  "devDependencies": {
+    "@types/vscode": "1.105.0"
+  }
+}

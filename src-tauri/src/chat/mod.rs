@@ -855,7 +855,11 @@ async fn painter_ready(engine: &ChatEngine, request: &SendRequest) -> AppResult<
 /// Taille du contexte du modèle d'un envoi (propre à ChatonLM) : celle du
 /// réglage, bornée par celle du modèle ; sinon (contexte du serveur) celle du
 /// modèle chargé, lue dans `/api/ps` ; inconnue pour un modèle du cloud.
-async fn context_size(server: &Server, model: &str, details: Option<&ModelDetails>) -> Option<i64> {
+pub(crate) async fn context_size(
+    server: &Server,
+    model: &str,
+    details: Option<&ModelDetails>,
+) -> Option<i64> {
     // Modèle du cloud, même aux détails inconnus : sa taille n'est pas la
     // nôtre.
     if models::is_cloud_name(model) || details.is_some_and(|details| details.remote) {

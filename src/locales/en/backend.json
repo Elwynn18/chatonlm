@@ -365,7 +365,8 @@
   },
   "bridge": {
     "unavailable": "The VS Code link is unavailable: the database could not be opened",
-    "off": "Turn on the VS Code link first"
+    "off": "Turn on the VS Code link first",
+    "tooLarge": "This chat is too large to be opened in VS Code. Open it in ChatonLM."
   },
   "easyLink": {
     "tokenEmpty": "Paste the bot token first",

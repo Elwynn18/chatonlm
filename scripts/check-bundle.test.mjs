@@ -1,12 +1,20 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import viteConfig, { withoutNotProse } from "../vite.config.ts";
 import {
   checkBundle,
   checkSources,
+  checkWebviewBundle,
   EXPECTED_SCOPES,
   REQUIRED_PACKAGES,
+  WEBVIEW_LIMITS,
 } from "./check-bundle.mjs";
 
 const tmp = path.resolve(import.meta.dirname, "../.tools/tmp");
@@ -43,7 +51,7 @@ const license = (names) =>
 
 /** Build conforme à la cible, modifié par `overrides` (null retire un fichier). */
 function build(overrides = {}) {
-  const files = {
+  return write({
     "index.html": HTML(),
     "assets/index-a.js":
       'const h=()=>import("./highlighterCore-c.js");console.log("app",h);',
@@ -52,7 +60,23 @@ function build(overrides = {}) {
     "assets/KaTeX_Main-Regular-x.woff2": "wOF2",
     ".vite/license.json": license(REQUIRED_PACKAGES),
     ...overrides,
-  };
+  });
+}
+
+/** Build du panneau VS Code conforme, modifié par `overrides`. */
+function webviewBuild(overrides = {}) {
+  return write({
+    "index.js":
+      'const h=()=>import(`./chunks/highlighterCore-c.js`);const s="http://www.w3.org/2000/svg";console.log("panel",h,s);',
+    "chunks/highlighterCore-c.js": `const g=[${GRAMMARS}];export{g};`,
+    "index.css": `${FONT_FACE.replace("/assets/", "./assets/")}.font-semibold{font-weight:600}${PROSE}`,
+    "assets/KaTeX_Main-Regular-x.woff2": "wOF2",
+    ".vite/license.json": license(REQUIRED_PACKAGES),
+    ...overrides,
+  });
+}
+
+function write(files) {
   mkdirSync(tmp, { recursive: true });
   const dir = mkdtempSync(path.join(tmp, "check-bundle-"));
   dirs.push(dir);
@@ -360,6 +384,81 @@ describe("checkBundle", () => {
   });
 });
 
+describe("checkWebviewBundle (VS Code panel)", () => {
+  const webviewErrors = (overrides, options) =>
+    checkWebviewBundle(webviewBuild(overrides), options).errors;
+
+  it("accepts a panel build without index.html, entry and sheet at fixed names", () => {
+    const result = checkWebviewBundle(webviewBuild());
+    expect(result.errors).toEqual([]);
+    expect(result.entry).toBe("index.js");
+    expect(result.grammarFiles).toEqual(["chunks/highlighterCore-c.js"]);
+    // Le build de l'app, lui, exige toujours son index.html.
+    expect(checkBundle(webviewBuild()).errors).toContain(
+      "index.html introuvable dans le build",
+    );
+  });
+
+  it("requires index.js and index.css", () => {
+    expect(
+      webviewErrors({
+        "index.js": null,
+        "main-x.js": 'import("./chunks/highlighterCore-c.js");',
+      }),
+    ).toContain("Script d'entrée index.js introuvable dans le build");
+    expect(
+      webviewErrors({ "index.css": null, "style.css": FONT_FACE }).join("\n"),
+    ).toMatch(/^Feuille index\.css introuvable/m);
+  });
+
+  it("refuses Tauri code", () => {
+    expect(
+      webviewErrors({
+        "index.js":
+          'const h=()=>import("./chunks/highlighterCore-c.js");window.__TAURI_INTERNALS__.invoke("x");',
+      }).join("\n"),
+    ).toMatch(/^Code de Tauri dans le panneau .*: index\.js$/m);
+  });
+
+  it("refuses remote resources, not mere addresses in the code", () => {
+    const errors = webviewErrors({
+      "index.css": `${FONT_FACE}@font-face{font-family:X;src:url(https://fonts.example/x.woff2)format("woff2")}`,
+      "chunks/extra.js": 'import"https://cdn.example/x.js";',
+    });
+    expect(errors.join("\n")).toMatch(
+      /^Ressource distante dans le panneau .*: index\.css, chunks\/extra\.js$/m,
+    );
+    expect(
+      webviewErrors({
+        "index.css": `${FONT_FACE}@import url(//cdn.example/a.css);`,
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("applies the rules of the app build too", () => {
+    expect(
+      webviewErrors({ "assets/KaTeX_Main-Regular-x.woff": "wOFF" }).join("\n"),
+    ).toMatch(/^Fichiers interdits/m);
+    expect(
+      webviewErrors({
+        "index.js": `const g=[${GRAMMARS}];export{g};`,
+      }).join("\n"),
+    ).toMatch(/^Grammaires Shiki chargées au démarrage/m);
+  });
+
+  it("enforces its own size limits", () => {
+    expect(
+      webviewErrors({}, { limits: { ...WEBVIEW_LIMITS, css: 10 } }).join("\n"),
+    ).toMatch(/^Taille dépassée, CSS/m);
+  });
+
+  it("accepts the real panel build when there is one", () => {
+    const dist = path.resolve(import.meta.dirname, "../vscode/dist/webview");
+    if (!existsSync(dist)) return;
+    expect(checkWebviewBundle(dist).errors).toEqual([]);
+  });
+});
+
 describe("checkSources", () => {
   /** Dossier avec src/ et index.html ; null retire un fichier. */
   function sources(files) {
@@ -391,6 +490,16 @@ describe("checkSources", () => {
       "Classe not-prose dans les sources, sans effet ici (greffon withoutNotProse de vite.config.ts, sinon recalcul de style ~20 fois plus lent dans WebKitGTK) : src/components/Box.tsx:2, src/index.css:3, index.html:1",
     ]);
     expect(checkSources(sources({}))).toEqual([]);
+  });
+
+  it("reads the sources of the VS Code panel too", () => {
+    const dir = sources({
+      "vscode/webview/Panel.tsx":
+        'export const p = <div className="not-prose" />;',
+    });
+    expect(checkSources(dir)).toEqual([
+      "Classe not-prose dans les sources, sans effet ici (greffon withoutNotProse de vite.config.ts, sinon recalcul de style ~20 fois plus lent dans WebKitGTK) : vscode/webview/Panel.tsx:1",
+    ]);
   });
 
   it("finds no not-prose class in the real sources", () => {

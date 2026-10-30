@@ -139,12 +139,16 @@ impl Listener {
     }
 
     /// Prochaine connexion. L'instance suivante est créée avant de rendre
-    /// celle-ci : le nom n'est jamais libre entre deux clients.
+    /// celle-ci : le nom n'est jamais libre entre deux clients ; après une
+    /// erreur de `ConnectNamedPipe`, l'instance est remplacée (voir
+    /// [`super::after_connect`]).
     pub async fn accept(&mut self) -> std::io::Result<Box<dyn Io>> {
-        self.next.connect().await?;
-        let fresh = create(&self.name, &self.descriptor, false)?;
-        let connected = std::mem::replace(&mut self.next, fresh);
-        Ok(Box::new(connected))
+        let connected = self.next.connect().await;
+        let (name, descriptor) = (&self.name, &self.descriptor);
+        let served = super::after_connect(&mut self.next, connected, || {
+            create(name, descriptor, false)
+        })?;
+        Ok(Box::new(served))
     }
 
     /// Le tube disparaît avec sa dernière instance.

@@ -8,15 +8,16 @@
  * Modified for ChatonLM: named export, cleaned HTML copy (one code block, real
  * bold, no classes), visible "Copy failed" state, status announced to screen
  * readers, timer cleared on unmount; texts translated into English, Spanish
- * and French (src/i18n).
+ * and French (src/i18n); clipboard reached through the host layer
+ * (src/lib/host.ts), shared with the VS Code extension panel.
  */
 
 import { CheckIcon, XMarkIcon } from "@heroicons/react/20/solid";
 import { Square2StackIcon } from "@heroicons/react/24/outline";
 import { type RefObject, useEffect, useState } from "react";
 import { useT } from "@/i18n";
-import { copyRich, copyText } from "@/lib/clipboard";
 import { cleanCopyHtml } from "@/lib/copyHtml";
+import { useHost } from "@/lib/host";
 
 interface CopyButtonProps {
   content: string;
@@ -41,6 +42,7 @@ export function CopyButton({
   onCopy,
 }: CopyButtonProps) {
   const t = useT();
+  const host = useHost();
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
 
   // Retour à « Copy » ; minuterie annulée si le bouton disparaît avant.
@@ -56,8 +58,8 @@ export function CopyButton({
     // réponse entière), HTML nettoyé et Markdown ; sinon le texte seul.
     const root = copyRef?.current;
     const copying = root
-      ? copyRich(cleanCopyHtml(root), content)
-      : copyText(content);
+      ? host.copyRich(cleanCopyHtml(root), content)
+      : host.copyText(content);
     copying.then(
       () => {
         setState("copied");

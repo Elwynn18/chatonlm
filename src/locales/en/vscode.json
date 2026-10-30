@@ -1,0 +1,105 @@
+{
+  "header": {
+    "model": "Model",
+    "noModels": "No models",
+    "newChat": "New chat",
+    "ephemeral": "Ephemeral chat",
+    "ephemeralOn": "Start an ephemeral chat",
+    "ephemeralOff": "Turn off ephemeral chat",
+    "chooseModel": "Choose a model",
+    "cloudModel": "{model} (cloud)",
+    "keepThis": "Keep this chat"
+  },
+  "status": {
+    "connecting": "Connecting to ChatonLM…",
+    "connected": "Connected to ChatonLM",
+    "notPaired": "Not paired with ChatonLM",
+    "appClosed": "ChatonLM isn't running",
+    "bridgeOff": "The VS Code link is off in ChatonLM",
+    "incompatible": "This extension doesn't match your version of ChatonLM",
+    "error": "Couldn't reach ChatonLM"
+  },
+  "screen": {
+    "openApp": "Open ChatonLM",
+    "appClosed": "Open ChatonLM to chat with your local models from VS Code.",
+    "bridgeOff": "Turn on the VS Code link in ChatonLM settings: Settings, VS Code tab, Allow VS Code to connect.",
+    "notPaired": "In ChatonLM, open Settings, VS Code tab, and choose Pair an editor. Then type the code shown there.",
+    "pair": "Pair",
+    "incompatible": "Update ChatonLM and this extension to their latest versions.",
+    "noModels": "No model is installed in ChatonLM yet. Download one there to start.",
+    "checkAgain": "Check again"
+  },
+  "empty": {
+    "title": "Ask about your code",
+    "body": "Select code in the editor, then choose an action or ask a question. Nothing is changed in your files."
+  },
+  "actions": {
+    "label": "Quick actions",
+    "explain": "Explain",
+    "fix": "Fix",
+    "tests": "Write tests",
+    "commitMessage": "Commit message"
+  },
+  "composer": {
+    "label": "Message to ChatonLM",
+    "placeholder": "Ask about your code",
+    "send": "Send message",
+    "stop": "Stop",
+    "ephemeral": "Ephemeral chat: it won't appear in ChatonLM's history and is erased when you start another chat or close VS Code.",
+    "keep": "Keep",
+    "offMachineNewChat": "This model runs outside this computer: a new chat was started, so the code of the previous one stays here."
+  },
+  "reply": {
+    "writing": "Writing a reply…",
+    "loading": "Loading model…",
+    "download": "Downloading model… {percent}%",
+    "compacting": "Compacting chat…"
+  },
+  "receipt": {
+    "summary": "{items} · {tokens} · {destination}",
+    "summaryHistory": "{items} · {history} · {tokens} · {destination}",
+    "messageOnly": "your message only",
+    "message": "your message",
+    "history": {
+      "one": "+ {count} earlier message",
+      "other": "+ {count} earlier messages"
+    },
+    "items": {
+      "one": "{count} item",
+      "other": "{count} items"
+    },
+    "tokens": {
+      "one": "~{count} token",
+      "other": "~{count} tokens"
+    },
+    "local": "stays on this computer",
+    "cloud": "goes to the cloud",
+    "remote": "goes to another computer",
+    "unknown": "may leave this computer",
+    "localDetail": "The model runs on this computer: nothing leaves it.",
+    "cloudDetail": "The model runs in the cloud: this text is sent over the network.",
+    "remoteDetail": "The model runs on another computer (model location set in ChatonLM): this text is sent over the network.",
+    "unknownDetail": "ChatonLM couldn't tell where the model runs: this text is handled as if it left this computer.",
+    "bestEffort": "Secrets are removed as best as possible, from known patterns: check what you send.",
+    "historyDetail": {
+      "one": "Also sent, as it is: {count} earlier message of this chat ({chars}).",
+      "other": "Also sent, as they are: {count} earlier messages of this chat ({chars})."
+    },
+    "context": "About {percent}% of the model's context ({size} tokens).",
+    "kind": {
+      "selection": "Selection",
+      "file": "File",
+      "diagnostic": "Problem",
+      "diff": "Changes"
+    },
+    "line": "line {line}",
+    "lines": "lines {start}–{end}",
+    "chars": {
+      "one": "{count} character",
+      "other": "{count} characters"
+    },
+    "blocked": "Removed before sending:",
+    "secretFile": "file that may hold secrets",
+    "secretValue": "line that looks like a secret"
+  }
+}

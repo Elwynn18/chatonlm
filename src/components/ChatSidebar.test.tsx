@@ -746,3 +746,56 @@ describe("chats from a bot (Easy Link)", () => {
     );
   });
 });
+
+describe("chats from the VS Code extension", () => {
+  const sign = (id: string) => within(rowOf(id)).queryByTestId("chat-source");
+
+  it("carry a code sign named VS Code, not the bots' link", async () => {
+    setup("/c/new", [
+      { ...stored("from-editor", 2 * 60_000), source: "vscode" },
+      { ...stored("from-telegram", 3 * 60_000), source: "telegram" },
+    ]);
+    await openHistory();
+    const editor = within(rowOf("from-editor")).getByRole("img", {
+      name: "VS Code chat",
+    });
+    expect(editor).toBe(sign("from-editor"));
+    expect(editor.title).toBe("VS Code chat");
+    expect(classes(editor)).toEqual(
+      expect.arrayContaining(["text-neutral-500", "flex-none"]),
+    );
+    // Avant le titre, dans le lien, comme celui d'un bot.
+    const link = within(rowOf("from-editor")).getByRole("link");
+    expect(link.firstElementChild).toBe(editor);
+    expect(editor.nextElementSibling?.textContent).toBe("Chat from-editor");
+    // Une autre icône que le maillon des bots.
+    const icon = editor.querySelector("svg")!;
+    const botIcon = sign("from-telegram")!.querySelector("svg")!;
+    expect(icon.getAttribute("aria-hidden")).toBe("true");
+    expect(icon.innerHTML).not.toBe(botIcon.innerHTML);
+    expect(sign("today")).toBeNull();
+
+    act(() => setLanguage("fr"));
+    expect(sign("from-editor")?.getAttribute("aria-label")).toBe(
+      "Conversation VS Code",
+    );
+    act(() => setLanguage("es"));
+    expect(sign("from-editor")?.title).toBe("Chat de VS Code");
+  });
+
+  it("a chat the extension opens appears at once, marked", async () => {
+    const { simulator, backend } = setup("/c/today");
+    await openHistory();
+    await waitFor(() => expect(simulator.listening("chats-updated")).toBe(1));
+    backend.chats.set("from-editor", {
+      ...stored("from-editor", 0),
+      source: "vscode",
+    });
+    await simulator.emitEvent("chats-updated", { chatId: "from-editor" });
+    await waitFor(() => expect(row("from-editor")).toBeTruthy());
+    expect(sign("from-editor")?.title).toBe("VS Code chat");
+    expect((await listChats()).map((chat) => [chat.id, chat.source])).toEqual(
+      expect.arrayContaining([["from-editor", "vscode"]]),
+    );
+  });
+});

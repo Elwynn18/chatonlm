@@ -5,7 +5,8 @@
 // - mêmes valeurs « {nom} » et mêmes balises « <nom> » dans chaque langue ;
 //   un pluriel a au moins les formes « one » et « other » ;
 // - chaque clé employée dans le code existe (t("…"), k="…", t!("…") du
-//   moteur) et chaque clé des catalogues est employée ;
+//   moteur ; code de la page et du panneau VS Code, vscode/webview) et
+//   chaque clé des catalogues est employée ;
 // - textes d'interface en dur suspects : chaînes en anglais dans le code du
 //   frontend (hors JSX, déjà vu par ESLint) et erreurs ou notifications du
 //   moteur. Une ligne voulue (journal, identifiant...) porte « i18n-ignore »
@@ -13,7 +14,7 @@
 //
 // Usage : node scripts/check-i18n.mjs [--list-suspects]
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -189,15 +190,19 @@ for (const ns of namespaces) {
 
 // --- Clés employées ---
 
-const frontendFiles = walk(
-  path.join(ROOT, "src"),
-  (file) =>
-    /\.(ts|tsx)$/.test(file) &&
-    !/\.test\.(ts|tsx)$/.test(file) &&
-    !file.includes(`${path.sep}src${path.sep}test${path.sep}`) &&
-    !file.includes(`${path.sep}bindings${path.sep}`) &&
-    !file.endsWith("routeTree.gen.ts"),
-);
+const isFrontendSource = (file) =>
+  /\.(ts|tsx)$/.test(file) &&
+  !/\.test\.(ts|tsx)$/.test(file) &&
+  !file.includes(`${path.sep}src${path.sep}test${path.sep}`) &&
+  !file.includes(`${path.sep}bindings${path.sep}`) &&
+  !file.endsWith("routeTree.gen.ts");
+// Page de l'app, et panneau de l'extension VS Code (mêmes catalogues, espace
+// « vscode »).
+const WEBVIEW = path.join(ROOT, "vscode/webview");
+const frontendFiles = [
+  ...walk(path.join(ROOT, "src"), isFrontendSource),
+  ...(existsSync(WEBVIEW) ? walk(WEBVIEW, isFrontendSource) : []),
+];
 const rustFiles = walk(path.join(ROOT, "src-tauri/src"), (file) =>
   file.endsWith(".rs"),
 );

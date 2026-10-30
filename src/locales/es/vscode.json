@@ -1,0 +1,105 @@
+{
+  "header": {
+    "model": "Modelo",
+    "noModels": "Sin modelos",
+    "newChat": "Nuevo chat",
+    "ephemeral": "Chat efímero",
+    "ephemeralOn": "Iniciar un chat efímero",
+    "ephemeralOff": "Desactivar el chat efímero",
+    "chooseModel": "Elige un modelo",
+    "cloudModel": "{model} (nube)",
+    "keepThis": "Conservar este chat"
+  },
+  "status": {
+    "connecting": "Conectando con ChatonLM…",
+    "connected": "Conectado a ChatonLM",
+    "notPaired": "Sin emparejar con ChatonLM",
+    "appClosed": "ChatonLM no se está ejecutando",
+    "bridgeOff": "El enlace con VS Code está desactivado en ChatonLM",
+    "incompatible": "Esta extensión no corresponde a tu versión de ChatonLM",
+    "error": "No se pudo contactar con ChatonLM"
+  },
+  "screen": {
+    "openApp": "Abrir ChatonLM",
+    "appClosed": "Abre ChatonLM para chatear con tus modelos locales desde VS Code.",
+    "bridgeOff": "Activa el enlace con VS Code en ChatonLM: Configuración, pestaña VS Code, Permitir que VS Code se conecte.",
+    "notPaired": "En ChatonLM, abre Configuración, pestaña VS Code, y elige Emparejar un editor. Luego escribe el código que aparece allí.",
+    "pair": "Emparejar",
+    "incompatible": "Actualiza ChatonLM y esta extensión a sus últimas versiones.",
+    "noModels": "Aún no hay ningún modelo instalado en ChatonLM. Descarga uno allí para empezar.",
+    "checkAgain": "Volver a comprobar"
+  },
+  "empty": {
+    "title": "Pregunta sobre tu código",
+    "body": "Selecciona código en el editor y elige una acción o haz una pregunta. No se cambia nada en tus archivos."
+  },
+  "actions": {
+    "label": "Acciones rápidas",
+    "explain": "Explicar",
+    "fix": "Corregir",
+    "tests": "Escribir pruebas",
+    "commitMessage": "Mensaje de commit"
+  },
+  "composer": {
+    "label": "Mensaje para ChatonLM",
+    "placeholder": "Pregunta sobre tu código",
+    "send": "Enviar mensaje",
+    "stop": "Detener",
+    "ephemeral": "Chat efímero: no aparecerá en el historial de ChatonLM y se borrará cuando empieces otro chat o cierres VS Code.",
+    "keep": "Conservar",
+    "offMachineNewChat": "Este modelo se ejecuta fuera de este equipo: se empezó un chat nuevo para que el código del anterior se quede aquí."
+  },
+  "reply": {
+    "writing": "Escribiendo una respuesta…",
+    "loading": "Cargando el modelo…",
+    "download": "Descargando el modelo… {percent}%",
+    "compacting": "Compactando el chat…"
+  },
+  "receipt": {
+    "summary": "{items} · {tokens} · {destination}",
+    "summaryHistory": "{items} · {history} · {tokens} · {destination}",
+    "messageOnly": "solo tu mensaje",
+    "message": "tu mensaje",
+    "history": {
+      "one": "+ {count} mensaje anterior",
+      "other": "+ {count} mensajes anteriores"
+    },
+    "items": {
+      "one": "{count} elemento",
+      "other": "{count} elementos"
+    },
+    "tokens": {
+      "one": "~{count} token",
+      "other": "~{count} tokens"
+    },
+    "local": "se queda en este equipo",
+    "cloud": "va a la nube",
+    "remote": "va a otro equipo",
+    "unknown": "puede salir de este equipo",
+    "localDetail": "El modelo se ejecuta en este equipo: nada sale de él.",
+    "cloudDetail": "El modelo se ejecuta en la nube: este texto se envía por la red.",
+    "remoteDetail": "El modelo se ejecuta en otro equipo (ubicación configurada en ChatonLM): este texto se envía por la red.",
+    "unknownDetail": "ChatonLM no pudo indicar dónde se ejecuta el modelo: este texto se trata como si saliera de este equipo.",
+    "bestEffort": "Los secretos se retiran en la medida de lo posible, según patrones conocidos: revisa lo que envías.",
+    "historyDetail": {
+      "one": "También se envía, tal cual: {count} mensaje anterior de este chat ({chars}).",
+      "other": "También se envían, tal cual: {count} mensajes anteriores de este chat ({chars})."
+    },
+    "context": "Alrededor del {percent}% del contexto del modelo ({size} tokens).",
+    "kind": {
+      "selection": "Selección",
+      "file": "Archivo",
+      "diagnostic": "Problema",
+      "diff": "Cambios"
+    },
+    "line": "línea {line}",
+    "lines": "líneas {start}–{end}",
+    "chars": {
+      "one": "{count} carácter",
+      "other": "{count} caracteres"
+    },
+    "blocked": "Retirado antes del envío:",
+    "secretFile": "archivo que puede contener secretos",
+    "secretValue": "línea que parece un secreto"
+  }
+}

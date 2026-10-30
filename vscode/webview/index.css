@@ -1,0 +1,21 @@
+/* Feuille du panneau VS Code : le thème de l'app (src/index.css : crème,
+   brun, roux, classe « dark » sur <html>), avec les classes des composants
+   du panneau en plus de celles de src/. */
+@import "../../src/index.css";
+@source ".";
+
+/* VS Code pose ses propres styles sur la page d'une webview (marges,
+   couleurs et police de l'éditeur) : ceux du thème de ChatonLM priment. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-white);
+  color: var(--color-neutral-900);
+  font-family: var(--font-sans);
+}
+
+.dark body {
+  background-color: var(--color-neutral-900);
+  color: var(--color-white);
+}

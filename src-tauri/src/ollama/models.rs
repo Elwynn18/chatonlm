@@ -67,7 +67,8 @@ pub struct ModelDetails {
     /// ChatonLM, pas par Ollama) : le raisonnement ne peut pas être coupé.
     pub always_thinks: bool,
     /// Modèle qui tourne ailleurs (voir [`is_remote`]) : rien à charger ici,
-    /// rien de dicté ne lui est envoyé. Pour le moteur seulement.
+    /// rien de dicté ne lui est envoyé. Pour le moteur, et pour l'éditeur
+    /// (`models.details` du pont, qui l'ajoute à part).
     #[serde(skip)]
     #[ts(skip)]
     pub remote: bool,

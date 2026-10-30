@@ -7,14 +7,15 @@ import {
 } from "react";
 import { ContextMenu } from "@/components/ContextMenu";
 import { useT } from "@/i18n";
-import { copyText } from "@/lib/clipboard";
-import { openLink, reportCopyFailure, webUrl } from "@/lib/openLink";
+import { useHost } from "@/lib/host";
+import { webUrl } from "@/lib/webUrl";
 
 type DataAttributes = { [name: `data-${string}`]: string | undefined };
 
 /**
  * Lien vers une page web (réponses Markdown, messages d'erreur), ouvert dans
- * le navigateur par le backend : la webview, elle, ne quitte jamais l'app.
+ * le navigateur par l'hôte (src/lib/host.ts : le backend dans l'app, l'hôte
+ * de l'extension dans le panneau VS Code) : la webview ne quitte jamais la page.
  * Clic, Entrée (qui produit un clic) et clic milieu ouvrent ; le clic droit
  * donne un menu maison à la place de celui de WebKit, dont « Download Linked
  * File » téléchargerait l'adresse sans rien demander.
@@ -47,6 +48,7 @@ export function ExternalLink({
 } & AriaAttributes &
   DataAttributes) {
   const t = useT();
+  const host = useHost();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const url = webUrl(href);
@@ -62,7 +64,7 @@ export function ExternalLink({
   const open = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    void openLink(url);
+    void host.openLink(url);
   };
 
   return (
@@ -104,11 +106,14 @@ export function ExternalLink({
           y={menu.y}
           onClose={closeMenu}
           items={[
-            { label: t("chat.link.open"), onSelect: () => void openLink(url) },
+            {
+              label: t("chat.link.open"),
+              onSelect: () => void host.openLink(url),
+            },
             {
               label: t("chat.link.copy"),
               onSelect: () => {
-                copyText(url).catch(() => reportCopyFailure(url));
+                host.copyText(url).catch(() => host.copyLinkFailed(url));
               },
             },
           ]}

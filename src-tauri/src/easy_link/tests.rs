@@ -436,7 +436,7 @@ async fn a_linked_account_talks_to_the_model_in_a_marked_conversation() {
 
     let listed = bench.store.blocking(|c| chats::list(c)).unwrap();
     assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].source, Some(Platform::Telegram));
+    assert_eq!(listed[0].source, Some(chats::ChatSource::Telegram));
     assert_eq!(listed[0].user_excerpt, "hello");
     let chat_id = listed[0].id.clone();
     assert_eq!(bench.account().chat_id.as_deref(), Some(chat_id.as_str()));
@@ -842,7 +842,7 @@ async fn discord_links_by_private_message_and_splits_a_long_answer() {
     .await;
     wait_until("réponse finie", || !bench.busy()).await;
     let listed = bench.store.blocking(|c| chats::list(c)).unwrap();
-    assert_eq!(listed[0].source, Some(Platform::Discord));
+    assert_eq!(listed[0].source, Some(chats::ChatSource::Discord));
     let chat = bench
         .store
         .blocking(|c| chats::get(c, &listed[0].id))

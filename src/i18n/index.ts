@@ -20,6 +20,7 @@ import enProofread from "@/locales/en/proofread.json";
 import enSettings from "@/locales/en/settings.json";
 import enStudy from "@/locales/en/study.json";
 import enVoiceMode from "@/locales/en/voiceMode.json";
+import enVscode from "@/locales/en/vscode.json";
 import esChat from "@/locales/es/chat.json";
 import esCommon from "@/locales/es/common.json";
 import esDictation from "@/locales/es/dictation.json";
@@ -29,6 +30,7 @@ import esProofread from "@/locales/es/proofread.json";
 import esSettings from "@/locales/es/settings.json";
 import esStudy from "@/locales/es/study.json";
 import esVoiceMode from "@/locales/es/voiceMode.json";
+import esVscode from "@/locales/es/vscode.json";
 import frChat from "@/locales/fr/chat.json";
 import frCommon from "@/locales/fr/common.json";
 import frDictation from "@/locales/fr/dictation.json";
@@ -38,6 +40,7 @@ import frProofread from "@/locales/fr/proofread.json";
 import frSettings from "@/locales/fr/settings.json";
 import frStudy from "@/locales/fr/study.json";
 import frVoiceMode from "@/locales/fr/voiceMode.json";
+import frVscode from "@/locales/fr/vscode.json";
 
 export type { Lang };
 
@@ -54,6 +57,7 @@ const en = {
   proofread: enProofread,
   study: enStudy,
   voiceMode: enVoiceMode,
+  vscode: enVscode,
 };
 
 type Catalog = typeof en;
@@ -70,6 +74,7 @@ const catalogs: Record<Lang, Catalog> = {
     proofread: esProofread,
     study: esStudy,
     voiceMode: esVoiceMode,
+    vscode: esVscode,
   },
   fr: {
     common: frCommon,
@@ -81,6 +86,7 @@ const catalogs: Record<Lang, Catalog> = {
     proofread: frProofread,
     study: frStudy,
     voiceMode: frVoiceMode,
+    vscode: frVscode,
   },
 };
 

@@ -63,6 +63,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0031_dictation_auto_paste.sql"),
     include_str!("../../migrations/0032_close_to_tray.sql"),
     include_str!("../../migrations/0033_bridge.sql"),
+    include_str!("../../migrations/0034_chat_editor.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.
@@ -785,10 +786,62 @@ mod tests {
                 assert_eq!(listed[0].source, None);
                 // Une conversation ouverte par un bot porte sa messagerie.
                 chats::set_source(c, "0199-a", easy_link::Platform::Discord)?;
+                assert_eq!(chats::list(c)?[0].source, Some(chats::ChatSource::Discord));
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    /// Lien VS Code : une base de la version 33 garde ses conversations sans
+    /// marque ; une conversation ouverte par l'extension est marquée
+    /// « vscode », et seules celles-là sont listées pour l'extension.
+    #[test]
+    fn a_version_33_database_gains_editor_chats() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        let connection = Connection::open(&path).unwrap();
+        for sql in &MIGRATIONS[..33] {
+            connection.execute_batch(sql).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 33).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO chats (id, created_at, updated_at) VALUES ('0199-a', 1, 1);
+                 INSERT INTO chats (id, created_at, updated_at, source)
+                     VALUES ('0199-b', 2, 2, 'telegram');",
+            )
+            .unwrap();
+        drop(connection);
+        let store = Store::open(&path).unwrap();
+        assert_eq!(version(&store), MIGRATIONS.len() as i64);
+        store
+            .blocking(|c| {
+                let sources = |c: &Connection| -> AppResult<Vec<_>> {
+                    Ok(chats::list(c)?
+                        .into_iter()
+                        .map(|chat| (chat.id, chat.source))
+                        .collect())
+                };
                 assert_eq!(
-                    chats::list(c)?[0].source,
-                    Some(easy_link::Platform::Discord)
+                    sources(c)?,
+                    [
+                        ("0199-b".to_owned(), Some(chats::ChatSource::Telegram)),
+                        ("0199-a".to_owned(), None)
+                    ]
                 );
+                assert!(chats::list_editor(c, 50)?.is_empty());
+                chats::set_editor(c, "0199-a")?;
+                assert_eq!(
+                    sources(c)?,
+                    [
+                        ("0199-b".to_owned(), Some(chats::ChatSource::Telegram)),
+                        ("0199-a".to_owned(), Some(chats::ChatSource::Vscode))
+                    ]
+                );
+                let editor = chats::list_editor(c, 50)?;
+                assert_eq!(editor.len(), 1);
+                assert_eq!(editor[0].id, "0199-a");
+                assert_eq!(editor[0].source, Some(chats::ChatSource::Vscode));
                 Ok(())
             })
             .unwrap();

@@ -17,10 +17,11 @@
  * confirmation as the context menu; texts, group titles and the date of an
  * untitled chat translated into English, Spanish and French (src/i18n); a
  * chat that comes from a Telegram or Discord bot (ChatonLM's own Easy Link)
- * has a small sign before its title, named after its messenger.
+ * or from the ChatonLM extension for VS Code (local bridge) has a small sign
+ * before its title, named after where it comes from.
  */
 
-import { LinkIcon } from "@heroicons/react/20/solid";
+import { CodeBracketIcon, LinkIcon } from "@heroicons/react/20/solid";
 import { StarIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { StarIcon as FilledStarIcon } from "@heroicons/react/24/solid";
 import { useQueryClient } from "@tanstack/react-query";
@@ -34,7 +35,7 @@ import {
   useState,
 } from "react";
 import type { ChatInfo } from "@/bindings/ChatInfo";
-import type { EasyLinkPlatform } from "@/bindings/EasyLinkPlatform";
+import type { ChatSource as ChatSourceKind } from "@/bindings/ChatSource";
 import { AppNavigation, type AppSection } from "@/components/AppSidebar";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ContextMenu } from "@/components/ContextMenu";
@@ -67,12 +68,14 @@ const ACTION_CLASS =
   "pointer-events-auto flex size-6 items-center justify-center rounded-md outline-none hover:bg-neutral-300 focus-visible:ring-2 focus-visible:ring-accent-fg dark:hover:bg-neutral-700";
 
 /**
- * Signe d'une conversation venue d'un bot d'Easy Link, nommé d'après sa
- * messagerie (« Telegram chat »).
+ * Signe d'une conversation venue d'ailleurs que l'app, nommé d'après son
+ * origine : un bot d'Easy Link (« Telegram chat », maillon) ou l'extension
+ * VS Code (« VS Code chat », chevrons du code).
  */
-function ChatSource({ source }: { source: EasyLinkPlatform }) {
+function ChatSource({ source }: { source: ChatSourceKind }) {
   const t = useT();
   const name = t(`chat.history.source.${source}`);
+  const Icon = source === "vscode" ? CodeBracketIcon : LinkIcon;
   return (
     <span
       role="img"
@@ -81,7 +84,7 @@ function ChatSource({ source }: { source: EasyLinkPlatform }) {
       title={name}
       className="mr-1.5 flex-none text-neutral-500"
     >
-      <LinkIcon aria-hidden="true" className="size-3.5" />
+      <Icon aria-hidden="true" className="size-3.5" />
     </span>
   );
 }
@@ -343,8 +346,9 @@ export function ChatSidebar({
                           }`}
                           draggable={false}
                         >
-                          {/* Venue d'un bot (Easy Link) : signe générique,
-                              pas le logo d'une marque ; hors du titre, qui
+                          {/* Venue d'un bot (Easy Link) ou de l'éditeur
+                              (VS Code) : signe générique, pas le logo d'une
+                              marque ; hors du titre, qui
                               garde sa troncature et décrit seul les boutons. */}
                           {chat.source && <ChatSource source={chat.source} />}
                           <span

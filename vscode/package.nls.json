@@ -1,0 +1,13 @@
+{
+  "extension.description": "Chat with your local models from VS Code, through the ChatonLM app.",
+  "view.chat": "Chat",
+  "command.pair": "Pair",
+  "command.unpair": "Unpair",
+  "command.openApp": "Open the App",
+  "command.newChat": "New Chat",
+  "command.newEphemeralChat": "New Ephemeral Chat",
+  "command.explain": "Explain",
+  "command.fix": "Fix",
+  "command.tests": "Write Tests",
+  "command.commitMessage": "Write Commit Message"
+}
