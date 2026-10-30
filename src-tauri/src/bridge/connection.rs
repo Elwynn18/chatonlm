@@ -11,7 +11,13 @@
 //! connexion fermée n'arrête pas un envoi en cours : il s'enregistre, comme
 //! celui d'un bot (sauf dans une conversation éphémère, alors effacée).
 //! Aucun message écrit ne dépasse la trame ([`frame::MAX_BODY`]) : une
-//! réponse trop grosse devient un refus.
+//! réponse trop grosse devient un refus. Voix (lot 2) : `tour.plan`,
+//! `speech.read` / `speech.stop` (évènements `speech.event`), `voice.start`,
+//! `voice.stop`, `voice.mute`, `voice.resume`, `voice.context`
+//! (notifications `voice.state`, `voice.level`, `voice.chat`) ; la fin de la
+//! connexion, même par une panique de sa tâche, arrête sa séance et sa
+//! lecture. `$/cancelRequest` arrête aussi un `tour.plan` (requête au modèle
+//! abandonnée, réponse -32800).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -53,11 +59,14 @@ pub mod code {
     pub const WRONG_CODE: i64 = -32005;
     pub const INCOMPATIBLE: i64 = -32010;
     pub const REFUSED: i64 = -32020;
+    /// Requête arrêtée par l'éditeur (`voice.stop` pendant `voice.start`,
+    /// `$/cancelRequest` d'un `tour.plan`) : `RequestCancelled` de LSP.
+    pub const CANCELLED: i64 = -32800;
 }
 
 /// Messages à écrire, dans l'ordre.
 #[derive(Clone)]
-struct Outbox(mpsc::UnboundedSender<Vec<u8>>);
+pub(super) struct Outbox(mpsc::UnboundedSender<Vec<u8>>);
 
 impl Outbox {
     /// Faux si le message dépasse la trame : rien n'est écrit (l'éditeur
@@ -72,7 +81,7 @@ impl Outbox {
     }
 
     /// Réponse ; trop grosse pour la trame, un refus à la place.
-    fn result(&self, id: &Value, result: Value) {
+    pub(super) fn result(&self, id: &Value, result: Value) {
         if !self.send(&json!({ "jsonrpc": "2.0", "id": id, "result": result })) {
             self.error(
                 id,
@@ -83,7 +92,7 @@ impl Outbox {
         }
     }
 
-    fn error(&self, id: &Value, code: i64, message: &str, data: Option<Value>) {
+    pub(super) fn error(&self, id: &Value, code: i64, message: &str, data: Option<Value>) {
         let mut error = json!({ "code": code, "message": message });
         if let Some(data) = data {
             error["data"] = data;
@@ -93,7 +102,7 @@ impl Outbox {
 
     /// Notification ; trop grosse pour la trame, elle est perdue (la
     /// conversation se relit par `chat.get`).
-    fn notify(&self, method: &str, params: Value) {
+    pub(super) fn notify(&self, method: &str, params: Value) {
         if !self.send(&json!({ "jsonrpc": "2.0", "method": method, "params": params })) {
             eprintln!("chatonlm: a {method} notification is too large for the bridge");
         }
@@ -109,16 +118,19 @@ struct Session {
     client: Option<String>,
 }
 
-/// Envoi demandé par l'éditeur, inscrit dès sa lecture (avant toute attente).
+/// Requête annulable (`chat.send`, `tour.plan`), inscrite dès sa lecture
+/// (avant toute attente).
 struct Pending {
-    /// Flux du moteur.
-    stream: String,
+    /// Flux du moteur (`chat.send`).
+    stream: Option<String>,
     /// `$/cancelRequest` reçu : l'envoi s'arrête même si le moteur ne l'a pas
     /// encore commencé.
     cancelled: bool,
+    /// Réveille la requête qui attend (`tour.plan`) : elle abandonne.
+    wake: Option<Arc<tokio::sync::Notify>>,
 }
 
-/// Envois en cours, par identifiant de requête.
+/// Requêtes annulables en cours, par identifiant de requête.
 type Running = Arc<Mutex<HashMap<String, Pending>>>;
 
 /// Retire un envoi de [`Running`] quand il finit, quelle que soit l'issue.
@@ -148,12 +160,26 @@ impl Drop for Registered<'_> {
     }
 }
 
+/// Fin de la connexion : sa voix arrêtée quand la tâche finit, même par une
+/// panique (le micro n'est jamais laissé ouvert).
+struct Ended<'a, H: Host> {
+    shared: &'a Shared<H>,
+    connection: u64,
+}
+
+impl<H: Host> Drop for Ended<'_, H> {
+    fn drop(&mut self) {
+        self.shared.connection_ended(self.connection);
+    }
+}
+
 pub(super) async fn serve<H: Host>(
     shared: &Arc<Shared<H>>,
     connection: u64,
     stream: Box<dyn Io>,
     mut close: watch::Receiver<bool>,
 ) {
+    let ended = Ended { shared, connection };
     let (read, mut write) = tokio::io::split(stream);
     let mut reader = BufReader::new(read);
     let (sender, mut outgoing) = mpsc::unbounded_channel::<Vec<u8>>();
@@ -195,6 +221,8 @@ pub(super) async fn serve<H: Host>(
     } else {
         let _ = tokio::time::timeout(Duration::from_millis(200), writer).await;
     }
+    // Micro et lecture de la connexion arrêtés (jamais laissés ouverts).
+    drop(ended);
 }
 
 async fn handle<H: Host>(
@@ -236,7 +264,12 @@ async fn handle<H: Host>(
             // Sans effet sur le moteur avant `begin` : le drapeau prend le
             // relais (voir `chat_send`).
             pending.cancelled = true;
-            shared.host.engine().cancel(&pending.stream);
+            if let Some(stream) = &pending.stream {
+                shared.host.engine().cancel(stream);
+            }
+            if let Some(wake) = &pending.wake {
+                wake.notify_one();
+            }
         }
         return;
     }
@@ -259,8 +292,9 @@ async fn handle<H: Host>(
             running.lock().insert(
                 id.to_string(),
                 Pending {
-                    stream: stream.clone(),
+                    stream: Some(stream.clone()),
                     cancelled: false,
+                    wake: None,
                 },
             );
             let sender = Sender {
@@ -271,6 +305,63 @@ async fn handle<H: Host>(
             let (shared, out, running) = (Arc::clone(shared), out.clone(), Arc::clone(running));
             tauri::async_runtime::spawn(async move {
                 chat_send(&shared, sender, &running, &out, &id, params).await;
+            });
+        }
+        // Dans l'ordre de lecture (rien n'y attend) : un `speech.stop` suit
+        // toujours le `speech.read` qui l'a précédé.
+        "speech.read" => super::voice::speech_read(shared, connection, out, &id, params),
+        "speech.stop" => super::voice::speech_stop(shared, connection, out, &id, params),
+        "voice.stop" => super::voice::voice_stop(shared, connection, out, &id, &params),
+        "voice.context" => super::voice::voice_context(shared, connection, out, &id, params),
+        "voice.start" => {
+            // Séance inscrite ici, avant toute attente : un `voice.stop` lu
+            // juste après la trouve.
+            let client = session.client.clone().unwrap_or_default();
+            if let Some(talk) =
+                super::voice::voice_register(shared, connection, client, out, &id, params)
+            {
+                let (shared, out) = (Arc::clone(shared), out.clone());
+                tauri::async_runtime::spawn(async move {
+                    super::voice::voice_start(&shared, &out, &id, talk).await;
+                });
+            }
+        }
+        "tour.plan" => {
+            // Annulable par `$/cancelRequest` : inscrit avant toute attente.
+            let wake = Arc::new(tokio::sync::Notify::new());
+            running.lock().insert(
+                id.to_string(),
+                Pending {
+                    stream: None,
+                    cancelled: false,
+                    wake: Some(Arc::clone(&wake)),
+                },
+            );
+            let (shared, out, running) = (Arc::clone(shared), out.clone(), Arc::clone(running));
+            tauri::async_runtime::spawn(async move {
+                let _registered = Registered {
+                    running: &running,
+                    key: id.to_string(),
+                };
+                // Abandonner le futur ferme la requête HTTP : Ollama arrête
+                // de générer.
+                tokio::select! {
+                    () = tour_plan(&shared, &out, &id, params) => {}
+                    () = wake.notified() => {
+                        out.error(&id, code::CANCELLED, "cancelled", None);
+                    }
+                }
+            });
+        }
+        "voice.mute" | "voice.resume" => {
+            let (shared, out) = (Arc::clone(shared), out.clone());
+            let resume = method == "voice.resume";
+            tauri::async_runtime::spawn(async move {
+                if resume {
+                    super::voice::voice_resume(&shared, connection, &out, &id, params).await;
+                } else {
+                    super::voice::voice_mute(&shared, connection, &out, &id, params).await;
+                }
             });
         }
         "app.state" | "models.list" | "models.details" | "chat.get" | "chat.list"
@@ -647,6 +738,39 @@ async fn chat_list<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value) {
     {
         Ok(listed) => out.result(id, json!(listed)),
         Err(error) => refused(out, id, &error),
+    }
+}
+
+/// Plan d'une visite guidée parlée : `{ segments: [{ lines: [a, b], text }] }`.
+async fn tour_plan<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value, params: Value) {
+    let Ok(params) = serde_json::from_value::<super::tour::PlanParams>(params) else {
+        return invalid(out, id);
+    };
+    let settings = match crate::ollama::target::request_settings(&shared.store).await {
+        Ok(settings) => settings,
+        Err(error) => return refused(out, id, &error),
+    };
+    let model = params
+        .model
+        .clone()
+        .filter(|model| !model.trim().is_empty())
+        .unwrap_or_else(|| settings.selected_model.clone());
+    let server = Server::from_settings(&settings);
+    match super::tour::plan(&server, &model, &params).await {
+        Ok(segments) => {
+            let segments: Vec<Value> = segments
+                .into_iter()
+                .map(|segment| json!({ "lines": [segment.lines.0, segment.lines.1], "text": segment.text }))
+                .collect();
+            out.result(id, json!({ "segments": segments }));
+        }
+        Err(super::tour::PlanError::Params) => invalid(out, id),
+        Err(super::tour::PlanError::Refused(message)) => out.error(
+            id,
+            code::REFUSED,
+            "refused",
+            Some(json!({ "message": message })),
+        ),
     }
 }
 

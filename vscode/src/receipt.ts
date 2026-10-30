@@ -67,10 +67,25 @@ const SECRET_VALUES = [
   // la fin de la ligne, sans parenthèse ni point-virgule, et ni un nom de
   // type, ni une valeur vide, ni un attribut comme `request.form` : pas du
   // code)
-  /^[\s+-]*[\w.-]*(pass(word|wd)?|secret|token|api[_-]?key)\s*[:=]\s*(?!(null|none|nil|true|false|undefined|string|number|str|bool|boolean|int|required|optional)\s*$)(?![A-Za-z_]\w*(\.[A-Za-z_]\w*)+\s*$)[^\s"'(){};,]{4,}\s*$/i,
+  /^[\s+-]*[\w.-]*(pass(word|wd)?|secret|token|(api|secret|access|private|auth)[_-]?key)\s*[:=]\s*(?!(null|none|nil|true|false|undefined|string|number|str|bool|boolean|int|required|optional)\s*$)(?![A-Za-z_]\w*(\.[A-Za-z_]\w*)+\s*$)[^\s"'(){};,]{4,}\s*$/i,
   // API_KEY=…, OPENAI_KEY=… (sans guillemets, en capitales comme dans un
   // fichier d'environnement)
   /\b[A-Z0-9_]*(PASSWORD|SECRET|TOKEN|_KEY)[A-Z0-9_]*=[^\s"']{4,}/,
+  // Formes du terminal (lignes de commande tapées, erreurs HTTP) :
+  // en-tête Bearer, JWT, x-api-key, jetons Hugging Face, npm et Docker
+  /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/i,
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\./,
+  /\bx-api-key\s*:\s*\S{8,}/i,
+  /\bhf_[A-Za-z0-9]{30,}/,
+  /\bnpm_[A-Za-z0-9]{30,}/,
+  /\bdckr_pat_[A-Za-z0-9_-]{8,}/,
+  /_authToken=\S{4,}/,
+  // --password x, --token=x ; mysql -pSECRET ; curl -u nom:mot ;
+  // docker login … -p x
+  /--(token|auth-token|password|passwd|pass|secret|api-key|apikey)(=|\s+)[^\s-]\S{3,}/i,
+  /\b(mysql|mariadb)\w*\b.*\s-p\S{4,}/,
+  /\bcurl\b.*\s(-u|--user)(=|\s*)[^\s:]+:\S{4,}/,
+  /\blogin\b.*\s-p\s+\S{6,}/,
 ];
 const KEY_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----/;
 const KEY_END = /-----END [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----/;

@@ -589,6 +589,15 @@ describe("Panel", () => {
       ).toEqual(["Choose a model", MODEL, "gpt-oss:20b-cloud (cloud)"]);
     });
 
+    it("shows the chosen model even when the server no longer lists it", () => {
+      renderPanel({ models: [MODEL], model: "gone:7b" });
+      const picker = screen.getByRole<HTMLSelectElement>("combobox", {
+        name: "Model",
+      });
+      expect(picker.value).toBe("gone:7b");
+      expect(picker.selectedOptions[0].textContent).toBe("gone:7b");
+    });
+
     it("forgets the messages of the previous chat on a new chat", () => {
       renderPanel({ chatId: "c1" });
       fromHost({ type: "chat", chat: chat("c1", [message(1, "user", "Old")]) });

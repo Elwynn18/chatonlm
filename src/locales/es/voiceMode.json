@@ -1,7 +1,14 @@
 {
   "button": {
     "start": "Iniciar el modo de voz",
-    "title": "Modo de voz ({keys})"
+    "title": "Modo de voz ({keys})",
+    "editor": "VS Code está usando la voz"
+  },
+  "editorBanner": {
+    "text": "VS Code está usando tu micrófono",
+    "stop": "Detener",
+    "stopLabel": "Detener la sesión de voz de VS Code",
+    "stopFailed": "No se pudo detener la sesión de voz de VS Code: {error}"
   },
   "bar": {
     "phase": {

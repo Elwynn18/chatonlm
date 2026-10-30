@@ -47,7 +47,10 @@
     "stop": "Arrêter",
     "ephemeral": "Conversation éphémère : elle n'apparaîtra pas dans l'historique de ChatonLM et sera effacée quand vous en commencerez une autre ou fermerez VS Code.",
     "keep": "Garder",
-    "offMachineNewChat": "Ce modèle tourne hors de cet ordinateur : une nouvelle conversation a commencé, pour que le code de la précédente reste ici."
+    "offMachineNewChat": "Ce modèle tourne hors de cet ordinateur : une nouvelle conversation a commencé, pour que le code de la précédente reste ici.",
+    "talk": "L'expliquer à voix haute",
+    "attachment": "À propos de {path}, {lines}",
+    "removeAttachment": "Ne pas joindre ce passage"
   },
   "reply": {
     "writing": "Écriture d'une réponse…",
@@ -90,7 +93,8 @@
       "selection": "Sélection",
       "file": "Fichier",
       "diagnostic": "Problème",
-      "diff": "Modifications"
+      "diff": "Modifications",
+      "terminal": "Terminal"
     },
     "line": "ligne {line}",
     "lines": "lignes {start} à {end}",
@@ -101,5 +105,59 @@
     "blocked": "Retiré avant l'envoi :",
     "secretFile": "fichier qui peut contenir des secrets",
     "secretValue": "ligne qui ressemble à un secret"
+  },
+  "tour": {
+    "label": "Visite guidée",
+    "titleFile": "Visite de {path}",
+    "titleSelection": "Visite d'une sélection de {path}",
+    "titleDiff": "Visite des modifications de {path}",
+    "planning": "Préparation de la visite…",
+    "step": "Partie {current} sur {total}",
+    "pausedStep": "{step}, en pause",
+    "ended": "Visite terminée",
+    "previous": "Partie précédente",
+    "next": "Partie suivante",
+    "pause": "Pause",
+    "resume": "Reprendre",
+    "stop": "Arrêter la visite",
+    "close": "Fermer",
+    "segments": "Parties de la visite",
+    "readFromHere": "Lire à voix haute à partir d'ici",
+    "ask": "Poser une question sur ce passage",
+    "askVoice": "Demander à voix haute",
+    "prefill": "À propos de ce passage :"
+  },
+  "voice": {
+    "duck": "Explication à voix haute",
+    "tour": "Question sur ce passage",
+    "phase": {
+      "starting": "Préparation…",
+      "listening": "À l'écoute…",
+      "transcribing": "Transcription…",
+      "thinking": "Réflexion…",
+      "speaking": "Lecture à voix haute…",
+      "paused": "En pause",
+      "muted": "Micro coupé"
+    },
+    "mute": "Couper le micro",
+    "unmute": "Réactiver le micro",
+    "stop": "Terminer la séance vocale",
+    "resume": "Reprendre l'écoute",
+    "level": "Niveau du micro",
+    "shared": "Partagé avec le modèle : {items}",
+    "sharedNothing": "Rien de l'éditeur n'est partagé avec le modèle.",
+    "passage": "{path}, {lines}",
+    "terminal": "dernière commande en échec ({command})",
+    "blocked": {
+      "one": "{count} élément retiré avant l'envoi : il peut contenir des secrets.",
+      "other": "{count} éléments retirés avant l'envoi : ils peuvent contenir des secrets."
+    },
+    "noTerminalError": "Aucune erreur du terminal disponible",
+    "where": {
+      "local": "Le modèle tourne sur cet ordinateur : ce que vous dites y reste.",
+      "cloud": "Le modèle tourne dans le cloud : ce que vous dites est envoyé par le réseau.",
+      "remote": "Le modèle tourne sur un autre ordinateur : ce que vous dites est envoyé par le réseau.",
+      "unknown": "ChatonLM n'a pas pu savoir où tourne le modèle : ce que vous dites est traité comme s'il quittait cet ordinateur."
+    }
   }
 }

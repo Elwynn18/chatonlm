@@ -47,6 +47,7 @@ const LISTENING: VoiceModeState = {
   muted: false,
   turn: 0,
   notice: null,
+  editor: false,
 };
 
 /** Faux IPC : commandes reçues ; voice_mode_start attend `startGate`. */
@@ -163,6 +164,22 @@ describe("voice mode store", () => {
     const calls = engine();
     applyVoiceModeState(LISTENING);
     expect(calls).toEqual(["voice_mode_stop"]);
+  });
+
+  it("a session held by VS Code is left alone: no stop, no launch", async () => {
+    const calls = engine();
+    applyVoiceModeState({ ...LISTENING, editor: true });
+    stopVoiceMode();
+    voiceModePageShown("chat-2");
+    await startVoiceMode("chat-1");
+    expect(calls).toEqual([]);
+    expect(voiceModeSnapshot().owner).toBeNull();
+    const { result } = renderHook(() => useVoiceModeFor("chat-1"));
+    expect(result.current.editor).toBe(true);
+    expect(result.current.shown).toBe(false);
+    // Séance de VS Code finie : la page peut de nouveau lancer la sienne.
+    applyVoiceModeState({ ...LISTENING, phase: "off" });
+    await waitFor(() => expect(result.current.editor).toBe(false));
   });
 
   it("sentences wait for the page of the session, then go to it once", async () => {

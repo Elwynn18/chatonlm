@@ -1,7 +1,11 @@
 // Faux pont en mémoire pour les essais : même trame, mêmes preuves et mêmes
 // erreurs que l'app (contrat 1a), sur des flux jumelés (`duplexPair`) ; formes
 // des corrections de la relecture (88-fix-contract.md : `app.state.local`,
-// `models.details.contextLength`, `chat.forget`, `chat.keep`).
+// `models.details.contextLength`, `chat.forget`, `chat.keep`) ; lot 2
+// (89-lot2-voice-contract.md, E) : arrêts de lecture et de séance, reprise
+// d'une séance en pause (relecture 90) acceptés,
+// le reste (`tour.plan`, `speech.read`, `voice.start`…) donné par chaque essai,
+// notifications envoyées par `notify`.
 import { createHmac, randomBytes } from "node:crypto";
 import { type Duplex, duplexPair } from "node:stream";
 import type { Discovery } from "../bridge/discovery";
@@ -82,6 +86,11 @@ export class FakeBridge {
       this.kept.push(params.chatId as string);
       return {};
     },
+    "speech.stop": () => ({}),
+    "voice.stop": () => ({}),
+    "voice.resume": () => ({}),
+    "voice.mute": () => ({}),
+    "voice.context": () => ({}),
   };
 
   readonly discovery: Discovery = {
@@ -133,6 +142,20 @@ export class FakeBridge {
   /** Coupe toutes les connexions (app fermée ou relancée). */
   dropAll(): void {
     for (const session of this.sessions) session.socket.destroy();
+  }
+
+  /** Notification de l'app à chaque éditeur authentifié. */
+  notify(method: string, params: unknown): void {
+    for (const session of this.authenticated) {
+      this.#send(session, { jsonrpc: "2.0", method, params });
+    }
+  }
+
+  /** Requêtes reçues pour une méthode (paramètres). */
+  calls(method: string): Record<string, unknown>[] {
+    return this.requests
+      .filter((r) => r.method === method)
+      .map((r) => r.params as Record<string, unknown>);
   }
 
   get authenticated(): Session[] {

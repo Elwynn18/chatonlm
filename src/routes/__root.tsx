@@ -39,7 +39,8 @@
  * by the history and by the page of that chat; Ctrl+Shift+N opens a new
  * ephemeral chat (ChatonLM's own, src/lib/ephemeral.ts); so is the state of
  * ChatonLM's own bridge for its VS Code extension (paired editors, pairing
- * code).
+ * code); while the VS Code extension holds a voice session, ChatonLM's own
+ * banner says so on every page, with a button that ends it.
  */
 
 import type { QueryClient } from "@tanstack/react-query";
@@ -50,6 +51,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { EditorVoiceBanner } from "@/components/EditorVoiceBanner";
 import { ModelPreloader } from "@/components/ModelPreloader";
 import { Tour } from "@/components/onboarding/Tour";
 import { useChatsEvents } from "@/hooks/useChats";
@@ -280,6 +282,9 @@ function RootComponent() {
         {/* Option « Preload the chosen model » : au démarrage et au choix. */}
         <ModelPreloader />
         <Outlet />
+        {/* Micro tenu par l'extension VS Code : dit sur toute page, avec
+            Stop. */}
+        <EditorVoiceBanner />
       </div>
       {touring && <Tour />}
     </>

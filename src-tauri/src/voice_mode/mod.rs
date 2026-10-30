@@ -76,6 +76,9 @@ pub struct VoiceModeState {
     pub turn: u32,
     /// Avis du dernier tour (effacé au tour suivant).
     pub notice: Option<VoiceModeNotice>,
+    /// Séance tenue par l'extension VS Code (propre à ChatonLM) : la page ne
+    /// l'arrête pas et ne peut pas en lancer une autre.
+    pub editor: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, TS)]

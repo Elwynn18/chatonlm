@@ -46,6 +46,9 @@ export function sameSource(
   if (a.kind === "message") {
     return b.kind === "message" && a.messageId === b.messageId;
   }
+  if (a.kind === "bridge") {
+    return b.kind === "bridge" && a.readId === b.readId;
+  }
   return (
     b.kind === "study" && a.courseId === b.courseId && a.passage === b.passage
   );

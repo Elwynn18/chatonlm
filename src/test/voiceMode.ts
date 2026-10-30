@@ -6,7 +6,8 @@
 // la langue de la dictée si fr/en/es, sinon de l'interface ; ici l'anglais).
 // Comme le moteur, chaque commande change l'état puis émet « voice-mode »
 // après sa réponse : voice_mode_start (prérequis vérifiés) passe par
-// Starting puis Listening ; stop revient au repos ; mute ferme ou rouvre le
+// Starting puis Listening ; stop revient au repos (séance de la page), et
+// stop_editor aussi (séance de VS Code) ; mute ferme ou rouvre le
 // micro ; interrupt (Responding, Speaking) et resume (Paused) reviennent à
 // Listening ; end_turn (Hearing) passe à Transcribing ; hold(true) à
 // Hearing, hold(false) à Transcribing ; reply_failed pose l'avis `failed`
@@ -38,7 +39,11 @@ export const VOICE_OFF: VoiceModeState = {
   muted: false,
   turn: 0,
   notice: null,
+  editor: false,
 };
+
+/** Refus de voice_mode_start quand VS Code tient la séance (texte du moteur). */
+export const HELD_BY_EDITOR = "Voice is in use by VS Code: end it there first";
 
 export function defaultVoiceModeSettings(): VoiceModeSettings {
   return {
@@ -158,6 +163,8 @@ export function fakeVoiceMode(
   });
   simulator.handle("voice_mode_start", () => {
     failure("voice_mode_start");
+    // Séance tenue par VS Code : refusée ; celle de la page : sans effet.
+    if (active() && voice.state.editor) throw invalid(HELD_BY_EDITOR);
     if (active()) return null;
     const needs = voice.requirements();
     if (needs.unavailable) throw invalid(needs.unavailable);
@@ -165,14 +172,21 @@ export function fakeVoiceMode(
       throw invalid(MISSING_FILES);
     }
     emitLater(
-      { phase: "starting", muted: false, turn: 0, notice: null },
+      { phase: "starting", muted: false, turn: 0, notice: null, editor: false },
       { phase: "listening" },
     );
     return null;
   });
   simulator.handle("voice_mode_stop", () => {
     failure("voice_mode_stop");
-    if (active()) emitLater({ ...VOICE_OFF });
+    // Le moteur n'arrête que la séance de la page.
+    if (active() && !voice.state.editor) emitLater({ ...VOICE_OFF });
+    return null;
+  });
+  simulator.handle("voice_mode_stop_editor", () => {
+    failure("voice_mode_stop_editor");
+    // Seulement la séance tenue par VS Code (bandeau de la page).
+    if (active() && voice.state.editor) emitLater({ ...VOICE_OFF });
     return null;
   });
   simulator.handle("voice_mode_mute", (args: Args) => {

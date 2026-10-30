@@ -19,7 +19,13 @@ export const VOICE_MODE_OFF: VoiceModeState = {
   muted: false,
   turn: 0,
   notice: null,
+  editor: false,
 };
+
+/** Séance tenue par l'extension VS Code (la page ne la touche pas). */
+export function heldByEditor(state: VoiceModeState): boolean {
+  return state.editor && state.phase !== "off";
+}
 
 /**
  * Ce que fait le modèle pendant Responding (rien n'est encore lu), d'après

@@ -375,8 +375,12 @@ export function ChatForm({
   const cpu = useCpuShare(slowModel);
   const queryClient = useQueryClient();
   const [imageNotice, setImageNotice] = useState<ImageNotice | null>(null);
+  // Séance tenue par VS Code : pas de mode vocal dans la page.
   const canStartVoice =
-    !isDisabled && selected !== null && editingMessage === null;
+    !isDisabled &&
+    selected !== null &&
+    editingMessage === null &&
+    !voice.editor;
 
   // Phrase transcrite : envoyée comme un message, avec le modèle et la
   // recherche web de la zone de saisie, la réflexion coupée (sauf réglage).
@@ -1009,7 +1013,11 @@ export function ChatForm({
             </div>
           )}
           {!isDisabled && !voice.shown && (
-            <VoiceModeButton chatId={chatId} disabled={!canStartVoice} />
+            <VoiceModeButton
+              chatId={chatId}
+              disabled={!canStartVoice}
+              editor={voice.editor}
+            />
           )}
           {/* Hors du groupe z-20 : sinon il ne peut pas passer au-dessus du
               voile, qui partage le contexte d'empilement de la zone. Pas en

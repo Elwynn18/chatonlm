@@ -47,7 +47,10 @@
     "stop": "Stop",
     "ephemeral": "Ephemeral chat: it won't appear in ChatonLM's history and is erased when you start another chat or close VS Code.",
     "keep": "Keep",
-    "offMachineNewChat": "This model runs outside this computer: a new chat was started, so the code of the previous one stays here."
+    "offMachineNewChat": "This model runs outside this computer: a new chat was started, so the code of the previous one stays here.",
+    "talk": "Talk it through",
+    "attachment": "About {path}, {lines}",
+    "removeAttachment": "Don't attach this part"
   },
   "reply": {
     "writing": "Writing a reply…",
@@ -90,7 +93,8 @@
       "selection": "Selection",
       "file": "File",
       "diagnostic": "Problem",
-      "diff": "Changes"
+      "diff": "Changes",
+      "terminal": "Terminal"
     },
     "line": "line {line}",
     "lines": "lines {start}–{end}",
@@ -101,5 +105,59 @@
     "blocked": "Removed before sending:",
     "secretFile": "file that may hold secrets",
     "secretValue": "line that looks like a secret"
+  },
+  "tour": {
+    "label": "Guided tour",
+    "titleFile": "Tour of {path}",
+    "titleSelection": "Tour of a selection in {path}",
+    "titleDiff": "Tour of the changes in {path}",
+    "planning": "Preparing the tour…",
+    "step": "Part {current} of {total}",
+    "pausedStep": "{step}, paused",
+    "ended": "Tour over",
+    "previous": "Previous part",
+    "next": "Next part",
+    "pause": "Pause",
+    "resume": "Resume",
+    "stop": "Stop the tour",
+    "close": "Close",
+    "segments": "Parts of the tour",
+    "readFromHere": "Read aloud from here",
+    "ask": "Ask about this part",
+    "askVoice": "Ask aloud",
+    "prefill": "About this part:"
+  },
+  "voice": {
+    "duck": "Talking it through",
+    "tour": "Asking about this part",
+    "phase": {
+      "starting": "Getting ready…",
+      "listening": "Listening…",
+      "transcribing": "Transcribing…",
+      "thinking": "Thinking…",
+      "speaking": "Speaking…",
+      "paused": "Paused",
+      "muted": "Microphone off"
+    },
+    "mute": "Mute microphone",
+    "unmute": "Turn the microphone back on",
+    "stop": "End the voice session",
+    "resume": "Resume listening",
+    "level": "Microphone level",
+    "shared": "Shared with the model: {items}",
+    "sharedNothing": "Nothing from the editor is shared with the model.",
+    "passage": "{path}, {lines}",
+    "terminal": "last failed command ({command})",
+    "blocked": {
+      "one": "{count} item removed before sending: it may hold secrets.",
+      "other": "{count} items removed before sending: they may hold secrets."
+    },
+    "noTerminalError": "No terminal error available",
+    "where": {
+      "local": "The model runs on this computer: what you say stays on it.",
+      "cloud": "The model runs in the cloud: what you say is sent over the network.",
+      "remote": "The model runs on another computer: what you say is sent over the network.",
+      "unknown": "ChatonLM couldn't tell where the model runs: what you say is handled as if it left this computer."
+    }
   }
 }

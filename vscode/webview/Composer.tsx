@@ -1,10 +1,24 @@
 // Zone de saisie du panneau : Entrée envoie, Maj+Entrée va à la ligne, le
 // bouton devient Stop pendant une réponse ; actions rapides au-dessus
-// (le texte de chacune est construit par l'hôte, avec le code de l'éditeur).
-import { ArrowUpIcon, StopIcon } from "@heroicons/react/20/solid";
-import { type FormEvent, type KeyboardEvent, useState } from "react";
+// (le texte de chacune est construit par l'hôte, avec le code de l'éditeur) ;
+// micro « Talk it through » (chaton en caoutchouc, lot 2) ; passage d'une
+// visite joint au prochain message, et texte prérempli (« Ask about this part »).
+import {
+  ArrowUpIcon,
+  MicrophoneIcon,
+  StopIcon,
+  XMarkIcon,
+} from "@heroicons/react/20/solid";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useT } from "@/i18n";
-import type { Notice, QuickAction } from "../shared/protocol";
+import type { Notice, PanelState, QuickAction } from "../shared/protocol";
+import { linesLabel } from "./labels";
 
 const ACTIONS: readonly QuickAction[] = [
   "explain",
@@ -64,6 +78,10 @@ export function Composer({
   onStop,
   onAction,
   onKeep,
+  attachment = null,
+  prefill = null,
+  onClearAttachment,
+  onTalk,
 }: {
   busy: boolean;
   /** Liaison prête et modèle choisi. */
@@ -76,9 +94,31 @@ export function Composer({
   onStop: () => void;
   onAction: (action: QuickAction) => void;
   onKeep: () => void;
+  /** Passage joint au prochain message. */
+  attachment?: PanelState["attachment"];
+  /** Texte à mettre dans la zone (nouveau `id` : remplacé et focalisé). */
+  prefill?: { id: number; text: string } | null;
+  onClearAttachment?: () => void;
+  /** « Talk it through » : séance vocale (chaton en caoutchouc). */
+  onTalk?: () => void;
 }) {
   const t = useT();
   const [text, setText] = useState("");
+  const [filled, setFilled] = useState(0);
+  const area = useRef<HTMLTextAreaElement>(null);
+  // Texte prérempli : pris pendant le rendu (pas d'état synchrone dans un
+  // effet), le focus ensuite.
+  if (prefill && prefill.id !== filled) {
+    setFilled(prefill.id);
+    setText(prefill.text);
+  }
+  useEffect(() => {
+    if (filled === 0) return;
+    const node = area.current;
+    if (!node) return;
+    node.focus();
+    node.setSelectionRange(node.value.length, node.value.length);
+  }, [filled]);
   const ready = canSend && !busy && text.trim() !== "";
 
   const submit = () => {
@@ -133,6 +173,28 @@ export function Composer({
           )}
         </div>
       )}
+      {attachment && (
+        <div
+          className="flex items-center gap-1 pb-2 text-xs text-neutral-700 dark:text-neutral-200"
+          data-testid="attachment"
+        >
+          <p className="min-w-0 flex-1 truncate">
+            {t("vscode.composer.attachment", {
+              path: attachment.path,
+              lines: linesLabel(t, attachment.lines),
+            })}
+          </p>
+          <button
+            type="button"
+            aria-label={t("vscode.composer.removeAttachment")}
+            title={t("vscode.composer.removeAttachment")}
+            onClick={onClearAttachment}
+            className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-200 dark:text-neutral-400 dark:hover:bg-neutral-700/75"
+          >
+            <XMarkIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       <form
         onSubmit={onSubmit}
         className={`relative flex items-end gap-2 rounded-3xl bg-white py-2 pr-2 pl-4 after:pointer-events-none after:absolute after:inset-0 after:rounded-3xl dark:bg-neutral-800 ${
@@ -142,6 +204,7 @@ export function Composer({
         }`}
       >
         <textarea
+          ref={area}
           aria-label={t("vscode.composer.label")}
           placeholder={t("vscode.composer.placeholder")}
           rows={1}
@@ -150,6 +213,19 @@ export function Composer({
           onKeyDown={onKeyDown}
           className="max-h-48 min-h-[24px] flex-1 resize-none self-center border-none bg-transparent text-sm leading-6 text-neutral-700 outline-none [field-sizing:content] placeholder:text-neutral-400 dark:text-white dark:placeholder:text-neutral-500"
         />
+        {onTalk && !busy && (
+          <button
+            type="button"
+            onClick={onTalk}
+            disabled={!canSend}
+            aria-label={t("vscode.composer.talk")}
+            title={t("vscode.composer.talk")}
+            data-testid="talk"
+            className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-200 disabled:cursor-default disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-700/75"
+          >
+            <MicrophoneIcon className="h-4 w-4" />
+          </button>
+        )}
         {busy ? (
           <button
             type="button"

@@ -4,4 +4,4 @@
  * Ce qu'une lecture lit (une seule à la fois dans l'app) : l'état le nomme,
  * pour que seul son bouton montre « Stop ».
  */
-export type ReadAloudSource = { "kind": "message", messageId: number, } | { "kind": "study", courseId: string, passage: string, };
+export type ReadAloudSource = { "kind": "message", messageId: number, } | { "kind": "study", courseId: string, passage: string, } | { "kind": "bridge", readId: string, };

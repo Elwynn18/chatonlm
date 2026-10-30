@@ -39,6 +39,18 @@
 //! - micro perdu : avis gardé jusqu'à la reprise (pause à la fin du tour) ;
 //! - fin : micro fermé, lecture vocale arrêtée (la génération continue),
 //!   modèle relâché, dictée rendue ;
+//! - propriétaire : la page, ou une connexion du pont VS Code (« chaton en
+//!   caoutchouc », visite guidée) ; une séance tenue par l'éditeur reçoit
+//!   seule ses phrases, ses niveaux et ses états (la page voit l'état, marqué
+//!   `editor`), n'est arrêtée ni par la page, ni par le masquage de la
+//!   fenêtre, ni par son rechargement, mais l'est par la fin de sa connexion,
+//!   le retrait de l'éditeur, la coupure du pont, la sortie de l'app et le
+//!   bouton Stop du bandeau de la page (geste explicite de l'utilisateur) ;
+//!   elle est toujours en mains libres (le pont n'a pas d'appui), reprend
+//!   après une pause par sa connexion, et ses tours continuent la numérotation
+//!   de la connexion ; un démarrage refusé n'envoie pas `Off` à l'éditeur (sa
+//!   réponse d'erreur le dit d'abord) ; une seule séance à la fois : chacun
+//!   est refusé quand l'autre la tient ;
 //! - le verrou de la séance n'est jamais tenu pendant un appel qui touche à
 //!   l'état de la lecture à voix haute (elle rappelle la séance sous le sien)
 //!   ni pendant l'ouverture ou la fermeture du micro (bloquantes) ; l'état
@@ -105,39 +117,105 @@ impl VoiceMode {
         self.core.inner.lock().state.clone()
     }
 
-    /// Démarre (sans effet si une séance est en cours) ; erreur traduite si
-    /// une dictée est en cours, si un prérequis manque, si le micro ne
-    /// s'ouvre pas.
+    /// Démarre pour la page (sans effet si elle tient déjà une séance) ;
+    /// erreur traduite si l'éditeur tient la séance, si une dictée est en
+    /// cours, si un prérequis manque, si le micro ne s'ouvre pas.
     pub async fn start(&self) -> Result<(), String> {
         self.core.start().await
     }
 
+    /// Fin de la séance de la page (bouton, masquage de la fenêtre, page
+    /// rechargée) ; une séance tenue par l'éditeur continue.
     pub fn stop(&self) {
-        self.core.stop(false);
+        self.core.stop_where(false, Some(Holder::Page));
     }
 
     pub async fn mute(&self, muted: bool) -> Result<(), String> {
+        if !self.core.held_by(Holder::Page) {
+            return Ok(());
+        }
         self.core.mute(muted).await
     }
 
     pub fn interrupt(&self) {
-        self.core.interrupt();
+        if self.core.held_by(Holder::Page) {
+            self.core.interrupt();
+        }
     }
 
     pub fn end_turn(&self) {
-        self.core.end_turn();
+        if self.core.held_by(Holder::Page) {
+            self.core.end_turn();
+        }
     }
 
     pub fn hold(&self, pressed: bool) {
-        self.core.hold(pressed);
+        if self.core.held_by(Holder::Page) {
+            self.core.hold(pressed);
+        }
     }
 
     pub async fn resume(&self) -> Result<(), String> {
+        if !self.core.held_by(Holder::Page) {
+            return Ok(());
+        }
         self.core.resume().await
     }
 
     pub fn reply_failed(&self, turn: u32, message: String) {
-        self.core.reply_failed(turn, message);
+        if self.core.held_by(Holder::Page) {
+            self.core.reply_failed(turn, message);
+        }
+    }
+
+    /// Démarre une séance tenue par une connexion du pont (`link`) ; refusée
+    /// si une séance est en cours (page ou éditeur), si un prérequis manque,
+    /// si le micro ne s'ouvre pas ou si la connexion est déjà fermée.
+    pub(crate) async fn start_for_editor(
+        &self,
+        link: Arc<dyn EditorLink>,
+    ) -> Result<(), StartError> {
+        self.core.start_as(Owner::Editor(link)).await
+    }
+
+    /// Fin de la séance si la connexion `connection` la tient (fin de la
+    /// connexion, éditeur retiré, pont coupé, `voice.stop`).
+    pub fn stop_editor(&self, connection: u64) {
+        self.core
+            .stop_where(false, Some(Holder::Editor(connection)));
+    }
+
+    /// Bouton Stop du bandeau de la page : fin de la séance tenue par
+    /// l'éditeur, quel qu'il soit (une séance de la page continue).
+    pub fn stop_editor_session(&self) {
+        let holder = self.core.inner.lock().owner.as_ref().map(Owner::holder);
+        if let Some(holder @ Holder::Editor(_)) = holder {
+            self.core.stop_where(false, Some(holder));
+        }
+    }
+
+    /// Paused : micro rouvert, si la connexion tient la séance.
+    pub async fn resume_editor(&self, connection: u64) -> Result<(), String> {
+        if !self.core.held_by(Holder::Editor(connection)) {
+            return Ok(());
+        }
+        self.core.resume().await
+    }
+
+    /// Micro coupé ou rouvert, si la connexion tient la séance.
+    pub async fn mute_editor(&self, connection: u64, muted: bool) -> Result<(), String> {
+        if !self.core.held_by(Holder::Editor(connection)) {
+            return Ok(());
+        }
+        self.core.mute(muted).await
+    }
+
+    /// L'envoi du tour `turn` de la séance de l'éditeur a été refusé
+    /// d'emblée : avis, puis écoute.
+    pub fn reply_failed_editor(&self, connection: u64, turn: u32, message: String) {
+        if self.core.held_by(Holder::Editor(connection)) {
+            self.core.reply_failed(turn, message);
+        }
     }
 
     pub fn settings_changed(&self, settings: &VoiceModeSettings) {
@@ -179,6 +257,94 @@ pub(crate) struct Prepared {
     /// Langue et dictionnaire de la dictée.
     pub request: Request,
     pub settings: VoiceModeSettings,
+}
+
+/// Qui tient la séance.
+#[derive(Clone)]
+pub(crate) enum Owner {
+    Page,
+    /// Une connexion du pont VS Code : reçoit les états, les niveaux et les
+    /// phrases de la séance.
+    Editor(Arc<dyn EditorLink>),
+}
+
+impl Owner {
+    fn holder(&self) -> Holder {
+        match self {
+            Owner::Page => Holder::Page,
+            Owner::Editor(link) => Holder::Editor(link.connection()),
+        }
+    }
+
+    /// Tours déjà comptés avant la séance : ceux de la connexion pour
+    /// l'éditeur (numérotation croissante sur toute la connexion), aucun
+    /// pour la page.
+    fn first_turn(&self) -> u32 {
+        match self {
+            Owner::Page => 0,
+            Owner::Editor(link) => link.first_turn(),
+        }
+    }
+}
+
+/// Qui tient la séance, vu des commandes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Holder {
+    Page,
+    /// Connexion du pont.
+    Editor(u64),
+}
+
+/// Connexion du pont qui tient une séance (voir `bridge::voice`). Appelée
+/// sous le verrou de la séance : rien n'y attend, rien n'y rappelle la
+/// séance.
+pub(crate) trait EditorLink: Send + Sync + 'static {
+    fn connection(&self) -> u64;
+    /// La connexion est encore ouverte et veut toujours la séance (ni
+    /// fermée, ni `voice.stop` reçu pendant le démarrage) ; sinon la séance
+    /// ne commence pas.
+    fn alive(&self) -> bool;
+    /// Dernier tour de la connexion (séances précédentes comprises) : la
+    /// séance numérote ses tours à partir du suivant.
+    fn first_turn(&self) -> u32;
+    fn changed(&self, state: &VoiceModeState);
+    fn level(&self, level: VoiceModeLevel);
+    /// Phrase transcrite, à envoyer au chat par le moteur.
+    fn utterance(&self, utterance: &VoiceModeUtterance);
+}
+
+/// Refus d'un démarrage.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StartError {
+    /// Une séance est en cours : tenue par la page (`page`) ou par un
+    /// éditeur.
+    Busy {
+        page: bool,
+    },
+    SpeechModelMissing,
+    VoiceMissing(VoiceLanguage),
+    /// Dictée en cours, machine incapable, micro qui ne s'ouvre pas,
+    /// connexion fermée… (texte traduit).
+    Failed(String),
+}
+
+impl StartError {
+    /// Texte traduit (page).
+    pub fn message(&self) -> String {
+        match self {
+            StartError::Busy { page: false } => t!("voiceMode.heldByEditor"),
+            StartError::Busy { page: true } => t!("voiceMode.heldByPage"),
+            StartError::SpeechModelMissing => t!("voiceMode.speechModelMissing"),
+            StartError::VoiceMissing(_) => t!("voiceMode.voiceMissing"),
+            StartError::Failed(message) => message.clone(),
+        }
+    }
+}
+
+impl From<String> for StartError {
+    fn from(message: String) -> Self {
+        StartError::Failed(message)
+    }
 }
 
 /// L'app vue par la séance (remplacée dans les essais). Seuls
@@ -260,6 +426,8 @@ struct Inner {
     /// Une autre lecture que celle d'un tour joue (bouton d'une réponse) :
     /// l'écoute ne signale qu'une parole franche, comme pendant une réponse.
     aside: bool,
+    /// Qui tient la séance (hors de `Off`).
+    owner: Option<Owner>,
 }
 
 /// Réglages d'une séance démarrée.
@@ -323,6 +491,16 @@ struct Job {
     request: Request,
     expected: VoiceLanguage,
     abort: Arc<AtomicBool>,
+}
+
+/// Réglages d'une séance : ceux du mode vocal, mais toujours en mains libres
+/// pour l'éditeur (le pont n'a pas d'appui : en push-to-talk, il n'entendrait
+/// jamais rien).
+fn for_owner(mut settings: VoiceModeSettings, editor: bool) -> VoiceModeSettings {
+    if editor {
+        settings.turn_mode = VoiceTurnMode::HandsFree;
+    }
+    settings
 }
 
 fn config(settings: &VoiceModeSettings) -> ListenConfig {
@@ -470,55 +648,114 @@ impl Core {
         inner.report(false);
     }
 
+    /// État envoyé à la page, et à l'éditeur qui tient la séance.
+    fn publish(&self, inner: &Inner) {
+        self.host.changed(&inner.state);
+        if let Some(Owner::Editor(link)) = &inner.owner {
+            link.changed(&inner.state);
+        }
+    }
+
+    /// La séance est en cours et tenue par `holder`.
+    fn held_by(&self, holder: Holder) -> bool {
+        self.inner
+            .lock()
+            .owner
+            .as_ref()
+            .is_some_and(|owner| owner.holder() == holder)
+    }
+
+    /// Démarrage par la page (sans effet si elle tient déjà la séance).
     async fn start(&self) -> Result<(), String> {
+        self.start_as(Owner::Page)
+            .await
+            .map_err(|error| error.message())
+    }
+
+    async fn start_as(&self, owner: Owner) -> Result<(), StartError> {
         let session = {
             let mut inner = self.inner.lock();
-            if inner.closed || inner.state.phase != Off {
+            if inner.closed {
                 return Ok(());
             }
+            if inner.state.phase != Off {
+                return match (&owner, &inner.owner) {
+                    (Owner::Page, Some(Owner::Page) | None) => Ok(()),
+                    (_, current) => Err(StartError::Busy {
+                        page: matches!(current, Some(Owner::Page) | None),
+                    }),
+                };
+            }
             if !self.host.reserve() {
-                return Err(t!("voiceMode.dictationActive"));
+                return Err(StartError::Failed(t!("voiceMode.dictationActive")));
             }
             inner.session += 1;
             inner.abort = Arc::new(AtomicBool::new(false));
-            inner.state = VoiceModeState::default();
+            inner.state = VoiceModeState {
+                editor: matches!(owner, Owner::Editor(_)),
+                turn: owner.first_turn(),
+                ..VoiceModeState::default()
+            };
+            inner.owner = Some(owner.clone());
             inner.enter(Starting);
-            self.host.changed(&inner.state);
+            self.publish(&inner);
             inner.session
         };
+        // Connexion fermée (ou `voice.stop` reçu) avant que la séance ne lui
+        // appartienne : la fin de la connexion ne l'a pas vue, elle s'arrête
+        // ici (après, c'est la fin de la connexion qui l'arrête).
+        if let Owner::Editor(link) = &owner
+            && !link.alive()
+        {
+            self.abandon(session);
+            return Err(StartError::Failed(t!("voiceMode.editorGone")));
+        }
         let opened = self.open(session).await;
         if opened.is_err() {
-            let mut inner = self.inner.lock();
-            if inner.session == session {
-                inner.session += 1;
-                inner.state = VoiceModeState::default();
-                inner.step += 1;
-                self.host.release();
-                self.host.changed(&inner.state);
-            }
+            self.abandon(session);
         }
         opened
     }
 
+    /// Démarrage `session` refusé avant l'écoute (rien n'est encore ouvert) :
+    /// retour au repos. L'état `Off` va à la page seulement : l'éditeur
+    /// apprend le refus par la réponse d'erreur de `voice.start`, que le pont
+    /// fait suivre de l'état `off` (dans cet ordre : sinon l'extension
+    /// prendrait la fin pour un arrêt et perdrait la raison).
+    fn abandon(&self, session: u64) {
+        let mut inner = self.inner.lock();
+        if inner.session != session {
+            return;
+        }
+        inner.session += 1;
+        inner.state = VoiceModeState::default();
+        inner.step += 1;
+        self.host.release();
+        self.host.changed(&inner.state);
+        inner.owner = None;
+    }
+
     /// Démarrage de la séance `session` (Starting) jusqu'à l'écoute.
-    async fn open(&self, session: u64) -> Result<(), String> {
-        let prepared = self.host.prepare().await?;
+    async fn open(&self, session: u64) -> Result<(), StartError> {
+        let editor = matches!(self.inner.lock().owner, Some(Owner::Editor(_)));
+        let mut prepared = self.host.prepare().await?;
+        prepared.settings = for_owner(prepared.settings, editor);
         let requirements = &prepared.requirements;
         if let Some(unavailable) = &requirements.unavailable {
-            return Err(unavailable.clone());
+            return Err(StartError::Failed(unavailable.clone()));
         }
         if !requirements.speech_model_installed {
-            return Err(t!("voiceMode.speechModelMissing"));
+            return Err(StartError::SpeechModelMissing);
         }
         if !requirements.voice_installed {
-            return Err(t!("voiceMode.voiceMissing"));
+            return Err(StartError::VoiceMissing(requirements.voice_language));
         }
         let support = self.services.support;
         let kind = prepared.speech.engine;
         match tauri::async_runtime::spawn_blocking(move || support(kind)).await {
             Ok(Ok(())) => {}
-            Ok(Err(refusal)) => return Err(refusal),
-            Err(error) => return Err(engine::transcription_failed(&error)),
+            Ok(Err(refusal)) => return Err(StartError::Failed(refusal)),
+            Err(error) => return Err(StartError::Failed(engine::transcription_failed(&error))),
         }
         if prepared.remember {
             self.host
@@ -553,7 +790,7 @@ impl Core {
         inner.hold = Some(hold);
         inner.install(mic, listening);
         inner.listen_again(&mut after);
-        self.host.changed(&inner.state);
+        self.publish(&inner);
         drop(inner);
         self.after(after);
         Ok(())
@@ -607,7 +844,11 @@ impl Core {
         let phase = inner.state.phase;
         match event {
             ListenEvent::Levels { input, output } => {
-                self.host.level(VoiceModeLevel { input, output });
+                let level = VoiceModeLevel { input, output };
+                match &inner.owner {
+                    Some(Owner::Editor(link)) => link.level(level),
+                    _ => self.host.level(level),
+                }
                 return;
             }
             ListenEvent::SpeechStarted if phase == VoiceModePhase::Listening => {
@@ -659,7 +900,7 @@ impl Core {
             }
             _ => return,
         }
-        self.host.changed(&inner.state);
+        self.publish(&inner);
         drop(inner);
         self.after(after);
     }
@@ -719,7 +960,10 @@ impl Core {
                         utterance: ended.elapsed(),
                     });
                 }
-                self.host.utterance(&utterance);
+                match &inner.owner {
+                    Some(Owner::Editor(link)) => link.utterance(&utterance),
+                    _ => self.host.utterance(&utterance),
+                }
             }
             Ok(_) | Err(None) => inner.listen_again(&mut after),
             Err(Some(message)) => {
@@ -727,18 +971,30 @@ impl Core {
                 inner.listen_again(&mut after);
             }
         }
-        self.host.changed(&inner.state);
+        self.publish(&inner);
         drop(inner);
         self.after(after);
     }
 
+    /// Fin de toute séance (sortie de l'app, conversation supprimée).
     fn stop(&self, blocking: bool) {
+        self.stop_where(blocking, None);
+    }
+
+    /// Fin de la séance si elle est tenue par `holder` (toute séance avec
+    /// `None`) ; l'éditeur qui la tenait apprend l'état `Off`.
+    fn stop_where(&self, blocking: bool, holder: Option<Holder>) {
         let mut after = After {
             blocking,
             ..After::default()
         };
         let mut inner = self.inner.lock();
         if inner.state.phase == Off {
+            return;
+        }
+        if let Some(holder) = holder
+            && inner.owner.as_ref().map(Owner::holder) != Some(holder)
+        {
             return;
         }
         inner.session += 1;
@@ -757,7 +1013,8 @@ impl Core {
         inner.step += 1;
         self.host.reading_active(false);
         self.host.release();
-        self.host.changed(&inner.state);
+        self.publish(&inner);
+        inner.owner = None;
         drop(inner);
         self.after(after);
     }
@@ -777,7 +1034,7 @@ impl Core {
             } else {
                 inner.step += 1;
             }
-            self.host.changed(&inner.state);
+            self.publish(&inner);
             drop(inner);
             self.after(after);
             return Ok(());
@@ -791,7 +1048,7 @@ impl Core {
             if phase == Paused {
                 // Rouvert par la reprise.
                 inner.state.muted = false;
-                self.host.changed(&inner.state);
+                self.publish(&inner);
                 return Ok(());
             }
             let Some(run) = inner.run.as_ref() else {
@@ -808,7 +1065,7 @@ impl Core {
                     inner.state.notice = Some(VoiceModeNotice::Failed {
                         message: message.clone(),
                     });
-                    self.host.changed(&inner.state);
+                    self.publish(&inner);
                 }
                 return Err(message);
             }
@@ -824,7 +1081,7 @@ impl Core {
             if inner.state.phase == VoiceModePhase::Listening {
                 after.pause = Some((inner.session, inner.step));
             }
-            self.host.changed(&inner.state);
+            self.publish(&inner);
         }
         drop(inner);
         self.after(after);
@@ -839,7 +1096,7 @@ impl Core {
         }
         self.cut(&mut inner, &mut after);
         inner.listen_again(&mut after);
-        self.host.changed(&inner.state);
+        self.publish(&inner);
         drop(inner);
         self.after(after);
     }
@@ -878,7 +1135,7 @@ impl Core {
         if let Some(listening) = &inner.listening {
             listening.hold(true);
         }
-        self.host.changed(&inner.state);
+        self.publish(&inner);
         drop(inner);
         self.after(after);
     }
@@ -908,7 +1165,7 @@ impl Core {
                 inner.state.notice = Some(VoiceModeNotice::Failed {
                     message: message.clone(),
                 });
-                self.host.changed(&inner.state);
+                self.publish(&inner);
                 return Err(message);
             }
         };
@@ -919,7 +1176,7 @@ impl Core {
         inner.state.notice = None;
         inner.install(mic, listening);
         inner.listen_again(&mut after);
-        self.host.changed(&inner.state);
+        self.publish(&inner);
         drop(inner);
         self.after(after);
         Ok(())
@@ -939,7 +1196,7 @@ impl Core {
         inner.close_mic(&mut after);
         after.hold = inner.hold.take();
         inner.enter(Paused);
-        self.host.changed(&inner.state);
+        self.publish(&inner);
         drop(inner);
         self.after(after);
     }
@@ -953,19 +1210,21 @@ impl Core {
         inner.report(false);
         inner.state.notice = Some(VoiceModeNotice::Failed { message });
         inner.listen_again(&mut after);
-        self.host.changed(&inner.state);
+        self.publish(&inner);
         drop(inner);
         self.after(after);
     }
 
     fn settings_changed(&self, settings: &VoiceModeSettings) {
         let mut inner = self.inner.lock();
+        let editor = matches!(inner.owner, Some(Owner::Editor(_)));
         let Some(run) = inner.run.as_mut() else {
             return;
         };
-        run.settings = settings.clone();
+        run.settings = for_owner(settings.clone(), editor);
+        let config = config(&run.settings);
         if let Some(listening) = &inner.listening {
-            listening.configure(config(settings));
+            listening.configure(config);
         }
     }
 
@@ -989,7 +1248,7 @@ impl Core {
             inner.report(false);
             inner.state.notice = failed.map(|message| VoiceModeNotice::Failed { message });
             inner.listen_again(&mut after);
-            self.host.changed(&inner.state);
+            self.publish(&inner);
             drop(inner);
             self.after(after);
             return;
@@ -1045,7 +1304,7 @@ impl Core {
             }
             _ => return,
         }
-        self.host.changed(&inner.state);
+        self.publish(&inner);
         drop(inner);
         // Jamais la lecture ici (appelé sous son verrou de livraison).
         debug_assert!(!after.stop_reading);

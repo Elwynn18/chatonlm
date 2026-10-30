@@ -1,8 +1,10 @@
 // Messages entre l'hôte de l'extension (Node) et le panneau (webview React).
-// Contrat : .tools/research/87-lot1b-contract.md.
+// Contrats : .tools/research/87-lot1b-contract.md, 89-lot2-voice-contract.md
+// (X : visite guidée parlée, chaton en caoutchouc).
 
 import type { Chat } from "../../src/bindings/Chat";
 import type { ChatEvent } from "../../src/bindings/ChatEvent";
+import type { VoiceModeState } from "../../src/bindings/VoiceModeState";
 
 /** Liaison de l'extension avec l'app. */
 export type Connection =
@@ -38,10 +40,12 @@ export type PanelState = {
    * les envois montrés (ceux d'avant ne lui sont plus relayés). */
   generation: number;
   notice: Notice | null;
+  /** Passage joint au prochain message tapé (« Ask about this part »). */
+  attachment?: { path: string; lines: [number, number] } | null;
 };
 
 export type ReceiptItem = {
-  kind: "selection" | "file" | "diagnostic" | "diff";
+  kind: "selection" | "file" | "diagnostic" | "diff" | "terminal";
   label: string;
   /** Chemin relatif au dossier de travail. */
   path?: string;
@@ -76,6 +80,54 @@ export type Theme = "light" | "dark";
 
 export type QuickAction = "explain" | "fix" | "tests" | "commitMessage";
 
+/** Ce que parcourt une visite guidée. */
+export type TourKind = "file" | "selection" | "diff";
+
+/** Segment d'une visite : lignes du fichier (à partir de 1) et texte lu. */
+export type TourSegment = { lines: [number, number]; text: string };
+
+/** Visite guidée parlée, telle que le panneau la montre. */
+export type TourView = {
+  /** Augmente à chaque nouvelle visite. */
+  id: number;
+  kind: TourKind;
+  /** Chemin relatif au dossier de travail. */
+  path: string;
+  /** `planning` : le modèle prépare les segments ; `playing` : lecture ;
+   * `paused` : arrêtée sur un segment (reprise possible) ; `ended` : finie
+   * ou arrêtée (segments encore lisibles). */
+  status: "planning" | "playing" | "paused" | "ended";
+  segments: TourSegment[];
+  /** Segment en cours (ou dernier lu), -1 avant le premier. */
+  current: number;
+  /** Ce qui est parti au modèle pour préparer la visite. */
+  receipt: Receipt | null;
+};
+
+/** Phase d'une séance vocale (type ts-rs de la page de l'app). */
+export type VoicePhase = VoiceModeState["phase"];
+
+/** Séance vocale tenue par VS Code. */
+export type VoiceView = {
+  /** `duck` : chaton en caoutchouc ; `tour` : question sur un passage. */
+  profile: "duck" | "tour";
+  phase: VoicePhase;
+  muted: boolean;
+  /** Texte d'un avis de l'app (déjà traduit), ou null. */
+  notice: string | null;
+  /** Contexte partagé avec le modèle (passage, dernière commande échouée),
+   * après filtrage hors machine. */
+  shared: ReceiptItem[];
+  /** Retiré du contexte avant l'envoi (hors de cette machine). */
+  blocked: Receipt["blocked"];
+  destination: Receipt["destination"];
+  /** Seulement en `duck` : l'intégration du shell n'a donné aucune
+   * commande échouée. */
+  noTerminalError: boolean;
+};
+
+export type TourCommand = "previous" | "next" | "pause" | "resume" | "stop";
+
 /** Hôte → panneau. */
 export type HostMessage =
   | { type: "init"; locale: Locale; theme: Theme; state: PanelState }
@@ -87,7 +139,13 @@ export type HostMessage =
    * l'ouverture du panneau (un envoi fait panneau fermé, ou avant un
    * rechargement, garde son reçu). */
   | { type: "receipts"; receipts: Record<number, Receipt> }
-  | { type: "theme"; theme: Theme };
+  | { type: "theme"; theme: Theme }
+  /** Visite guidée en cours (ou dernière), null : aucune. */
+  | { type: "tour"; tour: TourView | null }
+  /** Séance vocale tenue par VS Code, null : aucune. */
+  | { type: "voice"; voice: VoiceView | null }
+  /** Niveau du micro, 0 à 1 (à part : jusqu'à ~15 par seconde). */
+  | { type: "voiceLevel"; level: number };
 
 /** Panneau → hôte. */
 export type PanelMessage =
@@ -107,4 +165,19 @@ export type PanelMessage =
   /** Relit les modèles de l'app (écran « aucun modèle »). */
   | { type: "refresh" }
   /** Erreur du panneau (rendu, script), écrite dans la sortie « ChatonLM ». */
-  | { type: "panelError"; message: string };
+  | { type: "panelError"; message: string }
+  /** Commande de la visite guidée. */
+  | { type: "tour"; command: TourCommand }
+  /** Lecture reprise au segment `index`. */
+  | { type: "tourGoto"; index: number }
+  /** « Ask about this part » : tapée (passage joint au prochain message),
+   * ou à la voix (séance `tour`). */
+  | { type: "tourAsk"; voice: boolean }
+  /** Retire le passage joint au prochain message. */
+  | { type: "clearAttachment" }
+  /** Chaton en caoutchouc (« Talk it through »), couper, arrêter, reprendre
+   * une séance en pause. */
+  | {
+      type: "voice";
+      command: "start" | "stop" | "mute" | "unmute" | "resume";
+    };

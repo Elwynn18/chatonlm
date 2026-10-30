@@ -14,4 +14,9 @@ turn: number,
 /**
  * Avis du dernier tour (effacé au tour suivant).
  */
-notice: VoiceModeNotice | null, };
+notice: VoiceModeNotice | null, 
+/**
+ * Séance tenue par l'extension VS Code (propre à ChatonLM) : la page ne
+ * l'arrête pas et ne peut pas en lancer une autre.
+ */
+editor: boolean, };

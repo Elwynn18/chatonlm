@@ -11,9 +11,115 @@ use tokio::io::{AsyncWriteExt, BufReader, DuplexStream, ReadHalf, WriteHalf};
 use tokio::sync::watch;
 
 use super::connection::code;
+use super::voice::{Voice, voice_code};
 use super::*;
+use crate::dictation::clipboard::BoxFuture;
 use crate::store::chats::{self, ChatSource};
 use crate::store::settings::{self, SettingsPatch};
+use crate::tts::service::{ReadingEnd, Segment, SegmentEvent, SegmentSink, SegmentsRefusal};
+use crate::tts::{ReadAloudError, VoiceLanguage};
+use crate::voice_mode::session::{EditorLink, StartError};
+use crate::voice_mode::{VoiceModePhase, VoiceModeState, VoiceModeUtterance};
+
+/// Lecture demandée : identifiant, segments, langue.
+type Read = (String, Vec<Segment>, Option<VoiceLanguage>);
+
+/// Voix de l'app simulée : ce que le pont lui demande.
+#[derive(Default)]
+struct FakeVoice {
+    reads: Mutex<Vec<Read>>,
+    sinks: Mutex<Vec<SegmentSink>>,
+    read_refusal: Mutex<Option<SegmentsRefusal>>,
+    stopped_reads: Mutex<Vec<String>>,
+    /// Connexions dont les lectures ont été arrêtées.
+    reads_stopped_for: Mutex<Vec<u64>>,
+    /// Séances tenues par l'éditeur.
+    links: Mutex<Vec<Arc<dyn EditorLink>>>,
+    start_refusal: Mutex<Option<StartError>>,
+    /// États publiés à l'éditeur par le démarrage, avant sa fin (comme la
+    /// séance : `starting`).
+    start_states: Mutex<Vec<VoiceModeState>>,
+    /// Démarrage retenu jusqu'au feu vert (arrêt pendant le démarrage).
+    start_gate: Mutex<Option<Arc<tokio::sync::Notify>>>,
+    /// `stop(connection)` reçus.
+    stops: Mutex<Vec<u64>>,
+    mutes: Mutex<Vec<(u64, bool)>>,
+    resumes: Mutex<Vec<u64>>,
+    resume_refusal: Mutex<Option<String>>,
+    failed_replies: Mutex<Vec<(u64, u32, String)>>,
+    /// La lecture panique (panique dans la tâche d'une connexion).
+    panic_on_read: std::sync::atomic::AtomicBool,
+}
+
+impl Voice for FakeVoice {
+    fn read(
+        &self,
+        read_id: String,
+        segments: Vec<Segment>,
+        language: Option<VoiceLanguage>,
+        sink: SegmentSink,
+    ) -> Result<(), SegmentsRefusal> {
+        assert!(
+            !self.panic_on_read.load(Ordering::SeqCst),
+            "the reading panics"
+        );
+        if let Some(refusal) = *self.read_refusal.lock() {
+            return Err(refusal);
+        }
+        self.reads.lock().push((read_id, segments, language));
+        self.sinks.lock().push(sink);
+        Ok(())
+    }
+
+    fn stop_read(&self, read_id: &str) {
+        self.stopped_reads.lock().push(read_id.to_owned());
+    }
+
+    fn stop_reads(&self, connection: u64) {
+        self.reads_stopped_for.lock().push(connection);
+    }
+
+    fn start(&self, link: Arc<dyn EditorLink>) -> BoxFuture<Result<(), StartError>> {
+        let refusal = self.start_refusal.lock().clone();
+        for state in self.start_states.lock().iter() {
+            link.changed(state);
+        }
+        if refusal.is_none() {
+            self.links.lock().push(link);
+        }
+        let gate = self.start_gate.lock().clone();
+        Box::pin(async move {
+            if let Some(gate) = gate {
+                gate.notified().await;
+            }
+            refusal.map_or(Ok(()), Err)
+        })
+    }
+
+    /// Comme la séance : l'éditeur qui la tenait apprend `Off`.
+    fn stop(&self, connection: u64) {
+        self.stops.lock().push(connection);
+        let links: Vec<_> = self.links.lock().clone();
+        for link in links.iter().filter(|link| link.connection() == connection) {
+            link.changed(&VoiceModeState::default());
+        }
+    }
+
+    fn mute(&self, connection: u64, muted: bool) -> BoxFuture<Result<(), String>> {
+        self.mutes.lock().push((connection, muted));
+        Box::pin(async { Ok(()) })
+    }
+
+    fn resume(&self, connection: u64) -> BoxFuture<Result<(), String>> {
+        self.resumes.lock().push(connection);
+        let refusal = self.resume_refusal.lock().clone();
+        Box::pin(async move { refusal.map_or(Ok(()), Err) })
+    }
+
+    fn reply_failed(&self, connection: u64, turn: u32, message: String) {
+        self.failed_replies.lock().push((connection, turn, message));
+    }
+}
 
 /// Conversation annoncée à la page, et sa marque à ce moment-là.
 type Mark = (String, Option<ChatSource>);
@@ -27,6 +133,7 @@ struct TestHost {
     store: Arc<OnceLock<Store>>,
     /// Marque de la conversation au moment où la page l'apprend.
     marks: Arc<Mutex<Vec<Mark>>>,
+    voice: Arc<FakeVoice>,
 }
 
 impl Host for TestHost {
@@ -47,6 +154,9 @@ impl Host for TestHost {
                 .and_then(|chat| chat.source);
             self.marks.lock().push((chat_id.to_owned(), source));
         }
+    }
+    fn voice(&self) -> &dyn Voice {
+        &*self.voice
     }
 }
 
@@ -111,13 +221,7 @@ impl Bench {
         let shared = Arc::clone(self.bridge.shared());
         let (close, closed) = watch::channel(false);
         let id = shared.next_connection.fetch_add(1, Ordering::SeqCst);
-        shared.connections.lock().insert(
-            id,
-            Open {
-                client: None,
-                close,
-            },
-        );
+        shared.connections.lock().insert(id, Open::new(close));
         tokio::spawn(async move {
             connection::serve(&shared, id, Box::new(server), closed).await;
             shared.connections.lock().remove(&id);
@@ -186,6 +290,21 @@ impl Client {
         match read {
             Ok(Some(body)) => Some(serde_json::from_slice(&body).unwrap()),
             _ => None,
+        }
+    }
+
+    /// Prochaine notification `method` (gardée ou à venir), retirée.
+    async fn notification(&mut self, method: &str) -> Value {
+        loop {
+            if let Some(index) = self
+                .notifications
+                .iter()
+                .position(|message| message["method"] == method)
+            {
+                return self.notifications.remove(index)["params"].clone();
+            }
+            let message = self.next_message().await.expect("connection open");
+            self.notifications.push(message);
         }
     }
 
@@ -1131,4 +1250,797 @@ fn a_pipe_instance_is_replaced_after_a_failed_connect() {
     assert_eq!(next, 3);
     assert!(after_connect(&mut next, Ok(()), refused).is_err());
     assert_eq!(next, 3);
+}
+
+/// Les méthodes de la voix sont dans la liste blanche, après
+/// l'authentification seulement ; paramètres vérifiés.
+#[tokio::test]
+async fn the_voice_methods_are_served_after_authentication_only() {
+    let bench = bench().await;
+    let methods = [
+        "tour.plan",
+        "speech.read",
+        "speech.stop",
+        "voice.start",
+        "voice.stop",
+        "voice.mute",
+        "voice.resume",
+        "voice.context",
+    ];
+    let mut client = bench.connect();
+    client.initialize().await;
+    for method in methods {
+        assert_eq!(
+            error_code(&client.request(method, json!({})).await),
+            code::UNAUTHENTICATED,
+            "{method}"
+        );
+    }
+    let (mut client, _, _) = bench.paired().await;
+    for method in methods {
+        let answer = client.request(method, json!({ "unknown": 1 })).await;
+        assert_eq!(error_code(&answer), code::INVALID_PARAMS, "{method}");
+    }
+    assert_eq!(
+        client.request("voice.stop", json!({})).await["result"],
+        json!({})
+    );
+    assert!(bench.host.voice.links.lock().is_empty());
+}
+
+/// `speech.read` : lecture demandée à la voix de l'app, identifiant rendu,
+/// ses évènements relayés tels quels ; `speech.stop` n'arrête que les
+/// lectures de la connexion ; refus traduits en codes.
+#[tokio::test]
+async fn speech_read_relays_the_events_of_its_reading() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    let voice = bench.host.voice.clone();
+    let answer = client
+        .request(
+            "speech.read",
+            json!({ "segments": [{ "id": "s1", "text": "Hello." }, { "id": "s2", "text": "Bye." }], "language": "en" }),
+        )
+        .await;
+    let read = answer["result"]["readId"].as_str().unwrap().to_owned();
+    {
+        let reads = voice.reads.lock();
+        let (read_id, segments, language) = &reads[0];
+        assert_eq!(*read_id, read);
+        assert_eq!(
+            segments.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            ["s1", "s2"]
+        );
+        assert_eq!(segments[1].text, "Bye.");
+        assert_eq!(*language, Some(VoiceLanguage::En));
+    }
+    let sink = voice.sinks.lock()[0].clone();
+    sink(SegmentEvent::Started("s1".into()));
+    sink(SegmentEvent::Finished("s1".into()));
+    sink(SegmentEvent::Stopped);
+    sink(SegmentEvent::Failed(ReadingEnd::Failed(
+        ReadAloudError::NoOutputDevice,
+    )));
+    let mut events = Vec::new();
+    for _ in 0..4 {
+        events.push(client.notification("speech.event").await);
+    }
+    assert_eq!(
+        events[..3],
+        [
+            json!({ "readId": read, "type": "started", "segmentId": "s1" }),
+            json!({ "readId": read, "type": "finished", "segmentId": "s1" }),
+            json!({ "readId": read, "type": "stopped" }),
+        ]
+    );
+    assert_eq!(events[3]["type"], "error");
+    assert!(events[3]["message"].as_str().unwrap().contains("audio"));
+
+    // Arrêt : la sienne seulement.
+    let stop = |read: &str| json!({ "readId": read });
+    assert_eq!(
+        client.request("speech.stop", stop(&read)).await["result"],
+        json!({})
+    );
+    client.request("speech.stop", stop("999999-1")).await;
+    assert_eq!(*voice.stopped_reads.lock(), std::slice::from_ref(&read));
+
+    // Refus.
+    *voice.read_refusal.lock() = Some(SegmentsRefusal::MissingVoice(VoiceLanguage::Fr));
+    let segments = json!({ "segments": [{ "id": "a", "text": "Bonjour." }] });
+    let missing = client.request("speech.read", segments.clone()).await;
+    assert_eq!(error_code(&missing), voice_code::MISSING_VOICE);
+    assert_eq!(missing["error"]["data"], json!({ "language": "fr" }));
+    *voice.read_refusal.lock() = Some(SegmentsRefusal::NothingToRead);
+    let nothing = client.request("speech.read", segments).await;
+    assert_eq!(error_code(&nothing), code::REFUSED);
+    assert!(nothing["error"]["data"]["message"].is_string());
+    // Mal formées : aucun segment, trop de segments, identifiant vide.
+    *voice.read_refusal.lock() = None;
+    let many: Vec<Value> = (0..65)
+        .map(|i| json!({ "id": i.to_string(), "text": "x" }))
+        .collect();
+    for params in [
+        json!({ "segments": [] }),
+        json!({ "segments": many }),
+        json!({ "segments": [{ "id": "", "text": "x" }] }),
+        json!({ "segments": [{ "id": "a", "text": "x" }], "language": "de" }),
+    ] {
+        assert_eq!(
+            error_code(&client.request("speech.read", params).await),
+            code::INVALID_PARAMS
+        );
+    }
+    assert_eq!(voice.reads.lock().len(), 1);
+}
+
+/// Attend `condition` (5 s au plus).
+async fn until(what: &str, condition: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !condition() {
+        assert!(std::time::Instant::now() < deadline, "timed out: {what}");
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
+/// Connexion authentifiée de plus pour l'éditeur `id`.
+async fn reconnect(bench: &Bench, id: &str, secret: &[u8; 32]) -> Client {
+    let mut client = bench.connect();
+    client.initialize().await;
+    assert!(client.auth(id, secret).await.get("result").is_some());
+    client
+}
+
+/// Séance démarrée par `client` : son lien.
+async fn voice_session(bench: &Bench, client: &mut Client, params: Value) -> Arc<dyn EditorLink> {
+    let count = bench.host.voice.links.lock().len();
+    let started = client.request("voice.start", params).await;
+    assert!(started["result"]["sessionId"].is_string(), "{started}");
+    bench.host.voice.links.lock()[count].clone()
+}
+
+/// Le micro ouvert par le pont s'arrête toujours : fin de la connexion,
+/// éditeur retiré, pont coupé ; la lecture de la connexion aussi.
+#[tokio::test]
+async fn the_voice_of_a_connection_stops_when_it_closes() {
+    let bench = bench().await;
+    let voice = bench.host.voice.clone();
+    let (mut client, id, secret) = bench.paired().await;
+    let link = voice_session(&bench, &mut client, json!({ "profile": "duck" })).await;
+    assert!(link.alive());
+    let connection = link.connection();
+    assert!(!voice.stops.lock().contains(&connection));
+    // Fin de la connexion (VS Code fermé).
+    drop(client);
+    until("stopped at the end of the connection", || {
+        voice.stops.lock().contains(&connection)
+    })
+    .await;
+    assert!(voice.reads_stopped_for.lock().contains(&connection));
+    assert!(!link.alive());
+
+    // Éditeur retiré : arrêtée aussitôt.
+    let mut client = reconnect(&bench, &id, &secret).await;
+    let link = voice_session(&bench, &mut client, json!({ "profile": "tour" })).await;
+    bench.bridge.unlink(id.clone()).await.unwrap();
+    assert!(voice.stops.lock().contains(&link.connection()));
+    assert!(!link.alive());
+
+    // Pont coupé : arrêtée aussitôt.
+    let (mut client, _, _) = bench.paired().await;
+    let link = voice_session(&bench, &mut client, json!({ "profile": "duck" })).await;
+    bench.bridge.set_enabled(false).await.unwrap();
+    assert!(voice.stops.lock().contains(&link.connection()));
+    assert!(!link.alive());
+}
+
+/// Refus du démarrage traduits en codes : séance tenue (par la page ou un
+/// éditeur), modèle de transcription ou voix absents, micro.
+#[tokio::test]
+async fn a_refused_voice_session_is_told_by_its_code() {
+    let bench = bench().await;
+    let voice = bench.host.voice.clone();
+    let (mut client, _, _) = bench.paired().await;
+    let start = json!({ "profile": "duck" });
+    let cases = [
+        (
+            StartError::Busy { page: true },
+            voice_code::BUSY,
+            json!({ "owner": "page" }),
+        ),
+        (
+            StartError::Busy { page: false },
+            voice_code::BUSY,
+            json!({ "owner": "bridge" }),
+        ),
+        (
+            StartError::VoiceMissing(VoiceLanguage::Es),
+            voice_code::MISSING_VOICE,
+            json!({ "language": "es" }),
+        ),
+        (
+            StartError::Failed("no mic".into()),
+            voice_code::MICROPHONE,
+            json!({ "message": "no mic" }),
+        ),
+    ];
+    for (refusal, code, data) in cases {
+        *voice.start_refusal.lock() = Some(refusal);
+        let answer = client.request("voice.start", start.clone()).await;
+        assert_eq!(error_code(&answer), code, "{answer}");
+        assert_eq!(answer["error"]["data"], data);
+    }
+    *voice.start_refusal.lock() = Some(StartError::SpeechModelMissing);
+    let answer = client.request("voice.start", start.clone()).await;
+    assert_eq!(error_code(&answer), voice_code::MISSING_SPEECH_MODEL);
+    // Conversation inconnue : refus du moteur, rien ne démarre.
+    *voice.start_refusal.lock() = None;
+    let answer = client
+        .request(
+            "voice.start",
+            json!({ "profile": "duck", "chatId": "nope" }),
+        )
+        .await;
+    assert_eq!(error_code(&answer), code::REFUSED);
+    assert!(voice.links.lock().is_empty());
+}
+
+/// Phrase d'un tour de la séance de l'éditeur : envoyée au chat par le
+/// moteur (envoi vocal, consigne du profil puis contexte de l'éditeur en
+/// message système, réflexion coupée), conversation créée marquée « VS
+/// Code » puis gardée pour le tour suivant ; évènements relayés avec leur
+/// tour ; état et niveaux relayés ; un envoi refusé d'emblée finit le tour.
+#[tokio::test]
+async fn a_spoken_turn_is_sent_by_the_engine_and_relayed() {
+    let bench = bench().await;
+    let voice = bench.host.voice.clone();
+    let (mut client, _, _) = bench.paired().await;
+    let link = voice_session(
+        &bench,
+        &mut client,
+        json!({ "profile": "duck", "model": "qwen3:0.6b", "context": "fn main() {}" }),
+    )
+    .await;
+    assert_eq!(
+        client
+            .request(
+                "voice.context",
+                json!({ "text": "error[E0425]: cannot find value `x`" })
+            )
+            .await["result"],
+        json!({})
+    );
+    // État et niveaux (au plus ~15 par seconde).
+    let listening = VoiceModeState {
+        phase: VoiceModePhase::Listening,
+        editor: true,
+        ..VoiceModeState::default()
+    };
+    link.changed(&listening);
+    let state = client.notification("voice.state").await;
+    assert_eq!(state["state"]["phase"], "listening");
+    assert_eq!(state["state"]["editor"], true);
+    for _ in 0..5 {
+        link.level(crate::voice_mode::VoiceModeLevel {
+            input: 0.5,
+            output: 0.0,
+        });
+    }
+    assert_eq!(
+        client.notification("voice.level").await["level"]["input"],
+        0.5
+    );
+
+    let say = |turn: u32, text: &str| VoiceModeUtterance {
+        turn,
+        text: text.into(),
+        language: Some(VoiceLanguage::En),
+    };
+    link.utterance(&say(1, "It crashes when it starts."));
+    let mut chat = None;
+    loop {
+        let relayed = client.notification("voice.chat").await;
+        assert_eq!(relayed["turn"], 1);
+        let event = &relayed["event"];
+        if event["type"] == "chatCreated" {
+            chat = event["chatId"].as_str().map(str::to_owned);
+        }
+        if event["type"] == "done" {
+            break;
+        }
+    }
+    let chat = chat.expect("a chat was created");
+    assert_eq!(
+        client
+            .notifications
+            .iter()
+            .filter(|n| n["method"] == "voice.level")
+            .count(),
+        0,
+        "levels are throttled"
+    );
+    let request = bench._ollama.chat_requests().last().unwrap().clone();
+    let system = request["messages"][0]["content"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(request["messages"][0]["role"], "system");
+    assert!(system.starts_with(crate::voice_mode::DEFAULT_INSTRUCTIONS));
+    assert!(system.contains(&crate::i18n::t!("bridge.voice.duck")));
+    assert!(system.contains("cannot find value"));
+    assert!(!system.contains("fn main"), "the context was replaced");
+    assert_eq!(request["think"], false);
+    let marks = bench.host.marks.lock().clone();
+    assert!(marks.contains(&(chat.clone(), Some(ChatSource::Vscode))));
+
+    // Tour suivant : même conversation.
+    link.utterance(&say(2, "Maybe the config file is missing."));
+    loop {
+        let relayed = client.notification("voice.chat").await;
+        assert_eq!(relayed["turn"], 2);
+        if relayed["event"]["type"] == "done" {
+            break;
+        }
+    }
+    let saved = bench
+        .store
+        .call(move |c| chats::get(c, &chat))
+        .await
+        .unwrap();
+    assert_eq!(saved.messages.len(), 4, "two turns, no instructions saved");
+    assert_eq!(
+        saved.messages[2].content,
+        "Maybe the config file is missing."
+    );
+
+    // Envoi refusé d'emblée (phrase vide) : le tour finit avec un avis.
+    link.utterance(&say(3, "   "));
+    until("reply failed", || !voice.failed_replies.lock().is_empty()).await;
+    let (connection, turn, _) = voice.failed_replies.lock()[0].clone();
+    assert_eq!((connection, turn), (link.connection(), 3));
+}
+
+/// `tour.plan` : plan du modèle en JSON contraint, lignes rapportées au code
+/// donné ; un plan invalide est redemandé une fois, puis refusé.
+#[tokio::test]
+async fn tour_plan_gives_segments_checked_against_the_code() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    let code = "use std::io;\nfn main() {\n    println!(\"hi\");\n}";
+    let params = |model: &str| {
+        json!({
+            "model": model,
+            "locale": "fr",
+            "path": "src/main.rs",
+            "language": "rust",
+            "code": code,
+            "firstLine": 10,
+            "kind": "file",
+        })
+    };
+    let texts = fake_ollama::tour::TOUR_TEXTS[1];
+    let answer = client.request("tour.plan", params("chatonlm-tour")).await;
+    assert_eq!(
+        answer["result"],
+        json!({ "segments": [
+            { "lines": [10, 10], "text": texts[0] },
+            { "lines": [11, 13], "text": texts[1] },
+        ] }),
+        "{answer}"
+    );
+    let requests = bench._ollama.chat_requests();
+    let sent = requests.last().unwrap();
+    assert_eq!(sent["stream"], false);
+    assert!(sent["format"]["properties"]["segments"].is_object());
+    assert!(
+        sent["messages"][1]["content"]
+            .as_str()
+            .unwrap()
+            .contains("   10 | use std::io;")
+    );
+    assert!(
+        sent["messages"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("French")
+    );
+
+    let before = bench._ollama.chat_requests().len();
+    let refused = client
+        .request("tour.plan", params("chatonlm-tour-invalid"))
+        .await;
+    assert_eq!(error_code(&refused), code::REFUSED);
+    assert!(refused["error"]["data"]["message"].is_string());
+    assert_eq!(
+        bench._ollama.chat_requests().len(),
+        before + 2,
+        "asked twice"
+    );
+
+    let mut bad = params("chatonlm-tour");
+    bad["firstLine"] = json!(0);
+    assert_eq!(
+        error_code(&client.request("tour.plan", bad).await),
+        code::INVALID_PARAMS
+    );
+    let mut empty = params("chatonlm-tour");
+    empty["code"] = json!("  ");
+    assert_eq!(
+        error_code(&client.request("tour.plan", empty).await),
+        code::INVALID_PARAMS
+    );
+}
+
+/// Séance éphémère (`ephemeral`, sans `chatId`) : la conversation ouverte
+/// par le premier tour est éphémère, marquée « VS Code », gardée pour le
+/// tour suivant, et suivie comme les autres éphémères du pont : effacée au
+/// retrait de l'éditeur.
+#[tokio::test]
+async fn an_ephemeral_voice_session_opens_an_ephemeral_editor_chat() {
+    let bench = bench().await;
+    let (mut client, id, _) = bench.paired().await;
+    let link = voice_session(
+        &bench,
+        &mut client,
+        json!({ "profile": "duck", "model": "qwen3:0.6b", "ephemeral": true }),
+    )
+    .await;
+    let say = |turn: u32, text: &str| VoiceModeUtterance {
+        turn,
+        text: text.into(),
+        language: Some(VoiceLanguage::En),
+    };
+    let mut chat = None;
+    for (turn, text) in [(1, "It crashes."), (2, "Only on Windows.")] {
+        link.utterance(&say(turn, text));
+        loop {
+            let relayed = client.notification("voice.chat").await;
+            let event = &relayed["event"];
+            if event["type"] == "chatCreated" {
+                assert_eq!(turn, 1, "one chat for the session");
+                chat = event["chatId"].as_str().map(str::to_owned);
+            }
+            if event["type"] == "done" {
+                break;
+            }
+        }
+    }
+    let chat = chat.expect("a chat was created");
+    let checked = chat.clone();
+    assert!(
+        bench
+            .store
+            .call(move |c| chats::is_editor_ephemeral(c, &checked))
+            .await
+            .unwrap(),
+        "ephemeral and marked VS Code"
+    );
+    assert_eq!(
+        all_chats(&bench.store).await,
+        [(chat.clone(), true)],
+        "only one chat, ephemeral"
+    );
+    let checked = chat.clone();
+    let saved = bench
+        .store
+        .call(move |c| chats::get(c, &checked))
+        .await
+        .unwrap();
+    assert_eq!(saved.messages.len(), 4);
+    bench.bridge.unlink(id).await.unwrap();
+    assert!(!exists(&bench.store, &chat).await, "erased with its editor");
+}
+
+/// Message suivant tel qu'il arrive (réponse ou notification), sans tri.
+async fn raw(client: &mut Client) -> Value {
+    if !client.notifications.is_empty() {
+        return client.notifications.remove(0);
+    }
+    client.next_message().await.expect("connection open")
+}
+
+/// `voice.stop` lu pendant que `voice.start` attend la base (conversation
+/// vérifiée) : rien ne démarre, la requête est arrêtée (-32800).
+#[tokio::test]
+async fn a_stop_while_the_start_reads_the_chat_starts_nothing() {
+    let bench = bench().await;
+    let voice = bench.host.voice.clone();
+    let (mut client, _, _) = bench.paired().await;
+    let chat = client
+        .request("chat.send", json!({ "content": "Hello" }))
+        .await["result"]["chatId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // Base lente : `voice.start` attend sa lecture.
+    let held = hold_store(&bench.store, std::time::Duration::from_millis(400)).await;
+    let start = client.next;
+    client.next += 1;
+    client
+        .send(
+            &json!({ "jsonrpc": "2.0", "id": start, "method": "voice.start",
+            "params": { "profile": "duck", "chatId": chat } }),
+        )
+        .await;
+    let stopped = client.request("voice.stop", json!({})).await;
+    assert_eq!(stopped["result"], json!({}));
+    held.join().unwrap();
+    let answer = client.response(start).await;
+    assert_eq!(error_code(&answer), code::CANCELLED, "{answer}");
+    assert!(voice.links.lock().is_empty(), "the microphone never opened");
+}
+
+/// `voice.stop` lu pendant que le micro s'ouvre : la séance n'est plus
+/// voulue (la séance réelle s'arrête alors d'elle-même, `alive`), et si le
+/// micro s'est ouvert, il se referme ; la requête est arrêtée (-32800).
+#[tokio::test]
+async fn a_stop_while_the_microphone_opens_closes_it() {
+    let bench = bench().await;
+    let voice = bench.host.voice.clone();
+    let (mut client, _, _) = bench.paired().await;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    *voice.start_gate.lock() = Some(gate.clone());
+    let start = client.next;
+    client.next += 1;
+    client
+        .send(
+            &json!({ "jsonrpc": "2.0", "id": start, "method": "voice.start",
+            "params": { "profile": "duck" } }),
+        )
+        .await;
+    until("the start reached the voice", || {
+        !voice.links.lock().is_empty()
+    })
+    .await;
+    let link = voice.links.lock()[0].clone();
+    assert!(link.alive());
+    client.request("voice.stop", json!({})).await;
+    assert!(!link.alive(), "a session starting now stops by itself");
+    gate.notify_one();
+    let answer = client.response(start).await;
+    assert_eq!(error_code(&answer), code::CANCELLED, "{answer}");
+    let stops = voice
+        .stops
+        .lock()
+        .iter()
+        .filter(|&&stopped| stopped == link.connection())
+        .count();
+    assert_eq!(stops, 2, "stopped by voice.stop, then once it was open");
+}
+
+/// Refus après `starting` : la réponse d'erreur part d'abord, puis l'état
+/// `off` (l'extension garde la raison).
+#[tokio::test]
+async fn a_refused_start_answers_before_the_state_goes_off() {
+    let bench = bench().await;
+    let voice = bench.host.voice.clone();
+    let (mut client, _, _) = bench.paired().await;
+    *voice.start_states.lock() = vec![VoiceModeState {
+        phase: VoiceModePhase::Starting,
+        editor: true,
+        ..VoiceModeState::default()
+    }];
+    *voice.start_refusal.lock() = Some(StartError::SpeechModelMissing);
+    let start = client.next;
+    client.next += 1;
+    client
+        .send(
+            &json!({ "jsonrpc": "2.0", "id": start, "method": "voice.start",
+            "params": { "profile": "duck" } }),
+        )
+        .await;
+    let first = raw(&mut client).await;
+    assert_eq!(first["method"], "voice.state");
+    assert_eq!(first["params"]["state"]["phase"], "starting");
+    let second = raw(&mut client).await;
+    assert_eq!(second["id"], start, "{second}");
+    assert_eq!(error_code(&second), voice_code::MISSING_SPEECH_MODEL);
+    let third = raw(&mut client).await;
+    assert_eq!(third["method"], "voice.state");
+    assert_eq!(third["params"]["state"]["phase"], "off");
+    // Sans `starting` appris (refus d'emblée), pas d'état `off` en plus.
+    voice.start_states.lock().clear();
+    *voice.start_refusal.lock() = Some(StartError::Busy { page: true });
+    let answer = client
+        .request("voice.start", json!({ "profile": "duck" }))
+        .await;
+    assert_eq!(error_code(&answer), voice_code::BUSY);
+    assert_eq!(client.request("ping", json!({})).await["result"], json!({}));
+    assert!(
+        client
+            .notifications
+            .iter()
+            .all(|n| n["method"] != "voice.state"),
+        "{:?}",
+        client.notifications
+    );
+}
+
+/// Second `voice.start` sur une connexion qui tient déjà une séance : refusé
+/// (-32032, `bridge`), la séance en cours reste inscrite (son contexte suit).
+#[tokio::test]
+async fn a_second_start_on_the_same_connection_is_refused() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    let link = voice_session(&bench, &mut client, json!({ "profile": "duck" })).await;
+    let again = client
+        .request("voice.start", json!({ "profile": "tour" }))
+        .await;
+    assert_eq!(error_code(&again), voice_code::BUSY);
+    assert_eq!(again["error"]["data"], json!({ "owner": "bridge" }));
+    assert_eq!(bench.host.voice.links.lock().len(), 1);
+    assert!(
+        bench
+            .bridge
+            .shared()
+            .holds_talk(link.connection(), Arc::as_ptr(&link) as *const ()),
+        "the running session is still the one kept"
+    );
+    assert!(link.alive());
+}
+
+/// `voice.resume` : reprise demandée pour la connexion ; refus du micro
+/// traduit en -32033.
+#[tokio::test]
+async fn voice_resume_reopens_the_session_of_the_connection() {
+    let bench = bench().await;
+    let voice = bench.host.voice.clone();
+    let (mut client, _, _) = bench.paired().await;
+    let link = voice_session(&bench, &mut client, json!({ "profile": "duck" })).await;
+    let resumed = client.request("voice.resume", json!({})).await;
+    assert_eq!(resumed["result"], json!({}));
+    assert_eq!(*voice.resumes.lock(), [link.connection()]);
+    *voice.resume_refusal.lock() = Some("No microphone found".into());
+    let refused = client.request("voice.resume", json!({})).await;
+    assert_eq!(error_code(&refused), voice_code::MICROPHONE);
+    assert_eq!(
+        refused["error"]["data"],
+        json!({ "message": "No microphone found" })
+    );
+}
+
+/// Les tours continuent sur toute la connexion : une nouvelle séance part
+/// du dernier tour de la précédente.
+#[tokio::test]
+async fn voice_turns_keep_counting_over_the_connection() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    let link = voice_session(&bench, &mut client, json!({ "profile": "duck" })).await;
+    assert_eq!(link.first_turn(), 0);
+    link.utterance(&VoiceModeUtterance {
+        turn: 2,
+        text: "   ".into(),
+        language: None,
+    });
+    client.request("voice.stop", json!({})).await;
+    let next = voice_session(&bench, &mut client, json!({ "profile": "duck" })).await;
+    assert_eq!(next.first_turn(), 2);
+    // Une autre connexion compte les siens.
+    let (mut other, _, _) = bench.paired().await;
+    client.request("voice.stop", json!({})).await;
+    let theirs = voice_session(&bench, &mut other, json!({ "profile": "duck" })).await;
+    assert_eq!(theirs.first_turn(), 0);
+}
+
+/// Fin de la séance pendant une réponse : la réponse du tour s'arrête (le
+/// panneau la montre annulée), comme `cancelled` dans `voice.chat`.
+#[tokio::test]
+async fn ending_the_session_stops_the_reply_of_its_turn() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    let link = voice_session(
+        &bench,
+        &mut client,
+        json!({ "profile": "duck", "model": "chatonlm-stall" }),
+    )
+    .await;
+    link.utterance(&VoiceModeUtterance {
+        turn: 1,
+        text: "It crashes.".into(),
+        language: Some(VoiceLanguage::En),
+    });
+    // La réponse a commencé (puis le modèle cale, sans fin).
+    while client.notification("voice.chat").await["event"]["type"] != "content" {}
+    client.request("voice.stop", json!({})).await;
+    loop {
+        let relayed = client.notification("voice.chat").await;
+        assert_eq!(relayed["turn"], 1);
+        if relayed["event"]["type"] == "cancelled" {
+            break;
+        }
+    }
+}
+
+/// Modèle du cloud, réglage coupé : le tour finit avec un avis et rien ne
+/// part, même pas `/api/show`.
+#[tokio::test]
+async fn a_cloud_model_is_refused_before_anything_leaves() {
+    let bench = bench().await;
+    let voice = bench.host.voice.clone();
+    let (mut client, _, _) = bench.paired().await;
+    let model = "gpt-oss:120b-cloud";
+    let link = voice_session(
+        &bench,
+        &mut client,
+        json!({ "profile": "duck", "model": model }),
+    )
+    .await;
+    link.utterance(&VoiceModeUtterance {
+        turn: 1,
+        text: "It crashes.".into(),
+        language: Some(VoiceLanguage::En),
+    });
+    until("reply failed", || !voice.failed_replies.lock().is_empty()).await;
+    assert!(
+        !bench
+            ._ollama
+            .show_requests()
+            .iter()
+            .any(|shown| shown.contains("cloud")),
+        "{:?}",
+        bench._ollama.show_requests()
+    );
+    assert!(
+        bench
+            ._ollama
+            .chat_requests()
+            .iter()
+            .all(|sent| sent["model"] != model)
+    );
+}
+
+/// Panique dans la tâche d'une connexion : sa séance est quand même
+/// arrêtée (micro fermé).
+#[tokio::test]
+async fn a_panic_in_a_connection_still_stops_its_voice() {
+    let bench = bench().await;
+    let voice = bench.host.voice.clone();
+    let (mut client, _, _) = bench.paired().await;
+    let link = voice_session(&bench, &mut client, json!({ "profile": "duck" })).await;
+    voice.panic_on_read.store(true, Ordering::SeqCst);
+    client
+        .send(
+            &json!({ "jsonrpc": "2.0", "id": 999, "method": "speech.read",
+            "params": { "segments": [{ "id": "a", "text": "Hi." }] } }),
+        )
+        .await;
+    until("stopped after the panic", || {
+        voice.stops.lock().contains(&link.connection())
+    })
+    .await;
+    assert!(!link.alive());
+}
+
+/// `$/cancelRequest` arrête un `tour.plan` : réponse -32800 et requête au
+/// modèle abandonnée.
+#[tokio::test]
+async fn a_tour_plan_is_cancelled_by_cancel_request() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    let plan = client.next;
+    client.next += 1;
+    client
+        .send(
+            &json!({ "jsonrpc": "2.0", "id": plan, "method": "tour.plan", "params": {
+            "model": "chatonlm-wait", "locale": "en", "path": "a.rs", "language": "rust",
+            "code": "fn main() {}", "firstLine": 1, "kind": "file" } }),
+        )
+        .await;
+    until("the plan was asked", || {
+        bench
+            ._ollama
+            .chat_requests()
+            .iter()
+            .any(|sent| sent["model"] == "chatonlm-wait")
+    })
+    .await;
+    client
+        .send(&json!({ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": plan } }))
+        .await;
+    let answer = client.response(plan).await;
+    assert_eq!(error_code(&answer), code::CANCELLED, "{answer}");
+    until("the model request was dropped", || {
+        bench._ollama.disconnects() > 0
+    })
+    .await;
 }

@@ -672,10 +672,18 @@ impl Player {
         }
     }
 
-    /// Échantillons joués depuis l'ouverture (au débit de la sortie).
-    #[cfg(test)]
+    /// Échantillons réellement joués depuis l'ouverture (au débit de la
+    /// sortie, silence non compté) : horloge des segments lus pour le pont.
     pub fn played(&self) -> u64 {
         self.shared.queue.lock().played
+    }
+
+    /// Position, en échantillons joués, de la fin de ce qui est en file : un
+    /// son poussé avant cet appel est entièrement joué quand [`Self::played`]
+    /// l'atteint (au rééchantillonneur près, quelques millisecondes).
+    pub fn queued_end(&self) -> u64 {
+        let queue = self.shared.queue.lock();
+        queue.played + queue.samples.len() as u64
     }
 }
 

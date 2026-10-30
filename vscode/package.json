@@ -98,6 +98,48 @@
         "title": "%command.commitMessage%",
         "category": "ChatonLM",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "chatonlm.tour",
+        "title": "%command.tour%",
+        "category": "ChatonLM",
+        "icon": "$(unmute)"
+      },
+      {
+        "command": "chatonlm.tourChanges",
+        "title": "%command.tourChanges%",
+        "category": "ChatonLM",
+        "icon": "$(unmute)"
+      },
+      {
+        "command": "chatonlm.tourTogglePause",
+        "title": "%command.tourTogglePause%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.tourPrevious",
+        "title": "%command.tourPrevious%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.tourNext",
+        "title": "%command.tourNext%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.tourStop",
+        "title": "%command.tourStop%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.talkItThrough",
+        "title": "%command.talkItThrough%",
+        "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.stopTalking",
+        "title": "%command.stopTalking%",
+        "category": "ChatonLM"
       }
     ],
     "menus": {
@@ -111,6 +153,11 @@
           "command": "chatonlm.tests",
           "when": "editorTextFocus",
           "group": "chatonlm@2"
+        },
+        {
+          "command": "chatonlm.tour",
+          "when": "editorTextFocus",
+          "group": "chatonlm@3"
         }
       ],
       "scm/title": [
@@ -132,9 +179,66 @@
         {
           "command": "chatonlm.tests",
           "when": "editorIsOpen"
+        },
+        {
+          "command": "chatonlm.tour",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "chatonlm.tourChanges",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "chatonlm.tourTogglePause",
+          "when": "chatonlm.touring"
+        },
+        {
+          "command": "chatonlm.tourPrevious",
+          "when": "chatonlm.touring"
+        },
+        {
+          "command": "chatonlm.tourNext",
+          "when": "chatonlm.touring"
+        },
+        {
+          "command": "chatonlm.tourStop",
+          "when": "chatonlm.touring"
+        },
+        {
+          "command": "chatonlm.stopTalking",
+          "when": "chatonlm.talking"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "chatonlm.tourChanges",
+          "when": "scmProvider == git",
+          "group": "chatonlm@1"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "chatonlm.tourTogglePause",
+        "key": "shift+alt+space",
+        "when": "chatonlm.touring"
+      },
+      {
+        "command": "chatonlm.tourPrevious",
+        "key": "shift+alt+,",
+        "when": "chatonlm.touring"
+      },
+      {
+        "command": "chatonlm.tourNext",
+        "key": "shift+alt+.",
+        "when": "chatonlm.touring"
+      },
+      {
+        "command": "chatonlm.tourStop",
+        "key": "shift+alt+escape",
+        "when": "chatonlm.touring"
+      }
+    ]
   },
   "devDependencies": {
     "@types/vscode": "1.105.0"

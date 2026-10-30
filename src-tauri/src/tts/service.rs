@@ -8,7 +8,11 @@
 //!   génération (événements du moteur de chat, si le réglage est actif ; les
 //!   autres conversations sont ignorées) ; un nouvel envoi arrête toute
 //!   lecture en cours ;
-//! - `stop` : arrêt immédiat.
+//! - `stop` : arrêt immédiat ;
+//! - `read_segments` : segments identifiés lus pour le pont VS Code (visite
+//!   guidée parlée) ; début et fin de chaque segment annoncés quand son son
+//!   est réellement joué (horloge de la sortie, pas la synthèse, qui va ~6×
+//!   plus vite), puis arrêt ou échec.
 //!
 //! Envoi du mode conversation vocale (`VoiceSend`, séance active) : sa
 //! réponse est suivie même si la lecture automatique est coupée, sa langue
@@ -77,6 +81,11 @@ pub trait Output: Send + Sync {
     fn stop(&self);
     /// Attend que tout soit joué ; faux si arrêté.
     fn drain(&self) -> bool;
+    /// Échantillons réellement joués depuis l'ouverture.
+    fn played(&self) -> u64;
+    /// Fin de ce qui est en file, comptée comme [`Output::played`] : un son
+    /// poussé avant l'appel est joué quand `played` l'atteint.
+    fn queued_end(&self) -> u64;
 }
 
 /// Voix d'une langue, vue par le service.
@@ -169,9 +178,52 @@ impl Output for super::playback::Player {
     fn drain(&self) -> bool {
         super::playback::Player::drain(self)
     }
+
+    fn played(&self) -> u64 {
+        super::playback::Player::played(self)
+    }
+
+    fn queued_end(&self) -> u64 {
+        super::playback::Player::queued_end(self)
+    }
 }
 
 type Emit = Box<dyn Fn(&ReadAloudState) + Send + Sync>;
+
+/// Segment d'une lecture du pont : identifiant choisi par l'extension, texte
+/// (Markdown, lu comme une réponse).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Segment {
+    pub id: String,
+    pub text: String,
+}
+
+/// Événement d'une lecture par segments, dans l'ordre : `Started` et
+/// `Finished` de chaque segment quand son son commence et finit d'être joué,
+/// puis rien (tout lu), `Stopped` ou `Failed`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SegmentEvent {
+    Started(String),
+    Finished(String),
+    /// Arrêtée (arrêt demandé, autre lecture, parole de l'utilisateur…).
+    Stopped,
+    Failed(ReadingEnd),
+}
+
+/// Reçoit les événements d'une lecture par segments (appelé hors du verrou
+/// de l'état, sans pouvoir rappeler le service).
+pub type SegmentSink = Arc<dyn Fn(SegmentEvent) + Send + Sync>;
+
+/// Refus d'une lecture par segments (rien ne démarre).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SegmentsRefusal {
+    NothingToRead,
+    /// Texte dans une autre langue que fr, en ou es.
+    Unsupported,
+    /// Voix de cette langue absente : jamais téléchargée par le pont.
+    MissingVoice(VoiceLanguage),
+    RuntimeUnavailable,
+}
 type Listener = Box<dyn Fn(&str, VoiceReading) + Send + Sync>;
 
 /// Ce que la séance du mode vocal apprend des lectures : celles de ses
@@ -257,6 +309,8 @@ struct Shared {
     /// Événements des lectures vocales à donner à l'écouteur (conversation
     /// de l'envoi), envoyés par `publish`.
     outbox: Vec<(String, VoiceReading)>,
+    /// Événements des lectures par segments, envoyés par `publish`.
+    segment_outbox: Vec<(SegmentSink, SegmentEvent)>,
 }
 
 struct Session {
@@ -274,6 +328,8 @@ struct Session {
     voice_chat: Option<String>,
     /// Autre lecture dont le premier son a été annoncé (`Aside(true)`).
     aside: bool,
+    /// Lecture par segments du pont : destinataire de ses événements.
+    segments: Option<SegmentSink>,
 }
 
 enum Input {
@@ -335,6 +391,7 @@ impl ReadAloud {
                     session: None,
                     follow: None,
                     outbox: Vec::new(),
+                    segment_outbox: Vec::new(),
                 }),
                 engine: Mutex::new(EngineSlot::default()),
                 engine_changed: Condvar::new(),
@@ -470,6 +527,7 @@ impl ReadAloud {
             waiting,
             Some(phase),
             None,
+            None,
         );
         let _ = input.send(Input::Text(spoken));
         let _ = input.send(Input::End);
@@ -490,6 +548,76 @@ impl ReadAloud {
         let waiting = Inner::halt(&mut shared);
         self.inner.publish(shared);
         waiting
+    }
+
+    /// Lit `segments` dans l'ordre (lecture du pont, `read_id` choisi par
+    /// lui), dans la langue `language`, sinon celle du texte (repli : celle
+    /// de l'interface) ; la lecture en cours s'arrête. `sink` apprend le
+    /// début et la fin de chaque segment, calés sur le son réellement joué
+    /// par la sortie, puis l'arrêt ou l'échec. Voix absente : refus (jamais
+    /// de téléchargement par ce chemin).
+    pub fn read_segments(
+        &self,
+        read_id: String,
+        segments: Vec<Segment>,
+        language: Option<VoiceLanguage>,
+        sink: SegmentSink,
+    ) -> Result<(), SegmentsRefusal> {
+        let Some(backend) = self.inner.backend.get() else {
+            return Err(SegmentsRefusal::NothingToRead);
+        };
+        let spoken: Vec<Segment> = segments
+            .into_iter()
+            .map(|segment| Segment {
+                text: text::spoken_text(&segment.text),
+                id: segment.id,
+            })
+            .collect();
+        let all = spoken
+            .iter()
+            .map(|segment| segment.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if all.trim().is_empty() {
+            return Err(SegmentsRefusal::NothingToRead);
+        }
+        let language = match language {
+            Some(language) => language,
+            None => text::choose_language(&all, (backend.interface)())
+                .ok_or(SegmentsRefusal::Unsupported)?,
+        };
+        let voice = (backend.voice)(language).ok_or(SegmentsRefusal::Unsupported)?;
+        if !(backend.runtime)() {
+            return Err(SegmentsRefusal::RuntimeUnavailable);
+        }
+        if !voice.installed {
+            return Err(SegmentsRefusal::MissingVoice(language));
+        }
+        let mut shared = self.inner.shared.lock();
+        self.inner.start(
+            &mut shared,
+            ReadAloudSource::Bridge { read_id },
+            Some(language),
+            None,
+            Some(ReadAloudPhase::Preparing),
+            None,
+            Some((spoken, sink)),
+        );
+        self.inner.publish(shared);
+        Ok(())
+    }
+
+    /// Arrête la lecture par segments en cours si `concerned` accepte son
+    /// identifiant (rien d'autre : une lecture de la page continue).
+    pub fn stop_segments(&self, concerned: impl Fn(&str) -> bool) {
+        let mut shared = self.inner.shared.lock();
+        let reading = shared.session.as_ref().is_some_and(|session| {
+            matches!(&session.source, ReadAloudSource::Bridge { read_id } if concerned(read_id))
+        });
+        if reading {
+            Inner::halt(&mut shared);
+        }
+        self.inner.publish(shared);
     }
 
     /// Arrête la lecture si elle lit l'une des réponses `messages` (leur
@@ -656,9 +784,9 @@ impl ReadAloud {
                     let source = ReadAloudSource::Message {
                         message_id: *message_id,
                     };
-                    let (id, _) = self
-                        .inner
-                        .start(&mut shared, source, None, None, None, voice);
+                    let (id, _) =
+                        self.inner
+                            .start(&mut shared, source, None, None, None, voice, None);
                     if let Some(follow) = shared.follow.as_mut() {
                         follow.session = Some(id);
                     }
@@ -723,6 +851,9 @@ impl Inner {
                     .outbox
                     .push((String::new(), VoiceReading::Aside(false)));
             }
+            if let Some(sink) = session.segments {
+                shared.segment_outbox.push((sink, SegmentEvent::Stopped));
+            }
             session.waiting.map(|(id, _)| id)
         });
         shared.state = ReadAloudState::idle();
@@ -753,7 +884,8 @@ impl Inner {
     fn publish(&self, mut shared: MutexGuard<'_, Shared>) {
         let state = shared.state.clone();
         let readings = std::mem::take(&mut shared.outbox);
-        let delivery = (!readings.is_empty()).then(|| self.delivery.lock());
+        let segments = std::mem::take(&mut shared.segment_outbox);
+        let delivery = (!readings.is_empty() || !segments.is_empty()).then(|| self.delivery.lock());
         drop(shared);
         if let Some(emit) = self.emit.get() {
             emit(&state);
@@ -762,6 +894,9 @@ impl Inner {
             for (chat, reading) in readings {
                 listener(&chat, reading);
             }
+        }
+        for (sink, event) in segments {
+            sink(event);
         }
         drop(delivery);
     }
@@ -782,7 +917,9 @@ impl Inner {
     /// Nouvelle lecture (la précédente s'arrête), sous le verrou ; `phase` :
     /// état montré tout de suite (`None` : rien avant la préparation, cas de
     /// la lecture automatique dont la langue n'est pas encore choisie) ;
-    /// `voice` : lecture d'un envoi vocal (conversation, langue de repli).
+    /// `voice` : lecture d'un envoi vocal (conversation, langue de repli) ;
+    /// `segments` : lecture par segments du pont, et son destinataire.
+    #[allow(clippy::too_many_arguments)]
     fn start(
         self: &Arc<Self>,
         shared: &mut Shared,
@@ -791,6 +928,7 @@ impl Inner {
         waiting: Option<(&'static str, VoiceLanguage)>,
         phase: Option<ReadAloudPhase>,
         voice: Option<(String, VoiceLanguage)>,
+        segments: Option<(Vec<Segment>, SegmentSink)>,
     ) -> (u64, mpsc::Sender<Input>) {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let (input, receiver) = mpsc::channel();
@@ -806,6 +944,7 @@ impl Inner {
             waiting,
             voice_chat: voice.as_ref().map(|(chat, _)| chat.clone()),
             aside: false,
+            segments: segments.as_ref().map(|(_, sink)| sink.clone()),
         });
         if let Some(phase) = phase {
             shared.state = ReadAloudState {
@@ -827,6 +966,7 @@ impl Inner {
             voice: voice.as_ref().map(|(_, fallback)| *fallback),
             heard: String::new(),
             recheck: false,
+            plan: segments.as_ref().map(|(segments, _)| segments.clone()),
         };
         self.workers.fetch_add(1, Ordering::AcqRel);
         let spawned = std::thread::Builder::new()
@@ -841,9 +981,14 @@ impl Inner {
                 error: Some(ReadAloudError::EngineFailed),
                 ..ReadAloudState::idle()
             };
+            let failed = ReadingEnd::Failed(ReadAloudError::EngineFailed);
             if let Some((chat, _)) = voice {
-                let failed = ReadingEnd::Failed(ReadAloudError::EngineFailed);
                 shared.outbox.push((chat, VoiceReading::Ended(failed)));
+            }
+            if let Some((_, sink)) = segments {
+                shared
+                    .segment_outbox
+                    .push((sink, SegmentEvent::Failed(failed)));
             }
         }
         (id, input)
@@ -889,7 +1034,7 @@ impl Inner {
     /// l'état garde le texte concerné.
     fn finish(&self, id: u64, end: Result<(), ReadingEnd>) {
         let mut shared = self.shared.lock();
-        let Some((source, voice_chat, aside)) = shared
+        let Some((source, voice_chat, aside, segments)) = shared
             .session
             .as_ref()
             .filter(|session| session.id == id)
@@ -898,6 +1043,7 @@ impl Inner {
                     session.source.clone(),
                     session.voice_chat.clone(),
                     session.aside,
+                    session.segments.clone(),
                 )
             })
         else {
@@ -921,7 +1067,36 @@ impl Inner {
                 .outbox
                 .push((String::new(), VoiceReading::Aside(false)));
         }
+        // Lecture par segments finie : chaque segment a déjà dit sa fin.
+        if let Some(sink) = segments {
+            match end {
+                ReadingEnd::Finished => {}
+                ReadingEnd::Stopped => shared.segment_outbox.push((sink, SegmentEvent::Stopped)),
+                end => shared
+                    .segment_outbox
+                    .push((sink, SegmentEvent::Failed(end))),
+            }
+        }
         self.publish(shared);
+    }
+
+    /// Événements de segments de la lecture `id`, si elle est encore en
+    /// cours ; faux sinon (l'horloge s'arrête).
+    fn segment_events(&self, id: u64, events: Vec<SegmentEvent>) -> bool {
+        let mut shared = self.shared.lock();
+        let Some(sink) = shared
+            .session
+            .as_ref()
+            .filter(|session| session.id == id)
+            .and_then(|session| session.segments.clone())
+        else {
+            return false;
+        };
+        shared
+            .segment_outbox
+            .extend(events.into_iter().map(|event| (sink.clone(), event)));
+        self.publish(shared);
+        true
     }
 
     /// Moteur de `language` : celui gardé (attendu s'il sert encore à une
@@ -1106,6 +1281,8 @@ struct Worker {
     /// Langue choisie sur moins de `DETECT_CHARS` caractères : revérifiée dès
     /// qu'ils sont réunis (ou à la fin).
     recheck: bool,
+    /// Lecture par segments du pont (langue déjà choisie).
+    plan: Option<Vec<Segment>>,
 }
 
 /// Ce que le fil a reçu et pas encore lu.
@@ -1130,7 +1307,11 @@ impl Worker {
         let (inner, id) = (self.inner.clone(), self.id);
         // Une panique (texte ou moteur) finit la lecture en erreur et rend
         // le moteur, au lieu de laisser un fil mort et un moteur pris.
-        let end = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.speak()))
+        let end =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match self.plan.take() {
+                Some(segments) => self.speak_segments(segments),
+                None => self.speak(),
+            }))
             .unwrap_or_else(|_| {
                 eprintln!("chatonlm: reading aloud failed (panic)");
                 let mut slot = inner.engine.lock();
@@ -1328,6 +1509,84 @@ impl Worker {
         Ok(())
     }
 
+    /// Lecture par segments (pont) : chaque segment est synthétisé à son
+    /// tour ; l'horloge ([`clock`]) annonce son début et sa fin quand la
+    /// sortie les joue réellement.
+    fn speak_segments(&mut self, segments: Vec<Segment>) -> Result<(), ReadingEnd> {
+        let inner = self.inner.clone();
+        let backend = inner.backend.get().ok_or(ReadingEnd::Stopped)?;
+        let language = self.language.ok_or(ReadingEnd::Unsupported)?;
+        let voice = (backend.voice)(language)
+            .filter(|voice| voice.installed)
+            .ok_or(ReadingEnd::MissingVoice(language))?;
+        if self.stopped() {
+            return Err(ReadingEnd::Stopped);
+        }
+        inner.set_phase(self.id, ReadAloudPhase::Preparing);
+        let (mut synth, epoch) = inner
+            .take_engine(language, &voice)
+            .map_err(ReadingEnd::Failed)?;
+        let output = match (backend.open)() {
+            Ok(output) => output,
+            Err(error) => {
+                inner.give_back(language, synth, epoch, true);
+                return Err(ReadingEnd::Failed(error));
+            }
+        };
+        *self.output.lock() = Some(output.clone());
+        if self.stopped() {
+            output.stop();
+        }
+        let (marks, received) = mpsc::channel();
+        let ids: Vec<String> = segments.iter().map(|segment| segment.id.clone()).collect();
+        let watched = (inner.clone(), self.id, output.clone());
+        let clock = std::thread::Builder::new()
+            .name("chatonlm-read-aloud-clock".into())
+            .spawn(move || clock(&watched.0, watched.1, &*watched.2, &ids, &received));
+        let mut playing = false;
+        let mut result = Ok(());
+        for (index, segment) in segments.iter().enumerate() {
+            if self.stopped() {
+                result = Err(ReadingEnd::Stopped);
+                break;
+            }
+            let _ = marks.send(Mark::Start(index, output.queued_end()));
+            let prepared = text::normalize(&segment.text, language);
+            if !prepared.trim().is_empty() {
+                let (inner, id) = (&self.inner, self.id);
+                let spoken = synth.speak(&prepared, !playing, &self.stop, &mut |samples| {
+                    output.push(samples);
+                    if !playing {
+                        playing = true;
+                        inner.set_phase(id, ReadAloudPhase::Playing);
+                    }
+                });
+                if let Err(error) = spoken {
+                    eprintln!("chatonlm: reading aloud failed: {error}");
+                    result = Err(ReadingEnd::Failed(ReadAloudError::EngineFailed));
+                    break;
+                }
+            }
+            let _ = marks.send(Mark::End(index, output.queued_end()));
+        }
+        let healthy = result != Err(ReadingEnd::Failed(ReadAloudError::EngineFailed));
+        inner.give_back(language, synth, epoch, healthy);
+        let finished = result.is_ok() && !self.stopped() && output.drain() && !self.stopped();
+        if finished {
+            let _ = marks.send(Mark::Flush);
+        } else {
+            output.stop();
+        }
+        drop(marks);
+        if let Ok(clock) = clock {
+            let _ = clock.join();
+        }
+        if !finished {
+            return result.and(Err(ReadingEnd::Stopped));
+        }
+        Ok(())
+    }
+
     /// Prétraite et synthétise chaque phrase, jusqu'à la fin ou l'arrêt ;
     /// langue d'un envoi vocal revérifiée dès que le texte suffit : autre
     /// langue que fr, en, es → `Unsupported` ; autre voix → `Switch`.
@@ -1379,6 +1638,83 @@ impl Worker {
                     eprintln!("chatonlm: reading aloud failed: {error}");
                     ReadingEnd::Failed(ReadAloudError::EngineFailed)
                 })?;
+        }
+    }
+}
+
+/// Repère d'une lecture par segments, en échantillons joués de la sortie.
+enum Mark {
+    /// Début du segment n (fin de ce qui était en file avant lui).
+    Start(usize, u64),
+    /// Fin du segment n (tout son son est en file).
+    End(usize, u64),
+    /// Tout a été joué (`drain`) : les segments restants sont finis.
+    Flush,
+}
+
+/// Intervalle de l'horloge des segments.
+const CLOCK_TICK: Duration = Duration::from_millis(15);
+
+/// Horloge d'une lecture par segments : compare les repères au compteur de
+/// ce que la sortie a réellement joué, et annonce dans l'ordre le début (un
+/// échantillon du segment joué) puis la fin (tout son son joué) de chaque
+/// segment. S'arrête quand tout est annoncé, quand les repères cessent sans
+/// `Flush` (lecture arrêtée ou en échec) ou quand la lecture n'est plus en
+/// cours.
+fn clock(
+    inner: &Inner,
+    id: u64,
+    output: &dyn Output,
+    ids: &[String],
+    marks: &mpsc::Receiver<Mark>,
+) {
+    let count = ids.len();
+    let mut starts = vec![None; count];
+    let mut ends = vec![None; count];
+    let (mut started, mut finished) = (0, 0);
+    let mut flushed = false;
+    loop {
+        let mut take = |mark: Mark| match mark {
+            Mark::Start(index, at) => starts[index] = Some(at),
+            Mark::End(index, at) => ends[index] = Some(at),
+            Mark::Flush => flushed = true,
+        };
+        match marks.recv_timeout(CLOCK_TICK) {
+            Ok(mark) => {
+                take(mark);
+                while let Ok(mark) = marks.try_recv() {
+                    take(mark);
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) if flushed => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return,
+        }
+        let played = output.played();
+        let mut events = Vec::new();
+        while finished < count {
+            let index = finished;
+            if started == index {
+                let begun = flushed
+                    || starts[index].is_some_and(|start| played > start)
+                    || ends[index].is_some_and(|end| played >= end);
+                if !begun {
+                    break;
+                }
+                events.push(SegmentEvent::Started(ids[index].clone()));
+                started += 1;
+            }
+            if !(flushed || ends[index].is_some_and(|end| played >= end)) {
+                break;
+            }
+            events.push(SegmentEvent::Finished(ids[index].clone()));
+            finished += 1;
+        }
+        if !events.is_empty() && !inner.segment_events(id, events) {
+            return;
+        }
+        if finished == count {
+            return;
         }
     }
 }

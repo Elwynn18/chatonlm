@@ -72,6 +72,9 @@ pub enum ReadAloudSource {
     /// Texte d'un cours (onglet Study) : `passage` est la clé du texte dans
     /// le cours (voir `study::passage`).
     Study { course_id: String, passage: String },
+    /// Segments lus pour l'extension VS Code (visite guidée parlée) : la
+    /// page n'a aucun bouton pour eux.
+    Bridge { read_id: String },
 }
 
 /// Étape de la lecture en cours.

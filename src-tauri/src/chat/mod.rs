@@ -226,6 +226,13 @@ pub struct VoiceSend {
     /// Langue de la phrase transcrite (indice de la voix) ; absente = inconnue.
     #[ts(optional)]
     pub language: Option<VoiceLanguage>,
+    /// Séance tenue par l'extension VS Code (propre à ChatonLM) : consigne
+    /// de son profil et contexte de l'éditeur, ajoutés au message système
+    /// après la consigne vocale, jamais enregistrés. Posé par le moteur
+    /// seulement (ni lu de la page, ni exporté).
+    #[serde(skip)]
+    #[ts(skip)]
+    pub system: Option<String>,
 }
 
 /// Modification d'un message de l'utilisateur.
@@ -716,8 +723,12 @@ pub async fn send_to(
     // premier événement), avec la demande d'un envoi vocal.
     let observed: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let voice = request.voice.clone();
+    // Envoi vocal de l'extension VS Code (séance tenue par le pont) :
+    // observé aussi, pour que la séance suive son tour et que la réponse soit
+    // lue à voix haute.
+    let observed_origin = origin == Origin::Page || (origin == Origin::Bridge && voice.is_some());
     let emit = |event: ChatEvent| {
-        if origin == Origin::Page {
+        if observed_origin {
             engine.observe(observed.get().map(String::as_str), &event, voice.as_ref());
         }
         sink(event);
@@ -763,7 +774,8 @@ pub async fn send_to(
         Some(_) => Some(voice_instructions(store).await),
         None => None,
     };
-    let system = joined_system([system_prompt(store).await, voice_system]);
+    let session_system = voice.as_ref().and_then(|voice| voice.system.clone());
+    let system = joined_system([system_prompt(store).await, voice_system, session_system]);
 
     let mut reply = ReplyWriter {
         chat_id: chat_id.clone(),
@@ -2616,6 +2628,80 @@ mod tests {
         assert!(chats.lock().iter().all(|seen| *seen == chat));
     }
 
+    /// Envoi vocal de l'extension VS Code (séance tenue par le pont) :
+    /// observé (la séance et la lecture le suivent), consigne de la séance
+    /// après la consigne vocale ; un envoi ordinaire du pont ne l'est pas.
+    #[tokio::test]
+    async fn a_bridge_voice_send_is_observed_with_its_session_instructions() {
+        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+        let (store, engine) = (Store::open_in_memory().unwrap(), ChatEngine::default());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        engine.set_observer(move |_, _, voice| {
+            sink.lock()
+                .push(voice.and_then(|voice| voice.system.clone()));
+        });
+        let staging = Staging::default();
+        let quiet = |_: ChatEvent| {};
+        let typed = request(None, "qwen3:0.6b", Some(Think::Enabled(false)));
+        send_to(
+            &store,
+            &engine,
+            &staging,
+            server(&fake),
+            typed,
+            Origin::Bridge,
+            &quiet,
+        )
+        .await
+        .unwrap();
+        assert!(
+            seen.lock().is_empty(),
+            "an ordinary bridge send is not observed"
+        );
+        let session = "Ask one short question at a time.";
+        let spoken = SendRequest {
+            voice: Some(VoiceSend {
+                language: None,
+                system: Some(session.into()),
+            }),
+            ..request(None, "qwen3:0.6b", Some(Think::Enabled(false)))
+        };
+        send_to(
+            &store,
+            &engine,
+            &staging,
+            server(&fake),
+            spoken,
+            Origin::Bridge,
+            &quiet,
+        )
+        .await
+        .unwrap();
+        let observed = seen.lock().clone();
+        assert!(!observed.is_empty());
+        assert!(
+            observed
+                .iter()
+                .all(|system| system.as_deref() == Some(session))
+        );
+        let messages = fake.chat_requests()[1]["messages"].clone();
+        let default = crate::voice_mode::DEFAULT_INSTRUCTIONS;
+        assert_eq!(
+            messages[0],
+            json!({ "role": "system", "content": format!("{default}\n\n{session}") })
+        );
+        // Jamais enregistrée.
+        assert!(
+            messages
+                .as_array()
+                .unwrap()
+                .iter()
+                .skip(1)
+                .all(|message| message["role"] != "system")
+        );
+    }
+
     /// Envoi vocal : la consigne vocale en tête de chaque requête (tours
     /// d'outils compris), jamais enregistrée ; l'observateur reçoit la
     /// demande avec chaque événement.
@@ -2631,6 +2717,7 @@ mod tests {
         });
         let spoken = VoiceSend {
             language: Some(VoiceLanguage::Fr),
+            ..VoiceSend::default()
         };
         let system = |content: &str| json!({ "role": "system", "content": content });
         let ask = SendRequest {

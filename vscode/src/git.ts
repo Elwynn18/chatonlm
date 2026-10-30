@@ -8,6 +8,8 @@ export type GitRepository = {
   readonly inputBox: { value: string };
   /** `cached` : changements indexés seulement. */
   diff(cached?: boolean): Promise<string>;
+  /** Diff de travail d'un fichier par rapport à HEAD (chemin absolu). */
+  diffWithHEAD?(path: string): Promise<string>;
 };
 
 type GitApi = {

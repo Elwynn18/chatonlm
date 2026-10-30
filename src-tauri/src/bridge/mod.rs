@@ -16,6 +16,10 @@
 //!   ni téléchargement. Seule exception : une conversation éphémère ouverte
 //!   par l'éditeur, qu'il efface en la quittant (`chat.forget`) ou garde
 //!   (`chat.keep`) ; retirer l'éditeur ou couper le pont l'efface aussi.
+//! - Voix ([`voice`], lot 2) : lecture par segments (visite guidée parlée,
+//!   plan demandé au modèle par [`tour`]) et séance du mode vocal tenue par
+//!   une connexion ; son micro s'arrête avec la connexion, au retrait de
+//!   l'éditeur, à la coupure du pont et à la sortie de l'app.
 //!
 //! Modèle de menace : un programme du même compte peut de toute façon lire
 //! les données de l'app ; l'appairage sert au consentement et à la
@@ -24,6 +28,8 @@
 mod connection;
 mod frame;
 pub mod proof;
+mod tour;
+pub mod voice;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -40,7 +46,7 @@ mod tests;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -194,6 +200,8 @@ pub trait Host: Send + Sync + 'static {
     fn changed(&self, state: &BridgeState);
     /// Une conversation a été créée ou modifiée par l'éditeur.
     fn chat_updated(&self, chat_id: &str);
+    /// Lecture à voix haute et mode vocal de l'app.
+    fn voice(&self) -> &dyn voice::Voice;
 }
 
 /// Où le pont s'installe.
@@ -257,6 +265,19 @@ struct Open {
     /// Éditeur authentifié ; `None` avant `auth`.
     client: Option<String>,
     close: watch::Sender<bool>,
+    /// Dernier tour vocal de la connexion (ses séances successives
+    /// continuent la numérotation).
+    voice_turns: Arc<AtomicU32>,
+}
+
+impl Open {
+    fn new(close: watch::Sender<bool>) -> Self {
+        Self {
+            client: None,
+            close,
+            voice_turns: Arc::default(),
+        }
+    }
 }
 
 pub(crate) struct Shared<H: Host> {
@@ -279,6 +300,9 @@ pub(crate) struct Shared<H: Host> {
     /// éditeur. Effacées au retrait de l'éditeur et à la coupure du pont
     /// (sinon par `chat.forget`, ou à la fin de l'app comme toute éphémère).
     ephemerals: Mutex<HashMap<String, String>>,
+    /// Séance du mode vocal tenue par une connexion (au plus une dans
+    /// l'app), par connexion.
+    talks: Mutex<HashMap<u64, Arc<voice::Talk<H>>>>,
     closed: AtomicBool,
 }
 
@@ -306,6 +330,7 @@ impl<H: Host> Bridge<H> {
             next_stream: AtomicU64::new(1),
             changing: tokio::sync::Mutex::new(()),
             ephemerals: Mutex::new(HashMap::new()),
+            talks: Mutex::new(HashMap::new()),
             closed: AtomicBool::new(false),
         }))
     }
@@ -516,17 +541,94 @@ impl<H: Host> Shared<H> {
             }
         }
         *self.status.lock() = BridgeStatus::Off;
-        for open in self.connections.lock().values() {
-            let _ = open.close.send(true);
-        }
+        self.close_where(|_| true);
     }
 
     fn close_client(&self, client_id: &str) {
-        for open in self.connections.lock().values() {
-            if open.client.as_deref() == Some(client_id) {
-                let _ = open.close.send(true);
+        self.close_where(|open| open.client.as_deref() == Some(client_id));
+    }
+
+    /// Ferme les connexions choisies ; leur voix s'arrête aussitôt, sans
+    /// attendre que leur tâche le voie.
+    fn close_where(&self, chosen: impl Fn(&Open) -> bool) {
+        let closed: Vec<u64> = self
+            .connections
+            .lock()
+            .iter()
+            .filter(|(_, open)| chosen(open))
+            .map(|(id, open)| {
+                open.close.send_replace(true);
+                *id
+            })
+            .collect();
+        for connection in closed {
+            voice::closed(self, connection);
+        }
+    }
+
+    /// Connexion ouverte (ni finie, ni fermée par l'app).
+    pub(crate) fn is_open(&self, connection: u64) -> bool {
+        self.connections
+            .lock()
+            .get(&connection)
+            .is_some_and(|open| !*open.close.borrow())
+    }
+
+    /// Fin d'une connexion (tâche finie) : marquée fermée, puis sa voix
+    /// arrêtée (une séance qui commence après le voit par `is_open`).
+    pub(crate) fn connection_ended(&self, connection: u64) {
+        if let Some(open) = self.connections.lock().get(&connection) {
+            open.close.send_replace(true);
+        }
+        voice::closed(self, connection);
+    }
+
+    /// Inscrit la séance de la connexion ; faux (rien ne change) si elle en
+    /// a déjà une.
+    pub(crate) fn keep_talk(&self, connection: u64, talk: Arc<voice::Talk<H>>) -> bool {
+        match self.talks.lock().entry(connection) {
+            std::collections::hash_map::Entry::Occupied(_) => false,
+            std::collections::hash_map::Entry::Vacant(vacant) => {
+                vacant.insert(talk);
+                true
             }
         }
+    }
+
+    /// La séance inscrite pour la connexion est `talk` (adresse).
+    pub(crate) fn holds_talk(&self, connection: u64, talk: *const ()) -> bool {
+        self.talks
+            .lock()
+            .get(&connection)
+            .is_some_and(|kept| std::ptr::eq(Arc::as_ptr(kept) as *const (), talk))
+    }
+
+    /// Compteur des tours vocaux de la connexion (neuf si elle est finie).
+    pub(crate) fn voice_turns(&self, connection: u64) -> Arc<AtomicU32> {
+        self.connections
+            .lock()
+            .get(&connection)
+            .map(|open| Arc::clone(&open.voice_turns))
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn talk(&self, connection: u64) -> Option<Arc<voice::Talk<H>>> {
+        self.talks.lock().get(&connection).cloned()
+    }
+
+    /// Oublie la séance de la connexion si c'est encore `talk` (adresse).
+    pub(crate) fn forget_talk(&self, connection: u64, talk: *const ()) {
+        let mut talks = self.talks.lock();
+        if talks
+            .get(&connection)
+            .is_some_and(|kept| std::ptr::eq(Arc::as_ptr(kept) as *const (), talk))
+        {
+            talks.remove(&connection);
+        }
+    }
+
+    pub(crate) fn drop_talk(&self, connection: u64) {
+        self.talks.lock().remove(&connection);
     }
 
     /// Sert une connexion acceptée, dans sa tâche.
@@ -538,24 +640,17 @@ impl<H: Host> Shared<H> {
                 return;
             }
             let id = this.next_connection.fetch_add(1, Ordering::SeqCst);
-            connections.insert(
-                id,
-                Open {
-                    client: None,
-                    close,
-                },
-            );
+            connections.insert(id, Open::new(close));
             let shared = Arc::clone(this);
             tauri::async_runtime::spawn(async move {
+                // Retirée même si la tâche panique (sinon montrée connectée
+                // et comptée à jamais) ; sa voix, elle, est arrêtée par la
+                // garde de `connection::serve`.
+                let _forget = Forget {
+                    shared: Arc::clone(&shared),
+                    id,
+                };
                 connection::serve(&shared, id, stream, closed).await;
-                let was_client = shared
-                    .connections
-                    .lock()
-                    .remove(&id)
-                    .is_some_and(|open| open.client.is_some());
-                if was_client {
-                    shared.emit().await;
-                }
             });
         }
     }
@@ -639,6 +734,29 @@ impl<H: Host> Shared<H> {
     }
 }
 
+/// Retire une connexion finie de la liste, quelle que soit la fin de sa
+/// tâche (panique comprise), et montre l'état d'après si elle était
+/// authentifiée.
+struct Forget<H: Host> {
+    shared: Arc<Shared<H>>,
+    id: u64,
+}
+
+impl<H: Host> Drop for Forget<H> {
+    fn drop(&mut self) {
+        let was_client = self
+            .shared
+            .connections
+            .lock()
+            .remove(&self.id)
+            .is_some_and(|open| open.client.is_some());
+        if was_client {
+            let shared = Arc::clone(&self.shared);
+            tauri::async_runtime::spawn(async move { shared.emit().await });
+        }
+    }
+}
+
 /// Fichier de découverte, à côté du point d'accès.
 pub const DISCOVERY: &str = "bridge.json";
 
@@ -680,6 +798,7 @@ fn remove_discovery(path: &Path, instance: &str) {
 /// L'app, pour le service.
 pub struct AppHost {
     app: AppHandle,
+    voice: voice::AppVoice,
 }
 
 impl Host for AppHost {
@@ -698,6 +817,10 @@ impl Host for AppHost {
                 chat_id: chat_id.to_owned(),
             },
         );
+    }
+
+    fn voice(&self) -> &dyn voice::Voice {
+        &self.voice
     }
 }
 
@@ -718,7 +841,11 @@ pub fn setup(app: &AppHandle) {
             return;
         }
     };
-    let service = Bridge::new(AppHost { app: app.clone() }, store, config);
+    let host = AppHost {
+        app: app.clone(),
+        voice: voice::AppVoice(app.clone()),
+    };
+    let service = Bridge::new(host, store, config);
     app.manage(service.clone());
     tauri::async_runtime::spawn(async move { service.start_saved().await });
 }

@@ -15,7 +15,8 @@
 // (adoptVoiceModeChat, avant d'y aller) avec le brouillon de la zone de
 // saisie (texte, fichiers préparés), rendu à la fin de la séance sur sa
 // page ; une séance que plus aucune page ne tient (page rechargée) est
-// arrêtée.
+// arrêtée, sauf celle que tient l'extension VS Code (état `editor`) : la
+// page la laisse, et ne peut pas en lancer une autre.
 
 import {
   type QueryClient,
@@ -52,7 +53,7 @@ import {
   voiceModeStop,
 } from "@/lib/ipc";
 import { chatOfPath } from "@/lib/readAloud";
-import { VOICE_MODE_OFF } from "@/lib/voiceMode";
+import { heldByEditor, VOICE_MODE_OFF } from "@/lib/voiceMode";
 
 /**
  * Lancement d'une séance par une page : lecture des prérequis, accord
@@ -178,6 +179,7 @@ function fail(chatId: string, message: string) {
  */
 export async function startVoiceMode(chatId: string): Promise<void> {
   if (snapshot.owner === chatId) return;
+  if (heldByEditor(snapshot.state)) return;
   if (snapshot.owner !== null) stopVoiceMode();
   generation += 1;
   const run = generation;
@@ -288,7 +290,10 @@ export function stopVoiceMode() {
   const { owner, launch, state } = snapshot;
   generation += 1;
   queued = [];
-  if (owner === null && launch === null && state.phase === "off") return;
+  if (owner === null && launch === null) {
+    // Rien à la page (la séance de VS Code n'est pas la sienne).
+    if (state.phase === "off" || state.editor) return;
+  }
   set({ owner: null, launch: null, adopted: null });
   if (state.phase !== "off" || launch?.step === "starting") stopEngine();
 }
@@ -359,7 +364,11 @@ export function applyVoiceModeState(state: VoiceModeState) {
   const change: Partial<VoiceModeSnapshot> = { state };
   if (state.phase !== "off") {
     if (snapshot.launch?.step === "starting") change.launch = null;
-    else if (snapshot.owner === null && snapshot.launch === null) {
+    else if (
+      snapshot.owner === null &&
+      snapshot.launch === null &&
+      !state.editor
+    ) {
       // Plus aucune page ne la tient (page rechargée, arrêt pendant le
       // démarrage) : le micro ne reste pas ouvert sans barre.
       stopEngine();
@@ -491,6 +500,8 @@ export interface VoiceModeView {
   launch: VoiceModeLaunch | null;
   /** Échec du dernier lancement de cette page. */
   error: string | null;
+  /** Séance tenue par l'extension VS Code : pas de lancement possible. */
+  editor: boolean;
 }
 
 export function useVoiceModeFor(chatId: string): VoiceModeView {
@@ -505,6 +516,7 @@ export function useVoiceModeFor(chatId: string): VoiceModeView {
     state: mine ? current.state : VOICE_MODE_OFF,
     launch: mine ? current.launch : null,
     error: current.error?.chatId === chatId ? current.error.message : null,
+    editor: heldByEditor(current.state),
   };
 }
 

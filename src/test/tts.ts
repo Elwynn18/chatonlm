@@ -248,7 +248,8 @@ export function fakeTts(simulator: Simulator): FakeTts {
   function readingOf(source: ReadAloudSource | null): FakeReading {
     if (source?.kind === "study")
       return tts.passages.get(source.passage) ?? "en";
-    return tts.languages.get(source?.messageId ?? 0) ?? "en";
+    const message = source?.kind === "message" ? source.messageId : 0;
+    return tts.languages.get(message) ?? "en";
   }
 
   simulator.handle("read_aloud", (args: Args) => {

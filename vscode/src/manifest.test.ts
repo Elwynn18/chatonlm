@@ -71,6 +71,20 @@ describe("manifest", () => {
     expect([...registered].sort()).toEqual([...declared].sort());
   });
 
+  it("never binds Ctrl+Alt, which is AltGr on many keyboards", () => {
+    // Sous Windows, AltGr arrive comme Ctrl+Alt : un raccourci Ctrl+Alt
+    // avalerait « [ », « ] », « { »… des claviers AZERTY et QWERTZ.
+    const raw = JSON.parse(read("package.json")) as {
+      contributes: { keybindings?: { key: string; mac?: string }[] };
+    };
+    const keys = (raw.contributes.keybindings ?? []).map((b) => b.key);
+    expect(keys.length).toBeGreaterThan(0);
+    for (const key of keys) {
+      const parts = key.toLowerCase().split("+");
+      expect(parts.includes("ctrl") && parts.includes("alt"), key).toBe(false);
+    }
+  });
+
   it("points at existing files and the right API version", () => {
     expect(manifest.main).toBe("./dist/extension.cjs");
     expect(manifest.l10n).toBe("./l10n");

@@ -31,6 +31,16 @@ pub async fn voice_mode_stop(voice_mode: State<'_, VoiceMode>) -> AppResult<()> 
     Ok(())
 }
 
+/// Bouton Stop du bandeau « VS Code utilise le micro » (propre à ChatonLM) :
+/// fin de la séance tenue par l'extension VS Code, à la demande de
+/// l'utilisateur (une séance de la page continue). Sous Linux comme sous
+/// Windows.
+#[tauri::command]
+pub async fn voice_mode_stop_editor(voice_mode: State<'_, VoiceMode>) -> AppResult<()> {
+    voice_mode.stop_editor_session();
+    Ok(())
+}
+
 /// Ferme ou rouvre le micro.
 #[tauri::command]
 pub async fn voice_mode_mute(voice_mode: State<'_, VoiceMode>, muted: bool) -> AppResult<()> {

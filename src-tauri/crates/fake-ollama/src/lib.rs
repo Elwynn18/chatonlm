@@ -61,6 +61,9 @@ pub mod sdcpp;
 /// Cours de ChatonLM (modèles `chatonlm-study*`) : voir [`study`].
 pub mod study;
 pub use study::STUDY_SLOW;
+/// Visite guidée parlée du pont VS Code (modèles `chatonlm-tour*`) : voir
+/// [`tour`].
+pub mod tour;
 
 /// Comportement du serveur.
 #[derive(Clone, Debug)]
@@ -514,6 +517,8 @@ const CHAT_SCENARIOS: &[&str] = &[
     "chatonlm-study-slow",
     "chatonlm-study-unclear",
     "chatonlm-study-invalid",
+    "chatonlm-tour",
+    "chatonlm-tour-invalid",
 ];
 
 /// Scénarios de `/api/chat` qui appellent des outils (recherche web, et
@@ -854,6 +859,8 @@ fn voice_reply(journal: Arc<Journal>, model: &str, request: &serde_json::Value) 
 ///   `chatonlm-study-invalid` : parties des cours de ChatonLM (plan, leçon,
 ///   questions, vérification, en JSON selon le schéma `format` ; flux
 ///   Markdown sans `format`), voir [`study`] ;
+/// - `chatonlm-tour`, `chatonlm-tour-invalid` : plan d'une visite guidée
+///   parlée (JSON selon `format`, valide ou hors de la plage), voir [`tour`] ;
 /// - `chatonlm-voice`, `chatonlm-voice-long` : mode conversation vocale, réponses
 ///   françaises (deux phrases courtes selon le tour, ou une longue réponse
 ///   écrite en 8 s environ), raisonnement si `think` ne vaut pas false (voir
@@ -1005,6 +1012,7 @@ async fn chat(State(journal): State<Arc<Journal>>, body: String) -> Response {
         model if study::STUDY_MODELS.contains(&model) => {
             study::reply(journal, model, &request).await
         }
+        model if tour::TOUR_MODELS.contains(&model) => tour::reply(journal, model, &request),
         model if VOICE_SCENARIOS.contains(&model) => voice_reply(journal, model, &request),
         model if thinking_scenario(model).is_some() => thinking_reply(journal, model, &request),
         model if TOOL_SCENARIOS.contains(&model) => ndjson(

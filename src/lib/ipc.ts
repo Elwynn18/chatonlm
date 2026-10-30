@@ -1242,6 +1242,14 @@ export function voiceModeStop(): Promise<void> {
   return invoke<void>("voice_mode_stop");
 }
 
+/**
+ * Bouton Stop du bandeau « VS Code utilise le micro » : termine la séance
+ * tenue par l'extension VS Code (sans effet sur une séance de la page).
+ */
+export function voiceModeStopEditor(): Promise<void> {
+  return invoke<void>("voice_mode_stop_editor");
+}
+
 /** Ferme (`true`) ou rouvre le micro ; une réponse en cours reste lue. */
 export function voiceModeMute(muted: boolean): Promise<void> {
   return invoke<void>("voice_mode_mute", { muted });

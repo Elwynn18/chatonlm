@@ -90,6 +90,18 @@ describe("secret values", () => {
     "OPENAI_KEY=abcdefgh12",
     "PRIVATE_KEY=abcdefgh12",
     'OPENAI_KEY="abcdefgh12"',
+    // Formes du terminal (relecture 90, V4)
+    'curl -H "Authorization: Bearer abcdefghijklmnop" https://api.x',
+    "token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.sig",
+    "mysql -u root -pS3cretPassw0rd mydb",
+    "curl -u admin:hunter2hunter https://x",
+    "docker login -u me -p s3cretpassword",
+    "docker login --password-stdin <<< dckr_pat_abcdefghijkl",
+    "huggingface-cli login --token hf_" + "a".repeat(34),
+    "npm config set //registry.npmjs.org/:_authToken=npm_" + "b".repeat(36),
+    "error: header x-api-key: 0123456789abcdef rejected",
+    "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    "deploy --password hunter2hunter",
   ])("masks %s", (line) => {
     const { text, masked } = maskSecrets(`a\n${line}\nb`, "[x]");
     expect(masked).toEqual([[2, 2]]);
@@ -133,6 +145,12 @@ describe("secret values", () => {
       "const url = 'https://example.com/a:b@c';",
       "A".repeat(64),
       "B".repeat(64),
+      "gcc -pthread -o app main.c",
+      "docker run -u 1000:1000 image",
+      "mkdir -p build/output",
+      "const headers = { Authorization: `Bearer ${token}` };",
+      "secrets --password-file=/run/secrets/db",
+      "primary_key = id",
     ].join("\n");
     expect(maskSecrets(source, "[x]").masked).toEqual([]);
   });

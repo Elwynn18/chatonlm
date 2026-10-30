@@ -26,6 +26,7 @@ import {
 import { type Credentials, Link, PairError } from "./bridge/link";
 import { Controller } from "./controller";
 import { ChatPanel, panelLocale, panelTheme, VIEW_ID } from "./panel";
+import { TerminalWatcher } from "./terminal";
 
 const SECRET_KEY = "chatonlm.client";
 const WEBSITE = "https://chatonlm.com";
@@ -138,10 +139,17 @@ export function activate(context: vscode.ExtensionContext): void {
     },
   };
 
+  // Sortie d'une commande lisible seulement si on la suit depuis son début
+  // (chaton en caoutchouc) ; suivie seulement une fois l'éditeur appairé.
+  const terminal = new TerminalWatcher();
   // Appairé (secret gardé) : « Fix with ChatonLM » n'est proposé qu'alors.
   let paired = false;
+  const setPaired = (value: boolean) => {
+    paired = value;
+    terminal.watch(value);
+  };
   const readPaired = async () => {
-    paired = (await secrets.get()) !== null;
+    setPaired((await secrets.get()) !== null);
   };
   void readPaired();
 
@@ -235,7 +243,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!code) return;
     try {
       await link.pair(code.trim(), vscode.env.appName);
-      paired = true;
+      setPaired(true);
       void vscode.window.showInformationMessage(
         vscode.l10n.t("VS Code is paired with ChatonLM."),
       );
@@ -262,8 +270,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // Sortie « ChatonLM » : erreurs du panneau (diagnostic), jamais de contenu
   // des conversations.
   const output = vscode.window.createOutputChannel("ChatonLM", { log: true });
-  context.subscriptions.push(output);
+  context.subscriptions.push(output, terminal);
   controller = new Controller({
+    terminal,
     log: (message) => output.error(message),
     link,
     memento: context.globalState,
@@ -290,7 +299,7 @@ export function activate(context: vscode.ExtensionContext): void {
       // La conversation éphémère de cet éditeur part avec lui.
       await ctl.forgetEphemeral();
       await link.unpair();
-      paired = false;
+      setPaired(false);
       void vscode.window.showInformationMessage(
         vscode.l10n.t(
           "This editor is no longer paired. You can also remove it in ChatonLM, under Settings › VS Code.",
@@ -312,6 +321,34 @@ export function activate(context: vscode.ExtensionContext): void {
     action("fix"),
     action("tests"),
     action("commitMessage"),
+    // Visite guidée parlée (lot 2) et chaton en caoutchouc.
+    vscode.commands.registerCommand("chatonlm.tour", () =>
+      ctl.tour.start(false),
+    ),
+    vscode.commands.registerCommand(
+      "chatonlm.tourChanges",
+      (...args: unknown[]) => ctl.tour.start(true, args),
+    ),
+    vscode.commands.registerCommand("chatonlm.tourTogglePause", () =>
+      ctl.tourCommand("toggle"),
+    ),
+    vscode.commands.registerCommand("chatonlm.tourPrevious", () =>
+      ctl.tourCommand("previous"),
+    ),
+    vscode.commands.registerCommand("chatonlm.tourNext", () =>
+      ctl.tourCommand("next"),
+    ),
+    vscode.commands.registerCommand("chatonlm.tourStop", () =>
+      ctl.tourCommand("stop"),
+    ),
+    vscode.commands.registerCommand("chatonlm.talkItThrough", async () => {
+      await panel.reveal();
+      await ctl.startVoice("duck");
+    }),
+    // Micro tenu par VS Code : arrêtable depuis la palette (panneau replié).
+    vscode.commands.registerCommand("chatonlm.stopTalking", () =>
+      ctl.voice.stop(),
+    ),
     vscode.languages.registerCodeActionsProvider(
       "*",
       new FixProvider(() => paired),
@@ -335,8 +372,8 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     {
       dispose: link.onState((state) => {
-        if (state.connection === "connected") paired = true;
-        else if (state.connection === "notPaired") paired = false;
+        if (state.connection === "connected") setPaired(true);
+        else if (state.connection === "notPaired") setPaired(false);
       }),
     },
   );

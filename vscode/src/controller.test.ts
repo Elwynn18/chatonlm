@@ -160,6 +160,7 @@ describe("Controller", () => {
         busy: false,
         generation: 0,
         notice: null,
+        attachment: null,
       },
     });
   });

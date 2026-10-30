@@ -176,6 +176,76 @@ export class TextDocument {
   }
 }
 
+type Listener<T> = (value: T) => void;
+
+export class EventEmitter<T> {
+  #listeners = new Set<Listener<T>>();
+  event = (listener: Listener<T>) => {
+    this.#listeners.add(listener);
+    return { dispose: () => this.#listeners.delete(listener) };
+  };
+  fire(value: T): void {
+    for (const listener of this.#listeners) listener(value);
+  }
+}
+
+export class ThemeColor {
+  constructor(readonly id: string) {}
+}
+
+export enum TextEditorRevealType {
+  Default = 0,
+  InCenter = 1,
+  InCenterIfOutsideViewport = 2,
+  AtTop = 3,
+}
+
+export enum StatusBarAlignment {
+  Left = 1,
+  Right = 2,
+}
+
+export enum OverviewRulerLane {
+  Left = 1,
+  Center = 2,
+  Right = 4,
+  Full = 7,
+}
+
+/** Éditeur visible : décorations posées et plages montrées relevées. */
+export class TextEditor {
+  readonly decorations = new Map<unknown, Range[]>();
+  readonly revealed: { range: Range; type: TextEditorRevealType }[] = [];
+  visibleRanges: Range[];
+  constructor(
+    readonly document: TextDocument,
+    public selection: Selection = new Selection(
+      new Position(0, 0),
+      new Position(0, 0),
+    ),
+  ) {
+    this.visibleRanges = [
+      new Range(0, 0, Math.max(0, document.lineCount - 1), 0),
+    ];
+  }
+  setDecorations(type: unknown, ranges: Range[]): void {
+    this.decorations.set(type, ranges);
+  }
+  revealRange(range: Range, type: TextEditorRevealType): void {
+    this.revealed.push({ range, type });
+  }
+}
+
+export type StatusItem = {
+  text: string;
+  tooltip?: string;
+  command?: string;
+  visible: boolean;
+  show(): void;
+  hide(): void;
+  dispose(): void;
+};
+
 export type Shown = { level: "info" | "warning" | "error"; text: string };
 
 /** Réglages des essais. */
@@ -192,7 +262,30 @@ export const testState = {
   clipboard: "",
   opened: [] as string[],
   workspaceRoot: "/work",
+  decorationTypes: [] as { options: Record<string, unknown> }[],
+  statusItems: [] as StatusItem[],
+  contexts: {} as Record<string, unknown>,
+  events: newEvents(),
 };
+
+/** Évènements de l'éditeur, déclenchés par les essais. */
+function newEvents() {
+  return {
+    visibleEditors: new EventEmitter<unknown>(),
+    activeEditor: new EventEmitter<unknown>(),
+    selection: new EventEmitter<unknown>(),
+    visibleRanges: new EventEmitter<unknown>(),
+    documentChange: new EventEmitter<{
+      document: TextDocument;
+      contentChanges: { range: Range; text: string }[];
+    }>(),
+    shellStart: new EventEmitter<{ execution: unknown }>(),
+    shellEnd: new EventEmitter<{
+      execution: unknown;
+      exitCode: number | undefined;
+    }>(),
+  };
+}
 
 export function resetTestState(): void {
   testState.shown = [];
@@ -205,7 +298,12 @@ export function resetTestState(): void {
   testState.extensions.clear();
   testState.clipboard = "";
   testState.opened = [];
+  testState.decorationTypes = [];
+  testState.statusItems = [];
+  testState.contexts = {};
+  testState.events = newEvents();
   window.activeTextEditor = undefined;
+  window.visibleTextEditors = [];
   window.activeColorTheme = { kind: ColorThemeKind.Light };
   env.language = "en";
 }
@@ -226,19 +324,6 @@ const show =
     return items.includes(choice) ? choice : undefined;
   };
 
-type Listener<T> = (value: T) => void;
-
-export class EventEmitter<T> {
-  #listeners = new Set<Listener<T>>();
-  event = (listener: Listener<T>) => {
-    this.#listeners.add(listener);
-    return { dispose: () => this.#listeners.delete(listener) };
-  };
-  fire(value: T): void {
-    for (const listener of this.#listeners) listener(value);
-  }
-}
-
 export const window = {
   createOutputChannel: () => ({
     error: () => {},
@@ -246,7 +331,49 @@ export const window = {
     dispose: () => {},
   }),
   activeTextEditor: undefined as
-    { document: TextDocument; selection: Selection } | undefined,
+    | { document: TextDocument; selection: Selection; visibleRanges?: Range[] }
+    | undefined,
+  visibleTextEditors: [] as TextEditor[],
+  createTextEditorDecorationType(options: Record<string, unknown>) {
+    const type = { options, dispose: () => {} };
+    testState.decorationTypes.push(type);
+    return type;
+  },
+  createStatusBarItem(): StatusItem {
+    const item: StatusItem = {
+      text: "",
+      visible: false,
+      show: () => void (item.visible = true),
+      hide: () => void (item.visible = false),
+      dispose: () => void (item.visible = false),
+    };
+    testState.statusItems.push(item);
+    return item;
+  },
+  async showTextDocument(uri: Uri): Promise<TextEditor> {
+    const document = testState.documents.get(uri.path);
+    if (!document) throw new Error(`no document ${uri.path}`);
+    const editor = new TextEditor(document);
+    window.visibleTextEditors.push(editor);
+    return editor;
+  },
+  onDidChangeVisibleTextEditors: (listener: (value: unknown) => void) =>
+    testState.events.visibleEditors.event(listener),
+  onDidChangeActiveTextEditor: (listener: (value: unknown) => void) =>
+    testState.events.activeEditor.event(listener),
+  onDidChangeTextEditorSelection: (listener: (value: unknown) => void) =>
+    testState.events.selection.event(listener),
+  onDidChangeTextEditorVisibleRanges: (listener: (value: unknown) => void) =>
+    testState.events.visibleRanges.event(listener),
+  onDidStartTerminalShellExecution: (
+    listener: (value: { execution: unknown }) => void,
+  ) => testState.events.shellStart.event(listener),
+  onDidEndTerminalShellExecution: (
+    listener: (value: {
+      execution: unknown;
+      exitCode: number | undefined;
+    }) => void,
+  ) => testState.events.shellEnd.event(listener),
   activeColorTheme: { kind: ColorThemeKind.Light },
   showInformationMessage: show("info"),
   showWarningMessage: show("warning"),
@@ -261,6 +388,7 @@ export const commands = {
   },
   async executeCommand(command: string, ...args: unknown[]) {
     testState.executed.push({ command, args });
+    if (command === "setContext") testState.contexts[String(args[0])] = args[1];
     return testState.commands.get(command)?.(...args);
   },
 };
@@ -279,6 +407,12 @@ export const workspace = {
   getConfiguration() {
     return { get: () => undefined };
   },
+  onDidChangeTextDocument: (
+    listener: (value: {
+      document: TextDocument;
+      contentChanges: { range: Range; text: string }[];
+    }) => void,
+  ) => testState.events.documentChange.event(listener),
 };
 
 export const languages = {

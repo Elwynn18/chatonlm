@@ -13,7 +13,8 @@ export const MAX_FILE_CHARS = 100_000;
 export const PROBLEM_CONTEXT_LINES = 10;
 
 export type ActionRequest = {
-  action: QuickAction;
+  /** `ask` : message tapé avec le passage d'une visite joint. */
+  action: QuickAction | "ask";
   instruction: string;
   pieces: Piece[];
   /** Dépôt dont la boîte de saisie reçoit le message (commitMessage). */
@@ -323,6 +324,9 @@ export function headingOf(piece: Piece): string {
     );
   }
   if (piece.kind === "diff") return `${piece.label}:`;
+  if (piece.kind === "terminal") {
+    return vscode.l10n.t("Last command that failed in the terminal:");
+  }
   if (!piece.lines) return `${name}:`;
   const [first, last] = piece.lines;
   return first === last

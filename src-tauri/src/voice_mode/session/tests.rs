@@ -318,6 +318,7 @@ fn user_message() -> ChatEvent {
 fn voice() -> VoiceSend {
     VoiceSend {
         language: Some(VoiceLanguage::Fr),
+        ..VoiceSend::default()
     }
 }
 
@@ -1440,4 +1441,236 @@ async fn a_microphone_that_does_not_reopen_after_mute_gives_a_notice() {
         })
     );
     assert_eq!(rig.host.states.lock().last(), Some(&state));
+}
+
+/// Connexion du pont qui tient une séance : ce qu'elle reçoit.
+struct FakeLink {
+    connection: u64,
+    gone: AtomicBool,
+    /// Dernier tour de la connexion.
+    turns: std::sync::atomic::AtomicU32,
+    states: Mutex<Vec<VoiceModeState>>,
+    levels: Mutex<Vec<VoiceModeLevel>>,
+    utterances: Mutex<Vec<VoiceModeUtterance>>,
+}
+
+impl FakeLink {
+    fn new(connection: u64) -> Arc<Self> {
+        Arc::new(Self {
+            connection,
+            gone: AtomicBool::new(false),
+            turns: std::sync::atomic::AtomicU32::new(0),
+            states: Mutex::new(Vec::new()),
+            levels: Mutex::new(Vec::new()),
+            utterances: Mutex::new(Vec::new()),
+        })
+    }
+
+    fn last(&self) -> VoiceModeState {
+        self.states.lock().last().cloned().unwrap_or_default()
+    }
+}
+
+impl EditorLink for FakeLink {
+    fn connection(&self) -> u64 {
+        self.connection
+    }
+    fn alive(&self) -> bool {
+        !self.gone.load(Ordering::SeqCst)
+    }
+    fn first_turn(&self) -> u32 {
+        self.turns.load(Ordering::SeqCst)
+    }
+    fn changed(&self, state: &VoiceModeState) {
+        self.states.lock().push(state.clone());
+    }
+    fn level(&self, level: VoiceModeLevel) {
+        self.levels.lock().push(level);
+    }
+    fn utterance(&self, utterance: &VoiceModeUtterance) {
+        self.utterances.lock().push(utterance.clone());
+    }
+}
+
+/// Séance tenue par l'éditeur : ses phrases, niveaux et états vont à lui (la
+/// page voit l'état, marqué `editor`) ; la page ne peut ni l'arrêter (bouton,
+/// masquage de la fenêtre, rechargement) ni en lancer une autre, une autre
+/// connexion non plus ; seule sa connexion l'arrête, et apprend `Off`.
+#[tokio::test]
+async fn an_editor_session_belongs_to_its_connection() {
+    let rig = rig();
+    let link = FakeLink::new(7);
+    rig.core
+        .start_as(Owner::Editor(link.clone()))
+        .await
+        .unwrap();
+    assert_eq!(rig.phase(), VoiceModePhase::Listening);
+    assert!(rig.state().editor);
+    assert!(link.last().editor);
+    assert_eq!(link.last().phase, VoiceModePhase::Listening);
+    assert!(rig.core.held_by(Holder::Editor(7)));
+    assert!(!rig.core.held_by(Holder::Page));
+
+    rig.say().await;
+    assert_eq!(link.utterances.lock().len(), 1);
+    assert_eq!(link.utterances.lock()[0].text, SPOKEN);
+    assert!(rig.host.utterances.lock().is_empty(), "not for the page");
+    rig.probe().emit(ListenEvent::Levels {
+        input: 0.4,
+        output: 0.1,
+    });
+    rig.wait("a level", |_| !link.levels.lock().is_empty())
+        .await;
+    assert!(rig.host.levels.lock().is_empty());
+
+    rig.core.stop_where(false, Some(Holder::Page));
+    assert_eq!(rig.phase(), Responding);
+    assert_eq!(rig.core.start().await, Err(t!("voiceMode.heldByEditor")));
+    rig.core.stop_where(false, Some(Holder::Editor(8)));
+    assert_eq!(rig.phase(), Responding);
+    assert_eq!(
+        rig.core.start_as(Owner::Editor(FakeLink::new(8))).await,
+        Err(StartError::Busy { page: false })
+    );
+    assert_eq!(rig.opens(), 1);
+
+    let probe = rig.probe();
+    rig.core.stop_where(false, Some(Holder::Editor(7)));
+    assert_eq!(rig.phase(), Off);
+    assert!(!rig.state().editor);
+    assert_eq!(link.last().phase, Off);
+    rig.wait("the microphone closed", |_| probe.closed()).await;
+    assert!(!rig.host.reserved.load(Ordering::SeqCst));
+}
+
+/// Une séance de la page refuse l'éditeur (et la page la garde).
+#[tokio::test]
+async fn a_page_session_refuses_an_editor() {
+    let rig = rig();
+    rig.started().await;
+    let link = FakeLink::new(3);
+    assert_eq!(
+        rig.core.start_as(Owner::Editor(link.clone())).await,
+        Err(StartError::Busy { page: true })
+    );
+    assert!(link.states.lock().is_empty());
+    assert!(!rig.state().editor);
+    assert_eq!(rig.opens(), 1);
+    rig.core.stop_where(false, Some(Holder::Editor(3)));
+    assert_eq!(rig.phase(), VoiceModePhase::Listening);
+}
+
+/// Connexion fermée avant que la séance ne lui appartienne : arrêtée avant
+/// d'ouvrir le micro ; un prérequis absent est dit par son code.
+#[tokio::test]
+async fn an_editor_gone_before_the_start_never_opens_the_microphone() {
+    let rig = rig();
+    let link = FakeLink::new(5);
+    link.gone.store(true, Ordering::SeqCst);
+    assert!(matches!(
+        rig.core.start_as(Owner::Editor(link.clone())).await,
+        Err(StartError::Failed(_))
+    ));
+    assert_eq!(rig.phase(), Off);
+    assert_eq!(rig.opens(), 0);
+    assert!(!rig.host.reserved.load(Ordering::SeqCst));
+
+    let mut missing = prepared();
+    missing.requirements.voice_installed = false;
+    let rig = rig_with(missing, Duration::from_secs(60), |_| Ok(()));
+    let link = FakeLink::new(5);
+    assert_eq!(
+        rig.core.start_as(Owner::Editor(link.clone())).await,
+        Err(StartError::VoiceMissing(VoiceLanguage::Fr))
+    );
+    assert_eq!(rig.phase(), Off);
+    assert_eq!(rig.host.states.lock().last().map(|s| s.phase), Some(Off));
+    // L'éditeur n'apprend pas `Off` de la séance : la réponse d'erreur de
+    // son démarrage le précède (le pont envoie `off` après elle).
+    let phases: Vec<_> = link.states.lock().iter().map(|s| s.phase).collect();
+    assert_eq!(phases, [Starting]);
+}
+
+/// Séance de l'éditeur : toujours en mains libres, même réglée en
+/// push-to-talk (le pont n'a pas d'appui), au démarrage comme au changement
+/// de réglage ; la page garde le réglage.
+#[tokio::test]
+async fn an_editor_session_is_always_hands_free() {
+    let mut push = prepared();
+    push.settings.turn_mode = VoiceTurnMode::PushToTalk;
+    let rig = rig_with(push.clone(), Duration::from_secs(60), |_| Ok(()));
+    rig.core
+        .start_as(Owner::Editor(FakeLink::new(4)))
+        .await
+        .unwrap();
+    assert_eq!(rig.probe().config.mode, TurnMode::HandsFree);
+    rig.core.settings_changed(&push.settings);
+    assert_eq!(
+        rig.probe().configs.lock().last().map(|c| c.mode),
+        Some(TurnMode::HandsFree)
+    );
+    let rig = rig_with(push, Duration::from_secs(60), |_| Ok(()));
+    rig.started().await;
+    assert_eq!(rig.probe().config.mode, TurnMode::PushToTalk);
+}
+
+/// Les tours d'une séance de l'éditeur suivent ceux de sa connexion.
+#[tokio::test]
+async fn an_editor_session_numbers_its_turns_after_the_connection() {
+    let rig = rig();
+    let link = FakeLink::new(9);
+    link.turns.store(5, Ordering::SeqCst);
+    rig.core
+        .start_as(Owner::Editor(link.clone()))
+        .await
+        .unwrap();
+    assert_eq!(rig.state().turn, 5);
+    rig.say().await;
+    assert_eq!(link.utterances.lock()[0].turn, 6);
+}
+
+/// Pause d'une séance de l'éditeur : seule sa connexion la reprend (ni la
+/// page, ni une autre connexion).
+#[tokio::test]
+async fn only_its_connection_resumes_an_editor_session() {
+    let rig = rig_with(prepared(), Duration::from_millis(100), |_| Ok(()));
+    let voice_mode = VoiceMode {
+        core: rig.core.clone(),
+    };
+    rig.core
+        .start_as(Owner::Editor(FakeLink::new(2)))
+        .await
+        .unwrap();
+    rig.wait_phase(Paused).await;
+    voice_mode.resume().await.unwrap();
+    voice_mode.resume_editor(3).await.unwrap();
+    assert_eq!(rig.phase(), Paused);
+    assert_eq!(rig.opens(), 1);
+    voice_mode.resume_editor(2).await.unwrap();
+    assert_eq!(rig.phase(), VoiceModePhase::Listening);
+    assert_eq!(rig.opens(), 2);
+}
+
+/// Bouton Stop du bandeau de la page : arrête la séance de l'éditeur, pas
+/// celle de la page.
+#[tokio::test]
+async fn the_page_banner_stops_an_editor_session_only() {
+    let rig = rig();
+    let voice_mode = VoiceMode {
+        core: rig.core.clone(),
+    };
+    rig.started().await;
+    voice_mode.stop_editor_session();
+    assert_eq!(rig.phase(), VoiceModePhase::Listening);
+    rig.core.stop(false);
+    let link = FakeLink::new(6);
+    rig.core
+        .start_as(Owner::Editor(link.clone()))
+        .await
+        .unwrap();
+    voice_mode.stop();
+    assert_eq!(rig.phase(), VoiceModePhase::Listening);
+    voice_mode.stop_editor_session();
+    assert_eq!(rig.phase(), Off);
+    assert_eq!(link.last().phase, Off);
 }

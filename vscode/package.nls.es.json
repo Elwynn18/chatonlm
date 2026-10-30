@@ -9,5 +9,13 @@
   "command.explain": "Explicar",
   "command.fix": "Corregir",
   "command.tests": "Escribir pruebas",
-  "command.commitMessage": "Escribir el mensaje de commit"
+  "command.commitMessage": "Escribir el mensaje de commit",
+  "command.tour": "Visita guiada de este código",
+  "command.tourChanges": "Visita guiada de los cambios",
+  "command.tourTogglePause": "Pausar o reanudar la visita",
+  "command.tourPrevious": "Parte anterior de la visita",
+  "command.tourNext": "Parte siguiente de la visita",
+  "command.tourStop": "Detener la visita",
+  "command.talkItThrough": "Explicarlo en voz alta",
+  "command.stopTalking": "Terminar la sesión de voz"
 }

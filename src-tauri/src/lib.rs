@@ -522,6 +522,7 @@ pub fn run() {
             commands::voice_mode::voice_mode_start,
             commands::voice_mode::voice_mode_state,
             commands::voice_mode::voice_mode_stop,
+            commands::voice_mode::voice_mode_stop_editor,
             #[cfg(feature = "e2e")]
             context_menu::e2e::e2e_last_context_menu,
             startup::database_problem,

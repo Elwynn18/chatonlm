@@ -17,6 +17,9 @@ struct Log {
     languages: Mutex<Vec<VoiceLanguage>>,
     /// Événements des lectures vocales reçus par l'écouteur.
     readings: Mutex<Vec<(String, VoiceReading)>>,
+    /// Échantillons « joués » par la sortie, réglés par l'essai ; `None` :
+    /// tout ce qui est poussé est aussitôt joué.
+    clock: Mutex<Option<u64>>,
 }
 
 struct FakeSynth {
@@ -53,6 +56,7 @@ impl Synth for FakeSynth {
 
 struct FakeOutput {
     log: Arc<Log>,
+    stopped: AtomicBool,
 }
 
 impl Output for FakeOutput {
@@ -61,11 +65,28 @@ impl Output for FakeOutput {
     }
 
     fn stop(&self) {
+        self.stopped.store(true, Ordering::Relaxed);
         self.log.output_stops.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Horloge réglée par l'essai : attend que tout soit « joué » (ou
+    /// l'arrêt).
     fn drain(&self) -> bool {
-        true
+        while self.played() < self.queued_end() {
+            if self.stopped.load(Ordering::Relaxed) {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        !self.stopped.load(Ordering::Relaxed)
+    }
+
+    fn played(&self) -> u64 {
+        (*self.log.clock.lock()).unwrap_or_else(|| self.queued_end())
+    }
+
+    fn queued_end(&self) -> u64 {
+        self.log.pushed.load(Ordering::Relaxed) as u64
     }
 }
 
@@ -136,6 +157,7 @@ fn rig_with_idle(idle: Duration) -> Rig {
                 Some(error) => Err(error),
                 None => Ok(Arc::new(FakeOutput {
                     log: output_log.clone(),
+                    stopped: AtomicBool::new(false),
                 }) as Arc<dyn Output>),
             }),
             interface: Box::new(|| VoiceLanguage::En),
@@ -928,7 +950,10 @@ fn a_panic_ends_the_reading_with_an_error_and_frees_the_engine() {
 
 /// Envoi vocal de la séance du mode vocal, `hint` : langue de la phrase.
 fn voice(hint: Option<VoiceLanguage>) -> VoiceSend {
-    VoiceSend { language: hint }
+    VoiceSend {
+        language: hint,
+        ..VoiceSend::default()
+    }
 }
 
 impl Rig {
@@ -1321,4 +1346,167 @@ fn a_voice_send_preloads_the_hinted_voice() {
     rig.observe_voice(user_message(), Some(VoiceLanguage::Es));
     wait("the preload", || rig.loads() == 1);
     assert_eq!(rig.languages(), [VoiceLanguage::Es]);
+}
+
+/// Lecture par segments du pont : évènements reçus.
+fn segments_rig() -> (Rig, Arc<Mutex<Vec<SegmentEvent>>>, SegmentSink) {
+    let rig = rig();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let received = events.clone();
+    let sink: SegmentSink = Arc::new(move |event| received.lock().push(event));
+    (rig, events, sink)
+}
+
+fn segment(id: &str, text: &str) -> Segment {
+    Segment {
+        id: id.into(),
+        text: text.into(),
+    }
+}
+
+fn started(id: &str) -> SegmentEvent {
+    SegmentEvent::Started(id.into())
+}
+
+fn finished(id: &str) -> SegmentEvent {
+    SegmentEvent::Finished(id.into())
+}
+
+/// Chaque segment est annoncé quand son son est joué (horloge de la
+/// sortie), pas quand il est synthétisé : la synthèse finie, rien n'est
+/// annoncé tant que la sortie n'a rien joué ; puis début et fin de chaque
+/// segment, dans l'ordre, au fil du compteur.
+#[test]
+fn segments_follow_the_sound_actually_played() {
+    let (rig, events, sink) = segments_rig();
+    *rig.log.clock.lock() = Some(0);
+    rig.read_aloud
+        .read_segments(
+            "1-1".into(),
+            vec![segment("a", "First part."), segment("b", "Second part.")],
+            Some(VoiceLanguage::En),
+            sink,
+        )
+        .unwrap();
+    assert_eq!(
+        rig.read_aloud.state().source,
+        Some(ReadAloudSource::Bridge {
+            read_id: "1-1".into()
+        })
+    );
+    // Deux segments synthétisés (10 échantillons chacun), rien de joué.
+    wait("both segments synthesized", || rig.spoken().len() == 2);
+    std::thread::sleep(Duration::from_millis(60));
+    assert!(events.lock().is_empty(), "{:?}", events.lock());
+    // Début du premier joué.
+    *rig.log.clock.lock() = Some(3);
+    wait("first segment started", || events.lock().len() == 1);
+    std::thread::sleep(Duration::from_millis(60));
+    assert_eq!(*events.lock(), [started("a")]);
+    // Tout le premier joué, un échantillon du second.
+    *rig.log.clock.lock() = Some(11);
+    wait("second segment started", || events.lock().len() == 3);
+    assert_eq!(*events.lock(), [started("a"), finished("a"), started("b")]);
+    // Tout joué : fin du second, puis plus rien (ni arrêt ni échec).
+    *rig.log.clock.lock() = Some(20);
+    wait("reading over", || idle(&rig));
+    std::thread::sleep(Duration::from_millis(60));
+    assert_eq!(
+        *events.lock(),
+        [started("a"), finished("a"), started("b"), finished("b")]
+    );
+}
+
+/// Une nouvelle lecture (ou un arrêt) arrête la lecture par segments, qui
+/// le dit ; plus rien n'est annoncé pour elle ensuite.
+#[test]
+fn a_new_reading_stops_the_segments() {
+    let (rig, events, sink) = segments_rig();
+    *rig.log.clock.lock() = Some(0);
+    rig.read_aloud
+        .read_segments(
+            "1-1".into(),
+            vec![segment("a", "First part."), segment("b", "Second part.")],
+            None,
+            sink,
+        )
+        .unwrap();
+    wait("both segments synthesized", || rig.spoken().len() == 2);
+    *rig.log.clock.lock() = Some(3);
+    wait("first segment started", || events.lock().len() == 1);
+    rig.read(7, "Another text.", false);
+    wait("stopped", || events.lock().len() == 2);
+    *rig.log.clock.lock() = None;
+    wait("other reading over", || idle(&rig));
+    std::thread::sleep(Duration::from_millis(60));
+    assert_eq!(*events.lock(), [started("a"), SegmentEvent::Stopped]);
+
+    // Arrêt par son identifiant : seulement le sien.
+    let (rig, events, sink) = segments_rig();
+    rig.hold.store(true, Ordering::Relaxed);
+    rig.read_aloud
+        .read_segments("2-5".into(), vec![segment("a", "Long part.")], None, sink)
+        .unwrap();
+    wait("speaking", || rig.spoken().len() == 1);
+    rig.read_aloud.stop_segments(|id| id == "2-4");
+    assert!(!idle(&rig));
+    rig.read_aloud.stop_segments(|id| id == "2-5");
+    assert!(idle(&rig));
+    assert_eq!(*events.lock(), [SegmentEvent::Stopped]);
+}
+
+/// Refus d'emblée : rien à lire, autre langue, voix absente (jamais
+/// téléchargée), machine incapable ; rien ne démarre.
+#[test]
+fn segments_are_refused_before_anything_starts() {
+    let (rig, events, sink) = segments_rig();
+    let read = |segments: Vec<Segment>, language| {
+        rig.read_aloud
+            .read_segments("1-1".into(), segments, language, sink.clone())
+    };
+    assert_eq!(
+        read(vec![segment("a", "```\ncode\n```")], None),
+        Err(SegmentsRefusal::NothingToRead)
+    );
+    assert_eq!(
+        read(
+            vec![segment(
+                "a",
+                "Das ist eine kurze Antwort auf deine Frage, und sie ist ganz sicher nicht auf Englisch. Und"
+            )],
+            None
+        ),
+        Err(SegmentsRefusal::Unsupported)
+    );
+    rig.installed.store(false, Ordering::Relaxed);
+    assert_eq!(
+        read(vec![segment("a", "Hello.")], Some(VoiceLanguage::Fr)),
+        Err(SegmentsRefusal::MissingVoice(VoiceLanguage::Fr))
+    );
+    assert!(rig.queued.lock().is_empty());
+    rig.installed.store(true, Ordering::Relaxed);
+    rig.runtime.store(false, Ordering::Relaxed);
+    assert_eq!(
+        read(vec![segment("a", "Hello.")], None),
+        Err(SegmentsRefusal::RuntimeUnavailable)
+    );
+    assert!(rig.log.states.lock().is_empty());
+    assert!(events.lock().is_empty());
+}
+
+/// Moteur en échec : la lecture par segments finit par `Failed`.
+#[test]
+fn a_failed_engine_ends_the_segments_with_an_error() {
+    let (rig, events, sink) = segments_rig();
+    rig.broken.store(true, Ordering::Relaxed);
+    rig.read_aloud
+        .read_segments("1-1".into(), vec![segment("a", "Hello.")], None, sink)
+        .unwrap();
+    wait("failed", || !events.lock().is_empty());
+    assert_eq!(
+        *events.lock(),
+        [SegmentEvent::Failed(ReadingEnd::Failed(
+            ReadAloudError::EngineFailed
+        ))]
+    );
 }

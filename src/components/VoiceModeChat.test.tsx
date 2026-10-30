@@ -427,11 +427,36 @@ describe("voice mode follows its page", () => {
         muted: false,
         turn: 3,
         notice: null,
+        editor: false,
       };
     });
     await waitFor(() =>
       expect(simulator.callsTo("voice_mode_stop")).toHaveLength(1),
     );
+    expect(bar()).toBeNull();
+  });
+
+  it("a session held by VS Code: the button is off and says so, the page never stops it", async () => {
+    const { simulator } = setup("/c/chat-1", (backend) => {
+      backend.voiceMode.state = {
+        phase: "listening",
+        muted: false,
+        turn: 0,
+        notice: null,
+        editor: true,
+      };
+    });
+    const button = await screen.findByRole("button", {
+      name: "Voice is in use by VS Code",
+    });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.getAttribute("title")).toBe("Voice is in use by VS Code");
+    // Ni le raccourci ni l'affichage d'une autre page ne la lancent ou
+    // l'arrêtent.
+    await userEvent.keyboard("{Control>}{Shift>} {/Shift}{/Control}");
+    await settle();
+    expect(simulator.callsTo("voice_mode_start")).toEqual([]);
+    expect(simulator.callsTo("voice_mode_stop")).toEqual([]);
     expect(bar()).toBeNull();
   });
 

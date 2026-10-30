@@ -3,7 +3,9 @@
 // pur. Les événements d'un envoi suivent la logique de la page de l'app
 // (src/lib/streams.ts : réponse par fragments, raisonnement clos au premier
 // texte, fin quelle qu'elle soit), sans ce qui n'existe pas ici (modification
-// d'un message, images, compactage manuel).
+// d'un message, images, compactage manuel). Visite guidée et séance vocale
+// (lot 2) : leur état vient de l'hôte tel quel ; les tours de parole arrivent
+// comme des envois, sous des numéros négatifs.
 import type { Chat } from "@/bindings/Chat";
 import type { ChatErrorKind } from "@/bindings/ChatErrorKind";
 import type { ChatEvent } from "@/bindings/ChatEvent";
@@ -14,6 +16,8 @@ import type {
   PanelState,
   Receipt,
   Theme,
+  TourView,
+  VoiceView,
 } from "../shared/protocol";
 
 export interface TurnError {
@@ -59,6 +63,12 @@ export interface PanelModel {
   /** Erreur du dernier envoi, gardée jusqu'au suivant (comme la page). */
   lastError: { chatId: string | null; error: TurnError } | null;
   nextKey: number;
+  /** Visite guidée en cours ou dernière (null : aucune). */
+  tour: TourView | null;
+  /** Séance vocale tenue par VS Code (null : aucune). */
+  voice: VoiceView | null;
+  /** Niveau du micro, 0 à 1. */
+  voiceLevel: number;
 }
 
 export type PanelAction =
@@ -95,6 +105,9 @@ export function initialModel(): PanelModel {
     requestOf: {},
     lastError: null,
     nextKey: 1,
+    tour: null,
+    voice: null,
+    voiceLevel: 0,
   };
 }
 
@@ -191,9 +204,13 @@ function bindTurn(
 ): { model: PanelModel; index: number } {
   const known = model.turns.findIndex((turn) => turn.requestId === requestId);
   if (known !== -1) return { model, index: known };
-  const pending = model.turns.findIndex(
-    (turn) => turn.requestId === null && !turn.finished,
-  );
+  // Tour de parole (numéro négatif) : jamais un message tapé en attente.
+  const pending =
+    requestId < 0
+      ? -1
+      : model.turns.findIndex(
+          (turn) => turn.requestId === null && !turn.finished,
+        );
   if (pending !== -1) {
     const turns = [...model.turns];
     turns[pending] = { ...turns[pending], requestId };
@@ -403,6 +420,16 @@ function applyHost(
       return withChat(model, message.chat);
     case "receipts":
       return { ...model, savedReceipts: message.receipts };
+    case "tour":
+      return { ...model, tour: message.tour };
+    case "voice":
+      return {
+        ...model,
+        voice: message.voice,
+        voiceLevel: message.voice ? model.voiceLevel : 0,
+      };
+    case "voiceLevel":
+      return model.voice ? { ...model, voiceLevel: message.level } : model;
     case "receipt": {
       const bound = bindTurn(model, message.requestId);
       return {

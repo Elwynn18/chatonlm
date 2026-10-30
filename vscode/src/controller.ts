@@ -1,6 +1,7 @@
 // Cœur de l'extension : état du panneau, relais panneau ↔ pont, envois (avec
-// leur reçu) et actions. Contrats : .tools/research/87-lot1b-contract.md
-// (B et « Panneau ↔ hôte »), 88-fix-contract.md (corrections de la relecture).
+// leur reçu) et actions ; visite guidée parlée et séance vocale (lot 2).
+// Contrats : .tools/research/87-lot1b-contract.md (B et « Panneau ↔ hôte »),
+// 88-fix-contract.md (corrections de la relecture), 89-lot2-voice-contract.md (X).
 import * as vscode from "vscode";
 import type { Chat } from "../../src/bindings/Chat";
 import type { ChatEvent } from "../../src/bindings/ChatEvent";
@@ -37,7 +38,20 @@ import {
   type History,
   historyOf,
   looksRemote,
+  maskSecrets,
+  type Piece,
 } from "./receipt";
+import type { TerminalFailure } from "./terminal";
+import { Tour } from "./tour";
+import {
+  buildContext,
+  CONTEXT_DELAY_MS,
+  editorPiece,
+  terminalPiece,
+  Voice,
+  type VoiceContext,
+  type VoiceProfile,
+} from "./voice";
 
 /** Ce que le contrôleur attend de la liaison (Link, ou un double d'essai). */
 export type LinkLike = {
@@ -70,6 +84,11 @@ export type ControllerDeps = {
   theme(): Theme;
   /** Journal de l'extension (sortie « ChatonLM »). */
   log?(message: string): void;
+  /** Dernière commande échouée du terminal (intégration du shell). */
+  terminal?: {
+    readonly last: TerminalFailure | null;
+    onChange(listener: () => void): () => void;
+  };
 };
 
 const MODEL_KEY = "chatonlm.model";
@@ -151,12 +170,64 @@ export class Controller {
   #resync = 0;
   #launching = false;
   readonly #disposers: (() => void)[] = [];
+  readonly #tour: Tour;
+  readonly #voice: Voice;
+  /** Passage d'une visite joint au prochain message tapé. */
+  #attachment: Piece | null = null;
+  /** Séance vocale : destination du modèle ; pour chaque tour de parole pas
+   * encore fini, numéro d'envoi donné au panneau (négatif : jamais celui
+   * d'une requête) et génération de la conversation à son début. Les tours
+   * sont numérotés par l'app sur toute la connexion : `#voiceLink` augmente
+   * à chaque liaison perdue. Un tour continue après la fin de la séance (la
+   * réponse s'écrit et se lit encore dans l'app). */
+  #voiceLink = 0;
+  #voiceDestination: Destination = "unknown";
+  readonly #voiceTurns = new Map<
+    string,
+    { requestId: number; generation: number }
+  >();
+  #voiceRequests = 0;
+  #contextTimer: ReturnType<typeof setTimeout> | null = null;
+  #watching: (() => void)[] = [];
 
   constructor(deps: ControllerDeps) {
     this.#deps = deps;
     this.#model = deps.memento.get<string>(MODEL_KEY) ?? null;
+    const openApp = () => this.launch(false);
+    this.#tour = new Tour({
+      link: deps.link,
+      post: (message) => deps.post(message),
+      reveal: () => deps.reveal(),
+      model: () => this.#model ?? this.#appModel,
+      destination: (model) => this.#destination(model),
+      locale: () => deps.locale(),
+      openApp,
+      onSegment: () => {
+        if (this.#voice.profile === "tour") this.#scheduleContext(0);
+      },
+      onEnded: () => {
+        // La question sur un passage finit avec la visite.
+        if (this.#voice.profile === "tour") void this.#voice.stop();
+      },
+    });
+    this.#voice = new Voice({
+      link: deps.link,
+      post: (message) => deps.post(message),
+      onChat: (turn, event) => this.#voiceEvent(turn, event),
+      onEnded: () => this.#voiceEnded(),
+      // Une parole de l'utilisateur arrête la lecture de la visite.
+      onHearing: () => this.#tour.pause(),
+      openApp,
+    });
     this.#disposers.push(
-      deps.link.onState(() => this.#postState()),
+      deps.link.onState((state) => {
+        if (state.connection !== "connected") {
+          this.#tour.disconnected();
+          this.#voice.disconnected();
+          this.#voiceTurnsLost();
+        }
+        this.#postState();
+      }),
       deps.link.onConnected(() => void this.#onConnected()),
       deps.link.onNotification((n) => this.#onNotification(n)),
     );
@@ -165,6 +236,19 @@ export class Controller {
   dispose(): void {
     for (const dispose of this.#disposers) dispose();
     this.#resync++;
+    this.#unwatchEditor();
+    this.#tour.dispose();
+    this.#voice.dispose();
+  }
+
+  /** Visite guidée (commandes de l'éditeur). */
+  get tour(): Tour {
+    return this.#tour;
+  }
+
+  /** Séance vocale tenue par VS Code. */
+  get voice(): Voice {
+    return this.#voice;
   }
 
   get busy(): boolean {
@@ -188,6 +272,12 @@ export class Controller {
       busy: this.busy,
       generation: this.#generation,
       notice: this.#notice,
+      attachment: this.#attachment
+        ? {
+            path: this.#attachment.path ?? this.#attachment.label,
+            lines: this.#attachment.lines ?? [1, 1],
+          }
+        : null,
     };
     if (link.connection === "error") state.error = problemText(link.problem);
     return state;
@@ -213,12 +303,57 @@ export class Controller {
           state: this.state,
         });
         this.#deps.post({ type: "receipts", receipts: this.#receipts() });
+        // Visite et séance vocale en cours (panneau ouvert ou rechargé après).
+        this.#deps.post({ type: "tour", tour: this.#tour.view });
+        this.#deps.post({ type: "voice", voice: this.#voice.view });
         // Modèles relus à l'ouverture du panneau (installés depuis dans l'app).
         if (this.#deps.link.connected) await this.refresh();
         if (this.#chatId) await this.#syncChat();
         return;
-      case "send":
-        if (message.text.trim()) await this.send(message.text, null);
+      case "send": {
+        if (!message.text.trim()) return;
+        const attachment = this.#attachment;
+        if (attachment) {
+          // Question sur un passage de la visite : il part avec, filtré.
+          await this.send(null, {
+            action: "ask",
+            instruction: message.text,
+            pieces: [attachment],
+          });
+        } else {
+          await this.send(message.text, null);
+        }
+        return;
+      }
+      case "tour":
+        await this.tourCommand(message.command);
+        return;
+      case "tourGoto":
+        await this.#tour.goto(message.index);
+        return;
+      case "tourAsk":
+        await this.askAboutTour(message.voice);
+        return;
+      case "clearAttachment":
+        this.#attachment = null;
+        this.#postState();
+        return;
+      case "voice":
+        switch (message.command) {
+          case "start":
+            await this.startVoice("duck");
+            return;
+          case "stop":
+            await this.#voice.stop();
+            return;
+          case "resume":
+            await this.#voice.resume();
+            return;
+          case "mute":
+          case "unmute":
+            await this.#voice.mute(message.command === "mute");
+            return;
+        }
         return;
       case "stop":
         this.stop();
@@ -282,6 +417,8 @@ export class Controller {
    * (comme dans l'app), un envoi en cours n'impose plus la sienne.
    */
   newChat(ephemeral: boolean, notice: Notice | null = null): void {
+    // La séance vocale parle dans la conversation quittée : elle s'arrête.
+    if (this.#voice.active) void this.#voice.stop();
     const left = this.#ephemeral ? this.#chatId : null;
     this.#generation++;
     this.#resync++;
@@ -524,7 +661,232 @@ export class Controller {
       );
       return false;
     }
+    // Les phrases de la séance vocale partent dans la conversation ouverte.
+    if (this.#voice.active) {
+      void vscode.window.showWarningMessage(
+        vscode.l10n.t("A voice session is on. Stop it first."),
+      );
+      return false;
+    }
+    if (this.#voiceReplying()) return false;
     return true;
+  }
+
+  /** Une réponse à la voix s'écrit encore dans la conversation ouverte
+   * (séance finie pendant la réponse) : l'app refuserait un autre envoi. */
+  #voiceReplying(): boolean {
+    for (const turn of this.#voiceTurns.values()) {
+      if (turn.generation === this.#generation) {
+        void vscode.window.showWarningMessage(
+          vscode.l10n.t("A spoken reply is still being written. Wait for it."),
+        );
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Commande de la visite (panneau, palette, raccourcis). */
+  async tourCommand(
+    command: "previous" | "next" | "pause" | "resume" | "stop" | "toggle",
+  ): Promise<void> {
+    switch (command) {
+      case "previous":
+        return this.#tour.previous();
+      case "next":
+        return this.#tour.next();
+      case "pause":
+        return this.#tour.pause();
+      case "resume":
+        return this.#tour.resume();
+      case "toggle":
+        return this.#tour.togglePause();
+      case "stop":
+        return this.#tour.stop();
+    }
+  }
+
+  /**
+   * « Ask about this part » : la lecture s'arrête ; tapée, le passage est
+   * joint au prochain message ; à la voix, une séance `tour` s'ouvre avec le
+   * passage en contexte.
+   */
+  async askAboutTour(voice: boolean): Promise<void> {
+    const passage = this.#tour.passage();
+    if (!passage || !this.#tour.active) return;
+    this.#tour.pause();
+    if (voice) {
+      await this.startVoice("tour");
+      return;
+    }
+    this.#attachment = passage.piece;
+    this.#postState();
+    await this.#deps.reveal();
+  }
+
+  /** Démarre une séance vocale dans la conversation ouverte (ou une nouvelle). */
+  async startVoice(profile: VoiceProfile): Promise<void> {
+    if (!this.#deps.link.connected) {
+      await this.#deps.reveal();
+      void vscode.window.showWarningMessage(
+        vscode.l10n.t("ChatonLM is not connected. See the ChatonLM panel."),
+      );
+      return;
+    }
+    if (this.busy) {
+      void vscode.window.showWarningMessage(
+        vscode.l10n.t("A reply is being written. Wait for it, or stop it."),
+      );
+      return;
+    }
+    // Sa première phrase serait refusée (conversation occupée).
+    if (this.#voiceReplying()) return;
+    const model = this.#model ?? this.#appModel;
+    const { destination } = await this.#destination(model);
+    // Conversation commencée sur cette machine : son historique ne part pas
+    // avec un modèle d'ailleurs (comme un envoi tapé).
+    if (this.#chatId && this.#chatLocal && destination !== "local") {
+      this.newChat(this.#ephemeral, "offMachineNewChat");
+    }
+    this.#voiceDestination = destination;
+    const generation = this.#generation;
+    const started = await this.#voice.start({
+      profile,
+      chatId: this.#chatId,
+      model,
+      ephemeral: this.#ephemeral,
+      destination,
+      context: this.#voiceContext(profile),
+      noTerminalError: profile === "duck" && !this.#deps.terminal?.last,
+    });
+    if (!started || generation !== this.#generation) return;
+    if (started.chatId) {
+      this.#chatId = started.chatId;
+      if (destination === "local") this.#chatLocal = true;
+      this.#postState();
+    }
+    if (profile === "duck") this.#watchEditor();
+  }
+
+  /** Contexte de la séance : passage visible (ou sélection) et dernière
+   * commande échouée en `duck` ; passage de la visite en `tour`. */
+  #voiceContext(profile: VoiceProfile): VoiceContext {
+    const destination = this.#voiceDestination;
+    if (profile === "tour") {
+      const passage = this.#tour.passage();
+      if (!passage) return { text: "", shared: [], blocked: [] };
+      // Texte du segment (écrit par le modèle de la visite, peut-être un
+      // autre) : filtré comme le passage hors de cette machine.
+      const said =
+        destination === "local"
+          ? passage.text
+          : maskSecrets(
+              passage.text,
+              vscode.l10n.t("[secret removed by ChatonLM]"),
+            ).text;
+      return buildContext(
+        vscode.l10n.t(
+          "The user is asking about this part of the guided tour. The tour said: {0}",
+          said,
+        ),
+        [passage.piece],
+        destination,
+      );
+    }
+    const pieces: Piece[] = [];
+    const editor = editorPiece(vscode.window.activeTextEditor);
+    if (editor) pieces.push(editor);
+    const failure = this.#deps.terminal?.last;
+    if (failure) pieces.push(terminalPiece(failure));
+    return buildContext(
+      vscode.l10n.t("What the user has open in VS Code:"),
+      pieces,
+      destination,
+    );
+  }
+
+  /** Contexte renvoyé après un délai (curseur, défilement, terminal). */
+  #scheduleContext(delay = CONTEXT_DELAY_MS): void {
+    if (this.#contextTimer) clearTimeout(this.#contextTimer);
+    this.#contextTimer = setTimeout(() => {
+      this.#contextTimer = null;
+      const profile = this.#voice.profile;
+      if (!profile) return;
+      void this.#voice.setContext(
+        this.#voiceContext(profile),
+        profile === "duck" && !this.#deps.terminal?.last,
+      );
+    }, delay);
+  }
+
+  #watchEditor(): void {
+    this.#unwatchEditor();
+    const schedule = () => this.#scheduleContext();
+    const { window } = vscode;
+    const subscriptions = [
+      window.onDidChangeActiveTextEditor(schedule),
+      window.onDidChangeTextEditorSelection(schedule),
+      window.onDidChangeTextEditorVisibleRanges(schedule),
+    ];
+    this.#watching = [
+      ...subscriptions.map((s) => () => s.dispose()),
+      ...(this.#deps.terminal ? [this.#deps.terminal.onChange(schedule)] : []),
+    ];
+  }
+
+  #unwatchEditor(): void {
+    for (const dispose of this.#watching) dispose();
+    this.#watching = [];
+    if (this.#contextTimer) clearTimeout(this.#contextTimer);
+    this.#contextTimer = null;
+  }
+
+  /** Tour de parole : relayé au panneau comme un envoi (pas s'il a commencé
+   * dans une conversation quittée depuis). */
+  #voiceEvent(turn: number, event: ChatEvent): void {
+    const key = `${this.#voiceLink}:${turn}`;
+    let entry = this.#voiceTurns.get(key);
+    if (!entry) {
+      // Un nouveau tour n'appartient qu'à une séance en cours.
+      if (!this.#voice.active) return;
+      entry = {
+        requestId: -++this.#voiceRequests,
+        generation: this.#generation,
+      };
+      this.#voiceTurns.set(key, entry);
+    }
+    const current = entry.generation === this.#generation;
+    if (ENDS.has(event.type)) this.#voiceTurns.delete(key);
+    if (!current) return;
+    if (event.type === "chatCreated") {
+      this.#chatId = event.chatId;
+      if (this.#voiceDestination === "local") this.#chatLocal = true;
+      this.#postState();
+    }
+    this.#deps.post({ type: "event", requestId: entry.requestId, event });
+    if (ENDS.has(event.type)) void this.#syncChat();
+  }
+
+  /** Séance finie : un tour en cours continue (sa fin arrivera par
+   * `voice.chat`) ; le contexte de l'éditeur n'est plus suivi. */
+  #voiceEnded(): void {
+    this.#unwatchEditor();
+    this.#postState();
+  }
+
+  /** Liaison perdue : les tours ouverts ne diront plus rien (la
+   * conversation est relue à la reconnexion). */
+  #voiceTurnsLost(): void {
+    for (const { requestId, generation } of this.#voiceTurns.values()) {
+      if (generation !== this.#generation) continue;
+      this.#deps.post({
+        type: "event",
+        requestId,
+        event: { type: "cancelled" },
+      });
+    }
+    this.#voiceTurns.clear();
+    this.#voiceLink++;
   }
 
   /** Action de l'éditeur : morceaux pris, filtrés selon la destination, envoyés. */
@@ -598,6 +960,8 @@ export class Controller {
     request: ActionRequest | null,
   ): Promise<void> {
     if (!(await this.#ready())) return;
+    // Passage d'une visite joint : il part avec ce message seulement.
+    if (request?.action === "ask") this.#attachment = null;
     // Pris avant toute attente : Stop et « nouvelle conversation » pendant
     // la préparation sont respectés.
     const sending: Sending = {

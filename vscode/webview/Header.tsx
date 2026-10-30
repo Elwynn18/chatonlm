@@ -83,6 +83,12 @@ export function Header({
             {t("vscode.header.chooseModel")}
           </option>
         )}
+        {/* Modèle choisi absent de la liste du serveur (supprimé depuis,
+            ou propre au serveur) : montré quand même, sinon le menu
+            afficherait le premier modèle de la liste. */}
+        {state.model !== null && !state.models.includes(state.model) && (
+          <option value={state.model}>{state.model}</option>
+        )}
         {state.models.map((name) => (
           <option key={name} value={name}>
             {cloud.has(name)
