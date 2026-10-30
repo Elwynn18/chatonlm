@@ -12,7 +12,8 @@
  * scrolled into view and focused, again on each navigation that is not a
  * mere change of tab; "readAloud": the reading aloud of replies, ChatonLM's
  * own; "voiceMode": the voice mode, ChatonLM's own; "easyLink": the Telegram
- * and Discord bots, ChatonLM's own; "shortcuts": the keyboard shortcuts,
+ * and Discord bots, ChatonLM's own; "vscode": the bridge of the VS Code
+ * extension, ChatonLM's own; "shortcuts": the keyboard shortcuts,
  * ChatonLM's own),
  * any other value read as "general" by the page; a "card" search parameter
  * ("updates": the Updates card of General, scrolled into view and focused
@@ -45,7 +46,7 @@ export interface SettingsSearch {
  * Type du paramètre pour la navigation. Le routeur garde aussi les
  * paramètres bruts : la page compare elle-même la valeur (« general »,
  * « models », « account », « dictation », « readAloud », « voiceMode »,
- * « easyLink », « shortcuts »).
+ * « easyLink », « vscode », « shortcuts »).
  */
 export function validateSettingsSearch(
   raw: Record<string, unknown>,
@@ -58,6 +59,7 @@ export function validateSettingsSearch(
     raw.section === "readAloud" ||
     raw.section === "voiceMode" ||
     raw.section === "easyLink" ||
+    raw.section === "vscode" ||
     raw.section === "shortcuts"
       ? { section: raw.section }
       : {}),

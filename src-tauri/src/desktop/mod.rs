@@ -43,6 +43,11 @@ pub const DICTATE_ARG: &str = "--dictate";
 /// raccourcis du système quand le portail manque).
 pub const PROOFREAD_ARG: &str = "--proofread";
 
+/// Argument d'un lancement en arrière-plan (extension VS Code qui démarre
+/// l'app) : fenêtre masquée, app dans la zone de notification ; une relance
+/// avec lui ne montre pas la fenêtre.
+pub const BACKGROUND_ARG: &str = "--background";
+
 /// Événement envoyé à la page à chaque changement de [`ShortcutsStatus`].
 pub const SHORTCUTS_EVENT: &str = "shortcuts-status";
 
@@ -357,10 +362,11 @@ fn shortcut_requests<S: AsRef<str>>(args: &[S]) -> Vec<Request> {
     requests
 }
 
-/// Demandes d'une relance : celles de ses arguments, sinon la fenêtre.
+/// Demandes d'une relance : celles de ses arguments, sinon la fenêtre (sauf
+/// en arrière-plan : rien).
 fn second_instance_requests<S: AsRef<str>>(args: &[S]) -> Vec<Request> {
     let requests = shortcut_requests(args);
-    if requests.is_empty() {
+    if requests.is_empty() && !has_argument(args, BACKGROUND_ARG) {
         vec![Request::Show]
     } else {
         requests
@@ -377,11 +383,17 @@ fn startup_requests() -> &'static [Request] {
     })
 }
 
-/// Premier lancement par `chatonlm --dictate` ou `chatonlm --proofread` : la
-/// fenêtre reste masquée (une relance la montre), la dictée bascule ou la
-/// sélection est corrigée une fois l'app prête.
+/// Premier lancement par `chatonlm --dictate`, `chatonlm --proofread` ou
+/// `chatonlm --background` : la fenêtre reste masquée (une relance la
+/// montre), la dictée bascule ou la sélection est corrigée une fois l'app
+/// prête.
 pub fn started_hidden() -> bool {
+    static BACKGROUND: OnceLock<bool> = OnceLock::new();
     !startup_requests().is_empty()
+        || *BACKGROUND.get_or_init(|| {
+            let args: Vec<String> = std::env::args().collect();
+            has_argument(&args, BACKGROUND_ARG)
+        })
 }
 
 /// La page affiche la fenêtre une fois prête (`getCurrentWindow().show()`,
@@ -746,6 +758,12 @@ mod tests {
         );
         assert_eq!(
             second_instance_requests(&["chatonlm", "--dictate"]),
+            [Request::Toggle]
+        );
+        // Extension VS Code qui démarre l'app : la fenêtre ne s'ouvre pas.
+        assert_eq!(second_instance_requests(&["chatonlm", "--background"]), []);
+        assert_eq!(
+            second_instance_requests(&["chatonlm", "--background", "--dictate"]),
             [Request::Toggle]
         );
     }

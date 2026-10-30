@@ -5,6 +5,11 @@ import {
   accountSignIn,
   accountSignOut,
   accountStatus,
+  bridgeCancelPairing,
+  bridgePair,
+  bridgeSetEnabled,
+  bridgeState,
+  bridgeUnlink,
   cloudStatus,
   dictationBindShortcut,
   dictationCancel,
@@ -39,6 +44,7 @@ import {
   hubResumeDownload,
   hubSearch,
   isAppError,
+  listenBridge,
   listenChatsUpdated,
   listenEasyLink,
   modelDetails,
@@ -322,6 +328,46 @@ describe("dictation commands", () => {
       ["speech_delete_model", { id: "whisper-tiny" }],
       ["quit_app", {}],
     ]);
+  });
+});
+
+describe("VS Code bridge commands", () => {
+  const state = {
+    enabled: true,
+    status: "listening",
+    clients: [],
+    pairing: null,
+  };
+
+  it("names the five commands of the backend, arguments in camelCase, each giving the state", async () => {
+    const calls: [string, unknown][] = [];
+    mockIPC((command, args) => {
+      calls.push([command, args]);
+      return state;
+    });
+    await expect(bridgeState()).resolves.toEqual(state);
+    await expect(bridgeSetEnabled(true)).resolves.toEqual(state);
+    await expect(bridgePair()).resolves.toEqual(state);
+    await expect(bridgeCancelPairing()).resolves.toEqual(state);
+    await expect(bridgeUnlink("c-1")).resolves.toEqual(state);
+    expect(calls).toEqual([
+      ["bridge_state", {}],
+      ["bridge_set_enabled", { enabled: true }],
+      ["bridge_pair", {}],
+      ["bridge_cancel_pairing", {}],
+      ["bridge_unlink", { clientId: "c-1" }],
+    ]);
+  });
+
+  it("listens to “bridge”, giving its payload", async () => {
+    mockIPC(() => null, { shouldMockEvents: true });
+    const states: unknown[] = [];
+    const stop = await listenBridge((value) => states.push(value));
+    await emit("bridge", state);
+    expect(states).toEqual([state]);
+    stop();
+    await emit("bridge", state);
+    expect(states).toHaveLength(1);
   });
 });
 

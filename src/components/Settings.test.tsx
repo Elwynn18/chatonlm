@@ -517,6 +517,7 @@ describe("Settings tabs", () => {
       ["Read aloud", "/settings?section=readAloud"],
       ["Voice mode", "/settings?section=voiceMode"],
       ["Easy Link", "/settings?section=easyLink"],
+      ["VS Code", "/settings?section=vscode"],
       ["Keyboard shortcuts", "/settings?section=shortcuts"],
     ]);
     expect(currentTabs()).toEqual(["General"]);
@@ -532,6 +533,7 @@ describe("Settings tabs", () => {
     Account: () => screen.findByTestId("ollama-account"),
     Dictation: () => screen.findByTestId("dictation"),
     "Easy Link": () => screen.findByTestId("easy-link-settings"),
+    "VS Code": () => screen.findByTestId("vscode-settings"),
   };
 
   it.each([
@@ -540,6 +542,7 @@ describe("Settings tabs", () => {
     ["/settings?section=account", "Account"],
     ["/settings?section=dictation", "Dictation"],
     ["/settings?section=easyLink", "Easy Link"],
+    ["/settings?section=vscode", "VS Code"],
     ["/settings?section=other", "General"],
   ] as const)("%s opens %s", async (path, name) => {
     setup({}, path);
@@ -556,6 +559,7 @@ describe("Settings tabs", () => {
       "readAloud",
       "voiceMode",
       "easyLink",
+      "vscode",
       "shortcuts",
     ]) {
       expect(validateSettingsSearch({ section })).toEqual({ section });
@@ -748,6 +752,7 @@ describe("Settings in other languages", () => {
       "Lecture à voix haute",
       "Mode vocal",
       "Easy Link",
+      "VS Code",
       "Raccourcis clavier",
     ]);
     expect(screen.getByLabelText("Adresse du serveur")).toBeTruthy();

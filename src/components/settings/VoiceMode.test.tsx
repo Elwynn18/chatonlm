@@ -43,7 +43,7 @@ const instructions = () =>
   screen.findByLabelText<HTMLTextAreaElement>("Voice instructions");
 
 describe("Voice mode settings", () => {
-  it("is a tab of the settings, before Easy Link and Keyboard shortcuts", async () => {
+  it("is a tab of the settings, before Easy Link, VS Code and Keyboard shortcuts", async () => {
     setup();
     await screen.findByTestId("voice-mode-settings");
     const tab = screen.getByTestId("settings-tab-voiceMode");
@@ -53,9 +53,10 @@ describe("Voice mode settings", () => {
     const tabs = [
       ...screen.getByTestId("settings-tabs").querySelectorAll("a"),
     ].map((link) => link.textContent);
-    expect(tabs.slice(-3)).toEqual([
+    expect(tabs.slice(-4)).toEqual([
       "Voice mode",
       "Easy Link",
+      "VS Code",
       "Keyboard shortcuts",
     ]);
   });

@@ -82,6 +82,7 @@ import type { VoiceModeUtterance } from "@/bindings/VoiceModeUtterance";
 import type { Platform } from "@/bindings/Platform";
 import type { ShortcutKeys } from "@/bindings/ShortcutKeys";
 import type { ChatsUpdated } from "@/bindings/ChatsUpdated";
+import type { BridgeState } from "@/bindings/BridgeState";
 import type { EasyLinkPlatform } from "@/bindings/EasyLinkPlatform";
 import type { EasyLinkState } from "@/bindings/EasyLinkState";
 
@@ -1455,6 +1456,51 @@ export function listenEasyLink(
   return listen<EasyLinkState>(EASY_LINK_EVENT, (event) =>
     onChange(event.payload),
   );
+}
+
+// Pont de l'extension ChatonLM pour VS Code (propre à ChatonLM) : point
+// d'accès local tenu par le moteur ; la page l'ouvre ou le ferme, montre le
+// code d'appairage et les éditeurs appairés. Chaque commande renvoie l'état
+// d'après ; le secret d'un éditeur ne sort jamais du moteur.
+
+/** Pont ouvert ou non, son état, les éditeurs appairés, le code en cours. */
+export function bridgeState(): Promise<BridgeState> {
+  return invoke<BridgeState>("bridge_state");
+}
+
+/** Ouvre ou ferme le pont (les éditeurs appairés restent appairés). */
+export function bridgeSetEnabled(enabled: boolean): Promise<BridgeState> {
+  return invoke<BridgeState>("bridge_set_enabled", { enabled });
+}
+
+/**
+ * Nouveau code d'appairage (six chiffres, dix minutes), qui remplace le
+ * précédent ; rejette (message du moteur, déjà traduit) si le pont est fermé.
+ */
+export function bridgePair(): Promise<BridgeState> {
+  return invoke<BridgeState>("bridge_pair");
+}
+
+/** Abandonne le code d'appairage en cours. */
+export function bridgeCancelPairing(): Promise<BridgeState> {
+  return invoke<BridgeState>("bridge_cancel_pairing");
+}
+
+/** Oublie un éditeur appairé et ferme ses connexions. */
+export function bridgeUnlink(clientId: string): Promise<BridgeState> {
+  return invoke<BridgeState>("bridge_unlink", { clientId });
+}
+
+/**
+ * Événement du moteur à chaque changement du pont : éditeur appairé,
+ * connecté ou déconnecté, code consommé ou expiré, pont ouvert ou en échec.
+ */
+export const BRIDGE_EVENT = "bridge";
+
+export function listenBridge(
+  onChange: (state: BridgeState) => void,
+): Promise<UnlistenFn> {
+  return listen<BridgeState>(BRIDGE_EVENT, (event) => onChange(event.payload));
 }
 
 /** Quitte l'app (Ctrl+Q, menu de la zone de notification). */

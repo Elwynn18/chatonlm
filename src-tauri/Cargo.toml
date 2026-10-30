@@ -70,6 +70,9 @@ regex = "1.13.1"
 # démarrage) plutôt qu'aws-lc-rs, bibliothèque C aux licences multiples.
 # « gzip » : listes de Hugging Face (ModelHub), environ 5 Mo non compressées.
 reqwest = { version = "0.13.5", default-features = false, features = ["gzip", "json", "rustls-no-provider", "stream", "system-proxy"] }
+# Lien VS Code : preuves HMAC-SHA256 et aléa du système. Déjà dans l'arbre
+# (moteur de rustls).
+ring = "0.17.14"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 # Easy Link : racines du système pour la passerelle WebSocket de Discord,
@@ -167,7 +170,8 @@ windows = { version = "0.62.2", features = [
   "Win32_Graphics_Dxgi_Common",
   "Win32_NetworkManagement_IpHelper",    # port local à l'écoute
   "Win32_Networking_WinSock",
-  "Win32_Security",                      # signature de CreateJobObjectW
+  "Win32_Security",                      # signature de CreateJobObjectW, jeton
+  "Win32_Security_Authorization",        # liste d'accès du tube du lien VS Code
   "Win32_Storage_FileSystem",            # type d'un fichier, renommages
   "Win32_System_Com",                    # ShellExecuteW
   "Win32_System_Console",                # arrêt d'Ollama, sorties de l'enfant PDF

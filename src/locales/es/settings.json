@@ -8,6 +8,7 @@
     "readAloud": "Lectura en voz alta",
     "voiceMode": "Modo de voz",
     "easyLink": "Easy Link",
+    "vscode": "VS Code",
     "shortcuts": "Atajos de teclado"
   },
   "loadFailed": "No se pudo cargar la configuración",
@@ -486,6 +487,33 @@
       "help": "Ver esta lista",
       "discord": "En Discord, los comandos también pueden empezar por «!», por ejemplo <code>!models</code>.",
       "media": "También puedes enviar una foto, si el modelo sabe ver imágenes, o un mensaje de voz: lo transcribe el modelo de transcripción del dictado que tengas instalado."
+    }
+  },
+  "vscode": {
+    "loadFailed": "No se pudo leer la configuración de VS Code: {message}",
+    "enable": {
+      "label": "Permitir que VS Code se conecte",
+      "description": "La extensión de ChatonLM para VS Code conversa con tus modelos mediante un enlace que no sale de este equipo: nada pasa por la red."
+    },
+    "status": {
+      "unavailable": "VS Code no puede conectarse: este sistema no ofrece a ChatonLM ninguna carpeta privada para el enlace.",
+      "failed": "No se pudo abrir el enlace con VS Code (puede que otra copia de ChatonLM ya lo esté usando). Desactívalo y vuelve a activarlo para intentarlo de nuevo."
+    },
+    "editors": {
+      "title": "Editores emparejados",
+      "empty": "Todavía no hay ningún editor emparejado.",
+      "unnamed": "Editor sin nombre",
+      "pairedOn": "Emparejado el {date}",
+      "connected": "Conectado",
+      "lastSeen": "Última conexión: {date}",
+      "neverSeen": "Nunca conectado"
+    },
+    "pairing": {
+      "start": "Emparejar un editor",
+      "needsBridge": "Para emparejar un editor, primero permite que VS Code se conecte.",
+      "codeLabel": "Código de emparejamiento: {code}",
+      "expires": "Hora de caducidad: {time}.",
+      "instructions": "En VS Code, ejecuta <code>ChatonLM: Pair</code> y escribe este código."
     }
   },
   "account": {

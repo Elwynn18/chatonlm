@@ -363,6 +363,10 @@
   "startup": {
     "newerDatabase": "update ChatonLM to open this database"
   },
+  "bridge": {
+    "unavailable": "The VS Code link is unavailable: the database could not be opened",
+    "off": "Turn on the VS Code link first"
+  },
   "easyLink": {
     "tokenEmpty": "Paste the bot token first",
     "tokenRefused": "{service} refused this token. Copy it again and check that it is complete.",

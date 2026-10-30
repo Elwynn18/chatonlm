@@ -363,6 +363,10 @@
   "startup": {
     "newerDatabase": "mettez à jour ChatonLM pour ouvrir cette base de données"
   },
+  "bridge": {
+    "unavailable": "Le lien VS Code est indisponible : impossible d'ouvrir la base de données",
+    "off": "Activez d'abord le lien VS Code"
+  },
   "easyLink": {
     "tokenEmpty": "Collez d'abord le jeton du bot",
     "tokenRefused": "{service} a refusé ce jeton. Copiez-le de nouveau et vérifiez qu'il est complet.",

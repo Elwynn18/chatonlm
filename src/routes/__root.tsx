@@ -37,7 +37,9 @@
  * ChatonLM's own Easy Link (Telegram and Discord bots) is followed here: its
  * state, and the chats the backend creates or changes for a bot, read again
  * by the history and by the page of that chat; Ctrl+Shift+N opens a new
- * ephemeral chat (ChatonLM's own, src/lib/ephemeral.ts).
+ * ephemeral chat (ChatonLM's own, src/lib/ephemeral.ts); so is the state of
+ * ChatonLM's own bridge for its VS Code extension (paired editors, pairing
+ * code).
  */
 
 import type { QueryClient } from "@tanstack/react-query";
@@ -53,6 +55,7 @@ import { Tour } from "@/components/onboarding/Tour";
 import { useChatsEvents } from "@/hooks/useChats";
 import { useDictationEvents } from "@/hooks/useDictation";
 import { useDownloadEvents } from "@/hooks/useDownloads";
+import { useBridgeEvents } from "@/hooks/useBridge";
 import { useEasyLinkEvents } from "@/hooks/useEasyLink";
 import { useImageModelEvents } from "@/hooks/useImageModels";
 import { useReadAloudEvents } from "@/hooks/useReadAloud";
@@ -118,6 +121,9 @@ function RootComponent() {
   useVoiceModeEvents();
   // Easy Link : état des bots et des comptes liés (onglet des réglages).
   useEasyLinkEvents();
+  // Pont de l'extension VS Code : état, éditeurs appairés, code
+  // d'appairage (onglet des réglages).
+  useBridgeEvents();
   // Conversation créée ou modifiée par le moteur (message reçu par un bot) :
   // historique et conversation relus, quelle que soit la page.
   useChatsEvents();

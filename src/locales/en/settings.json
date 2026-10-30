@@ -8,6 +8,7 @@
     "readAloud": "Read aloud",
     "voiceMode": "Voice mode",
     "easyLink": "Easy Link",
+    "vscode": "VS Code",
     "shortcuts": "Keyboard shortcuts"
   },
   "loadFailed": "Failed to load settings",
@@ -486,6 +487,33 @@
       "help": "Show this list",
       "discord": "On Discord, commands can also start with “!”, for example <code>!models</code>.",
       "media": "You can also send a photo, if the model can see images, or a voice message: it is transcribed by the speech model of dictation you have installed."
+    }
+  },
+  "vscode": {
+    "loadFailed": "Couldn't read the VS Code settings: {message}",
+    "enable": {
+      "label": "Allow VS Code to connect",
+      "description": "The ChatonLM extension for VS Code talks with your models through a link that stays on this computer: nothing goes through the network."
+    },
+    "status": {
+      "unavailable": "VS Code can't connect: this system gives ChatonLM no private folder for the link.",
+      "failed": "The link with VS Code couldn't be opened (another copy of ChatonLM may already be using it). Turn it off and on again to retry."
+    },
+    "editors": {
+      "title": "Paired editors",
+      "empty": "No editor is paired yet.",
+      "unnamed": "Unnamed editor",
+      "pairedOn": "Paired on {date}",
+      "connected": "Connected",
+      "lastSeen": "Last connected on {date}",
+      "neverSeen": "Never connected"
+    },
+    "pairing": {
+      "start": "Pair an editor",
+      "needsBridge": "Allow VS Code to connect first to pair an editor.",
+      "codeLabel": "Pairing code: {code}",
+      "expires": "Valid until {time}.",
+      "instructions": "In VS Code, run <code>ChatonLM: Pair</code> and type this code."
     }
   },
   "account": {

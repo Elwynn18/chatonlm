@@ -232,6 +232,7 @@ pub async fn recover_database(
         app.manage(store);
         // Easy Link n'a pas pu démarrer sans base : il démarre maintenant.
         crate::easy_link::setup(&app);
+        crate::bridge::setup(&app);
     }
     Ok(startup.problem())
 }

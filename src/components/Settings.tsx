@@ -7,7 +7,7 @@
  * file app/ui/app/src/components/Settings.tsx, commit 42e911bc3d05.
  * Modified for ChatonLM: tabs instead of one page (settings/SettingsTabs.tsx,
  * the "section" search parameter): General (default), Models, Account,
- * Dictation, Read aloud, Voice mode, Easy Link and Keyboard shortcuts; changing tab replaces the history entry and leaves the focus on
+ * Dictation, Read aloud, Voice mode, Easy Link, VS Code and Keyboard shortcuts; changing tab replaces the history entry and leaves the focus on
  * the tab. General: one card with the interface language (ChatonLM's own row,
  * first: System, English, Español, Français, each language written in
  * itself; the whole app switches at once, without reloading), server address,
@@ -64,7 +64,10 @@
  * by "Reset to defaults". Easy Link: ChatonLM's own cards
  * (settings/EasyLink.tsx: the Telegram and Discord bots that let one talk to
  * the local models from a messenger, their linked accounts, the commands of
- * the bots), untouched by "Reset to defaults".
+ * the bots), untouched by "Reset to defaults". VS Code: ChatonLM's own card
+ * (settings/VsCode.tsx: the local bridge of the ChatonLM extension for VS
+ * Code, its pairing code and the paired editors), untouched by "Reset to
+ * defaults".
  */
 
 import {
@@ -98,6 +101,7 @@ import { OllamaAccount } from "@/components/settings/OllamaAccount";
 import { Row, RowError } from "@/components/settings/Row";
 import { ReadAloud } from "@/components/settings/ReadAloud";
 import { VoiceMode } from "@/components/settings/VoiceMode";
+import { VsCode } from "@/components/settings/VsCode";
 import { Shortcuts } from "@/components/settings/Shortcuts";
 import { Updates } from "@/components/settings/Updates";
 import {
@@ -156,6 +160,7 @@ function tabOf(section: unknown): SettingsTab {
     section === "readAloud" ||
     section === "voiceMode" ||
     section === "easyLink" ||
+    section === "vscode" ||
     section === "shortcuts"
     ? section
     : "general";
@@ -363,6 +368,13 @@ export function Settings({
           <div className="mx-auto max-w-4xl min-w-0">
             {/* Bots et comptes liés à part : Reset (General) n'y touche pas. */}
             <EasyLink onSaved={showSavedConfirmation} />
+          </div>
+        )}
+
+        {tab === "vscode" && (
+          <div className="mx-auto max-w-4xl min-w-0">
+            {/* Pont et éditeurs appairés à part : Reset (General) n'y touche pas. */}
+            <VsCode onSaved={showSavedConfirmation} />
           </div>
         )}
 

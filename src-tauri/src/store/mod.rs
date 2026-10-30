@@ -5,6 +5,7 @@
 //! exécute la requête sur un thread bloquant : ni la boucle GTK ni le runtime
 //! asynchrone n'attendent jamais le verrou.
 
+pub mod bridge;
 pub mod builtin_ollama;
 pub mod chats;
 pub mod desktop;
@@ -61,6 +62,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0030_ephemeral.sql"),
     include_str!("../../migrations/0031_dictation_auto_paste.sql"),
     include_str!("../../migrations/0032_close_to_tray.sql"),
+    include_str!("../../migrations/0033_bridge.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.

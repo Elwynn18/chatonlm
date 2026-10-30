@@ -1,6 +1,7 @@
 //! ChatonLM : client desktop pour Ollama.
 
 pub mod attachments;
+mod bridge;
 mod chat;
 mod commands;
 mod context_menu;
@@ -283,6 +284,9 @@ pub fn run() {
             updater::setup(app.handle());
             // Easy Link : les bots reliés écoutent dès le lancement.
             easy_link::setup(app.handle());
+            // Lien VS Code : point d'accès ouvert dès le lancement s'il est
+            // activé.
+            bridge::setup(app.handle());
             // Zone de notification, raccourcis globaux, `--dictate` et
             // `--proofread`.
             desktop::setup(app.handle());
@@ -400,6 +404,11 @@ pub fn run() {
             commands::tts::voice_download,
             commands::tts::voice_downloads,
             commands::tts::voice_models,
+            commands::bridge::bridge_cancel_pairing,
+            commands::bridge::bridge_pair,
+            commands::bridge::bridge_set_enabled,
+            commands::bridge::bridge_state,
+            commands::bridge::bridge_unlink,
             commands::easy_link::easy_link_cancel_pairing,
             commands::easy_link::easy_link_connect,
             commands::easy_link::easy_link_disconnect,
@@ -556,6 +565,11 @@ pub async fn stop_services(app: &AppHandle) {
     // s'arrêtent avec le moteur de chat, plus bas.
     if let Some(easy_link) = app.try_state::<easy_link::EasyLink>() {
         easy_link.shutdown();
+    }
+    // Lien VS Code : point d'accès fermé, fichier de découverte retiré ; les
+    // réponses en cours s'arrêtent avec le moteur de chat, plus bas.
+    if let Some(bridge) = app.try_state::<bridge::Bridge>() {
+        bridge.shutdown();
     }
     stop_ollama_work(app);
     let engine = app.state::<ChatEngine>();

@@ -576,7 +576,7 @@ impl ChatEngine {
             .running
             .lock()
             .get(&chat.id)
-            .is_some_and(|running| running.origin == Origin::Remote);
+            .is_some_and(|running| running.origin.is_outside());
         if let Some((message_id, reply)) = self.live.lock().get(&chat.id)
             && let Some(message) = chat.messages.iter_mut().find(|m| m.id == *message_id)
         {
@@ -651,6 +651,17 @@ pub enum Origin {
     /// Un bot d'Easy Link : ni observateur, ni arrêt au rechargement de la
     /// page.
     Remote,
+    /// L'extension VS Code, par le pont local : comme un bot, ni observateur,
+    /// ni arrêt au rechargement de la page.
+    Bridge,
+}
+
+impl Origin {
+    /// Envoi venu d'ailleurs que la page (bot, éditeur) : la page n'a pas de
+    /// flux pour lui, et il ne fait jamais télécharger de modèle.
+    pub fn is_outside(self) -> bool {
+        self != Origin::Page
+    }
 }
 
 /// Envoie un message (ou en modifie un) et transmet la réponse. Erreur
@@ -1709,9 +1720,9 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
     ) -> Result<Option<ModelDetails>, Outcome> {
         match show(base, model, cancel).await {
             Shown::Found(details) => return Ok(Some(details)),
-            // Un bot d'Easy Link ne fait jamais télécharger un modèle :
-            // /api/chat dira qu'il est absent.
-            Shown::Missing if self.origin == Origin::Remote => return Ok(None),
+            // Un bot d'Easy Link ou l'extension VS Code ne fait jamais
+            // télécharger un modèle : /api/chat dira qu'il est absent.
+            Shown::Missing if self.origin.is_outside() => return Ok(None),
             Shown::Missing => {}
             Shown::Unknown => return Ok(None),
             Shown::Unreachable => return Err(unreachable(base)),
@@ -2376,7 +2387,11 @@ mod tests {
             content: "Hi".into(),
             ..Reply::default()
         };
-        for (origin, expected) in [(Origin::Remote, Some(7)), (Origin::Page, None)] {
+        for (origin, expected) in [
+            (Origin::Remote, Some(7)),
+            (Origin::Bridge, Some(7)),
+            (Origin::Page, None),
+        ] {
             let engine = ChatEngine::default();
             let (_cancel, _finish) = engine.begin("chat", "stream", origin).unwrap();
             engine.update_live("chat", 7, &live);

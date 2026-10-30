@@ -4,6 +4,7 @@
 
 pub mod account;
 pub mod attachments;
+pub mod bridge;
 pub mod chats;
 pub mod desktop;
 pub mod dictation;

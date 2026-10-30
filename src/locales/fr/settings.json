@@ -8,6 +8,7 @@
     "readAloud": "Lecture à voix haute",
     "voiceMode": "Mode vocal",
     "easyLink": "Easy Link",
+    "vscode": "VS Code",
     "shortcuts": "Raccourcis clavier"
   },
   "loadFailed": "Impossible de charger les paramètres",
@@ -486,6 +487,33 @@
       "help": "Voir cette liste",
       "discord": "Sur Discord, les commandes s'écrivent aussi avec « ! », par exemple <code>!models</code>.",
       "media": "Vous pouvez aussi envoyer une photo, si le modèle sait voir les images, ou un message vocal : il est transcrit par le modèle de transcription de la dictée que vous avez installé."
+    }
+  },
+  "vscode": {
+    "loadFailed": "Impossible de lire les réglages de VS Code : {message}",
+    "enable": {
+      "label": "Autoriser VS Code à se connecter",
+      "description": "L'extension ChatonLM pour VS Code converse avec vos modèles par un lien qui reste sur cet ordinateur : rien ne passe par le réseau."
+    },
+    "status": {
+      "unavailable": "VS Code ne peut pas se connecter : ce système ne donne à ChatonLM aucun dossier privé pour le lien.",
+      "failed": "Le lien avec VS Code n'a pas pu être ouvert (une autre copie de ChatonLM l'utilise peut-être). Désactivez-le puis réactivez-le pour réessayer."
+    },
+    "editors": {
+      "title": "Éditeurs appairés",
+      "empty": "Aucun éditeur n'est encore appairé.",
+      "unnamed": "Éditeur sans nom",
+      "pairedOn": "Appairé le {date}",
+      "connected": "Connecté",
+      "lastSeen": "Dernière connexion le {date}",
+      "neverSeen": "Jamais connecté"
+    },
+    "pairing": {
+      "start": "Appairer un éditeur",
+      "needsBridge": "Autorisez d'abord VS Code à se connecter pour appairer un éditeur.",
+      "codeLabel": "Code d'appairage : {code}",
+      "expires": "Valable jusqu'à {time}.",
+      "instructions": "Dans VS Code, lancez <code>ChatonLM: Pair</code> et tapez ce code."
     }
   },
   "account": {

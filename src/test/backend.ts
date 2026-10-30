@@ -51,6 +51,8 @@
 // bots sans jeton, aucun compte lié, pas de code d'appairage. Une
 // conversation venue d'un bot porte sa messagerie (`source`, rendue par
 // list_chats ; null pour une conversation de l'app).
+// Pont de l'extension VS Code : faux moteur de src/test/bridge.ts
+// (backend.bridge) : pont coupé, aucun éditeur appairé, pas de code.
 // Contexte (propre à ChatonLM) : les événements context et compacted
 // rejoués mettent à jour la conversation enregistrée ; compact_chat la
 // compacte selon backend.compaction.
@@ -97,6 +99,7 @@ import type { ServiceStart } from "@/bindings/ServiceStart";
 import type { UpdateStatus } from "@/bindings/UpdateStatus";
 import type { Platform } from "@/lib/platform";
 import { autoModelOf } from "@/test/autoModel";
+import { type FakeBridge, fakeBridge } from "@/test/bridge";
 import { type FakeDictation, fakeDictation } from "@/test/dictation";
 import { type FakeEasyLink, fakeEasyLink } from "@/test/easyLink";
 import { canonicalModel, type FakeHub, fakeHub } from "@/test/hub";
@@ -477,6 +480,8 @@ export interface FakeBackend {
   voiceMode: FakeVoiceMode;
   /** Faux moteur d'Easy Link (easy_link_*). */
   easyLink: FakeEasyLink;
+  /** Faux moteur du pont de l'extension VS Code (bridge_*). */
+  bridge: FakeBridge;
   /** Faux moteur des modèles d'images (image_*). */
   images: FakeImages;
   /** Pièces jointes demandées à save_image, dans l'ordre. */
@@ -537,7 +542,8 @@ export function defaultFolderCheck(path: string): FolderCheck {
  * (src/test/proofread.ts), study_* (src/test/study.ts), read_aloud,
  * read_aloud_stop, read_aloud_state et voice_* (src/test/tts.ts),
  * voice_mode_*, get_voice_mode_settings et update_voice_mode_settings
- * (src/test/voiceMode.ts), easy_link_* (src/test/easyLink.ts), image_*
+ * (src/test/voiceMode.ts), easy_link_* (src/test/easyLink.ts), bridge_*
+ * (src/test/bridge.ts), image_*
  * (src/test/images.ts), save_image (backend.imageSave),
  * ollama_runtime,
  * set_ollama_source, start_ollama_service, restart_builtin_ollama,
@@ -579,6 +585,7 @@ export function fakeBackend(
     | "tts"
     | "voiceMode"
     | "easyLink"
+    | "bridge"
     | "images"
   > & {
     hub?: FakeHub;
@@ -588,6 +595,7 @@ export function fakeBackend(
     tts?: FakeTts;
     voiceMode?: FakeVoiceMode;
     easyLink?: FakeEasyLink;
+    bridge?: FakeBridge;
     images?: FakeImages;
   } = {
     settings: {
@@ -713,6 +721,7 @@ export function fakeBackend(
     tts: backend.tts,
   });
   backend.easyLink = fakeEasyLink(simulator);
+  backend.bridge = fakeBridge(simulator);
   backend.images = fakeImages(simulator, () => backend.settings.showUncensored);
   simulator.handle("quit_app", () => null);
   simulator.handle("save_image", (args: Args) => {
