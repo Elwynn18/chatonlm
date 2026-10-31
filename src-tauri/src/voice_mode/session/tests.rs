@@ -222,6 +222,7 @@ fn prepared() -> Prepared {
         request: Request {
             language: Some("fr".into()),
             glossary: vec!["ChatonLM".into()],
+            project: Vec::new(),
         },
         settings: VoiceModeSettings::default(),
     }
@@ -1287,6 +1288,7 @@ fn requirements_say_what_is_missing() {
         Request {
             language: Some("es".into()),
             glossary: vec!["Ollama".into()],
+            project: Vec::new(),
         }
     );
 

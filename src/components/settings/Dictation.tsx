@@ -1215,12 +1215,16 @@ function TryDictation({
   const t = useT();
   const { toggle, cancel } = useDictationActions();
   const phase = status.phase;
+  // Dictée de VS Code : ni l'essai, ni Cancel ne l'arrêtent (le bandeau, si).
+  const editor = status.editor;
   const busy = phase === "transcribing" || phase === "polishing";
-  const hint = !settings.enabled
-    ? t("dictation.try.turnOnFirst")
-    : ready === false
-      ? t("dictation.try.chooseModel")
-      : null;
+  const hint = editor
+    ? t("dictation.try.editor")
+    : !settings.enabled
+      ? t("dictation.try.turnOnFirst")
+      : ready === false
+        ? t("dictation.try.chooseModel")
+        : null;
   const failure = toggle.isError
     ? errorMessage(toggle.error)
     : cancel.isError
@@ -1233,24 +1237,25 @@ function TryDictation({
           type="button"
           className={PRIMARY_BUTTON}
           disabled={
-            phase === "idle" &&
-            (hint !== null || ready !== true || toggle.isPending)
+            editor ||
+            (phase === "idle" &&
+              (hint !== null || ready !== true || toggle.isPending))
           }
           onClick={() => (busy ? cancel.mutate() : toggle.mutate())}
         >
-          {phase === "recording" && (
+          {phase === "recording" && !editor && (
             <span
               aria-hidden="true"
               className="h-2 w-2 animate-pulse rounded-full bg-red-500"
             />
           )}
-          {phase === "idle"
+          {phase === "idle" || editor
             ? t("dictation.try.label")
             : busy
               ? t("common.actions.cancel")
               : t("dictation.try.stop")}
         </button>
-        {phase === "recording" && (
+        {phase === "recording" && !editor && (
           <button
             type="button"
             className={SMALL_BUTTON}
@@ -1267,7 +1272,9 @@ function TryDictation({
             {phaseText(t, phase)}
           </span>
         )}
-        {phase === "idle" && hint && <span className={MUTED}>{hint}</span>}
+        {(phase === "idle" || editor) && hint && (
+          <span className={MUTED}>{hint}</span>
+        )}
       </div>
       {failure && (
         <p role="alert" className={ALERT}>

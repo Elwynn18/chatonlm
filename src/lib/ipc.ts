@@ -713,6 +713,14 @@ export function dictationCancel(): Promise<void> {
 }
 
 /**
+ * Bouton Stop du bandeau « VS Code utilise le micro » : abandonne la dictée
+ * tenue par l'extension VS Code (rien ne lui est rendu).
+ */
+export function dictationStopEditor(): Promise<void> {
+  return invoke<void>("dictation_stop_editor");
+}
+
+/**
  * Copie le texte du dernier résultat dans le presse-papiers (copie
  * automatique coupée) ; `lastResult.copied` passe à vrai. Erreur « Nothing to
  * copy » sans texte.

@@ -1,6 +1,7 @@
 // Bandeau « VS Code utilise votre micro », face au simulateur : visible sur
-// toute page tant que VS Code tient la séance, jamais pour une séance de la
-// page ; Stop arrête la séance de VS Code (et dit un échec).
+// toute page tant que VS Code tient la séance ou la dictée (lot 4b), jamais
+// pour une séance ou une dictée de l'app ; Stop arrête la séance ou abandonne
+// la dictée de VS Code (et dit un échec).
 
 import { configure, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -65,6 +66,50 @@ describe("editor voice banner", () => {
     );
     expect((await screen.findByRole("alert")).textContent).toBe(
       "Couldn't stop the VS Code voice session: boom",
+    );
+    expect(banner()).not.toBeNull();
+  });
+
+  it("shows while VS Code dictates, and Stop drops that dictation", async () => {
+    const { simulator, backend } = setup("/hub", {
+      ...LISTENING,
+      phase: "off",
+      editor: false,
+    });
+    await backend.dictation.setStatus({ phase: "recording", editor: true });
+    await screen.findByText("VS Code is using your microphone");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Stop the VS Code dictation" }),
+    );
+    expect(simulator.callsTo("dictation_stop_editor")).toHaveLength(1);
+    expect(simulator.callsTo("voice_mode_stop_editor")).toEqual([]);
+    expect(simulator.callsTo("dictation_cancel")).toEqual([]);
+    await waitFor(() => expect(banner()).toBeNull());
+  });
+
+  it("is not shown for a dictation of the app, and says a failed stop", async () => {
+    const { simulator, backend } = setup("/c/new", {
+      ...LISTENING,
+      phase: "off",
+      editor: false,
+    });
+    await backend.dictation.setStatus({ phase: "recording", editor: false });
+    await screen.findByTestId("new-chat");
+    await waitFor(() =>
+      expect(simulator.callsTo("dictation_status").length).toBeGreaterThan(0),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(banner()).toBeNull();
+    backend.dictation.failures.set("dictation_stop_editor", {
+      kind: "invalid",
+      message: "boom",
+    });
+    await backend.dictation.setStatus({ editor: true });
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Stop the VS Code dictation" }),
+    );
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Couldn't stop the VS Code dictation: boom",
     );
     expect(banner()).not.toBeNull();
   });

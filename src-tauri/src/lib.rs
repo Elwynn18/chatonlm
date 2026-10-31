@@ -387,6 +387,7 @@ pub fn run() {
             commands::desktop::set_menu_entry,
             commands::dictation::dictation_bind_shortcut,
             commands::dictation::dictation_cancel,
+            commands::dictation::dictation_stop_editor,
             commands::dictation::dictation_configure_shortcut,
             commands::dictation::dictation_copy_last,
             commands::dictation::dictation_info,

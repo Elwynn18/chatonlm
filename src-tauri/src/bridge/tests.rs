@@ -11,9 +11,14 @@ use tokio::io::{AsyncWriteExt, BufReader, DuplexStream, ReadHalf, WriteHalf};
 use tokio::sync::watch;
 
 use super::connection::code;
+use super::dictation::Dictate;
 use super::voice::{Voice, voice_code};
 use super::*;
+use crate::dictation::DictationPhase;
 use crate::dictation::clipboard::BoxFuture;
+use crate::dictation::editor::{
+    DictationLink, DictationOwner, EditorEnd, EditorStartError, Opened,
+};
 use crate::store::chats::{self, ChatSource};
 use crate::store::settings::{self, SettingsPatch};
 use crate::tts::service::{ReadingEnd, Segment, SegmentEvent, SegmentSink, SegmentsRefusal};
@@ -121,6 +126,102 @@ impl Voice for FakeVoice {
     }
 }
 
+/// Réponse du démarrage d'une dictée.
+type StartAnswer = tokio::sync::oneshot::Sender<Result<(), EditorStartError>>;
+
+/// Dictée de l'app simulée : une seule à la fois, comme la vraie ; le test
+/// ouvre le micro (`open`), puis fait parler la dictée par son lien.
+#[derive(Default)]
+struct FakeDictation {
+    /// Dictées demandées (liens), dans l'ordre.
+    links: Mutex<Vec<Arc<dyn DictationLink>>>,
+    /// Dictée en cours : connexion, et réponse du démarrage tant que le
+    /// micro n'est pas ouvert.
+    current: Mutex<Option<(u64, Option<StartAnswer>)>>,
+    /// Refus d'emblée (dictée occupée par l'app, mode vocal…).
+    refusal: Mutex<Option<EditorStartError>>,
+    stops: Mutex<Vec<u64>>,
+    cancels: Mutex<Vec<u64>>,
+}
+
+impl FakeDictation {
+    /// Micro ouvert : `recording`, puis la réponse du démarrage.
+    fn open(&self) -> Arc<dyn DictationLink> {
+        let link = self.links.lock().last().unwrap().clone();
+        let sender = self.current.lock().as_mut().unwrap().1.take().unwrap();
+        assert!(link.alive(), "the connection is still open");
+        link.phase(DictationPhase::Recording);
+        sender.send(Ok(())).unwrap();
+        link
+    }
+
+    /// Fin de la dictée, comme la vraie : texte ou échec, puis `idle`.
+    fn end(&self, end: Option<EditorEnd>) {
+        let link = self.links.lock().last().unwrap().clone();
+        *self.current.lock() = None;
+        if let Some(end) = end {
+            link.ended(end);
+        }
+        link.phase(DictationPhase::Idle);
+    }
+
+    /// Dictée en cours de la connexion.
+    fn holds(&self, connection: u64) -> bool {
+        self.current
+            .lock()
+            .as_ref()
+            .is_some_and(|(held, _)| *held == connection)
+    }
+}
+
+impl Dictate for FakeDictation {
+    fn start(&self, link: Arc<dyn DictationLink>) -> Result<Opened, EditorStartError> {
+        if let Some(refusal) = self.refusal.lock().clone() {
+            return Err(refusal);
+        }
+        let mut current = self.current.lock();
+        if current.is_some() {
+            return Err(EditorStartError::Busy(DictationOwner::Bridge));
+        }
+        if !link.alive() {
+            return Err(EditorStartError::Cancelled);
+        }
+        let (sender, opened) = tokio::sync::oneshot::channel();
+        *current = Some((link.connection(), Some(sender)));
+        self.links.lock().push(link);
+        Ok(opened)
+    }
+
+    /// Comme la vraie : avant l'ouverture du micro, abandon (démarrage
+    /// annulé) ; après, la fin de l'enregistrement (le test rend le texte).
+    fn stop(&self, connection: u64) {
+        self.stops.lock().push(connection);
+        let mut current = self.current.lock();
+        if current
+            .as_ref()
+            .is_some_and(|(held, sender)| *held == connection && sender.is_some())
+        {
+            *current = None;
+        }
+    }
+
+    fn cancel(&self, connection: u64) {
+        self.cancels.lock().push(connection);
+        let mut current = self.current.lock();
+        if let Some((held, sender)) = current.as_ref()
+            && *held == connection
+        {
+            let told = sender.is_none();
+            *current = None;
+            drop(current);
+            if told {
+                let link = self.links.lock().last().unwrap().clone();
+                link.phase(DictationPhase::Idle);
+            }
+        }
+    }
+}
+
 /// Conversation annoncée à la page, et sa marque à ce moment-là.
 type Mark = (String, Option<ChatSource>);
 
@@ -134,6 +235,7 @@ struct TestHost {
     /// Marque de la conversation au moment où la page l'apprend.
     marks: Arc<Mutex<Vec<Mark>>>,
     voice: Arc<FakeVoice>,
+    dictation: Arc<FakeDictation>,
     gpu: Arc<crate::gpu::GpuChief>,
     /// Machine du serveur rendue au chef (aucune par défaut).
     machine: Arc<Mutex<Option<crate::hub::hardware::Machine>>>,
@@ -203,6 +305,9 @@ impl Host for TestHost {
     }
     fn voice(&self) -> &dyn Voice {
         &*self.voice
+    }
+    fn dictation(&self) -> &dyn Dictate {
+        &*self.dictation
     }
     fn gpu(&self) -> &crate::gpu::GpuChief {
         &self.gpu
@@ -3177,5 +3282,511 @@ async fn the_editor_shows_the_app_on_a_listed_page_only() {
             Some("/settings?section=vscode".to_owned()),
             Some(route),
         ]
+    );
+}
+
+/// `dictation.start` envoyé sans attendre la réponse : son identifiant.
+async fn send_dictation_start(client: &mut Client, params: Value) -> i64 {
+    let id = client.next;
+    client.next += 1;
+    client
+        .send(&json!({ "jsonrpc": "2.0", "id": id, "method": "dictation.start", "params": params }))
+        .await;
+    id
+}
+
+/// Dictée démarrée par `client`, micro ouvert : son lien.
+async fn open_dictation(dictation: &FakeDictation, client: &mut Client) -> Arc<dyn DictationLink> {
+    let count = dictation.links.lock().len();
+    let start = send_dictation_start(client, json!({})).await;
+    until("a dictation", || dictation.links.lock().len() > count).await;
+    let link = dictation.open();
+    assert_eq!(client.response(start).await["result"], json!({}));
+    link
+}
+
+/// Lot 4b : le glossaire de l'éditeur, nettoyé, va à la dictée ; `recording`
+/// précède la réponse du démarrage ; le texte final revient à l'éditeur, puis
+/// `idle` ; un échec après l'ouverture du micro est dit avant `idle`.
+#[tokio::test]
+async fn a_dictation_gives_its_text_to_the_editor() {
+    let bench = bench().await;
+    let dictation = bench.host.dictation.clone();
+    let (mut client, _, _) = bench.paired().await;
+    // Rien avant l'authentification.
+    let mut stranger = bench.connect();
+    stranger.initialize().await;
+    let answer = stranger.request("dictation.start", json!({})).await;
+    assert_eq!(error_code(&answer), code::UNAUTHENTICATED);
+    assert!(dictation.links.lock().is_empty());
+
+    let start = send_dictation_start(
+        &mut client,
+        json!({ "glossary": [" GpuChief ", "", "gpuchief", "use_dictation", "x\ny"] }),
+    )
+    .await;
+    until("the dictation is registered", || {
+        !dictation.links.lock().is_empty()
+    })
+    .await;
+    let link = dictation.links.lock()[0].clone();
+    assert_eq!(link.glossary(), ["GpuChief", "use_dictation"]);
+    dictation.open();
+    let first = raw(&mut client).await;
+    assert_eq!(first["method"], "dictation.state", "{first}");
+    assert_eq!(first["params"], json!({ "state": "recording" }));
+    let second = raw(&mut client).await;
+    assert_eq!(second["id"], start, "{second}");
+    assert_eq!(second["result"], json!({}));
+    link.phase(DictationPhase::Transcribing);
+    dictation.end(Some(EditorEnd::Text("let chief = GpuChief::new();".into())));
+    let messages = [
+        raw(&mut client).await,
+        raw(&mut client).await,
+        raw(&mut client).await,
+    ];
+    assert_eq!(messages[0]["params"], json!({ "state": "transcribing" }));
+    assert_eq!(messages[1]["method"], "dictation.text");
+    assert_eq!(
+        messages[1]["params"],
+        json!({ "text": "let chief = GpuChief::new();" })
+    );
+    assert_eq!(messages[2]["method"], "dictation.state");
+    assert_eq!(messages[2]["params"], json!({ "state": "idle" }));
+
+    // Sans glossaire ; échec après l'ouverture du micro.
+    let start = send_dictation_start(&mut client, json!({})).await;
+    until("the second dictation", || dictation.links.lock().len() == 2).await;
+    assert!(dictation.links.lock()[1].glossary().is_empty());
+    dictation.open();
+    let answer = client.response(start).await;
+    assert_eq!(answer["result"], json!({}), "{answer}");
+    dictation.end(Some(EditorEnd::Failed("No speech detected".into())));
+    assert_eq!(
+        client.notification("dictation.error").await,
+        json!({ "message": "No speech detected" })
+    );
+    client.notifications.clear();
+
+    // Paramètres refusés.
+    for params in [
+        json!({ "glossary": "GpuChief" }),
+        json!({ "glossary": [1] }),
+        json!({ "words": [] }),
+    ] {
+        let answer = client.request("dictation.start", params.clone()).await;
+        assert_eq!(error_code(&answer), code::INVALID_PARAMS, "{params}");
+    }
+    for method in ["dictation.stop", "dictation.cancel"] {
+        let answer = client.request(method, json!({ "now": true })).await;
+        assert_eq!(error_code(&answer), code::INVALID_PARAMS, "{method}");
+    }
+    assert_eq!(dictation.links.lock().len(), 2);
+}
+
+/// Une seule dictée dans l'app : une autre connexion, la même, l'app (page,
+/// raccourci) ou le mode vocal l'occupent ; modèle absent, micro.
+#[tokio::test]
+async fn a_second_dictation_is_refused_by_its_code() {
+    let bench = bench().await;
+    let dictation = bench.host.dictation.clone();
+    let (mut client, id, secret) = bench.paired().await;
+    let mut other = reconnect(&bench, &id, &secret).await;
+    let start = send_dictation_start(&mut client, json!({})).await;
+    until("the first dictation", || !dictation.links.lock().is_empty()).await;
+    for editor in [&mut other, &mut client] {
+        let answer = editor.request("dictation.start", json!({})).await;
+        assert_eq!(error_code(&answer), voice_code::BUSY, "{answer}");
+        assert_eq!(answer["error"]["data"]["owner"], "bridge");
+        assert_eq!(
+            answer["error"]["data"]["message"],
+            "VS Code is already dictating"
+        );
+    }
+    assert_eq!(dictation.links.lock().len(), 1, "the first one is kept");
+    dictation.open();
+    assert_eq!(client.response(start).await["result"], json!({}));
+    dictation.end(None);
+
+    let refusals = [
+        (
+            EditorStartError::Busy(DictationOwner::App),
+            voice_code::BUSY,
+            json!({ "owner": "app",
+                "message": "ChatonLM is already dictating: finish that dictation first." }),
+        ),
+        (
+            EditorStartError::Busy(DictationOwner::VoiceMode),
+            voice_code::BUSY,
+            json!({ "owner": "voiceMode", "message": "Voice mode is on: end it to dictate" }),
+        ),
+        (
+            EditorStartError::SpeechModelMissing,
+            voice_code::MISSING_SPEECH_MODEL,
+            Value::Null,
+        ),
+        (
+            EditorStartError::Failed("No microphone".into()),
+            voice_code::MICROPHONE,
+            json!({ "message": "No microphone" }),
+        ),
+    ];
+    for (refusal, expected, data) in refusals {
+        *dictation.refusal.lock() = Some(refusal);
+        let answer = other.request("dictation.start", json!({})).await;
+        assert_eq!(error_code(&answer), expected, "{answer}");
+        assert_eq!(answer["error"]["data"], data);
+    }
+    assert!(
+        other
+            .notifications
+            .iter()
+            .all(|n| n["method"] != "dictation.state"),
+        "nothing told for a refused start"
+    );
+}
+
+/// `dictation.stop` avant l'ouverture du micro : rien ne s'ouvre, le
+/// démarrage répond -32800 ; après : fin de l'enregistrement (le texte suit).
+/// `dictation.cancel` : abandon, `idle`.
+#[tokio::test]
+async fn a_stop_during_the_start_cancels_it() {
+    let bench = bench().await;
+    let dictation = bench.host.dictation.clone();
+    let (mut client, _, _) = bench.paired().await;
+    let start = send_dictation_start(&mut client, json!({})).await;
+    assert_eq!(
+        client.request("dictation.stop", json!({})).await["result"],
+        json!({})
+    );
+    let link = dictation.links.lock()[0].clone();
+    let answer = client.response(start).await;
+    assert_eq!(error_code(&answer), code::CANCELLED, "{answer}");
+    assert_eq!(*dictation.stops.lock(), [link.connection()]);
+    assert!(!dictation.holds(link.connection()));
+
+    // Micro ouvert : `dictation.stop` laisse venir le texte.
+    let start = send_dictation_start(&mut client, json!({})).await;
+    until("the second dictation", || dictation.links.lock().len() == 2).await;
+    dictation.open();
+    assert_eq!(client.response(start).await["result"], json!({}));
+    client.request("dictation.stop", json!(null)).await;
+    assert!(dictation.holds(link.connection()), "still transcribing");
+    dictation.end(Some(EditorEnd::Text("done".into())));
+    assert_eq!(
+        client.notification("dictation.text").await,
+        json!({ "text": "done" })
+    );
+
+    // Abandon.
+    let start = send_dictation_start(&mut client, json!({})).await;
+    until("the third dictation", || dictation.links.lock().len() == 3).await;
+    dictation.open();
+    assert_eq!(client.response(start).await["result"], json!({}));
+    client.notifications.clear();
+    client.request("dictation.cancel", json!({})).await;
+    assert_eq!(
+        client.notification("dictation.state").await,
+        json!({ "state": "idle" })
+    );
+    assert!(!dictation.holds(link.connection()));
+}
+
+/// Le micro de la dictée s'arrête toujours : fin de la connexion, éditeur
+/// retiré, pont coupé, panique de la tâche de la connexion ; une connexion
+/// fermée ne démarre plus rien.
+#[tokio::test]
+async fn the_dictation_of_a_connection_stops_when_it_closes() {
+    let bench = bench().await;
+    let dictation = bench.host.dictation.clone();
+    let (mut client, id, secret) = bench.paired().await;
+    let link = open_dictation(&dictation, &mut client).await;
+    let connection = link.connection();
+    drop(client);
+    until("cancelled at the end of the connection", || {
+        dictation.cancels.lock().contains(&connection)
+    })
+    .await;
+    assert!(!dictation.holds(connection));
+    assert!(!link.alive());
+
+    let mut client = reconnect(&bench, &id, &secret).await;
+    let link = open_dictation(&dictation, &mut client).await;
+    bench.bridge.unlink(id.clone()).await.unwrap();
+    assert!(dictation.cancels.lock().contains(&link.connection()));
+    assert!(!dictation.holds(link.connection()));
+    assert!(!link.alive());
+
+    let (mut client, _, _) = bench.paired().await;
+    let link = open_dictation(&dictation, &mut client).await;
+    bench.bridge.set_enabled(false).await.unwrap();
+    assert!(dictation.cancels.lock().contains(&link.connection()));
+    assert!(!dictation.holds(link.connection()));
+
+    // Panique dans la tâche de la connexion.
+    let (mut client, _, _) = bench.paired().await;
+    let link = open_dictation(&dictation, &mut client).await;
+    bench.host.voice.panic_on_read.store(true, Ordering::SeqCst);
+    client
+        .send(
+            &json!({ "jsonrpc": "2.0", "id": 999, "method": "speech.read",
+            "params": { "segments": [{ "id": "a", "text": "Hi." }] } }),
+        )
+        .await;
+    until("cancelled after the panic", || {
+        !dictation.holds(link.connection())
+    })
+    .await;
+    assert!(dictation.cancels.lock().contains(&link.connection()));
+}
+
+// Accès « agents » (corrections 97, A5) et `localOnly` (A2).
+
+/// Accès agents demandé par l'éditeur `editor`, puis connecté.
+async fn agents_access(bench: &Bench, editor: &mut Client) -> (Client, String, [u8; 32]) {
+    let issued = editor.request("agents.issue", json!({})).await;
+    let id = issued["result"]["clientId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{issued}"))
+        .to_owned();
+    let hex = issued["result"]["secret"].as_str().unwrap();
+    assert_eq!(hex.len(), 64, "32 bytes, like pair");
+    let secret: [u8; 32] = proof::from_hex(hex).unwrap().try_into().unwrap();
+    let client = reconnect(bench, &id, &secret).await;
+    (client, id, secret)
+}
+
+#[tokio::test]
+async fn the_agents_access_is_kept_to_the_methods_of_its_tools() {
+    let bench = bench().await;
+    let (mut editor, editor_id, _) = bench.paired().await;
+    let (mut agents, agents_id, _) = agents_access(&bench, &mut editor).await;
+
+    // La page ne montre que l'éditeur ; son accès agents compte pour lui.
+    let state = bench.state().await;
+    assert_eq!(state.clients.len(), 1, "{:?}", state.clients);
+    assert_eq!(state.clients[0].id, editor_id);
+    assert!(state.clients[0].connected);
+    assert_ne!(agents_id, editor_id);
+
+    assert_eq!(agents.request("ping", json!({})).await["result"], json!({}));
+    assert!(agents.request("app.state", json!({})).await["result"].is_object());
+    assert!(agents.request("models.list", json!({})).await["result"].is_array());
+    for method in [
+        "chat.list",
+        "chat.get",
+        "chat.keep",
+        "dictation.start",
+        "dictation.stop",
+        "notify.send",
+        "notify.task",
+        "voice.start",
+        "study.list",
+        "study.create",
+        "app.show",
+        "complete.fim",
+        "models.offerPull",
+        "gpu.status",
+        "tour.plan",
+        "agents.issue",
+        "agents.revoke",
+        "pair",
+        "initialize",
+        "settings.update",
+    ] {
+        let answer = agents.request(method, json!({})).await;
+        assert_eq!(error_code(&answer), code::FORBIDDEN, "{method}: {answer}");
+        assert_eq!(answer["error"]["message"], "not allowed");
+    }
+    assert!(
+        bench.host.dictation.links.lock().is_empty(),
+        "no microphone"
+    );
+
+    // Une nouvelle conversation éphémère seulement.
+    let ordinary = agents
+        .request("chat.send", json!({ "content": "Hello" }))
+        .await;
+    assert_eq!(error_code(&ordinary), code::FORBIDDEN, "{ordinary}");
+    let editor_chat = ephemeral_chat(&mut editor).await;
+    let into = agents
+        .request(
+            "chat.send",
+            json!({ "content": "Hello", "chatId": editor_chat, "ephemeral": true }),
+        )
+        .await;
+    assert_eq!(error_code(&into), code::FORBIDDEN, "{into}");
+    assert_eq!(
+        all_chats(&bench.store).await.len(),
+        1,
+        "nothing written by a refused send"
+    );
+    let own = ephemeral_chat(&mut agents).await;
+
+    // Il n'efface que ses propres éphémères.
+    let other = agents
+        .request("chat.forget", json!({ "chatId": editor_chat }))
+        .await;
+    assert_eq!(other["result"], json!({ "forgotten": false }), "{other}");
+    assert!(exists(&bench.store, &editor_chat).await);
+    let forgotten = agents
+        .request("chat.forget", json!({ "chatId": own }))
+        .await;
+    assert_eq!(forgotten["result"], json!({ "forgotten": true }));
+    assert!(!exists(&bench.store, &own).await);
+
+    // L'éditeur garde toutes ses méthodes.
+    assert!(editor.request("chat.list", json!({})).await["result"].is_array());
+    assert_eq!(
+        error_code(&editor.request("agents.issue", json!({ "name": "x" })).await),
+        code::INVALID_PARAMS
+    );
+}
+
+#[tokio::test]
+async fn a_new_agents_access_replaces_the_old_one_and_revoke_closes_it() {
+    let bench = bench().await;
+    let (mut editor, _, _) = bench.paired().await;
+    let (mut first, first_id, first_secret) = agents_access(&bench, &mut editor).await;
+    let (mut second, second_id, second_secret) = agents_access(&bench, &mut editor).await;
+    assert_eq!(first.next_message().await, None, "replaced: closed");
+    let mut again = bench.connect();
+    again.initialize().await;
+    assert_eq!(
+        error_code(&again.auth(&first_id, &first_secret).await),
+        code::UNKNOWN_CLIENT
+    );
+    assert_eq!(second.request("ping", json!({})).await["result"], json!({}));
+
+    let revoked = editor.request("agents.revoke", json!({})).await;
+    assert_eq!(revoked["result"], json!({ "revoked": true }), "{revoked}");
+    assert_eq!(second.next_message().await, None, "revoked: closed");
+    let mut again = bench.connect();
+    again.initialize().await;
+    assert_eq!(
+        error_code(&again.auth(&second_id, &second_secret).await),
+        code::UNKNOWN_CLIENT
+    );
+    // Idempotent ; l'éditeur reste appairé et connecté.
+    let revoked = editor.request("agents.revoke", json!({})).await;
+    assert_eq!(revoked["result"], json!({ "revoked": false }));
+    assert_eq!(editor.request("ping", json!({})).await["result"], json!({}));
+    assert_eq!(bench.state().await.clients.len(), 1);
+}
+
+#[tokio::test]
+async fn removing_the_editor_removes_its_agents_access() {
+    let bench = bench().await;
+    let (mut editor, editor_id, _) = bench.paired().await;
+    let (mut agents, agents_id, agents_secret) = agents_access(&bench, &mut editor).await;
+    // Éphémère de l'accès agents, dont l'outil n'a pas encore demandé
+    // l'effacement.
+    let chat = ephemeral_chat(&mut agents).await;
+
+    bench.bridge.unlink(editor_id).await.unwrap();
+    assert_eq!(
+        agents.next_message().await,
+        None,
+        "agents connection closed"
+    );
+    assert_eq!(editor.next_message().await, None);
+    assert!(
+        !exists(&bench.store, &chat).await,
+        "its ephemeral chat erased"
+    );
+    let mut again = bench.connect();
+    again.initialize().await;
+    assert_eq!(
+        error_code(&again.auth(&agents_id, &agents_secret).await),
+        code::UNKNOWN_CLIENT
+    );
+}
+
+async fn patch_settings(bench: &Bench, patch: SettingsPatch) {
+    bench
+        .store
+        .call(move |c| settings::update(c, patch, None).map(drop))
+        .await
+        .unwrap();
+}
+
+fn not_local(answer: &Value, message: &str) {
+    assert_eq!(error_code(answer), code::REFUSED, "{answer}");
+    assert_eq!(answer["error"]["data"]["code"], "notLocal", "{answer}");
+    assert_eq!(answer["error"]["data"]["message"], message, "{answer}");
+}
+
+/// L'accès agents, et `proofread.run` avec `localOnly`, n'envoient rien hors
+/// de cette machine : modèle cloud ou distant, ou Ollama sur une autre
+/// machine.
+#[tokio::test]
+async fn agents_and_local_only_never_send_outside_this_computer() {
+    let bench = bench().await;
+    let patch = SettingsPatch {
+        cloud_models: Some(true),
+        ..Default::default()
+    };
+    patch_settings(&bench, patch).await;
+    let (mut editor, _, _) = bench.paired().await;
+    let (mut agents, _, _) = agents_access(&bench, &mut editor).await;
+
+    for model in ["gpt-oss:20b-cloud", "chatonlm-polish-remote"] {
+        let message = format!("{model} runs outside this computer, so nothing was sent.");
+        let sent = agents
+            .request(
+                "chat.send",
+                json!({ "content": "My password is hunter2.", "model": model, "ephemeral": true }),
+            )
+            .await;
+        not_local(&sent, &message);
+        // Correction : modèle choisi sur la page Proofread.
+        let patch = SettingsPatch {
+            proofread_model: Some(model.to_owned()),
+            ..Default::default()
+        };
+        patch_settings(&bench, patch).await;
+        let text = json!({ "text": "My password is hunter2.", "mode": "correct" });
+        not_local(
+            &agents.request("proofread.run", text.clone()).await,
+            &message,
+        );
+        let mut local_only = text.clone();
+        local_only["localOnly"] = json!(true);
+        not_local(&editor.request("proofread.run", local_only).await, &message);
+    }
+    assert!(
+        bench._ollama.chat_requests().is_empty(),
+        "{:?}",
+        bench._ollama.chat_requests()
+    );
+    assert!(all_chats(&bench.store).await.is_empty(), "nothing written");
+
+    // Ollama sur une autre machine : refusé avant toute requête.
+    let patch = SettingsPatch {
+        proofread_model: Some("chatonlm-proofread".to_owned()),
+        server_url: Some("http://192.0.2.1:11434".to_owned()),
+        ..Default::default()
+    };
+    patch_settings(&bench, patch).await;
+    let message = "ChatonLM uses an Ollama on another computer, so nothing was sent.";
+    let sent = agents
+        .request("chat.send", json!({ "content": "Hi", "ephemeral": true }))
+        .await;
+    not_local(&sent, message);
+    let local_only = json!({ "text": "Hi", "mode": "correct", "localOnly": true });
+    not_local(&editor.request("proofread.run", local_only).await, message);
+
+    // Local : la correction `localOnly` se fait.
+    let patch = SettingsPatch {
+        server_url: Some(bench._ollama.url()),
+        ..Default::default()
+    };
+    patch_settings(&bench, patch).await;
+    let local_only =
+        json!({ "text": "I recieve teh letter.", "mode": "correct", "localOnly": true });
+    let answer = agents.request("proofread.run", local_only).await;
+    assert_eq!(
+        answer["result"]["text"], "I receive the letter.",
+        "{answer}"
     );
 }

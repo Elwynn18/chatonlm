@@ -42,17 +42,48 @@ fn speech_at(seconds: f32, rate: u32) -> Captured {
     }
 }
 
-/// Faux micro : rend `captured` à l'arrêt, ou l'erreur réglée.
+/// Faux micro : rend `captured` à l'arrêt, ou l'erreur réglée ; compte les
+/// ouvertures et les fermetures (enregistrement fini ou lâché).
 struct FakeMicrophone {
     captured: Mutex<Result<Captured, String>>,
     opens: AtomicUsize,
+    closes: Arc<AtomicUsize>,
+    /// Ouverture retenue jusqu'au feu vert du test ; ouvertures commencées.
+    gate: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    opening: AtomicUsize,
 }
 
 impl Microphone for FakeMicrophone {
     fn open(&self) -> Result<Box<dyn Recording>, String> {
+        self.opening.fetch_add(1, Ordering::SeqCst);
+        let gate = self.gate.lock().take();
+        if let Some(gate) = gate {
+            let _ = gate.recv_timeout(WAIT);
+        }
         self.opens.fetch_add(1, Ordering::SeqCst);
         let captured = self.captured.lock().clone()?;
-        Ok(Box::new(Prerecorded(captured)))
+        Ok(Box::new(Tracked {
+            captured: Some(Prerecorded(captured)),
+            closes: self.closes.clone(),
+        }))
+    }
+}
+
+/// Enregistrement dont la fermeture est comptée.
+struct Tracked {
+    captured: Option<Prerecorded>,
+    closes: Arc<AtomicUsize>,
+}
+
+impl Recording for Tracked {
+    fn finish(mut self: Box<Self>) -> Captured {
+        Box::new(self.captured.take().unwrap()).finish()
+    }
+}
+
+impl Drop for Tracked {
+    fn drop(&mut self) {
+        self.closes.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -140,6 +171,8 @@ struct Model {
     load_delay: Mutex<Duration>,
     loads_started: AtomicUsize,
     loads_finished: AtomicUsize,
+    /// Requêtes reçues (langue, glossaire).
+    requests: Mutex<Vec<Request>>,
 }
 
 struct FakeRecognizer(Arc<Model>);
@@ -147,6 +180,7 @@ struct FakeRecognizer(Arc<Model>);
 impl Recognizer for FakeRecognizer {
     fn transcribe(&mut self, _samples: &[f32], request: &Request) -> Result<String, String> {
         self.0.transcriptions.fetch_add(1, Ordering::SeqCst);
+        self.0.requests.lock().push(request.clone());
         if self.0.gated.load(Ordering::SeqCst) {
             let gate = self.0.gate.lock().take();
             if let Some(gate) = gate {
@@ -262,6 +296,9 @@ async fn rig_on(polish_model: &str, support: fn(SpeechEngine) -> Result<(), Stri
     let microphone = Arc::new(FakeMicrophone {
         captured: Mutex::new(Ok(speech(1.0))),
         opens: AtomicUsize::new(0),
+        closes: Arc::default(),
+        gate: Mutex::new(None),
+        opening: AtomicUsize::new(0),
     });
     let clipboard = Arc::new(FakeClipboard::default());
     let notifier = Arc::new(FakeNotifier::default());
@@ -1100,4 +1137,289 @@ async fn the_voice_mode_holds_the_dictation_back() {
     assert!(!rig.core.reserve());
     rig.toggle();
     rig.wait_idle().await;
+}
+
+/// Connexion du pont simulée : ce que la dictée lui dit.
+struct FakeLink {
+    connection: u64,
+    glossary: Vec<String>,
+    alive: std::sync::atomic::AtomicBool,
+    phases: Mutex<Vec<DictationPhase>>,
+    ends: Mutex<Vec<EditorEnd>>,
+}
+
+impl FakeLink {
+    fn new(connection: u64, glossary: &[&str]) -> Arc<Self> {
+        Arc::new(Self {
+            connection,
+            glossary: glossary.iter().map(|word| (*word).to_owned()).collect(),
+            alive: std::sync::atomic::AtomicBool::new(true),
+            phases: Mutex::new(Vec::new()),
+            ends: Mutex::new(Vec::new()),
+        })
+    }
+}
+
+impl DictationLink for FakeLink {
+    fn connection(&self) -> u64 {
+        self.connection
+    }
+    fn glossary(&self) -> Vec<String> {
+        self.glossary.clone()
+    }
+    fn alive(&self) -> bool {
+        self.alive.load(Ordering::SeqCst)
+    }
+    fn phase(&self, phase: DictationPhase) {
+        self.phases.lock().push(phase);
+    }
+    fn ended(&self, end: EditorEnd) {
+        self.ends.lock().push(end);
+    }
+}
+
+impl Rig {
+    fn start_editor(&self, link: &Arc<FakeLink>) -> Result<Opened, EditorStartError> {
+        self.core.start_editor(self.host(), link.clone())
+    }
+
+    /// Dictée de l'éditeur, micro ouvert.
+    async fn editor_listening(&self, link: &Arc<FakeLink>) {
+        let opened = self.start_editor(link).expect("started");
+        let answer = tokio::time::timeout(WAIT, opened).await.expect("in time");
+        assert_eq!(answer, Ok(Ok(())));
+        assert_eq!(*link.phases.lock(), [DictationPhase::Recording]);
+    }
+
+    fn closes(&self) -> usize {
+        self.microphone.closes.load(Ordering::SeqCst)
+    }
+}
+
+/// Lot 4b : dictée de l'éditeur, texte rendu à lui seul (ni presse-papiers,
+/// ni collage, ni notification, ni « Last dictation ») ; glossaire de la
+/// séance ajouté au dictionnaire pour Whisper et le nettoyage, sans toucher
+/// aux réglages ; l'interrupteur de la dictée (raccourci) ne compte pas.
+#[tokio::test]
+async fn an_editor_dictation_gives_its_text_to_the_editor_only() {
+    let rig = rig("chatonlm-polish").await;
+    {
+        let mut settings = rig.host.settings.lock();
+        settings.dictionary = vec!["ChatonLM".into()];
+        settings.auto_paste = true;
+        settings.enabled = false;
+    }
+    let before = rig.host.settings.lock().clone();
+    let link = FakeLink::new(7, &["GpuChief", "chatonlm", "use_dictation"]);
+    rig.editor_listening(&link).await;
+    assert!(rig.core.inner.lock().editor.is_some());
+    // Le raccourci, la zone de notification et la page ne l'arrêtent pas.
+    rig.toggle();
+    rig.core.stop();
+    rig.core.toggle_from(rig.host(), Origin::Page);
+    assert!(!rig.core.cancel());
+    assert!(!rig.core.stop_editor(8), "another connection");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(rig.phase(), DictationPhase::Recording);
+    assert!(!rig.core.stop_editor(7));
+    rig.wait_idle().await;
+
+    let polished = format!("Polished: {SPOKEN}");
+    assert_eq!(*link.ends.lock(), [EditorEnd::Text(polished)]);
+    assert_eq!(
+        *link.phases.lock(),
+        [
+            DictationPhase::Recording,
+            DictationPhase::Transcribing,
+            DictationPhase::Polishing,
+            DictationPhase::Idle,
+        ]
+    );
+    assert!(rig.clipboard.copied.lock().is_empty(), "never copied");
+    assert!(rig.clipboard.pastes.lock().is_empty(), "never pasted");
+    assert!(rig.shown().is_empty(), "no desktop notification");
+    assert_eq!(rig.last_result(), None);
+    assert!(rig.core.inner.lock().editor.is_none());
+    assert_eq!(rig.closes(), 1, "microphone closed");
+    // Glossaire : dictionnaire d'abord, puis, à part (Whisper leur garde
+    // une part de sa consigne), les mots de la séance qu'il n'a pas.
+    let request = rig.model.requests.lock()[0].clone();
+    assert_eq!(request.glossary, vec!["ChatonLM".to_owned()]);
+    assert_eq!(
+        request.project,
+        vec!["GpuChief".to_owned(), "use_dictation".to_owned()]
+    );
+    let request = rig.server.chat_requests().pop().unwrap();
+    let system = request["messages"][0]["content"].as_str().unwrap();
+    assert!(
+        system.contains("Spell these words exactly as written: ChatonLM, GpuChief, use_dictation."),
+        "{system}"
+    );
+    assert_eq!(*rig.host.settings.lock(), before, "settings untouched");
+
+    // La dictée suivante (raccourci) a le seul dictionnaire, et colle.
+    rig.host.settings.lock().enabled = true;
+    rig.dictate().await;
+    assert_eq!(
+        rig.model.requests.lock()[1].glossary,
+        vec!["ChatonLM".to_owned()]
+    );
+    assert!(rig.model.requests.lock()[1].project.is_empty());
+    assert_eq!(rig.clipboard.pastes.lock().len(), 1);
+}
+
+/// Une seule dictée dans l'app : l'éditeur est refusé si l'app (raccourci,
+/// page), le mode vocal ou une autre connexion l'occupe ; une dictée
+/// d'éditeur empêche le mode vocal.
+#[tokio::test]
+async fn an_editor_dictation_is_refused_while_the_dictation_is_busy() {
+    let rig = rig("").await;
+    let link = FakeLink::new(1, &[]);
+    rig.toggle();
+    rig.wait_listening().await;
+    assert_eq!(
+        rig.start_editor(&link).err(),
+        Some(EditorStartError::Busy(DictationOwner::App))
+    );
+    rig.toggle();
+    rig.wait_idle().await;
+    assert!(rig.core.reserve());
+    assert_eq!(
+        rig.start_editor(&link).err(),
+        Some(EditorStartError::Busy(DictationOwner::VoiceMode))
+    );
+    rig.core.release();
+    rig.editor_listening(&link).await;
+    let other = FakeLink::new(2, &[]);
+    assert_eq!(
+        rig.start_editor(&other).err(),
+        Some(EditorStartError::Busy(DictationOwner::Bridge))
+    );
+    assert_eq!(
+        rig.start_editor(&link).err(),
+        Some(EditorStartError::Busy(DictationOwner::Bridge))
+    );
+    assert!(!rig.core.reserve(), "no voice mode meanwhile");
+    assert_eq!(rig.microphone.opens.load(Ordering::SeqCst), 2);
+    assert!(other.phases.lock().is_empty());
+    // Une connexion déjà fermée ne démarre rien.
+    rig.core.cancel_editor(Some(1));
+    let closed = FakeLink::new(3, &[]);
+    closed.alive.store(false, Ordering::SeqCst);
+    assert_eq!(
+        rig.start_editor(&closed).err(),
+        Some(EditorStartError::Cancelled)
+    );
+    assert_eq!(rig.phase(), DictationPhase::Idle);
+}
+
+/// Le micro de l'éditeur se ferme quand sa connexion s'en va (abandon de sa
+/// dictée, pas d'une autre), au bouton du bandeau, à la fermeture de l'app ;
+/// rien ne lui est rendu, il apprend `idle`.
+#[tokio::test]
+async fn the_microphone_of_an_editor_closes_when_it_goes() {
+    let rig = rig("").await;
+    let link = FakeLink::new(4, &[]);
+    rig.editor_listening(&link).await;
+    assert!(!rig.core.cancel_editor(Some(5)), "another connection");
+    assert_eq!(rig.closes(), 0);
+    assert!(rig.core.cancel_editor(Some(4)));
+    rig.wait("microphone closed", |rig| rig.closes() == 1).await;
+    assert_eq!(
+        *link.phases.lock(),
+        [DictationPhase::Recording, DictationPhase::Idle]
+    );
+    assert!(link.ends.lock().is_empty());
+    assert_eq!(rig.phase(), DictationPhase::Idle);
+
+    // Bandeau de la page.
+    let link = FakeLink::new(6, &[]);
+    rig.editor_listening(&link).await;
+    assert!(rig.core.cancel_editor(None));
+    rig.wait("microphone closed", |rig| rig.closes() == 2).await;
+    assert!(link.ends.lock().is_empty());
+
+    // Fermeture de l'app.
+    let link = FakeLink::new(7, &[]);
+    rig.editor_listening(&link).await;
+    rig.core.shutdown(WAIT).await;
+    rig.wait("microphone closed", |rig| rig.closes() == 3).await;
+    assert_eq!(link.phases.lock().last(), Some(&DictationPhase::Idle));
+    assert!(rig.clipboard.copied.lock().is_empty());
+}
+
+/// Arrêt pendant le démarrage (micro qui s'ouvre) : le démarrage répond
+/// « arrêtée », le micro ouvert ensuite se referme aussitôt, l'éditeur
+/// n'apprend aucune phase. Même chose si sa connexion se ferme avant.
+#[tokio::test]
+async fn a_stop_while_the_editor_microphone_opens_closes_it() {
+    let rig = rig("").await;
+    for stop_by_request in [true, false] {
+        let (go, gate) = std::sync::mpsc::channel();
+        *rig.microphone.gate.lock() = Some(gate);
+        let link = FakeLink::new(9, &[]);
+        let opening = rig.microphone.opening.load(Ordering::SeqCst);
+        let opens = rig.microphone.opens.load(Ordering::SeqCst);
+        let closes = rig.closes();
+        let opened = rig.start_editor(&link).unwrap();
+        rig.wait("the microphone opening", |rig| {
+            rig.microphone.opening.load(Ordering::SeqCst) == opening + 1
+        })
+        .await;
+        if stop_by_request {
+            assert!(rig.core.stop_editor(9), "abandoned before the microphone");
+        } else {
+            link.alive.store(false, Ordering::SeqCst);
+        }
+        go.send(()).unwrap();
+        let answer = tokio::time::timeout(WAIT, opened).await.expect("in time");
+        assert!(
+            matches!(answer, Ok(Err(EditorStartError::Cancelled)) | Err(_)),
+            "{answer:?}"
+        );
+        rig.wait("microphone opened then closed", |rig| {
+            rig.microphone.opens.load(Ordering::SeqCst) == opens + 1 && rig.closes() == closes + 1
+        })
+        .await;
+        rig.wait_idle().await;
+        assert!(link.phases.lock().is_empty(), "{:?}", link.phases.lock());
+        assert!(link.ends.lock().is_empty());
+    }
+}
+
+/// Refus avant d'écouter, rendus au démarrage : modèle absent (même s'il
+/// est réglé), micro ; un échec après l'ouverture va à l'éditeur.
+#[tokio::test]
+async fn an_editor_start_says_why_it_cannot_listen() {
+    let rig = rig("").await;
+    rig.host.settings.lock().speech_model = "whisper-base".into();
+    let link = FakeLink::new(1, &[]);
+    let opened = rig.start_editor(&link).unwrap();
+    assert_eq!(opened.await, Ok(Err(EditorStartError::SpeechModelMissing)));
+    rig.wait_idle().await;
+    // Rien de réglé : le premier installé (whisper-tiny).
+    rig.host.settings.lock().speech_model = String::new();
+    *rig.microphone.captured.lock() = Err("No microphone".into());
+    let opened = rig.start_editor(&link).unwrap();
+    assert_eq!(
+        opened.await,
+        Ok(Err(EditorStartError::Failed("No microphone".into())))
+    );
+    rig.wait_idle().await;
+    assert!(link.phases.lock().is_empty());
+    assert!(rig.shown().is_empty());
+    // Silence : dit à l'éditeur, après l'ouverture du micro.
+    *rig.microphone.captured.lock() = Ok(Captured {
+        samples: vec![0.0; 48_000],
+        rate: 48_000,
+    });
+    rig.editor_listening(&link).await;
+    rig.core.stop_editor(1);
+    rig.wait_idle().await;
+    assert_eq!(
+        *link.ends.lock(),
+        [EditorEnd::Failed("No speech detected".into())]
+    );
+    assert_eq!(link.phases.lock().last(), Some(&DictationPhase::Idle));
+    assert_eq!(rig.last_result(), None);
 }

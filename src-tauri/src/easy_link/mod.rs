@@ -862,6 +862,7 @@ impl Host for AppHost {
         let request = Request {
             language: (settings.language != languages::AUTO).then(|| settings.language.clone()),
             glossary: settings.dictionary.clone(),
+            project: Vec::new(),
         };
         let engine = self.app.state::<Dictation>().engine();
         let heard = tauri::async_runtime::spawn_blocking(move || {

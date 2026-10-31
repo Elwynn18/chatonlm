@@ -98,7 +98,8 @@
     "label": "Try dictation",
     "turnOnFirst": "Turn on dictation to try it.",
     "chooseModel": "Choose an installed speech model to try it.",
-    "stop": "Stop"
+    "stop": "Stop",
+    "editor": "VS Code is using dictation."
   },
   "phase": {
     "recording": "Listening…",

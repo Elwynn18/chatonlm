@@ -84,12 +84,64 @@ pub struct Request {
     pub language: Option<String>,
     /// Dictionnaire personnalisé (consigne initiale de Whisper).
     pub glossary: Vec<String>,
+    /// Noms du projet d'une dictée de l'éditeur (pont VS Code), hors du
+    /// dictionnaire : la moitié de la consigne au moins leur revient.
+    pub project: Vec<String>,
 }
 
+/// Longueur maximale de la consigne initiale de Whisper (caractères) :
+/// whisper.cpp n'en garde que la fin, environ 224 jetons (la moitié de son
+/// contexte de texte) ; des noms de code font 2 à 4 caractères par jeton.
+pub const MAX_PROMPT_CHARS: usize = 500;
+
+/// Début de la consigne initiale.
+const PROMPT_START: &str = "Glossary: ";
+
 impl Request {
-    /// Consigne initiale de Whisper : « Glossary: A, B, C. ».
+    /// Consigne initiale de Whisper : « Glossary: A, B, C. », bornée à
+    /// [`MAX_PROMPT_CHARS`] (whisper.cpp couperait le début), premiers mots
+    /// de chaque liste gardés. Avec des noms du projet (dictée de l'éditeur),
+    /// le dictionnaire de l'utilisateur en prend la moitié au plus, puis les
+    /// noms (les plus proches du fichier ouvert d'abord), puis la suite du
+    /// dictionnaire dans ce qui reste : un long dictionnaire ne les chasse
+    /// jamais.
     pub fn initial_prompt(&self) -> Option<String> {
-        (!self.glossary.is_empty()).then(|| format!("Glossary: {}.", self.glossary.join(", ")))
+        let budget = MAX_PROMPT_CHARS - PROMPT_START.len() - 1;
+        let mut words = Words::default();
+        let mut dictionary = 0;
+        if self.project.is_empty() {
+            words.take(&self.glossary, &mut dictionary, budget);
+        } else {
+            words.take(&self.glossary, &mut dictionary, budget / 2);
+            words.take(&self.project, &mut 0, budget);
+            words.take(&self.glossary, &mut dictionary, budget);
+        }
+        (!words.list.is_empty()).then(|| format!("{PROMPT_START}{}.", words.list.join(", ")))
+    }
+}
+
+/// Mots de la consigne, et leur longueur avec les séparateurs (sans le début
+/// ni le point final).
+#[derive(Default)]
+struct Words<'a> {
+    list: Vec<&'a str>,
+    used: usize,
+}
+
+impl<'a> Words<'a> {
+    /// Prend les mots de `from` à partir de `next` tant que la longueur reste
+    /// dans `limit` ; s'arrête au premier qui ne tient pas (`next` le
+    /// désigne alors : il peut être repris avec une limite plus large).
+    fn take(&mut self, from: &'a [String], next: &mut usize, limit: usize) {
+        while let Some(word) = from.get(*next) {
+            let cost = word.chars().count() + if self.list.is_empty() { 0 } else { 2 };
+            if self.used + cost > limit {
+                break;
+            }
+            self.used += cost;
+            self.list.push(word);
+            *next += 1;
+        }
     }
 }
 
@@ -779,12 +831,81 @@ mod tests {
         let request = Request {
             language: None,
             glossary: vec!["ChatonLM".into(), "Ollama".into()],
+            project: Vec::new(),
         };
         assert_eq!(
             request.initial_prompt().as_deref(),
             Some("Glossary: ChatonLM, Ollama.")
         );
         assert_eq!(Request::default().initial_prompt(), None);
+    }
+
+    /// Glossaire trop long (dictionnaire et noms d'un projet) : les premiers
+    /// mots gardés, la consigne bornée (whisper.cpp en couperait le début).
+    #[test]
+    fn a_long_glossary_keeps_its_first_words() {
+        let glossary: Vec<String> = (0..400).map(|i| format!("projectName{i}")).collect();
+        let request = Request {
+            language: None,
+            glossary,
+            project: Vec::new(),
+        };
+        let prompt = request.initial_prompt().unwrap();
+        assert!(prompt.chars().count() <= MAX_PROMPT_CHARS, "{prompt}");
+        assert!(prompt.starts_with("Glossary: projectName0, projectName1, "));
+        assert!(prompt.ends_with('.'));
+        assert!(!prompt.contains("projectName399"));
+        // Un seul mot trop long pour la consigne : rien.
+        let huge = Request {
+            language: None,
+            glossary: vec!["x".repeat(MAX_PROMPT_CHARS)],
+            project: Vec::new(),
+        };
+        assert_eq!(huge.initial_prompt(), None);
+    }
+
+    /// Dictée de l'éditeur : un dictionnaire qui remplirait à lui seul la
+    /// consigne n'en chasse pas les noms du projet (la moitié leur revient) ;
+    /// peu de noms, le dictionnaire reprend la place laissée.
+    #[test]
+    fn the_project_names_keep_their_share_of_the_prompt() {
+        let dictionary: Vec<String> = (0..60).map(|i| format!("userWord{i:02}")).collect();
+        let alone = Request {
+            language: None,
+            glossary: dictionary.clone(),
+            project: Vec::new(),
+        };
+        let filled = alone.initial_prompt().unwrap();
+        assert!(filled.chars().count() > MAX_PROMPT_CHARS - 12, "{filled}");
+
+        let project: Vec<String> = (0..60).map(|i| format!("projectName{i:02}")).collect();
+        let request = Request {
+            language: None,
+            glossary: dictionary.clone(),
+            project,
+        };
+        let prompt = request.initial_prompt().unwrap();
+        assert!(prompt.chars().count() <= MAX_PROMPT_CHARS, "{prompt}");
+        assert!(prompt.starts_with("Glossary: userWord00, "), "{prompt}");
+        assert!(prompt.ends_with('.'), "{prompt}");
+        let names = prompt.matches("projectName").count();
+        let words = prompt.matches("userWord").count();
+        assert!(
+            names >= 15 && words >= 15,
+            "{names} names, {words} words: {prompt}"
+        );
+        assert!(prompt.contains("projectName00"), "{prompt}");
+
+        // Deux noms seulement : le dictionnaire reprend le reste.
+        let few = Request {
+            language: None,
+            glossary: dictionary,
+            project: vec!["GpuChief".into(), "use_dictation".into()],
+        };
+        let prompt = few.initial_prompt().unwrap();
+        assert!(prompt.contains("GpuChief, use_dictation"), "{prompt}");
+        assert!(prompt.chars().count() > MAX_PROMPT_CHARS - 40, "{prompt}");
+        assert!(prompt.chars().count() <= MAX_PROMPT_CHARS, "{prompt}");
     }
 
     #[test]
@@ -851,6 +972,7 @@ mod tests {
             let french = Request {
                 language: language.map(str::to_owned),
                 glossary: vec!["Salomon".into()],
+                project: Vec::new(),
             };
             (
                 recognizer.transcribe(&jfk, &english).unwrap(),

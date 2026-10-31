@@ -1392,6 +1392,7 @@ pub(crate) fn gather(
         request: Request {
             language: (dictation.language != languages::AUTO).then(|| dictation.language.clone()),
             glossary: dictation.dictionary.clone(),
+            project: Vec::new(),
         },
         settings,
     }

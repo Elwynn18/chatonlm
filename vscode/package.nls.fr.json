@@ -34,5 +34,9 @@
   "config.notify.enabled": "Envoie un message par Easy Link (Telegram, Discord) à la fin d'une commande du terminal, d'une tâche ou d'une réponse de ChatonLM qui a pris du temps. Seuls son nom, sa durée et sa réussite partent, jamais de code ni de sortie. Coupé par défaut ; **Laisser VS Code me prévenir par Easy Link** doit aussi être activé dans ChatonLM, sous Paramètres › Easy Link.",
   "config.notify.minDurationSeconds": "Ne prévenir que de ce qui a duré au moins ce nombre de secondes.",
   "config.notify.includeFolderName": "Ajouter au message le nom du dossier ouvert.",
-  "command.saveImage": "Enregistrer l'image générée"
+  "command.saveImage": "Enregistrer l'image générée",
+  "command.dictate": "Dicter",
+  "command.dictateStop": "Arrêter la dictée",
+  "config.mcp.enabled": "Laisse les agents de cet éditeur (mode agent du chat, Cline, Cursor…) se servir de ChatonLM par MCP : interroger un modèle de cet ordinateur, générer une image, lire un texte à voix haute, corriger un texte, lister les modèles. Ils reçoivent un accès à part, que ChatonLM limite à ces outils : ni vos conversations, ni vos réglages. Coupé par défaut ; le couper retire cet accès. Chaque appel est montré dans le panneau ChatonLM, où vous pouvez l'arrêter ou couper ceci. VS Code doit être appairé avec ChatonLM.",
+  "config.nativeChat.enabled": "Propose les modèles de ChatonLM dans le sélecteur de modèles du chat de VS Code. Seulement ceux de cet ordinateur, jamais ceux du cloud ; chaque demande est une conversation temporaire que ChatonLM efface aussitôt après. Coupé par défaut."
 }

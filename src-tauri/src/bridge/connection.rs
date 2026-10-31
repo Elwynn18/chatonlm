@@ -27,6 +27,14 @@
 //! `study.create`, `study.list` (puis `study.event`), `image.generate` (puis
 //! `image.event`) et `proofread.run` (puis `proofread.event`), ces deux-là
 //! annulables par `$/cancelRequest`, et `app.show` (liste blanche de pages).
+//! Lot 4b ([`super::dictation`]) : `dictation.start`, `dictation.stop`,
+//! `dictation.cancel` (notifications `dictation.state`, `dictation.text`,
+//! `dictation.error`) ; la fin de la connexion arrête aussi sa dictée.
+//! Accès agents (corrections 97) : `agents.issue` et `agents.revoke` (séance
+//! d'un éditeur seulement) ; une séance de l'accès agents n'a droit qu'à
+//! [`AGENT_METHODS`] (sinon -32037), et seulement à une NOUVELLE
+//! conversation éphémère, qu'elle seule peut effacer, avec un modèle de
+//! cette machine ; sa correction est toujours `localOnly`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -45,7 +53,7 @@ use super::{Host, Io, PROTOCOL, STREAM_PREFIX, Shared};
 use crate::chat::stream::Think;
 use crate::chat::{self, ChatEvent, Origin, SendRequest, Server};
 use crate::i18n::t;
-use crate::store::bridge::{self as saved, Client};
+use crate::store::bridge::{self as saved, Client, Scope};
 use crate::store::{chats, model_prefs, now_ms};
 
 /// Conversations de l'éditeur rendues par `chat.list`, au plus.
@@ -53,6 +61,22 @@ pub const LISTED_CHATS: u32 = 50;
 
 /// Délai pour s'authentifier après l'ouverture.
 pub const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Seules méthodes d'une séance de l'accès agents (outils MCP de
+/// l'extension : question, modèles, image, lecture, correction).
+pub const AGENT_METHODS: [&str; 11] = [
+    "ping",
+    "$/cancelRequest",
+    "app.state",
+    "models.list",
+    "models.details",
+    "chat.send",
+    "chat.forget",
+    "image.generate",
+    "speech.read",
+    "speech.stop",
+    "proofread.run",
+];
 
 /// Codes d'erreur (JSON-RPC, puis propres au pont). L'extension traduit
 /// d'après le code ; les messages ci-dessous ne sont jamais montrés.
@@ -76,8 +100,13 @@ pub mod code {
     pub const NOTIFY_OFF: i64 = -32035;
     /// Aucune image possible (`image.generate`, `data: { reason, message }`).
     pub const NO_IMAGE_MODEL: i64 = -32036;
+    /// Méthode ou demande interdite à cette séance (accès agents : hors de
+    /// sa liste blanche, conversation non éphémère ou d'un autre client ;
+    /// `agents.*` depuis un accès agents).
+    pub const FORBIDDEN: i64 = -32037;
     /// Requête arrêtée par l'éditeur (`voice.stop` pendant `voice.start`,
-    /// `$/cancelRequest` d'un `tour.plan`) : `RequestCancelled` de LSP.
+    /// `dictation.stop` avant l'ouverture du micro, `$/cancelRequest` d'un
+    /// `tour.plan`) : `RequestCancelled` de LSP.
     pub const CANCELLED: i64 = -32800;
 }
 
@@ -133,6 +162,8 @@ struct Session {
     nonces: Option<([u8; 32], Vec<u8>)>,
     /// Après `auth`.
     client: Option<String>,
+    /// Séance de l'accès agents (après `auth`).
+    agents: bool,
 }
 
 /// Requête annulable (`chat.send`, `tour.plan`), inscrite dès sa lecture
@@ -297,6 +328,12 @@ async fn handle<H: Host>(
     }
     // Autres notifications : rien n'est attendu.
     let Some(id) = id else { return };
+    // Accès agents : sa liste blanche seulement (ni appairage, ni
+    // `agents.*`, ni historique, micro, réglages ou Easy Link).
+    if session.agents && !AGENT_METHODS.contains(&method) {
+        out.error(&id, code::FORBIDDEN, "not allowed", None);
+        return;
+    }
 
     match method {
         "initialize" => initialize(session, out, &id, params),
@@ -324,6 +361,7 @@ async fn handle<H: Host>(
             let sender = Sender {
                 connection,
                 client: session.client.clone().unwrap_or_default(),
+                agents: session.agents,
                 stream,
             };
             let (shared, out, running) = (Arc::clone(shared), out.clone(), Arc::clone(running));
@@ -336,6 +374,24 @@ async fn handle<H: Host>(
         "speech.read" => super::voice::speech_read(shared, connection, out, &id, params),
         "speech.stop" => super::voice::speech_stop(shared, connection, out, &id, params),
         "voice.stop" => super::voice::voice_stop(shared, connection, out, &id, &params),
+        // Dictée inscrite ici, avant toute attente : un `dictation.stop` lu
+        // juste après la trouve.
+        "dictation.start" => {
+            if let Some(opened) =
+                super::dictation::dictation_start(shared, connection, out, &id, params)
+            {
+                let out = out.clone();
+                tauri::async_runtime::spawn(async move {
+                    super::dictation::dictation_opened(&out, &id, opened).await;
+                });
+            }
+        }
+        "dictation.stop" => {
+            super::dictation::dictation_stop(shared, connection, out, &id, &params);
+        }
+        "dictation.cancel" => {
+            super::dictation::dictation_cancel(shared, connection, out, &id, &params);
+        }
         "voice.context" => super::voice::voice_context(shared, connection, out, &id, params),
         "voice.start" => {
             // Séance inscrite ici, avant toute attente : un `voice.stop` lu
@@ -364,6 +420,7 @@ async fn handle<H: Host>(
                 },
             );
             let image = method == "image.generate";
+            let agents = session.agents;
             let (shared, out, running) = (Arc::clone(shared), out.clone(), Arc::clone(running));
             tauri::async_runtime::spawn(async move {
                 let _registered = Registered {
@@ -377,7 +434,7 @@ async fn handle<H: Host>(
                         if image {
                             super::work::image_generate(&shared, &out, &id, params).await;
                         } else {
-                            super::work::proofread_run(&shared, &out, &id, params).await;
+                            super::work::proofread_run(&shared, &out, &id, params, agents).await;
                         }
                     } => {}
                     () = wake.notified() => {
@@ -524,6 +581,10 @@ async fn handle<H: Host>(
         | "chat.forget" | "chat.keep" => {
             let (shared, out) = (Arc::clone(shared), out.clone());
             let method = method.to_owned();
+            // Accès agents : seulement ses propres éphémères.
+            let owner = session
+                .agents
+                .then(|| session.client.clone().unwrap_or_default());
             tauri::async_runtime::spawn(async move {
                 match method.as_str() {
                     "app.state" => app_state(&shared, &out, &id).await,
@@ -531,9 +592,17 @@ async fn handle<H: Host>(
                     "models.details" => models_details(&shared, &out, &id, params).await,
                     "chat.get" => chat_get(&shared, &out, &id, params).await,
                     "chat.list" => chat_list(&shared, &out, &id).await,
-                    "chat.forget" => chat_forget(&shared, &out, &id, params).await,
+                    "chat.forget" => chat_forget(&shared, &out, &id, params, owner).await,
                     _ => chat_keep(&shared, &out, &id, params).await,
                 }
+            });
+        }
+        "agents.issue" | "agents.revoke" => {
+            let (shared, out) = (Arc::clone(shared), out.clone());
+            let editor = session.client.clone().unwrap_or_default();
+            let issue = method == "agents.issue";
+            tauri::async_runtime::spawn(async move {
+                agents_access(&shared, &out, &id, &params, &editor, issue).await;
             });
         }
         _ => out.error(&id, code::METHOD_NOT_FOUND, "method not found", None),
@@ -645,6 +714,8 @@ async fn pair<H: Host>(
         secret: proof::random::<32>(),
         paired_at: now_ms(),
         last_seen_at: None,
+        scope: Scope::Editor,
+        parent_id: None,
     };
     let saved = client.clone();
     match shared
@@ -725,8 +796,11 @@ async fn auth<H: Host>(
         return;
     }
     session.client = Some(client.id.clone());
+    session.agents = client.scope == Scope::Agents;
     // Montré « connecté » avant que l'éditeur l'apprenne.
-    shared.authenticated(connection, &client.id).await;
+    shared
+        .authenticated(connection, &client.id, client.parent_id.as_deref())
+        .await;
     let server_proof = proof::server_proof(&client.secret, &client_nonce, &server_nonce);
     out.result(id, json!({ "serverProof": proof::to_hex(&server_proof) }));
 }
@@ -763,6 +837,62 @@ async fn app_state<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value) {
 /// Adresse sur cette machine (illisible : non, par prudence).
 pub(super) fn is_local(url: &str) -> bool {
     url::Url::parse(url).is_ok_and(|url| crate::ollama::client::is_local(&url))
+}
+
+/// Refus d'un travail qui doit rester sur cette machine (accès agents,
+/// `proofread.run` `localOnly`) : Ollama sur une autre machine, ou modèle
+/// qui tourne ailleurs (nom cloud, ou distant d'après `/api/show`, comme
+/// `chatonlm_ask`). `None` : rien ne part ailleurs.
+pub(super) async fn elsewhere(server_url: &str, model: &str) -> Option<String> {
+    if !is_local(server_url) {
+        return Some(t!("bridge.local.remoteServer"));
+    }
+    if !model.is_empty() && crate::proofread::selection::runs_elsewhere(server_url, model).await {
+        return Some(t!("bridge.local.cloudModel", model = model));
+    }
+    None
+}
+
+/// Refus -32020 `{ message, code: "notLocal" }`.
+pub(super) fn not_local(out: &Outbox, id: &Value, message: String) {
+    out.error(
+        id,
+        code::REFUSED,
+        "refused",
+        Some(json!({ "message": message, "code": "notLocal" })),
+    );
+}
+
+/// `agents.issue {}` → `{ clientId, secret }` (remplace l'accès agents de
+/// l'éditeur) ; `agents.revoke {}` → `{ revoked }`. Paramètres non vides →
+/// -32602 ; éditeur retiré entre-temps → -32002.
+async fn agents_access<H: Host>(
+    shared: &Arc<Shared<H>>,
+    out: &Outbox,
+    id: &Value,
+    params: &Value,
+    editor: &str,
+    issue: bool,
+) {
+    let empty = params.is_null() || params.as_object().is_some_and(serde_json::Map::is_empty);
+    if !empty {
+        return invalid(out, id);
+    }
+    if issue {
+        match shared.issue_agents(editor).await {
+            Ok(Some((client, secret))) => out.result(
+                id,
+                json!({ "clientId": client, "secret": proof::to_hex(&secret) }),
+            ),
+            Ok(None) => out.error(id, code::UNKNOWN_CLIENT, "unknown client", None),
+            Err(error) => refused(out, id, &error),
+        }
+    } else {
+        match shared.revoke_agents(editor).await {
+            Ok(revoked) => out.result(id, json!({ "revoked": revoked })),
+            Err(error) => refused(out, id, &error),
+        }
+    }
 }
 
 async fn models_list<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value) {
@@ -832,12 +962,24 @@ async fn chat_get<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value, pa
 
 /// Conversation éphémère quittée par l'éditeur : effacée si elle est
 /// éphémère et à lui (sa réponse arrêtée et finie d'abord), sinon rien
-/// (`forgotten: false`).
-async fn chat_forget<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value, params: Value) {
+/// (`forgotten: false`). Accès agents (`owner`) : seulement une éphémère
+/// qu'il a ouverte lui-même.
+async fn chat_forget<H: Host>(
+    shared: &Arc<Shared<H>>,
+    out: &Outbox,
+    id: &Value,
+    params: Value,
+    owner: Option<String>,
+) {
     let Ok(params) = serde_json::from_value::<ChatParams>(params) else {
         return invalid(out, id);
     };
     let chat = params.chat_id;
+    if let Some(owner) = owner
+        && shared.ephemeral_owner(&chat).as_deref() != Some(owner.as_str())
+    {
+        return out.result(id, json!({ "forgotten": false }));
+    }
     let checked = chat.clone();
     let ephemeral = match shared
         .store
@@ -946,10 +1088,14 @@ struct SendParams {
     think: Option<Think>,
 }
 
-/// Qui envoie : connexion, éditeur authentifié, flux du moteur.
+/// Qui envoie : connexion, client authentifié (éditeur ou accès agents),
+/// flux du moteur.
 struct Sender {
     connection: u64,
     client: String,
+    /// Accès agents : nouvelle conversation éphémère seulement, sur cette
+    /// machine.
+    agents: bool,
     stream: String,
 }
 
@@ -968,6 +1114,10 @@ async fn chat_send<H: Host>(
     let Ok(params) = serde_json::from_value::<SendParams>(params) else {
         return invalid(out, id);
     };
+    // Accès agents : une nouvelle conversation éphémère, jamais l'historique.
+    if sender.agents && (params.chat_id.is_some() || params.ephemeral != Some(true)) {
+        return out.error(id, code::FORBIDDEN, "not allowed", None);
+    }
     let settings = match crate::ollama::target::request_settings(&shared.store).await {
         Ok(settings) => settings,
         Err(error) => return refused(out, id, &error),
@@ -977,6 +1127,12 @@ async fn chat_send<H: Host>(
         .map(|model| model.trim().to_owned())
         .filter(|model| !model.is_empty())
         .unwrap_or_else(|| settings.selected_model.clone());
+    // Accès agents : rien ne quitte la machine (Ollama distant, modèle cloud).
+    if sender.agents
+        && let Some(message) = elsewhere(&settings.effective_server_url, &model).await
+    {
+        return not_local(out, id, message);
+    }
     let think = match params.think {
         Some(think) => Some(think),
         None => {

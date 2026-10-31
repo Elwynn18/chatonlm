@@ -88,6 +88,8 @@ struct LibreTray {
     /// Langue des libellés (celle de l'interface au dernier rafraîchissement).
     lang: Lang,
     phase: DictationPhase,
+    /// Dictée tenue par un éditeur (pont VS Code).
+    editor: bool,
     trigger: Option<String>,
     ready: bool,
     update: TrayUpdate,
@@ -124,7 +126,7 @@ impl ksni::Tray for LibreTray {
     fn tool_tip(&self) -> ToolTip {
         ToolTip {
             title: "ChatonLM".into(),
-            description: describe(self.phase, self.trigger.as_deref(), self.lang),
+            description: describe(self.phase, self.editor, self.trigger.as_deref(), self.lang),
             ..ToolTip::default()
         }
     }
@@ -135,7 +137,7 @@ impl ksni::Tray for LibreTray {
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
-        entries(self.phase, self.ready, self.update, self.lang)
+        entries(self.phase, self.editor, self.ready, self.update, self.lang)
             .into_iter()
             .map(|entry| match entry {
                 None => MenuItem::Separator,
@@ -194,6 +196,7 @@ pub(in crate::desktop) fn spawn(app: &AppHandle) {
             app: app.clone(),
             lang: i18n::current(),
             phase: app.state::<Dictation>().phase(),
+            editor: app.state::<Dictation>().for_editor(),
             trigger: bound_trigger(&app),
             ready: dictation_ready(&app),
             update: updater::tray_update(&app),
@@ -218,10 +221,13 @@ pub(in crate::desktop) fn spawn(app: &AppHandle) {
         let mut phases = app.state::<Dictation>().subscribe();
         loop {
             let phase = *phases.borrow_and_update();
+            // Noté avant la phase : lu après elle, il est à jour.
+            let editor = app.state::<Dictation>().for_editor();
             let ready = dictation_ready(&app);
             if handle
                 .update(|tray| {
                     tray.phase = phase;
+                    tray.editor = editor;
                     tray.ready = ready;
                 })
                 .await

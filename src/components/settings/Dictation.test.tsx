@@ -750,6 +750,27 @@ describe("Try dictation", () => {
     await within(element).findByRole("button", { name: "Try dictation" });
   });
 
+  it("is off while VS Code dictates (only the banner stops it)", async () => {
+    const { simulator, dictation } = setup(ready());
+    const element = await card();
+    await dictation.setStatus({ phase: "recording", editor: true });
+    await within(element).findByText("VS Code is using dictation.");
+    const button = within(element).getByRole<HTMLButtonElement>("button", {
+      name: "Try dictation",
+    });
+    expect(button.disabled).toBe(true);
+    expect(
+      within(element).queryByRole("button", { name: "Cancel" }),
+    ).toBeNull();
+    await userEvent.click(button);
+    expect(simulator.callsTo("dictation_toggle")).toHaveLength(0);
+    await dictation.setStatus({ phase: "idle", editor: false });
+    await waitFor(() => expect(button.disabled).toBe(false));
+    expect(
+      within(element).queryByText("VS Code is using dictation."),
+    ).toBeNull();
+  });
+
   it("needs an installed model chosen", async () => {
     setup(({ dictation }) => {
       dictation.install(WHISPER_TINY);

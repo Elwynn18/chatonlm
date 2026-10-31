@@ -263,5 +263,30 @@
     "replace": "Remplacer",
     "discard": "Abandonner",
     "close": "Fermer"
+  },
+  "agents": {
+    "label": "Agents",
+    "title": "Agents qui se servent de ChatonLM",
+    "close": "Retirer les appels finis",
+    "announceAgent": "{agent} se sert de ChatonLM : {tool}",
+    "announceUnknown": "Un agent se sert de ChatonLM : {tool}",
+    "calls": "Appels des agents",
+    "used": "{agent} s'est servi de ChatonLM : {tool}",
+    "usedUnknown": "Un agent s'est servi de ChatonLM : {tool}",
+    "running": "En cours…",
+    "done": "Fait",
+    "failed": "Échec",
+    "stopped": "Arrêté",
+    "stop": "Arrêter",
+    "stopLabel": "Arrêter : {tool}",
+    "turnOff": "Couper pour les agents",
+    "off": "Coupé : les agents ne peuvent plus se servir de ChatonLM.",
+    "tools": {
+      "ask": "interroger un modèle local",
+      "image": "générer une image",
+      "speak": "lire un texte à voix haute",
+      "proofread": "corriger un texte",
+      "models": "lister les modèles"
+    }
   }
 }

@@ -96,6 +96,48 @@ describe("manifest", () => {
     );
   });
 
+  it("keeps the MCP server and the chat models off by default, out of reach of a folder", () => {
+    const raw = JSON.parse(read("package.json")) as {
+      contributes: {
+        configuration: {
+          properties: Record<string, { default: unknown; scope: string }>;
+        };
+        mcpServerDefinitionProviders: { id: string }[];
+        languageModelChatProviders: { vendor: string }[];
+        keybindings: { command: string; key: string; when?: string }[];
+      };
+    };
+    const properties = raw.contributes.configuration.properties;
+    for (const name of [
+      "chatonlm.mcp.enabled",
+      "chatonlm.nativeChat.enabled",
+    ]) {
+      expect(properties[name], name).toMatchObject({
+        default: false,
+        scope: "application",
+      });
+    }
+    expect(raw.contributes.mcpServerDefinitionProviders).toEqual([
+      { id: "chatonlm.mcp", label: "ChatonLM" },
+    ]);
+    expect(raw.contributes.languageModelChatProviders).toEqual([
+      { vendor: "chatonlm", displayName: "ChatonLM" },
+    ]);
+    // Dictée : seulement dans un éditeur modifiable ; Échap seulement
+    // pendant l'écoute, et pas quand il ferme une suggestion, un texte
+    // fantôme ou l'aide des paramètres.
+    const dictate = raw.contributes.keybindings.filter((b) =>
+      b.command.startsWith("chatonlm.dictate"),
+    );
+    expect(dictate.map((b) => [b.command, b.when])).toEqual([
+      ["chatonlm.dictate", "editorTextFocus && !editorReadonly"],
+      [
+        "chatonlm.dictateStop",
+        "chatonlm.dictating && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !parameterHintsVisible",
+      ],
+    ]);
+  });
+
   it("stays off in a folder that is not trusted, and never starts the app on its own", () => {
     expect(
       (manifest as unknown as { capabilities: unknown }).capabilities,

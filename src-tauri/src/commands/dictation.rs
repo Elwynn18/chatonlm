@@ -62,6 +62,17 @@ pub async fn dictation_cancel(app: AppHandle, dictation: State<'_, Dictation>) -
     Ok(())
 }
 
+/// Bouton Stop du bandeau « VS Code is using your microphone » : abandon de
+/// la dictée tenue par l'extension VS Code (rien ne lui est rendu).
+#[tauri::command]
+pub async fn dictation_stop_editor(
+    app: AppHandle,
+    dictation: State<'_, Dictation>,
+) -> AppResult<()> {
+    dictation.cancel_editor_session(&app);
+    Ok(())
+}
+
 /// Copie le texte du dernier résultat (copie automatique coupée).
 #[tauri::command]
 pub async fn dictation_copy_last(app: AppHandle, dictation: State<'_, Dictation>) -> AppResult<()> {

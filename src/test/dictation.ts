@@ -214,6 +214,7 @@ export function fakeDictation(simulator: Simulator): FakeDictation {
       phase: "idle",
       shortcut: { state: "disabled" },
       canConfigureShortcut: true,
+      editor: false,
       trayAvailable: true,
       command: DICTATE_COMMAND,
       lastResult: null,
@@ -437,7 +438,22 @@ export function fakeDictation(simulator: Simulator): FakeDictation {
   });
   simulator.handle("dictation_cancel", () => {
     failure("dictation_cancel");
-    dictation.status = { ...dictation.status, phase: "idle" };
+    // Comme le moteur : pas la dictée de l'éditeur.
+    if (!dictation.status.editor) {
+      dictation.status = { ...dictation.status, phase: "idle" };
+    }
+    return null;
+  });
+  simulator.handle("dictation_stop_editor", () => {
+    failure("dictation_stop_editor");
+    // Statut envoyé après la réponse, comme l'événement du moteur.
+    if (dictation.status.editor) {
+      setTimeout(() => {
+        if (!simulator.disposed) {
+          void dictation.setStatus({ phase: "idle", editor: false });
+        }
+      }, 0);
+    }
     return null;
   });
   simulator.handle("dictation_bind_shortcut", () => {

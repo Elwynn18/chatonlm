@@ -217,6 +217,45 @@ const scenarios = {
     }
     step("written");
   },
+  // Dictée insérée au curseur : le faux micro de l'app (WAV) parle, l'essai
+  // extérieur demande l'arrêt, le texte doit arriver au curseur, sans toucher
+  // au presse-papiers (rempli avant par l'essai extérieur).
+  async dictate() {
+    const folder = vscode.workspace.workspaceFolders[0].uri;
+    const document = await vscode.workspace.openTextDocument(
+      vscode.Uri.joinPath(folder, "notes.md"),
+    );
+    const editor = await vscode.window.showTextDocument(document);
+    // Fin de la ligne 1 (« Quote: »).
+    editor.selection = new vscode.Selection(0, 7, 0, 7);
+    const clipboard = await vscode.env.clipboard.readText();
+    await vscode.commands.executeCommand("chatonlm.dictate");
+    step("listening");
+    await waitFor("stop");
+    await vscode.commands.executeCommand("chatonlm.dictateStop");
+    const deadline = Date.now() + 90_000;
+    while (!/country/i.test(document.lineAt(0).text)) {
+      if (Date.now() > deadline) throw new Error("no dictated text");
+      await delay(500);
+    }
+    if ((await vscode.env.clipboard.readText()) !== clipboard) {
+      throw new Error("the clipboard changed");
+    }
+    step(`inserted:${document.lineAt(0).text}`);
+  },
+  // Serveur MCP : réglage `chatonlm.mcp.enabled` donné par l'essai extérieur
+  // (réglages de l'utilisateur) ; une fois appairé, l'extension écrit les
+  // justificatifs dans son stockage ; l'essai extérieur lance alors
+  // vscode/dist/mcp.cjs avec un client MCP minimal.
+  async mcp() {
+    step("paired");
+    await waitFor("off");
+    // Coupure : les justificatifs disparaissent (vérifié dehors).
+    await vscode.workspace
+      .getConfiguration("chatonlm")
+      .update("mcp.enabled", false, vscode.ConfigurationTarget.Global);
+    step("off");
+  },
 };
 
 exports.run = async function run() {

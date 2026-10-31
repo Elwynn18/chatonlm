@@ -12,7 +12,18 @@
 // un modèle sans FIM), `models.offerPull` (`{ installed }`, -32602, -32007) ;
 // lot 4a (93-lot4a-contract.md) : `notify.send` (refus -32034/-32035 réglé par
 // `notifyRefusal`), `notify.task`, `app.show` (pages relevées dans `shown`) ;
-// `study.*`, `image.generate`, `proofread.run` donnés par chaque essai.
+// `study.*`, `image.generate`, `proofread.run` donnés par chaque essai ;
+// lot 4b (95-lot4b-contract.md ; src-tauri/src/bridge/dictation.rs) :
+// `dictation.start { glossary? }`, `dictation.stop {}` et `dictation.cancel
+// {}` → `{}` acceptés, puis l'essai joue les notifications `dictation.state
+// { state }` (phase de la page : recording, transcribing, polishing, idle),
+// `dictation.text { text }` et `dictation.error { message }` par `notify` ;
+// corrections du lot 4b (97-lot4b-fix-contract.md § 1) : accès « agents »
+// (`agents.issue {}` → `{ clientId, secret }`, remplace l'ancien et ferme ses
+// connexions ; `agents.revoke {}` → `{ revoked }` ; réservés à un éditeur),
+// séance agents limitée à `AGENT_METHODS` (sinon -32037 « not allowed »),
+// `chat.send` d'une séance agents seulement éphémère et neuve, retrait d'un
+// éditeur qui retire aussi son accès agents (`removeClient`).
 import { createHmac, randomBytes } from "node:crypto";
 import { type Duplex, duplexPair } from "node:stream";
 import type { GpuPlan, GpuSlot } from "../../shared/protocol";
@@ -26,9 +37,31 @@ type Session = {
   closed: boolean;
 };
 
+/** Seules méthodes d'une séance agents (contrat 97 § 1). */
+export const AGENT_METHODS = new Set([
+  "ping",
+  "$/cancelRequest",
+  "app.state",
+  "models.list",
+  "models.details",
+  "chat.send",
+  "chat.forget",
+  "image.generate",
+  "speech.read",
+  "speech.stop",
+  "proofread.run",
+]);
+
+export const FORBIDDEN = -32037;
+
 export type Handler = (
   params: Record<string, unknown>,
-  context: { id: number; notify(method: string, params: unknown): void },
+  context: {
+    id: number;
+    /** Client authentifié de la séance. */
+    client: string;
+    notify(method: string, params: unknown): void;
+  },
 ) => unknown;
 
 export class RpcFailure {
@@ -47,6 +80,12 @@ const hmac = (secret: Buffer, ...parts: Buffer[]) => {
 
 export class FakeBridge {
   readonly clients = new Map<string, Buffer>();
+  /** Accès agents de chaque éditeur (identifiant de l'éditeur → du client). */
+  readonly agentsOf = new Map<string, string>();
+  /** Accès agents donnés (`agents.issue`), dans l'ordre. */
+  readonly issued: string[] = [];
+  /** Appels de `agents.revoke` qui ont retiré un accès. */
+  revoked = 0;
   pairingCode: string | null = null;
   protocol: [number, number] = [1, 1];
   /** Rend une preuve fausse (une autre app que celle appairée). */
@@ -180,6 +219,27 @@ export class FakeBridge {
       return {};
     },
     "speech.stop": () => ({}),
+    "agents.issue": (_params, { client }) => {
+      if (this.isAgents(client)) throw new RpcFailure(FORBIDDEN, "not allowed");
+      const old = this.agentsOf.get(client);
+      if (old) this.removeClient(old);
+      const id = `agents-${this.issued.length + 1}`;
+      const access = this.addClient(id);
+      this.agentsOf.set(client, id);
+      this.issued.push(id);
+      return access;
+    },
+    "agents.revoke": (_params, { client }) => {
+      if (this.isAgents(client)) throw new RpcFailure(FORBIDDEN, "not allowed");
+      const old = this.agentsOf.get(client);
+      if (!old) return { revoked: false };
+      this.removeClient(old);
+      this.revoked++;
+      return { revoked: true };
+    },
+    "dictation.start": () => ({}),
+    "dictation.stop": () => ({}),
+    "dictation.cancel": () => ({}),
     "voice.stop": () => ({}),
     "voice.resume": () => ({}),
     "voice.mute": () => ({}),
@@ -310,6 +370,34 @@ export class FakeBridge {
     return { clientId: id, secret: secret.toString("hex") };
   }
 
+  /** Accès agents déjà donné à un éditeur (comme `agents.issue`). */
+  addAgents(editor = "client-1"): { clientId: string; secret: string } {
+    const id = `agents-${this.issued.length + 1}`;
+    const access = this.addClient(id);
+    this.agentsOf.set(editor, id);
+    this.issued.push(id);
+    return access;
+  }
+
+  isAgents(client: string | null): boolean {
+    return client !== null && [...this.agentsOf.values()].includes(client);
+  }
+
+  /** Client retiré dans l'app (avec l'accès agents d'un éditeur) : ses
+   * connexions sont fermées. */
+  removeClient(id: string): void {
+    const agents = this.agentsOf.get(id);
+    if (agents) this.removeClient(agents);
+    this.agentsOf.delete(id);
+    for (const [editor, access] of this.agentsOf) {
+      if (access === id) this.agentsOf.delete(editor);
+    }
+    this.clients.delete(id);
+    for (const session of this.sessions) {
+      if (session.client === id) session.socket.destroy();
+    }
+  }
+
   /** Coupe toutes les connexions (app fermée ou relancée). */
   dropAll(): void {
     for (const session of this.sessions) session.socket.destroy();
@@ -350,6 +438,18 @@ export class FakeBridge {
         id,
         error: { code, message: text, ...(data ? { data } : {}) },
       });
+    // Accès agents : liste blanche appliquée par l'app elle-même.
+    if (this.isAgents(session.client)) {
+      if (!AGENT_METHODS.has(method)) {
+        return id === undefined ? undefined : fail(FORBIDDEN, "not allowed");
+      }
+      if (
+        method === "chat.send" &&
+        (params.chatId !== undefined || params.ephemeral !== true)
+      ) {
+        return fail(FORBIDDEN, "not allowed");
+      }
+    }
     if (method === "$/cancelRequest") {
       this.cancelled.push(params.id as number);
       return;
@@ -410,6 +510,7 @@ export class FakeBridge {
     try {
       const result = await handler(params, {
         id,
+        client: session.client,
         notify: (m, p) =>
           this.#send(session, { jsonrpc: "2.0", method: m, params: p }),
       });

@@ -96,6 +96,18 @@
           "default": false,
           "scope": "application",
           "description": "%config.notify.includeFolderName%"
+        },
+        "chatonlm.mcp.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "%config.mcp.enabled%"
+        },
+        "chatonlm.nativeChat.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "%config.nativeChat.enabled%"
         }
       }
     },
@@ -239,6 +251,17 @@
         "command": "chatonlm.proofreadDocument",
         "title": "%command.proofreadDocument%",
         "category": "ChatonLM"
+      },
+      {
+        "command": "chatonlm.dictate",
+        "title": "%command.dictate%",
+        "category": "ChatonLM",
+        "icon": "$(mic)"
+      },
+      {
+        "command": "chatonlm.dictateStop",
+        "title": "%command.dictateStop%",
+        "category": "ChatonLM"
       }
     ],
     "menus": {
@@ -340,6 +363,14 @@
         {
           "command": "chatonlm.saveImage",
           "when": "false"
+        },
+        {
+          "command": "chatonlm.dictate",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "chatonlm.dictateStop",
+          "when": "chatonlm.dictating"
         }
       ],
       "scm/resourceState/context": [
@@ -376,6 +407,28 @@
         "command": "chatonlm.tourStop",
         "key": "shift+alt+escape",
         "when": "chatonlm.touring"
+      },
+      {
+        "command": "chatonlm.dictate",
+        "key": "shift+alt+d",
+        "when": "editorTextFocus && !editorReadonly"
+      },
+      {
+        "command": "chatonlm.dictateStop",
+        "key": "escape",
+        "when": "chatonlm.dictating && editorTextFocus && !suggestWidgetVisible && !inlineSuggestionVisible && !parameterHintsVisible"
+      }
+    ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "chatonlm.mcp",
+        "label": "ChatonLM"
+      }
+    ],
+    "languageModelChatProviders": [
+      {
+        "vendor": "chatonlm",
+        "displayName": "ChatonLM"
       }
     ]
   },

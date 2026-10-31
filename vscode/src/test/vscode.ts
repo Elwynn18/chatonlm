@@ -236,6 +236,9 @@ export class EventEmitter<T> {
   fire(value: T): void {
     for (const listener of this.#listeners) listener(value);
   }
+  dispose(): void {
+    this.#listeners.clear();
+  }
 }
 
 export class ThemeColor {
@@ -342,13 +345,15 @@ export enum OverviewRulerLane {
   Full = 7,
 }
 
-/** Éditeur visible : décorations posées et plages montrées relevées. */
+/** Éditeur visible : décorations posées et plages montrées relevées ;
+ * `edit` remplace le document (insertion au curseur). */
 export class TextEditor {
   readonly decorations = new Map<unknown, Range[]>();
   readonly revealed: { range: Range; type: TextEditorRevealType }[] = [];
   visibleRanges: Range[];
+  #selections: Selection[] | null = null;
   constructor(
-    readonly document: TextDocument,
+    public document: TextDocument,
     public selection: Selection = new Selection(
       new Position(0, 0),
       new Position(0, 0),
@@ -357,6 +362,50 @@ export class TextEditor {
     this.visibleRanges = [
       new Range(0, 0, Math.max(0, document.lineCount - 1), 0),
     ];
+  }
+  get selections(): Selection[] {
+    return this.#selections ?? [this.selection];
+  }
+  set selections(value: Selection[]) {
+    this.#selections = value;
+    this.selection = value[0];
+  }
+  async edit(
+    callback: (builder: {
+      replace(range: Range, text: string): void;
+      insert(position: Position, text: string): void;
+    }) => void,
+  ): Promise<boolean> {
+    const changes: { range: Range; text: string }[] = [];
+    callback({
+      replace: (range, text) => changes.push({ range, text }),
+      insert: (position, text) =>
+        changes.push({ range: new Range(position, position), text }),
+    });
+    testState.editorEdits.push(changes);
+    if (testState.editFails) return false;
+    const document = this.document;
+    let text = document.text;
+    for (const change of [...changes].sort(
+      (a, b) =>
+        document.offsetAt(b.range.start) - document.offsetAt(a.range.start),
+    )) {
+      text =
+        text.slice(0, document.offsetAt(change.range.start)) +
+        change.text +
+        text.slice(document.offsetAt(change.range.end));
+    }
+    const next = new TextDocument(
+      document.uri.scheme === "file"
+        ? document.uri.path
+        : document.uri.toString(),
+      text,
+      document.languageId,
+    );
+    next.version = document.version + 1;
+    this.document = next;
+    testState.documents.set(document.uri.path, next);
+    return true;
   }
   setDecorations(type: unknown, ranges: Range[]): void {
     this.decorations.set(type, ranges);
@@ -367,6 +416,7 @@ export class TextEditor {
 }
 
 export type StatusItem = {
+  id?: string;
   text: string;
   name?: string;
   tooltip?: string;
@@ -429,6 +479,20 @@ export const testState = {
   edits: [] as WorkspaceEdit[],
   /** Nom de l'espace de travail (`workspace.name`). */
   workspaceName: "work" as string | undefined,
+  /** Réglages d'un dossier ouvert (`inspect().workspaceValue`), qui
+   * l'emportent dans `get` comme dans VS Code. */
+  workspaceConfig: {} as Record<string, unknown>,
+  /** Modifications faites par `TextEditor.edit`. */
+  editorEdits: [] as { range: Range; text: string }[][],
+  /** `TextEditor.edit` refusé (document en lecture seule). */
+  editFails: false,
+  /** Onglets ouverts (`window.tabGroups`), par chemin. */
+  tabs: [] as string[],
+  /** Fournisseurs enregistrés par `vscode.lm`. */
+  mcpProviders: [] as { id: string; provider: unknown }[],
+  chatProviders: [] as { vendor: string; provider: unknown }[],
+  /** Réponse de `vscode.executeDocumentSymbolProvider`. */
+  symbols: undefined as unknown,
   events: newEvents(),
 };
 
@@ -489,6 +553,14 @@ export function resetTestState(): void {
   testState.contentProviders = new Map();
   testState.edits = [];
   testState.workspaceName = "work";
+  testState.workspaceConfig = {};
+  testState.editorEdits = [];
+  testState.editFails = false;
+  testState.tabs = [];
+  testState.mcpProviders = [];
+  testState.chatProviders = [];
+  testState.symbols = undefined;
+  cursor.mcp = undefined;
   testState.events = newEvents();
   window.activeTerminal = undefined;
   window.activeTextEditor = undefined;
@@ -529,8 +601,9 @@ export const window = {
     testState.decorationTypes.push(type);
     return type;
   },
-  createStatusBarItem(): StatusItem {
+  createStatusBarItem(id?: unknown): StatusItem {
     const item: StatusItem = {
+      ...(typeof id === "string" ? { id } : {}),
       text: "",
       visible: false,
       show: () => void (item.visible = true),
@@ -606,6 +679,18 @@ export const window = {
   },
   onDidChangeWindowState: (listener: (value: { focused: boolean }) => void) =>
     testState.events.windowState.event(listener),
+  /** Onglets : un groupe, un onglet par chemin de `testState.tabs`. */
+  get tabGroups() {
+    return {
+      all: [
+        {
+          tabs: testState.tabs.map((file) => ({
+            input: { uri: Uri.file(file) },
+          })),
+        },
+      ],
+    };
+  },
 };
 
 export const commands = {
@@ -616,11 +701,21 @@ export const commands = {
   async executeCommand(command: string, ...args: unknown[]) {
     testState.executed.push({ command, args });
     if (command === "setContext") testState.contexts[String(args[0])] = args[1];
+    if (
+      command === "vscode.executeDocumentSymbolProvider" &&
+      testState.symbols !== undefined
+    ) {
+      return testState.symbols;
+    }
     return testState.commands.get(command)?.(...args);
   },
 };
 
 export const workspace = {
+  /** Documents ouverts. */
+  get textDocuments(): TextDocument[] {
+    return [...testState.documents.values()];
+  },
   get workspaceFolders() {
     return [{ uri: Uri.file(testState.workspaceRoot), name: "work", index: 0 }];
   },
@@ -638,11 +733,15 @@ export const workspace = {
     const full = (key: string) => (section ? `${section}.${key}` : key);
     return {
       get<T>(key: string, fallback?: T): T | undefined {
-        const value = testState.config[full(key)];
+        const value =
+          testState.workspaceConfig[full(key)] ?? testState.config[full(key)];
         return value === undefined ? fallback : (value as T);
       },
       inspect(key: string) {
-        return { globalValue: testState.config[full(key)] };
+        return {
+          globalValue: testState.config[full(key)],
+          workspaceValue: testState.workspaceConfig[full(key)],
+        };
       },
       async update(key: string, value: unknown) {
         const name = full(key);
@@ -813,3 +912,47 @@ export const env = {
 };
 
 export const version = "1.105.0";
+
+/** Partie texte d'un message du chat (API des modèles). */
+export class LanguageModelTextPart {
+  constructor(readonly value: string) {}
+}
+
+export enum LanguageModelChatMessageRole {
+  User = 1,
+  Assistant = 2,
+}
+
+/** Serveur MCP lancé comme processus (stdio). */
+export class McpStdioServerDefinition {
+  cwd?: Uri;
+  constructor(
+    readonly label: string,
+    public command: string,
+    public args: string[] = [],
+    public env: Record<string, string | number | null> = {},
+    public version?: string,
+  ) {}
+}
+
+/** Espace `vscode.lm` : fournisseurs relevés. */
+export const lm = {
+  registerMcpServerDefinitionProvider(id: string, provider: unknown) {
+    testState.mcpProviders.push({ id, provider });
+    return { dispose: () => {} };
+  },
+  registerLanguageModelChatProvider(vendor: string, provider: unknown) {
+    testState.chatProviders.push({ vendor, provider });
+    return { dispose: () => {} };
+  },
+};
+
+/** API de Cursor (`vscode.cursor.mcp`), absente par défaut. */
+export const cursor = {
+  mcp: undefined as
+    | {
+        registerServer(config: unknown): void;
+        unregisterServer(name: string): void;
+      }
+    | undefined,
+};

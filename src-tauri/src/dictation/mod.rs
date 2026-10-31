@@ -21,11 +21,16 @@
 //! temps d'une séance (seulement si aucune dictée n'est en cours) : elle
 //! refuse alors de démarrer (avis « Dictation failed ») et garde son modèle
 //! chargé, qu'elle partage avec la séance (`engine`).
+//!
+//! Une connexion du pont VS Code peut aussi tenir la dictée ([`editor`],
+//! lot 4b) : texte rendu à l'éditeur, jamais copié ni collé ; ni la page, ni
+//! le raccourci ne l'arrêtent (seul le bandeau de la page le peut).
 
 pub mod audio;
 pub mod clipboard;
 pub mod cpu;
 pub mod downloads;
+pub mod editor;
 pub mod engine;
 pub mod languages;
 pub mod models;
@@ -48,6 +53,7 @@ use ts_rs::TS;
 
 use audio::Microphone;
 use clipboard::{BoxFuture, Clipboard, PasteError};
+use editor::{DictationLink, DictationOwner, EditorEnd, EditorSession, EditorStartError, Opened};
 use engine::{Engine, ModelSpec, Request};
 use models::SpeechEngine;
 use notify::{Notice, Notifier, Offer, Title};
@@ -133,6 +139,9 @@ pub struct DictationStatus {
     pub shortcut: ShortcutStatus,
     /// Le portail sait ouvrir la boîte de réglage du raccourci (version 2).
     pub can_configure_shortcut: bool,
+    /// La dictée en cours est tenue par l'extension VS Code (bandeau de la
+    /// page ; ni l'essai, ni le raccourci ne l'arrêtent).
+    pub editor: bool,
     /// Une zone de notification (StatusNotifierWatcher) affiche l'icône.
     pub tray_available: bool,
     /// Commande à lier soi-même dans les raccourcis du système (repli sans
@@ -284,15 +293,57 @@ impl Dictation {
         self.core.stop();
     }
 
-    /// Abandonne l'enregistrement ou le traitement en cours, sans rien copier.
+    /// Abandonne l'enregistrement ou le traitement en cours, sans rien copier
+    /// (pas celle d'un éditeur).
     pub fn cancel(&self, app: &AppHandle) {
         if self.core.cancel() {
             host(app).changed(DictationPhase::Idle);
         }
     }
 
+    /// Dictée pour une connexion du pont, inscrite aussitôt (un arrêt lu
+    /// ensuite la trouve) ; le résultat du démarrage suit quand le micro est
+    /// ouvert. Refus immédiat si la dictée est occupée.
+    pub(crate) fn start_for_editor(
+        &self,
+        app: &AppHandle,
+        link: Arc<dyn DictationLink>,
+    ) -> Result<Opened, EditorStartError> {
+        self.core.start_editor(host(app), link)
+    }
+
+    /// Fin de l'enregistrement de la connexion (le texte suit) ; avant
+    /// l'ouverture du micro, la dictée est abandonnée.
+    pub fn stop_editor(&self, app: &AppHandle, connection: u64) {
+        if self.core.stop_editor(connection) {
+            host(app).changed(DictationPhase::Idle);
+        }
+    }
+
+    /// Abandon de la dictée de la connexion (fin de la connexion, éditeur
+    /// retiré, pont coupé) : micro fermé, rien n'est rendu.
+    pub fn cancel_editor(&self, app: &AppHandle, connection: u64) {
+        if self.core.cancel_editor(Some(connection)) {
+            host(app).changed(DictationPhase::Idle);
+        }
+    }
+
+    /// Bouton Stop du bandeau de la page : abandon de la dictée de
+    /// l'éditeur, quelle que soit la connexion.
+    pub fn cancel_editor_session(&self, app: &AppHandle) {
+        if self.core.cancel_editor(None) {
+            host(app).changed(DictationPhase::Idle);
+        }
+    }
+
     pub fn phase(&self) -> DictationPhase {
         *self.core.phase.borrow()
+    }
+
+    /// La dictée en cours est celle d'un éditeur (pont VS Code) : la zone
+    /// de notification ne propose alors que son abandon.
+    pub fn for_editor(&self) -> bool {
+        self.core.inner.lock().editor.is_some()
     }
 
     /// Moteur de transcription, partagé avec le mode conversation vocale.
@@ -318,13 +369,20 @@ impl Dictation {
 
     pub fn status(&self, app: &AppHandle) -> DictationStatus {
         let desktop = crate::desktop::state(app);
+        // Un seul verrou à la fois (les temporaires d'une même expression
+        // vivent jusqu'à sa fin).
+        let (editor, last_result) = {
+            let inner = self.core.inner.lock();
+            (inner.editor.is_some(), inner.last_result.clone())
+        };
         DictationStatus {
             phase: self.phase(),
             shortcut: desktop.shortcut_status(),
             can_configure_shortcut: desktop.can_configure_shortcut(),
+            editor,
             tray_available: desktop.tray_available(),
             command: crate::desktop::dictate_command(),
-            last_result: self.core.inner.lock().last_result.clone(),
+            last_result,
         }
     }
 
@@ -507,6 +565,8 @@ struct Inner {
     closed: bool,
     /// Séance du mode vocal en cours : aucune dictée ne démarre.
     voice_mode: bool,
+    /// Éditeur qui tient la dictée en cours.
+    editor: Option<Arc<EditorSession>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -520,11 +580,12 @@ enum Stage {
 }
 
 /// D'où vient une dictée : du bureau (raccourci, zone de notification,
-/// `--dictate`) ou de la page de ChatonLM.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// `--dictate`), de la page de ChatonLM, ou d'un éditeur par le pont.
+#[derive(Clone)]
 enum Origin {
     Desktop,
     Page,
+    Editor(Arc<EditorSession>),
 }
 
 /// Échec de `dictation_copy_last`.
@@ -539,9 +600,12 @@ enum CopyError {
 enum End {
     Done {
         result: DictationResult,
-        notice: Notice,
+        /// `None` pour un éditeur.
+        notice: Option<Notice>,
     },
     Failed(String),
+    /// Modèle de transcription absent (pour l'éditeur, refus à part).
+    MissingModel(String),
     /// Trop courte : rien à montrer.
     Abandoned,
 }
@@ -590,7 +654,49 @@ impl Core {
             host.changed(DictationPhase::Idle);
             return;
         }
+        self.begin(inner, host, origin);
+    }
+
+    /// Dictée d'un éditeur (voir [`Dictation::start_for_editor`]) : refusée
+    /// si la dictée est occupée, ou si la connexion est déjà fermée (vérifié
+    /// sous le verrou : une fermeture passée ensuite la trouve).
+    fn start_editor(
+        self: &Arc<Self>,
+        host: Arc<dyn Host>,
+        link: Arc<dyn DictationLink>,
+    ) -> Result<Opened, EditorStartError> {
+        let inner = self.inner.lock();
+        if inner.closed || !link.alive() {
+            return Err(EditorStartError::Cancelled);
+        }
+        if inner.voice_mode {
+            return Err(EditorStartError::Busy(DictationOwner::VoiceMode));
+        }
+        if inner.stage != Stage::Idle {
+            let owner = if inner.editor.is_some() {
+                DictationOwner::Bridge
+            } else {
+                DictationOwner::App
+            };
+            return Err(EditorStartError::Busy(owner));
+        }
+        let (session, opened) = EditorSession::new(link);
+        self.begin(inner, host, Origin::Editor(Arc::new(session)));
+        Ok(opened)
+    }
+
+    /// Commence la dictée (la dictée est libre, sous `inner`).
+    fn begin(
+        self: &Arc<Self>,
+        mut inner: parking_lot::MutexGuard<'_, Inner>,
+        host: Arc<dyn Host>,
+        origin: Origin,
+    ) {
         inner.session += 1;
+        inner.editor = match &origin {
+            Origin::Editor(editor) => Some(editor.clone()),
+            _ => None,
+        };
         let session = inner.session;
         let (stop, stopped) = oneshot::channel();
         inner.stage = Stage::Recording;
@@ -624,8 +730,16 @@ impl Core {
         self.inner.lock().voice_mode = false;
     }
 
+    /// Fin de l'enregistrement (raccourci, page, zone de notification) ;
+    /// sans effet sur la dictée d'un éditeur.
     fn stop(&self) {
         let mut inner = self.inner.lock();
+        if inner.editor.is_none() {
+            Self::stop_recording(&mut inner);
+        }
+    }
+
+    fn stop_recording(inner: &mut Inner) {
         if inner.stage == Stage::Recording
             && let Some(stop) = inner.stop.take()
         {
@@ -633,9 +747,46 @@ impl Core {
         }
     }
 
-    /// Vrai si une dictée a été abandonnée.
+    /// Fin de l'enregistrement de l'éditeur de la connexion ; avant
+    /// l'ouverture du micro, abandon (rien ne s'ouvre, le démarrage est
+    /// annulé). Vrai si la dictée a été abandonnée.
+    fn stop_editor(&self, connection: u64) -> bool {
+        let mut inner = self.inner.lock();
+        let Some(editor) = inner.editor.clone() else {
+            return false;
+        };
+        if editor.link.connection() != connection {
+            return false;
+        }
+        if editor.starting() {
+            return self.abandon(&mut inner);
+        }
+        Self::stop_recording(&mut inner);
+        false
+    }
+
+    /// Abandon de la dictée de l'éditeur (de cette connexion, ou de
+    /// n'importe laquelle avec `None`) ; vrai si elle a été abandonnée.
+    fn cancel_editor(&self, connection: Option<u64>) -> bool {
+        let mut inner = self.inner.lock();
+        let ours = inner.editor.as_ref().is_some_and(|editor| {
+            connection.is_none_or(|connection| editor.link.connection() == connection)
+        });
+        ours && self.abandon(&mut inner)
+    }
+
+    /// Vrai si une dictée a été abandonnée (pas celle d'un éditeur : voir
+    /// [`Self::cancel_editor`]).
     fn cancel(&self) -> bool {
         let mut inner = self.inner.lock();
+        if inner.editor.is_some() {
+            return false;
+        }
+        self.abandon(&mut inner)
+    }
+
+    /// Abandon de la dictée en cours, quelle qu'elle soit.
+    fn abandon(&self, inner: &mut Inner) -> bool {
         if inner.stage == Stage::Idle {
             return false;
         }
@@ -648,7 +799,16 @@ impl Core {
         if let Some(task) = inner.task.take() {
             task.abort();
         }
-        self.services.notifier.withdraw();
+        match inner.editor.take() {
+            // Démarrage sans réponse : abandonné (son canal se ferme) ;
+            // sinon l'éditeur apprend la fin.
+            Some(editor) => {
+                if !editor.answer(Err(EditorStartError::Cancelled)) {
+                    editor.link.phase(DictationPhase::Idle);
+                }
+            }
+            None => self.services.notifier.withdraw(),
+        }
         self.phase.send_replace(DictationPhase::Idle);
         true
     }
@@ -656,8 +816,11 @@ impl Core {
     /// Fermeture : plus aucune dictée, celle en cours abandonnée ; attend
     /// le moteur (`limit` au plus) puis le libère.
     async fn shutdown(&self, limit: Duration) {
-        self.inner.lock().closed = true;
-        self.cancel();
+        {
+            let mut inner = self.inner.lock();
+            inner.closed = true;
+            self.abandon(&mut inner);
+        }
         let engine = self.services.engine.clone();
         let released = tauri::async_runtime::spawn_blocking(move || engine.shutdown(limit)).await;
         if !matches!(released, Ok(true)) {
@@ -701,10 +864,26 @@ impl Core {
             self.services.notifier.show(notice);
         }
         if let Some(phase) = phase {
+            if let Some(editor) = &inner.editor {
+                editor.link.phase(phase);
+            }
             self.phase.send_replace(phase);
             drop(inner);
             host.changed(phase);
         }
+        true
+    }
+
+    /// Micro ouvert pour l'éditeur de la dictée `session` : il l'apprend
+    /// (`Recording`), puis le démarrage répond. Faux si la dictée a changé ou
+    /// si sa connexion s'est fermée entre-temps (alors rien ne lui est dit).
+    fn editor_opened(&self, session: u64, editor: &EditorSession) -> bool {
+        let inner = self.inner.lock();
+        if inner.session != session || !editor.link.alive() {
+            return false;
+        }
+        editor.link.phase(DictationPhase::Recording);
+        editor.answer(Ok(()));
         true
     }
 
@@ -716,21 +895,48 @@ impl Core {
         abort: Arc<AtomicBool>,
         origin: Origin,
     ) -> End {
-        let prepared = match host.prepare().await {
+        let mut prepared = match host.prepare().await {
             Ok(prepared) => prepared,
             Err(error) => return End::Failed(error),
         };
+        let editor = match &origin {
+            Origin::Editor(editor) => Some(editor.clone()),
+            _ => None,
+        };
+        // Dictionnaire de l'utilisateur, à part des noms du projet : Whisper
+        // garde à ceux-ci une part de sa consigne (`Request::project`).
+        let dictionary = prepared.settings.dictionary.clone();
+        let mut project = Vec::new();
+        if let Some(editor) = &editor {
+            // Noms du projet ajoutés pour cette dictée seulement (Whisper,
+            // nettoyage) ; les réglages lus ne sont jamais réécrits.
+            project = editor::new_words(&dictionary, &editor.link.glossary());
+            prepared.settings.dictionary.extend(project.iter().cloned());
+        }
         let settings = &prepared.settings;
-        if !settings.enabled {
-            return End::Failed(t!("dictation.disabled"));
-        }
-        if settings.speech_model.is_empty() {
-            return End::Failed(t!("dictation.noModel"));
-        }
-        let Some(model) = models::find(&settings.speech_model)
-            .filter(|model| models::installed(&prepared.models_dir, model))
-        else {
-            return End::Failed(t!("dictation.notInstalled"));
+        let model = if editor.is_some() {
+            // Comme le mode vocal : celui de la dictée, sinon le premier
+            // installé ; l'interrupteur de la dictée (raccourci) ne compte pas.
+            let installed =
+                |model: &models::CatalogModel| models::installed(&prepared.models_dir, model);
+            let model = crate::voice_mode::session::speech_model(settings, &installed);
+            if !installed(model) {
+                return End::MissingModel(t!("dictation.notInstalled"));
+            }
+            model
+        } else {
+            if !settings.enabled {
+                return End::Failed(t!("dictation.disabled"));
+            }
+            if settings.speech_model.is_empty() {
+                return End::Failed(t!("dictation.noModel"));
+            }
+            let Some(model) = models::find(&settings.speech_model)
+                .filter(|model| models::installed(&prepared.models_dir, model))
+            else {
+                return End::Failed(t!("dictation.notInstalled"));
+            };
+            model
         };
         // Moteur que cette machine ne peut pas faire tourner (Whisper sans
         // AVX2..., Parakeet sans ONNX Runtime) : refusé avant d'écouter (le
@@ -756,9 +962,18 @@ impl Core {
             Ok(Err(error)) => return End::Failed(error),
             Err(error) => return End::Failed(audio::could_not_open(&error)),
         };
-        let body = listening_body(settings.mode, prepared.trigger.as_deref());
-        let listening = Notice::progress(Title::Listening, &body);
-        if !self.advance(host, session, Stage::Recording, None, Some(listening)) {
+        // L'éditeur montre lui-même l'écoute et le texte : pas de
+        // notification du bureau pour lui.
+        let listening = editor.is_none().then(|| {
+            let body = listening_body(settings.mode, prepared.trigger.as_deref());
+            Notice::progress(Title::Listening, &body)
+        });
+        if !self.advance(host, session, Stage::Recording, None, listening) {
+            return End::Abandoned;
+        }
+        if let Some(editor) = &editor
+            && !self.editor_opened(session, editor)
+        {
             return End::Abandoned;
         }
         tokio::select! {
@@ -779,19 +994,22 @@ impl Core {
             return End::Failed(audio::no_speech());
         }
 
-        let transcribing = Notice::progress(Title::Transcribing, "");
+        let transcribing = editor
+            .is_none()
+            .then(|| Notice::progress(Title::Transcribing, ""));
         if !self.advance(
             host,
             session,
             Stage::Processing,
             Some(DictationPhase::Transcribing),
-            Some(transcribing),
+            transcribing,
         ) {
             return End::Abandoned;
         }
         let request = Request {
             language: (settings.language != languages::AUTO).then(|| settings.language.clone()),
-            glossary: settings.dictionary.clone(),
+            glossary: dictionary,
+            project,
         };
         let transcribed = tauri::async_runtime::spawn_blocking(move || {
             engine.transcribe(&spec, &samples, &request, &abort)
@@ -826,6 +1044,23 @@ impl Core {
         } else {
             (raw.clone(), false, None)
         };
+        if editor.is_some() {
+            // Rendu à l'éditeur seulement : ni presse-papiers, ni collage.
+            return End::Done {
+                result: DictationResult {
+                    at: now_ms(),
+                    text,
+                    raw,
+                    polished,
+                    copied: false,
+                    error,
+                    copy_failed: false,
+                    pasted: false,
+                    paste_error: None,
+                },
+                notice: None,
+            };
+        }
 
         let raw_copy = polishing && !polished;
         let mut copy_failed = false;
@@ -836,7 +1071,7 @@ impl Core {
                 Ok(()) => {
                     // Collé là où se trouve le curseur ; sinon le texte reste
                     // dans le presse-papiers et la raison est dite.
-                    if settings.auto_paste && origin == Origin::Desktop {
+                    if settings.auto_paste && matches!(origin, Origin::Desktop) {
                         match self.paste().await {
                             Ok(()) => pasted = true,
                             Err(error) => paste_error = Some(error.explain()),
@@ -890,7 +1125,7 @@ impl Core {
                 pasted,
                 paste_error,
             },
-            notice,
+            notice: Some(notice),
         }
     }
 
@@ -904,14 +1139,21 @@ impl Core {
         inner.stage = Stage::Idle;
         inner.stop = None;
         inner.task = None;
+        if let Some(editor) = inner.editor.take() {
+            Self::finish_editor(&editor, end);
+            self.phase.send_replace(DictationPhase::Idle);
+            return true;
+        }
         inner.last_session = session;
         let notifier = &self.services.notifier;
         match end {
             End::Done { result, notice } => {
-                notifier.show(notice);
+                if let Some(notice) = notice {
+                    notifier.show(notice);
+                }
                 inner.last_result = Some(result);
             }
-            End::Failed(reason) => {
+            End::Failed(reason) | End::MissingModel(reason) => {
                 notifier.show(Notice::last(Title::Failed, notify::escape(&reason)));
                 inner.last_result = Some(DictationResult::failed(reason));
             }
@@ -919,6 +1161,28 @@ impl Core {
         }
         self.phase.send_replace(DictationPhase::Idle);
         true
+    }
+
+    /// Fin de la dictée d'un éditeur (ni notification, ni dernier résultat) :
+    /// avant l'ouverture du micro, la réponse du démarrage ; après, le texte
+    /// ou l'échec, puis `Idle`.
+    fn finish_editor(editor: &EditorSession, end: End) {
+        if editor.starting() {
+            editor.answer(Err(match end {
+                End::MissingModel(_) => EditorStartError::SpeechModelMissing,
+                End::Failed(reason) => EditorStartError::Failed(reason),
+                End::Done { .. } | End::Abandoned => EditorStartError::Cancelled,
+            }));
+            return;
+        }
+        match end {
+            End::Done { result, .. } => editor.link.ended(EditorEnd::Text(result.text)),
+            End::Failed(reason) | End::MissingModel(reason) => {
+                editor.link.ended(EditorEnd::Failed(reason));
+            }
+            End::Abandoned => {}
+        }
+        editor.link.phase(DictationPhase::Idle);
     }
 }
 

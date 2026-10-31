@@ -27,6 +27,8 @@ use crate::updater::{self, TrayUpdate};
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Shown {
     phase: DictationPhase,
+    /// Dictée tenue par un éditeur (pont VS Code).
+    editor: bool,
     trigger: Option<String>,
     ready: bool,
     update: TrayUpdate,
@@ -68,7 +70,12 @@ fn icon(phase: DictationPhase) -> Option<Image<'static>> {
 fn tooltip(shown: &Shown) -> String {
     format!(
         "ChatonLM — {}",
-        describe(shown.phase, shown.trigger.as_deref(), shown.lang)
+        describe(
+            shown.phase,
+            shown.editor,
+            shown.trigger.as_deref(),
+            shown.lang
+        )
     )
 }
 
@@ -79,7 +86,13 @@ fn menu(app: &AppHandle, shown: &Shown) -> tauri::Result<Menu<Wry>> {
         Separator(PredefinedMenuItem<Wry>),
     }
     let mut items = Vec::new();
-    for entry in entries(shown.phase, shown.ready, shown.update, shown.lang) {
+    for entry in entries(
+        shown.phase,
+        shown.editor,
+        shown.ready,
+        shown.update,
+        shown.lang,
+    ) {
         match entry {
             None => items.push(Item::Separator(PredefinedMenuItem::separator(app)?)),
             Some(Entry { visible: false, .. }) => {}
@@ -105,6 +118,7 @@ fn menu(app: &AppHandle, shown: &Shown) -> tauri::Result<Menu<Wry>> {
 fn current(app: &AppHandle) -> Shown {
     Shown {
         phase: app.state::<Dictation>().phase(),
+        editor: app.state::<Dictation>().for_editor(),
         trigger: bound_trigger(app),
         ready: dictation_ready(app),
         update: updater::tray_update(app),

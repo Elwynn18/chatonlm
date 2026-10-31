@@ -3,6 +3,8 @@
 import type { TFunction } from "@/i18n";
 import { formatBytes } from "@/i18n/format";
 import type {
+  AgentCall,
+  AgentTool,
   CompletionView,
   Connection,
   GpuPlan,
@@ -340,5 +342,51 @@ export function imageProgress(t: TFunction, image: ImageView): string {
       return t("vscode.image.cancelled");
     case "failed":
       return image.error ?? t("vscode.image.failed");
+  }
+}
+
+/** Nom d'un outil du serveur MCP, pour l'utilisateur. */
+export function agentToolLabel(t: TFunction, tool: AgentTool): string {
+  switch (tool) {
+    case "chatonlm_ask":
+      return t("vscode.agents.tools.ask");
+    case "chatonlm_generate_image":
+      return t("vscode.agents.tools.image");
+    case "chatonlm_speak":
+      return t("vscode.agents.tools.speak");
+    case "chatonlm_proofread":
+      return t("vscode.agents.tools.proofread");
+    case "chatonlm_models":
+      return t("vscode.agents.tools.models");
+  }
+}
+
+/** « Copilot used ChatonLM: ask a local model ». */
+export function agentCallTitle(t: TFunction, call: AgentCall): string {
+  const tool = agentToolLabel(t, call.tool);
+  return call.agent
+    ? t("vscode.agents.used", { agent: call.agent, tool })
+    : t("vscode.agents.usedUnknown", { tool });
+}
+
+/** « Copilot is using ChatonLM: ask a local model » (annonce). */
+export function agentAnnounce(t: TFunction, call: AgentCall): string {
+  const tool = agentToolLabel(t, call.tool);
+  return call.agent
+    ? t("vscode.agents.announceAgent", { agent: call.agent, tool })
+    : t("vscode.agents.announceUnknown", { tool });
+}
+
+/** Où en est un appel. */
+export function agentCallState(t: TFunction, call: AgentCall): string {
+  switch (call.state) {
+    case "running":
+      return t("vscode.agents.running");
+    case "done":
+      return t("vscode.agents.done");
+    case "failed":
+      return t("vscode.agents.failed");
+    case "stopped":
+      return t("vscode.agents.stopped");
   }
 }

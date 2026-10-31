@@ -1,30 +1,40 @@
 // Bandeau « VS Code utilise votre micro » (propre à ChatonLM) : tant que
-// l'extension VS Code tient une séance du mode vocal, il reste visible en haut
-// de la fenêtre, sur toutes les pages (monté par la route racine), avec un
-// bouton qui arrête cette séance. Le micro n'est ainsi jamais ouvert à l'insu
-// de l'utilisateur, même panneau de VS Code replié. Une séance de la page n'a
-// pas de bandeau (sa barre est dans la zone de saisie).
+// l'extension VS Code tient une séance du mode vocal ou une dictée (lot 4b),
+// il reste visible en haut de la fenêtre, sur toutes les pages (monté par la
+// route racine), avec un bouton qui arrête cette séance ou abandonne cette
+// dictée. Le micro n'est ainsi jamais ouvert à l'insu de l'utilisateur, même
+// panneau de VS Code replié. Une séance ou une dictée de l'app n'a pas de
+// bandeau (sa barre est dans la zone de saisie, ou sur la page des réglages).
 
 import { MicrophoneIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import { BANNER_PRIMARY } from "@/components/bannerStyles";
+import { useDictationStatus } from "@/hooks/useDictation";
 import { useVoiceModeSnapshot } from "@/hooks/useVoiceMode";
 import { useT } from "@/i18n";
-import { errorMessage, voiceModeStopEditor } from "@/lib/ipc";
+import {
+  dictationStopEditor,
+  errorMessage,
+  voiceModeStopEditor,
+} from "@/lib/ipc";
 import { heldByEditor } from "@/lib/voiceMode";
 
 export function EditorVoiceBanner() {
   const t = useT();
   const { state } = useVoiceModeSnapshot();
+  const { data: dictation } = useDictationStatus();
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!heldByEditor(state)) return null;
+  const voice = heldByEditor(state);
+  // Les deux ne vont jamais ensemble (une seule écoute dans l'app).
+  const dictating = !voice && dictation?.editor === true;
+  if (!voice && !dictating) return null;
 
   const stop = async () => {
     setStopping(true);
     setError(null);
     try {
-      await voiceModeStopEditor();
+      await (dictating ? dictationStopEditor() : voiceModeStopEditor());
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -47,7 +57,11 @@ export function EditorVoiceBanner() {
           type="button"
           onClick={() => void stop()}
           disabled={stopping}
-          aria-label={t("voiceMode.editorBanner.stopLabel")}
+          aria-label={
+            dictating
+              ? t("voiceMode.editorBanner.stopDictationLabel")
+              : t("voiceMode.editorBanner.stopLabel")
+          }
           className={BANNER_PRIMARY}
         >
           {t("voiceMode.editorBanner.stop")}
@@ -58,7 +72,9 @@ export function EditorVoiceBanner() {
           role="alert"
           className="pointer-events-auto mt-1.5 max-w-full rounded-2xl bg-white px-3 py-1 text-xs break-words text-red-600 dark:bg-neutral-800 dark:text-red-400"
         >
-          {t("voiceMode.editorBanner.stopFailed", { error })}
+          {dictating
+            ? t("voiceMode.editorBanner.stopDictationFailed", { error })
+            : t("voiceMode.editorBanner.stopFailed", { error })}
         </p>
       )}
     </div>

@@ -263,5 +263,30 @@
     "replace": "Replace",
     "discard": "Discard",
     "close": "Close"
+  },
+  "agents": {
+    "label": "Agents",
+    "title": "Agents using ChatonLM",
+    "close": "Clear the finished calls",
+    "announceAgent": "{agent} is using ChatonLM: {tool}",
+    "announceUnknown": "An agent is using ChatonLM: {tool}",
+    "calls": "Calls from agents",
+    "used": "{agent} used ChatonLM: {tool}",
+    "usedUnknown": "An agent used ChatonLM: {tool}",
+    "running": "Running…",
+    "done": "Done",
+    "failed": "Failed",
+    "stopped": "Stopped",
+    "stop": "Stop",
+    "stopLabel": "Stop: {tool}",
+    "turnOff": "Turn off for agents",
+    "off": "Turned off: agents can no longer use ChatonLM.",
+    "tools": {
+      "ask": "ask a local model",
+      "image": "generate an image",
+      "speak": "read a text aloud",
+      "proofread": "proofread a text",
+      "models": "list the models"
+    }
   }
 }

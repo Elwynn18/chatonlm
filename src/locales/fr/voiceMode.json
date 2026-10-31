@@ -8,7 +8,9 @@
     "text": "VS Code utilise votre micro",
     "stop": "Arrêter",
     "stopLabel": "Arrêter la séance vocale de VS Code",
-    "stopFailed": "Impossible d'arrêter la séance vocale de VS Code : {error}"
+    "stopFailed": "Impossible d'arrêter la séance vocale de VS Code : {error}",
+    "stopDictationLabel": "Arrêter la dictée de VS Code",
+    "stopDictationFailed": "Impossible d'arrêter la dictée de VS Code : {error}"
   },
   "bar": {
     "phase": {

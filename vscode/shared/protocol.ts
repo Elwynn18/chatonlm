@@ -2,7 +2,8 @@
 // Contrats : .tools/research/87-lot1b-contract.md, 89-lot2-voice-contract.md
 // (X : visite guidée parlée, chaton en caoutchouc), 91-lot3-gpu-completion-contract.md
 // (X : autocomplétion locale, carte « Graphics card »), 93-lot4a-contract.md
-// (cours de l'Étude sur un dépôt, image vers un fichier).
+// (cours de l'Étude sur un dépôt, image vers un fichier), 95-lot4b-contract.md
+// (appels des agents par le serveur MCP de ChatonLM).
 
 import type { Chat } from "../../src/bindings/Chat";
 import type { ChatEvent } from "../../src/bindings/ChatEvent";
@@ -307,6 +308,49 @@ export type ImageView = {
   error: string | null;
 };
 
+/** Outil du serveur MCP de ChatonLM (liste blanche). */
+export type AgentTool =
+  | "chatonlm_ask"
+  | "chatonlm_generate_image"
+  | "chatonlm_speak"
+  | "chatonlm_proofread"
+  | "chatonlm_models";
+
+/** Appel d'un agent (Copilot, Cline…) par le serveur MCP de ChatonLM. */
+export type AgentCall = {
+  id: string;
+  tool: AgentTool;
+  /** Nom donné par l'agent, ou null. */
+  agent: string | null;
+  /** Début de la demande (une ligne), ou null. */
+  detail: string | null;
+  state: "running" | "done" | "failed" | "stopped";
+  startedAt: number;
+  endedAt: number | null;
+};
+
+/**
+ * Accès propre au serveur MCP, donné par l'app à un éditeur appairé
+ * (`agents.issue {}`, contrat 97 § 1) : un second client du pont, limité par
+ * l'app elle-même aux méthodes des cinq outils, révocable seul. Il remplace
+ * l'accès agents qu'avait déjà cet éditeur.
+ */
+export type AgentsIssueResult = { clientId: string; secret: string };
+
+/** Accès agents de cet éditeur retiré (`agents.revoke {}`, idempotente). */
+export type AgentsRevokeResult = { revoked: boolean };
+
+/** Méthode refusée par l'app à un accès agents (`FORBIDDEN`, message
+ * « not allowed ») ; aussi `agents.issue`/`agents.revoke` demandés par lui. */
+export const BRIDGE_FORBIDDEN = -32037;
+
+/** Appels des agents de cette fenêtre, les plus récents d'abord. */
+export type AgentsView = {
+  calls: AgentCall[];
+  /** Réglage `chatonlm.mcp.enabled`. */
+  enabled: boolean;
+};
+
 /** Hôte → panneau. */
 export type HostMessage =
   | { type: "init"; locale: Locale; theme: Theme; state: PanelState }
@@ -333,7 +377,9 @@ export type HostMessage =
   /** Cours de l'Étude demandé depuis VS Code, null : aucun. */
   | { type: "study"; study: StudyView | null }
   /** Image en cours ou prête à écrire, null : aucune. */
-  | { type: "image"; image: ImageView | null };
+  | { type: "image"; image: ImageView | null }
+  /** Appels des agents par MCP, null : aucun à montrer. */
+  | { type: "agents"; agents: AgentsView | null };
 
 /** Panneau → hôte. */
 export type PanelMessage =
@@ -378,4 +424,8 @@ export type PanelMessage =
   /** Cours : l'ouvrir dans l'app, ou fermer la carte. */
   | { type: "study"; command: "open" | "close" }
   /** Image : écrire le fichier, l'abandonner, arrêter la génération. */
-  | { type: "image"; command: "save" | "discard" | "cancel" };
+  | { type: "image"; command: "save" | "discard" | "cancel" }
+  /** Appels des agents : arrêter l'un d'eux, couper le serveur MCP pour
+   * tous, retirer de la carte les appels finis. */
+  | { type: "agents"; command: "stop"; callId: string }
+  | { type: "agents"; command: "turnOff" | "clear" };

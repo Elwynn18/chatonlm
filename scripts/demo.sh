@@ -1,5 +1,5 @@
 # Lance ChatonLM tel qu'il est dans un commit (par défaut le dernier).
-#   scripts/demo.sh [--build-only] [--onboarding] [--real [--reset]] [commit]
+#   scripts/demo.sh [--build-only] [--onboarding] [--real [--reset] [--vscode]] [commit]
 # Le code du commit est extrait dans .tools/demo-src : les modifications en
 # cours dans le dépôt ne changent pas l'app pendant un essai. Fermer la fenêtre
 # arrête tout.
@@ -17,6 +17,11 @@
 # --onboarding : montre le premier démarrage (choix de la langue, présentation
 # de l'app), même avec des données qui ont déjà servi ; sans lui, --real le
 # montre seulement à des données neuves, et la démonstration jamais.
+# --vscode (avec --real) : construit aussi l'extension ChatonLM pour VS Code du
+# même commit et ouvre VS Code avec elle (--extensionDevelopmentPath), dans un
+# profil à part gardé dans .tools/vscode-recipe (réglages, extensions et
+# connexions de ce profil seulement ; le VS Code habituel n'est pas touché).
+# Rien n'est installé. Le dossier ouvert est le dépôt extrait du commit.
 # Raccourci de la dictée : jamais par le portail du bureau avant
 # l'empaquetage (sans fichier .desktop installé, KDE le rangerait sous
 # l'application qui a lancé ChatonLM) ; lier scripts/dictate.sh à la place.
@@ -34,14 +39,16 @@ build_only=false
 real=false
 reset=false
 onboarding=false
+vscode=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --build-only) build_only=true ;;
     --real) real=true ;;
     --reset) reset=true ;;
     --onboarding) onboarding=true ;;
+    --vscode) vscode=true ;;
     -*)
-      echo "Usage : $0 [--build-only] [--onboarding] [--real [--reset]] [commit]" >&2
+      echo "Usage : $0 [--build-only] [--onboarding] [--real [--reset] [--vscode]] [commit]" >&2
       exit 2
       ;;
     *) break ;;
@@ -50,6 +57,10 @@ while [ $# -gt 0 ]; do
 done
 if $reset && ! $real; then
   echo "--reset ne va qu'avec --real." >&2
+  exit 2
+fi
+if $vscode && ! $real; then
+  echo "--vscode ne va qu'avec --real." >&2
   exit 2
 fi
 commit="$(git rev-parse --verify "${1:-HEAD}^{commit}")"
@@ -115,8 +126,26 @@ if $real; then
   fi
 fi
 
+# Extension VS Code du même commit (hôte, serveur MCP et panneau dans
+# vscode/dist du dépôt extrait).
+if $vscode; then
+  vscode_log="$root/.tools/logs/real-vscode-build.log"
+  echo "Construction de l'extension VS Code (journal : $vscode_log)…"
+  rm -rf "$src/vscode/dist"
+  if ! (
+    cd "$src" &&
+      export TMPDIR="$root/.tools/tmp" &&
+      node_modules/.bin/vite build -c vscode/vite.extension.config.mts &&
+      node_modules/.bin/vite build -c vscode/webview.vite.config.mts
+  ) >"$vscode_log" 2>&1; then
+    echo "Échec de la construction de l'extension : voir $vscode_log" >&2
+    exit 1
+  fi
+fi
+
 if $build_only; then
   echo "Prêt : $binary"
+  $vscode && echo "Extension : $src/vscode"
   exit 0
 fi
 
@@ -144,6 +173,25 @@ if $real; then
   # dans ce terminal (millisecondes depuis la fin de parole détectée :
   # transcription, envoi, premier son).
   echo "Mesures du mode vocal : lignes chatonlm-voice-timing ci-dessous."
+  if $vscode; then
+    editor="$(command -v code || command -v codium || true)"
+    if [ -z "$editor" ]; then
+      echo "VS Code (code) ou VSCodium (codium) introuvable : extension non lancée." >&2
+    else
+      profile="$root/.tools/vscode-recipe"
+      mkdir -p "$profile/data" "$profile/extensions"
+      echo "VS Code : $editor, profil à part $profile, extension $src/vscode"
+      # Lancé depuis le terminal intégré d'un VS Code, les variables
+      # VSCODE_* et ELECTRON_RUN_AS_NODE feraient ouvrir la fenêtre dans
+      # l'éditeur déjà ouvert, sans l'extension : retirées.
+      # shellcheck disable=SC2046
+      env $(env | sed -n 's/^\(VSCODE_[A-Za-z0-9_]*\)=.*/-u \1/p') -u ELECTRON_RUN_AS_NODE \
+        "$editor" --new-window --user-data-dir "$profile/data" \
+        --extensions-dir "$profile/extensions" \
+        --extensionDevelopmentPath="$src/vscode" "$src" \
+        >"$root/.tools/logs/real-vscode.log" 2>&1 &
+    fi
+  fi
   exec env -u CHATONLM_SEED_DEMO -u CHATONLM_REGISTRY_URL -u CHATONLM_OLLAMA_COM_URL \
     -u CHATONLM_TELEGRAM_URL -u CHATONLM_DISCORD_URL \
     CHATONLM_ONBOARDING="$($onboarding && echo show || true)" \

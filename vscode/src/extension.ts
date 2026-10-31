@@ -2,14 +2,18 @@
 // par le pont local, panneau, commandes et actions. Contrats :
 // .tools/research/87-lot1b-contract.md (B), 88-fix-contract.md. L'app n'est
 // jamais lancée au démarrage de VS Code, seulement sur un geste de
-// l'utilisateur (bouton du panneau, commande).
+// l'utilisateur (bouton du panneau, commande). Lot 4b (95-lot4b-contract.md) :
+// dictée dans l'éditeur, serveur MCP pour les agents, modèles dans le chat
+// natif (les deux derniers coupés par défaut).
 import { watch as watchDir } from "node:fs";
 import net from "node:net";
 import os from "node:os";
+import path from "node:path";
 import type { Duplex } from "node:stream";
 import * as vscode from "vscode";
 import type { QuickAction } from "../shared/protocol";
 import { FixProvider } from "./actions";
+import { Agents } from "./agents";
 import {
   bridgeDir,
   currentPlatform,
@@ -26,6 +30,7 @@ import {
 import { type Credentials, Link, PairError } from "./bridge/link";
 import { Controller } from "./controller";
 import { ImageMaker } from "./image";
+import { MCP_DIR } from "./mcp/files";
 import { ChatPanel, panelLocale, panelTheme, VIEW_ID } from "./panel";
 import { SCHEME as PROOFREAD_SCHEME } from "./proofread";
 import { TerminalWatcher } from "./terminal";
@@ -246,6 +251,7 @@ export function activate(context: vscode.ExtensionContext): void {
     try {
       await link.pair(code.trim(), vscode.env.appName);
       setPaired(true);
+      void agents.sync();
       void vscode.window.showInformationMessage(
         vscode.l10n.t("VS Code is paired with ChatonLM."),
       );
@@ -259,6 +265,21 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   let controller: Controller | null = null;
+  // Serveur MCP pour les agents (coupé par défaut) : accès propre aux agents
+  // demandé à l'app par cette liaison, écrit pour lui seulement s'il est
+  // activé et l'éditeur appairé.
+  const agents = new Agents({
+    post: (message) => panel.post(message),
+    reveal: () => panel.reveal(),
+    credentials: () => secrets.get(),
+    link,
+    bridgeDir: dir,
+    storageDir: path.join(context.globalStorageUri.fsPath, MCP_DIR),
+    script: vscode.Uri.joinPath(context.extensionUri, "dist", "mcp.cjs").fsPath,
+    execPath: process.execPath,
+    version,
+    pair: () => pair(),
+  });
   const panel = new ChatPanel({
     extensionUri: context.extensionUri,
     onMessage: (message) => void controller?.handle(message),
@@ -285,6 +306,7 @@ export function activate(context: vscode.ExtensionContext): void {
     locale,
     theme,
     paired: () => paired,
+    agents,
   });
   const ctl = controller;
 
@@ -301,6 +323,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("chatonlm.unpair", async () => {
       // La conversation éphémère de cet éditeur part avec lui.
       await ctl.forgetEphemeral();
+      // Le serveur MCP perd son accès avec l'appairage (retiré dans l'app
+      // tant que la liaison est là).
+      await agents.forget();
       await link.unpair();
       setPaired(false);
       void vscode.window.showInformationMessage(
@@ -401,6 +426,16 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("chatonlm.proofreadDocument", () =>
       ctl.proofreader.document(),
     ),
+    // Lot 4b : dictée au curseur, serveur MCP, modèles dans le chat natif.
+    vscode.commands.registerCommand("chatonlm.dictate", () =>
+      ctl.dictation.toggle(),
+    ),
+    vscode.commands.registerCommand("chatonlm.dictateStop", () =>
+      ctl.dictation.stop(),
+    ),
+    agents,
+    ...agents.register(),
+    ...ctl.nativeChat.register(),
     vscode.workspace.registerTextDocumentContentProvider(
       PROOFREAD_SCHEME,
       ctl.proofreader,
@@ -413,6 +448,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (event.key !== SECRET_KEY) return;
       void readPaired();
       void link.secretsChanged();
+      void agents.sync();
     }),
     // Retour dans la fenêtre : liaison et modèles relus (app ouverte ou
     // modèle téléchargé entre-temps).
@@ -424,7 +460,11 @@ export function activate(context: vscode.ExtensionContext): void {
     {
       dispose: link.onState((state) => {
         if (state.connection === "connected") setPaired(true);
-        else if (state.connection === "notPaired") setPaired(false);
+        else if (state.connection === "notPaired") {
+          setPaired(false);
+          // Éditeur retiré dans l'app : justificatifs du serveur MCP effacés.
+          void agents.sync();
+        }
       }),
     },
   );
@@ -437,6 +477,7 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   void link.start();
+  void agents.start();
 }
 
 export async function deactivate(): Promise<void> {

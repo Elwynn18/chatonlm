@@ -436,16 +436,24 @@ struct ProofreadParams {
     #[serde(default)]
     #[allow(dead_code)]
     language: Option<Lang>,
+    /// Le texte ne doit pas quitter cette machine (outil des agents) : refus
+    /// `notLocal` si Ollama est sur une autre machine ou si le modèle de la
+    /// correction tourne ailleurs.
+    #[serde(default)]
+    local_only: bool,
 }
 
-/// `proofread.run { text, mode, language? }` → `{ text, model }` ; chaque
-/// passage fini en `proofread.event { requestId, event }` (`started`, puis
-/// `partDone`). Refus du moteur : -32020 `{ message, code }`.
+/// `proofread.run { text, mode, language?, localOnly? }` → `{ text, model }` ;
+/// chaque passage fini en `proofread.event { requestId, event }` (`started`,
+/// puis `partDone`). Refus du moteur : -32020 `{ message, code }` ;
+/// `localOnly` (toujours vrai pour l'accès agents, `agents`) et rien de
+/// local : -32020 `{ message, code: "notLocal" }`, rien ne part.
 pub(super) async fn proofread_run<H: Host>(
     shared: &Arc<Shared<H>>,
     out: &Outbox,
     id: &Value,
     params: Value,
+    agents: bool,
 ) {
     let Ok(params) = serde_json::from_value::<ProofreadParams>(params) else {
         return invalid(out, id);
@@ -455,6 +463,12 @@ pub(super) async fn proofread_run<H: Host>(
         Err(error) => return refused(out, id, error.to_string()),
     };
     let model = proofread::model_of(&settings).await.unwrap_or_default();
+    if (params.local_only || agents)
+        && let Some(message) =
+            super::connection::elsewhere(&settings.effective_server_url, &model).await
+    {
+        return super::connection::not_local(out, id, message);
+    }
     // « Auto » : un modèle cloud ou distant n'est utilisé que s'il est
     // choisi sur la page Proofread, comme pour le raccourci de correction
     // (`proofread::selection`) : celui du chat n'y retombe jamais. Refus

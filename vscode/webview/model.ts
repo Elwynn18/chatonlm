@@ -8,12 +8,14 @@
 // comme des envois, sous des numéros négatifs. Autocomplétion et carte
 // « Graphics card » (lot 3) : état de l'hôte tel quel ; la carte s'ouvre par
 // le bouton de l'en-tête ou à la demande de l'hôte (`reveal` qui augmente).
-// Cours de l'Étude et image vers un fichier (lot 4a) : état de l'hôte tel quel.
+// Cours de l'Étude et image vers un fichier (lot 4a), appels des agents par
+// MCP (lot 4b) : état de l'hôte tel quel.
 import type { Chat } from "@/bindings/Chat";
 import type { ChatErrorKind } from "@/bindings/ChatErrorKind";
 import type { ChatEvent } from "@/bindings/ChatEvent";
 import type { Message } from "@/bindings/Message";
 import type {
+  AgentsView,
   CompletionView,
   HostMessage,
   ImageView,
@@ -83,6 +85,8 @@ export interface PanelModel {
   study: StudyView | null;
   /** Image en cours ou prête à écrire (null : aucune). */
   image: ImageView | null;
+  /** Appels des agents par MCP (null : aucun à montrer). */
+  agents: AgentsView | null;
 }
 
 export type PanelAction =
@@ -128,6 +132,7 @@ export function initialModel(): PanelModel {
     gpuOpen: false,
     study: null,
     image: null,
+    agents: null,
   };
 }
 
@@ -461,6 +466,8 @@ function applyHost(
       return { ...model, study: message.study };
     case "image":
       return { ...model, image: message.image };
+    case "agents":
+      return { ...model, agents: message.agents };
     case "receipt": {
       const bound = bindTurn(model, message.requestId);
       return {

@@ -9,6 +9,11 @@ export type DictationStatus = { phase: DictationPhase, shortcut: ShortcutStatus,
  */
 canConfigureShortcut: boolean, 
 /**
+ * La dictée en cours est tenue par l'extension VS Code (bandeau de la
+ * page ; ni l'essai, ni le raccourci ne l'arrêtent).
+ */
+editor: boolean, 
+/**
  * Une zone de notification (StatusNotifierWatcher) affiche l'icône.
  */
 trayAvailable: boolean, 

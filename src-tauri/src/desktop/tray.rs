@@ -11,7 +11,10 @@
 //!   aux deux clics, comme celui de l'officiel (`wintray/eventloop.go`).
 //!
 //! Ici : ce que les deux partagent (entrées et textes du menu, infobulle,
-//! actions, pastille). Textes dans la langue de l'interface, refaits quand
+//! actions, pastille). Dictée d'un éditeur (pont VS Code) : seule « Cancel
+//! dictation » est proposée, et l'abandonne vraiment (couper un micro est
+//! toujours permis) ; ni « Stop dictation » ni la touche du raccourci, qui
+//! ne l'arrêtent pas. Textes dans la langue de l'interface, refaits quand
 //! elle change (`i18n::apply` → [`refresh`]).
 
 #[cfg(target_os = "linux")]
@@ -104,8 +107,9 @@ fn rgba_pixels(width: usize, height: usize, rgba: &[u8], badge: Option<[u8; 3]>)
     pixels
 }
 
-/// Texte de l'infobulle : état, et touche du raccourci si elle est connue.
-fn describe(phase: DictationPhase, trigger: Option<&str>, lang: Lang) -> String {
+/// Texte de l'infobulle : état, et touche du raccourci si elle est connue
+/// (pas pendant la dictée d'un éditeur, `editor` : elle ne l'arrête pas).
+fn describe(phase: DictationPhase, editor: bool, trigger: Option<&str>, lang: Lang) -> String {
     let state = match phase {
         DictationPhase::Idle => t!("tray.ready" in lang),
         DictationPhase::Recording => t!("tray.listening" in lang),
@@ -113,7 +117,7 @@ fn describe(phase: DictationPhase, trigger: Option<&str>, lang: Lang) -> String 
         DictationPhase::Polishing => t!("tray.polishing" in lang),
     };
     match trigger {
-        Some(trigger) if !trigger.is_empty() => format!("{state} — {trigger}"),
+        Some(trigger) if !trigger.is_empty() && !editor => format!("{state} — {trigger}"),
         _ => state,
     }
 }
@@ -125,6 +129,8 @@ enum Action {
     Start,
     Stop,
     Cancel,
+    /// Abandon de la dictée d'un éditeur (pont VS Code).
+    CancelEditor,
     Settings,
     /// Réglages, carte « Updates ».
     ShowUpdates,
@@ -135,11 +141,12 @@ enum Action {
 // Identifiants des entrées d'un menu natif (Windows).
 #[cfg_attr(not(windows), allow(dead_code))]
 impl Action {
-    const ALL: [Action; 8] = [
+    const ALL: [Action; 9] = [
         Action::Show,
         Action::Start,
         Action::Stop,
         Action::Cancel,
+        Action::CancelEditor,
         Action::Settings,
         Action::ShowUpdates,
         Action::RestartToUpdate,
@@ -153,6 +160,7 @@ impl Action {
             Action::Start => "start",
             Action::Stop => "stop",
             Action::Cancel => "cancel",
+            Action::CancelEditor => "cancel-editor",
             Action::Settings => "settings",
             Action::ShowUpdates => "updates",
             Action::RestartToUpdate => "restart-to-update",
@@ -174,8 +182,11 @@ struct Entry {
     action: Action,
 }
 
-/// Menu selon la phase et l'état de la dictée (`ready` : activée, avec un
-/// modèle de transcription installé) et la mise à jour (`update`).
+/// Menu selon la phase et l'état de la dictée (`editor` : tenue par un
+/// éditeur ; `ready` : activée, avec un modèle de transcription installé) et
+/// la mise à jour (`update`). Pendant la dictée d'un éditeur, « Stop
+/// dictation » est masquée et « Cancel dictation » l'abandonne
+/// ([`Action::CancelEditor`]).
 /// « Start dictation » et « Stop dictation » sont deux entrées, l'une
 /// masquée : ksni rattache un clic au rappel actuel de l'entrée cliquée, et
 /// un menu resté ouvert pendant que la dictée s'arrête ne doit pas en
@@ -184,6 +195,7 @@ struct Entry {
 /// celles-ci). Libellés dans la langue `lang`.
 fn entries(
     phase: DictationPhase,
+    editor: bool,
     ready: bool,
     update: TrayUpdate,
     lang: Lang,
@@ -204,12 +216,19 @@ fn entries(
             ..entry(t!("tray.startDictation" in lang), Action::Start)
         }),
         Some(Entry {
-            visible: recording,
+            visible: recording && !editor,
             ..entry(t!("tray.stopDictation" in lang), Action::Stop)
         }),
         Some(Entry {
             visible: phase != DictationPhase::Idle,
-            ..entry(t!("tray.cancelDictation" in lang), Action::Cancel)
+            ..entry(
+                t!("tray.cancelDictation" in lang),
+                if editor {
+                    Action::CancelEditor
+                } else {
+                    Action::Cancel
+                },
+            )
         }),
         Some(entry(
             t!("tray.dictationSettings" in lang),
@@ -266,6 +285,9 @@ fn run(app: &AppHandle, action: Action) {
         Action::Start => app.state::<Dictation>().start(&app),
         Action::Stop => app.state::<Dictation>().stop(&app),
         Action::Cancel => app.state::<Dictation>().cancel(&app),
+        // Seulement celle d'un éditeur : un menu périmé n'abandonne pas une
+        // dictée de l'app commencée entre-temps.
+        Action::CancelEditor => app.state::<Dictation>().cancel_editor_session(&app),
         Action::Settings => super::open_route(&app, DICTATION_SETTINGS_ROUTE),
         Action::ShowUpdates => super::open_route(&app, updater::UPDATES_SETTINGS_ROUTE),
         Action::RestartToUpdate => {}
@@ -336,28 +358,39 @@ mod tests {
     #[test]
     fn tooltip_names_the_phase_and_the_trigger() {
         let en = Lang::En;
-        assert_eq!(describe(DictationPhase::Idle, None, en), "Ready");
-        assert_eq!(describe(DictationPhase::Idle, Some(""), en), "Ready");
+        assert_eq!(describe(DictationPhase::Idle, false, None, en), "Ready");
+        assert_eq!(describe(DictationPhase::Idle, false, Some(""), en), "Ready");
         assert_eq!(
-            describe(DictationPhase::Recording, Some("Ctrl+Alt+D"), en),
+            describe(DictationPhase::Recording, false, Some("Ctrl+Alt+D"), en),
             "Listening… — Ctrl+Alt+D"
         );
         assert_eq!(
-            describe(DictationPhase::Transcribing, None, en),
+            describe(DictationPhase::Transcribing, false, None, en),
             "Transcribing…"
         );
-        assert_eq!(describe(DictationPhase::Polishing, None, en), "Polishing…");
         assert_eq!(
-            describe(DictationPhase::Recording, Some("Ctrl+Alt+D"), Lang::Fr),
+            describe(DictationPhase::Polishing, false, None, en),
+            "Polishing…"
+        );
+        assert_eq!(
+            describe(
+                DictationPhase::Recording,
+                false,
+                Some("Ctrl+Alt+D"),
+                Lang::Fr
+            ),
             "À l'écoute… — Ctrl+Alt+D"
         );
-        assert_eq!(describe(DictationPhase::Idle, None, Lang::Es), "Listo");
+        assert_eq!(
+            describe(DictationPhase::Idle, false, None, Lang::Es),
+            "Listo"
+        );
     }
 
     #[test]
     fn menu_speaks_the_language_of_the_interface() {
         let labels = |phase, lang| -> Vec<(String, bool)> {
-            entries(phase, true, TrayUpdate::None, lang)
+            entries(phase, false, true, TrayUpdate::None, lang)
                 .into_iter()
                 .flatten()
                 .map(|entry| (entry.label, entry.visible))
@@ -397,6 +430,44 @@ mod tests {
     }
 
     #[test]
+    fn an_editor_dictation_can_only_be_cancelled_from_the_tray() {
+        for phase in [
+            DictationPhase::Recording,
+            DictationPhase::Transcribing,
+            DictationPhase::Polishing,
+        ] {
+            let menu = entries(phase, true, true, TrayUpdate::None, Lang::En);
+            assert!(!find(&menu, "Stop dictation").visible, "{phase:?}");
+            assert!(!find(&menu, "Start dictation").enabled, "{phase:?}");
+            let cancel = find(&menu, "Cancel dictation");
+            assert!(cancel.visible && cancel.enabled, "{phase:?}");
+            assert_eq!(cancel.action, Action::CancelEditor, "{phase:?}");
+            // Même rang que l'entrée de l'app (menu de ksni rattaché au rang).
+            let rank = |menu: &[Option<Entry>]| {
+                menu.iter().position(|entry| {
+                    entry
+                        .as_ref()
+                        .is_some_and(|e| e.label == "Cancel dictation")
+                })
+            };
+            let app = entries(phase, false, true, TrayUpdate::None, Lang::En);
+            assert_eq!(rank(&menu), rank(&app));
+            assert_eq!(find(&app, "Cancel dictation").action, Action::Cancel);
+        }
+        // Le raccourci ne l'arrête pas : il n'est pas montré.
+        assert_eq!(
+            describe(
+                DictationPhase::Recording,
+                true,
+                Some("Ctrl+Alt+D"),
+                Lang::En
+            ),
+            "Listening…"
+        );
+        assert_ne!(Action::CancelEditor.id(), Action::Cancel.id());
+    }
+
+    #[test]
     fn native_menu_entries_are_found_by_their_identifier() {
         for action in Action::ALL {
             assert_eq!(Action::from_id(action.id()), Some(action));
@@ -423,7 +494,13 @@ mod tests {
 
     #[test]
     fn menu_follows_the_phase() {
-        let idle = entries(DictationPhase::Idle, true, TrayUpdate::None, Lang::En);
+        let idle = entries(
+            DictationPhase::Idle,
+            false,
+            true,
+            TrayUpdate::None,
+            Lang::En,
+        );
         let start = find(&idle, "Start dictation");
         assert!(start.enabled && start.visible && start.action == Action::Start);
         assert!(!find(&idle, "Stop dictation").visible);
@@ -432,17 +509,35 @@ mod tests {
         assert_eq!(idle[0].as_ref().unwrap().label, "Show ChatonLM");
         assert_eq!(idle.last().unwrap().as_ref().unwrap().action, Action::Quit);
 
-        let off = entries(DictationPhase::Idle, false, TrayUpdate::None, Lang::En);
+        let off = entries(
+            DictationPhase::Idle,
+            false,
+            false,
+            TrayUpdate::None,
+            Lang::En,
+        );
         assert!(!find(&off, "Start dictation").enabled);
         assert!(find(&off, "Dictation settings…").enabled);
 
-        let recording = entries(DictationPhase::Recording, true, TrayUpdate::None, Lang::En);
+        let recording = entries(
+            DictationPhase::Recording,
+            false,
+            true,
+            TrayUpdate::None,
+            Lang::En,
+        );
         assert!(!find(&recording, "Start dictation").visible);
         let stop = find(&recording, "Stop dictation");
         assert!(stop.enabled && stop.visible && stop.action == Action::Stop);
         assert!(find(&recording, "Cancel dictation").visible);
 
-        let busy = entries(DictationPhase::Polishing, true, TrayUpdate::None, Lang::En);
+        let busy = entries(
+            DictationPhase::Polishing,
+            false,
+            true,
+            TrayUpdate::None,
+            Lang::En,
+        );
         let start = find(&busy, "Start dictation");
         assert!(start.visible && !start.enabled);
         assert!(!find(&busy, "Stop dictation").visible);
@@ -454,7 +549,7 @@ mod tests {
         // Même rang dans tous les états : un clic sur un menu périmé arrive
         // à l'entrée de même action (Stop sans dictée en cours : sans effet).
         let position = |phase, update, label| {
-            entries(phase, true, update, Lang::En)
+            entries(phase, false, true, update, Lang::En)
                 .iter()
                 .position(|entry| entry.as_ref().is_some_and(|e| e.label == label))
                 .unwrap()
@@ -479,7 +574,7 @@ mod tests {
     #[test]
     fn the_update_entries_follow_the_update() {
         let labels = |update, lang| -> Vec<(String, bool, Option<Action>)> {
-            entries(DictationPhase::Idle, true, update, lang)
+            entries(DictationPhase::Idle, false, true, update, lang)
                 .into_iter()
                 .skip(7)
                 .map(|entry| match entry {

@@ -16,6 +16,8 @@ export const Codes = {
   wrongCode: -32005,
   incompatible: -32010,
   refused: -32020,
+  /** Méthode hors de la liste d'un accès agents (contrat 97 § 1). */
+  forbidden: -32037,
 } as const;
 
 /** Erreur rendue par l'app. */

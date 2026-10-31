@@ -5,6 +5,7 @@ import { useEffect, useMemo, useReducer, useState } from "react";
 import { setLanguage, useT } from "@/i18n";
 import { HostContext } from "@/lib/host";
 import type { HostMessage, Theme } from "../shared/protocol";
+import { AgentsCard } from "./AgentsCard";
 import { Composer } from "./Composer";
 import { Conversation } from "./Conversation";
 import { GpuCard } from "./GpuCard";
@@ -41,6 +42,7 @@ const HOST_TYPES: Record<HostMessage["type"], true> = {
   revealGpu: true,
   study: true,
   image: true,
+  agents: true,
 };
 
 function isHostMessage(data: unknown): data is HostMessage {
@@ -164,6 +166,16 @@ export function Panel({ post }: { post: Post }) {
               study={model.study}
               onOpen={() => post({ type: "study", command: "open" })}
               onClose={() => post({ type: "study", command: "close" })}
+            />
+          )}
+          {model.agents && (
+            <AgentsCard
+              agents={model.agents}
+              onStop={(callId) =>
+                post({ type: "agents", command: "stop", callId })
+              }
+              onTurnOff={() => post({ type: "agents", command: "turnOff" })}
+              onClear={() => post({ type: "agents", command: "clear" })}
             />
           )}
           {connected && model.image && (

@@ -393,6 +393,14 @@
     },
     "study": {
       "tooLong": "Ces fichiers sont trop longs pour un cours : 200 000 caractères au plus. Choisissez moins de fichiers, ou des fichiers plus courts."
+    },
+    "dictation": {
+      "busyApp": "ChatonLM dicte déjà : terminez d'abord cette dictée.",
+      "busyBridge": "VS Code dicte déjà"
+    },
+    "local": {
+      "remoteServer": "ChatonLM utilise un Ollama sur un autre ordinateur : rien n'a été envoyé.",
+      "cloudModel": "{model} tourne hors de cet ordinateur : rien n'a été envoyé."
     }
   },
   "easyLink": {

@@ -393,6 +393,14 @@
     },
     "study": {
       "tooLong": "Estos archivos son demasiado largos para un curso: 200.000 caracteres como máximo. Elige menos archivos o más cortos."
+    },
+    "dictation": {
+      "busyApp": "ChatonLM ya está dictando: termina antes ese dictado.",
+      "busyBridge": "VS Code ya está dictando"
+    },
+    "local": {
+      "remoteServer": "ChatonLM usa un Ollama en otro ordenador, así que no se ha enviado nada.",
+      "cloudModel": "{model} se ejecuta fuera de este ordenador, así que no se ha enviado nada."
     }
   },
   "easyLink": {

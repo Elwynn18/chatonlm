@@ -98,7 +98,8 @@
     "label": "Probar el dictado",
     "turnOnFirst": "Activa el dictado para probarlo.",
     "chooseModel": "Elige un modelo de transcripción instalado para probarlo.",
-    "stop": "Detener"
+    "stop": "Detener",
+    "editor": "VS Code está usando el dictado."
   },
   "phase": {
     "recording": "Escuchando…",

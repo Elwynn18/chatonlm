@@ -98,7 +98,8 @@
     "label": "Essayer la dictée",
     "turnOnFirst": "Activez la dictée pour l'essayer.",
     "chooseModel": "Choisissez un modèle de transcription installé pour l'essayer.",
-    "stop": "Arrêter"
+    "stop": "Arrêter",
+    "editor": "VS Code utilise la dictée."
   },
   "phase": {
     "recording": "À l'écoute…",

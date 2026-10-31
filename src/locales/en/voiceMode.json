@@ -8,7 +8,9 @@
     "text": "VS Code is using your microphone",
     "stop": "Stop",
     "stopLabel": "Stop the VS Code voice session",
-    "stopFailed": "Couldn't stop the VS Code voice session: {error}"
+    "stopFailed": "Couldn't stop the VS Code voice session: {error}",
+    "stopDictationLabel": "Stop the VS Code dictation",
+    "stopDictationFailed": "Couldn't stop the VS Code dictation: {error}"
   },
   "bar": {
     "phase": {

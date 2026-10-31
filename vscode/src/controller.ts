@@ -4,7 +4,8 @@
 // 88-fix-contract.md (corrections de la relecture), 89-lot2-voice-contract.md (X),
 // 91-lot3-gpu-completion-contract.md (X : autocomplétion, carte graphique),
 // 93-lot4a-contract.md (notification de fin de tâche, cours de l'Étude, image
-// vers un fichier, correction des textes).
+// vers un fichier, correction des textes), 95-lot4b-contract.md (dictée dans
+// l'éditeur, modèles dans le chat natif, appels des agents par MCP).
 import * as vscode from "vscode";
 import type { Chat } from "../../src/bindings/Chat";
 import type { ChatEvent } from "../../src/bindings/ChatEvent";
@@ -34,7 +35,9 @@ import {
   TooLargeError,
 } from "./bridge/rpc";
 import { Completion } from "./completion";
+import { Dictation } from "./dictation";
 import { ImageMaker } from "./image";
+import { NativeChat } from "./nativeChat";
 import { Notifier, type TerminalEvents } from "./notify";
 import { Proofreader } from "./proofread";
 import { commitMessageFrom, compose } from "./prompts";
@@ -104,6 +107,14 @@ export type ControllerDeps = {
   realpath?(p: string): Promise<string>;
   /** Lien symbolique ? (null : absent) ; essais : disque simulé. */
   isLink?(p: string): Promise<boolean | null>;
+  /** Appels des agents par MCP (carte du panneau). */
+  agents?: {
+    command(
+      command: "stop" | "turnOff" | "clear",
+      callId?: string,
+    ): Promise<void>;
+    postView(): void;
+  };
 };
 
 const MODEL_KEY = "chatonlm.model";
@@ -195,6 +206,13 @@ export class Controller {
   readonly #study: Study;
   readonly #image: ImageMaker;
   readonly #proofreader: Proofreader;
+  readonly #dictation: Dictation;
+  readonly #nativeChat: NativeChat;
+  /** Envois d'un autre que le panneau (chat natif) : leurs évènements ne
+   * vont pas au panneau. */
+  readonly #foreign = new Set<number>();
+  /** Modèles de l'app à la dernière lecture (chat natif). */
+  #knownModels = "";
   /** Passage d'une visite joint au prochain message tapé. */
   #attachment: Piece | null = null;
   /** Séance vocale : destination du modèle ; pour chaque tour de parole pas
@@ -273,11 +291,18 @@ export class Controller {
       isLink: deps.isLink,
     });
     this.#proofreader = new Proofreader({ link: deps.link });
+    this.#dictation = new Dictation({ link: deps.link, openApp });
+    this.#nativeChat = new NativeChat({
+      link: deps.link,
+      own: (id) => this.#foreign.add(id),
+      release: (id) => this.#foreign.delete(id),
+    });
     this.#disposers.push(
       deps.link.onState((state) => {
         if (state.connection !== "connected") {
           this.#tour.disconnected();
           this.#voice.disconnected();
+          this.#dictation.disconnected();
           this.#voiceTurnsLost();
         }
         this.#postState();
@@ -296,6 +321,18 @@ export class Controller {
     this.#completion.dispose();
     this.#notifier.dispose();
     this.#study.dispose();
+    this.#dictation.dispose();
+    this.#nativeChat.dispose();
+  }
+
+  /** Dictée dans l'éditeur (lot 4b). */
+  get dictation(): Dictation {
+    return this.#dictation;
+  }
+
+  /** Modèles de ChatonLM dans le chat de VS Code (lot 4b). */
+  get nativeChat(): NativeChat {
+    return this.#nativeChat;
   }
 
   /** Notification de fin de tâche par Easy Link (lot 4a). */
@@ -406,6 +443,7 @@ export class Controller {
         this.#deps.post({ type: "study", study: this.#study.view });
         this.#study.resync();
         this.#deps.post({ type: "image", image: this.#image.view });
+        this.#deps.agents?.postView();
         // Modèles relus à l'ouverture du panneau (installés depuis dans l'app).
         if (this.#deps.link.connected) await this.refresh();
         if (this.#chatId) await this.#syncChat();
@@ -469,6 +507,12 @@ export class Controller {
         return;
       case "image":
         await this.#image.command(message.command);
+        return;
+      case "agents":
+        await this.#deps.agents?.command(
+          message.command,
+          message.command === "stop" ? message.callId : undefined,
+        );
         return;
       case "stop":
         this.stop();
@@ -625,6 +669,12 @@ export class Controller {
       this.#appModel = app?.selectedModel ? shortName(app.selectedModel) : null;
       const names = this.#models.map((m) => shortName(m.model));
       if (this.#model && !names.includes(this.#model)) this.#model = null;
+      // Chat de VS Code : sa liste de modèles est relue s'ils ont changé.
+      const known = names.join("\n");
+      if (known !== this.#knownModels) {
+        this.#knownModels = known;
+        this.#nativeChat.refresh();
+      }
     } catch (error) {
       // Ollama injoignable (refus de l'app) : liste vide. Liaison perdue
       // entre-temps : la liste reste (l'écran de connexion s'affiche).
@@ -688,6 +738,7 @@ export class Controller {
       event?: ChatEvent;
     };
     if (typeof requestId !== "number" || !event) return;
+    if (this.#foreign.has(requestId)) return;
     const sending = this.#sending?.id === requestId ? this.#sending : undefined;
     if (event.type === "chatCreated" && sending) {
       sending.created = event.chatId;

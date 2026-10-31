@@ -13,6 +13,7 @@ import {
   cloudStatus,
   dictationBindShortcut,
   dictationCancel,
+  dictationStopEditor,
   dictationConfigureShortcut,
   dictationCopyLast,
   dictationInfo,
@@ -298,6 +299,7 @@ describe("dictation commands", () => {
     await dictationStatus();
     await dictationToggle();
     await dictationCancel();
+    await dictationStopEditor();
     await dictationBindShortcut();
     await dictationConfigureShortcut();
     await dictationCopyLast();
@@ -318,6 +320,7 @@ describe("dictation commands", () => {
       ["dictation_status", {}],
       ["dictation_toggle", {}],
       ["dictation_cancel", {}],
+      ["dictation_stop_editor", {}],
       ["dictation_bind_shortcut", {}],
       ["dictation_configure_shortcut", {}],
       ["dictation_copy_last", {}],

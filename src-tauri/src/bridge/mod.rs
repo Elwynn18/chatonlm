@@ -12,6 +12,12 @@
 //! - Seuls les éditeurs appairés par un code montré dans l'app sont servis ;
 //!   chaque connexion se prouve dans les deux sens ([`proof`]). Retirer un
 //!   éditeur ferme aussi ses connexions.
+//! - Accès « agents » : un éditeur crée (`agents.issue`) ou retire
+//!   (`agents.revoke`) un client à part pour le serveur MCP de l'extension,
+//!   que l'app limite elle-même aux besoins de ses outils (liste blanche de
+//!   [`connection`], conversation éphémère seulement, rien hors de la
+//!   machine) ; il est retiré avec son éditeur, et n'est pas montré à la
+//!   page.
 //! - Par le pont, on converse et on lit l'état ; ni réglage, ni suppression,
 //!   ni téléchargement. Seule exception : une conversation éphémère ouverte
 //!   par l'éditeur, qu'il efface en la quittant (`chat.forget`) ou garde
@@ -28,12 +34,16 @@
 //! - Travaux de l'app ([`work`], lot 4a) : Easy Link prévient à la fin d'une
 //!   tâche (réglage coupé par défaut), cours de l'Étude sur des textes du
 //!   dépôt, image rendue en octets (jamais écrite par l'app), correction.
+//! - Dictée ([`dictation`], lot 4b) : la dictée de l'app, avec les noms du
+//!   projet en glossaire, rend son texte à l'éditeur (jamais collé ni
+//!   copié) ; son micro s'arrête comme celui du mode vocal.
 //!
 //! Modèle de menace : un programme du même compte peut de toute façon lire
 //! les données de l'app ; l'appairage sert au consentement et à la
 //! révocation. Contrat : `.tools/research/87-lot1a-contract.md`.
 
 mod connection;
+pub mod dictation;
 mod frame;
 mod gpu;
 pub mod proof;
@@ -212,6 +222,8 @@ pub trait Host: Send + Sync + 'static {
     fn chat_updated(&self, chat_id: &str);
     /// Lecture à voix haute et mode vocal de l'app.
     fn voice(&self) -> &dyn voice::Voice;
+    /// Dictée de l'app.
+    fn dictation(&self) -> &dyn dictation::Dictate;
     /// Chef de la carte graphique.
     fn gpu(&self) -> &crate::gpu::GpuChief;
     /// Mémoire de la machine du serveur (`None` : distant ou illisible).
@@ -298,8 +310,10 @@ struct Listening {
 
 /// Connexion ouverte.
 struct Open {
-    /// Éditeur authentifié ; `None` avant `auth`.
+    /// Client authentifié (éditeur ou accès agents) ; `None` avant `auth`.
     client: Option<String>,
+    /// Éditeur d'un accès agents authentifié.
+    parent: Option<String>,
     close: watch::Sender<bool>,
     /// Dernier tour vocal de la connexion (ses séances successives
     /// continuent la numérotation).
@@ -315,6 +329,7 @@ impl Open {
     fn new(close: watch::Sender<bool>) -> Self {
         Self {
             client: None,
+            parent: None,
             close,
             voice_turns: Arc::default(),
             gpu: false,
@@ -451,18 +466,23 @@ impl<H: Host> Bridge<H> {
         self.0.emit_now().await
     }
 
-    /// Oublie un éditeur, ferme ses connexions et efface ses conversations
-    /// éphémères (comme un compte délié d'Easy Link).
+    /// Oublie un éditeur (et son accès agents), ferme leurs connexions et
+    /// efface leurs conversations éphémères (comme un compte délié d'Easy
+    /// Link).
     pub async fn unlink(&self, client_id: String) -> AppResult<BridgeState> {
         let _changing = self.0.changing.lock().await;
         let id = client_id.clone();
-        self.0
+        let mut removed = self
+            .0
             .store
             .call(move |c| saved::remove_client(c, &id))
             .await?;
-        self.0.close_client(&client_id);
-        let chats = self.0.take_ephemerals(Some(&client_id));
-        self.0.erase_editor_chats(chats).await;
+        if !removed.contains(&client_id) {
+            removed.push(client_id);
+        }
+        for client in &removed {
+            self.0.forget_client(client).await;
+        }
         self.0.emit_now().await
     }
 
@@ -484,11 +504,13 @@ impl<H: Host> Shared<H> {
             .store
             .call(|c| Ok((saved::enabled(c)?, saved::clients(c)?)))
             .await?;
+        // Un accès agents connecté compte pour son éditeur : on voit qu'un
+        // client agit en son nom.
         let connected: Vec<String> = self
             .connections
             .lock()
             .values()
-            .filter_map(|open| open.client.clone())
+            .filter_map(|open| open.parent.clone().or_else(|| open.client.clone()))
             .collect();
         let pairing = self
             .pairings
@@ -602,8 +624,70 @@ impl<H: Host> Shared<H> {
         self.close_where(|_| true);
     }
 
+    /// Ferme les connexions du client, et celles de son accès agents.
     fn close_client(&self, client_id: &str) {
-        self.close_where(|open| open.client.as_deref() == Some(client_id));
+        self.close_where(|open| {
+            open.client.as_deref() == Some(client_id) || open.parent.as_deref() == Some(client_id)
+        });
+    }
+
+    /// Client retiré : ses connexions fermées, ses éphémères effacées.
+    async fn forget_client(&self, client_id: &str) {
+        self.close_client(client_id);
+        let chats = self.take_ephemerals(Some(client_id));
+        self.erase_editor_chats(chats).await;
+    }
+
+    /// Nouvel accès agents de l'éditeur `editor` (`agents.issue`) : remplace
+    /// le précédent (retiré, ses connexions fermées). `None` si l'éditeur
+    /// n'existe plus.
+    pub(crate) async fn issue_agents(&self, editor: &str) -> AppResult<Option<(String, [u8; 32])>> {
+        let _changing = self.changing.lock().await;
+        let editor = editor.to_owned();
+        let secret = proof::random::<32>();
+        let id = uuid::Uuid::now_v7().to_string();
+        let agents_id = id.clone();
+        let (created, replaced) = self
+            .store
+            .call(move |c| {
+                let Some(parent) = saved::client(c, &editor)? else {
+                    return Ok((false, None));
+                };
+                let agents = saved::Client {
+                    id: agents_id,
+                    // Jamais montré : la page ne liste que les éditeurs.
+                    name: format!("{} (agents)", parent.name),
+                    secret,
+                    paired_at: now_ms(),
+                    last_seen_at: None,
+                    scope: saved::Scope::Agents,
+                    parent_id: Some(parent.id),
+                };
+                saved::replace_agents(c, &agents)
+            })
+            .await?;
+        if let Some(replaced) = replaced {
+            self.forget_client(&replaced).await;
+        }
+        Ok(created.then_some((id, secret)))
+    }
+
+    /// Retire l'accès agents de l'éditeur `editor` (`agents.revoke`) et ferme
+    /// ses connexions ; vrai s'il en avait un.
+    pub(crate) async fn revoke_agents(&self, editor: &str) -> AppResult<bool> {
+        let _changing = self.changing.lock().await;
+        let editor = editor.to_owned();
+        let removed = self
+            .store
+            .call(move |c| saved::remove_agents(c, &editor))
+            .await?;
+        match removed {
+            Some(agents) => {
+                self.forget_client(&agents).await;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 
     /// Ferme les connexions choisies ; leur voix s'arrête aussitôt, sans
@@ -621,6 +705,7 @@ impl<H: Host> Shared<H> {
             .collect();
         for connection in closed {
             voice::closed(self, connection);
+            dictation::closed(self, connection);
         }
     }
 
@@ -639,6 +724,7 @@ impl<H: Host> Shared<H> {
             open.close.send_replace(true);
         }
         voice::closed(self, connection);
+        dictation::closed(self, connection);
         // Ses tâches en cours ne se finiront plus (`/status` d'Easy Link).
         if let Some(notifier) = self.host.notifier() {
             notifier.connection_ended(connection);
@@ -737,15 +823,25 @@ impl<H: Host> Shared<H> {
         }
     }
 
-    /// Connexion authentifiée pour `client` : montrée « connectée ».
-    pub(crate) async fn authenticated(&self, connection: u64, client: &str) {
+    /// Connexion authentifiée pour `client` (et son éditeur `parent` pour un
+    /// accès agents) : montrée « connectée ».
+    pub(crate) async fn authenticated(&self, connection: u64, client: &str, parent: Option<&str>) {
         if let Some(open) = self.connections.lock().get_mut(&connection) {
             open.client = Some(client.to_owned());
+            open.parent = parent.map(str::to_owned);
         }
         let id = client.to_owned();
+        let parent = parent.map(str::to_owned);
         let _ = self
             .store
-            .call(move |c| saved::touch_client(c, &id, now_ms()))
+            .call(move |c| {
+                let now = now_ms();
+                saved::touch_client(c, &id, now)?;
+                match parent {
+                    Some(parent) => saved::touch_client(c, &parent, now),
+                    None => Ok(()),
+                }
+            })
             .await;
         self.emit().await;
     }
@@ -771,6 +867,11 @@ impl<H: Host> Shared<H> {
             ephemerals.insert(chat.to_owned(), client.to_owned());
         }
         open
+    }
+
+    /// Client qui a ouvert cette conversation éphémère, si elle est suivie.
+    pub(crate) fn ephemeral_owner(&self, chat: &str) -> Option<String> {
+        self.ephemerals.lock().get(chat).cloned()
     }
 
     /// Conversation effacée ou gardée par l'éditeur : plus suivie.
@@ -881,6 +982,7 @@ fn remove_discovery(path: &Path, instance: &str) {
 pub struct AppHost {
     app: AppHandle,
     voice: voice::AppVoice,
+    dictation: dictation::AppDictation,
 }
 
 impl Host for AppHost {
@@ -903,6 +1005,10 @@ impl Host for AppHost {
 
     fn voice(&self) -> &dyn voice::Voice {
         &self.voice
+    }
+
+    fn dictation(&self) -> &dyn dictation::Dictate {
+        &self.dictation
     }
 
     fn gpu(&self) -> &crate::gpu::GpuChief {
@@ -988,6 +1094,7 @@ pub fn setup(app: &AppHandle) {
     let host = AppHost {
         app: app.clone(),
         voice: voice::AppVoice(app.clone()),
+        dictation: dictation::AppDictation(app.clone()),
     };
     let service = Bridge::new(host, store, config);
     app.manage(service.clone());

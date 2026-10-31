@@ -77,6 +77,7 @@ export function prepare(name, files) {
     codium,
     join(ROOT, "vscode/dist/extension.cjs"),
     join(ROOT, "vscode/dist/webview/index.js"),
+    join(ROOT, "vscode/dist/mcp.cjs"),
   ]) {
     assert.ok(existsSync(needed), `missing ${needed}`);
   }
