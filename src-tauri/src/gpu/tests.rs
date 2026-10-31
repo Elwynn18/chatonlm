@@ -133,6 +133,17 @@ async fn a_completion_never_loads_its_model() {
     assert_eq!(sent[1]["options"]["num_ctx"], sent[0]["options"]["num_ctx"]);
     assert_eq!(sent[1]["keep_alive"], sent[0]["keep_alive"]);
     assert_eq!(sent[1]["options"]["num_predict"], fim::LINE_TOKENS);
+    // Limite de jetons atteinte en pleine ligne (`done_reason: "length"`) :
+    // la ligne inachevée part. 4 jetons = 16 caractères :
+    // « value(6|2)\n    s ».
+    let short = fim::FimParams {
+        max_tokens: Some(4),
+        ..fim_params("chatonlm-fim", "def f(", ")\n")
+    };
+    assert_eq!(
+        chief.complete(&inputs, &short).await.unwrap().text,
+        "value(6|2)"
+    );
     // Cache de préfixe : le même début est repris.
     assert!(
         chief

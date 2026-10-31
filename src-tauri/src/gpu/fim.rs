@@ -9,6 +9,8 @@
 //! (l'autocomplétion ne doit jamais faire attendre la frappe). Les jetons
 //! spéciaux écrits dans le code de l'utilisateur sont neutralisés (ils
 //! casseraient la structure FIM) ; préfixe et suffixe ramenés au contexte.
+//! Proposition finie par [`finish`] : sans la ligne inachevée qu'a coupée la
+//! limite de jetons, ni la boucle d'un petit modèle (lignes de même forme).
 
 use std::time::{Duration, Instant};
 
@@ -36,6 +38,9 @@ const TEMPERATURE: f64 = 0.2;
 const CHARS_PER_TOKEN: usize = 3;
 /// Jetons laissés aux jetons FIM et au gabarit.
 const TEMPLATE_TOKENS: u32 = 64;
+/// Lignes de même forme à la suite à partir desquelles une proposition est
+/// vue comme une boucle du modèle (`int a = 0;`, `int b = 0;`…).
+const LOOP_LINES: usize = 4;
 /// Insécable de largeur nulle glissée après le premier caractère d'un jeton
 /// spécial écrit dans le code : le modèle le lit comme du texte.
 const BREAK: char = '\u{200B}';
@@ -345,6 +350,60 @@ pub fn cut(text: &str, multiline: bool, family: Option<Family>) -> String {
     text[..end].trim_end_matches([' ', '\t', '\r']).to_owned()
 }
 
+/// Forme d'une ligne : son retrait, puis ses signes, chaque mot ou nombre
+/// réduit à `w` (`    int a = 0;` et `    int b = 1;` ont la même).
+fn shape(line: &str) -> String {
+    let body = line.trim_start();
+    let mut out = line[..line.len() - body.len()].to_owned();
+    let mut in_word = false;
+    for c in body.chars() {
+        if c.is_alphanumeric() || c == '_' {
+            if !in_word {
+                out.push('w');
+            }
+            in_word = true;
+        } else {
+            in_word = false;
+            if !c.is_whitespace() {
+                out.push(c);
+            }
+        }
+    }
+    out
+}
+
+/// Proposition finie : coupée comme la demande ([`cut`]) ; en plusieurs
+/// lignes, sa dernière ligne retirée si la limite de jetons l'a coupée
+/// (`truncated`), et arrêtée à la première ligne d'une suite de
+/// [`LOOP_LINES`] lignes de même forme ou plus (boucle du modèle, qui
+/// remplirait sinon toute la limite).
+pub fn finish(text: &str, multiline: bool, family: Option<Family>, truncated: bool) -> String {
+    let mut text = cut(text, multiline, family);
+    if !multiline {
+        return text;
+    }
+    if truncated && let Some(at) = text.rfind('\n') {
+        text.truncate(at);
+        text.truncate(text.trim_end_matches([' ', '\t', '\r']).len());
+    }
+    let lines: Vec<&str> = text.split('\n').collect();
+    let shapes: Vec<String> = lines.iter().map(|line| shape(line)).collect();
+    let mut start = 0;
+    for index in 1..=shapes.len() {
+        let same = index < shapes.len()
+            && !shapes[index].trim().is_empty()
+            && shapes[index] == shapes[start];
+        if same {
+            continue;
+        }
+        if index - start >= LOOP_LINES && !shapes[start].trim().is_empty() {
+            return lines[..=start].join("\n");
+        }
+        start = index;
+    }
+    text
+}
+
 /// Proposition reçue.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Completed {
@@ -430,6 +489,8 @@ pub async fn complete(
     let mut text = String::new();
     let mut first: Option<u64> = None;
     let mut cached = 0;
+    // Fin à la limite de jetons (`num_predict`) : dernière ligne inachevée.
+    let mut truncated = false;
     'reading: loop {
         let chunk = if first.is_none() {
             match tokio::time::timeout_at(deadline, response.chunk()).await {
@@ -455,6 +516,7 @@ pub async fn complete(
             }
             if value["done"] == true {
                 cached = value["prompt_eval_cached_count"].as_u64().unwrap_or(0);
+                truncated = value["done_reason"] == "length";
                 first.get_or_insert_with(|| millis(started.elapsed()));
                 break 'reading;
             }
@@ -467,7 +529,7 @@ pub async fn complete(
         }
     }
     Ok(Completed {
-        text: cut(&text, multiline, family),
+        text: finish(&text, multiline, family, truncated),
         first_token_ms: first.unwrap_or_else(|| millis(started.elapsed())),
         total_ms: millis(started.elapsed()),
         cached_tokens: cached,
@@ -794,6 +856,50 @@ mod tests {
         assert_eq!(cut("a<|endoftext|>junk", true, family), "a");
         assert_eq!(cut("a<|endoftext|>junk", true, None), "a<|endoftext|>junk");
         assert_eq!(cut("value  \t", true, family), "value");
+    }
+
+    /// Proposition coupée par la limite de jetons : la ligne inachevée part
+    /// (plusieurs lignes seulement ; une seule ligne inachevée reste).
+    #[test]
+    fn a_line_cut_by_the_token_limit_is_dropped() {
+        let family = Some(Family::QwenCoder);
+        let text = "\n    int *p = &a;\n    printf(\"a = %";
+        assert_eq!(finish(text, true, family, true), "\n    int *p = &a;");
+        assert_eq!(finish(text, true, family, false), text);
+        assert_eq!(finish("value(6|", true, family, true), "value(6|");
+        assert_eq!(finish("value(6|", false, family, true), "value(6|");
+        assert_eq!(
+            finish("a = 1\n    b = \t", true, family, true),
+            "a = 1",
+            "trailing spaces trimmed"
+        );
+    }
+
+    /// Boucle du modèle (relevée à la recette : `int a = 0;` à `int i = 0`
+    /// dans un `main` vide) : arrêtée à la première ligne de la suite.
+    #[test]
+    fn a_looping_proposal_stops_at_its_first_line() {
+        let family = Some(Family::QwenCoder);
+        let looping: String = ('a'..='i')
+            .map(|name| format!("\n    int {name} = 0;"))
+            .collect();
+        assert_eq!(finish(&looping, true, family, false), "\n    int a = 0;");
+        // Après des lignes utiles, la boucle est coupée de même.
+        let after = format!("\n    int x = f();{looping}");
+        assert_eq!(
+            finish(&after, true, family, false),
+            "\n    int x = f();\n    int a = 0;"
+        );
+        // Trois lignes de même forme : un motif ordinaire, gardé.
+        let three = "\n    p.x = 1;\n    p.y = 2;\n    p.z = 3;\n    return p;";
+        assert_eq!(finish(three, true, family, false), three);
+        // Même forme mais retraits différents (accolades imbriquées) : gardé.
+        let braces = "x;\n      }\n    }\n  }\n}";
+        assert_eq!(finish(braces, true, family, false), braces);
+        // Une seule ligne demandée : rien de plus que la coupe.
+        assert_eq!(finish("int a = 0;", false, family, false), "int a = 0;");
+        assert_eq!(shape("    int a = 0;"), "    ww=w;");
+        assert_eq!(shape("    int count_2 = 10;"), "    ww=w;");
     }
 
     #[test]
