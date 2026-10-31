@@ -1,0 +1,175 @@
+# Publication de l'extension VS Code (vscode/) sur le Visual Studio
+# Marketplace et sur Open VSX.
+#
+# Lancement à la main seulement (workflow_dispatch). Sans la case « publish »,
+# le workflow construit, contrôle et empaquette le .vsix (artefact
+# chatonlm-vscode, 14 jours) sans rien publier. La publication ne part que de
+# main.
+#
+# Authentification sans secret (Trusted Publishing, jeton OIDC de GitHub
+# échangé contre un jeton de quelques minutes) :
+# - Marketplace : règle de l'éditeur `chatonlm` (dépôt Elwynn18/chatonlm,
+#   fichier vscode-publish.yml, sans environnement) ; vsce publish --oidc.
+# - Open VSX : règle du namespace `chatonlm`. Open VSX n'accepte une règle
+#   que pour une extension qui a déjà une version publiée : la première
+#   publication passe par le secret OVSX_PAT (jeton du compte), à retirer
+#   ensuite. Sans ce secret, ovsx publish --trusted-publishing.
+#
+# @vscode/vsce et ovsx ne sont jamais dans package.json (vsce tire
+# @vscode/vsce-sign, sous licence propriétaire ; ovsx est sous EPL-2.0) :
+# installés ici seulement, à des versions épinglées, sans aucun script
+# d'installation (la signature de vsce-sign ne sert qu'avec --sign-tool).
+name: Extension VS Code (publication)
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publier (sinon, seulement construire et contrôler le .vsix)
+        type: boolean
+        default: false
+      marketplace:
+        description: Visual Studio Marketplace
+        type: boolean
+        default: true
+      openvsx:
+        description: Open VSX
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vscode-publish
+  cancel-in-progress: false
+
+env:
+  VSCE_VERSION: 4.1.0
+  OVSX_VERSION: 1.3.0
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  package:
+    name: Construction et contrôle du .vsix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      vsix: ${{ steps.vsix.outputs.name }}
+    steps:
+      - name: Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node (.nvmrc)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Paquets npm
+        run: npm ci
+
+      - name: Essais de l'extension et de ses fichiers de publication
+        run: >-
+          node_modules/.bin/vitest run vscode scripts/make-icons.test.mjs
+          scripts/vscode-publish.test.mjs
+
+      - name: Build de l'hôte, du serveur MCP et du panneau
+        run: |
+          node_modules/.bin/vite build -c vscode/vite.extension.config.mts
+          node_modules/.bin/vite build -c vscode/webview.vite.config.mts
+
+      - name: Contenu du panneau
+        run: node scripts/check-bundle.mjs --webview vscode/dist/webview
+
+      - name: Notices
+        run: node scripts/vscode-notices.mjs
+
+      - name: vsce et ovsx épinglés
+        run: |
+          tools="$RUNNER_TEMP/publish-tools"
+          mkdir -p "$tools"
+          echo '{"private":true}' > "$tools/package.json"
+          npm install --prefix "$tools" --ignore-scripts --no-audit --no-fund \
+            "@vscode/vsce@$VSCE_VERSION" "ovsx@$OVSX_VERSION"
+
+      - name: Paquet .vsix
+        id: vsix
+        working-directory: vscode
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          name="chatonlm-$version.vsix"
+          "$RUNNER_TEMP/publish-tools/node_modules/.bin/vsce" package \
+            --no-dependencies --out "$RUNNER_TEMP/$name"
+          unzip -l "$RUNNER_TEMP/$name"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Artefact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chatonlm-vscode
+          path: ${{ runner.temp }}/${{ steps.vsix.outputs.name }}
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publication
+    needs: package
+    if: inputs.publish && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Code (.nvmrc)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+
+      - name: Node (.nvmrc)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Paquet .vsix
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chatonlm-vscode
+          path: out
+
+      - name: vsce et ovsx épinglés
+        run: |
+          tools="$RUNNER_TEMP/publish-tools"
+          mkdir -p "$tools"
+          echo '{"private":true}' > "$tools/package.json"
+          npm install --prefix "$tools" --ignore-scripts --no-audit --no-fund \
+            "@vscode/vsce@$VSCE_VERSION" "ovsx@$OVSX_VERSION"
+
+      - name: Visual Studio Marketplace
+        if: inputs.marketplace
+        env:
+          VSIX: out/${{ needs.package.outputs.vsix }}
+        run: |
+          "$RUNNER_TEMP/publish-tools/node_modules/.bin/vsce" publish --oidc \
+            --packagePath "$VSIX" --skip-duplicate
+
+      - name: Open VSX
+        if: inputs.openvsx
+        env:
+          VSIX: out/${{ needs.package.outputs.vsix }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          ovsx="$RUNNER_TEMP/publish-tools/node_modules/.bin/ovsx"
+          if [ -n "$OVSX_PAT" ]; then
+            echo "Jeton OVSX_PAT (première publication)."
+            "$ovsx" publish "$VSIX" --skip-duplicate
+          else
+            "$ovsx" publish "$VSIX" --trusted-publishing --skip-duplicate
+          fi

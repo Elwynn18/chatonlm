@@ -1092,7 +1092,7 @@ function read(file) {
 }
 
 /** Licence d'un paquet npm de node_modules, au format de license.json. */
-function nodePackage(name) {
+export function nodePackage(name) {
   const dir = path.join(root, "node_modules", name);
   const pkg = JSON.parse(readFileSync(path.join(dir, "package.json"), "utf8"));
   const file = readdirSync(dir).find((f) =>

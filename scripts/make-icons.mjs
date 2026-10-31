@@ -5,6 +5,8 @@
 //   src-tauri/icons/{32,64,128,256,512}.png paquets, zone de notification,
 //                                           notifications, entrée de menu
 //   src-tauri/icons/icon.ico                Windows : 16, 24, 32, 48, 64, 256
+//   vscode/media/icon.png                   extension VS Code (Marketplace,
+//                                           Open VSX) : copie du 256 px
 //
 // Jusqu'à 32 px, les trois rayures du front (moins d'un pixel de large) ne
 // donnent qu'une tache : ces tailles sont rendues sans elles.
@@ -25,6 +27,9 @@ const ROOT = path.resolve(import.meta.dirname, "..");
 export const PNG_SIZES = [32, 64, 128, 256, 512];
 /** Tailles réunies dans `icon.ico`. */
 export const ICO_SIZES = [16, 24, 32, 48, 64, 256];
+/** Icône de l'extension VS Code : PNG d'au moins 128 px exigé par les
+ * magasins, copie de celui de cette taille. */
+export const VSCODE_ICON = { file: "vscode/media/icon.png", size: 256 };
 /** Plus grande taille rendue sans les rayures. */
 export const PLAIN_UP_TO = 32;
 
@@ -78,12 +83,16 @@ function main() {
   for (const size of PNG_SIZES) {
     writeFileSync(path.join(icons, `${size}x${size}.png`), render(svg, size));
   }
+  copyFileSync(
+    path.join(icons, `${VSCODE_ICON.size}x${VSCODE_ICON.size}.png`),
+    path.join(ROOT, VSCODE_ICON.file),
+  );
   writeFileSync(
     path.join(icons, "icon.ico"),
     ico(ICO_SIZES.map((size) => ({ size, png: render(svg, size) }))),
   );
   console.log(
-    `Icônes écrites : public/logo.svg, ${PNG_SIZES.length} PNG, icon.ico`,
+    `Icônes écrites : public/logo.svg, ${PNG_SIZES.length} PNG, icon.ico, ${VSCODE_ICON.file}`,
   );
 }
 

@@ -1,7 +1,8 @@
 // @vitest-environment node
 // Essais de la fabrication des icônes (make-icons.mjs) : petites tailles sans
 // les rayures, format du fichier ICO, et icônes versionnées : tailles
-// attendues, couleurs du dessin source, rayures au-dessus de 32 px seulement.
+// attendues, couleurs du dessin source, rayures au-dessus de 32 px seulement,
+// icône de l'extension VS Code copiée du PNG de sa taille.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { inflateSync } from "node:zlib";
@@ -9,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   ICO_SIZES,
   PNG_SIZES,
+  VSCODE_ICON,
   drawingFor,
   ico,
   withoutStripes,
@@ -143,6 +145,14 @@ describe("committed icons", () => {
       const png = readFileSync(path.join(ICONS, `${size}x${size}.png`));
       expect(pngSize(png)).toEqual([size, size]);
     }
+  });
+
+  it("has the VS Code extension icon equal to the PNG of its size", () => {
+    const icon = readFileSync(path.join(ROOT, VSCODE_ICON.file));
+    expect(VSCODE_ICON.size).toBeGreaterThanOrEqual(128);
+    expect(pngSize(icon)).toEqual([VSCODE_ICON.size, VSCODE_ICON.size]);
+    const source = `${VSCODE_ICON.size}x${VSCODE_ICON.size}.png`;
+    expect(icon.equals(readFileSync(path.join(ICONS, source)))).toBe(true);
   });
 
   it("has the Windows icon with its six PNG images", () => {

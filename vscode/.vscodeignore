@@ -1,0 +1,12 @@
+# Fichiers exclus du paquet .vsix de l'extension (vsce package) : seuls le
+# manifeste, les textes (l10n, package.nls*), media/, dist/ construit, le
+# README, le CHANGELOG, la LICENSE et dist/THIRD_PARTY_NOTICES.txt partent.
+src/**
+webview/**
+shared/**
+dist/**/*.map
+dist/webview/.vite/**
+tsconfig.json
+*.mts
+**/*.test.*
+node_modules/**

@@ -2,15 +2,26 @@
   "name": "chatonlm",
   "displayName": "ChatonLM",
   "description": "%extension.description%",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#FFF4E8",
+    "theme": "light"
+  },
+  "preview": true,
+  "pricing": "Free",
   "version": "0.1.0",
   "publisher": "chatonlm",
   "private": true,
   "license": "MIT",
   "author": "Elwynn18 and ChatonLM contributors",
   "homepage": "https://chatonlm.com",
+  "bugs": {
+    "url": "https://github.com/Elwynn18/chatonlm/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Elwynn18/chatonlm"
+    "url": "https://github.com/Elwynn18/chatonlm",
+    "directory": "vscode"
   },
   "engines": {
     "vscode": "^1.105.0"
@@ -18,6 +29,18 @@
   "categories": [
     "AI",
     "Chat"
+  ],
+  "keywords": [
+    "ollama",
+    "local",
+    "offline",
+    "llm",
+    "ai",
+    "chat",
+    "voice",
+    "autocomplete",
+    "privacy",
+    "mcp"
   ],
   "extensionKind": [
     "ui"
