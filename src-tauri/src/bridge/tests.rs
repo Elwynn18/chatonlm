@@ -735,9 +735,11 @@ async fn an_incompatible_protocol_is_told() {
 async fn a_connection_that_never_authenticates_is_closed() {
     // Délai court, mais assez long pour s'appairer sous charge.
     let bench = bench_with(std::time::Duration::from_secs(1)).await;
+    // Chronomètre lancé avant la connexion : le délai du pont court depuis
+    // l'acceptation, pas depuis la fin de `initialize` (lente sous charge).
+    let started = std::time::Instant::now();
     let mut client = bench.connect();
     client.initialize().await;
-    let started = std::time::Instant::now();
     assert_eq!(client.next_message().await, None);
     assert!(started.elapsed() >= std::time::Duration::from_millis(900));
     // Authentifiée, elle reste ouverte au-delà du délai.
