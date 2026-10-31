@@ -14,9 +14,9 @@ function step(name) {
 }
 
 /** Attend la demande `name` de l'essai extérieur (fichier `<step>.<name>`). */
-async function waitFor(name) {
+async function waitFor(name, timeoutMs = 60_000) {
   const file = `${process.env.CHATONLM_TEST_STEP_FILE}.${name}`;
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + timeoutMs;
   while (!fs.existsSync(file)) {
     if (Date.now() > deadline) throw new Error(`no request: ${name}`);
     await delay(200);
@@ -32,6 +32,12 @@ async function verdict() {
   }
   const text = fs.readFileSync(done, "utf8");
   if (text !== "ok") throw new Error(text);
+}
+
+/** Bulles de notification retirées, avant une capture. */
+async function clearNotifications() {
+  await vscode.commands.executeCommand("notifications.clearAll");
+  await delay(500);
 }
 
 async function openSelected(file) {
@@ -255,6 +261,88 @@ const scenarios = {
       .getConfiguration("chatonlm")
       .update("mcp.enabled", false, vscode.ConfigurationTarget.Global);
     step("off");
+  },
+  // Captures du README de l'extension (e2e/vscode-readme-screenshots.mjs) :
+  // « Explain », visite guidée en pause, autocomplétion proposée. L'essai
+  // extérieur attend les vraies réponses et prend les captures.
+  async readme() {
+    const long = 300_000;
+    // Panneau ouvert, barre secondaire (vide) fermée.
+    await vscode.commands.executeCommand("workbench.view.extension.chatonlm");
+    await vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar");
+    const slug = await openSelected("src/slugify.ts");
+    // Panneau élargi : l'éditeur, qui a le focus, rétrécit.
+    for (let i = 0; i < 6; i += 1) {
+      await vscode.commands.executeCommand(
+        "workbench.action.decreaseViewWidth",
+      );
+    }
+    // Les lignes de la chaîne de remplacements seulement.
+    slug.selection = new vscode.Selection(2, 0, 8, 0);
+    // La commande rend la main à la fin de la réponse : pas attendue.
+    void vscode.commands.executeCommand("chatonlm.explain");
+    await delay(2000);
+    await clearNotifications();
+    step("explained");
+
+    await waitFor("tour", long);
+    await vscode.commands.executeCommand("chatonlm.newChat");
+    const retry = await openSelected("src/retry.ts");
+    retry.selection = new vscode.Selection(0, 0, 0, 0);
+    void vscode.commands.executeCommand("chatonlm.tour");
+    await delay(2000);
+    await clearNotifications();
+    step("touring");
+    // Pause sur la deuxième partie : plusieurs lignes surlignées.
+    await waitFor("pause", long);
+    await vscode.commands.executeCommand("chatonlm.tourNext");
+    await delay(2500);
+    await vscode.commands.executeCommand("chatonlm.tourTogglePause");
+    await clearNotifications();
+    step("paused");
+    await waitFor("stop", long);
+    await vscode.commands.executeCommand("chatonlm.tourStop");
+    await vscode.commands.executeCommand("chatonlm.newChat");
+
+    // Autocomplétion : explorateur à gauche, curseur dans le corps vide.
+    await vscode.commands.executeCommand("workbench.view.explorer");
+    const folder = vscode.workspace.workspaceFolders[0].uri;
+    const document = await vscode.workspace.openTextDocument(
+      vscode.Uri.joinPath(folder, "src/cart.ts"),
+    );
+    const editor = await vscode.window.showTextDocument(document);
+    // Largeur rendue à l'éditeur (élargi pour le panneau plus haut).
+    for (let i = 0; i < 6; i += 1) {
+      await vscode.commands.executeCommand(
+        "workbench.action.increaseViewWidth",
+      );
+    }
+    await vscode.commands.executeCommand("chatonlm.completionToggle");
+    await clearNotifications();
+    step("completion-on");
+    await waitFor("trigger", long);
+    const line = 7;
+    const before = document.lineAt(line).text;
+    for (let attempt = 0; document.lineAt(line).text === before; attempt += 1) {
+      if (attempt >= 15) throw new Error("no inline suggestion");
+      editor.selection = new vscode.Selection(line, 2, line, 2);
+      await vscode.commands.executeCommand(
+        "editor.action.inlineSuggest.trigger",
+      );
+      await delay(4000);
+      await clearNotifications();
+      step(`suggested:${attempt}`);
+      await waitFor(`shot${attempt}`, long);
+      await vscode.commands.executeCommand(
+        "editor.action.inlineSuggest.commit",
+      );
+      await delay(500);
+    }
+    step("accepted");
+    await waitFor("end", long);
+    await vscode.commands.executeCommand("chatonlm.completionToggle");
+    // Rien d'écrit sur le disque.
+    await vscode.commands.executeCommand("workbench.action.files.revert");
   },
 };
 

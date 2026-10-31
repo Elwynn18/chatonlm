@@ -10,3 +10,5 @@ tsconfig.json
 *.mts
 **/*.test.*
 node_modules/**
+# Captures du README : lues en ligne par les magasins (adresse absolue).
+media/screenshots/**

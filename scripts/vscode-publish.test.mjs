@@ -68,7 +68,28 @@ describe("package files", () => {
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) expect(link).toMatch(/^https:\/\//);
     expect(readme).not.toMatch(/http:\/\//);
-    expect(readme).not.toMatch(/!\[/); // pas d'image : elles devraient être en ligne
+  });
+
+  it("shows screenshots of the repository, left out of the .vsix", () => {
+    // Les magasins lisent les images en ligne : adresse absolue vers la
+    // branche main, fichier présent dans le dépôt, PNG (vsce refuse le SVG).
+    const base =
+      "https://raw.githubusercontent.com/Elwynn18/chatonlm/main/vscode/";
+    const images = [
+      ...read("vscode/README.md").matchAll(/!\[[^\]]+\]\(([^)]+)\)/g),
+    ].map((m) => m[1]);
+    expect(images.length).toBeGreaterThanOrEqual(3);
+    for (const image of images) {
+      expect(image.startsWith(`${base}media/screenshots/`)).toBe(true);
+      expect(image).toMatch(/\.png$/);
+      const file = readFileSync(
+        path.join(root, "vscode", image.slice(base.length)),
+      );
+      expect(file.subarray(1, 4).toString()).toBe("PNG");
+    }
+    expect(read("vscode/.vscodeignore").split("\n")).toContain(
+      "media/screenshots/**",
+    );
   });
 
   it("names a PNG icon and the gallery details", () => {

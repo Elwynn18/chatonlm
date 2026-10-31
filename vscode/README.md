@@ -8,6 +8,8 @@ Ollama). No account, no subscription.
 > This extension is a companion of the ChatonLM app, on Linux and Windows. It
 > does nothing on its own: install ChatonLM 0.9.4 or later first.
 
+![Explain on a selection: the answer of a local model in the ChatonLM panel](https://raw.githubusercontent.com/Elwynn18/chatonlm/main/vscode/media/screenshots/chat.png)
+
 ## Getting started
 
 1. Install [ChatonLM](https://chatonlm.com) and choose a model in it.
@@ -17,6 +19,8 @@ Ollama). No account, no subscription.
    code.
 
 The cat in the activity bar opens the chat panel.
+
+![Settings › VS Code in ChatonLM, with a paired editor](https://raw.githubusercontent.com/Elwynn18/chatonlm/main/vscode/media/screenshots/pairing.png)
 
 ## What it does
 
@@ -28,10 +32,16 @@ The cat in the activity bar opens the chat panel.
   through a file, read aloud part by part. **Dictate** (Shift+Alt+D) types what
   you say at the cursor; Escape stops it. Speech recognition and voices run on
   this computer.
+
+  ![Guided tour: the part being read is highlighted in the editor](https://raw.githubusercontent.com/Elwynn18/chatonlm/main/vscode/media/screenshots/tour.png)
+
 - **Autocomplete** (off by default). Suggestions as you type, from a small code
   model on this computer. ChatonLM loads it only if there is room for it next to
   the chat model on your graphics card, and stays quiet where another
   autocomplete extension is on.
+
+  ![A suggestion from a local code model, shown in grey](https://raw.githubusercontent.com/Elwynn18/chatonlm/main/vscode/media/screenshots/completion.png)
+
 - **Notifications through Easy Link** (off by default). A message on Telegram or
   Discord when a long build, terminal command or answer finishes: only its name,
   how long it took and whether it worked, never code or output.
