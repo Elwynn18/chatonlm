@@ -11,7 +11,8 @@
 //!   ([`connection`]).
 //! - Seuls les éditeurs appairés par un code montré dans l'app sont servis ;
 //!   chaque connexion se prouve dans les deux sens ([`proof`]). Retirer un
-//!   éditeur ferme aussi ses connexions.
+//!   éditeur ferme aussi ses connexions ; l'éditeur peut se retirer lui-même
+//!   (`client.unlink`, « Unpair » de l'extension).
 //! - Accès « agents » : un éditeur crée (`agents.issue`) ou retire
 //!   (`agents.revoke`) un client à part pour le serveur MCP de l'extension,
 //!   que l'app limite elle-même aux besoins de ses outils (liste blanche de
@@ -470,20 +471,7 @@ impl<H: Host> Bridge<H> {
     /// efface leurs conversations éphémères (comme un compte délié d'Easy
     /// Link).
     pub async fn unlink(&self, client_id: String) -> AppResult<BridgeState> {
-        let _changing = self.0.changing.lock().await;
-        let id = client_id.clone();
-        let mut removed = self
-            .0
-            .store
-            .call(move |c| saved::remove_client(c, &id))
-            .await?;
-        if !removed.contains(&client_id) {
-            removed.push(client_id);
-        }
-        for client in &removed {
-            self.0.forget_client(client).await;
-        }
-        self.0.emit_now().await
+        self.0.unlink(client_id, None).await
     }
 
     /// Fin de l'app : point d'accès fermé, fichier de découverte retiré.
@@ -621,19 +609,47 @@ impl<H: Host> Shared<H> {
             }
         }
         *self.status.lock() = BridgeStatus::Off;
-        self.close_where(|_| true);
+        self.close_where(|_, _| true);
     }
 
-    /// Ferme les connexions du client, et celles de son accès agents.
-    fn close_client(&self, client_id: &str) {
-        self.close_where(|open| {
-            open.client.as_deref() == Some(client_id) || open.parent.as_deref() == Some(client_id)
+    /// Oublie un éditeur (et son accès agents), ferme leurs connexions sauf
+    /// `keep`, efface leurs éphémères, puis la page l'apprend : retrait par la
+    /// page (`bridge_unlink`), ou par l'éditeur lui-même (`client.unlink`,
+    /// dont la connexion `keep` répond avant de se fermer d'elle-même).
+    pub(crate) async fn unlink(
+        &self,
+        client_id: String,
+        keep: Option<u64>,
+    ) -> AppResult<BridgeState> {
+        let _changing = self.changing.lock().await;
+        let id = client_id.clone();
+        let mut removed = self
+            .store
+            .call(move |c| saved::remove_client(c, &id))
+            .await?;
+        if !removed.contains(&client_id) {
+            removed.push(client_id);
+        }
+        for client in &removed {
+            self.forget_client(client, keep).await;
+        }
+        self.emit_now().await
+    }
+
+    /// Ferme les connexions du client, et celles de son accès agents, sauf
+    /// `keep`.
+    fn close_client(&self, client_id: &str, keep: Option<u64>) {
+        self.close_where(|connection, open| {
+            Some(connection) != keep
+                && (open.client.as_deref() == Some(client_id)
+                    || open.parent.as_deref() == Some(client_id))
         });
     }
 
-    /// Client retiré : ses connexions fermées, ses éphémères effacées.
-    async fn forget_client(&self, client_id: &str) {
-        self.close_client(client_id);
+    /// Client retiré : ses connexions fermées (sauf `keep`), ses éphémères
+    /// effacées.
+    async fn forget_client(&self, client_id: &str, keep: Option<u64>) {
+        self.close_client(client_id, keep);
         let chats = self.take_ephemerals(Some(client_id));
         self.erase_editor_chats(chats).await;
     }
@@ -667,7 +683,7 @@ impl<H: Host> Shared<H> {
             })
             .await?;
         if let Some(replaced) = replaced {
-            self.forget_client(&replaced).await;
+            self.forget_client(&replaced, None).await;
         }
         Ok(created.then_some((id, secret)))
     }
@@ -683,7 +699,7 @@ impl<H: Host> Shared<H> {
             .await?;
         match removed {
             Some(agents) => {
-                self.forget_client(&agents).await;
+                self.forget_client(&agents, None).await;
                 Ok(true)
             }
             None => Ok(false),
@@ -692,12 +708,12 @@ impl<H: Host> Shared<H> {
 
     /// Ferme les connexions choisies ; leur voix s'arrête aussitôt, sans
     /// attendre que leur tâche le voie.
-    fn close_where(&self, chosen: impl Fn(&Open) -> bool) {
+    fn close_where(&self, chosen: impl Fn(u64, &Open) -> bool) {
         let closed: Vec<u64> = self
             .connections
             .lock()
             .iter()
-            .filter(|(_, open)| chosen(open))
+            .filter(|(id, open)| chosen(**id, open))
             .map(|(id, open)| {
                 open.close.send_replace(true);
                 *id

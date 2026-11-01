@@ -532,6 +532,13 @@ async fn errors_after_the_start_are_reported_with_their_code() {
 /// Serveur qui répond à tout la page 404 en texte d'un proxy (Go, gin,
 /// Traefik).
 async fn plain_404() -> String {
+    scripted(None).await
+}
+
+/// Serveur qui répond à `/api/chat`, si `chat` est donné, ce contenu d'un
+/// seul fragment (`done`), et à tout le reste la page 404 de [`plain_404`]
+/// (`/api/show` : détails inconnus, la correction continue).
+async fn scripted(chat: Option<&'static str>) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -554,15 +561,66 @@ async fn plain_404() -> String {
                     }
                 }
             }
-            let _ = socket
-                .write_all(
-                    b"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\
-                      Content-Length: 18\r\nConnection: close\r\n\r\n404 page not found",
-                )
-                .await;
+            let to_chat = String::from_utf8_lossy(&received)
+                .to_ascii_lowercase()
+                .starts_with("post /api/chat ");
+            let response = match chat {
+                Some(content) if to_chat => {
+                    let body = format!(
+                        "{}\n",
+                        serde_json::json!({
+                            "message": { "role": "assistant", "content": content },
+                            "done": true,
+                        })
+                    );
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                }
+                _ => "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\
+                      Content-Length: 18\r\nConnection: close\r\n\r\n404 page not found"
+                    .to_owned(),
+            };
+            let _ = socket.write_all(response.as_bytes()).await;
         }
     });
     format!("http://{address}")
+}
+
+/// Recette du 1er nov. 2026 (défaut R14) : paragraphe coupé à la main, rendu
+/// corrigé sur une ligne (réponse réelle de qwen3:8b). Le passage est
+/// corrigé, avec ses retours à la ligne (CRLF du texte compris), et c'est ce
+/// texte remis en forme que reçoit la page.
+#[tokio::test]
+async fn a_wrapped_paragraph_answered_on_one_line_is_corrected() {
+    const ANSWER: &str = "A tiny shop backend. It calculates the cart total, retry the payment \
+                          when the bank doesn't answer, and turn product titles into URL slugs.";
+    let url = scripted(Some(ANSWER)).await;
+    for ending in ["\n", "\r\n"] {
+        let text = format!(
+            "A tiny shop backend. It calcualte the cart total, retry the payement{ending}\
+             when the bank dont answer, and turn product titles into URL slugs.{ending}"
+        );
+        let corrected = format!(
+            "A tiny shop backend. It calculates the cart total, retry the payment{ending}\
+             when the bank doesn't answer, and turn product titles into URL slugs."
+        );
+        let events = Events::default();
+        let outcome = run(
+            &server(&url),
+            "qwen3:8b",
+            ProofreadMode::Correct,
+            &text,
+            &Cancel::default(),
+            &events.emit(),
+        )
+        .await;
+        assert_eq!(outcome.error, None);
+        assert_eq!(events.steps()[1], done(0, &corrected, false));
+        assert_eq!(outcome.text(), format!("{corrected}{ending}"));
+    }
 }
 
 /// Base dont le serveur réglé est `url`, avec ces modèles du chat et de la

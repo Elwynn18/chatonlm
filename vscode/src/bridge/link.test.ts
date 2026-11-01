@@ -2,7 +2,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeBridge, until } from "../test/fakeBridge";
 import type { Discovery } from "./discovery";
-import { type Credentials, Link, PairError } from "./link";
+import {
+  type Credentials,
+  Link,
+  PAIR_AUTH_TIMEOUT_MS,
+  PairError,
+} from "./link";
 
 function setup(
   options: {
@@ -291,6 +296,54 @@ describe("Link", () => {
     });
     t.link.cancel(call.id);
     await until(() => t.fake.cancelled.includes(call.id));
+  });
+
+  it("asks the app to forget this editor on unpair, without reconnecting (R16)", async () => {
+    const t = setup();
+    t.store.value = t.fake.addClient();
+    await t.link.start();
+    const states: string[] = [];
+    t.link.onState((state) => states.push(state.connection));
+    await expect(t.link.unpair()).resolves.toBe(true);
+    expect(t.fake.calls("client.unlink")).toEqual([{}]);
+    expect(t.fake.unlinked).toEqual(["client-1"]);
+    expect(t.store.value).toBeNull();
+    await until(() => !t.fake.clients.has("client-1"));
+    await until(() => t.fake.authenticated.length === 0);
+    // La fermeture qui suit la réponse ne relance rien.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(states).toEqual(["notPaired"]);
+    expect(t.fake.calls("initialize")).toHaveLength(1);
+  });
+
+  it("unpairs all the same with an older app or one that does not answer (R16)", async () => {
+    const old = setup();
+    old.store.value = old.fake.addClient();
+    old.fake.unlinkSupported = false;
+    await old.link.start();
+    await expect(old.link.unpair()).resolves.toBe(false);
+    expect(old.store.value).toBeNull();
+    expect(old.link.state.connection).toBe("notPaired");
+
+    const silent = setup();
+    silent.store.value = silent.fake.addClient();
+    silent.fake.unlinkSilent = true;
+    await silent.link.start();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const unpaired = silent.link.unpair();
+    await vi.advanceTimersByTimeAsync(PAIR_AUTH_TIMEOUT_MS);
+    vi.useRealTimers();
+    await expect(unpaired).resolves.toBe(false);
+    expect(silent.store.value).toBeNull();
+    expect(silent.link.state.connection).toBe("notPaired");
+
+    // Pas reliée : rien n'est demandé à l'app.
+    const closed = setup({ discovery: null });
+    closed.store.value = closed.fake.addClient();
+    await closed.link.start();
+    await expect(closed.link.unpair()).resolves.toBe(false);
+    expect(closed.fake.calls("client.unlink")).toEqual([]);
+    expect(closed.store.value).toBeNull();
   });
 
   it("forgets the secret on unpair", async () => {

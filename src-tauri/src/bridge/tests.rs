@@ -3704,6 +3704,64 @@ async fn removing_the_editor_removes_its_agents_access() {
     );
 }
 
+/// `client.unlink` (« Unpair » de l'extension) : l'éditeur se retire lui-même,
+/// comme par la page ; sa réponse arrive, puis sa connexion se ferme.
+#[tokio::test]
+async fn an_editor_unlinks_itself_like_the_page_would() {
+    let bench = bench().await;
+    let (mut editor, editor_id, editor_secret) = bench.paired().await;
+    let mut other = reconnect(&bench, &editor_id, &editor_secret).await;
+    let (mut agents, agents_id, agents_secret) = agents_access(&bench, &mut editor).await;
+    let chat = ephemeral_chat(&mut editor).await;
+
+    // Avant l'authentification : refusée.
+    let mut stranger = bench.connect();
+    stranger.initialize().await;
+    assert_eq!(
+        error_code(&stranger.request("client.unlink", json!({})).await),
+        code::UNAUTHENTICATED
+    );
+    // Accès agents : refusée, rien ne change.
+    let answer = agents.request("client.unlink", json!({})).await;
+    assert_eq!(error_code(&answer), code::FORBIDDEN, "{answer}");
+    // Paramètres : refusés, rien ne change.
+    assert_eq!(
+        error_code(
+            &editor
+                .request("client.unlink", json!({ "id": editor_id }))
+                .await
+        ),
+        code::INVALID_PARAMS
+    );
+    assert_eq!(bench.state().await.clients.len(), 1);
+    assert_eq!(agents.request("ping", json!({})).await["result"], json!({}));
+
+    let unlinked = editor.request("client.unlink", json!({})).await;
+    assert_eq!(unlinked["result"], json!({}), "{unlinked}");
+    assert_eq!(editor.next_message().await, None, "its connection closed");
+    assert_eq!(other.next_message().await, None, "its other connection too");
+    assert_eq!(agents.next_message().await, None, "and its agents access");
+    assert!(bench.state().await.clients.is_empty());
+    assert!(
+        bench.host.states.lock().last().unwrap().clients.is_empty(),
+        "the page is told"
+    );
+    assert!(
+        !exists(&bench.store, &chat).await,
+        "its ephemeral chat erased"
+    );
+    for (id, secret) in [(&editor_id, &editor_secret), (&agents_id, &agents_secret)] {
+        let mut again = bench.connect();
+        again.initialize().await;
+        assert_eq!(
+            error_code(&again.auth(id, secret).await),
+            code::UNKNOWN_CLIENT
+        );
+    }
+    // Une autre connexion encore ouverte du pont n'est pas touchée.
+    assert!(stranger.initialize().await.get("error").is_some());
+}
+
 async fn patch_settings(bench: &Bench, patch: SettingsPatch) {
     bench
         .store

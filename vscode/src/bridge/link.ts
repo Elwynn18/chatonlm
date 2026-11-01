@@ -28,7 +28,8 @@ export type AppInfo = { version: string; platform: string };
  * qui ne s'authentifie pas). */
 export const HANDSHAKE_TIMEOUT_MS = 5000;
 /** Réponse à `pair` et `auth`, qui attendent une écriture de l'app dans sa
- * base (lente sous une forte charge disque) : 15 s. */
+ * base (lente sous une forte charge disque) : 15 s ; de même pour
+ * `client.unlink`, qui y retire le client. */
 export const PAIR_AUTH_TIMEOUT_MS = 15_000;
 export const FIRST_RETRY_MS = 250;
 export const MAX_RETRY_MS = 5000;
@@ -97,6 +98,8 @@ export class Link {
   #attempting: Promise<void> | null = null;
   #again = false;
   #stopped = false;
+  /** Désappairage en cours : aucun nouvel essai de connexion. */
+  #unpairing = false;
   /** Secret de la connexion en cours. */
   #used: Credentials | null = null;
   readonly #stateListeners = new Set<(state: LinkState) => void>();
@@ -246,13 +249,38 @@ export class Link {
     }
   }
 
-  /** Oublie le secret de cet éditeur (l'app le garde dans sa liste). */
-  async unpair(): Promise<void> {
-    await this.#deps.secrets.delete();
+  /**
+   * Oublie le secret de cet éditeur ; reliée, l'app est d'abord priée de le
+   * retirer de sa liste (`client.unlink`, puis elle ferme la connexion). Rend
+   * vrai si l'app l'a confirmé (une app plus ancienne répond -32601).
+   */
+  async unpair(): Promise<boolean> {
     this.#clearTimer();
-    this.#rpc?.close();
+    // Sortie de la liaison avant la requête : la fermeture qui suit la
+    // réponse ne relance pas de connexion.
+    const rpc = this.connected ? this.#rpc : null;
+    if (!rpc) this.#rpc?.close();
     this.#rpc = null;
+    let confirmed = false;
+    this.#unpairing = true;
+    try {
+      if (rpc) {
+        try {
+          await rpc.request("client.unlink", {}, PAIR_AUTH_TIMEOUT_MS);
+          confirmed = true;
+        } catch {
+          // Refus, app plus ancienne, délai dépassé : le secret part quand
+          // même.
+        }
+        rpc.close();
+      }
+      await this.#deps.secrets.delete();
+    } finally {
+      this.#unpairing = false;
+    }
+    this.#clearTimer();
     this.#set({ connection: "notPaired" });
+    return confirmed;
   }
 
   #set(state: LinkState): void {
@@ -305,7 +333,7 @@ export class Link {
   }
 
   async #attemptOnce(): Promise<void> {
-    if (this.#stopped || this.connected) return;
+    if (this.#stopped || this.#unpairing || this.connected) return;
     const dir = this.#deps.dir();
     if (!dir) {
       this.#set({ connection: "error", problem: "noRuntimeDir" });

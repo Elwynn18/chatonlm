@@ -13,7 +13,20 @@
 //! `.tools/research/46-proofread-eval.py` (`accept`).
 
 use super::ProofreadMode;
-use super::language;
+use super::{language, reflow};
+
+/// Texte rendu pour ce passage, ou `None` s'il garde son texte d'origine.
+/// En correction, une réponse qui a perdu des retours à la ligne souples
+/// (paragraphe coupé à la main, rendu sur une ligne) les retrouve d'abord
+/// ([`reflow::restore`]) ; le garde-fou juge ce texte remis en forme, et
+/// c'est lui qui est rendu (et comparé au passage par la page).
+pub fn settle(mode: ProofreadMode, original: &str, answer: String) -> Option<String> {
+    let answer = match mode {
+        ProofreadMode::Correct => reflow::restore(original, &answer).unwrap_or(answer),
+        ProofreadMode::Rephrase => answer,
+    };
+    accept(mode, original, &answer).then_some(answer)
+}
 
 /// Réponse acceptée pour ce passage.
 pub fn accept(mode: ProofreadMode, original: &str, answer: &str) -> bool {
@@ -188,15 +201,39 @@ fn content_lines(text: &str) -> Vec<(usize, usize)> {
 /// Mots en minuscules, sans accents (lettres, chiffres et marques
 /// combinantes ; l'apostrophe sépare : « l'école » donne « l » et « ecole »).
 pub(super) fn words(text: &str) -> Vec<Vec<char>> {
-    text.split(|c: char| !(c.is_alphanumeric() || COMBINING.contains(&c)))
-        .filter(|word| !word.is_empty())
-        .map(|word| {
-            word.chars()
-                .flat_map(char::to_lowercase)
-                .filter_map(fold)
-                .collect()
-        })
-        .collect()
+    spans(text).into_iter().map(|(_, word)| word).collect()
+}
+
+/// Mots de [`words`], chacun avec sa position dans le texte (octets, début
+/// et fin).
+pub(super) fn spans(text: &str) -> Vec<((usize, usize), Vec<char>)> {
+    let mut result = Vec::new();
+    let mut start = None;
+    // Une espace finale ferme le dernier mot.
+    for (at, c) in text
+        .char_indices()
+        .chain(std::iter::once((text.len(), ' ')))
+    {
+        match (word_char(c), start) {
+            (true, None) => start = Some(at),
+            (false, Some(from)) => {
+                let word = text[from..at]
+                    .chars()
+                    .flat_map(char::to_lowercase)
+                    .filter_map(fold)
+                    .collect();
+                result.push(((from, at), word));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    result
+}
+
+/// Caractère d'un mot : lettre, chiffre ou marque combinante.
+pub(super) fn word_char(c: char) -> bool {
+    c.is_alphanumeric() || COMBINING.contains(&c)
 }
 
 /// Accents combinants (texte décomposé, NFD).
@@ -278,6 +315,34 @@ pub(super) fn aligned(a: &[Vec<char>], b: &[Vec<char>]) -> usize {
         previous = current;
     }
     previous[b.len()]
+}
+
+/// Alignement de [`aligned`] : pour chaque mot de `a`, le mot de `b` avec
+/// lequel il compte (`None` s'il est hors de l'alignement).
+pub(super) fn pairs(a: &[Vec<char>], b: &[Vec<char>]) -> Vec<Option<usize>> {
+    let mut table = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for (i, x) in a.iter().enumerate() {
+        for (j, y) in b.iter().enumerate() {
+            table[i + 1][j + 1] = if close(x, y) {
+                table[i][j] + 1
+            } else {
+                table[i][j + 1].max(table[i + 1][j])
+            };
+        }
+    }
+    let mut result = vec![None; a.len()];
+    let (mut i, mut j) = (a.len(), b.len());
+    while i > 0 && j > 0 {
+        if close(&a[i - 1], &b[j - 1]) {
+            result[i - 1] = Some(j - 1);
+            (i, j) = (i - 1, j - 1);
+        } else if table[i - 1][j] >= table[i][j - 1] {
+            i -= 1;
+        } else {
+            j -= 1;
+        }
+    }
+    result
 }
 
 #[cfg(test)]
@@ -456,6 +521,8 @@ mod tests {
                 "Le chat a vu une sourit dans la cuisine et il la poursuivit jusqu'au salon.",
                 "The cat saw a smile in the kitchen and chased it into the living room.",
             ),
+            // Saut de ligne perdu : écarté par `accept` seul ; `settle` le
+            // remet d'abord s'il est souple (`reflow`), comme ici.
             (
                 "We has reviewed the proposal.\nHowever, the budget section need more details.",
                 "We have reviewed the proposal. However, the budget section needs more details.",

@@ -31,8 +31,10 @@
 //! `dictation.cancel` (notifications `dictation.state`, `dictation.text`,
 //! `dictation.error`) ; la fin de la connexion arrête aussi sa dictée.
 //! Accès agents (corrections 97) : `agents.issue` et `agents.revoke` (séance
-//! d'un éditeur seulement) ; une séance de l'accès agents n'a droit qu'à
-//! [`AGENT_METHODS`] (sinon -32037), et seulement à une NOUVELLE
+//! d'un éditeur seulement) ; `client.unlink` : l'éditeur se retire lui-même,
+//! puis la connexion se ferme (séance d'un éditeur seulement) ; une séance
+//! de l'accès agents n'a droit qu'à [`AGENT_METHODS`] (sinon -32037), et
+//! seulement à une NOUVELLE
 //! conversation éphémère, qu'elle seule peut effacer, avec un modèle de
 //! cette machine ; sa correction est toujours `localOnly`.
 
@@ -164,6 +166,9 @@ struct Session {
     client: Option<String>,
     /// Séance de l'accès agents (après `auth`).
     agents: bool,
+    /// Client retiré par lui-même (`client.unlink`) : la connexion finit
+    /// après sa réponse.
+    ended: bool,
 }
 
 /// Requête annulable (`chat.send`, `tour.plan`), inscrite dès sa lecture
@@ -258,6 +263,9 @@ pub(super) async fn serve<H: Host>(
         match read {
             Ok(Some(body)) => {
                 handle(shared, connection, &mut session, &running, &out, &body).await;
+                if session.ended {
+                    break;
+                }
             }
             Ok(None) => break,
             Err(FrameError::Malformed | FrameError::TooLarge) => {
@@ -272,7 +280,13 @@ pub(super) async fn serve<H: Host>(
     if *close.borrow() {
         writer.abort();
     } else {
-        let _ = tokio::time::timeout(Duration::from_millis(200), writer).await;
+        let mut writer = writer;
+        let flushed = tokio::time::timeout(Duration::from_millis(200), &mut writer).await;
+        // Client retiré : sa réponse écrite (ou le délai passé), la connexion
+        // se ferme même si un envoi en cours tient encore la file.
+        if flushed.is_err() && session.ended {
+            writer.abort();
+        }
     }
     // Micro et lecture de la connexion arrêtés (jamais laissés ouverts).
     drop(ended);
@@ -597,6 +611,8 @@ async fn handle<H: Host>(
                 }
             });
         }
+        // Dans l'ordre de lecture, attendu : rien n'est plus lu après.
+        "client.unlink" => client_unlink(shared, connection, session, out, &id, &params).await,
         "agents.issue" | "agents.revoke" => {
             let (shared, out) = (Arc::clone(shared), out.clone());
             let editor = session.client.clone().unwrap_or_default();
@@ -861,6 +877,37 @@ pub(super) fn not_local(out: &Outbox, id: &Value, message: String) {
         "refused",
         Some(json!({ "message": message, "code": "notLocal" })),
     );
+}
+
+/// `client.unlink {}` → `{}` : l'éditeur se retire lui-même (« Unpair » de
+/// l'extension), avec le même effet que `bridge_unlink` de la page (son accès
+/// agents aussi, leurs autres connexions fermées, leurs éphémères effacées,
+/// la page prévenue) ; puis cette connexion se ferme, sa réponse écrite.
+/// Paramètres non vides → -32602 (rien n'est retiré). Jamais servi à un accès
+/// agents (hors de [`AGENT_METHODS`]).
+async fn client_unlink<H: Host>(
+    shared: &Arc<Shared<H>>,
+    connection: u64,
+    session: &mut Session,
+    out: &Outbox,
+    id: &Value,
+    params: &Value,
+) {
+    let empty = params.is_null() || params.as_object().is_some_and(serde_json::Map::is_empty);
+    if !empty {
+        return invalid(out, id);
+    }
+    let Some(client) = session.client.clone() else {
+        return;
+    };
+    match shared.unlink(client, Some(connection)).await {
+        Ok(_) => {
+            out.result(id, json!({}));
+            session.client = None;
+            session.ended = true;
+        }
+        Err(error) => refused(out, id, &error),
+    }
 }
 
 /// `agents.issue {}` → `{ clientId, secret }` (remplace l'accès agents de

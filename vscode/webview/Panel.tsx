@@ -1,7 +1,13 @@
 // Panneau de l'extension VS Code (webview) : reçoit l'état et les messages
 // de l'hôte de l'extension (vscode/shared/protocol.ts), lui envoie les gestes
 // de l'utilisateur. Langue et thème : ceux de VS Code, donnés par l'hôte.
-import { useEffect, useMemo, useReducer, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useReducer,
+  useState,
+} from "react";
 import { setLanguage, useT } from "@/i18n";
 import { HostContext } from "@/lib/host";
 import type { HostMessage, Theme } from "../shared/protocol";
@@ -110,9 +116,83 @@ export function Panel({ post }: { post: Post }) {
     body = <EmptyChat />;
   }
 
+  // Cartes ouvertes, dans l'ordre d'affichage : leur zone n'existe que s'il
+  // y en a au moins une (sinon le corps prend toute la hauteur).
+  const cards: ReactNode[] = [];
+  if (connected && tour && tour.id !== closedTour) {
+    cards.push(
+      <TourCard
+        key="tour"
+        tour={tour}
+        voiceOn={voice !== null}
+        onCommand={(command) => post({ type: "tour", command })}
+        onGoto={(index) => post({ type: "tourGoto", index })}
+        onAsk={(byVoice) => {
+          post({ type: "tourAsk", voice: byVoice });
+          if (!byVoice) {
+            setPrefill((last) => ({
+              id: (last?.id ?? 0) + 1,
+              text: `${t("vscode.tour.prefill")} `,
+            }));
+          }
+        }}
+        onClose={() => setClosedTour(tour.id)}
+      />,
+    );
+  }
+  if (connected && model.gpuOpen && model.completion) {
+    cards.push(
+      <GpuCard
+        key="gpu"
+        view={model.completion}
+        onCommand={(command) => post({ type: "completion", command })}
+        onModel={(name) => post({ type: "completionModel", model: name })}
+        onInstall={(name) => post({ type: "offerPull", model: name })}
+        onClose={() => {
+          dispatch({ type: "gpuCard", open: false });
+          // Le bouton de fermeture disparaît : le focus revient au
+          // bouton de l'en-tête qui rouvre la carte.
+          document
+            .querySelector<HTMLButtonElement>("[data-testid=gpu-button]")
+            ?.focus();
+        }}
+      />,
+    );
+  }
+  if (connected && model.study) {
+    cards.push(
+      <StudyCard
+        key="study"
+        study={model.study}
+        onOpen={() => post({ type: "study", command: "open" })}
+        onClose={() => post({ type: "study", command: "close" })}
+      />,
+    );
+  }
+  if (model.agents) {
+    cards.push(
+      <AgentsCard
+        key="agents"
+        agents={model.agents}
+        onStop={(callId) => post({ type: "agents", command: "stop", callId })}
+        onTurnOff={() => post({ type: "agents", command: "turnOff" })}
+        onClear={() => post({ type: "agents", command: "clear" })}
+      />,
+    );
+  }
+  if (connected && model.image) {
+    cards.push(
+      <ImageCard
+        key="image"
+        image={model.image}
+        onCommand={(command) => post({ type: "image", command })}
+      />,
+    );
+  }
+
   return (
     <HostContext value={host}>
-      <div className="flex h-screen flex-col bg-white text-neutral-900 dark:bg-neutral-900 dark:text-white">
+      <div className="flex h-screen flex-col overflow-hidden bg-white text-neutral-900 dark:bg-neutral-900 dark:text-white">
         <Header
           state={state}
           busy={busy}
@@ -126,65 +206,25 @@ export function Panel({ post }: { post: Post }) {
             if (open) post({ type: "completion", command: "refresh" });
           }}
         />
-        <main className="flex min-h-0 flex-1 flex-col">
-          {connected && tour && tour.id !== closedTour && (
-            <TourCard
-              tour={tour}
-              voiceOn={voice !== null}
-              onCommand={(command) => post({ type: "tour", command })}
-              onGoto={(index) => post({ type: "tourGoto", index })}
-              onAsk={(byVoice) => {
-                post({ type: "tourAsk", voice: byVoice });
-                if (!byVoice) {
-                  setPrefill((last) => ({
-                    id: (last?.id ?? 0) + 1,
-                    text: `${t("vscode.tour.prefill")} `,
-                  }));
-                }
-              }}
-              onClose={() => setClosedTour(tour.id)}
-            />
+        {/* La page ne défile jamais d'un bloc : l'en-tête, les actions et
+            la zone de saisie restent fixes. Les cartes ont leur zone, bornée
+            à un peu plus de la moitié de « main » et qui défile elle-même ;
+            le corps (conversation, écrans) garde le reste et défile seul. */}
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {cards.length > 0 && (
+            <div
+              data-testid="cards"
+              className="max-h-[55%] shrink-0 overflow-y-auto pb-1"
+            >
+              {cards}
+            </div>
           )}
-          {connected && model.gpuOpen && model.completion && (
-            <GpuCard
-              view={model.completion}
-              onCommand={(command) => post({ type: "completion", command })}
-              onModel={(name) => post({ type: "completionModel", model: name })}
-              onInstall={(name) => post({ type: "offerPull", model: name })}
-              onClose={() => {
-                dispatch({ type: "gpuCard", open: false });
-                // Le bouton de fermeture disparaît : le focus revient au
-                // bouton de l'en-tête qui rouvre la carte.
-                document
-                  .querySelector<HTMLButtonElement>("[data-testid=gpu-button]")
-                  ?.focus();
-              }}
-            />
-          )}
-          {connected && model.study && (
-            <StudyCard
-              study={model.study}
-              onOpen={() => post({ type: "study", command: "open" })}
-              onClose={() => post({ type: "study", command: "close" })}
-            />
-          )}
-          {model.agents && (
-            <AgentsCard
-              agents={model.agents}
-              onStop={(callId) =>
-                post({ type: "agents", command: "stop", callId })
-              }
-              onTurnOff={() => post({ type: "agents", command: "turnOff" })}
-              onClear={() => post({ type: "agents", command: "clear" })}
-            />
-          )}
-          {connected && model.image && (
-            <ImageCard
-              image={model.image}
-              onCommand={(command) => post({ type: "image", command })}
-            />
-          )}
-          {body}
+          <div
+            data-testid="panel-body"
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+          >
+            {body}
+          </div>
         </main>
         {connected && voice && (
           <VoiceBar

@@ -15,6 +15,8 @@ pub(crate) mod guard;
 // Langue d'un texte : aussi pour les cours (`study`).
 pub(crate) mod language;
 mod prompts;
+// Retours à la ligne souples rendus à une correction (voir `guard::settle`).
+mod reflow;
 pub mod selection;
 mod split;
 
@@ -366,17 +368,15 @@ impl Job<'_> {
                     kept: false,
                 },
                 Asked::Answer(answer) => {
+                    // Texte remis en forme par le garde-fou (retours à la
+                    // ligne souples rendus) : c'est lui qui est rendu.
                     let cleaned = answer::clean(&original, &answer);
-                    if guard::accept(self.mode, &original, &cleaned) {
-                        PartResult {
-                            text: cleaned,
-                            kept: false,
-                        }
-                    } else {
-                        PartResult {
+                    match guard::settle(self.mode, &original, cleaned) {
+                        Some(text) => PartResult { text, kept: false },
+                        None => PartResult {
                             text: original,
                             kept: true,
-                        }
+                        },
                     }
                 }
                 Asked::TooLong => PartResult {

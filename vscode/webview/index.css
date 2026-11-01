@@ -5,14 +5,43 @@
 @source ".";
 
 /* VS Code pose ses propres styles sur la page d'une webview (marges,
-   couleurs et police de l'éditeur) : ceux du thème de ChatonLM priment. */
+   couleurs et police de l'éditeur) : ceux du thème de ChatonLM priment. La
+   page ne défile jamais d'un bloc (le panneau a ses propres zones qui
+   défilent, voir Panel.tsx) : pas de seconde barre ni d'en-tête décalé. */
 html,
 body {
   margin: 0;
   padding: 0;
+  height: 100%;
+  overflow: hidden;
   background-color: var(--color-white);
   color: var(--color-neutral-900);
   font-family: var(--font-sans);
+}
+
+/* Menus natifs (liste des modèles de l'en-tête) : Electron les dessine
+   clairs ou sombres selon color-scheme. src/index.css donne « light dark »,
+   donc celui du système, pas celui de VS Code : en thème sombre sur un
+   système clair, fond blanc et texte crème hérité de la liste, illisible.
+   Le panneau suit le thème donné par VS Code (classe « dark »), et les
+   options prennent les couleurs du thème (contraste de l'encre sur la
+   surface ; mesuré par PanelLayout.test.tsx). */
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+option {
+  background-color: var(--color-white);
+  color: var(--color-neutral-900);
+}
+
+.dark option {
+  background-color: var(--color-neutral-900);
+  color: var(--color-white);
 }
 
 .dark body {

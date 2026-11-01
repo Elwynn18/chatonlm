@@ -11,7 +11,14 @@ import {
   setupController,
   TEN_LINES,
 } from "./test/setup";
-import { Position, resetTestState, Selection, testState } from "./test/vscode";
+import {
+  Position,
+  resetTestState,
+  Selection,
+  TextDocument,
+  testState,
+  window,
+} from "./test/vscode";
 import { CONTEXT_DELAY_MS } from "./voice";
 
 beforeEach(() => resetTestState());
@@ -572,6 +579,40 @@ describe("Ask about this part of the tour", () => {
     ]);
     // Seulement avec ce message.
     expect(controller.state.attachment).toBeNull();
+  });
+
+  it("typed: the part comes before the editor's selection (R1)", async () => {
+    const { fake, controller } = await onSegment();
+    window.activeTextEditor = {
+      document: new TextDocument("/work/src/other.ts", "a\nb\nc\n"),
+      selection: new Selection(new Position(0, 0), new Position(2, 0)),
+    };
+    expect(controller.state.attachment).toEqual({
+      path: "src/other.ts",
+      lines: [1, 2],
+    });
+    await controller.handle({ type: "tourAsk", voice: false });
+    expect(controller.state.attachment).toEqual({
+      path: "src/app.ts",
+      lines: [3, 5],
+    });
+    await controller.handle({ type: "send", text: "Why?" });
+    const content = fake.calls("chat.send")[0].content as string;
+    expect(content).toContain("`src/app.ts`, lines 3–5:");
+    expect(content).not.toContain("other.ts");
+  });
+
+  it("typed: taking the part off does not bring the selection in its place", async () => {
+    const { fake, controller } = await onSegment();
+    window.activeTextEditor = {
+      document: new TextDocument("/work/src/other.ts", "a\nb\nc\n"),
+      selection: new Selection(new Position(0, 0), new Position(2, 0)),
+    };
+    await controller.handle({ type: "tourAsk", voice: false });
+    await controller.handle({ type: "clearAttachment" });
+    expect(controller.state.attachment).toBeNull();
+    await controller.handle({ type: "send", text: "hello" });
+    expect(fake.calls("chat.send")[0].content).toBe("hello");
   });
 
   it("typed: the part can be taken off before sending", async () => {

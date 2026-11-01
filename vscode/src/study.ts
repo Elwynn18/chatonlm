@@ -1,6 +1,7 @@
 // Cours de l'Étude sur le projet ouvert ou sur un langage (lot 4a) : fichiers
 // choisis par l'utilisateur dans une liste (README, manifeste, point d'entrée,
-// fichiers les plus importés), toujours filtrés comme un envoi hors de cette
+// fichiers les plus importés, fichier ouvert, puis autres sources non
+// cochées), toujours filtrés comme un envoi hors de cette
 // machine (fichiers sensibles exclus, lignes à secret masquées : le modèle de
 // l'Étude se choisit dans l'app, sa destination n'est pas connue ici), puis
 // `study.create` ; la progression vient de `study.event`, le cours vit dans
@@ -60,15 +61,43 @@ const MANIFESTS = new Set(
   ].map((name) => name.toLowerCase()),
 );
 const README = /^readme(\.(md|markdown|txt|rst|adoc))?$/i;
-const ENTRY =
-  /^(?:(?:src|lib|app|cmd\/[^/]+)\/)?(main|index|app|lib|program|server|cli|__main__)\.(ts|tsx|js|jsx|mjs|py|rs|go|java|kt|cs|rb|php|swift|dart|c|cpp)$/i;
+/** Extensions d'un point d'entrée. */
+const ENTRY_EXTENSIONS = [
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "mjs",
+  "py",
+  "rs",
+  "go",
+  "java",
+  "kt",
+  "cs",
+  "rb",
+  "php",
+  "swift",
+  "dart",
+  "c",
+  "cpp",
+];
+const ENTRY = new RegExp(
+  `^(?:(?:src|lib|app|cmd\\/[^/]+)\\/)?(main|index|app|lib|program|server|cli|__main__)\\.(${ENTRY_EXTENSIONS.join("|")})$`,
+  "i",
+);
 
 export type Candidate = {
   /** Chemin relatif (séparateur « / »). */
   path: string;
-  reason: "readme" | "manifest" | "entry" | "imported";
+  reason: "readme" | "manifest" | "entry" | "imported" | "open" | "source";
   picked: boolean;
 };
+
+/**
+ * Fichiers proposés au plus dans la liste : assez pour retrouver une source
+ * en tapant son nom (la liste se filtre), sans lire tout un gros dépôt.
+ */
+export const MAX_CANDIDATES = 150;
 
 const SOURCE_EXTENSIONS = [
   ".ts",
@@ -81,6 +110,12 @@ const SOURCE_EXTENSIONS = [
   ".rs",
   ".go",
 ];
+
+/** Extensions des autres fichiers sources proposés (non cochés). */
+const OFFERED_SOURCES = new Set([
+  ...SOURCE_EXTENSIONS,
+  ...ENTRY_EXTENSIONS.map((ext) => `.${ext}`),
+]);
 
 /** Imports relatifs d'un fichier, résolus en chemins sans extension. */
 function relativeImports(file: string, text: string): string[] {
@@ -145,11 +180,15 @@ export function rankImports(files: { path: string; text: string }[]): string[] {
 
 /**
  * Fichiers proposés pour le cours : README et manifeste de la racine, points
- * d'entrée, puis les plus importés ; jamais un fichier sensible.
+ * d'entrée, les plus importés, le fichier ouvert (`open`, coché), puis les
+ * autres sources, non cochés, du moins au plus profond ; jamais un fichier
+ * sensible. La liste montrée est bornée à `MAX_CANDIDATES` par l'appelant,
+ * après le filtre des tailles.
  */
 export function projectCandidates(
   paths: string[],
   imported: string[],
+  open: string | null = null,
 ): Candidate[] {
   const safe = paths.filter((p) => !isSecretFile(p));
   const out: Candidate[] = [];
@@ -175,6 +214,17 @@ export function projectCandidates(
     .filter((p) => safe.includes(p))
     .slice(0, 4)
     .forEach((p, i) => add(p, "imported", i < 2));
+  if (open && !isSecretFile(open)) {
+    const already = out.find((c) => c.path === open);
+    if (already) already.picked = true;
+    else add(open, "open", true);
+  }
+  safe
+    .filter((p) => OFFERED_SOURCES.has(path.posix.extname(p).toLowerCase()))
+    .sort(
+      (a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b),
+    )
+    .forEach((p) => add(p, "source", false));
   return out;
 }
 
@@ -353,7 +403,8 @@ export class Study {
       );
       return;
     }
-    const candidates = await this.#candidates(folder.uri);
+    const editorUri = vscode.window.activeTextEditor?.document.uri;
+    const candidates = await this.#candidates(folder.uri, editorUri);
     if (candidates.length === 0) {
       void vscode.window.showInformationMessage(
         vscode.l10n.t("ChatonLM found no file to make a course from here."),
@@ -365,6 +416,8 @@ export class Study {
       manifest: vscode.l10n.t("Project manifest"),
       entry: vscode.l10n.t("Entry point"),
       imported: vscode.l10n.t("Imported by many files"),
+      open: vscode.l10n.t("Open file"),
+      source: vscode.l10n.t("Source file"),
     };
     const picked = await vscode.window.showQuickPick(
       candidates.map((c) => ({
@@ -546,7 +599,10 @@ export class Study {
   }
 
   /** Fichiers proposés du dossier ouvert. */
-  async #candidates(root: vscode.Uri): Promise<Candidate[]> {
+  async #candidates(
+    root: vscode.Uri,
+    editorUri?: vscode.Uri,
+  ): Promise<Candidate[]> {
     const base = new vscode.RelativePattern(root, "*");
     const top = await vscode.workspace.findFiles(base, null, 200);
     const sources = await vscode.workspace.findFiles(
@@ -573,9 +629,15 @@ export class Study {
       }
     }
     const paths = [...new Set([...top.map(rel), ...sources.map(rel)])];
-    const candidates = projectCandidates(paths, rankImports(scanned));
+    // Fichier de l'éditeur actif, s'il est dans ce dossier.
+    const inside =
+      editorUri?.scheme === "file" &&
+      vscode.workspace.getWorkspaceFolder(editorUri)?.uri.path === root.path;
+    const open = inside && editorUri ? rel(editorUri) : null;
+    const candidates = projectCandidates(paths, rankImports(scanned), open);
     const kept: Candidate[] = [];
     for (const candidate of candidates) {
+      if (kept.length >= MAX_CANDIDATES) break;
       let size = sizes.get(candidate.path);
       if (size === undefined) {
         try {

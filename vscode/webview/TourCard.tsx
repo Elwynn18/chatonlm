@@ -12,7 +12,7 @@ import {
   StopIcon,
   XMarkIcon,
 } from "@heroicons/react/20/solid";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { useT } from "@/i18n";
 import type { TourView } from "../shared/protocol";
 import { linesLabel, tourProgress, tourTitle } from "./labels";
@@ -72,6 +72,23 @@ export function TourCard({
   const running = status === "playing" || status === "paused";
   const ended = status === "ended";
   const hasCurrent = current >= 0 && current < segments.length;
+  const list = useRef<HTMLOListElement>(null);
+
+  // Partie lue amenée à la vue, dans sa liste seulement : pas de
+  // scrollIntoView, qui ferait aussi défiler la zone des cartes et la page
+  // (même en overflow: hidden) ; le focus ne bouge pas.
+  useEffect(() => {
+    const node = list.current;
+    const item = node?.querySelector<HTMLElement>('[aria-current="step"]');
+    if (!node || !item) return;
+    const box = node.getBoundingClientRect();
+    const part = item.getBoundingClientRect();
+    if (part.top < box.top) node.scrollTop -= box.top - part.top;
+    else if (part.bottom > box.bottom) {
+      // Partie plus haute que la liste : son début reste visible.
+      node.scrollTop += Math.min(part.bottom - box.bottom, part.top - box.top);
+    }
+  }, [current, ended, segments.length]);
 
   return (
     <section
@@ -141,6 +158,7 @@ export function TourCard({
       </div>
       {segments.length > 0 && (
         <ol
+          ref={list}
           aria-label={t("vscode.tour.segments")}
           className="mt-2 max-h-48 space-y-1 overflow-y-auto"
         >

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { bridgeDirSetting } from "./extension";
+import { bridgeDirSetting, unpairedText } from "./extension";
 
 describe("extension", () => {
   it("reads the hidden bridge folder only from the user's settings", () => {
@@ -20,5 +20,12 @@ describe("extension", () => {
       ),
     ).toBeUndefined();
     expect(bridgeDirSetting(inspect({ globalValue: 42 }))).toBeUndefined();
+  });
+
+  it("says where else to remove the editor only when the app did not (R16)", () => {
+    expect(unpairedText(true)).toBe("This editor is no longer paired.");
+    expect(unpairedText(false)).toBe(
+      "This editor is no longer paired. You can also remove it in ChatonLM, under Settings › VS Code.",
+    );
   });
 });

@@ -210,6 +210,51 @@ describe("Tour card", () => {
     fromHost({ type: "tour", tour: { ...TOUR, id: 2 } });
     expect(screen.getByTestId("tour")).toBeTruthy();
   });
+
+  it("brings the part being read into view, in its list only", () => {
+    // jsdom ne calcule pas la mise en page : la liste montre 0 à 100 px, et
+    // chaque partie fait 40 px, décalée du défilement de la liste.
+    const list = () =>
+      screen.getByRole("list", { name: "Parts of the tour" }) as HTMLElement;
+    const rect = (top: number, height: number) =>
+      ({ top, bottom: top + height, height }) as DOMRect;
+    const spy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.tagName === "OL") return rect(0, 100);
+        const item = this.closest("li");
+        if (!item?.parentElement) return rect(0, 0);
+        const index = [...item.parentElement.children].indexOf(item);
+        return rect(index * 40 - list().scrollTop, 40);
+      });
+    const page = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    try {
+      const segments = Array.from({ length: 6 }, (_, index) => ({
+        lines: [index + 1, index + 1] as [number, number],
+        text: `Part ${index + 1}.`,
+      }));
+      renderPanel();
+      fromHost({ type: "tour", tour: { ...TOUR, segments, current: 0 } });
+      expect(list().scrollTop).toBe(0);
+
+      // Partie 4 (120 à 160 px) : la liste descend juste assez.
+      fromHost({ type: "tour", tour: { ...TOUR, segments, current: 3 } });
+      expect(list().scrollTop).toBe(60);
+      // Partie 3, encore visible : rien ne bouge.
+      fromHost({ type: "tour", tour: { ...TOUR, segments, current: 2 } });
+      expect(list().scrollTop).toBe(60);
+      // Retour à la partie 1 : la liste remonte.
+      fromHost({ type: "tour", tour: { ...TOUR, segments, current: 0 } });
+      expect(list().scrollTop).toBe(0);
+
+      // Ni la page ni le focus ne bougent.
+      expect(page).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      spy.mockRestore();
+      page.mockRestore();
+    }
+  });
 });
 
 describe("Voice session", () => {

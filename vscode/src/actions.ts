@@ -89,23 +89,32 @@ export function innermostFunction(
   return found;
 }
 
-/** Sélection, sinon fonction sous le curseur, sinon le fichier entier. */
-async function codeUnderCursor(editor: vscode.TextEditor): Promise<Piece> {
+/** Lignes d'une sélection (numérotées à partir de 1) ; une sélection de
+ * lignes entières ne compte pas la ligne suivante, où elle finit. */
+export function selectionLines(selection: vscode.Selection): [number, number] {
+  let last = selection.end.line;
+  if (selection.end.character === 0 && last > selection.start.line) last--;
+  return [selection.start.line + 1, last + 1];
+}
+
+/** Sélection de l'éditeur, ou null si elle est vide. */
+export function selectionPiece(editor: vscode.TextEditor): Piece | null {
   const { document, selection } = editor;
-  if (!selection.isEmpty) {
-    let last = selection.end.line;
-    // Sélection de lignes entières : la ligne suivante n'en fait pas partie.
-    if (selection.end.character === 0 && last > selection.start.line) last--;
-    const path = relativePath(document.uri);
-    return {
-      kind: "selection",
-      label: path,
-      path,
-      lines: [selection.start.line + 1, last + 1],
-      text: document.getText(selection),
-      language: fenceLanguage(document.languageId),
-    };
-  }
+  if (selection.isEmpty) return null;
+  const path = relativePath(document.uri);
+  return {
+    kind: "selection",
+    label: path,
+    path,
+    lines: selectionLines(selection),
+    text: document.getText(selection),
+    language: fenceLanguage(document.languageId),
+  };
+}
+
+/** Plus petite fonction ou méthode sous le curseur, ou null. */
+async function functionPiece(editor: vscode.TextEditor): Promise<Piece | null> {
+  const { document, selection } = editor;
   let symbols: unknown;
   try {
     symbols = await vscode.commands.executeCommand(
@@ -120,14 +129,20 @@ async function codeUnderCursor(editor: vscode.TextEditor): Promise<Piece> {
     ? (symbols as vscode.DocumentSymbol[]).filter((s) => "children" in s)
     : [];
   const symbol = innermostFunction(tree, selection.active);
-  if (symbol) {
-    return linesPiece(
-      "selection",
-      document,
-      symbol.range.start.line,
-      symbol.range.end.line,
-    );
-  }
+  if (!symbol) return null;
+  return linesPiece(
+    "selection",
+    document,
+    symbol.range.start.line,
+    symbol.range.end.line,
+  );
+}
+
+/** Sélection, sinon fonction sous le curseur, sinon le fichier entier. */
+async function codeUnderCursor(editor: vscode.TextEditor): Promise<Piece> {
+  const { document } = editor;
+  const code = selectionPiece(editor) ?? (await functionPiece(editor));
+  if (code) return code;
   const text = document.getText();
   if (text.length > MAX_FILE_CHARS) {
     throw new ActionError(
@@ -175,6 +190,22 @@ export function diagnosticAt(
   );
 }
 
+/** Problème le plus grave dans une sélection non vide, ou null. */
+export function diagnosticIn(
+  diagnostics: readonly vscode.Diagnostic[],
+  selection: vscode.Selection,
+): vscode.Diagnostic | null {
+  if (selection.isEmpty) return null;
+  const [first, last] = selectionLines(selection);
+  return (
+    [...diagnostics]
+      .sort((a, b) => a.severity - b.severity)
+      .find(
+        (d) => d.range.start.line + 1 <= last && d.range.end.line + 1 >= first,
+      ) ?? null
+  );
+}
+
 function diagnosticCode(diagnostic: vscode.Diagnostic): string {
   const code = diagnostic.code;
   if (code === undefined || code === null) return "";
@@ -194,15 +225,33 @@ async function fixRequest(args: unknown[]): Promise<ActionRequest> {
   } else {
     const editor = editorOrFail();
     document = editor.document;
-    diagnostic = diagnosticAt(
-      vscode.languages.getDiagnostics(document.uri),
-      editor.selection.active,
-    );
-  }
-  if (!diagnostic) {
-    throw new ActionError(
-      vscode.l10n.t("No problem is reported under the cursor."),
-    );
+    // Une indication estompée (variable inutilisée…) n'est pas un problème
+    // signalé : elle ne cache pas un vrai défaut du code choisi.
+    const problems = vscode.languages
+      .getDiagnostics(document.uri)
+      .filter((d) => d.severity !== vscode.DiagnosticSeverity.Hint);
+    diagnostic =
+      diagnosticAt(problems, editor.selection.active) ??
+      diagnosticIn(problems, editor.selection);
+    if (!diagnostic) {
+      // Rien de signalé : le code choisi (sélection, sinon fonction sous le
+      // curseur) part avec une consigne de recherche des défauts.
+      const code = selectionPiece(editor) ?? (await functionPiece(editor));
+      if (!code) {
+        throw new ActionError(
+          vscode.l10n.t(
+            "Select the code to fix, or put the cursor on a problem.",
+          ),
+        );
+      }
+      return {
+        action: "fix",
+        instruction: vscode.l10n.t(
+          "Find the bugs in this code and fix them. Explain each fix briefly, then show the corrected code.",
+        ),
+        pieces: [code],
+      };
+    }
   }
   const first = Math.max(
     0,

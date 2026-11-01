@@ -92,6 +92,15 @@ export function pairErrorText(error: PairError): string {
   }
 }
 
+/** Message du désappairage : l'app a-t-elle retiré l'éditeur de sa liste ? */
+export function unpairedText(confirmed: boolean): string {
+  return confirmed
+    ? vscode.l10n.t("This editor is no longer paired.")
+    : vscode.l10n.t(
+        "This editor is no longer paired. You can also remove it in ChatonLM, under Settings › VS Code.",
+      );
+}
+
 /**
  * Réglage caché `chatonlm.bridgeDir` (essais) : lu seulement dans les réglages
  * de l'utilisateur, jamais dans ceux d'un dossier ouvert (un dépôt ne peut pas
@@ -326,13 +335,10 @@ export function activate(context: vscode.ExtensionContext): void {
       // Le serveur MCP perd son accès avec l'appairage (retiré dans l'app
       // tant que la liaison est là).
       await agents.forget();
-      await link.unpair();
+      // L'app retire aussi l'éditeur de sa liste quand elle est reliée.
+      const confirmed = await link.unpair();
       setPaired(false);
-      void vscode.window.showInformationMessage(
-        vscode.l10n.t(
-          "This editor is no longer paired. You can also remove it in ChatonLM, under Settings › VS Code.",
-        ),
-      );
+      void vscode.window.showInformationMessage(unpairedText(confirmed));
     }),
     vscode.commands.registerCommand("chatonlm.openApp", () =>
       ctl.launch(false),

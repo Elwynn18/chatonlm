@@ -8,6 +8,7 @@ import {
   buildDocuments,
   courseLanguage,
   documentsChars,
+  MAX_CANDIDATES,
   projectCandidates,
   rankImports,
   Study,
@@ -62,6 +63,48 @@ describe("project files", () => {
       { path: "src/index.ts", reason: "entry", picked: true },
       { path: "src/util.ts", reason: "imported", picked: true },
     ]);
+  });
+
+  it("adds the open file, checked, then other sources, unchecked (R13)", () => {
+    const paths = [
+      "README.md",
+      "package.json",
+      "notes.md",
+      "site/index.html",
+      "src/slugify.ts",
+      "src/retry.ts",
+      "src/cart.ts",
+      "src/discount.js",
+      "src/main.c",
+      "src/lib/deep.go",
+      "src/keys.pem",
+      "tool.py",
+    ];
+    expect(projectCandidates(paths, [], "src/slugify.ts")).toEqual([
+      { path: "README.md", reason: "readme", picked: true },
+      { path: "package.json", reason: "manifest", picked: true },
+      { path: "src/main.c", reason: "entry", picked: true },
+      { path: "src/slugify.ts", reason: "open", picked: true },
+      // Du moins au plus profond, puis par nom ; jamais un fichier sensible.
+      { path: "tool.py", reason: "source", picked: false },
+      { path: "src/cart.ts", reason: "source", picked: false },
+      { path: "src/discount.js", reason: "source", picked: false },
+      { path: "src/retry.ts", reason: "source", picked: false },
+      { path: "src/lib/deep.go", reason: "source", picked: false },
+    ]);
+    // Fichier ouvert déjà proposé : une seule fois, coché.
+    const entries = projectCandidates(
+      ["src/main.ts", "src/index.ts", "src/app.ts"],
+      [],
+      "src/main.ts",
+    );
+    expect(entries.filter((c) => c.path === "src/main.ts")).toEqual([
+      { path: "src/main.ts", reason: "entry", picked: true },
+    ]);
+    // Fichier ouvert sensible : jamais proposé.
+    expect(
+      projectCandidates(["README.md", ".env"], [], ".env").map((c) => c.path),
+    ).toEqual(["README.md"]);
   });
 
   it("keeps the README alone and gathers the other files", () => {
@@ -204,6 +247,52 @@ describe("Make a course about this project", () => {
     const listed = testState.quickPicks[0].map((item) => item.label);
     expect(listed).toContain("src/util.ts");
     expect(listed).not.toContain("src/vendor.bundle.js");
+  });
+
+  it("offers the open file and the project's sources, 150 at most (R13)", async () => {
+    const files: Record<string, string> = {
+      "README.md": "# Work",
+      "package.json": '{ "name": "work" }',
+      "notes.md": "notes",
+      "src/main.c": "int main(void) { return 0; }",
+      "src/slugify.ts": "export const slugify = (s: string) => s;",
+      "src/huge.ts": "x".repeat(100_001),
+    };
+    for (let i = 1; i <= 160; i++)
+      files[`src/m${String(i).padStart(3, "0")}.ts`] = "";
+    const env = await project(files);
+    openEditor("/work/notes.md", "notes", undefined, "markdown");
+    testState.pickMany = () => [];
+    await env.controller.study.fromProject();
+    const items = testState.quickPicks[0] as {
+      label: string;
+      description?: string;
+      picked?: boolean;
+    }[];
+    expect(items).toHaveLength(MAX_CANDIDATES);
+    expect(items.slice(0, 5)).toEqual([
+      { label: "README.md", description: "Project description", picked: true },
+      { label: "package.json", description: "Project manifest", picked: true },
+      { label: "src/main.c", description: "Entry point", picked: true },
+      { label: "notes.md", description: "Open file", picked: true },
+      { label: "src/m001.ts", description: "Source file", picked: false },
+    ]);
+    // Bien plus que les quelques fichiers d'avant : une source parmi
+    // beaucoup d'autres se retrouve en tapant son nom.
+    expect(items.map((item) => item.label)).toContain("src/m140.ts");
+    // Trop gros pour un cours : jamais proposé.
+    expect(items.map((item) => item.label)).not.toContain("src/huge.ts");
+  });
+
+  it("does not offer an open file from outside the folder (R13)", async () => {
+    const env = await project({ "README.md": "# Work" });
+    testState.files.set("/elsewhere/x.ts", new TextEncoder().encode("x"));
+    openEditor("/elsewhere/x.ts", "x");
+    testState.pickMany = () => [];
+    await env.controller.study.fromProject();
+    expect(testState.quickPicks[0].map((item) => item.label)).toEqual([
+      "README.md",
+    ]);
   });
 
   it("sends the language of VS Code when the app knows it", async () => {

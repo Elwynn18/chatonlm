@@ -23,7 +23,9 @@
 // connexions ; `agents.revoke {}` → `{ revoked }` ; réservés à un éditeur),
 // séance agents limitée à `AGENT_METHODS` (sinon -32037 « not allowed »),
 // `chat.send` d'une séance agents seulement éphémère et neuve, retrait d'un
-// éditeur qui retire aussi son accès agents (`removeClient`).
+// éditeur qui retire aussi son accès agents (`removeClient`) ; désappairage
+// (`client.unlink {}` → `{}`, puis client retiré et connexion fermée ; -32601
+// pour une app plus ancienne).
 import { createHmac, randomBytes } from "node:crypto";
 import { type Duplex, duplexPair } from "node:stream";
 import type { GpuPlan, GpuSlot } from "../../shared/protocol";
@@ -127,6 +129,11 @@ export class FakeBridge {
   notifyRefusal: number | null = null;
   /** Pages ouvertes par `app.show`. */
   readonly shown: string[] = [];
+  /** Éditeurs retirés par `client.unlink` ; app d'avant cette méthode
+   * (-32601) ; réponse qui ne vient jamais. */
+  readonly unlinked: string[] = [];
+  unlinkSupported = true;
+  unlinkSilent = false;
 
   /** Plan du faux chef. */
   plan(): GpuPlan {
@@ -236,6 +243,18 @@ export class FakeBridge {
       this.removeClient(old);
       this.revoked++;
       return { revoked: true };
+    },
+    // Réponse, puis éditeur retiré de la liste et connexion fermée (comme
+    // l'app) ; réservé à une séance d'éditeur.
+    "client.unlink": (_params, { client }) => {
+      if (!this.unlinkSupported) {
+        throw new RpcFailure(-32601, "method not found");
+      }
+      if (this.isAgents(client)) throw new RpcFailure(FORBIDDEN, "not allowed");
+      if (this.unlinkSilent) return new Promise(() => {});
+      this.unlinked.push(client);
+      setTimeout(() => this.removeClient(client), 0);
+      return {};
     },
     "dictation.start": () => ({}),
     "dictation.stop": () => ({}),

@@ -11,6 +11,7 @@ import {
   resetTestState,
   Selection,
   TextDocument,
+  TextEditor,
   testState,
   Uri,
   window,
@@ -383,13 +384,13 @@ describe("Controller", () => {
     );
   });
 
-  it("finds the problem under the cursor, or says there is none", async () => {
+  it("finds the problem under the cursor, or asks what to fix", async () => {
     const { controller, sent } = await setup();
     editor("/work/src/c.ts", "a\nb\nc", [1, 0], [1, 0]);
     await controller.runAction("fix");
     expect(sent).toEqual([]);
     expect(testState.shown.at(-1)?.text).toBe(
-      "No problem is reported under the cursor.",
+      "Select the code to fix, or put the cursor on a problem.",
     );
     testState.diagnostics = [new Diagnostic(new Range(1, 0, 1, 1), "Oops", 1)];
     await controller.runAction("fix");
@@ -824,5 +825,151 @@ describe("Controller, after the review", () => {
       "41",
       "42",
     ]);
+  });
+});
+
+describe("Controller, selection sent with a typed question (R1)", () => {
+  const slugify = Array.from({ length: 14 }, (_, i) => `line ${i + 1}`).join(
+    "\n",
+  );
+  const lastState = (posted: HostMessage[]) =>
+    ofType(posted, "state").at(-1)?.state;
+
+  it("shows the selection and sends it with the question", async () => {
+    const { controller, sent, posted } = await setup();
+    editor("/work/src/slugify.ts", slugify, [9, 0], [12, 0]);
+    expect(controller.state.attachment).toEqual({
+      path: "src/slugify.ts",
+      lines: [10, 12],
+    });
+    await controller.handle({
+      type: "send",
+      text: "What happens when the title is only emojis?",
+    });
+    expect(sent[0].content).toBe(
+      "What happens when the title is only emojis?\n\n`src/slugify.ts`, lines 10–12:\n```typescript\nline 10\nline 11\nline 12\n```",
+    );
+    expect(ofType(posted, "receipt")[0].receipt.items).toEqual([
+      {
+        kind: "selection",
+        label: "src/slugify.ts",
+        path: "src/slugify.ts",
+        lines: [10, 12],
+        chars: 24,
+      },
+    ]);
+  });
+
+  it("sends the question alone without a selection", async () => {
+    const { controller, sent } = await setup();
+    editor("/work/src/slugify.ts", slugify, [3, 2], [3, 2]);
+    expect(controller.state.attachment).toBeNull();
+    await controller.handle({ type: "send", text: "Hi" });
+    expect(sent[0].content).toBe("Hi");
+  });
+
+  it("follows the selection, a moment after it changes", async () => {
+    const { controller, posted } = await setup();
+    const document = editor("/work/src/slugify.ts", slugify, [0, 0], [0, 0]);
+    await controller.handle({ type: "ready" });
+    expect(lastState(posted)?.attachment).toBeNull();
+    window.activeTextEditor = {
+      document,
+      selection: new Selection(new Position(1, 0), new Position(2, 4)),
+    };
+    testState.events.selection.fire({});
+    await until(() => lastState(posted)?.attachment != null);
+    expect(lastState(posted)?.attachment).toEqual({
+      path: "src/slugify.ts",
+      lines: [2, 3],
+    });
+    window.activeTextEditor = {
+      document,
+      selection: new Selection(new Position(2, 4), new Position(2, 4)),
+    };
+    testState.events.selection.fire({});
+    await until(() => lastState(posted)?.attachment === null);
+    // Curseur déplacé sans sélection (frappe) : le panneau n'est pas
+    // dérangé.
+    const states = ofType(posted, "state").length;
+    window.activeTextEditor = {
+      document,
+      selection: new Selection(new Position(3, 1), new Position(3, 1)),
+    };
+    testState.events.selection.fire({});
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(ofType(posted, "state")).toHaveLength(states);
+  });
+
+  it("takes the selection off with the cross, until another one is made", async () => {
+    const { controller, sent } = await setup();
+    const document = editor("/work/src/slugify.ts", slugify, [0, 0], [2, 0]);
+    await controller.handle({ type: "clearAttachment" });
+    expect(controller.state.attachment).toBeNull();
+    await controller.handle({ type: "send", text: "Hi" });
+    expect(sent[0].content).toBe("Hi");
+    window.activeTextEditor = {
+      document,
+      selection: new Selection(new Position(4, 0), new Position(6, 0)),
+    };
+    testState.events.selection.fire({});
+    expect(controller.state.attachment).toEqual({
+      path: "src/slugify.ts",
+      lines: [5, 6],
+    });
+  });
+
+  it("keeps the last text editor while the focus is in the panel", async () => {
+    const { controller } = await setup();
+    const document = new TextDocument("/work/src/slugify.ts", slugify);
+    const last = new TextEditor(
+      document,
+      new Selection(new Position(0, 0), new Position(1, 3)),
+    );
+    window.visibleTextEditors = [last];
+    window.activeTextEditor = last;
+    testState.events.activeEditor.fire(last);
+    window.activeTextEditor = undefined;
+    testState.events.activeEditor.fire(undefined);
+    expect(controller.state.attachment).toEqual({
+      path: "src/slugify.ts",
+      lines: [1, 2],
+    });
+    // Éditeur fermé depuis : plus rien.
+    window.visibleTextEditors = [];
+    expect(controller.state.attachment).toBeNull();
+  });
+
+  it("filters the selection like the actions for a cloud model", async () => {
+    const { controller, sent, posted } = await setup();
+    editor(
+      "/work/src/db.ts",
+      'const user = "a";\nconst password = "hunter22";\n',
+      [0, 0],
+      [2, 0],
+    );
+    await controller.selectModel("gpt-oss:120b-cloud");
+    await controller.handle({ type: "send", text: "Why?" });
+    expect(sent[0].content).not.toContain("hunter22");
+    expect(ofType(posted, "receipt")[0].receipt.blocked).toEqual([
+      { label: "src/db.ts, line 2", reason: "secretValue" },
+    ]);
+    // Fichier sensible : la question part seule (le champ est déjà vidé),
+    // le reçu dit ce qui est resté.
+    editor("/work/.env", "TOKEN=abcd1234\n", [0, 0], [0, 14], "dotenv");
+    await controller.handle({ type: "send", text: "And this?" });
+    expect(sent[1].content).toBe("And this?");
+    expect(ofType(posted, "receipt")[1].receipt).toMatchObject({
+      items: [],
+      blocked: [{ label: ".env", reason: "secretFile" }],
+    });
+  });
+
+  it("does not attach a huge selection, nor text outside a file", async () => {
+    const { controller } = await setup();
+    editor("/work/src/big.ts", "x".repeat(100_001), [0, 0], [0, 100_001]);
+    expect(controller.state.attachment).toBeNull();
+    editor("output://tasks", "log\nlog\n", [0, 0], [1, 3], "log");
+    expect(controller.state.attachment).toBeNull();
   });
 });

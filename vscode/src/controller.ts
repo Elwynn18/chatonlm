@@ -23,7 +23,11 @@ import type {
 import {
   ActionError,
   headingOf,
+  MAX_FILE_CHARS,
   prepareAction,
+  relativePath,
+  selectionLines,
+  selectionPiece,
   type ActionRequest,
 } from "./actions";
 import type { LinkProblem, LinkState } from "./bridge/link";
@@ -124,6 +128,9 @@ const FORGET_ON_EXIT_MS = 1500;
 /** Reçus gardés entre deux sessions (par message de l'utilisateur). */
 const RECEIPTS_KEY = "chatonlm.receipts";
 const MAX_RECEIPTS = 200;
+/** Pastille de la sélection : mise à jour un moment après le dernier
+ * changement de sélection (pas à chaque pas d'un glissé de la souris). */
+export const SELECTION_DELAY_MS = 150;
 /** Relecture d'une réponse en cours après une reconnexion. */
 const RESYNC_POLL_MS = 1000;
 const RESYNC_POLL_MAX = 600;
@@ -173,6 +180,12 @@ export function problemText(problem: LinkProblem | undefined): string {
   }
 }
 
+/** Clé d'une sélection : document et bornes. */
+function selectionKey(editor: vscode.TextEditor): string {
+  const { start, end } = editor.selection;
+  return `${editor.document.uri.toString()}#${start.line}:${start.character}-${end.line}:${end.character}`;
+}
+
 export class Controller {
   readonly #deps: ControllerDeps;
   #models: ModelInfo[] = [];
@@ -215,6 +228,14 @@ export class Controller {
   #knownModels = "";
   /** Passage d'une visite joint au prochain message tapé. */
   #attachment: Piece | null = null;
+  /** Dernier éditeur de texte actif : le focus est dans le panneau quand on
+   * tape une question. */
+  #lastEditor: vscode.TextEditor | null = null;
+  /** Sélection retirée par la croix de la pastille (une autre la remet). */
+  #dismissed: string | null = null;
+  #selectionTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Pastille au dernier état envoyé au panneau. */
+  #postedAttachment = "null";
   /** Séance vocale : destination du modèle ; pour chaque tour de parole pas
    * encore fini, numéro d'envoi donné au panneau (négatif : jamais celui
    * d'une requête) et génération de la conversation à son début. Les tours
@@ -310,6 +331,69 @@ export class Controller {
       deps.link.onConnected(() => void this.#onConnected()),
       deps.link.onNotification((n) => this.#onNotification(n)),
     );
+    // La sélection de l'éditeur suit une question tapée (pastille).
+    const editorChanged = vscode.window.onDidChangeActiveTextEditor(
+      (editor) => {
+        if (editor) this.#lastEditor = editor;
+        this.#selectionChanged();
+      },
+    );
+    const selectionChanged = vscode.window.onDidChangeTextEditorSelection(() =>
+      this.#selectionChanged(),
+    );
+    this.#disposers.push(
+      () => editorChanged.dispose(),
+      () => selectionChanged.dispose(),
+      () => {
+        if (this.#selectionTimer) clearTimeout(this.#selectionTimer);
+        this.#selectionTimer = null;
+      },
+    );
+  }
+
+  /** Éditeur dont la sélection part avec une question tapée : l'actif, sinon
+   * le dernier actif s'il est encore visible. */
+  #editor(): vscode.TextEditor | null {
+    const active = vscode.window.activeTextEditor;
+    if (active) return active;
+    const last = this.#lastEditor;
+    return last && vscode.window.visibleTextEditors.includes(last)
+      ? last
+      : null;
+  }
+
+  /** Sélection non vide d'un fichier (ni sortie, ni terminal…), pas trop
+   * grande, et pas retirée par la croix ; avec sa clé. */
+  #selection(): { editor: vscode.TextEditor; key: string } | null {
+    const editor = this.#editor();
+    if (!editor || editor.selection.isEmpty) return null;
+    const { document, selection } = editor;
+    const { scheme } = document.uri;
+    if (scheme !== "file" && scheme !== "untitled") return null;
+    const size =
+      document.offsetAt(selection.end) - document.offsetAt(selection.start);
+    if (size > MAX_FILE_CHARS) return null;
+    const key = selectionKey(editor);
+    return key === this.#dismissed ? null : { editor, key };
+  }
+
+  /** Sélection changée : une autre que celle retirée remet la pastille ;
+   * le panneau est prévenu après un court délai. */
+  #selectionChanged(): void {
+    const editor = this.#editor();
+    if (
+      this.#dismissed &&
+      (!editor || selectionKey(editor) !== this.#dismissed)
+    ) {
+      this.#dismissed = null;
+    }
+    if (this.#selectionTimer) clearTimeout(this.#selectionTimer);
+    this.#selectionTimer = setTimeout(() => {
+      this.#selectionTimer = null;
+      // Curseur déplacé sans sélection (frappe) : rien de neuf à montrer.
+      const view = JSON.stringify(this.#attachmentView());
+      if (view !== this.#postedAttachment) this.#postState();
+    }, SELECTION_DELAY_MS);
   }
 
   dispose(): void {
@@ -405,19 +489,33 @@ export class Controller {
       busy: this.busy,
       generation: this.#generation,
       notice: this.#notice,
-      attachment: this.#attachment
-        ? {
-            path: this.#attachment.path ?? this.#attachment.label,
-            lines: this.#attachment.lines ?? [1, 1],
-          }
-        : null,
+      attachment: this.#attachmentView(),
     };
     if (link.connection === "error") state.error = problemText(link.problem);
     return state;
   }
 
+  /** Pastille : passage d'une visite, sinon sélection de l'éditeur. */
+  #attachmentView(): PanelState["attachment"] {
+    if (this.#attachment) {
+      return {
+        path: this.#attachment.path ?? this.#attachment.label,
+        lines: this.#attachment.lines ?? [1, 1],
+      };
+    }
+    const selected = this.#selection();
+    if (!selected) return null;
+    const { document, selection } = selected.editor;
+    return {
+      path: relativePath(document.uri),
+      lines: selectionLines(selection),
+    };
+  }
+
   #postState(): void {
-    this.#deps.post({ type: "state", state: this.state });
+    const state = this.state;
+    this.#postedAttachment = JSON.stringify(state.attachment);
+    this.#deps.post({ type: "state", state });
   }
 
   /** Reçus gardés, relus à chaque fois : une autre fenêtre a pu en ajouter. */
@@ -450,9 +548,13 @@ export class Controller {
         return;
       case "send": {
         if (!message.text.trim()) return;
-        const attachment = this.#attachment;
+        // Passage d'une visite, sinon sélection de l'éditeur.
+        const selected = this.#attachment ? null : this.#selection();
+        const attachment =
+          this.#attachment ?? (selected && selectionPiece(selected.editor));
         if (attachment) {
-          // Question sur un passage de la visite : il part avec, filtré.
+          // Question sur un passage (visite ou sélection) : il part avec,
+          // filtré comme une action.
           await this.send(null, {
             action: "ask",
             instruction: message.text,
@@ -473,7 +575,14 @@ export class Controller {
         await this.askAboutTour(message.voice);
         return;
       case "clearAttachment":
+        // La sélection du moment est écartée aussi : retirer la pastille de
+        // la visite ne doit pas faire apparaître celle de la sélection.
         this.#attachment = null;
+        {
+          const editor = this.#editor();
+          this.#dismissed =
+            editor && !editor.selection.isEmpty ? selectionKey(editor) : null;
+        }
         this.#postState();
         return;
       case "voice":
@@ -1195,18 +1304,23 @@ export class Controller {
             ? vscode.l10n.t("{0}, line {1}", label, first)
             : vscode.l10n.t("{0}, lines {1}–{2}", label, first, last),
       });
-      if (pieces.length === 0) {
+      if (pieces.length === 0 && request.action === "ask") {
+        // Question tapée : elle part seule (le champ est déjà vidé), le
+        // passage retenu est dit dans le reçu.
+        content = request.instruction;
+      } else if (pieces.length === 0) {
         void vscode.window.showWarningMessage(
           vscode.l10n.t(
             "Nothing was sent: the model runs outside this computer and everything selected may hold secrets.",
           ),
         );
         return;
+      } else {
+        content = compose(
+          request.instruction,
+          pieces.map((piece) => ({ piece, heading: headingOf(piece) })),
+        );
       }
-      content = compose(
-        request.instruction,
-        pieces.map((piece) => ({ piece, heading: headingOf(piece) })),
-      );
       receipt = buildReceipt(
         content,
         pieces,

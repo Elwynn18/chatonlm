@@ -262,6 +262,41 @@ const scenarios = {
       .update("mcp.enabled", false, vscode.ConfigurationTarget.Global);
     step("off");
   },
+  // Recette pilotée pas à pas (e2e/vscode-recipe.mjs, e2e/lib/recipe-ctl.mjs) :
+  // chaque fichier `<dossier>/codium/<n>.js` est le corps d'une fonction
+  // async (vscode, h) ; sa valeur, ou son erreur, est écrite dans `<n>.json`.
+  // Fin : fichier `<dossier>/end`.
+  async recipe() {
+    const dir = process.env.CHATONLM_RECIPE_DIR;
+    const AsyncFunction = (async () => {}).constructor;
+    const helpers = { delay, openSelected, clearNotifications, fs, step };
+    for (let n = 1; ; n += 1) {
+      const input = `${dir}/codium/${n}.js`;
+      while (!fs.existsSync(input)) {
+        if (fs.existsSync(`${dir}/end`)) return;
+        await delay(200);
+      }
+      let result;
+      try {
+        const body = fs.readFileSync(input, "utf8");
+        const value = await new AsyncFunction("vscode", "h", body)(
+          vscode,
+          helpers,
+        );
+        result = { ok: true, value: value ?? null };
+      } catch (error) {
+        result = { ok: false, error: String(error?.stack ?? error) };
+      }
+      let text;
+      try {
+        text = JSON.stringify(result, null, 2);
+      } catch {
+        text = JSON.stringify({ ok: result.ok, value: String(result.value) });
+      }
+      fs.writeFileSync(`${dir}/codium/${n}.tmp`, text);
+      fs.renameSync(`${dir}/codium/${n}.tmp`, `${dir}/codium/${n}.json`);
+    }
+  },
   // Captures du README de l'extension (e2e/vscode-readme-screenshots.mjs) :
   // « Explain », visite guidée en pause, autocomplétion proposée. L'essai
   // extérieur attend les vraies réponses et prend les captures.

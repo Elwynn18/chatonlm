@@ -207,3 +207,98 @@ describe("actions", () => {
     ).toEqual([]);
   });
 });
+
+describe("Fix without a reported problem (R5)", () => {
+  const discount = [
+    "// Prix après remise.", // 0
+    "function discount(price, percent) {", // 1
+    "  return price - price * percent;", // 2
+    "}", // 3
+    "", // 4
+    "module.exports = { discount };", // 5
+  ].join("\n");
+  const BUGS =
+    "Find the bugs in this code and fix them. Explain each fix briefly, then show the corrected code.";
+
+  function select(from: [number, number], to: [number, number]) {
+    const document = new TextDocument(
+      "/work/src/discount.js",
+      discount,
+      "javascript",
+    );
+    window.activeTextEditor = {
+      document,
+      selection: new Selection(new Position(...from), new Position(...to)),
+    };
+  }
+
+  function discountSymbols() {
+    return [
+      new DocumentSymbol(
+        "discount",
+        "",
+        SymbolKind.Function,
+        new Range(1, 0, 3, 1),
+        new Range(1, 9, 1, 17),
+      ),
+    ];
+  }
+
+  it("sends the selection to look for bugs", async () => {
+    select([1, 0], [4, 0]);
+    const request = await prepareAction("fix");
+    expect(request.action).toBe("fix");
+    expect(request.instruction).toBe(BUGS);
+    expect(request.pieces).toEqual([
+      {
+        kind: "selection",
+        label: "src/discount.js",
+        path: "src/discount.js",
+        lines: [2, 4],
+        text: "function discount(price, percent) {\n  return price - price * percent;\n}\n",
+        language: "javascript",
+      },
+    ]);
+  });
+
+  it("takes the function under the cursor when nothing is selected", async () => {
+    testState.symbols = discountSymbols();
+    select([2, 5], [2, 5]);
+    const request = await prepareAction("fix");
+    expect(request.instruction).toBe(BUGS);
+    expect(request.pieces).toEqual([
+      expect.objectContaining({ kind: "selection", lines: [2, 4] }),
+    ]);
+  });
+
+  it("keeps the reported problem when there is one in the selection", async () => {
+    select([0, 0], [5, 0]);
+    testState.diagnostics = [
+      new Diagnostic(new Range(2, 9, 2, 14), "Oops", DiagnosticSeverity.Error),
+    ];
+    const request = await prepareAction("fix");
+    expect(request.instruction).toMatch(/^Fix this problem\./);
+    expect(request.pieces[0]).toMatchObject({
+      kind: "diagnostic",
+      lines: [3, 3],
+      text: "error: Oops",
+    });
+  });
+
+  it("does not take a faded hint for a problem", async () => {
+    select([1, 0], [4, 0]);
+    testState.diagnostics = [
+      new Diagnostic(new Range(3, 0, 3, 1), "unused", DiagnosticSeverity.Hint),
+    ];
+    const request = await prepareAction("fix");
+    expect(request.instruction).toBe(BUGS);
+  });
+
+  it("asks for a selection when there is nothing to fix", async () => {
+    testState.symbols = discountSymbols();
+    select([5, 0], [5, 0]);
+    await expect(prepareAction("fix")).rejects.toThrow(
+      "Select the code to fix, or put the cursor on a problem.",
+    );
+  });
+});
