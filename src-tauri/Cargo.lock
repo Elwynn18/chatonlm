@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "chatonlm"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "arboard",
  "ashpd",

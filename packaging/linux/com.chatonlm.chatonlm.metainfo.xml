@@ -43,6 +43,20 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.9.4" date="2026-11-01" type="development">
+      <description>
+        <p>What's new:</p>
+        <ul>
+          <li>VS Code link: pair VS Code (or VSCodium) with ChatonLM in Settings › VS Code, then use the ChatonLM for VS Code extension to chat about your code with your local models.</li>
+          <li>From VS Code: explain, fix and test code, write commit messages, guided tours of the code read aloud, hands-free voice conversations, dictation at the cursor, local autocomplete, image generation, proofreading of comments and documents, and courses on a project in the Study tab.</li>
+          <li>Easy Link: VS Code can tell your Telegram or Discord bot when a long terminal command ends.</li>
+          <li>ChatonLM can serve its models to the coding agents of VS Code (MCP), with a separate permission.</li>
+          <li>ChatonLM plans what fits on the graphics card: the autocomplete model never pushes the chat model out, and waits while a reply or an image is being made.</li>
+          <li>Proofread: a paragraph broken over several lines keeps its line breaks instead of being left uncorrected.</li>
+          <li>Built-in Ollama updated to 0.40.13.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.9.3" date="2026-10-25" type="development">
       <description>
         <p>What's new:</p>
