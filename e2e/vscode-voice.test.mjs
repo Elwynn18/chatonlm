@@ -277,7 +277,7 @@ try {
         .at(-1);
       const system = sent.messages[0];
       assert.equal(system.role, "system");
-      assert.match(system.content, /rubber duck/);
+      assert.match(system.content, /one short question at a time/);
       assert.match(system.content, /panic!\(\)/);
       assert.equal(sent.think, false);
       const listed = await client.request("chat.list");
