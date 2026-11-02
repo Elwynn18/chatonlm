@@ -77,6 +77,8 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
 - **Easy Link**: talk to your models from your phone, through your own
   Telegram or Discord bot, and get the pictures they create (see
   [Easy Link](#easy-link)).
+- **VS Code extension**: your local models in VS Code and VSCodium, through
+  ChatonLM (see [VS Code](#vs-code)).
 - **Built-in Ollama**: no setup needed. ChatonLM uses the Ollama of your
   computer when there is one, and its own copy otherwise (see
   [Ollama](#ollama)).
@@ -150,6 +152,16 @@ icon.
 
 Your messages and the answers travel through the servers of Telegram or
 Discord (see [Privacy](#privacy)).
+
+## VS Code
+
+The ChatonLM extension brings the models of the app into VS Code: explain, fix
+and test code, write commit messages, guided tours of a file or of your changes
+read aloud, hands-free voice and dictation, local autocomplete, and more. Install
+it from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=chatonlm.chatonlm)
+or, for VSCodium and other editors, from [Open VSX](https://open-vsx.org/extension/chatonlm/chatonlm),
+then pair it in **Settings › VS Code**. It talks to ChatonLM through a link that
+stays on your computer and has no telemetry. Details: [vscode/README.md](vscode/README.md).
 
 ## Install
 

@@ -62,6 +62,10 @@
     "donate": {
       "title": "Support ChatonLM: make a donation",
       "description": "ChatonLM is free and will stay free. Your donations help it grow: new features, and servers of its own so that web search no longer depends on Ollama."
+    },
+    "vscode": {
+      "title": "Free VS Code extension with local AI · ChatonLM",
+      "description": "Explain, fix and complete your code with AI models that run on your computer, in VS Code or VSCodium. Free, no account, for Windows and Linux."
     }
   },
   "nav": {
@@ -74,7 +78,8 @@
     "contact": "Contact",
     "language": "Language",
     "download": "Download",
-    "donate": "Donate"
+    "donate": "Donate",
+    "vscode": "VS Code"
   },
   "footer": {
     "tagline": "An indoor AI.",
@@ -153,7 +158,8 @@
       "text": "Describe a picture in the chat, or ask your model for one: the built-in image engine draws it on your computer, with the open model of your choice."
     },
     "new": "New",
-    "easylink": "Also <strong>Easy Link</strong>, to write to your models from your phone through your own Telegram or Discord bot, and get the pictures they make, as long as ChatonLM is running on your computer."
+    "easylink": "Also <strong>Easy Link</strong>, to write to your models from your phone through your own Telegram or Discord bot, and get the pictures they make, as long as ChatonLM is running on your computer.",
+    "vscode": "Coding? <a href='/{{lang}}/{{path:vscode}}'>The ChatonLM extension for VS Code</a> brings these models into your editor: explain, fix, complete, even talk your code through out loud."
   },
   "app": {
     "chat": "Chat",
@@ -308,7 +314,9 @@
     "images_q": "Can ChatonLM create images?",
     "images_a": "Yes, in the chat: describe the picture, and the built-in image engine draws it on your computer, with an open model chosen in ModelHub. With a graphics card, an image takes from a few seconds to about a minute with the recommended models, longer with the heaviest ones or on a modest card; on the processor, several minutes. <a href='/{{lang}}/{{path:images}}'>All about image generation</a>",
     "engine_q": "Does ChatonLM work with Ollama?",
-    "engine_a": "Yes. ChatonLM is a desktop app for Ollama: the engine it includes is Ollama, unmodified. If Ollama is already installed on your computer, ChatonLM connects to it and picks up the models you’ve already downloaded. ChatonLM is an independent project: it is not affiliated with Ollama, nor endorsed by it."
+    "engine_a": "Yes. ChatonLM is a desktop app for Ollama: the engine it includes is Ollama, unmodified. If Ollama is already installed on your computer, ChatonLM connects to it and picks up the models you’ve already downloaded. ChatonLM is an independent project: it is not affiliated with Ollama, nor endorsed by it.",
+    "vscode_q": "Does ChatonLM work with VS Code?",
+    "vscode_a": "Yes, with the ChatonLM extension for VS Code (and VSCodium): it explains, fixes and completes your code with your local models, and gives you spoken tours of it. <a href='/{{lang}}/{{path:vscode}}'>All about the extension</a>"
   },
   "end": {
     "title": "The <em>end of the thread.</em>",
@@ -359,8 +367,8 @@
   "privacy": {
     "title": "Privacy",
     "lead": "This site doesn’t track you: no cookies, no analytics, no content loaded from a third party.",
-    "body": "<h2>When you visit this site</h2><p>No cookie is set and no analytics tool is installed. The fonts and images come from the site itself.</p><p>Like any web server, ours records the IP address, the date, the requested page, the browser used and the referring page in a technical log. This log is used for the security and proper running of the site; it is deleted automatically after a few weeks.</p><h2>When you write to us</h2><p>The form sends us your name, your email address and your message by email, to a Gmail (Google) mailbox. They are used only to reply to you and are not stored anywhere else. The controller of this processing is the site’s publisher, relying on its legitimate interest in replying to you. Google may store these emails outside the European Union. They are deleted at the latest one year after our last exchange.</p><p>To limit abusive submissions, your IP address is kept in working memory for one day at most, never on disk.</p><h2>When you download ChatonLM</h2><p>The files are hosted by GitHub: your browser downloads them from GitHub, which therefore sees your IP address, under its own privacy policy.</p><h2>In the ChatonLM app</h2><p>ChatonLM has no account, no telemetry and no analytics. Your conversations, attachments, the images you create and your settings stay on your computer; dictation and voice mode are transcribed locally, and images are made there too.</p><p>An ephemeral chat, opened with the ghost kitten, stays out of your history: it is erased, down to the database files, as soon as you open another chat or quit the app, unless you choose to keep it.</p><p>The app only connects to:</p><ul><li><strong>Hugging Face</strong>, when you open ModelHub (model lists and model pages, image models included), when you download an image model, a speech recognition model or a voice, and to check whether a model installed from Hugging Face has a newer version;</li><li><strong>ollama.com</strong>, to check that a model name exists and whether an installed model has a newer version and, if you sign in to it, to show your account picture;</li><li><strong>GitHub</strong>, to check for and download updates, and to download the files of a voice;</li><li><strong>Telegram or Discord</strong>, only if you connect a bot with Easy Link (see below).</li></ul><p>Everything else goes through the Ollama engine, on your computer by default: conversations, model downloads and, if you turn them on, the Ollama account and web search, which are then handled by ollama.com. Ollama’s cloud models are off by default: if you turn them on in the settings and pick one, your messages and their attachments are sent to it and processed on ollama.com’s servers. Dictation is never sent to a cloud model. If you point the app at a server on another machine, your messages, attachments and the transcripts cleaned up by dictation are sent to it.</p><h2>When you create an image</h2><p>The image is made on your computer by the image engine built into ChatonLM (stable-diffusion.cpp), which runs locally and does not connect to the internet. Your description and the image stay on your computer; the image is saved with the conversation and is never sent back to the language model. When the language model is the one asking for the image, your message goes through the Ollama engine, like any message.</p><h2>With Easy Link</h2><p>Easy Link lets you write to your models from Telegram or Discord, through a bot you create yourself. As long as you haven’t connected a bot, the app doesn’t connect to either service. Once a bot is connected, and while the app is running, your messages to the bot (text, photos, voice messages) and everything it replies, the model’s answers and the images it creates included, go through the servers of that service, under its own privacy policy. The app talks to that service directly: no other server sits in between, and nothing is sent to ChatonLM’s publisher.</p><p>The bot’s token is kept in the app’s database, on your computer, and is only sent to that service. Voice messages are transcribed on your computer, the model answers through the Ollama engine as it does in the app, and these conversations are saved on your computer with the others, except in ephemeral mode (the /ephemeral on command), where they are erased as in the app.</p><h2>Your rights</h2><p>You can ask to see, correct or delete the data about you, or object to its processing, by writing to <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>. You can also lodge a complaint with the CNIL (cnil.fr).</p>",
-    "updated": "Last updated: October 2026."
+    "body": "<h2>When you visit this site</h2><p>No cookie is set and no analytics tool is installed. The fonts and images come from the site itself.</p><p>Like any web server, ours records the IP address, the date, the requested page, the browser used and the referring page in a technical log. This log is used for the security and proper running of the site; it is deleted automatically after a few weeks.</p><h2>When you write to us</h2><p>The form sends us your name, your email address and your message by email, to a Gmail (Google) mailbox. They are used only to reply to you and are not stored anywhere else. The controller of this processing is the site’s publisher, relying on its legitimate interest in replying to you. Google may store these emails outside the European Union. They are deleted at the latest one year after our last exchange.</p><p>To limit abusive submissions, your IP address is kept in working memory for one day at most, never on disk.</p><h2>When you download ChatonLM</h2><p>The files are hosted by GitHub: your browser downloads them from GitHub, which therefore sees your IP address, under its own privacy policy.</p><h2>In the ChatonLM app</h2><p>ChatonLM has no account, no telemetry and no analytics. Your conversations, attachments, the images you create and your settings stay on your computer; dictation and voice mode are transcribed locally, and images are made there too.</p><p>An ephemeral chat, opened with the ghost kitten, stays out of your history: it is erased, down to the database files, as soon as you open another chat or quit the app, unless you choose to keep it.</p><p>The app only connects to:</p><ul><li><strong>Hugging Face</strong>, when you open ModelHub (model lists and model pages, image models included), when you download an image model, a speech recognition model or a voice, and to check whether a model installed from Hugging Face has a newer version;</li><li><strong>ollama.com</strong>, to check that a model name exists and whether an installed model has a newer version and, if you sign in to it, to show your account picture;</li><li><strong>GitHub</strong>, to check for and download updates, and to download the files of a voice;</li><li><strong>Telegram or Discord</strong>, only if you connect a bot with Easy Link (see below).</li></ul><p>Everything else goes through the Ollama engine, on your computer by default: conversations, model downloads and, if you turn them on, the Ollama account and web search, which are then handled by ollama.com. Ollama’s cloud models are off by default: if you turn them on in the settings and pick one, your messages and their attachments are sent to it and processed on ollama.com’s servers. Dictation is never sent to a cloud model. If you point the app at a server on another machine, your messages, attachments and the transcripts cleaned up by dictation are sent to it.</p><h2>When you create an image</h2><p>The image is made on your computer by the image engine built into ChatonLM (stable-diffusion.cpp), which runs locally and does not connect to the internet. Your description and the image stay on your computer; the image is saved with the conversation and is never sent back to the language model. When the language model is the one asking for the image, your message goes through the Ollama engine, like any message.</p><h2>With Easy Link</h2><p>Easy Link lets you write to your models from Telegram or Discord, through a bot you create yourself. As long as you haven’t connected a bot, the app doesn’t connect to either service. Once a bot is connected, and while the app is running, your messages to the bot (text, photos, voice messages) and everything it replies, the model’s answers and the images it creates included, go through the servers of that service, under its own privacy policy. The app talks to that service directly: no other server sits in between, and nothing is sent to ChatonLM’s publisher.</p><p>The bot’s token is kept in the app’s database, on your computer, and is only sent to that service. Voice messages are transcribed on your computer, the model answers through the Ollama engine as it does in the app, and these conversations are saved on your computer with the others, except in ephemeral mode (the /ephemeral on command), where they are erased as in the app.</p><h2>With the VS Code extension</h2><p>The ChatonLM extension for VS Code connects to the app through a link that stays on your computer (a local channel that does not go through the network). The link is off until you allow it, and only editors paired with a code can use it. The code, changes or terminal output you attach to a request go to the model chosen in ChatonLM, through the Ollama engine, like any message: with a local model, they stay on your computer. Before each request, the panel shows what is sent; to a cloud model or a server on another machine, it leaves out sensitive files (such as .env files or keys) and masks, as best it can, lines that look like secrets.</p><p>The extension has no telemetry. Easy Link notifications only contain the task’s name, how long it took and whether it worked, never code or terminal output. The editor’s agents, if you give them access, see neither your chats nor your settings. The extension is installed from Microsoft’s Visual Studio Marketplace or from Open VSX (Eclipse Foundation), under their own privacy policies.</p><h2>Your rights</h2><p>You can ask to see, correct or delete the data about you, or object to its processing, by writing to <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>. You can also lodge a complaint with the CNIL (cnil.fr).</p>",
+    "updated": "Last updated: November 2026."
   },
   "donate": {
     "eyebrow": "Support the project",
@@ -668,6 +676,53 @@
       "q5": "Is it really free?",
       "a5": "Yes. Image generation is part of ChatonLM, open-source software under the MIT license: no credits to buy, no subscription, no account. The models are free to download; their license says what you may do with the pictures.",
       "end_title": "Ready to <em>draw?</em>"
+    },
+    "vscode": {
+      "eyebrow": "VS Code extension · local AI",
+      "title": "Your models, <em>in your editor.</em>",
+      "lead": "The ChatonLM extension for VS Code puts the models on your computer to work on your code: explain it, fix it, write tests, complete as you type, even talk it through out loud. It relies on the ChatonLM app on the same machine: no account, no subscription, no API key.",
+      "install": "Install for VS Code",
+      "openvsx": "On Open VSX (VSCodium, Cursor…)",
+      "requires": "You also need the ChatonLM app, version 0.9.4 or later, on the same computer. <a href='/{{lang}}/#telecharger'>Download ChatonLM</a>",
+      "demo_chip": "About src/slugify.ts, lines 10–12",
+      "demo_q": "Why cut at the last dash?",
+      "demo_a": "So a word is never cut in half: when the title is too long, the slug keeps what comes before the last dash, whole words only. With no dash, it cuts at the limit.",
+      "demo_input": "Ask about your code",
+      "steps_title": "Three steps, <em>and you’re linked.</em>",
+      "step1_title": "Install ChatonLM",
+      "step1_text": "Download the app for Windows or Linux and choose a model. The app runs the models; the extension goes through it.",
+      "step2_title": "Add the extension",
+      "step2_text": "Search for “ChatonLM” in the VS Code extensions. VSCodium, Cursor and the other editors that rely on Open VSX find it there.",
+      "step3_title": "Pair them",
+      "step3_text": "In ChatonLM, open Settings, VS Code tab: allow VS Code to connect, then choose Pair an editor. Type the code it shows in the ChatonLM panel of VS Code.",
+      "facts_title": "What it <em>can do.</em>",
+      "fact1_title": "A panel for your code",
+      "fact1_text": "Select some code, then Explain, Fix or Write Tests, or ask your own question. It also writes your commit messages. Before anything is sent, the panel shows what goes to the model.",
+      "fact2_title": "Your code, out loud",
+      "fact2_text": "A guided tour reads a file or your changes part by part, highlighting the part being read. Talk your code through hands-free, or dictate at the cursor: voices and speech recognition run on your computer.",
+      "fact3_title": "Autocomplete as you type",
+      "fact3_text": "Off by default. A small code model suggests what comes next, in grey. ChatonLM loads it only if it fits on your graphics card next to the chat model, and holds it back while a reply is being written.",
+      "fact4_title": "A message on your phone",
+      "fact4_text": "With Easy Link, a message on Telegram or Discord when a long build or command finishes: its name, how long it took and whether it worked, never your code or the terminal output.",
+      "fact5_title": "For the editor’s agents",
+      "fact5_text": "Off by default. The editor’s agents (agent mode of the chat, Cline, Cursor…) can ask a local model, create an image, read a text aloud or proofread it, through MCP, with an access of their own: not your chats, not your settings. ChatonLM’s models can also appear in VS Code’s built-in chat.",
+      "fact6_title": "And the rest of the app",
+      "fact6_text": "A course about your project or a language in the Study tab, an image generated from a description, proofreading of a file’s comments or of a whole document.",
+      "privacy_title": "Your code <em>stays home.</em>",
+      "privacy_text": "The extension talks to ChatonLM through a link that never leaves your computer, without going through the network, and only editors paired with a code can use it. With a model on your computer, your code stays on it. If you choose an Ollama cloud model or a server on another machine, the panel tells you before sending, leaves out sensitive files and masks, as best it can, lines that look like secrets. The extension has no telemetry.",
+      "faq_title": "Questions about <em>the extension</em>",
+      "q1": "Do I need the ChatonLM app?",
+      "a1": "Yes. The extension does nothing on its own: the ChatonLM app, version 0.9.4 or later, runs the models, the voices and speech recognition. Both must be on the same computer, on Windows or Linux.",
+      "q2": "Which editors does it work with?",
+      "a2": "VS Code 1.105 or later, from the VS Code Marketplace. VSCodium, Cursor and the other editors that install their extensions from Open VSX find it there.",
+      "q3": "Is my code sent anywhere?",
+      "a3": "Not as long as you use a model on your computer: the link between the editor and ChatonLM stays on the machine, and so does the model. Before each request, the panel shows what is sent and whether it stays on this computer. The extension is off in folders you have not marked as trusted.",
+      "q4": "Which model for autocomplete?",
+      "a4": "A code model made for completion, such as Qwen2.5-Coder. With the Auto setting, ChatonLM picks the size that suits your graphics card, 0.5B, 1.5B or 7B, and offers to download it if it is missing.",
+      "q5": "Is it really free?",
+      "a5": "Yes. The extension and the app are free software under the MIT license: no subscription, no credits, no account, no API key to provide.",
+      "end_title": "Ready to <em>code with it?</em>",
+      "end_lead": "Install ChatonLM, then the extension. Free, for Windows and Linux."
     }
   },
   "choose": {

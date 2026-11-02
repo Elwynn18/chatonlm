@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="{{lang}}" class="sans-js">
+  <head>
+    {{>head.html}}
+    <title>{{t:meta.vscode.title}}</title>
+    <meta name="description" content="{{t:meta.vscode.description}}" />
+    <meta property="og:title" content="{{t:meta.vscode.title}}" />
+    <meta property="og:description" content="{{t:meta.vscode.description}}" />
+    {{>head-index.html}}
+  </head>
+  <body class="page-outil page-vscode">
+    {{>header.html}}
+    <main id="contenu">
+      <!-- Même plan que les pages des outils (tool.html) ; la scène montre un
+           éditeur de code avec le panneau de l'extension, pas la fenêtre de l'app. -->
+      <section class="outil-tete cadre">
+        <div class="outil-tete-texte">
+          <a class="retour" href="/{{lang}}/#outils">{{t:toolpage.back}}</a>
+          <h1><span class="surtitre">{{t:pages.vscode.eyebrow}}</span> <span class="outil-titre">{{h:pages.vscode.title}}</span></h1>
+          <p class="chapo">{{t:pages.vscode.lead}}</p>
+          <div class="actions">
+            <a class="bouton" href="https://marketplace.visualstudio.com/items?itemName=chatonlm.chatonlm" rel="noopener">{{>i-down.svg}}<span>{{t:pages.vscode.install}}</span></a>
+            <a class="lien" href="https://open-vsx.org/extension/chatonlm/chatonlm" rel="noopener">{{t:pages.vscode.openvsx}}</a>
+          </div>
+          <p class="discret vscode-requis">{{h:pages.vscode.requires}}</p>
+        </div>
+        <div class="scene" aria-hidden="true">
+          <svg class="guetteur" viewBox="60 60 392 330" data-chaton>{{>cat-head.svg}}</svg>
+          {{>cat-paws.svg}}
+          <div class="app editeur">
+            <div class="editeur-barre">
+              <i></i><i></i><i></i>
+              <span class="editeur-chat"><svg viewBox="60 66 392 388">{{>logo-head.svg}}</svg></span>
+            </div>
+            <div class="editeur-panneau">
+              <p class="editeur-titre">ChatonLM</p>
+              <p class="editeur-piece">{{t:pages.vscode.demo_chip}}</p>
+              <p class="editeur-question">{{t:pages.vscode.demo_q}}</p>
+              <p class="editeur-reponse">{{t:pages.vscode.demo_a}}</p>
+              <p class="editeur-saisie"><span>{{t:pages.vscode.demo_input}}</span>{{>i-mic.svg}}</p>
+            </div>
+            <div class="editeur-code">
+              <p class="editeur-onglet">slugify.ts</p>
+              <pre><code><span class="n">1</span><span class="c">// Turns a title into a URL slug.</span>
+<span class="n">2</span><span class="k">export function</span> <span class="f">slugify</span>(title, max = <span class="v">60</span>) {
+<span class="n">3</span>  <span class="k">const</span> slug = title
+<span class="n">4</span>    .<span class="f">normalize</span>(<span class="s">"NFKD"</span>)
+<span class="n">5</span>    .<span class="f">toLowerCase</span>()
+<span class="n">6</span>    .<span class="f">replace</span>(<span class="s">/[^a-z0-9]+/g</span>, <span class="s">"-"</span>)
+<span class="n">7</span>    .<span class="f">replace</span>(<span class="s">/^-+|-+$/g</span>, <span class="s">""</span>);
+<span class="n">8</span>  <span class="k">if</span> (slug.length &lt;= max)
+<span class="n">9</span>    <span class="k">return</span> slug;
+<span class="sel"><span class="n">10</span>  <span class="k">const</span> cut = slug.<span class="f">slice</span>(<span class="v">0</span>, max);
+<span class="n">11</span>  <span class="k">const</span> dash = cut.<span class="f">lastIndexOf</span>(<span class="s">"-"</span>);
+<span class="n">12</span>  <span class="k">return</span> dash &gt; <span class="v">0</span> ? cut.<span class="f">slice</span>(<span class="v">0</span>, dash) : cut;
+</span><span class="n">13</span>}</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="etapes cadre">
+        <h2>{{h:pages.vscode.steps_title}}</h2>
+        <ol class="etapes-liste" role="list">
+          <li><h3>{{t:pages.vscode.step1_title}}</h3><p>{{t:pages.vscode.step1_text}}</p></li>
+          <li><h3>{{t:pages.vscode.step2_title}}</h3><p>{{t:pages.vscode.step2_text}}</p></li>
+          <li><h3>{{t:pages.vscode.step3_title}}</h3><p>{{t:pages.vscode.step3_text}}</p></li>
+        </ol>
+      </section>
+
+      <section class="faits">
+        <div class="cadre">
+          <h2>{{h:pages.vscode.facts_title}}</h2>
+          <ul class="faits-liste" role="list">
+            <li><h3>{{t:pages.vscode.fact1_title}}</h3><p>{{t:pages.vscode.fact1_text}}</p></li>
+            <li><h3>{{t:pages.vscode.fact2_title}}</h3><p>{{t:pages.vscode.fact2_text}}</p></li>
+            <li><h3>{{t:pages.vscode.fact3_title}}</h3><p>{{t:pages.vscode.fact3_text}}</p></li>
+            <li><h3>{{t:pages.vscode.fact4_title}}</h3><p>{{t:pages.vscode.fact4_text}}</p></li>
+            <li><h3>{{t:pages.vscode.fact5_title}}</h3><p>{{t:pages.vscode.fact5_text}}</p></li>
+            <li><h3>{{t:pages.vscode.fact6_title}}</h3><p>{{t:pages.vscode.fact6_text}}</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="prive cadre">
+        <h2>{{h:pages.vscode.privacy_title}}</h2>
+        <div>
+          <p class="chapo">{{t:pages.vscode.privacy_text}}</p>
+          <a class="lien" href="/{{lang}}/privacy/">{{t:inside.more}}</a>
+        </div>
+      </section>
+
+      <section class="questions cadre">
+        <h2>{{h:pages.vscode.faq_title}}</h2>
+        <div class="questions-liste">
+          <details><summary>{{t:pages.vscode.q1}}</summary><p>{{t:pages.vscode.a1}}</p></details>
+          <details><summary>{{t:pages.vscode.q2}}</summary><p>{{t:pages.vscode.a2}}</p></details>
+          <details><summary>{{t:pages.vscode.q3}}</summary><p>{{t:pages.vscode.a3}}</p></details>
+          <details><summary>{{t:pages.vscode.q4}}</summary><p>{{t:pages.vscode.a4}}</p></details>
+          <details><summary>{{t:pages.vscode.q5}}</summary><p>{{t:pages.vscode.a5}}</p></details>
+        </div>
+      </section>
+
+      <nav class="autres cadre" aria-label="{{t:tools.label}}">
+        <h2>{{h:toolpage.others_title}}</h2>
+        <ul role="list">
+          <li><a href="/{{lang}}/{{path:chat}}">{{>i-chat.svg}}{{t:tools.chat.name}}</a></li>
+          <li><a href="/{{lang}}/{{path:hub}}">{{>i-hub.svg}}{{t:tools.hub.name}}</a></li>
+          <li><a href="/{{lang}}/{{path:dictation}}">{{>i-mic.svg}}{{t:tools.dictation.name}}</a></li>
+          <li><a href="/{{lang}}/{{path:voice}}">{{>i-wave.svg}}{{t:tools.voice.name}}</a></li>
+          <li><a href="/{{lang}}/{{path:proofread}}">{{>i-pen.svg}}{{t:tools.proofread.name}}</a></li>
+          <li><a href="/{{lang}}/{{path:study}}">{{>i-book.svg}}{{t:tools.study.name}}</a></li>
+          <li><a href="/{{lang}}/{{path:images}}">{{>i-photo.svg}}{{t:tools.images.name}}</a></li>
+        </ul>
+      </nav>
+
+      <section class="bout cadre">
+        <div class="bout-dessin" aria-hidden="true">
+          <svg viewBox="-30 40 450 420" data-chaton>
+            <ellipse cx="200" cy="432" rx="190" ry="15" fill="#F0DCC5" />
+            {{>cat-body.svg}}
+            <ellipse cx="234" cy="416" rx="32" ry="17" fill="#FFF4E8" />
+            <path d="M226 412v10M242 412v10" stroke="#2A1A10" stroke-opacity=".28" stroke-width="3.500" stroke-linecap="round" />
+            <g transform="rotate(-7 200 190) translate(31 -44) scale(.66)">{{>cat-head.svg}}</g>
+            <g class="bras">
+              <path d="M128 312C94 296 60 262 44 212" fill="none" stroke="#F28A38" stroke-width="36" stroke-linecap="round" />
+              <path d="M34 208l6 14M52 202l6 14" stroke="#D9701F" stroke-width="5.500" stroke-linecap="round" />
+            </g>
+          </svg>
+        </div>
+        <div class="bout-texte">
+          <h2>{{h:pages.vscode.end_title}}</h2>
+          <p class="chapo">{{t:pages.vscode.end_lead}}</p>
+          <div class="actions">
+            <a class="bouton" href="/{{lang}}/#telecharger" data-telecharger
+              data-label-windows="{{t:download.for_windows}}" data-label-linux="{{t:download.for_linux}}"
+              data-label-soon="{{t:download.soon}}">{{>i-down.svg}}<span>{{t:download.cta}}</span></a>
+            <a class="lien" href="https://marketplace.visualstudio.com/items?itemName=chatonlm.chatonlm" rel="noopener">{{t:pages.vscode.install}}</a>
+          </div>
+        </div>
+      </section>
+    </main>
+    {{>footer.html}}
+    {{>contact-dialog.html}}
+  </body>
+</html>

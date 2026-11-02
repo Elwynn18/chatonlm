@@ -62,6 +62,10 @@
     "donate": {
       "title": "Soutenir ChatonLM : faire un don",
       "description": "ChatonLM est gratuit et le restera. Vos dons l’aident à grandir : nouvelles fonctions, et serveurs à lui pour une recherche web qui ne dépend plus d’Ollama."
+    },
+    "vscode": {
+      "title": "Extension VS Code avec IA locale, gratuite · ChatonLM",
+      "description": "Expliquez, corrigez et complétez votre code avec des modèles d’IA locaux, dans VS Code ou VSCodium. Gratuit, sans compte, pour Windows et Linux."
     }
   },
   "nav": {
@@ -74,7 +78,8 @@
     "contact": "Contact",
     "language": "Langue",
     "download": "Télécharger",
-    "donate": "Faire un don"
+    "donate": "Faire un don",
+    "vscode": "VS Code"
   },
   "footer": {
     "tagline": "Une IA d’intérieur.",
@@ -153,7 +158,8 @@
       "text": "Décrivez une image dans la conversation, ou demandez-la à votre modèle : le moteur d’images inclus la dessine sur votre ordinateur, avec le modèle ouvert de votre choix."
     },
     "new": "Nouveau",
-    "easylink": "Et aussi <strong>Easy Link</strong>, pour écrire à vos modèles depuis votre téléphone par votre propre bot Telegram ou Discord, et recevoir les images qu’ils créent, tant que ChatonLM tourne sur votre ordinateur."
+    "easylink": "Et aussi <strong>Easy Link</strong>, pour écrire à vos modèles depuis votre téléphone par votre propre bot Telegram ou Discord, et recevoir les images qu’ils créent, tant que ChatonLM tourne sur votre ordinateur.",
+    "vscode": "Vous codez ? <a href='/{{lang}}/{{path:vscode}}'>L’extension ChatonLM pour VS Code</a> met ces modèles dans votre éditeur : expliquer, corriger, compléter, et même parler de votre code à voix haute."
   },
   "app": {
     "chat": "Conversation",
@@ -308,7 +314,9 @@
     "images_q": "ChatonLM peut-il créer des images ?",
     "images_a": "Oui, dans la conversation : décrivez l’image, et le moteur d’images inclus la dessine sur votre ordinateur, avec un modèle ouvert choisi dans ModelHub. Avec une carte graphique, une image prend de quelques secondes à une minute environ avec les modèles conseillés, davantage avec les plus lourds ou sur une carte modeste ; sur le processeur, plusieurs minutes. <a href='/{{lang}}/{{path:images}}'>Tout sur la création d’images</a>",
     "engine_q": "ChatonLM fonctionne-t-il avec Ollama ?",
-    "engine_a": "Oui. ChatonLM est une application de bureau pour Ollama : le moteur inclus est Ollama, non modifié. Si Ollama est déjà installé sur votre ordinateur, ChatonLM s’y connecte et retrouve les modèles que vous avez déjà téléchargés. ChatonLM est un projet indépendant : il n’est ni affilié à Ollama, ni soutenu par lui."
+    "engine_a": "Oui. ChatonLM est une application de bureau pour Ollama : le moteur inclus est Ollama, non modifié. Si Ollama est déjà installé sur votre ordinateur, ChatonLM s’y connecte et retrouve les modèles que vous avez déjà téléchargés. ChatonLM est un projet indépendant : il n’est ni affilié à Ollama, ni soutenu par lui.",
+    "vscode_q": "ChatonLM marche-t-il avec VS Code ?",
+    "vscode_a": "Oui, avec l’extension ChatonLM pour VS Code (et VSCodium) : elle explique, corrige et complète votre code avec vos modèles locaux, et vous le fait visiter à voix haute. <a href='/{{lang}}/{{path:vscode}}'>Tout sur l’extension</a>"
   },
   "end": {
     "title": "Vous êtes au <em>bout du fil.</em>",
@@ -359,8 +367,8 @@
   "privacy": {
     "title": "Confidentialité",
     "lead": "Ce site ne vous suit pas : ni cookie, ni mesure d’audience, ni contenu chargé chez un tiers.",
-    "body": "<h2>Quand vous visitez ce site</h2><p>Aucun cookie n’est déposé et aucun outil de mesure d’audience n’est installé. Les polices et les images viennent du site lui-même.</p><p>Comme tout serveur web, le nôtre note dans un journal technique l’adresse IP, la date, la page demandée, le navigateur utilisé et la page d’origine. Ce journal sert à la sécurité et au bon fonctionnement du site ; il est effacé automatiquement au bout de quelques semaines.</p><h2>Quand vous nous écrivez</h2><p>Le formulaire nous transmet votre nom, votre adresse électronique et votre message par courriel, dans une boîte Gmail (Google). Ils ne servent qu’à vous répondre et ne sont enregistrés nulle part ailleurs. Le responsable de ce traitement est l’éditeur du site, qui se fonde sur son intérêt légitime à vous répondre. Google peut conserver ces courriels hors de l’Union européenne. Ils sont supprimés au plus tard un an après notre dernier échange.</p><p>Pour limiter les envois abusifs, votre adresse IP est gardée en mémoire vive un jour au plus, jamais sur le disque.</p><h2>Quand vous téléchargez ChatonLM</h2><p>Les fichiers sont hébergés par GitHub : votre navigateur les télécharge chez lui, et GitHub voit donc votre adresse IP, selon sa propre politique de confidentialité.</p><h2>Dans l’app ChatonLM</h2><p>ChatonLM n’a ni compte, ni télémétrie, ni mesure d’audience. Vos conversations, vos pièces jointes, les images créées et vos réglages restent sur votre ordinateur ; la dictée et le mode vocal sont transcrits sur place, et les images y sont créées.</p><p>Une conversation éphémère, ouverte par le chaton-fantôme, n’entre pas dans l’historique : elle est effacée, jusque dans les fichiers de la base de données, dès que vous ouvrez une autre conversation ou quittez l’app, sauf si vous choisissez de la garder.</p><p>L’app ne se connecte qu’à :</p><ul><li><strong>Hugging Face</strong>, quand vous ouvrez ModelHub (listes et fiches des modèles, modèles d’images compris), quand vous téléchargez un modèle d’images, un modèle de reconnaissance de la parole ou une voix, et pour savoir si un modèle installé depuis Hugging Face a une version plus récente ;</li><li><strong>ollama.com</strong>, pour vérifier qu’un nom de modèle existe et si un modèle installé a une version plus récente et, si vous vous y connectez, pour afficher l’image de votre compte ;</li><li><strong>GitHub</strong>, pour vérifier et télécharger les mises à jour, et pour télécharger les fichiers d’une voix ;</li><li><strong>Telegram ou Discord</strong>, seulement si vous reliez un bot avec Easy Link (voir plus bas).</li></ul><p>Tout le reste passe par le moteur Ollama, sur votre ordinateur par défaut : les conversations, le téléchargement des modèles et, si vous les activez, le compte Ollama et la recherche web, alors traités par ollama.com. Les modèles cloud d’Ollama sont désactivés par défaut : si vous les activez dans les réglages et en choisissez un, vos messages et leurs pièces jointes lui sont envoyés et traités sur les serveurs d’ollama.com. Les dictées ne sont jamais envoyées à un modèle cloud. Si vous réglez l’app sur un serveur situé sur une autre machine, vos messages, vos pièces jointes et les dictées mises au propre lui sont envoyés.</p><h2>Quand vous créez une image</h2><p>L’image est créée sur votre ordinateur par le moteur d’images inclus dans ChatonLM (stable-diffusion.cpp), qui tourne sur place et ne se connecte pas à Internet. Votre description et l’image restent sur votre ordinateur ; l’image est enregistrée avec la conversation et n’est jamais renvoyée au modèle de langage. Quand c’est le modèle de langage qui demande l’image, votre message passe par le moteur Ollama, comme tout message.</p><h2>Avec Easy Link</h2><p>Easy Link vous permet d’écrire à vos modèles depuis Telegram ou Discord, par un bot que vous créez vous-même. Tant que vous n’avez relié aucun bot, l’app ne se connecte ni à l’un ni à l’autre. Une fois un bot relié, et tant que l’app tourne, vos messages au bot (textes, photos, messages vocaux) et tout ce qu’il vous répond, réponses du modèle et images créées comprises, passent par les serveurs de cette messagerie, selon sa propre politique de confidentialité. L’app s’adresse directement à elle : aucun autre serveur ne s’intercale, et rien n’est envoyé à l’éditeur de ChatonLM.</p><p>Le jeton du bot est gardé dans la base de données de l’app, sur votre ordinateur, et n’est envoyé qu’à cette messagerie. Les messages vocaux sont transcrits sur votre ordinateur, le modèle répond par le moteur Ollama comme dans l’app, et ces conversations sont enregistrées sur votre ordinateur avec les autres, sauf en mode éphémère (commande /ephemeral on), où elles sont effacées comme dans l’app.</p><h2>Vos droits</h2><p>Vous pouvez demander à consulter, à corriger ou à faire supprimer les données qui vous concernent, ou vous opposer à leur traitement, en écrivant à <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>. Vous pouvez aussi adresser une réclamation à la CNIL (cnil.fr).</p>",
-    "updated": "Dernière mise à jour : octobre 2026."
+    "body": "<h2>Quand vous visitez ce site</h2><p>Aucun cookie n’est déposé et aucun outil de mesure d’audience n’est installé. Les polices et les images viennent du site lui-même.</p><p>Comme tout serveur web, le nôtre note dans un journal technique l’adresse IP, la date, la page demandée, le navigateur utilisé et la page d’origine. Ce journal sert à la sécurité et au bon fonctionnement du site ; il est effacé automatiquement au bout de quelques semaines.</p><h2>Quand vous nous écrivez</h2><p>Le formulaire nous transmet votre nom, votre adresse électronique et votre message par courriel, dans une boîte Gmail (Google). Ils ne servent qu’à vous répondre et ne sont enregistrés nulle part ailleurs. Le responsable de ce traitement est l’éditeur du site, qui se fonde sur son intérêt légitime à vous répondre. Google peut conserver ces courriels hors de l’Union européenne. Ils sont supprimés au plus tard un an après notre dernier échange.</p><p>Pour limiter les envois abusifs, votre adresse IP est gardée en mémoire vive un jour au plus, jamais sur le disque.</p><h2>Quand vous téléchargez ChatonLM</h2><p>Les fichiers sont hébergés par GitHub : votre navigateur les télécharge chez lui, et GitHub voit donc votre adresse IP, selon sa propre politique de confidentialité.</p><h2>Dans l’app ChatonLM</h2><p>ChatonLM n’a ni compte, ni télémétrie, ni mesure d’audience. Vos conversations, vos pièces jointes, les images créées et vos réglages restent sur votre ordinateur ; la dictée et le mode vocal sont transcrits sur place, et les images y sont créées.</p><p>Une conversation éphémère, ouverte par le chaton-fantôme, n’entre pas dans l’historique : elle est effacée, jusque dans les fichiers de la base de données, dès que vous ouvrez une autre conversation ou quittez l’app, sauf si vous choisissez de la garder.</p><p>L’app ne se connecte qu’à :</p><ul><li><strong>Hugging Face</strong>, quand vous ouvrez ModelHub (listes et fiches des modèles, modèles d’images compris), quand vous téléchargez un modèle d’images, un modèle de reconnaissance de la parole ou une voix, et pour savoir si un modèle installé depuis Hugging Face a une version plus récente ;</li><li><strong>ollama.com</strong>, pour vérifier qu’un nom de modèle existe et si un modèle installé a une version plus récente et, si vous vous y connectez, pour afficher l’image de votre compte ;</li><li><strong>GitHub</strong>, pour vérifier et télécharger les mises à jour, et pour télécharger les fichiers d’une voix ;</li><li><strong>Telegram ou Discord</strong>, seulement si vous reliez un bot avec Easy Link (voir plus bas).</li></ul><p>Tout le reste passe par le moteur Ollama, sur votre ordinateur par défaut : les conversations, le téléchargement des modèles et, si vous les activez, le compte Ollama et la recherche web, alors traités par ollama.com. Les modèles cloud d’Ollama sont désactivés par défaut : si vous les activez dans les réglages et en choisissez un, vos messages et leurs pièces jointes lui sont envoyés et traités sur les serveurs d’ollama.com. Les dictées ne sont jamais envoyées à un modèle cloud. Si vous réglez l’app sur un serveur situé sur une autre machine, vos messages, vos pièces jointes et les dictées mises au propre lui sont envoyés.</p><h2>Quand vous créez une image</h2><p>L’image est créée sur votre ordinateur par le moteur d’images inclus dans ChatonLM (stable-diffusion.cpp), qui tourne sur place et ne se connecte pas à Internet. Votre description et l’image restent sur votre ordinateur ; l’image est enregistrée avec la conversation et n’est jamais renvoyée au modèle de langage. Quand c’est le modèle de langage qui demande l’image, votre message passe par le moteur Ollama, comme tout message.</p><h2>Avec Easy Link</h2><p>Easy Link vous permet d’écrire à vos modèles depuis Telegram ou Discord, par un bot que vous créez vous-même. Tant que vous n’avez relié aucun bot, l’app ne se connecte ni à l’un ni à l’autre. Une fois un bot relié, et tant que l’app tourne, vos messages au bot (textes, photos, messages vocaux) et tout ce qu’il vous répond, réponses du modèle et images créées comprises, passent par les serveurs de cette messagerie, selon sa propre politique de confidentialité. L’app s’adresse directement à elle : aucun autre serveur ne s’intercale, et rien n’est envoyé à l’éditeur de ChatonLM.</p><p>Le jeton du bot est gardé dans la base de données de l’app, sur votre ordinateur, et n’est envoyé qu’à cette messagerie. Les messages vocaux sont transcrits sur votre ordinateur, le modèle répond par le moteur Ollama comme dans l’app, et ces conversations sont enregistrées sur votre ordinateur avec les autres, sauf en mode éphémère (commande /ephemeral on), où elles sont effacées comme dans l’app.</p><h2>Avec l’extension VS Code</h2><p>L’extension ChatonLM pour VS Code se connecte à l’app par un lien qui reste sur votre ordinateur (un canal local, qui ne passe pas par le réseau). Ce lien est coupé tant que vous ne l’autorisez pas, et seuls les éditeurs appairés par un code peuvent s’en servir. Le code, les modifications ou la sortie du terminal que vous joignez à une demande vont au modèle choisi dans ChatonLM, par le moteur Ollama, comme tout message : avec un modèle local, ils restent sur votre ordinateur. Avant chaque envoi, le panneau montre ce qui part ; vers un modèle cloud ou un serveur sur une autre machine, il laisse de côté les fichiers sensibles (comme les fichiers .env ou les clés) et masque, au mieux, les lignes qui ressemblent à des secrets.</p><p>L’extension n’a pas de télémétrie. Les notifications d’Easy Link ne contiennent que le nom de la tâche, sa durée et son issue, jamais de code ni la sortie du terminal. Les agents de l’éditeur, si vous leur ouvrez l’accès, ne voient ni vos conversations ni vos réglages. L’extension s’installe depuis le Visual Studio Marketplace de Microsoft ou depuis Open VSX (Fondation Eclipse), selon leurs propres politiques de confidentialité.</p><h2>Vos droits</h2><p>Vous pouvez demander à consulter, à corriger ou à faire supprimer les données qui vous concernent, ou vous opposer à leur traitement, en écrivant à <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>. Vous pouvez aussi adresser une réclamation à la CNIL (cnil.fr).</p>",
+    "updated": "Dernière mise à jour : novembre 2026."
   },
   "donate": {
     "eyebrow": "Soutenir le projet",
@@ -668,6 +676,53 @@
       "q5": "C’est vraiment gratuit ?",
       "a5": "Oui. La création d’images fait partie de ChatonLM, logiciel libre sous licence MIT : pas de crédits à acheter, pas d’abonnement, pas de compte. Les modèles se téléchargent gratuitement ; leur licence dit ce que vous pouvez faire des images.",
       "end_title": "Prêt à <em>dessiner ?</em>"
+    },
+    "vscode": {
+      "eyebrow": "Extension pour VS Code · IA locale",
+      "title": "Vos modèles, <em>dans votre éditeur.</em>",
+      "lead": "L’extension ChatonLM pour VS Code met les modèles de votre ordinateur au service de votre code : l’expliquer, le corriger, écrire des tests, compléter à la frappe, et même en parler à voix haute. Elle s’appuie sur l’app ChatonLM, sur la même machine : pas de compte, pas d’abonnement, pas de clé d’API.",
+      "install": "Installer pour VS Code",
+      "openvsx": "Sur Open VSX (VSCodium, Cursor…)",
+      "requires": "Il faut aussi l’app ChatonLM, en version 0.9.4 ou plus récente, sur le même ordinateur. <a href='/{{lang}}/#telecharger'>Télécharger ChatonLM</a>",
+      "demo_chip": "À propos de src/slugify.ts, lignes 10 à 12",
+      "demo_q": "Pourquoi couper au dernier tiret ?",
+      "demo_a": "Pour ne jamais couper un mot en deux : si le titre est trop long, on garde ce qui précède le dernier tiret, donc des mots entiers. Sans tiret, on coupe à la limite.",
+      "demo_input": "Posez une question sur votre code",
+      "steps_title": "Trois étapes, <em>et c’est relié.</em>",
+      "step1_title": "Installez ChatonLM",
+      "step1_text": "Téléchargez l’app pour Windows ou Linux et choisissez un modèle. C’est elle qui fait tourner les modèles ; l’extension passe par elle.",
+      "step2_title": "Ajoutez l’extension",
+      "step2_text": "Cherchez « ChatonLM » dans les extensions de VS Code. VSCodium, Cursor et les autres éditeurs qui s’appuient sur Open VSX la trouvent là-bas.",
+      "step3_title": "Appairez-les",
+      "step3_text": "Dans ChatonLM, ouvrez Paramètres, onglet VS Code : autorisez VS Code à se connecter, puis choisissez Appairer un éditeur. Tapez le code affiché dans le panneau ChatonLM de VS Code.",
+      "facts_title": "Ce qu’elle <em>sait faire.</em>",
+      "fact1_title": "Un panneau pour votre code",
+      "fact1_text": "Sélectionnez du code, puis Expliquer, Corriger ou Écrire des tests, ou posez votre propre question. Elle rédige aussi vos messages de commit. Avant l’envoi, le panneau montre ce qui part au modèle.",
+      "fact2_title": "Votre code, à voix haute",
+      "fact2_text": "Une visite guidée lit un fichier ou vos modifications partie par partie, en surlignant le passage lu. Parlez de votre code mains libres, ou dictez au curseur : les voix et la reconnaissance de la parole tournent sur votre ordinateur.",
+      "fact3_title": "La complétion à la frappe",
+      "fact3_text": "Désactivée par défaut. Un petit modèle de code propose la suite, en gris. ChatonLM ne le charge que s’il tient sur votre carte graphique à côté du modèle de conversation, et le fait patienter pendant une réponse.",
+      "fact4_title": "Prévenu sur votre téléphone",
+      "fact4_text": "Avec Easy Link, un message sur Telegram ou Discord quand une longue compilation ou une longue commande se termine : son nom, sa durée et son issue, jamais votre code ni la sortie du terminal.",
+      "fact5_title": "Pour les agents de l’éditeur",
+      "fact5_text": "Désactivé par défaut. Les agents de l’éditeur (mode agent du chat, Cline, Cursor…) peuvent interroger un modèle local, créer une image, lire un texte à voix haute ou le corriger, par MCP, avec un accès à part : ni vos conversations, ni vos réglages. Les modèles de ChatonLM peuvent aussi apparaître dans le chat intégré de VS Code.",
+      "fact6_title": "Et le reste de l’app",
+      "fact6_text": "Un cours sur votre projet ou sur un langage dans l’onglet Étude, une image créée à partir d’une description, la correction des commentaires d’un fichier ou d’un document entier.",
+      "privacy_title": "Votre code <em>reste chez vous.</em>",
+      "privacy_text": "L’extension parle à ChatonLM par un lien qui ne sort pas de votre ordinateur, sans passer par le réseau, et seuls les éditeurs appairés par un code peuvent s’en servir. Avec un modèle sur votre ordinateur, votre code n’en sort pas. Si vous choisissez un modèle cloud d’Ollama ou un serveur sur une autre machine, le panneau vous le dit avant l’envoi, laisse de côté les fichiers sensibles et masque, au mieux, les lignes qui ressemblent à des secrets. L’extension n’a pas de télémétrie.",
+      "faq_title": "Questions sur <em>l’extension</em>",
+      "q1": "Faut-il l’app ChatonLM ?",
+      "a1": "Oui. L’extension ne fait rien seule : c’est l’app ChatonLM, en version 0.9.4 ou plus récente, qui fait tourner les modèles, les voix et la reconnaissance de la parole. Les deux doivent être sur le même ordinateur, sous Windows ou Linux.",
+      "q2": "Avec quels éditeurs marche-t-elle ?",
+      "a2": "VS Code 1.105 ou plus récent, depuis le Marketplace de VS Code. VSCodium, Cursor et les autres éditeurs qui installent leurs extensions depuis Open VSX la trouvent là-bas.",
+      "q3": "Mon code est-il envoyé quelque part ?",
+      "a3": "Non, tant que vous utilisez un modèle sur votre ordinateur : le lien entre l’éditeur et ChatonLM reste sur la machine, et le modèle aussi. Avant chaque envoi, le panneau montre ce qui part et si cela reste sur l’ordinateur. L’extension est désactivée dans les dossiers que vous n’avez pas marqués comme fiables.",
+      "q4": "Quel modèle pour la complétion ?",
+      "a4": "Un modèle de code fait pour compléter, comme Qwen2.5-Coder. Avec le réglage Auto, ChatonLM choisit la taille qui convient à votre carte graphique, 0.5B, 1.5B ou 7B, et vous propose de la télécharger si elle manque.",
+      "q5": "C’est vraiment gratuit ?",
+      "a5": "Oui. L’extension et l’app sont des logiciels libres sous licence MIT : pas d’abonnement, pas de crédits, pas de compte, pas de clé d’API à fournir.",
+      "end_title": "Prêt à <em>coder avec ?</em>",
+      "end_lead": "Installez ChatonLM, puis l’extension. Gratuit, pour Windows et Linux."
     }
   },
   "choose": {

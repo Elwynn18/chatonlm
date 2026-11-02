@@ -90,6 +90,12 @@ export const PAGES = {
     en: "local-ai-image-generator/",
     es: "generador-de-imagenes-ia/",
   },
+  // Extension VS Code (0.9.4) : pas un outil de l'app, son propre gabarit.
+  vscode: {
+    fr: "extension-vs-code/",
+    en: "vs-code-extension/",
+    es: "extension-vs-code/",
+  },
 };
 /**
  * Pages des outils : elles partagent le gabarit src/pages/tool.html, leurs
@@ -138,6 +144,7 @@ const CRUMBS = {
   privacy: "footer.privacy",
   choose: "nav.why",
   donate: "nav.donate",
+  vscode: "nav.vscode",
 };
 const OG_LOCALES = { fr: "fr_FR", en: "en_US", es: "es_ES" };
 
