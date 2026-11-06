@@ -5,10 +5,12 @@
 // Downloads avec le nombre de téléchargements actifs, modèles de
 // transcription, voix et modèles d'images compris).
 // Fenêtre étroite : le second groupe passe à la ligne. Vrais liens, page
-// courante annoncée par aria-current.
+// courante annoncée par aria-current. Changer d'onglet fait glisser la
+// pastille rousse (SlidingPill), d'un groupe à l'autre s'il le faut.
 
 import { Link, useRouterState } from "@tanstack/react-router";
 import { TAB, TAB_BAR, TAB_CURRENT, TAB_IDLE } from "@/components/hub/styles";
+import { SlidingPill } from "@/components/SlidingPill";
 import { useSpeechDownloads } from "@/hooks/useDictation";
 import { useDownloads } from "@/hooks/useDownloads";
 import { useImageDownloads } from "@/hooks/useImageModels";
@@ -41,8 +43,10 @@ export function HubTabs() {
     images.downloads.filter(isActiveSpeechDownload).length;
   const tab =
     TABS.find(([prefix]) => path.startsWith(prefix))?.[1] ?? "discover";
-  const current = (name: string) =>
-    tab === name ? { "aria-current": "page" as const } : {};
+  const current = (name: string) => ({
+    "data-pill": name,
+    ...(tab === name ? { "aria-current": "page" as const } : {}),
+  });
   const classOf = (name: string) =>
     `${TAB} ${tab === name ? TAB_CURRENT : TAB_IDLE}`;
 
@@ -51,7 +55,8 @@ export function HubTabs() {
       aria-label={t("hub.title")}
       className="flex-none px-6 pb-3 select-none"
     >
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
+      <div className="relative mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
+        <SlidingPill name="hub-tabs" active={tab} />
         <div data-testid="hub-tabs-browse" className={TAB_BAR}>
           <Link
             to="/hub"

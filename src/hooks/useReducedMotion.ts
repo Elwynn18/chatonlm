@@ -13,7 +13,8 @@ function subscribeMotion(listener: () => void) {
   return () => media.removeEventListener("change", listener);
 }
 
-function reducedMotion() {
+/** Mouvement réduit demandé, lu à l'instant (hors rendu). */
+export function reducedMotion() {
   return (
     typeof window.matchMedia === "function" &&
     window.matchMedia(REDUCED_MOTION).matches

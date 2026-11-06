@@ -35,7 +35,11 @@ export const SKELETON =
 /** Contenu des pages du ModelHub : centré, largeur maximale. */
 export const PAGE = "mx-auto w-full max-w-6xl px-6 pt-2 pb-10";
 
-/** Barre d'onglets en pilules (ModelHub, Settings). */
+/**
+ * Barre d'onglets en pilules (ModelHub, Settings) ; l'onglet courant y est
+ * rejoint par une pastille qui glisse (SlidingPill), les onglets sont donc
+ * positionnés (`relative` dans TAB).
+ */
 export const TAB_BAR =
   "inline-flex rounded-xl bg-neutral-100 p-1 dark:bg-neutral-800";
 
@@ -44,7 +48,7 @@ export const TAB_BAR =
  * (src/index.css), visible aussi sur l'onglet courant, en aplat roux.
  */
 export const TAB =
-  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-sm";
+  "relative inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-sm transition-[color] duration-150";
 
 /** Onglet au repos. */
 export const TAB_IDLE =

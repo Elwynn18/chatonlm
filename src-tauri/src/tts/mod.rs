@@ -18,6 +18,7 @@ pub mod playback;
 pub mod prompt;
 pub mod selection;
 pub mod service;
+pub mod stretch;
 pub mod text;
 pub mod tokenizer;
 pub mod voice;

@@ -475,6 +475,11 @@ pub struct Synthesizer {
 }
 
 impl Synthesizer {
+    /// Langue de la voix chargée.
+    pub fn language(&self) -> VoiceLanguage {
+        self.language
+    }
+
     /// Charge les fichiers de `dir` (dossier de la voix dans `voice-models`).
     /// ONNX Runtime indisponible : `AppError::System` (détail du problème).
     pub fn load(dir: &Path, language: VoiceLanguage) -> AppResult<Self> {

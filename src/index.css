@@ -422,3 +422,23 @@ html[data-platform="windows"] ::-webkit-scrollbar-button {
     transform: translateY(220px) rotate(540deg);
   }
 }
+
+/* Pastille glissante (src/components/SlidingPill.tsx) : l'aplat de l'élément
+   actif est masqué le temps du trajet de la pastille, et son texte (déjà à
+   l'encre, sombre sur fond sombre en thème sombre) n'apparaît qu'à
+   l'arrivée ; une animation, pas une transition : la nouvelle page remonte
+   souvent ses onglets. Hors couche : passe devant les classes de Tailwind. */
+[data-pill-moving] {
+  background-color: transparent;
+  animation: pill-arrive 260ms linear;
+}
+
+@keyframes pill-arrive {
+  0%,
+  55% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}

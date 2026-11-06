@@ -13,7 +13,8 @@
  * this navigation; texts translated into English, Spanish and French
  * (src/i18n); a "Proofread" entry (ChatonLM's own text correction page)
  * between Chat and ModelHub; a "Study" entry (ChatonLM's own generated
- * courses) between Proofread and ModelHub.
+ * courses) between Proofread and ModelHub; the orange pill of the current
+ * entry slides to the new one (SlidingPill).
  */
 
 import {
@@ -24,6 +25,7 @@ import {
   PencilSquareIcon,
 } from "@heroicons/react/24/outline";
 import { Link } from "@tanstack/react-router";
+import { SlidingPill } from "@/components/SlidingPill";
 import { useDownloads } from "@/hooks/useDownloads";
 import { useT } from "@/i18n";
 import { formatPercent } from "@/i18n/format";
@@ -35,19 +37,22 @@ export type AppSection = "chat" | "proofread" | "study" | "hub" | "settings";
 export function AppNavigation({ current }: { current: AppSection }) {
   const t = useT();
   const itemClass = (section: AppSection) =>
-    // Entrée courante : aplat roux, texte encre (dans les deux thèmes).
-    `flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm ${
+    // Entrée courante : aplat roux, texte encre (dans les deux thèmes) ;
+    // positionnée, au-dessus de la pastille qui glisse.
+    `relative flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm transition-[color] duration-150 ${
       current === section
         ? "bg-accent text-neutral-900"
         : "text-neutral-700 hover:bg-neutral-200 dark:text-neutral-100 dark:hover:bg-neutral-800"
     }`;
 
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className="relative flex flex-col gap-0.5">
+      <SlidingPill name="sidebar" active={current} />
       <Link
         to="/c/$chatId"
         params={{ chatId: "new" }}
         className={itemClass("chat")}
+        data-pill="chat"
         draggable={false}
       >
         <PencilSquareIcon className="h-5 w-5" />
@@ -56,21 +61,37 @@ export function AppNavigation({ current }: { current: AppSection }) {
       <Link
         to="/proofread"
         className={itemClass("proofread")}
+        data-pill="proofread"
         draggable={false}
       >
         <DocumentCheckIcon className="h-5 w-5" />
         <span className="truncate">{t("chat.nav.proofread")}</span>
       </Link>
-      <Link to="/study" className={itemClass("study")} draggable={false}>
+      <Link
+        to="/study"
+        className={itemClass("study")}
+        data-pill="study"
+        draggable={false}
+      >
         <AcademicCapIcon className="h-5 w-5" />
         <span className="truncate">{t("chat.nav.study")}</span>
       </Link>
-      <Link to="/hub" className={itemClass("hub")} draggable={false}>
+      <Link
+        to="/hub"
+        className={itemClass("hub")}
+        data-pill="hub"
+        draggable={false}
+      >
         <CubeIcon className="h-5 w-5" />
         <span className="truncate">{t("chat.nav.hub")}</span>
       </Link>
       <DownloadIndicator />
-      <Link to="/settings" className={itemClass("settings")} draggable={false}>
+      <Link
+        to="/settings"
+        className={itemClass("settings")}
+        data-pill="settings"
+        draggable={false}
+      >
         <Cog6ToothIcon className="h-5 w-5" />
         <span className="truncate">{t("chat.nav.settings")}</span>
       </Link>

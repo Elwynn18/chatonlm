@@ -6,10 +6,12 @@
 // annoncé par aria-current ; fenêtre étroite ou zoom fort : les onglets
 // passent à la ligne. Changer d'onglet remplace l'entrée d'historique (pas
 // d'empilement) et laisse le focus sur l'onglet : l'état `settingsTab` dit à
-// la route que ce n'est pas une demande de montrer une carte.
+// la route que ce n'est pas une demande de montrer une carte. Changer
+// d'onglet fait glisser la pastille rousse (SlidingPill).
 
 import { Link } from "@tanstack/react-router";
 import { TAB, TAB_BAR, TAB_CURRENT, TAB_IDLE } from "@/components/hub/styles";
+import { SlidingPill } from "@/components/SlidingPill";
 import { type TKey, useT } from "@/i18n";
 
 declare module "@tanstack/react-router" {
@@ -54,8 +56,9 @@ export function SettingsTabs({ current }: { current: SettingsTab }) {
             plutôt que de déborder. */}
         <div
           data-testid="settings-tabs"
-          className={`${TAB_BAR} max-w-full flex-wrap`}
+          className={`${TAB_BAR} relative max-w-full flex-wrap`}
         >
+          <SlidingPill name="settings-tabs" active={current} />
           {TABS.map(({ name, label }) => (
             <Link
               key={name}
@@ -68,6 +71,7 @@ export function SettingsTabs({ current }: { current: SettingsTab }) {
               activeOptions={{ exact: true, includeSearch: true }}
               draggable={false}
               data-testid={`settings-tab-${name}`}
+              data-pill={name}
               className={`${TAB} ${current === name ? TAB_CURRENT : TAB_IDLE}`}
               {...(current === name ? { "aria-current": "page" as const } : {})}
             >

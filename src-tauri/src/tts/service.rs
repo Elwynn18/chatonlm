@@ -161,8 +161,15 @@ impl Synth for super::engine::Synthesizer {
         stop: &AtomicBool,
         sink: &mut dyn FnMut(&[f32]),
     ) -> Result<(), String> {
-        super::engine::Synthesizer::speak_with(self, text, first, stop, sink)
-            .map_err(|error| error.to_string())
+        // Voix française un peu ralentie (voir `stretch`).
+        let language = self.language();
+        super::stretch::speak_at_speed(
+            language,
+            || stop.load(Ordering::Acquire),
+            sink,
+            |sink| super::engine::Synthesizer::speak_with(self, text, first, stop, sink),
+        )
+        .map_err(|error| error.to_string())
     }
 }
 
