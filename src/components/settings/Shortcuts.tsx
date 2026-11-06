@@ -6,7 +6,9 @@
 // défaut ; sa première liaison ouvre la boîte du bureau ; sous lui,
 // « Replace the selection » : interrupteur `proofreadPaste`, activé par
 // défaut, le texte corrigé est collé à la place de la sélection au lieu
-// d'être seulement copié). Chacun montre son
+// d'être seulement copié), puis « Read selected text aloud » (interrupteur
+// `readAloudShortcut`, coupé par défaut : le texte sélectionné est lu à voix
+// haute, un nouvel appui arrête la lecture). Chacun montre son
 // état : touches liées et « Change… » (boîte du bureau), attente du bureau,
 // refus (« Set shortcut »), échec (« Try again »), ou la commande à lier
 // soi-même quand le portail manque. Sous Windows (`chooser` « app » dans le
@@ -17,16 +19,17 @@
 // lecture, par groupe, depuis le catalogue de src/lib/shortcuts.ts (celui
 // des gestionnaires).
 //
-// « Try again », « Set shortcut » et « Change… » agissent sur les deux
+// « Try again », « Set shortcut » et « Change… » agissent sur tous les
 // raccourcis à la fois (shortcuts_bind les relie ensemble) : mêmes actions
-// pour les deux lignes, occupées ensemble, et leur échec montré une fois,
-// sous les deux lignes, tant que le statut n'a pas changé depuis.
+// pour toutes les lignes, occupées ensemble, et leur échec montré une fois,
+// sous les lignes, tant que le statut n'a pas changé depuis.
 
 import {
   ArrowPathIcon,
   ClipboardDocumentCheckIcon,
   DocumentCheckIcon,
   MicrophoneIcon,
+  SpeakerWaveIcon,
 } from "@heroicons/react/20/solid";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -144,6 +147,8 @@ export function Shortcuts({ onSaved }: { onSaved: () => void }) {
     proofreadDescription: useId(),
     paste: useId(),
     pasteDescription: useId(),
+    readAloud: useId(),
+    readAloudDescription: useId(),
     app: useId(),
   };
   // Échec de l'enregistrement de « Replace the selection ».
@@ -156,6 +161,20 @@ export function Shortcuts({ onSaved }: { onSaved: () => void }) {
       setPasteError(errorMessage(cause));
       return;
     }
+    onSaved();
+  };
+
+  // Échec de l'enregistrement de « Read selected text aloud ».
+  const [readAloudError, setReadAloudError] = useState<string | null>(null);
+  const toggleReadAloud = async (readAloudShortcut: boolean) => {
+    setReadAloudError(null);
+    try {
+      await setSettings({ readAloudShortcut });
+    } catch (cause) {
+      setReadAloudError(errorMessage(cause));
+      return;
+    }
+    void refresh();
     onSaved();
   };
 
@@ -299,6 +318,45 @@ export function Shortcuts({ onSaved }: { onSaved: () => void }) {
             />
           </div>
 
+          <div className="flex items-start justify-between gap-4">
+            <Row
+              icon={SpeakerWaveIcon}
+              label={
+                <span id={ids.readAloud}>
+                  {t("settings.shortcuts.global.readAloud.label")}
+                </span>
+              }
+              description={t("settings.shortcuts.global.readAloud.description")}
+              descriptionId={ids.readAloudDescription}
+            >
+              {data && (
+                <ShortcutLine
+                  testId="shortcut-read-aloud"
+                  id="readAloud"
+                  name={t("settings.shortcuts.global.readAloud.label")}
+                  chooser={data.chooser}
+                  actions={actions}
+                  status={data.readAloud}
+                  canConfigure={data.canConfigure}
+                  command={data.readAloudCommand}
+                  off={
+                    <p className={MUTED}>
+                      {t("settings.shortcuts.global.readAloud.off")}
+                    </p>
+                  }
+                />
+              )}
+              <RowError message={readAloudError} />
+            </Row>
+            <Switch
+              label={t("settings.shortcuts.global.readAloud.label")}
+              checked={settings?.readAloudShortcut ?? false}
+              describedBy={ids.readAloudDescription}
+              disabled={!settings}
+              onChange={(checked) => void toggleReadAloud(checked)}
+            />
+          </div>
+
           {failure && (
             <p role="alert" data-testid="shortcut-failure" className={ALERT}>
               {failure.message}
@@ -386,7 +444,7 @@ function ShortcutLine({
   name: string;
   /** Qui choisit les touches : le bureau (Linux) ou l'app (Windows). */
   chooser: ShortcutChooser;
-  /** Actions partagées par les deux lignes. */
+  /** Actions partagées par toutes les lignes. */
   actions: { busy: boolean; onBind: () => void; onConfigure: () => void };
   status: ShortcutStatus;
   canConfigure: boolean;

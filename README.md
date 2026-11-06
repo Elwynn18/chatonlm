@@ -62,7 +62,9 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
 - **Read aloud and voice mode**: answers can be read aloud by a natural voice
   (English, French or Spanish), and in [voice mode](#voice-mode) you talk
   with the model hands-free: ChatonLM transcribes what you say, sends it, reads
-  the answer aloud and listens again. Everything runs on your computer.
+  the answer aloud and listens again. A global shortcut also reads aloud the
+  text selected in any app (press it again to stop). Everything runs on your
+  computer.
 - **Proofread**: correct or rephrase a text in the app, or the text selected
   in any app with a global shortcut, which puts the corrected text in its
   place. On "Auto", it uses the largest model already loaded, or else the
@@ -229,12 +231,12 @@ sudo apt install ./chatonlm_*_amd64.deb
   computer: ChatonLM then uses it.
 - **Dictation with Whisper** needs a processor with AVX2 (x86-64-v3). Without
   it, ChatonLM offers only Parakeet, which works on any x86-64 processor.
-- **Global shortcuts** (dictation, proofreading). On Windows, you choose the
-  keys in Settings › Keyboard shortcuts (Ctrl+Alt+D and Ctrl+Alt+C by
-  default). On Linux, they use the desktop's GlobalShortcuts portal: KDE
-  Plasma 6 or GNOME 48 and later; on other desktops, bind
-  `chatonlm --dictate` and `chatonlm --proofread` to keys in your desktop's
-  own shortcut settings.
+- **Global shortcuts** (dictation, proofreading, reading the selection
+  aloud). On Windows, you choose the keys in Settings › Keyboard shortcuts
+  (Ctrl+Alt+D, Ctrl+Alt+C and Ctrl+Alt+R by default). On Linux, they use the
+  desktop's GlobalShortcuts portal: KDE Plasma 6 or GNOME 48 and later; on
+  other desktops, bind `chatonlm --dictate`, `chatonlm --proofread` and
+  `chatonlm --read-aloud` to keys in your desktop's own shortcut settings.
 - **Pasting for you**: the dictated text where your cursor is, the corrected
   text over the selection. On Linux, ChatonLM sends the paste keystroke
   through the desktop's RemoteDesktop portal (KDE Plasma, GNOME), which asks

@@ -22,6 +22,7 @@ pub async fn update_settings(
 ) -> AppResult<Settings> {
     let host = ollama_host_env();
     let proofread_shortcut = patch.proofread_shortcut;
+    let read_aloud_shortcut = patch.read_aloud_shortcut;
     let settings = store
         .call(move |connection| settings::update(connection, patch, host.as_deref()))
         .await?;
@@ -32,6 +33,9 @@ pub async fn update_settings(
         .set_auto_read(settings.auto_read);
     if let Some(enabled) = proofread_shortcut {
         crate::desktop::apply_proofread_shortcut(&app, enabled).await?;
+    }
+    if let Some(enabled) = read_aloud_shortcut {
+        crate::desktop::apply_read_aloud_shortcut(&app, enabled);
     }
     // Adresse changée : la cible aussi (téléchargements vers l'ancienne
     // fermés, événement `ollama-target`, intégré arrêté s'il ne sert plus ;

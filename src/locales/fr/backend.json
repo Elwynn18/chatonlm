@@ -48,6 +48,7 @@
   "shortcut": {
     "description": "Commencer ou arrêter la dictée",
     "proofreadDescription": "Corriger le texte sélectionné",
+    "readAloudDescription": "Lire à voix haute le texte sélectionné",
     "noPortal": "Les raccourcis globaux ne sont pas disponibles sur ce bureau",
     "refused": "Le raccourci n'a pas été défini",
     "failed": "Le bureau n'a pas pu définir le raccourci",
@@ -62,7 +63,7 @@
     "registerFailed": "Windows n'a pas pu définir le raccourci : {error}",
     "invalidKey": "Utilisez une lettre, un chiffre ou une touche de fonction (F1 à F24)",
     "needsModifier": "Ajoutez Ctrl, Alt ou la touche Windows",
-    "sameKeys": "Les deux raccourcis ne peuvent pas utiliser les mêmes touches",
+    "sameKeys": "Deux raccourcis ne peuvent pas utiliser les mêmes touches",
     "keys": {
       "shift": "Maj",
       "win": "Win"
@@ -173,6 +174,27 @@
     "damaged": "{file} est endommagé (somme de contrôle incorrecte) : téléchargez-le de nouveau",
     "checkFailed": "Impossible de vérifier {file} : {error}",
     "saveFailed": "Impossible d'enregistrer {file} : {error}"
+  },
+  "readSelection": {
+    "empty": "Aucun texte sélectionné",
+    "emptyHint": "Sélectionnez un texte dans n'importe quelle application, puis utilisez de nouveau le raccourci.",
+    "tooLong": "Le texte sélectionné est trop long",
+    "tooLongHint": "Sélectionnez au plus 100 000 caractères.",
+    "unreadable": "Impossible de lire le texte sélectionné",
+    "nothingToRead": "Rien à lire à voix haute",
+    "nothingToReadHint": "Le texte sélectionné ne contient rien qui puisse être lu à voix haute.",
+    "unsupported": "Langue non prise en charge",
+    "unsupportedHint": "La lecture à voix haute est disponible en anglais, en français et en espagnol.",
+    "missingVoice": {
+      "en": "La voix anglaise n'est pas téléchargée",
+      "es": "La voix espagnole n'est pas téléchargée",
+      "fr": "La voix française n'est pas téléchargée"
+    },
+    "missingVoiceHint": "Téléchargez-la dans ChatonLM, sous Paramètres › Lecture à voix haute.",
+    "unavailable": "Lecture à voix haute indisponible",
+    "unavailableHint": "La lecture à voix haute ne peut pas fonctionner sur cet ordinateur. Réinstallez ChatonLM.",
+    "failed": "Impossible de lire le texte à voix haute",
+    "noOutputDevice": "Aucune sortie audio n'a été trouvée."
   },
   "readAloud": {
     "runtimeUnavailable": "La lecture à voix haute ne peut pas fonctionner : ONNX Runtime n'a pas pu être chargé ({detail}). Réinstallez ChatonLM."

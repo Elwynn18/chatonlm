@@ -402,7 +402,7 @@ pub(crate) async fn runs_elsewhere(base: &str, model: &str) -> bool {
 
 /// Raison d'une sélection illisible, dans la langue de l'interface ; seul le
 /// détail d'une bibliothèque reste tel quel.
-fn unreadable(error: SelectionError) -> String {
+pub(crate) fn unreadable(error: SelectionError) -> String {
     match error {
         SelectionError::Timeout => t!("proofread.selection.unreadableTimeout"),
         SelectionError::ThreadStopped => t!("proofread.selection.unreadableStopped"),

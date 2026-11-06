@@ -37,6 +37,7 @@ import type { Settings } from "@/bindings/Settings";
 import type { ShortcutKeys } from "@/bindings/ShortcutKeys";
 import type { ShortcutsStatus } from "@/bindings/ShortcutsStatus";
 import type { ShortcutStatus } from "@/bindings/ShortcutStatus";
+import type { GlobalShortcutId } from "@/lib/ipc";
 import { autoModelOf } from "@/test/autoModel";
 import type { Args, FakeChannel, Simulator } from "@/test/simulator";
 
@@ -46,11 +47,13 @@ export const MAX_CHARS = 100_000;
 /** Commandes de repli montrées quand le portail manque. */
 export const DICTATE_SHORTCUT_COMMAND = "/usr/bin/chatonlm --dictate";
 export const PROOFREAD_COMMAND = "/usr/bin/chatonlm --proofread";
+export const READ_ALOUD_COMMAND = "/usr/bin/chatonlm --read-aloud";
 
 /** Combinaisons par défaut sous Windows. */
 export const DEFAULT_TRIGGERS = {
   dictation: "Ctrl+Alt+D",
   proofread: "Ctrl+Alt+C",
+  readAloud: "Ctrl+Alt+R",
 } as const;
 
 /** Libellé d'une combinaison saisie, comme le moteur : « Ctrl+Alt+D ». */
@@ -188,6 +191,8 @@ export interface FakeProofread {
   bound(): Promise<void>;
   /** Appelé par update_settings du faux backend (réglage proofreadShortcut). */
   applyShortcut(enabled: boolean): void;
+  /** Même chose pour le réglage readAloudShortcut. */
+  applyReadAloudShortcut(enabled: boolean): void;
 }
 
 function invalid(message: string): AppError {
@@ -216,10 +221,12 @@ export function fakeProofread(
     shortcuts: {
       dictation: { state: "disabled" },
       proofread: { state: "disabled" },
+      readAloud: { state: "disabled" },
       canConfigure: true,
       chooser: "desktop",
       dictateCommand: DICTATE_SHORTCUT_COMMAND,
       proofreadCommand: PROOFREAD_COMMAND,
+      readAloudCommand: READ_ALOUD_COMMAND,
     },
     boundProofread: { state: "bound", trigger: "Ctrl+Alt+C" },
     failures: new Map(),
@@ -236,6 +243,12 @@ export function fakeProofread(
       fake.shortcuts = {
         ...fake.shortcuts,
         proofread: enabled ? { state: "binding" } : { state: "disabled" },
+      };
+    },
+    applyReadAloudShortcut(enabled) {
+      fake.shortcuts = {
+        ...fake.shortcuts,
+        readAloud: enabled ? { state: "binding" } : { state: "disabled" },
       };
     },
   };
@@ -369,28 +382,34 @@ export function fakeProofread(
     const wanted = {
       dictation: fake.shortcuts.dictation.state !== "disabled",
       proofread: backend.settings.proofreadShortcut,
+      readAloud: backend.settings.readAloudShortcut,
     };
-    if (!wanted.dictation && !wanted.proofread) {
+    if (!wanted.dictation && !wanted.proofread && !wanted.readAloud) {
       throw invalid("No shortcut to set");
     }
     fake.shortcuts = {
       ...fake.shortcuts,
       ...(wanted.dictation && { dictation: { state: "binding" } }),
       ...(wanted.proofread && { proofread: { state: "binding" } }),
+      ...(wanted.readAloud && { readAloud: { state: "binding" } }),
     };
     return null;
   });
   simulator.handle("shortcuts_configure", () => {
     failure("shortcuts_configure");
-    const { dictation, proofread } = fake.shortcuts;
-    if (dictation.state !== "bound" && proofread.state !== "bound") {
+    const { dictation, proofread, readAloud } = fake.shortcuts;
+    if (
+      dictation.state !== "bound" &&
+      proofread.state !== "bound" &&
+      readAloud.state !== "bound"
+    ) {
       throw invalid("The shortcut is not set yet");
     }
     return null;
   });
 
   /** Lie `trigger` au raccourci `id`, ou le dit tenu par une autre app. */
-  function setTrigger(id: "dictation" | "proofread", trigger: string) {
+  function setTrigger(id: GlobalShortcutId, trigger: string) {
     const status: ShortcutStatus = fake.takenTriggers.has(trigger)
       ? {
           state: "unavailable",
@@ -403,12 +422,12 @@ export function fakeProofread(
   }
   simulator.handle("shortcuts_set_trigger", (args: Args) => {
     failure("shortcuts_set_trigger");
-    const id = args.id as "dictation" | "proofread";
+    const id = args.id as GlobalShortcutId;
     return setTrigger(id, triggerLabel(args.keys as ShortcutKeys));
   });
   simulator.handle("shortcuts_reset_trigger", (args: Args) => {
     failure("shortcuts_reset_trigger");
-    const id = args.id as "dictation" | "proofread";
+    const id = args.id as GlobalShortcutId;
     return setTrigger(id, DEFAULT_TRIGGERS[id]);
   });
   simulator.handle("shortcuts_recording", (args: Args) => {

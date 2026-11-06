@@ -48,6 +48,7 @@
   "shortcut": {
     "description": "Start or stop dictation",
     "proofreadDescription": "Correct selected text",
+    "readAloudDescription": "Read selected text aloud",
     "noPortal": "Global shortcuts are not available on this desktop",
     "refused": "The shortcut was not set",
     "failed": "The desktop could not set the shortcut",
@@ -62,7 +63,7 @@
     "registerFailed": "Windows could not set the shortcut: {error}",
     "invalidKey": "Use a letter, a digit or a function key (F1 to F24)",
     "needsModifier": "Add Ctrl, Alt or the Windows key",
-    "sameKeys": "The two shortcuts can't use the same keys",
+    "sameKeys": "Two shortcuts can't use the same keys",
     "keys": {
       "shift": "Shift",
       "win": "Win"
@@ -173,6 +174,27 @@
     "damaged": "{file} is damaged (checksum mismatch): download it again",
     "checkFailed": "Could not check {file}: {error}",
     "saveFailed": "Could not save {file}: {error}"
+  },
+  "readSelection": {
+    "empty": "No text selected",
+    "emptyHint": "Select some text in any app, then use the shortcut again.",
+    "tooLong": "The selected text is too long",
+    "tooLongHint": "Select at most 100,000 characters.",
+    "unreadable": "Cannot read the selected text",
+    "nothingToRead": "Nothing to read aloud",
+    "nothingToReadHint": "The selected text has nothing that can be read aloud.",
+    "unsupported": "Language not supported",
+    "unsupportedHint": "Reading aloud is available in English, French and Spanish.",
+    "missingVoice": {
+      "en": "The English voice is not downloaded",
+      "es": "The Spanish voice is not downloaded",
+      "fr": "The French voice is not downloaded"
+    },
+    "missingVoiceHint": "Download it in ChatonLM, under Settings › Read aloud.",
+    "unavailable": "Reading aloud is not available",
+    "unavailableHint": "Reading aloud cannot run on this computer. Reinstall ChatonLM.",
+    "failed": "Could not read the text aloud",
+    "noOutputDevice": "No audio output was found."
   },
   "readAloud": {
     "runtimeUnavailable": "Reading aloud can't run: ONNX Runtime could not be loaded ({detail}). Reinstall ChatonLM."

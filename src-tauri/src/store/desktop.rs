@@ -43,26 +43,40 @@ pub fn set_close_to_tray(connection: &Connection, enabled: bool) -> AppResult<()
     Ok(())
 }
 
-/// Combinaisons des raccourcis globaux choisies dans ChatonLM (dictée,
-/// correction), telles que gardées (« Ctrl+Alt+D ») ; `None` : celle par
-/// défaut. Migration 0018 ; lues sous Windows seulement.
+/// Combinaisons des raccourcis globaux choisies dans ChatonLM, telles que
+/// gardées (« Ctrl+Alt+D ») ; `None` : celle par défaut.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StoredKeys {
+    pub dictation: Option<String>,
+    pub proofread: Option<String>,
+    pub read_aloud: Option<String>,
+}
+
+/// Combinaisons gardées des raccourcis globaux (migrations 0018 et 0037) ;
+/// lues sous Windows seulement.
 #[cfg_attr(not(windows), allow(dead_code))]
-pub fn shortcut_keys(connection: &Connection) -> AppResult<(Option<String>, Option<String>)> {
+pub fn shortcut_keys(connection: &Connection) -> AppResult<StoredKeys> {
     Ok(connection.query_row(
-        "SELECT dictation_keys, proofread_keys FROM desktop_settings WHERE id = 1",
+        "SELECT dictation_keys, proofread_keys, read_aloud_keys FROM desktop_settings WHERE id = 1",
         [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
+        |row| {
+            Ok(StoredKeys {
+                dictation: row.get(0)?,
+                proofread: row.get(1)?,
+                read_aloud: row.get(2)?,
+            })
+        },
     )?)
 }
 
-/// Garde la combinaison du raccourci `id` (« proofread », sinon la dictée) ;
-/// `None` : retour à celle par défaut.
+/// Garde la combinaison du raccourci `id` (« proofread », « readAloud »,
+/// sinon la dictée) ; `None` : retour à celle par défaut.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn set_shortcut_keys(connection: &Connection, id: &str, keys: Option<&str>) -> AppResult<()> {
-    let sql = if id == "proofread" {
-        "UPDATE desktop_settings SET proofread_keys = ?1 WHERE id = 1"
-    } else {
-        "UPDATE desktop_settings SET dictation_keys = ?1 WHERE id = 1"
+    let sql = match id {
+        "proofread" => "UPDATE desktop_settings SET proofread_keys = ?1 WHERE id = 1",
+        "readAloud" => "UPDATE desktop_settings SET read_aloud_keys = ?1 WHERE id = 1",
+        _ => "UPDATE desktop_settings SET dictation_keys = ?1 WHERE id = 1",
     };
     connection.execute(sql, params![keys])?;
     Ok(())
@@ -133,14 +147,25 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         store
             .blocking(|connection| {
-                assert_eq!(shortcut_keys(connection)?, (None, None));
+                assert_eq!(shortcut_keys(connection)?, StoredKeys::default());
                 set_shortcut_keys(connection, "dictation", Some("Alt+F9"))?;
-                assert_eq!(shortcut_keys(connection)?, (Some("Alt+F9".into()), None));
+                assert_eq!(
+                    shortcut_keys(connection)?,
+                    StoredKeys {
+                        dictation: Some("Alt+F9".into()),
+                        ..StoredKeys::default()
+                    }
+                );
                 set_shortcut_keys(connection, "proofread", Some("Ctrl+Win+P"))?;
+                set_shortcut_keys(connection, "readAloud", Some("Ctrl+Alt+F2"))?;
                 set_shortcut_keys(connection, "dictation", None)?;
                 assert_eq!(
                     shortcut_keys(connection)?,
-                    (None, Some("Ctrl+Win+P".into()))
+                    StoredKeys {
+                        dictation: None,
+                        proofread: Some("Ctrl+Win+P".into()),
+                        read_aloud: Some("Ctrl+Alt+F2".into()),
+                    }
                 );
                 // L'entrée de menu n'y est pour rien.
                 assert!(menu_entry(connection)?);

@@ -17,8 +17,8 @@ use serde::Deserialize;
 use ts_rs::TS;
 
 use super::{
-    Command, DICTATION_ID, PROOFREAD_ID, ShortcutProblem, ShortcutStatus, on_activated,
-    on_deactivated, reason,
+    Command, DICTATION_ID, PROOFREAD_ID, READ_ALOUD_ID, ShortcutProblem, ShortcutStatus,
+    on_activated, on_deactivated, reason,
 };
 use crate::i18n::{Lang, t};
 
@@ -120,15 +120,19 @@ impl Key {
 
 impl Combo {
     /// Combinaison par défaut du raccourci `id` : Ctrl+Alt+D pour la dictée,
-    /// Ctrl+Alt+C pour la correction (les touches proposées au portail sous
-    /// Linux).
+    /// Ctrl+Alt+C pour la correction, Ctrl+Alt+R pour la lecture de la
+    /// sélection (les touches proposées au portail sous Linux).
     pub fn default_for(id: &str) -> Self {
         Self {
             ctrl: true,
             alt: true,
             shift: false,
             meta: false,
-            key: Key::Letter(if id == PROOFREAD_ID { b'C' } else { b'D' }),
+            key: Key::Letter(match id {
+                PROOFREAD_ID => b'C',
+                READ_ALOUD_ID => b'R',
+                _ => b'D',
+            }),
         }
     }
 
@@ -232,11 +236,12 @@ impl Combo {
     }
 }
 
-/// Combinaisons des deux raccourcis.
+/// Combinaisons des raccourcis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Combos {
     pub dictation: Combo,
     pub proofread: Combo,
+    pub read_aloud: Combo,
 }
 
 impl Default for Combos {
@@ -244,13 +249,18 @@ impl Default for Combos {
         Self {
             dictation: Combo::default_for(DICTATION_ID),
             proofread: Combo::default_for(PROOFREAD_ID),
+            read_aloud: Combo::default_for(READ_ALOUD_ID),
         }
     }
 }
 
 impl Combos {
     /// D'après les réglages (`None`, ou valeur illisible : défaut).
-    pub fn from_stored(dictation: Option<&str>, proofread: Option<&str>) -> Self {
+    pub fn from_stored(
+        dictation: Option<&str>,
+        proofread: Option<&str>,
+        read_aloud: Option<&str>,
+    ) -> Self {
         let read = |stored: Option<&str>, id: &str| {
             stored
                 .and_then(Combo::parse)
@@ -259,32 +269,31 @@ impl Combos {
         Self {
             dictation: read(dictation, DICTATION_ID),
             proofread: read(proofread, PROOFREAD_ID),
+            read_aloud: read(read_aloud, READ_ALOUD_ID),
         }
     }
 
     pub fn get(&self, id: &str) -> Combo {
-        if id == PROOFREAD_ID {
-            self.proofread
-        } else {
-            self.dictation
+        match id {
+            PROOFREAD_ID => self.proofread,
+            READ_ALOUD_ID => self.read_aloud,
+            _ => self.dictation,
         }
     }
 
     pub fn set(&mut self, id: &str, combo: Combo) {
-        if id == PROOFREAD_ID {
-            self.proofread = combo;
-        } else {
-            self.dictation = combo;
+        match id {
+            PROOFREAD_ID => self.proofread = combo,
+            READ_ALOUD_ID => self.read_aloud = combo,
+            _ => self.dictation = combo,
         }
     }
 
-    /// Combinaison de l'autre raccourci.
-    pub fn other(&self, id: &str) -> Combo {
-        if id == PROOFREAD_ID {
-            self.dictation
-        } else {
-            self.proofread
-        }
+    /// `combo` est déjà celle d'un autre raccourci que `id`.
+    pub fn used_by_another(&self, id: &str, combo: Combo) -> bool {
+        [DICTATION_ID, PROOFREAD_ID, READ_ALOUD_ID]
+            .into_iter()
+            .any(|other| other != id && self.get(other) == combo)
     }
 }
 
@@ -331,13 +340,14 @@ pub fn status(wanted: bool, combo: Combo, outcome: Option<&Outcome>, lang: Lang)
 }
 
 /// Que faire de l'appui (`pressed`) ou du relâchement du raccourci `id` :
-/// bascule ou push-to-talk (`hold`) pour la dictée, correction de la
-/// sélection à l'appui pour l'autre.
+/// bascule ou push-to-talk (`hold`) pour la dictée, correction ou lecture de
+/// la sélection à l'appui pour les autres.
 pub(super) fn command_for(id: &str, pressed: bool, hold: bool) -> Option<Command> {
     match (id, pressed) {
         (DICTATION_ID, true) => Some(on_activated(hold)),
         (DICTATION_ID, false) => on_deactivated(hold),
         (PROOFREAD_ID, true) => Some(Command::Proofread),
+        (READ_ALOUD_ID, true) => Some(Command::ReadAloud),
         _ => None,
     }
 }
@@ -408,6 +418,11 @@ mod tests {
             Some(Command::Proofread)
         );
         assert_eq!(command_for(PROOFREAD_ID, false, true), None);
+        assert_eq!(
+            command_for(READ_ALOUD_ID, true, true),
+            Some(Command::ReadAloud)
+        );
+        assert_eq!(command_for(READ_ALOUD_ID, false, false), None);
         assert_eq!(command_for("other", true, false), None);
     }
 
@@ -425,9 +440,14 @@ mod tests {
     fn the_defaults_are_those_proposed_on_linux() {
         assert_eq!(Combo::default_for(DICTATION_ID).stored(), "Ctrl+Alt+D");
         assert_eq!(Combo::default_for(PROOFREAD_ID).stored(), "Ctrl+Alt+C");
+        assert_eq!(Combo::default_for(READ_ALOUD_ID).stored(), "Ctrl+Alt+R");
         let combos = Combos::default();
-        assert_eq!(combos.get(DICTATION_ID), combos.other(PROOFREAD_ID));
         assert_ne!(combos.dictation, combos.proofread);
+        assert_ne!(combos.read_aloud, combos.proofread);
+        assert_ne!(combos.read_aloud, combos.dictation);
+        for id in [DICTATION_ID, PROOFREAD_ID, READ_ALOUD_ID] {
+            assert!(!combos.used_by_another(id, combos.get(id)));
+        }
     }
 
     #[test]
@@ -517,17 +537,26 @@ mod tests {
 
     #[test]
     fn unreadable_settings_fall_back_to_the_defaults() {
-        assert_eq!(Combos::from_stored(None, None), Combos::default());
+        assert_eq!(Combos::from_stored(None, None, None), Combos::default());
         assert_eq!(
-            Combos::from_stored(Some("garbage"), Some("")),
+            Combos::from_stored(Some("garbage"), Some(""), Some("Ctrl")),
             Combos::default()
         );
-        let mut combos = Combos::from_stored(Some("Alt+F9"), None);
+        let mut combos = Combos::from_stored(Some("Alt+F9"), None, Some("Ctrl+Alt+F2"));
         assert_eq!(combos.dictation.stored(), "Alt+F9");
         assert_eq!(combos.proofread, Combo::default_for(PROOFREAD_ID));
+        assert_eq!(combos.get(READ_ALOUD_ID).stored(), "Ctrl+Alt+F2");
         combos.set(PROOFREAD_ID, Combo::parse("Ctrl+Win+P").unwrap());
         assert_eq!(combos.get(PROOFREAD_ID).stored(), "Ctrl+Win+P");
-        assert_eq!(combos.other(PROOFREAD_ID).stored(), "Alt+F9");
+        // Une combinaison déjà prise par l'un des deux autres est refusée.
+        let alt_f9 = Combo::parse("Alt+F9").unwrap();
+        assert!(combos.used_by_another(PROOFREAD_ID, alt_f9));
+        assert!(combos.used_by_another(READ_ALOUD_ID, alt_f9));
+        assert!(!combos.used_by_another(DICTATION_ID, alt_f9));
+        let ctrl_win_p = combos.get(PROOFREAD_ID);
+        assert!(combos.used_by_another(READ_ALOUD_ID, ctrl_win_p));
+        combos.set(READ_ALOUD_ID, Combo::default_for(READ_ALOUD_ID));
+        assert!(combos.used_by_another(DICTATION_ID, Combo::default_for(READ_ALOUD_ID)));
     }
 
     #[test]

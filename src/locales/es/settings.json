@@ -565,6 +565,11 @@
           "askHint": "La primera vez, tu escritorio pide permiso para que ChatonLM envíe la tecla de pegado."
         }
       },
+      "readAloud": {
+        "label": "Leer en voz alta el texto seleccionado",
+        "description": "Lee en voz alta el texto seleccionado en cualquier aplicación. Vuelve a usar el atajo para detener la lectura.",
+        "off": "Activa el atajo para elegir sus teclas."
+      },
       "waiting": "Esperando a tu escritorio…",
       "notSet": "Sin definir",
       "set": "Definir atajo",

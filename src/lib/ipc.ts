@@ -799,7 +799,7 @@ export function shortcutsConfigure(): Promise<void> {
 }
 
 /** Raccourci global que l'app fait choisir (Windows). */
-export type GlobalShortcutId = "dictation" | "proofread";
+export type GlobalShortcutId = "dictation" | "proofread" | "readAloud";
 
 /**
  * Combinaison saisie dans l'app pour un raccourci global (Windows, où

@@ -1,8 +1,10 @@
 //! Raccourcis globaux : dictée (bascule, ou push-to-talk avec l'appui et le
-//! relâchement) et correction du texte sélectionné (propre à ChatonLM).
+//! relâchement), correction du texte sélectionné et lecture à voix haute du
+//! texte sélectionné (propres à ChatonLM).
 //!
 //! - Linux (`linux.rs`) : portail XDG GlobalShortcuts ; le bureau choisit les
-//!   touches dans sa propre boîte (« CTRL+ALT+D » et « CTRL+ALT+C » proposés).
+//!   touches dans sa propre boîte (« CTRL+ALT+D », « CTRL+ALT+C » et
+//!   « CTRL+ALT+R » proposés).
 //! - Windows (`windows.rs`) : `RegisterHotKey` par le greffon des raccourcis
 //!   de Tauri ; rien dans le système ne choisit la touche, ChatonLM le fait
 //!   donc (zone de saisie de la page, combinaison gardée dans les réglages :
@@ -31,7 +33,7 @@ use crate::error::AppResult;
 use crate::i18n::{self, Lang, t};
 
 pub use keys::ShortcutKeys;
-pub(super) use os::{Shortcuts, apply_proofread, init};
+pub(super) use os::{Shortcuts, apply_proofread, apply_read_aloud, init};
 pub use os::{apply, bind_shortcut, bind_shortcuts, configure_shortcut};
 
 /// Identifiant du raccourci de la dictée (auprès du portail, et dans les
@@ -40,6 +42,9 @@ pub const DICTATION_ID: &str = "dictation";
 
 /// Identifiant du raccourci « Correct selected text ».
 pub const PROOFREAD_ID: &str = "proofread";
+
+/// Identifiant du raccourci « Read selected text aloud ».
+pub const READ_ALOUD_ID: &str = "readAloud";
 
 /// Qui choisit les touches : le bureau (Linux), ou ChatonLM (Windows).
 pub fn chooser() -> ShortcutChooser {
@@ -128,18 +133,20 @@ fn unavailable_status(problem: ShortcutProblem, detail: Option<String>) -> Short
     }
 }
 
-/// Raccourcis à lier : dictée active, réglage `proofreadShortcut`.
+/// Raccourcis à lier : dictée active, réglages `proofreadShortcut` et
+/// `readAloudShortcut`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Wanted {
     pub dictation: bool,
     pub proofread: bool,
+    pub read_aloud: bool,
 }
 
 // Certaines ne servent qu'au portail.
 #[cfg_attr(windows, allow(dead_code))]
 impl Wanted {
     fn any(self) -> bool {
-        self.dictation || self.proofread
+        self.dictation || self.proofread || self.read_aloud
     }
 
     /// Raccourcis présents dans les deux ensembles.
@@ -147,6 +154,7 @@ impl Wanted {
         Wanted {
             dictation: self.dictation && other.dictation,
             proofread: self.proofread && other.proofread,
+            read_aloud: self.read_aloud && other.read_aloud,
         }
     }
 
@@ -154,13 +162,14 @@ impl Wanted {
         match id {
             DICTATION_ID => self.dictation,
             PROOFREAD_ID => self.proofread,
+            READ_ALOUD_ID => self.read_aloud,
             _ => false,
         }
     }
 
     /// Identifiants voulus, dans l'ordre de la boîte du bureau.
     fn ids(self) -> Vec<&'static str> {
-        [DICTATION_ID, PROOFREAD_ID]
+        [DICTATION_ID, PROOFREAD_ID, READ_ALOUD_ID]
             .into_iter()
             .filter(|id| self.contains(id))
             .collect()
@@ -187,6 +196,8 @@ enum Command {
     Stop,
     /// Corriger le texte sélectionné.
     Proofread,
+    /// Lire à voix haute le texte sélectionné, ou arrêter cette lecture.
+    ReadAloud,
 }
 
 fn on_activated(hold: bool) -> Command {
@@ -208,6 +219,7 @@ fn execute(app: &AppHandle, command: Command) {
         Command::Start => dictation.start(app),
         Command::Stop => dictation.stop(app),
         Command::Proofread => crate::proofread::selection::correct_selection(app),
+        Command::ReadAloud => crate::tts::selection::read_selection(app),
     }
 }
 

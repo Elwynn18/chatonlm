@@ -565,6 +565,11 @@
           "askHint": "La première fois, votre bureau demande d'autoriser ChatonLM à envoyer la touche de collage."
         }
       },
+      "readAloud": {
+        "label": "Lire à voix haute le texte sélectionné",
+        "description": "Lit à voix haute le texte sélectionné dans n'importe quelle application. Refaites le raccourci pour arrêter.",
+        "off": "Activez le raccourci pour choisir ses touches."
+      },
       "waiting": "En attente de votre bureau…",
       "notSet": "Non défini",
       "set": "Définir le raccourci",

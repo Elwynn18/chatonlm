@@ -301,6 +301,7 @@ mod tests {
             proofread_model: String::new(),
             proofread_shortcut: false,
             proofread_paste: true,
+            read_aloud_shortcut: false,
             study_model: String::new(),
             auto_read: false,
             onboarding_done: true,

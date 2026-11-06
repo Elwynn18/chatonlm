@@ -1510,3 +1510,55 @@ fn a_failed_engine_ends_the_segments_with_an_error() {
         ))]
     );
 }
+
+/// Lecture de la sélection (raccourci global) : un seul segment, sa source
+/// dans l'état ; `stop_selection` n'arrête qu'elle (pas une lecture du pont
+/// ni d'une réponse), et dit si elle l'a arrêtée.
+#[test]
+fn the_selection_is_read_and_only_its_reading_is_stopped_by_the_shortcut() {
+    let (rig, events, sink) = segments_rig();
+    rig.hold.store(true, Ordering::Relaxed);
+    rig.read_aloud
+        .read_selection("Hello there.", sink.clone())
+        .unwrap();
+    assert_eq!(
+        rig.read_aloud.state().source,
+        Some(ReadAloudSource::Selection)
+    );
+    wait("speaking", || rig.spoken().len() == 1);
+    assert!(rig.read_aloud.stop_selection());
+    assert!(idle(&rig));
+    assert_eq!(*events.lock(), [SegmentEvent::Stopped]);
+    // Rien en cours : rien à arrêter.
+    assert!(!rig.read_aloud.stop_selection());
+
+    // Une lecture du pont n'est pas arrêtée par le raccourci.
+    rig.read_aloud
+        .read_segments("1-1".into(), vec![segment("a", "Long part.")], None, sink)
+        .unwrap();
+    wait("bridge speaking", || rig.spoken().len() == 2);
+    assert!(!rig.read_aloud.stop_selection());
+    assert!(!idle(&rig));
+    rig.read_aloud.stop_segments(|_| true);
+    assert!(idle(&rig));
+}
+
+/// L'arrêt de la page (bouton, autre conversation ouverte) laisse lire la
+/// sélection ; il arrête la lecture d'une réponse.
+#[test]
+fn the_page_does_not_stop_the_selection_but_stops_a_reply() {
+    let (rig, events, sink) = segments_rig();
+    rig.hold.store(true, Ordering::Relaxed);
+    rig.read_aloud.read_selection("Hello there.", sink).unwrap();
+    wait("speaking", || rig.spoken().len() == 1);
+    assert_eq!(rig.read_aloud.stop_from_page(), None);
+    assert!(!idle(&rig));
+    assert!(events.lock().is_empty());
+    assert!(rig.read_aloud.stop_selection());
+    assert!(idle(&rig));
+
+    rig.read(7, "A reply.", false);
+    wait("reply speaking", || rig.spoken().len() == 2);
+    rig.read_aloud.stop_from_page();
+    assert!(idle(&rig));
+}

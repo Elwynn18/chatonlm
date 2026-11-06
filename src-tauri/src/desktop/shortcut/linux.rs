@@ -1,12 +1,15 @@
 //! Raccourcis globaux par le portail XDG GlobalShortcuts (KDE Plasma 6,
-//! GNOME 48 et plus) : dictée (« CTRL+ALT+D » proposé) et correction du texte
-//! sélectionné (« CTRL+ALT+C » proposé, propre à ChatonLM). Le bureau choisit
-//! les touches dans sa propre boîte et signale l'appui (`Activated`) et le
-//! relâchement (`Deactivated`), d'où la bascule et le push-to-talk de la
-//! dictée ; un appui sur celui de la correction corrige la sélection.
+//! GNOME 48 et plus) : dictée (« CTRL+ALT+D » proposé), correction du texte
+//! sélectionné (« CTRL+ALT+C » proposé) et lecture à voix haute du texte
+//! sélectionné (« CTRL+ALT+R » proposé), ces deux propres à ChatonLM. Le
+//! bureau choisit les touches dans sa propre boîte et signale l'appui
+//! (`Activated`) et le relâchement (`Deactivated`), d'où la bascule et le
+//! push-to-talk de la dictée ; un appui sur celui de la correction corrige la
+//! sélection, un appui sur celui de la lecture la lit (ou arrête la lecture).
 //!
 //! La spécification ne permet qu'un `BindShortcuts` par session : une seule
-//! session lie l'ensemble voulu (dictée active, réglage `proofreadShortcut`),
+//! session lie l'ensemble voulu (dictée active, réglages `proofreadShortcut`
+//! et `readAloudShortcut`),
 //! et tout changement de cet ensemble ouvre une nouvelle session. L'ancienne
 //! reste ouverte (ses raccourcis marchent encore) tant que la nouvelle n'a
 //! pas répondu : fermée si la liaison réussit, gardée si l'utilisateur
@@ -16,7 +19,8 @@
 //! deux sessions pendant le recouvrement ne compte qu'une fois.
 //!
 //! Sans portail : statut « Unavailable », et les commandes
-//! `chatonlm --dictate` et `chatonlm --proofread` à lier soi-même dans les
+//! `chatonlm --dictate`, `chatonlm --proofread` et `chatonlm --read-aloud` à
+//! lier soi-même dans les
 //! raccourcis du système.
 
 use std::sync::Arc;
@@ -36,8 +40,8 @@ use tauri::{AppHandle, Manager};
 #[cfg(test)]
 use super::reason;
 use super::{
-    Command, DICTATION_ID, PROOFREAD_ID, ShortcutProblem, ShortcutStatus, Wanted, execute,
-    on_activated, on_deactivated, refreshed, unavailable_status,
+    Command, DICTATION_ID, PROOFREAD_ID, READ_ALOUD_ID, ShortcutProblem, ShortcutStatus, Wanted,
+    execute, on_activated, on_deactivated, refreshed, unavailable_status,
 };
 use crate::error::{AppError, AppResult};
 use crate::i18n::{self, Lang, t};
@@ -50,6 +54,10 @@ pub const DICTATION_TRIGGER: &str = "CTRL+ALT+D";
 /// « Extract Constant » des IDE de JetBrains, raccourcis locaux, la perdent
 /// une fois liée ; le bureau laisse en choisir une autre).
 pub const PROOFREAD_TRIGGER: &str = "CTRL+ALT+C";
+/// Touche proposée pour la lecture à voix haute de la sélection : libre dans
+/// les raccourcis par défaut de Plasma 6 et de GNOME (« Lire » : Ctrl+Alt+L
+/// verrouille la session sous Plasma).
+pub const READ_ALOUD_TRIGGER: &str = "CTRL+ALT+R";
 
 /// `CHATONLM_NO_GLOBAL_SHORTCUTS=1` : le portail n'est jamais contacté (statut
 /// « portail absent », commande à lier soi-même). Pour la recette avant
@@ -82,10 +90,15 @@ impl Wanted {
             .into_iter()
             .map(|id| match id {
                 DICTATION_ID => (id, t!("shortcut.description" in lang), DICTATION_TRIGGER),
-                _ => (
+                PROOFREAD_ID => (
                     id,
                     t!("shortcut.proofreadDescription" in lang),
                     PROOFREAD_TRIGGER,
+                ),
+                _ => (
+                    id,
+                    t!("shortcut.readAloudDescription" in lang),
+                    READ_ALOUD_TRIGGER,
                 ),
             })
             .collect()
@@ -97,6 +110,7 @@ impl Wanted {
 struct Statuses {
     dictation: ShortcutStatus,
     proofread: ShortcutStatus,
+    read_aloud: ShortcutStatus,
 }
 
 impl Default for Statuses {
@@ -118,6 +132,7 @@ impl Statuses {
         Self {
             dictation: of(DICTATION_ID),
             proofread: of(PROOFREAD_ID),
+            read_aloud: of(READ_ALOUD_ID),
         }
     }
 
@@ -134,10 +149,10 @@ impl Statuses {
     }
 
     fn get_mut(&mut self, id: &str) -> &mut ShortcutStatus {
-        if id == PROOFREAD_ID {
-            &mut self.proofread
-        } else {
-            &mut self.dictation
+        match id {
+            PROOFREAD_ID => &mut self.proofread,
+            READ_ALOUD_ID => &mut self.read_aloud,
+            _ => &mut self.dictation,
         }
     }
 
@@ -146,6 +161,7 @@ impl Statuses {
         [
             (DICTATION_ID, &self.dictation),
             (PROOFREAD_ID, &self.proofread),
+            (READ_ALOUD_ID, &self.read_aloud),
         ]
         .into_iter()
         .any(|(id, status)| {
@@ -382,6 +398,11 @@ impl Shortcuts {
         refreshed(self.inner.lock().statuses.proofread.clone())
     }
 
+    /// Statut du raccourci « Read selected text aloud ».
+    pub(in crate::desktop) fn read_aloud_status(&self) -> ShortcutStatus {
+        refreshed(self.inner.lock().statuses.read_aloud.clone())
+    }
+
     pub(in crate::desktop) fn can_configure(&self) -> bool {
         self.inner.lock().can_configure
     }
@@ -490,6 +511,7 @@ fn session_path(session: &Session<GlobalShortcuts>) -> Option<String> {
 struct Presses {
     dictation: PressFilter,
     proofread: PressFilter,
+    read_aloud: PressFilter,
 }
 
 impl Presses {
@@ -509,6 +531,13 @@ impl Presses {
             Signal::Deactivated { id, .. } if id == DICTATION_ID => {
                 self.dictation.release();
                 on_deactivated(hold)
+            }
+            Signal::Activated { id, .. } if id == READ_ALOUD_ID => {
+                self.read_aloud.press(now).then_some(Command::ReadAloud)
+            }
+            Signal::Deactivated { id, .. } if id == READ_ALOUD_ID => {
+                self.read_aloud.release();
+                None
             }
             Signal::Activated { .. } => self.proofread.press(now).then_some(Command::Proofread),
             Signal::Deactivated { .. } => {
@@ -544,6 +573,12 @@ pub async fn apply(app: &AppHandle, settings: &DictationSettings) -> AppResult<(
 /// Réglage `proofreadShortcut` : raccourci de la correction lié ou délié.
 pub(in crate::desktop) fn apply_proofread(app: &AppHandle, enabled: bool) {
     want(app, |wanted| wanted.proofread = enabled);
+}
+
+/// Réglage `readAloudShortcut` : raccourci de la lecture de la sélection lié
+/// ou délié.
+pub(in crate::desktop) fn apply_read_aloud(app: &AppHandle, enabled: bool) {
+    want(app, |wanted| wanted.read_aloud = enabled);
 }
 
 /// Démarrage : ensemble voulu lu dans les réglages, lié en une fois.
@@ -943,14 +978,27 @@ mod tests {
     const BOTH: Wanted = Wanted {
         dictation: true,
         proofread: true,
+        read_aloud: false,
     };
     const DICTATION: Wanted = Wanted {
         dictation: true,
         proofread: false,
+        read_aloud: false,
     };
     const PROOFREAD: Wanted = Wanted {
         dictation: false,
         proofread: true,
+        read_aloud: false,
+    };
+    const READ_ALOUD: Wanted = Wanted {
+        dictation: false,
+        proofread: false,
+        read_aloud: true,
+    };
+    const ALL: Wanted = Wanted {
+        dictation: true,
+        proofread: true,
+        read_aloud: true,
     };
 
     #[test]
@@ -1040,6 +1088,85 @@ mod tests {
                 now + Duration::from_secs(5)
             ),
             Some(Command::Proofread)
+        );
+    }
+
+    #[test]
+    fn a_read_aloud_press_reads_once_per_press_with_its_own_filter() {
+        let now = Instant::now();
+        let mut presses = Presses::default();
+        // Appui, répétition de la touche maintenue, appui de la correction
+        // (son propre filtre), relâchement, nouvel appui (qui arrête la
+        // lecture : même commande).
+        let commands: Vec<_> = [
+            press(READ_ALOUD_ID),
+            press(READ_ALOUD_ID),
+            press(PROOFREAD_ID),
+            release(READ_ALOUD_ID),
+            press(READ_ALOUD_ID),
+        ]
+        .iter()
+        .filter_map(|signal| presses.handle(signal, ALL, true, now))
+        .collect();
+        assert_eq!(
+            commands,
+            [Command::ReadAloud, Command::Proofread, Command::ReadAloud]
+        );
+        // Hors de l'ensemble lié : ignoré.
+        assert_eq!(
+            presses.handle(
+                &press(READ_ALOUD_ID),
+                BOTH,
+                false,
+                now + Duration::from_secs(5)
+            ),
+            None
+        );
+        assert_eq!(
+            presses.handle(
+                &press(READ_ALOUD_ID),
+                READ_ALOUD,
+                false,
+                now + Duration::from_secs(10)
+            ),
+            Some(Command::ReadAloud)
+        );
+    }
+
+    #[test]
+    fn the_read_aloud_shortcut_is_requested_with_its_own_keys() {
+        assert_eq!(
+            ALL.ids(),
+            [DICTATION_ID, PROOFREAD_ID, READ_ALOUD_ID].to_vec()
+        );
+        assert_eq!(
+            READ_ALOUD.requests(Lang::En),
+            [(
+                "readAloud",
+                "Read selected text aloud".to_owned(),
+                "CTRL+ALT+R"
+            )]
+        );
+        assert_eq!(
+            READ_ALOUD.requests(Lang::Fr)[0].1,
+            "Lire à voix haute le texte sélectionné"
+        );
+        // Touches changées par le bureau : statut de la lecture à son tour.
+        let statuses = Statuses::each(ALL, |_| ShortcutStatus::Binding)
+            .changed(ALL, &pairs(&[("readAloud", "Meta+R")]));
+        assert_eq!(statuses.read_aloud, bound("Meta+R"));
+        assert_eq!(statuses.proofread, ShortcutStatus::Binding);
+        let mut inner = Inner::default();
+        assert_eq!(
+            inner.change(|wanted| wanted.read_aloud = true),
+            Some(READ_ALOUD)
+        );
+        let generation = bind(&mut inner, READ_ALOUD, &[("readAloud", "Ctrl+Alt+R")]);
+        assert_eq!(inner.statuses.read_aloud, bound("Ctrl+Alt+R"));
+        assert_eq!(inner.statuses.dictation, ShortcutStatus::Disabled);
+        assert_eq!(
+            inner.press(generation, &press(READ_ALOUD_ID), false, Instant::now()),
+            Some(Command::ReadAloud)
         );
     }
 
@@ -1137,6 +1264,7 @@ mod tests {
             Statuses {
                 dictation: ShortcutStatus::Disabled,
                 proofread: ShortcutStatus::Binding,
+                read_aloud: ShortcutStatus::Disabled,
             }
         );
         let both = inner.restart(BOTH, false).expect("binding");
@@ -1154,6 +1282,7 @@ mod tests {
             Statuses {
                 dictation: bound(""),
                 proofread: bound("Ctrl+Alt+C"),
+                read_aloud: ShortcutStatus::Disabled,
             }
         );
         assert!(inner.statuses.unset(BOTH));
@@ -1169,6 +1298,7 @@ mod tests {
             Statuses {
                 dictation: refused(),
                 proofread: refused(),
+                read_aloud: ShortcutStatus::Disabled,
             }
         );
         // Déliaison : tout « Disabled », plus de session liée.
@@ -1191,6 +1321,7 @@ mod tests {
             Statuses {
                 dictation: bound("Ctrl+Alt+D"),
                 proofread: ShortcutStatus::Binding,
+                read_aloud: ShortcutStatus::Disabled,
             }
         );
         let now = Instant::now();
@@ -1209,6 +1340,7 @@ mod tests {
             Statuses {
                 dictation: bound("Ctrl+Alt+D"),
                 proofread: refused(),
+                read_aloud: ShortcutStatus::Disabled,
             }
         );
         assert_eq!(inner.live.as_ref().map(|live| live.generation), Some(old));
@@ -1229,6 +1361,7 @@ mod tests {
             Statuses {
                 dictation: bound("Ctrl+Alt+D"),
                 proofread: ShortcutStatus::Disabled,
+                read_aloud: ShortcutStatus::Disabled,
             }
         );
         // Nouvel essai demandé : relié quand même.
@@ -1263,6 +1396,7 @@ mod tests {
             Statuses {
                 dictation: bound("Ctrl+Alt+D"),
                 proofread: bound("Ctrl+Alt+C"),
+                read_aloud: ShortcutStatus::Disabled,
             }
         );
         // Ensemble réduit : relié (la touche retirée est rendue au bureau) ;
@@ -1289,12 +1423,14 @@ mod tests {
         let statuses = Statuses {
             dictation: bound("Ctrl+Alt+D"),
             proofread: bound("Ctrl+Alt+C"),
+            read_aloud: ShortcutStatus::Disabled,
         };
         assert_eq!(
             statuses.changed(BOTH, &pairs(&[("proofread", "Meta+C")])),
             Statuses {
                 dictation: bound("Ctrl+Alt+D"),
                 proofread: bound("Meta+C"),
+                read_aloud: ShortcutStatus::Disabled,
             }
         );
         // Raccourci hors de l'ensemble : ignoré.
@@ -1349,6 +1485,7 @@ mod tests {
             Statuses {
                 dictation: unavailable_status(ShortcutProblem::Lost, None),
                 proofread: refused(),
+                read_aloud: ShortcutStatus::Disabled,
             }
         );
         assert!(inner.live.is_none() && !inner.can_configure);

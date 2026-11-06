@@ -614,6 +614,7 @@ export function fakeBackend(
       proofreadModel: "",
       proofreadShortcut: false,
       proofreadPaste: true,
+      readAloudShortcut: false,
       studyModel: "",
       autoRead: false,
       onboardingDone: true,
@@ -1067,6 +1068,13 @@ export function fakeBackend(
       patch.proofreadShortcut !== backend.settings.proofreadShortcut
     ) {
       backend.proofread?.applyShortcut(patch.proofreadShortcut);
+    }
+    // De même pour desktop::apply_read_aloud_shortcut.
+    if (
+      patch.readAloudShortcut !== undefined &&
+      patch.readAloudShortcut !== backend.settings.readAloudShortcut
+    ) {
+      backend.proofread?.applyReadAloudShortcut(patch.readAloudShortcut);
     }
     backend.settings = settings;
     return settings;

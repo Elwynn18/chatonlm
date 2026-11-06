@@ -16,6 +16,7 @@ pub mod engine;
 pub mod models;
 pub mod playback;
 pub mod prompt;
+pub mod selection;
 pub mod service;
 pub mod text;
 pub mod tokenizer;
@@ -75,6 +76,9 @@ pub enum ReadAloudSource {
     /// Segments lus pour l'extension VS Code (visite guidée parlée) : la
     /// page n'a aucun bouton pour eux.
     Bridge { read_id: String },
+    /// Texte sélectionné dans une application, lu par le raccourci global
+    /// « Read selected text aloud » : la page n'a aucun bouton pour lui.
+    Selection,
 }
 
 /// Étape de la lecture en cours.

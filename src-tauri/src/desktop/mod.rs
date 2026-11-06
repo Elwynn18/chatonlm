@@ -1,12 +1,13 @@
-//! Intégration au bureau (étape 17) : raccourcis globaux de la dictée et de
-//! la correction du texte sélectionné (portail XDG GlobalShortcuts sous
-//! Linux, `RegisterHotKey` sous Windows), icône de la zone de notification
-//! (StatusNotifierItem, `Shell_NotifyIcon`) et fermeture de la fenêtre qui la
-//! masque, arguments `--dictate` et `--proofread`.
+//! Intégration au bureau (étape 17) : raccourcis globaux de la dictée, de
+//! la correction et de la lecture à voix haute du texte sélectionné (portail
+//! XDG GlobalShortcuts sous Linux, `RegisterHotKey` sous Windows), icône de
+//! la zone de notification (StatusNotifierItem, `Shell_NotifyIcon`) et
+//! fermeture de la fenêtre qui la masque, arguments `--dictate`,
+//! `--proofread` et `--read-aloud`.
 //!
 //! Jamais de signal Unix pour piloter l'app (SIGUSR1 entre en conflit avec le
 //! ramasse-miettes de JavaScriptCore, piège relevé chez Handy) : une seconde
-//! instance lancée avec `--dictate` ou `--proofread` passe par l'instance
+//! instance lancée avec l'un de ces arguments passe par l'instance
 //! unique (D-Bus sous Linux, message `WM_COPYDATA` sous Windows).
 //!
 //! Ce qui dépend du système est dans `shortcut/`, `tray/` et `menu_entry/`
@@ -43,6 +44,11 @@ pub const DICTATE_ARG: &str = "--dictate";
 /// raccourcis du système quand le portail manque).
 pub const PROOFREAD_ARG: &str = "--proofread";
 
+/// Argument qui lit à voix haute le texte sélectionné, ou arrête cette
+/// lecture (commande à lier dans les raccourcis du système quand le portail
+/// manque).
+pub const READ_ALOUD_ARG: &str = "--read-aloud";
+
 /// Argument d'un lancement en arrière-plan (extension VS Code qui démarre
 /// l'app) : fenêtre masquée, app dans la zone de notification ; une relance
 /// avec lui ne montre pas la fenêtre.
@@ -74,16 +80,20 @@ pub struct ShortcutsStatus {
     /// Raccourci « Correct selected text » (`Disabled` si le réglage
     /// `proofreadShortcut` est coupé).
     pub proofread: ShortcutStatus,
+    /// Raccourci « Read selected text aloud » (`Disabled` si le réglage
+    /// `readAloudShortcut` est coupé).
+    pub read_aloud: ShortcutStatus,
     /// Le portail sait ouvrir la boîte de réglage des raccourcis (version 2) ;
     /// sous Windows, toujours vrai (la touche se change dans la page).
     pub can_configure: bool,
     /// Qui choisit les touches.
     pub chooser: ShortcutChooser,
     /// Commandes à lier soi-même dans les raccourcis du système (repli sans
-    /// portail) : binaire, ou AppImage, suivi de « --dictate » ou
-    /// « --proofread ».
+    /// portail) : binaire, ou AppImage, suivi de « --dictate »,
+    /// « --proofread » ou « --read-aloud ».
     pub dictate_command: String,
     pub proofread_command: String,
+    pub read_aloud_command: String,
 }
 
 /// Qui choisit les touches des raccourcis globaux.
@@ -155,6 +165,9 @@ enum Request {
     Toggle,
     /// `chatonlm --proofread` : correction du texte sélectionné.
     Proofread,
+    /// `chatonlm --read-aloud` : lecture à voix haute du texte sélectionné
+    /// (ou arrêt de cette lecture).
+    ReadAloud,
     /// Relance sans argument : la fenêtre revient.
     Show,
 }
@@ -228,6 +241,11 @@ impl Desktop {
         self.shortcuts.proofread_status()
     }
 
+    /// Statut du raccourci « Read selected text aloud ».
+    pub fn read_aloud_shortcut_status(&self) -> ShortcutStatus {
+        self.shortcuts.read_aloud_status()
+    }
+
     /// La croix masque la fenêtre (zone de notification présente et réglage
     /// « masquer ») ; sinon elle quitte l'app.
     pub fn close_hides(&self) -> bool {
@@ -270,6 +288,11 @@ pub fn proofread_command() -> String {
     command_with(PROOFREAD_ARG)
 }
 
+/// Comme [`dictate_command`], pour la lecture à voix haute de la sélection.
+pub fn read_aloud_command() -> String {
+    command_with(READ_ALOUD_ARG)
+}
+
 #[cfg(not(windows))]
 fn command_with(argument: &str) -> String {
     let program = std::env::var_os("APPIMAGE")
@@ -297,10 +320,12 @@ pub fn shortcuts_status(app: &AppHandle) -> ShortcutsStatus {
     ShortcutsStatus {
         dictation: desktop.shortcut_status(),
         proofread: desktop.proofread_shortcut_status(),
+        read_aloud: desktop.read_aloud_shortcut_status(),
         can_configure: desktop.can_configure_shortcut(),
         chooser: shortcut::chooser(),
         dictate_command: dictate_command(),
         proofread_command: proofread_command(),
+        read_aloud_command: read_aloud_command(),
     }
 }
 
@@ -312,6 +337,17 @@ pub fn shortcuts_status(app: &AppHandle) -> ShortcutsStatus {
 pub async fn apply_proofread_shortcut(app: &AppHandle, enabled: bool) -> AppResult<()> {
     shortcut::apply_proofread(app, enabled);
     Ok(())
+}
+
+/// Réglage `readAloudShortcut` changé : le raccourci de la lecture de la
+/// sélection est lié avec les autres (comme celui de la correction), ou
+/// délié ; coupé, la lecture de la sélection en cours s'arrête (seul ce
+/// raccourci pouvait l'arrêter).
+pub fn apply_read_aloud_shortcut(app: &AppHandle, enabled: bool) {
+    shortcut::apply_read_aloud(app, enabled);
+    if !enabled && let Some(read_aloud) = app.try_state::<crate::tts::ReadAloud>() {
+        read_aloud.stop_selection();
+    }
 }
 
 /// Mot tel que Windows le relit dans une ligne de commande : entre
@@ -349,8 +385,8 @@ fn has_argument<S: AsRef<str>>(args: &[S], argument: &str) -> bool {
 }
 
 /// Demandes portées par les arguments d'un lancement : bascule de la dictée
-/// (`--dictate`), correction de la sélection (`--proofread`), les deux dans
-/// cet ordre ; aucune si ni l'un ni l'autre.
+/// (`--dictate`), correction de la sélection (`--proofread`), lecture de la
+/// sélection (`--read-aloud`), dans cet ordre ; aucune sans ces arguments.
 fn shortcut_requests<S: AsRef<str>>(args: &[S]) -> Vec<Request> {
     let mut requests = Vec::new();
     if wants_dictation(args) {
@@ -358,6 +394,9 @@ fn shortcut_requests<S: AsRef<str>>(args: &[S]) -> Vec<Request> {
     }
     if has_argument(args, PROOFREAD_ARG) {
         requests.push(Request::Proofread);
+    }
+    if has_argument(args, READ_ALOUD_ARG) {
+        requests.push(Request::ReadAloud);
     }
     requests
 }
@@ -510,7 +549,8 @@ pub(crate) fn open_route(app: &AppHandle, route: &str) {
 }
 
 /// Rappel de l'instance unique : une relance avec `--dictate` bascule la
-/// dictée, avec `--proofread` corrige la sélection, sans montrer la fenêtre ;
+/// dictée, avec `--proofread` corrige la sélection, avec `--read-aloud` la
+/// lit à voix haute (ou arrête cette lecture), sans montrer la fenêtre ;
 /// sans argument, la fenêtre revient. Avant la fin du `setup`, la demande
 /// attend (voir [`Gate`]).
 pub fn on_second_instance(app: &AppHandle, args: &[String]) {
@@ -525,6 +565,7 @@ fn execute(app: &AppHandle, request: Request) {
     match request {
         Request::Toggle => app.state::<Dictation>().toggle(app),
         Request::Proofread => crate::proofread::selection::correct_selection(app),
+        Request::ReadAloud => crate::tts::selection::read_selection(app),
         Request::Show => show_main_window(app),
     }
 }
@@ -646,14 +687,16 @@ pub fn language_changed(app: &AppHandle) {
 }
 
 /// Appelé à la fin du `setup` de l'app (base ouverte, états gérés) : zone de
-/// notification, notifications de la correction de la sélection, entrée du
+/// notification, notifications de la correction et de la lecture de la
+/// sélection, entrée du
 /// menu des applications d'une AppImage (avant les raccourcis : le portail
-/// lit ce fichier), raccourcis voulus (dictée active, réglage
-/// `proofreadShortcut`) liés en une fois, et demandes de `--dictate` ou
-/// `--proofread` au premier lancement.
+/// lit ce fichier), raccourcis voulus (dictée active, réglages
+/// `proofreadShortcut` et `readAloudShortcut`) liés en une fois, et demandes
+/// de `--dictate`, `--proofread` ou `--read-aloud` au premier lancement.
 pub fn setup(app: &AppHandle) {
     tray::spawn(app);
     crate::proofread::selection::setup(app);
+    crate::tts::selection::setup(app);
 
     if let Some(store) = app.try_state::<Store>().map(|store| store.inner().clone()) {
         let app = app.clone();
@@ -675,6 +718,7 @@ pub fn setup(app: &AppHandle) {
                     let wanted = shortcut::Wanted {
                         dictation: dictation.enabled,
                         proofread: settings.proofread_shortcut,
+                        read_aloud: settings.read_aloud_shortcut,
                     };
                     let hold = dictation.mode == crate::store::dictation::DictationMode::Hold;
                     shortcut::init(&app, wanted, hold);
@@ -743,6 +787,15 @@ mod tests {
             shortcut_requests(&["chatonlm", "--proofread", "--dictate"]),
             [Request::Toggle, Request::Proofread]
         );
+        assert_eq!(
+            shortcut_requests(&["chatonlm", "--read-aloud", "--proofread"]),
+            [Request::Proofread, Request::ReadAloud]
+        );
+        assert_eq!(
+            second_instance_requests(&["chatonlm", "--read-aloud"]),
+            [Request::ReadAloud]
+        );
+        assert_eq!(shortcut_requests(&["chatonlm", "--read-aloud=1"]), []);
         assert_eq!(shortcut_requests(&["--proofread"]), []);
         assert_eq!(shortcut_requests(&["chatonlm", "--proofread=1"]), []);
         // Relance : sans argument connu, la fenêtre revient ; sinon rien
@@ -772,6 +825,7 @@ mod tests {
     fn fallback_command_ends_with_the_argument() {
         assert!(dictate_command().ends_with(" --dictate"));
         assert!(proofread_command().ends_with(" --proofread"));
+        assert!(read_aloud_command().ends_with(" --read-aloud"));
     }
 
     #[test]

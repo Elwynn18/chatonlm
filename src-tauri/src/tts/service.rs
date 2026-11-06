@@ -210,6 +210,9 @@ pub enum SegmentEvent {
     Failed(ReadingEnd),
 }
 
+/// Identifiant du seul segment d'une lecture de la sélection.
+pub const SELECTION_SEGMENT: &str = "selection";
+
 /// Reçoit les événements d'une lecture par segments (appelé hors du verrou
 /// de l'état, sans pouvoir rappeler le service).
 pub type SegmentSink = Arc<dyn Fn(SegmentEvent) + Send + Sync>;
@@ -550,6 +553,26 @@ impl ReadAloud {
         waiting
     }
 
+    /// Arrêt demandé par la page (bouton « Stop », autre conversation
+    /// ouverte) : comme [`Self::stop`], sauf qu'une lecture de la sélection
+    /// continue (la page n'a aucun bouton pour elle : seul son raccourci
+    /// l'arrête) ; le suivi d'un envoi est abandonné dans tous les cas.
+    pub fn stop_from_page(&self) -> Option<&'static str> {
+        let mut shared = self.inner.shared.lock();
+        Inner::drop_follow(&mut shared, ReadingEnd::Stopped);
+        let selection = shared
+            .session
+            .as_ref()
+            .is_some_and(|session| session.source == ReadAloudSource::Selection);
+        let waiting = if selection {
+            None
+        } else {
+            Inner::halt(&mut shared)
+        };
+        self.inner.publish(shared);
+        waiting
+    }
+
     /// Lit `segments` dans l'ordre (lecture du pont, `read_id` choisi par
     /// lui), dans la langue `language`, sinon celle du texte (repli : celle
     /// de l'interface) ; la lecture en cours s'arrête. `sink` apprend le
@@ -559,6 +582,43 @@ impl ReadAloud {
     pub fn read_segments(
         &self,
         read_id: String,
+        segments: Vec<Segment>,
+        language: Option<VoiceLanguage>,
+        sink: SegmentSink,
+    ) -> Result<(), SegmentsRefusal> {
+        self.read_segments_as(
+            ReadAloudSource::Bridge { read_id },
+            segments,
+            language,
+            sink,
+        )
+    }
+
+    /// Lit `text`, le texte sélectionné dans une application (raccourci
+    /// global), dans sa langue (repli : celle de l'interface) ; la lecture
+    /// en cours s'arrête. Mêmes refus et mêmes événements qu'une lecture du
+    /// pont (un seul segment, `SELECTION_SEGMENT`).
+    pub fn read_selection(&self, text: &str, sink: SegmentSink) -> Result<(), SegmentsRefusal> {
+        self.read_segments_as(
+            ReadAloudSource::Selection,
+            vec![Segment {
+                id: SELECTION_SEGMENT.into(),
+                text: text.to_owned(),
+            }],
+            None,
+            sink,
+        )
+    }
+
+    /// Arrête la lecture de la sélection, si c'est elle qui est en cours
+    /// (rien d'autre). Vrai si elle a été arrêtée.
+    pub fn stop_selection(&self) -> bool {
+        self.halt_if(|source| *source == ReadAloudSource::Selection)
+    }
+
+    fn read_segments_as(
+        &self,
+        source: ReadAloudSource,
         segments: Vec<Segment>,
         language: Option<VoiceLanguage>,
         sink: SegmentSink,
@@ -596,7 +656,7 @@ impl ReadAloud {
         let mut shared = self.inner.shared.lock();
         self.inner.start(
             &mut shared,
-            ReadAloudSource::Bridge { read_id },
+            source,
             Some(language),
             None,
             Some(ReadAloudPhase::Preparing),
@@ -610,14 +670,24 @@ impl ReadAloud {
     /// Arrête la lecture par segments en cours si `concerned` accepte son
     /// identifiant (rien d'autre : une lecture de la page continue).
     pub fn stop_segments(&self, concerned: impl Fn(&str) -> bool) {
+        self.halt_if(
+            |source| matches!(source, ReadAloudSource::Bridge { read_id } if concerned(read_id)),
+        );
+    }
+
+    /// Arrête la lecture en cours si `concerned` accepte sa source (sans
+    /// toucher au suivi d'un envoi) ; vrai si elle a été arrêtée.
+    fn halt_if(&self, concerned: impl Fn(&ReadAloudSource) -> bool) -> bool {
         let mut shared = self.inner.shared.lock();
-        let reading = shared.session.as_ref().is_some_and(|session| {
-            matches!(&session.source, ReadAloudSource::Bridge { read_id } if concerned(read_id))
-        });
+        let reading = shared
+            .session
+            .as_ref()
+            .is_some_and(|session| concerned(&session.source));
         if reading {
             Inner::halt(&mut shared);
         }
         self.inner.publish(shared);
+        reading
     }
 
     /// Arrête la lecture si elle lit l'une des réponses `messages` (leur

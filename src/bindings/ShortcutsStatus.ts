@@ -16,6 +16,11 @@ dictation: ShortcutStatus,
  */
 proofread: ShortcutStatus, 
 /**
+ * Raccourci « Read selected text aloud » (`Disabled` si le réglage
+ * `readAloudShortcut` est coupé).
+ */
+readAloud: ShortcutStatus, 
+/**
  * Le portail sait ouvrir la boîte de réglage des raccourcis (version 2) ;
  * sous Windows, toujours vrai (la touche se change dans la page).
  */
@@ -26,7 +31,7 @@ canConfigure: boolean,
 chooser: ShortcutChooser, 
 /**
  * Commandes à lier soi-même dans les raccourcis du système (repli sans
- * portail) : binaire, ou AppImage, suivi de « --dictate » ou
- * « --proofread ».
+ * portail) : binaire, ou AppImage, suivi de « --dictate »,
+ * « --proofread » ou « --read-aloud ».
  */
-dictateCommand: string, proofreadCommand: string, };
+dictateCommand: string, proofreadCommand: string, readAloudCommand: string, };

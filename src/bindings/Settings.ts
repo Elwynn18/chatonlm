@@ -62,6 +62,11 @@ proofreadShortcut: boolean,
  */
 proofreadPaste: boolean, 
 /**
+ * Raccourci global « Read selected text aloud » demandé (lié par le
+ * portail du bureau, enregistré auprès de Windows) ; coupé par défaut.
+ */
+readAloudShortcut: boolean, 
+/**
  * Modèle des cours (onglet Study) ; vide = celui du chat
  * (`selected_model`). « Reset to defaults » n'y touche pas.
  */

@@ -2,7 +2,8 @@
 //! raccourcis de Tauri (inscrit dans `lib.rs`, appelé d'ici seulement : la
 //! page n'en a aucune permission). Windows ne fait choisir la touche à
 //! personne : la page la saisit (`set_trigger`), elle est gardée dans les
-//! réglages (`desktop_settings`), Ctrl+Alt+D et Ctrl+Alt+C par défaut.
+//! réglages (`desktop_settings`), Ctrl+Alt+D, Ctrl+Alt+C et Ctrl+Alt+R par
+//! défaut.
 //!
 //! Appui et relâchement : Windows ne signale que l'appui (`WM_HOTKEY`, sans
 //! répétition) ; le greffon guette ensuite le relâchement de la touche
@@ -26,7 +27,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 use super::keys::{self, Combo, Combos, KeysError, Outcome, ShortcutKeys};
-use super::{Command, DICTATION_ID, PROOFREAD_ID, ShortcutStatus, Wanted, execute};
+use super::{Command, DICTATION_ID, PROOFREAD_ID, READ_ALOUD_ID, ShortcutStatus, Wanted, execute};
 use crate::error::{AppError, AppResult};
 use crate::i18n::{self, t};
 use crate::store::Store;
@@ -44,6 +45,7 @@ struct Inner {
     /// Résultat du dernier enregistrement de chacun (`None` : pas enregistré).
     dictation: Option<Outcome>,
     proofread: Option<Outcome>,
+    read_aloud: Option<Outcome>,
     /// Saisie d'une combinaison ouverte dans la page : rien n'est enregistré.
     recording: bool,
     /// Numéro de la saisie en cours (son délai ne ferme pas la suivante).
@@ -67,10 +69,10 @@ pub(in crate::desktop) struct Shortcuts {
 impl Shortcuts {
     fn status_of(&self, id: &str) -> ShortcutStatus {
         let inner = self.inner.lock();
-        let outcome = if id == PROOFREAD_ID {
-            &inner.proofread
-        } else {
-            &inner.dictation
+        let outcome = match id {
+            PROOFREAD_ID => &inner.proofread,
+            READ_ALOUD_ID => &inner.read_aloud,
+            _ => &inner.dictation,
         };
         keys::status(
             inner.wanted.contains(id),
@@ -88,6 +90,11 @@ impl Shortcuts {
     /// Statut du raccourci « Correct selected text ».
     pub(in crate::desktop) fn proofread_status(&self) -> ShortcutStatus {
         self.status_of(PROOFREAD_ID)
+    }
+
+    /// Statut du raccourci « Read selected text aloud ».
+    pub(in crate::desktop) fn read_aloud_status(&self) -> ShortcutStatus {
+        self.status_of(READ_ALOUD_ID)
     }
 
     /// La touche se change dans ChatonLM : toujours possible.
@@ -222,11 +229,12 @@ async fn sync(app: &AppHandle) {
         let mut inner = state.inner.lock();
         inner.dictation = None;
         inner.proofread = None;
+        inner.read_aloud = None;
         for (id, outcome) in outcomes {
-            if id == PROOFREAD_ID {
-                inner.proofread = Some(outcome);
-            } else {
-                inner.dictation = Some(outcome);
+            match id {
+                PROOFREAD_ID => inner.proofread = Some(outcome),
+                READ_ALOUD_ID => inner.read_aloud = Some(outcome),
+                _ => inner.dictation = Some(outcome),
             }
         }
     }
@@ -262,9 +270,12 @@ pub(in crate::desktop) fn init(app: &AppHandle, wanted: Wanted, hold: bool) {
                 .call(|connection| crate::store::desktop::shortcut_keys(connection))
                 .await
             {
-                Ok((dictation, proofread)) => {
-                    shortcuts(&app).inner.lock().combos =
-                        Combos::from_stored(dictation.as_deref(), proofread.as_deref());
+                Ok(stored) => {
+                    shortcuts(&app).inner.lock().combos = Combos::from_stored(
+                        stored.dictation.as_deref(),
+                        stored.proofread.as_deref(),
+                        stored.read_aloud.as_deref(),
+                    );
                 }
                 Err(error) => eprintln!("chatonlm: cannot read the shortcut keys: {error}"),
             }
@@ -289,6 +300,14 @@ pub async fn apply(app: &AppHandle, settings: &DictationSettings) -> AppResult<(
 /// retiré.
 pub(in crate::desktop) fn apply_proofread(app: &AppHandle, enabled: bool) {
     if want(app, |wanted| wanted.proofread = enabled) {
+        spawn_sync(app);
+    }
+}
+
+/// Réglage `readAloudShortcut` : raccourci de la lecture de la sélection
+/// enregistré ou retiré.
+pub(in crate::desktop) fn apply_read_aloud(app: &AppHandle, enabled: bool) {
+    if want(app, |wanted| wanted.read_aloud = enabled) {
         spawn_sync(app);
     }
 }
@@ -322,6 +341,7 @@ fn known(id: &str) -> AppResult<&'static str> {
     match id {
         DICTATION_ID => Ok(DICTATION_ID),
         PROOFREAD_ID => Ok(PROOFREAD_ID),
+        READ_ALOUD_ID => Ok(READ_ALOUD_ID),
         // i18n-ignore
         _ => Err(AppError::Invalid(format!("unknown shortcut: {id}"))),
     }
@@ -341,7 +361,12 @@ pub async fn set_trigger(app: &AppHandle, id: &str, keys: Option<ShortcutKeys>) 
         })?,
         None => Combo::default_for(id),
     };
-    if shortcuts(app).inner.lock().combos.other(id) == combo {
+    if shortcuts(app)
+        .inner
+        .lock()
+        .combos
+        .used_by_another(id, combo)
+    {
         return Err(AppError::Invalid(t!("shortcut.sameKeys")));
     }
     let store = app

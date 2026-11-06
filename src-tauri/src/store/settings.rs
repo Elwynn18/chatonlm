@@ -89,6 +89,9 @@ pub struct Settings {
     /// Ce raccourci colle le texte corrigé à la place de la sélection (sinon
     /// il le laisse dans le presse-papiers) ; activé par défaut.
     pub proofread_paste: bool,
+    /// Raccourci global « Read selected text aloud » demandé (lié par le
+    /// portail du bureau, enregistré auprès de Windows) ; coupé par défaut.
+    pub read_aloud_shortcut: bool,
     /// Modèle des cours (onglet Study) ; vide = celui du chat
     /// (`selected_model`). « Reset to defaults » n'y touche pas.
     pub study_model: String,
@@ -146,6 +149,8 @@ pub struct SettingsPatch {
     pub proofread_shortcut: Option<bool>,
     #[ts(optional)]
     pub proofread_paste: Option<bool>,
+    #[ts(optional)]
+    pub read_aloud_shortcut: Option<bool>,
     /// Chaîne vide = modèle du chat.
     #[ts(optional)]
     pub study_model: Option<String>,
@@ -191,7 +196,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
                     web_search_enabled, keep_alive, preload_model, language,
                     proofread_model, proofread_shortcut, study_model, auto_read,
                     proofread_paste, onboarding_done, show_uncensored, system_prompt,
-                    unload_on_quit, cloud_models
+                    unload_on_quit, cloud_models, read_aloud_shortcut
              FROM settings WHERE id = 1",
             [],
             |row| {
@@ -216,6 +221,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
                     row.get::<_, String>(17)?,
                     row.get::<_, bool>(18)?,
                     row.get::<_, bool>(19)?,
+                    row.get::<_, bool>(20)?,
                 ))
             },
         )
@@ -242,6 +248,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         system_prompt,
         unload_on_quit,
         cloud_models,
+        read_aloud_shortcut,
     ) = row;
     let language = LanguageChoice::parse(&language)
         .ok_or_else(|| AppError::Internal(format!("unknown language in database: {language}")))?;
@@ -261,6 +268,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         proofread_model,
         proofread_shortcut,
         proofread_paste,
+        read_aloud_shortcut,
         study_model,
         auto_read,
         onboarding_done,
@@ -401,6 +409,12 @@ pub fn update(
             params![enabled],
         )?;
     }
+    if let Some(enabled) = patch.read_aloud_shortcut {
+        transaction.execute(
+            "UPDATE settings SET read_aloud_shortcut = ?1 WHERE id = 1",
+            params![enabled],
+        )?;
+    }
     if let Some(done) = patch.onboarding_done {
         transaction.execute(
             "UPDATE settings SET onboarding_done = ?1 WHERE id = 1",
@@ -491,6 +505,7 @@ mod tests {
                 proofread_model: String::new(),
                 proofread_shortcut: false,
                 proofread_paste: true,
+                read_aloud_shortcut: false,
                 study_model: String::new(),
                 auto_read: false,
                 onboarding_done: false,

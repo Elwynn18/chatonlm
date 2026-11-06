@@ -48,6 +48,7 @@
   "shortcut": {
     "description": "Iniciar o detener el dictado",
     "proofreadDescription": "Corregir el texto seleccionado",
+    "readAloudDescription": "Leer en voz alta el texto seleccionado",
     "noPortal": "Los atajos globales no están disponibles en este escritorio",
     "refused": "No se definió el atajo",
     "failed": "El escritorio no pudo definir el atajo",
@@ -62,7 +63,7 @@
     "registerFailed": "Windows no pudo definir el atajo: {error}",
     "invalidKey": "Usa una letra, un número o una tecla de función (F1 a F24)",
     "needsModifier": "Añade Ctrl, Alt o la tecla Windows",
-    "sameKeys": "Los dos atajos no pueden usar las mismas teclas",
+    "sameKeys": "Dos atajos no pueden usar las mismas teclas",
     "keys": {
       "shift": "Mayús",
       "win": "Win"
@@ -173,6 +174,27 @@
     "damaged": "{file} está dañado (la suma de verificación no coincide): descárgalo de nuevo",
     "checkFailed": "No se pudo verificar {file}: {error}",
     "saveFailed": "No se pudo guardar {file}: {error}"
+  },
+  "readSelection": {
+    "empty": "No hay texto seleccionado",
+    "emptyHint": "Selecciona un texto en cualquier aplicación y vuelve a usar el atajo.",
+    "tooLong": "El texto seleccionado es demasiado largo",
+    "tooLongHint": "Selecciona como máximo 100.000 caracteres.",
+    "unreadable": "No se pudo leer el texto seleccionado",
+    "nothingToRead": "Nada que leer en voz alta",
+    "nothingToReadHint": "El texto seleccionado no contiene nada que se pueda leer en voz alta.",
+    "unsupported": "Idioma no compatible",
+    "unsupportedHint": "La lectura en voz alta está disponible en inglés, francés y español.",
+    "missingVoice": {
+      "en": "La voz inglesa no está descargada",
+      "es": "La voz española no está descargada",
+      "fr": "La voz francesa no está descargada"
+    },
+    "missingVoiceHint": "Descárgala en ChatonLM, en Configuración › Lectura en voz alta.",
+    "unavailable": "Lectura en voz alta no disponible",
+    "unavailableHint": "La lectura en voz alta no puede funcionar en este equipo. Reinstala ChatonLM.",
+    "failed": "No se pudo leer el texto en voz alta",
+    "noOutputDevice": "No se encontró ninguna salida de audio."
   },
   "readAloud": {
     "runtimeUnavailable": "No se puede leer en voz alta: no se pudo cargar ONNX Runtime ({detail}). Reinstala ChatonLM."

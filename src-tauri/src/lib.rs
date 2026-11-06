@@ -78,7 +78,8 @@ pub fn run() {
     // Instance unique : relancer ChatonLM ramène la fenêtre existante au premier
     // plan (nom D-Bus dérivé de l'identifiant, distinct en développement) ;
     // `chatonlm --dictate` bascule la dictée, `chatonlm --proofread` corrige le
-    // texte sélectionné, sans la montrer.
+    // texte sélectionné, `chatonlm --read-aloud` le lit à voix haute, sans la
+    // montrer.
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             desktop::on_second_instance(app, &args);
@@ -292,8 +293,8 @@ pub fn run() {
             // Lien VS Code : point d'accès ouvert dès le lancement s'il est
             // activé.
             bridge::setup(app.handle());
-            // Zone de notification, raccourcis globaux, `--dictate` et
-            // `--proofread`.
+            // Zone de notification, raccourcis globaux, `--dictate`,
+            // `--proofread` et `--read-aloud`.
             desktop::setup(app.handle());
             Ok(())
         })
@@ -358,6 +359,7 @@ pub fn run() {
         .manage(proofread::selection::Selection::new())
         .manage(study::StudyEngine::default())
         .manage(tts::ReadAloud::new())
+        .manage(tts::selection::ReadSelection::new())
         .invoke_handler(tauri::generate_handler![
             commands::account::account_sign_in,
             commands::account::account_sign_out,

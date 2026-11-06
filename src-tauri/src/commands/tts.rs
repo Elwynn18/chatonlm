@@ -194,14 +194,15 @@ async fn start_reading(
     )
 }
 
-/// Arrête la lecture ; le téléchargement de la voix qu'elle attendait est
-/// annulé (les morceaux reçus sont gardés pour la reprise).
+/// Arrête la lecture (sauf celle de la sélection, voir
+/// [`ReadAloud::stop_from_page`]) ; le téléchargement de la voix qu'elle
+/// attendait est annulé (les morceaux reçus sont gardés pour la reprise).
 #[tauri::command]
 pub async fn read_aloud_stop(
     read_aloud: State<'_, ReadAloud>,
     voices: State<'_, VoiceDownloads>,
 ) -> AppResult<()> {
-    if let Some(voice) = read_aloud.stop() {
+    if let Some(voice) = read_aloud.stop_from_page() {
         voices.cancel(voice);
     }
     Ok(())

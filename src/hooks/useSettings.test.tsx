@@ -34,6 +34,7 @@ const SAVED: Settings = {
   proofreadModel: "",
   proofreadShortcut: false,
   proofreadPaste: true,
+  readAloudShortcut: false,
   studyModel: "",
   autoRead: false,
   onboardingDone: true,

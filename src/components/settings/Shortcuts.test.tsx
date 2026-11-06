@@ -22,7 +22,11 @@ import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import { setLanguage } from "@/i18n";
 import { type FakeBackend, fakeBackend } from "@/test/backend";
 import { untranslatedTexts, usePseudoLanguage } from "@/test/i18n";
-import { DICTATE_SHORTCUT_COMMAND, PROOFREAD_COMMAND } from "@/test/proofread";
+import {
+  DICTATE_SHORTCUT_COMMAND,
+  PROOFREAD_COMMAND,
+  READ_ALOUD_COMMAND,
+} from "@/test/proofread";
 import { renderApp } from "@/test/renderApp";
 import { installSimulator } from "@/test/simulator";
 
@@ -129,6 +133,62 @@ describe("Keyboard shortcuts tab", () => {
     );
     await user.click(within(line).getByRole("button", { name: "Change…" }));
     expect(simulator.callsTo("shortcuts_configure")).toHaveLength(1);
+  });
+
+  it("turning on the read-aloud shortcut binds it: waiting, then its keys", async () => {
+    const user = userEvent.setup();
+    const { simulator, fake } = setup();
+    const readAloudSwitch = () =>
+      screen.getByRole<HTMLButtonElement>("switch", {
+        name: "Read selected text aloud",
+      });
+    const line = await screen.findByTestId("shortcut-read-aloud");
+    expect(readAloudSwitch().getAttribute("aria-checked")).toBe("false");
+    expect(line.textContent).toBe("Turn on the shortcut to choose its keys.");
+    expect(
+      screen.getByText(
+        "Reads aloud the text selected in any app. Use the shortcut again to stop.",
+      ),
+    ).toBeTruthy();
+    await user.click(readAloudSwitch());
+    expect(
+      simulator
+        .callsTo("update_settings")
+        .map((args) => args.patch as SettingsPatch),
+    ).toEqual([{ readAloudShortcut: true }]);
+    await waitFor(() =>
+      expect(line.textContent).toBe("Waiting for your desktop…"),
+    );
+    expect(readAloudSwitch().getAttribute("aria-checked")).toBe("true");
+    // Les autres lignes ne bougent pas.
+    expect(proofreadSwitch().getAttribute("aria-checked")).toBe("false");
+
+    await fake.setShortcuts({
+      readAloud: { state: "bound", trigger: "Ctrl+Alt+R" },
+    });
+    await waitFor(() =>
+      expect(line.querySelector("kbd")?.textContent).toBe("Ctrl+Alt+R"),
+    );
+
+    // Sans portail : la commande à lier soi-même.
+    await fake.setShortcuts({
+      readAloud: {
+        state: "unavailable",
+        problem: "noPortal",
+        reason: "Global shortcuts are not available on this desktop",
+      },
+    });
+    await waitFor(() => expect(line.textContent).toContain(READ_ALOUD_COMMAND));
+
+    await user.click(readAloudSwitch());
+    await waitFor(() =>
+      expect(line.textContent).toBe("Turn on the shortcut to choose its keys."),
+    );
+    expect(
+      simulator
+        .callsTo("update_settings")
+        .map((args) => args.patch as SettingsPatch),
+    ).toEqual([{ readAloudShortcut: true }, { readAloudShortcut: false }]);
   });
 
   it("turning on the correction shortcut binds it: waiting, then its keys", async () => {

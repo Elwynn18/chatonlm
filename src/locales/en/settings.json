@@ -565,6 +565,11 @@
           "askHint": "The first time, your desktop asks to let ChatonLM send the paste keystroke."
         }
       },
+      "readAloud": {
+        "label": "Read selected text aloud",
+        "description": "Reads aloud the text selected in any app. Use the shortcut again to stop.",
+        "off": "Turn on the shortcut to choose its keys."
+      },
       "waiting": "Waiting for your desktop…",
       "notSet": "Not set",
       "set": "Set shortcut",
