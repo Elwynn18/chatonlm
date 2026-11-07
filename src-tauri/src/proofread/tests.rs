@@ -68,6 +68,7 @@ async fn proofread(
         &server(&fake.url()),
         model,
         mode,
+        ProofreadOptions::default(),
         text,
         &Cancel::default(),
         &events.emit(),
@@ -327,6 +328,7 @@ async fn stopped_at(when: impl Fn(&ProofreadEvent) -> bool + Send + Sync) -> (Ou
         &server(&fake.url()),
         "chatonlm-proofread-slow",
         ProofreadMode::Correct,
+        ProofreadOptions::default(),
         TEXT,
         &cancel,
         &emit,
@@ -466,6 +468,7 @@ async fn errors_after_the_start_are_reported_with_their_code() {
         server: &server(&fake.url()),
         model: "chatonlm-wait",
         mode: ProofreadMode::Correct,
+        options: ProofreadOptions::default(),
         cancel: &Cancel::default(),
         emit: &events.emit(),
         timeout: Duration::from_millis(300),
@@ -495,6 +498,7 @@ async fn errors_after_the_start_are_reported_with_their_code() {
         &server(&plain_404().await),
         "gemma3:4b",
         ProofreadMode::Correct,
+        ProofreadOptions::default(),
         TEXT,
         &Cancel::default(),
         &events.emit(),
@@ -515,6 +519,7 @@ async fn errors_after_the_start_are_reported_with_their_code() {
         &server(&url),
         "chatonlm-proofread",
         ProofreadMode::Correct,
+        ProofreadOptions::default(),
         TEXT,
         &Cancel::default(),
         &events.emit(),
@@ -590,28 +595,43 @@ async fn scripted(chat: Option<&'static str>) -> String {
 }
 
 /// Recette du 1er nov. 2026 (défaut R14) : paragraphe coupé à la main, rendu
-/// corrigé sur une ligne (réponse réelle de qwen3:8b). Le passage est
-/// corrigé, avec ses retours à la ligne (CRLF du texte compris), et c'est ce
-/// texte remis en forme que reçoit la page.
+/// corrigé sur une ligne (réponse réelle de qwen3:8b). Mise en forme
+/// automatique coupée : le passage est corrigé avec ses retours à la ligne
+/// (CRLF du texte compris), et c'est ce texte remis en forme que reçoit la
+/// page. Activée (défaut) : le paragraphe reste sur une ligne.
 #[tokio::test]
 async fn a_wrapped_paragraph_answered_on_one_line_is_corrected() {
     const ANSWER: &str = "A tiny shop backend. It calculates the cart total, retry the payment \
                           when the bank doesn't answer, and turn product titles into URL slugs.";
     let url = scripted(Some(ANSWER)).await;
-    for ending in ["\n", "\r\n"] {
+    let kept_lines = ProofreadOptions {
+        formatting: false,
+        ..ProofreadOptions::default()
+    };
+    for (options, ending) in [
+        (kept_lines, "\n"),
+        (kept_lines, "\r\n"),
+        (ProofreadOptions::default(), "\n"),
+        (ProofreadOptions::default(), "\r\n"),
+    ] {
         let text = format!(
             "A tiny shop backend. It calcualte the cart total, retry the payement{ending}\
              when the bank dont answer, and turn product titles into URL slugs.{ending}"
         );
-        let corrected = format!(
-            "A tiny shop backend. It calculates the cart total, retry the payment{ending}\
-             when the bank doesn't answer, and turn product titles into URL slugs."
-        );
+        let corrected = if options.formatting {
+            ANSWER.to_owned()
+        } else {
+            format!(
+                "A tiny shop backend. It calculates the cart total, retry the payment{ending}\
+                 when the bank doesn't answer, and turn product titles into URL slugs."
+            )
+        };
         let events = Events::default();
         let outcome = run(
             &server(&url),
             "qwen3:8b",
             ProofreadMode::Correct,
+            options,
             &text,
             &Cancel::default(),
             &events.emit(),
@@ -621,6 +641,70 @@ async fn a_wrapped_paragraph_answered_on_one_line_is_corrected() {
         assert_eq!(events.steps()[1], done(0, &corrected, false));
         assert_eq!(outcome.text(), format!("{corrected}{ending}"));
     }
+}
+
+/// Options de la correction, sur de vraies réponses scriptées : mots
+/// déplacés ou ajoutés écartés quand l'ordre est gardé ; nombre écrit en
+/// lettres écarté quand les chiffres sont gardés ; mise en forme : majuscule
+/// et point ajoutés (activée) ou retirés (coupée).
+#[tokio::test]
+async fn the_options_keep_order_digits_and_formatting() {
+    async fn corrected(answer: &'static str, text: &str, options: ProofreadOptions) -> PartResult {
+        let url = scripted(Some(answer)).await;
+        let events = Events::default();
+        let outcome = run(
+            &server(&url),
+            "qwen3:8b",
+            ProofreadMode::Correct,
+            options,
+            text,
+            &Cancel::default(),
+            &events.emit(),
+        )
+        .await;
+        assert_eq!(outcome.error, None);
+        outcome.results[0].clone().unwrap()
+    }
+    let plain = ProofreadOptions::default();
+    let keep_order = ProofreadOptions {
+        keep_order: true,
+        ..plain
+    };
+    let digits = ProofreadOptions {
+        digits: true,
+        ..plain
+    };
+    let raw = ProofreadOptions {
+        formatting: false,
+        ..plain
+    };
+    let text = "je sais pas si il viens demain avec ses 3 enfants";
+    // Mot ajouté (« ne »), écarté seulement si l'ordre est gardé.
+    let added = "Je ne sais pas s'il vient demain avec ses 3 enfants.";
+    assert!(!corrected(added, text, plain).await.kept);
+    assert!(corrected(added, text, keep_order).await.kept);
+    // Mots déplacés.
+    let moved = "Demain, je sais pas s'il vient avec ses 3 enfants.";
+    assert!(corrected(moved, text, keep_order).await.kept);
+    // Même ordre, mot coupé par une apostrophe (« si il » → « s'il » soude,
+    // « dont » → « don't » coupe) : accepté.
+    let in_place = "Je sais pas s'il vient demain avec ses 3 enfants.";
+    assert_eq!(
+        corrected(in_place, text, keep_order).await,
+        PartResult {
+            text: in_place.into(),
+            kept: false
+        }
+    );
+    // Nombre écrit en lettres.
+    let spelled = "Je sais pas s'il vient demain avec ses trois enfants.";
+    assert!(!corrected(spelled, text, plain).await.kept);
+    assert!(corrected(spelled, text, digits).await.kept);
+    // Mise en forme : le modèle n'a mis ni majuscule ni point.
+    let bare = "je sais pas s'il vient demain avec ses 3 enfants";
+    assert_eq!(corrected(bare, text, plain).await.text, in_place);
+    // Coupée : ceux qu'il a mis sont retirés.
+    assert_eq!(corrected(in_place, text, raw).await.text, bare);
 }
 
 /// Base dont le serveur réglé est `url`, avec ces modèles du chat et de la
@@ -825,6 +909,7 @@ async fn contract_proofread_with_a_small_model() {
             &server(TEST_INSTANCE),
             MODEL,
             mode,
+            ProofreadOptions::default(),
             text,
             &Cancel::default(),
             &events.emit(),
@@ -881,6 +966,7 @@ async fn a_cloud_model_proofreads_only_once_turned_on() {
         &cloud(false),
         "kimi-k2.6:cloud",
         ProofreadMode::Correct,
+        ProofreadOptions::default(),
         TEXT,
         &Cancel::default(),
         &events.emit(),
@@ -905,6 +991,7 @@ async fn a_cloud_model_proofreads_only_once_turned_on() {
         &cloud(true),
         "kimi-k2.6:cloud",
         ProofreadMode::Correct,
+        ProofreadOptions::default(),
         TEXT,
         &Cancel::default(),
         &events.emit(),

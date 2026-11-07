@@ -67,6 +67,21 @@ proofreadPaste: boolean,
  */
 readAloudShortcut: boolean, 
 /**
+ * Correction : mots gardés dans leur ordre (seule leur écriture est
+ * corrigée) ; coupé par défaut.
+ */
+proofreadKeepOrder: boolean, 
+/**
+ * Correction : mise en forme automatique (retours à la ligne souples
+ * joints, majuscule au début, point à la fin) ; activée par défaut.
+ */
+proofreadFormatting: boolean, 
+/**
+ * Correction : nombres en chiffres gardés en chiffres ; coupé par
+ * défaut.
+ */
+proofreadDigits: boolean, 
+/**
  * Modèle des cours (onglet Study) ; vide = celui du chat
  * (`selected_model`). « Reset to defaults » n'y touche pas.
  */

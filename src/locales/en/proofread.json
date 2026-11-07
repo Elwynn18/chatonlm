@@ -7,6 +7,24 @@
     "notInstalled": "{name} (not installed)",
     "saveError": "Couldn't save the model: {message}"
   },
+  "options": {
+    "button": "Options",
+    "title": "Proofreading options",
+    "keepOrder": {
+      "label": "Keep words in their order",
+      "description": "Only fix how each word is written (spelling, accents, agreement, punctuation): no word is added, removed or moved. Correct only."
+    },
+    "formatting": {
+      "label": "Automatic formatting",
+      "description": "Join line breaks in the middle of a paragraph, start with a capital letter and end with a period."
+    },
+    "digits": {
+      "label": "Keep numbers as digits",
+      "description": "A number written in digits is never spelled out."
+    },
+    "note": "These options also apply to the global shortcut and VS Code.",
+    "saveError": "Couldn't save the option: {message}"
+  },
   "editor": {
     "label": "Text to correct",
     "placeholder": "Paste or type text to correct"

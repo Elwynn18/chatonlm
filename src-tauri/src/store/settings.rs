@@ -92,6 +92,15 @@ pub struct Settings {
     /// Raccourci global « Read selected text aloud » demandé (lié par le
     /// portail du bureau, enregistré auprès de Windows) ; coupé par défaut.
     pub read_aloud_shortcut: bool,
+    /// Correction : mots gardés dans leur ordre (seule leur écriture est
+    /// corrigée) ; coupé par défaut.
+    pub proofread_keep_order: bool,
+    /// Correction : mise en forme automatique (retours à la ligne souples
+    /// joints, majuscule au début, point à la fin) ; activée par défaut.
+    pub proofread_formatting: bool,
+    /// Correction : nombres en chiffres gardés en chiffres ; coupé par
+    /// défaut.
+    pub proofread_digits: bool,
     /// Modèle des cours (onglet Study) ; vide = celui du chat
     /// (`selected_model`). « Reset to defaults » n'y touche pas.
     pub study_model: String,
@@ -151,6 +160,12 @@ pub struct SettingsPatch {
     pub proofread_paste: Option<bool>,
     #[ts(optional)]
     pub read_aloud_shortcut: Option<bool>,
+    #[ts(optional)]
+    pub proofread_keep_order: Option<bool>,
+    #[ts(optional)]
+    pub proofread_formatting: Option<bool>,
+    #[ts(optional)]
+    pub proofread_digits: Option<bool>,
     /// Chaîne vide = modèle du chat.
     #[ts(optional)]
     pub study_model: Option<String>,
@@ -196,7 +211,8 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
                     web_search_enabled, keep_alive, preload_model, language,
                     proofread_model, proofread_shortcut, study_model, auto_read,
                     proofread_paste, onboarding_done, show_uncensored, system_prompt,
-                    unload_on_quit, cloud_models, read_aloud_shortcut
+                    unload_on_quit, cloud_models, read_aloud_shortcut,
+                    proofread_keep_order, proofread_formatting, proofread_digits
              FROM settings WHERE id = 1",
             [],
             |row| {
@@ -222,6 +238,9 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
                     row.get::<_, bool>(18)?,
                     row.get::<_, bool>(19)?,
                     row.get::<_, bool>(20)?,
+                    row.get::<_, bool>(21)?,
+                    row.get::<_, bool>(22)?,
+                    row.get::<_, bool>(23)?,
                 ))
             },
         )
@@ -249,6 +268,9 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         unload_on_quit,
         cloud_models,
         read_aloud_shortcut,
+        proofread_keep_order,
+        proofread_formatting,
+        proofread_digits,
     ) = row;
     let language = LanguageChoice::parse(&language)
         .ok_or_else(|| AppError::Internal(format!("unknown language in database: {language}")))?;
@@ -269,6 +291,9 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         proofread_shortcut,
         proofread_paste,
         read_aloud_shortcut,
+        proofread_keep_order,
+        proofread_formatting,
+        proofread_digits,
         study_model,
         auto_read,
         onboarding_done,
@@ -409,6 +434,18 @@ pub fn update(
             params![enabled],
         )?;
     }
+    for (enabled, column) in [
+        (patch.proofread_keep_order, "proofread_keep_order"),
+        (patch.proofread_formatting, "proofread_formatting"),
+        (patch.proofread_digits, "proofread_digits"),
+    ] {
+        if let Some(enabled) = enabled {
+            transaction.execute(
+                &format!("UPDATE settings SET {column} = ?1 WHERE id = 1"),
+                params![enabled],
+            )?;
+        }
+    }
     if let Some(enabled) = patch.read_aloud_shortcut {
         transaction.execute(
             "UPDATE settings SET read_aloud_shortcut = ?1 WHERE id = 1",
@@ -506,6 +543,9 @@ mod tests {
                 proofread_shortcut: false,
                 proofread_paste: true,
                 read_aloud_shortcut: false,
+                proofread_keep_order: false,
+                proofread_formatting: true,
+                proofread_digits: false,
                 study_model: String::new(),
                 auto_read: false,
                 onboarding_done: false,
@@ -697,6 +737,48 @@ mod tests {
         assert!(store.blocking(|c| get(c, None)).unwrap().onboarding_done);
         store.blocking(|c| set_onboarding_done(c, false)).unwrap();
         assert!(!store.blocking(|c| get(c, None)).unwrap().onboarding_done);
+    }
+
+    #[test]
+    fn proofread_options_are_saved_one_by_one() {
+        let store = store();
+        let settings = store.blocking(|c| get(c, None)).unwrap();
+        // Défauts : mise en forme activée, le reste coupé.
+        assert_eq!(
+            (
+                settings.proofread_keep_order,
+                settings.proofread_formatting,
+                settings.proofread_digits
+            ),
+            (false, true, false)
+        );
+        let patch = SettingsPatch {
+            proofread_keep_order: Some(true),
+            proofread_formatting: Some(false),
+            ..SettingsPatch::default()
+        };
+        let settings = store.blocking(|c| update(c, patch, None)).unwrap();
+        assert_eq!(
+            (
+                settings.proofread_keep_order,
+                settings.proofread_formatting,
+                settings.proofread_digits
+            ),
+            (true, false, false)
+        );
+        let patch = SettingsPatch {
+            proofread_digits: Some(true),
+            ..SettingsPatch::default()
+        };
+        let settings = store.blocking(|c| update(c, patch, None)).unwrap();
+        assert_eq!(
+            (
+                settings.proofread_keep_order,
+                settings.proofread_formatting,
+                settings.proofread_digits
+            ),
+            (true, false, true)
+        );
     }
 
     #[test]

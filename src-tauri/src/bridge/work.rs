@@ -503,6 +503,7 @@ pub(super) async fn proofread_run<H: Host>(
         &Server::from_settings(&settings),
         &model,
         params.mode,
+        proofread::ProofreadOptions::of(&settings),
         &params.text,
         &Cancel::default(),
         &emit,

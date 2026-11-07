@@ -17,6 +17,9 @@
 // volet tant qu'il a du texte (hors travail en cours), le vide : par
 // l'édition native elle aussi, Ctrl+Z retrouve donc le texte effacé.
 //
+// Bouton « Options » à côté du modèle : trois interrupteurs de la
+// correction (ProofreadOptions.tsx).
+//
 // « Show » (sélection corrigée par le raccourci global) met de côté ce que
 // la page contenait : une remarque « Back to your text » le rétablit.
 //
@@ -50,6 +53,7 @@ import {
 import { flushSync } from "react-dom";
 import type { ProofreadMode } from "@/bindings/ProofreadMode";
 import { ModelSettingSelect } from "@/components/ModelSettingSelect";
+import { ProofreadOptions } from "@/components/proofread/ProofreadOptions";
 import { ProofreadText } from "@/components/proofread/ProofreadText";
 import {
   canRedo,
@@ -361,7 +365,10 @@ export function Proofread() {
           >
             {t("proofread.description")}
           </p>
-          <ModelSelect id={ids.model} selectRef={modelRef} />
+          <div className="flex min-w-0 items-start gap-2">
+            <ModelSelect id={ids.model} selectRef={modelRef} />
+            <ProofreadOptions />
+          </div>
         </div>
 
         <section

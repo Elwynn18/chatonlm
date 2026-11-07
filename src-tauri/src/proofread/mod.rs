@@ -10,6 +10,8 @@
 //! passage garde alors son texte d'origine.
 
 mod answer;
+// Majuscule et point de la mise en forme automatique (voir `guard::settle_with`).
+mod format;
 // Distance d'édition et lettres sans accents : aussi pour les cours (`study`).
 pub(crate) mod guard;
 // Langue d'un texte : aussi pour les cours (`study`).
@@ -55,6 +57,41 @@ pub enum ProofreadMode {
     /// Fautes corrigées et texte réécrit plus clairement (même langue, même
     /// sens).
     Rephrase,
+}
+
+/// Options de la correction (menu de la page Proofread, réglages
+/// `proofreadKeepOrder`, `proofreadFormatting`, `proofreadDigits`), valables
+/// aussi pour le raccourci global et le lien VS Code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProofreadOptions {
+    /// Mots gardés dans leur ordre : seule leur écriture est corrigée, aucun
+    /// mot ajouté, retiré ou déplacé (correction seulement).
+    pub keep_order: bool,
+    /// Mise en forme automatique : retours à la ligne souples joints,
+    /// majuscule au début et point à la fin de chaque passage.
+    pub formatting: bool,
+    /// Nombres écrits en chiffres gardés en chiffres.
+    pub digits: bool,
+}
+
+impl Default for ProofreadOptions {
+    fn default() -> Self {
+        Self {
+            keep_order: false,
+            formatting: true,
+            digits: false,
+        }
+    }
+}
+
+impl ProofreadOptions {
+    pub fn of(settings: &Settings) -> Self {
+        Self {
+            keep_order: settings.proofread_keep_order,
+            formatting: settings.proofread_formatting,
+            digits: settings.proofread_digits,
+        }
+    }
 }
 
 /// Passage du texte. Les `before` + `text` + `after` de tous les passages,
@@ -230,6 +267,7 @@ pub async fn run(
     server: &Server,
     model: &str,
     mode: ProofreadMode,
+    options: ProofreadOptions,
     text: &str,
     cancel: &Cancel,
     emit: &(dyn Fn(ProofreadEvent) + Send + Sync),
@@ -240,6 +278,7 @@ pub async fn run(
         server,
         model,
         mode,
+        options,
         cancel,
         emit,
         timeout: PART_TIMEOUT,
@@ -276,6 +315,7 @@ struct Job<'a> {
     server: &'a Server,
     model: &'a str,
     mode: ProofreadMode,
+    options: ProofreadOptions,
     cancel: &'a Cancel,
     emit: &'a (dyn Fn(ProofreadEvent) + Send + Sync),
     timeout: Duration,
@@ -371,7 +411,7 @@ impl Job<'_> {
                     // Texte remis en forme par le garde-fou (retours à la
                     // ligne souples rendus) : c'est lui qui est rendu.
                     let cleaned = answer::clean(&original, &answer);
-                    match guard::settle(self.mode, &original, cleaned) {
+                    match guard::settle_with(self.mode, self.options, &original, cleaned) {
                         Some(text) => PartResult { text, kept: false },
                         None => PartResult {
                             text: original,
@@ -444,7 +484,14 @@ impl Job<'_> {
             Ok(client) => client,
             Err(error) => return failed(&error),
         };
-        let body = prompts::request_body(self.server, self.model, self.mode, original, think_off);
+        let body = prompts::request_body(
+            self.server,
+            self.model,
+            self.mode,
+            self.options,
+            original,
+            think_off,
+        );
         let request = client.post(format!("{base}/api/chat")).json(&body).send();
         let response = tokio::select! {
             biased;
@@ -609,6 +656,7 @@ pub async fn run_job(
         &Server::from_settings(&settings),
         &model,
         mode,
+        ProofreadOptions::of(&settings),
         &text,
         &cancel,
         &emit,

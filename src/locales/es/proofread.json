@@ -7,6 +7,24 @@
     "notInstalled": "{name} (no instalado)",
     "saveError": "No se pudo guardar el modelo: {message}"
   },
+  "options": {
+    "button": "Opciones",
+    "title": "Opciones de la corrección",
+    "keepOrder": {
+      "label": "Mantener las palabras en su orden",
+      "description": "Solo se corrige cómo se escribe cada palabra (ortografía, acentos, concordancia, puntuación): no se añade, quita ni mueve ninguna palabra. Solo para «Corregir»."
+    },
+    "formatting": {
+      "label": "Formato automático",
+      "description": "Une los saltos de línea en medio de un párrafo, empieza con mayúscula y termina con un punto."
+    },
+    "digits": {
+      "label": "Mantener los números en cifras",
+      "description": "Un número escrito en cifras nunca se escribe en letras."
+    },
+    "note": "Estas opciones también valen para el atajo global y VS Code.",
+    "saveError": "No se pudo guardar la opción: {message}"
+  },
   "editor": {
     "label": "Texto que corregir",
     "placeholder": "Pega o escribe un texto que corregir"

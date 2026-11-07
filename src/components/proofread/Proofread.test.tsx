@@ -1120,3 +1120,134 @@ describe("Proofread in other languages", () => {
     expect(button("Reformular").title).toBe("Reformular (Ctrl+Shift+Enter)");
   });
 });
+
+describe("Proofread options", () => {
+  const options = () =>
+    screen.getByRole("dialog", { name: "Proofreading options" });
+  const toggle = (name: string) =>
+    within(options()).getByRole("switch", { name });
+
+  it("Options opens three switches, saved at once, with their note", async () => {
+    const user = userEvent.setup();
+    const { simulator, backend } = setup();
+    await screen.findByTestId("proofread");
+    const opener = button("Options");
+    await waitFor(() => expect(opener.disabled).toBe(false));
+    expect(opener.getAttribute("aria-expanded")).toBe("false");
+    await user.click(opener);
+    expect(opener.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(options());
+    // Défauts : ordre coupé, mise en forme activée, chiffres coupés.
+    const checked = () =>
+      within(options())
+        .getAllByRole("switch")
+        .map((item) => [
+          item.getAttribute("aria-label"),
+          item.getAttribute("aria-checked"),
+        ]);
+    expect(checked()).toEqual([
+      ["Keep words in their order", "false"],
+      ["Automatic formatting", "true"],
+      ["Keep numbers as digits", "false"],
+    ]);
+    expect(
+      toggle("Keep words in their order").getAttribute("aria-describedby"),
+    ).toBeTruthy();
+    expect(options().textContent).toContain(
+      "These options also apply to the global shortcut and VS Code.",
+    );
+    await user.click(toggle("Keep words in their order"));
+    await user.click(toggle("Automatic formatting"));
+    await user.click(toggle("Keep numbers as digits"));
+    expect(
+      simulator
+        .callsTo("update_settings")
+        .map((args) => args.patch as SettingsPatch),
+    ).toEqual([
+      { proofreadKeepOrder: true },
+      { proofreadFormatting: false },
+      { proofreadDigits: true },
+    ]);
+    await waitFor(() =>
+      expect(checked()).toEqual([
+        ["Keep words in their order", "true"],
+        ["Automatic formatting", "false"],
+        ["Keep numbers as digits", "true"],
+      ]),
+    );
+    expect(backend.settings).toMatchObject({
+      proofreadKeepOrder: true,
+      proofreadFormatting: false,
+      proofreadDigits: true,
+    });
+  });
+
+  it("Escape closes the panel without stopping the correction, a click outside too", async () => {
+    const user = userEvent.setup();
+    const { simulator, fake } = setup();
+    await typeText(user);
+    await user.click(button("Correct"));
+    const job = fake.lastJob();
+    await job.step(2);
+    await user.click(button("Options"));
+    expect(options()).toBeTruthy();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(button("Options"));
+    expect(simulator.callsTo("proofread_cancel")).toEqual([]);
+    // Échap suivante : elle arrête la correction.
+    await user.keyboard("{Escape}");
+    expect(simulator.callsTo("proofread_cancel")).toEqual([
+      { jobId: job.jobId },
+    ]);
+    await job.finish();
+
+    await user.click(button("Options"));
+    await user.click(toggle("Keep numbers as digits"));
+    await user.click(screen.getByRole("heading", { level: 1 }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a refused save is shown in the panel", async () => {
+    const user = userEvent.setup();
+    const { backend } = setup();
+    await screen.findByTestId("proofread");
+    await waitFor(() => expect(button("Options").disabled).toBe(false));
+    backend.settingsErrors.update = { kind: "database", message: "disk full" };
+    await user.click(button("Options"));
+    await user.click(toggle("Automatic formatting"));
+    const alert = await within(options()).findByRole("alert");
+    expect(alert.textContent).toBe("Couldn't save the option: disk full");
+  });
+
+  it("is translated (pseudo-language)", async () => {
+    const user = userEvent.setup();
+    usePseudoLanguage();
+    setup();
+    await screen.findByTestId("proofread");
+    await waitFor(() => expect(button("⟦Options⟧").disabled).toBe(false));
+    await user.click(button("⟦Options⟧"));
+    expect(
+      untranslatedTexts(document.body, ["qwen3:0.6b", "qwen3.5:0.8b"]),
+    ).toEqual([]);
+  });
+
+  it("in French and Spanish", async () => {
+    const user = userEvent.setup();
+    setup();
+    await screen.findByTestId("proofread");
+    await waitFor(() => expect(button("Options").disabled).toBe(false));
+    await user.click(button("Options"));
+    act(() => setLanguage("fr"));
+    expect(
+      screen.getByRole("dialog", { name: "Options de la correction" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("switch", { name: "Garder les nombres en chiffres" }),
+    ).toBeTruthy();
+    act(() => setLanguage("es"));
+    expect(
+      screen.getByRole("switch", { name: "Formato automático" }),
+    ).toBeTruthy();
+  });
+});

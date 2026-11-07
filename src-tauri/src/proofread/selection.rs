@@ -34,8 +34,8 @@ use parking_lot::Mutex;
 use tauri::{AppHandle, Manager};
 
 use super::{
-    Cancel, MAX_CHARS, Outcome, ProofreadErrorCode, ProofreadEvent, ProofreadMode, Proofreader,
-    SelectionResult, model_of,
+    Cancel, MAX_CHARS, Outcome, ProofreadErrorCode, ProofreadEvent, ProofreadMode,
+    ProofreadOptions, Proofreader, SelectionResult, model_of,
 };
 use crate::chat::Server;
 use crate::dictation::clipboard::{
@@ -57,6 +57,8 @@ pub(crate) struct Prepared {
     pub auto: bool,
     /// Coller le texte corrigé à la place de la sélection (réglage).
     pub paste: bool,
+    /// Options de la correction (menu de la page Proofread).
+    pub options: ProofreadOptions,
 }
 
 /// L'app vue par la correction de la sélection (remplacée dans les tests).
@@ -75,6 +77,7 @@ pub(crate) trait Corrector: Send + Sync + 'static {
         &self,
         server: Server,
         model: String,
+        options: ProofreadOptions,
         text: String,
         cancel: Cancel,
     ) -> BoxFuture<Outcome>;
@@ -88,6 +91,7 @@ impl Corrector for Engine {
         &self,
         server: Server,
         model: String,
+        options: ProofreadOptions,
         text: String,
         cancel: Cancel,
     ) -> BoxFuture<Outcome> {
@@ -97,6 +101,7 @@ impl Corrector for Engine {
                 &server,
                 &model,
                 ProofreadMode::Correct,
+                options,
                 &text,
                 &cancel,
                 &ignore,
@@ -258,10 +263,11 @@ impl Selection {
             return stopped();
         }
         let paste = prepared.paste;
+        let options = prepared.options;
         let server = prepared.server;
 
         let mut outcome = self
-            .run_with(server.clone(), model.clone(), &text, cancel)
+            .run_with(server.clone(), model.clone(), options, &text, cancel)
             .await;
         // Arrêt demandé : rien de copié, même si le moteur a fini entre-temps.
         if outcome.stopped || cancel.is_cancelled() {
@@ -276,7 +282,7 @@ impl Selection {
                 found = loaded_instead(host, &server.url, &model) => found,
             };
             if let Some(other) = found {
-                outcome = self.run_with(server, other, &text, cancel).await;
+                outcome = self.run_with(server, other, options, &text, cancel).await;
                 if outcome.stopped || cancel.is_cancelled() {
                     return stopped();
                 }
@@ -357,6 +363,7 @@ impl Selection {
         &self,
         server: Server,
         model: String,
+        options: ProofreadOptions,
         text: &str,
         cancel: &Cancel,
     ) -> Outcome {
@@ -371,7 +378,7 @@ impl Selection {
         ));
         self.services
             .corrector
-            .correct(server, model, text.to_owned(), cancel.clone())
+            .correct(server, model, options, text.to_owned(), cancel.clone())
             .await
     }
 }
@@ -467,6 +474,7 @@ impl Host for AppHost {
                 model: model_of(&settings).await,
                 auto: settings.proofread_model.is_empty(),
                 paste: settings.proofread_paste,
+                options: ProofreadOptions::of(&settings),
             })
         })
     }
@@ -654,6 +662,12 @@ mod tests {
                     model,
                     auto,
                     paste,
+                    // Options reconnaissables (le faux moteur les note).
+                    options: ProofreadOptions {
+                        keep_order: true,
+                        formatting: false,
+                        digits: true,
+                    },
                 })
             })
         }
@@ -684,6 +698,7 @@ mod tests {
     #[derive(Default)]
     struct FakeCorrector {
         calls: Mutex<Vec<(String, String)>>,
+        options: Mutex<Vec<ProofreadOptions>>,
         error: Mutex<Option<(ProofreadErrorCode, String)>>,
         missing: Option<&'static str>,
         nothing: AtomicBool,
@@ -696,10 +711,12 @@ mod tests {
             &self,
             _server: Server,
             model: String,
+            options: ProofreadOptions,
             text: String,
             cancel: Cancel,
         ) -> BoxFuture<Outcome> {
             self.calls.lock().push((model.clone(), text.clone()));
+            self.options.lock().push(options);
             let error = if self.missing == Some(model.as_str()) {
                 Some((
                     ProofreadErrorCode::ModelNotFound,
@@ -862,6 +879,15 @@ mod tests {
                 "gemma3:4b".to_owned(),
                 "I recieve teh letter.\n\nSee <you> & teh team.".to_owned()
             )]
+        );
+        // Options de la correction lues dans les réglages, passées au moteur.
+        assert_eq!(
+            *rig.corrector.options.lock(),
+            [ProofreadOptions {
+                keep_order: true,
+                formatting: false,
+                digits: true,
+            }]
         );
         let corrected = "I recieve the letter.\n\nSee <you> & the team.";
         assert_eq!(rig.copies(), [corrected]);

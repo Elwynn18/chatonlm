@@ -123,6 +123,33 @@ pub fn restore(original: &str, answer: &str) -> Option<String> {
     Some(out)
 }
 
+/// Texte dont les retours à la ligne souples (voir [`soft`]) sont joints :
+/// la fin de ligne, les espaces qui la précèdent et le retrait de la ligne
+/// suivante deviennent une espace (option « mise en forme automatique » de
+/// la correction). Les autres sauts (paragraphes, listes, titres, tableaux,
+/// code, sauts forcés) restent.
+pub fn join_soft(text: &str) -> String {
+    let all = breaks(text);
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0;
+    for (index, at) in all.iter().enumerate() {
+        let start = index.checked_sub(1).map_or(0, |previous| all[previous].end);
+        let end = all.get(index + 1).map_or(text.len(), |next| next.start);
+        let (line, next) = (&text[start..at.start], &text[at.end..end]);
+        if !soft(at.text, line, next) {
+            continue;
+        }
+        // Jamais avant `cursor` : la ligne a pu commencer par un retrait
+        // déjà retiré.
+        let from = (start + line.trim_end_matches([' ', '\t']).len()).max(cursor);
+        out.push_str(&text[cursor..from]);
+        out.push(' ');
+        cursor = at.end + indent(next).len();
+    }
+    out.push_str(&text[cursor..]);
+    out
+}
+
 /// Retour à la ligne souple : « \n » ou « \r\n » (pas U+2028 ni U+2029,
 /// sauts voulus dans Word ou LibreOffice) entre deux lignes non vides, sans
 /// saut forcé Markdown (deux espaces ou « \ » en fin de ligne), après une
@@ -144,7 +171,7 @@ fn soft(text: &str, line: &str, next: &str) -> bool {
 /// de code, élément de liste (« - », « * », « + », « 1. », « 1) »), filet
 /// ou soulignement de titre (« --- », « === », « *** »), définition de lien
 /// (« [x]: … »).
-fn starts_block(line: &str) -> bool {
+pub(super) fn starts_block(line: &str) -> bool {
     let body = line.trim_start_matches([' ', '\t']);
     let indent = &line[..line.len() - body.len()];
     if indent.contains('\t') || indent.len() >= 4 {
@@ -380,5 +407,22 @@ mod tests {
             settle(ProofreadMode::Rephrase, original, answer.into()).as_deref(),
             Some(answer)
         );
+    }
+
+    #[test]
+    fn soft_line_breaks_are_joined_and_the_others_kept() {
+        assert_eq!(
+            join_soft("Un paragraphe coupé  \n   à la main,\r\nsur trois lignes."),
+            "Un paragraphe coupé  \n   à la main, sur trois lignes."
+        );
+        assert_eq!(
+            join_soft("Un paragraphe coupé\n   à la main,\r\nsur trois lignes."),
+            "Un paragraphe coupé à la main, sur trois lignes."
+        );
+        // Listes, titres, paragraphes, sauts forcés, code : gardés.
+        let kept = "# Titre\nTexte.\n\nÀ faire :\n- un\n- deux\n\nLigne forcée\\\nsuite\n    code";
+        assert_eq!(join_soft(kept), kept);
+        assert_eq!(join_soft("Sans saut."), "Sans saut.");
+        assert_eq!(join_soft(""), "");
     }
 }

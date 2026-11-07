@@ -7,6 +7,24 @@
     "notInstalled": "{name} (non installé)",
     "saveError": "Impossible d'enregistrer le modèle : {message}"
   },
+  "options": {
+    "button": "Options",
+    "title": "Options de la correction",
+    "keepOrder": {
+      "label": "Garder les mots dans leur ordre",
+      "description": "Seule l'écriture de chaque mot est corrigée (orthographe, accents, accords, ponctuation) : aucun mot n'est ajouté, retiré ni déplacé. Pour « Corriger » seulement."
+    },
+    "formatting": {
+      "label": "Mise en forme automatique",
+      "description": "Joint les retours à la ligne au milieu d'un paragraphe, met une majuscule au début et un point à la fin."
+    },
+    "digits": {
+      "label": "Garder les nombres en chiffres",
+      "description": "Un nombre écrit en chiffres n'est jamais écrit en lettres."
+    },
+    "note": "Ces options valent aussi pour le raccourci global et VS Code.",
+    "saveError": "Impossible d'enregistrer l'option : {message}"
+  },
   "editor": {
     "label": "Texte à corriger",
     "placeholder": "Collez ou tapez un texte à corriger"

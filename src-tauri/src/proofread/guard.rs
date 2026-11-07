@@ -10,9 +10,10 @@
 //! = mots de la réponse hors de l'alignement, « retirés » = mots du passage
 //! hors de l'alignement. Seuils mesurés sur de vraies réponses
 //! (`46-proofread-contract.md` § 6) ; copie dans
-//! `.tools/research/46-proofread-eval.py` (`accept`).
+//! `.tools/research/46-proofread-eval.py` (`accept`, sans les contrôles des
+//! options de [`settle_with`]).
 
-use super::ProofreadMode;
+use super::{ProofreadMode, ProofreadOptions, format};
 use super::{language, reflow};
 
 /// Texte rendu pour ce passage, ou `None` s'il garde son texte d'origine.
@@ -20,6 +21,7 @@ use super::{language, reflow};
 /// (paragraphe coupé à la main, rendu sur une ligne) les retrouve d'abord
 /// ([`reflow::restore`]) ; le garde-fou juge ce texte remis en forme, et
 /// c'est lui qui est rendu (et comparé au passage par la page).
+#[cfg(test)]
 pub fn settle(mode: ProofreadMode, original: &str, answer: String) -> Option<String> {
     let answer = match mode {
         ProofreadMode::Correct => reflow::restore(original, &answer).unwrap_or(answer),
@@ -28,8 +30,56 @@ pub fn settle(mode: ProofreadMode, original: &str, answer: String) -> Option<Str
     accept(mode, original, &answer).then_some(answer)
 }
 
+/// Comme [`settle`], avec les options de la correction (réglages de la
+/// page Proofread) : mise en forme automatique (retours à la ligne souples
+/// joints au lieu d'être rendus, majuscule au début et point à la fin ;
+/// coupée, ceux qu'a ajoutés le modèle sont retirés, voir `format`), mots
+/// gardés dans leur ordre (correction seulement), nombres en chiffres
+/// gardés.
+pub fn settle_with(
+    mode: ProofreadMode,
+    options: ProofreadOptions,
+    original: &str,
+    answer: String,
+) -> Option<String> {
+    let answer = if options.formatting {
+        reflow::join_soft(&answer)
+    } else {
+        match mode {
+            ProofreadMode::Correct => reflow::restore(original, &answer).unwrap_or(answer),
+            ProofreadMode::Rephrase => answer,
+        }
+    };
+    let checks = Checks {
+        joined_lines: options.formatting,
+        keep_order: options.keep_order && mode == ProofreadMode::Correct,
+        digits: options.digits,
+    };
+    accept_checked(mode, checks, original, &answer)
+        .then(|| format::finish(original, &answer, options.formatting))
+}
+
+/// Contrôles demandés par les options en plus de ceux de [`accept`].
+#[derive(Clone, Copy, Debug, Default)]
+struct Checks {
+    /// Retours à la ligne souples joints dans la réponse : les sauts sont
+    /// comparés à ceux du passage une fois les siens joints.
+    joined_lines: bool,
+    /// Aucun mot ajouté, retiré ou déplacé (à l'orthographe près ; un mot
+    /// coupé ou soudé par une apostrophe ou un trait d'union reste le même,
+    /// voir [`only_split`]).
+    keep_order: bool,
+    /// Mêmes chiffres, dans le même ordre.
+    digits: bool,
+}
+
 /// Réponse acceptée pour ce passage.
+#[cfg(test)]
 pub fn accept(mode: ProofreadMode, original: &str, answer: &str) -> bool {
+    accept_checked(mode, Checks::default(), original, answer)
+}
+
+fn accept_checked(mode: ProofreadMode, checks: Checks, original: &str, answer: &str) -> bool {
     if answer.trim().is_empty() {
         return false;
     }
@@ -58,13 +108,30 @@ pub fn accept(mode: ProofreadMode, original: &str, answer: &str) -> bool {
         return false;
     }
     let (added, removed) = (received.len() - aligned, sent.len() - aligned);
+    if checks.digits && digits(original) != digits(answer) {
+        return false;
+    }
+    // Mot ajouté, retiré ou déplacé : seuls ceux qu'une apostrophe ou un
+    // trait d'union coupe ou soude sont permis (« dont » → « don't »,
+    // « jespere » → « j'espère », et l'inverse).
+    if checks.keep_order
+        && !(only_split(answer, &spans(answer), &sent)
+            && only_split(original, &spans(original), &received))
+    {
+        return false;
+    }
+    let lines_kept = if checks.joined_lines {
+        lines(&reflow::join_soft(original)) == lines(answer)
+    } else {
+        lines(original) == lines(answer)
+    };
     let count = sent.len() as f64;
     match mode {
         // Une correction garde les mots (à l'orthographe près) et les sauts
         // de ligne.
         ProofreadMode::Correct => {
             let allowed = (0.2 * count).max(2.0);
-            added as f64 <= allowed && removed as f64 <= allowed && lines(original) == lines(answer)
+            added as f64 <= allowed && removed as f64 <= allowed && lines_kept
         }
         // Une reformulation change des mots, mais garde l'essentiel du
         // texte, sans trop s'allonger ni raccourcir.
@@ -84,6 +151,36 @@ pub fn max_chars(mode: ProofreadMode, original: &str) -> usize {
         ProofreadMode::Correct => length * 3 / 2 + 30,
         ProofreadMode::Rephrase => 2 * length + 80,
     }
+}
+
+/// Chiffres du texte, dans l'ordre (« 1 000 » et « 1000 » ont les mêmes).
+fn digits(text: &str) -> String {
+    text.chars().filter(char::is_ascii_digit).collect()
+}
+
+/// Chaque mot de `own` (mots de `text`, avec leurs positions) hors de
+/// l'alignement avec `other` est collé par une apostrophe ou un trait d'union
+/// à un voisin aligné, et le recoller à ce voisin rapproche celui-ci de son
+/// mot dans `other` : « t » de « don't » face à « dont », « j » de « j'espère »
+/// face à « jespere ». Un mot ajouté ailleurs (« je ne sais ») ou un article
+/// élidé de plus (« homme » → « l'homme ») ne l'est pas.
+fn only_split(text: &str, own: &[((usize, usize), Vec<char>)], other: &[Vec<char>]) -> bool {
+    let mine: Vec<Vec<char>> = own.iter().map(|(_, word)| word.clone()).collect();
+    let partner = pairs(&mine, other);
+    let joined = |left: usize, right: usize| {
+        matches!(&text[own[left].0.1..own[right].0.0], "'" | "’" | "-" | "‐")
+    };
+    // Le voisin `kept`, recollé en `glued`, est plus proche de son mot.
+    let closer = |kept: usize, glued: Vec<char>| {
+        partner[kept]
+            .is_some_and(|i| distance(&glued, &other[i]) < distance(&mine[kept], &other[i]))
+    };
+    (0..own.len()).filter(|&j| partner[j].is_none()).all(|j| {
+        (j > 0 && joined(j - 1, j) && closer(j - 1, [&mine[j - 1][..], &mine[j][..]].concat()))
+            || (j + 1 < own.len()
+                && joined(j, j + 1)
+                && closer(j + 1, [&mine[j][..], &mine[j + 1][..]].concat()))
+    })
 }
 
 /// Sauts de ligne (un CRLF compte pour un ; séparateurs de ligne et de
@@ -698,5 +795,41 @@ mod tests {
         let text = "a".repeat(100);
         assert_eq!(max_chars(CORRECT, &text), 180);
         assert_eq!(max_chars(REPHRASE, &text), 280);
+    }
+
+    #[test]
+    fn keeping_the_order_allows_only_words_split_or_glued_by_an_apostrophe() {
+        let ordered = Checks {
+            keep_order: true,
+            ..Checks::default()
+        };
+        let accepted =
+            |original: &str, answer: &str| accept_checked(CORRECT, ordered, original, answer);
+        for (original, answer) in [
+            ("je sais pas si il viens", "je sais pas s'il vient"),
+            ("jespere que tu viens", "j'espère que tu viens"),
+            ("i dont know what he want", "i don't know what he wants"),
+            ("i don't know what he want", "i dont know what he wants"),
+            ("ecrit moi demain matin", "écris-moi demain matin"),
+            (
+                "est ce que tu viens ce soir ?",
+                "est-ce que tu viens ce soir ?",
+            ),
+        ] {
+            assert!(accepted(original, answer), "{answer}");
+        }
+        for (original, answer) in [
+            // Mot ajouté, même à côté d'une apostrophe.
+            ("je sais pas si il viens", "je ne sais pas s'il vient"),
+            ("homme est venu hier soir", "l'homme est venu hier soir"),
+            // Mot retiré, déplacé, remplacé.
+            ("il est venu très très vite", "il est venu très vite"),
+            ("hier il est venu chez moi", "il est venu chez moi hier"),
+            ("il est venu chez moi hier", "il est arrivé chez moi hier"),
+        ] {
+            assert!(!accepted(original, answer), "{answer}");
+            // Sans l'option, ces réponses passent.
+            assert!(accept(CORRECT, original, answer), "{answer}");
+        }
     }
 }
