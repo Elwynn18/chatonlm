@@ -598,11 +598,28 @@ describe("pseudo-language: no text written in the code", () => {
     ];
     const PATH = "/home/me/.local/share/chatonlm/chatonlm.db";
     const REASON = "ChatonLM can't create the folder /x";
-    for (const kind of kinds) {
+    const problems: DatabaseProblem[] = [
+      ...kinds.map((kind) => ({
+        kind,
+        message: REASON,
+        path: PATH,
+        backup: null,
+      })),
+      // Base plus récente avec une copie à remettre.
+      {
+        kind: "newer",
+        message: REASON,
+        path: PATH,
+        backup: { version: 36, savedAt: Date.UTC(2026, 9, 6, 16, 40) },
+      },
+    ];
+    for (const problem of problems) {
+      const { kind } = problem;
       const { unmount } = render(
         <DatabaseProblemScreen
-          problem={{ kind, message: REASON, path: PATH }}
+          problem={problem}
           onRecover={() => new Promise(() => {})}
+          onRestore={() => new Promise(() => {})}
           onRecovered={vi.fn()}
         />,
       );

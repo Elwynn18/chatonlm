@@ -326,7 +326,10 @@
       "description": "{message}. Check that this folder exists and that you can write to it, then click Retry."
     },
     "startFresh": "Start with a new database",
-    "starting": "Starting…"
+    "starting": "Starting…",
+    "restore": "Restore the backup from {date}",
+    "restoring": "Restoring…",
+    "restoreNote": "Your current database is kept next to it, under another name: chats created since this backup stay in that file."
   },
   "adviceWindows": {
     "appStopped": "Ollama is installed, but it isn't running. Click Start Ollama, or open Ollama from the Start menu.",

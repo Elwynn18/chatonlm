@@ -326,7 +326,10 @@
       "description": "{message}. Vérifiez que ce dossier existe et que vous pouvez y écrire, puis cliquez sur Réessayer."
     },
     "startFresh": "Nouvelle base de données",
-    "starting": "Démarrage…"
+    "starting": "Démarrage…",
+    "restore": "Restaurer la sauvegarde du {date}",
+    "restoring": "Restauration…",
+    "restoreNote": "La base actuelle est gardée à côté, sous un autre nom : les conversations créées depuis cette sauvegarde restent dans ce fichier."
   },
   "adviceWindows": {
     "appStopped": "Ollama est installé, mais il n'est pas démarré. Cliquez sur Démarrer Ollama, ou ouvrez Ollama depuis le menu Démarrer.",

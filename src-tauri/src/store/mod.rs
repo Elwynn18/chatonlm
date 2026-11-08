@@ -5,6 +5,7 @@
 //! exécute la requête sur un thread bloquant : ni la boucle GTK ni le runtime
 //! asynchrone n'attendent jamais le verrou.
 
+pub mod backup;
 pub mod bridge;
 pub mod builtin_ollama;
 pub mod chats;
@@ -100,6 +101,12 @@ impl Store {
         let _opening = lock_openings(path, OPENING_WAIT);
         let mut connection = Connection::open(path)?;
         configure(&connection, busy_timeout)?;
+        // Base existante à migrer : copie d'abord (voir `backup`). Une base
+        // neuve (version 0), déjà à jour ou plus récente n'en a pas besoin.
+        let current = schema_version(&connection)?;
+        if current > 0 && current < supported_version() {
+            backup::before_migration(&connection, path, current);
+        }
         migrate(&mut connection)?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
@@ -230,13 +237,47 @@ fn configure(connection: &Connection, busy_timeout: Duration) -> AppResult<()> {
     Ok(())
 }
 
+/// Version du schéma que cette version de ChatonLM sait ouvrir.
+pub fn supported_version() -> i64 {
+    MIGRATIONS.len() as i64
+}
+
+/// Version du schéma de la base (`PRAGMA user_version`).
+fn schema_version(connection: &Connection) -> AppResult<i64> {
+    Ok(connection.pragma_query_value(None, "user_version", |row| row.get(0))?)
+}
+
+fn migrate(connection: &mut Connection) -> AppResult<()> {
+    migrate_with(connection, MIGRATIONS)
+}
+
+/// Applique les migrations manquantes de `migrations`, clés étrangères
+/// coupées : `PRAGMA foreign_keys` est sans effet dans une transaction, et
+/// une migration qui reconstruit une table (nouvelle table, copie, `DROP`,
+/// renommage) effacerait sinon en cascade les lignes qui s'y rattachent
+/// (messages d'une conversation, pièces jointes d'un message). Les liens sont
+/// vérifiés avant de valider (voir [`apply`]) ; les clés étrangères reviennent
+/// ensuite, quoi qu'il arrive. Les migrations elles-mêmes ne touchent jamais à
+/// ce réglage (essai `no_migration_touches_the_foreign_keys`).
+fn migrate_with(connection: &mut Connection, migrations: &[&str]) -> AppResult<()> {
+    connection.pragma_update(None, "foreign_keys", false)?;
+    let applied = apply(connection, migrations);
+    let restored = connection.pragma_update(None, "foreign_keys", true);
+    applied?;
+    Ok(restored?)
+}
+
 /// Applique les migrations manquantes en une transaction IMMEDIATE : deux
 /// ouvertures simultanées migrent l'une après l'autre, et la seconde relit la
 /// version une fois le verrou obtenu, au lieu de rejouer les migrations.
-fn migrate(connection: &mut Connection) -> AppResult<()> {
+/// Avant de valider, `PRAGMA foreign_key_check` : un lien rompu par une
+/// migration annule toute la transaction (base laissée à sa version d'avant,
+/// comme le recommande SQLite pour les changements de schéma), au lieu de
+/// valider une base incohérente.
+fn apply(connection: &mut Connection, migrations: &[&str]) -> AppResult<()> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let current: i64 = transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    let supported = MIGRATIONS.len() as i64;
+    let current = schema_version(&transaction)?;
+    let supported = migrations.len() as i64;
     if current > supported {
         return Err(AppError::NewerDatabase {
             found: current,
@@ -251,12 +292,56 @@ fn migrate(connection: &mut Connection) -> AppResult<()> {
     if current == supported {
         return Ok(());
     }
-    for sql in &MIGRATIONS[current as usize..] {
+    for sql in &migrations[current as usize..] {
         transaction.execute_batch(sql)?;
+    }
+    let broken = broken_links(&transaction)?;
+    if !broken.is_empty() {
+        crate::app_log!(
+            "chatonlm: migrating the database from schema {current} to {supported} breaks foreign keys, nothing changed: {}",
+            broken.join(", ")
+        );
+        return Err(AppError::Internal(format!(
+            "migrating the database to schema {supported} breaks {} foreign key(s)",
+            broken.len()
+        )));
     }
     transaction.pragma_update(None, "user_version", supported)?;
     transaction.commit()?;
     Ok(())
+}
+
+/// Liens rompus (`PRAGMA foreign_key_check`), au plus 20, sous la forme
+/// « table#ligne → parent ».
+fn broken_links(connection: &Connection) -> AppResult<Vec<String>> {
+    let mut statement = connection.prepare("PRAGMA foreign_key_check")?;
+    let rows = statement.query_map([], |row| {
+        let table: String = row.get(0)?;
+        let rowid: Option<i64> = row.get(1)?;
+        let parent: String = row.get(2)?;
+        Ok(format!(
+            "{table}#{} -> {parent}",
+            rowid.map_or_else(|| "?".to_owned(), |id| id.to_string())
+        ))
+    })?;
+    Ok(rows.take(20).collect::<Result<_, _>>()?)
+}
+
+/// Base à la version `version`, comme l'a laissée une version plus ancienne
+/// de ChatonLM (seules ses migrations appliquées), pour les essais.
+#[cfg(test)]
+pub(crate) fn database_at(path: &Path, version: usize) -> Connection {
+    let connection = Connection::open(path).unwrap();
+    connection
+        .pragma_update(None, "foreign_keys", true)
+        .unwrap();
+    for sql in &MIGRATIONS[..version] {
+        connection.execute_batch(sql).unwrap();
+    }
+    connection
+        .pragma_update(None, "user_version", version as i64)
+        .unwrap();
+    connection
 }
 
 #[cfg(test)]
@@ -849,6 +934,234 @@ mod tests {
                 Ok(())
             })
             .unwrap();
+    }
+
+    fn backups_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains(".bak"))
+            .collect();
+        names.sort();
+        names
+    }
+
+    fn count(connection: &Connection, table: &str) -> i64 {
+        connection
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap()
+    }
+
+    /// Version de schéma de ChatonLM 0.9.4 (36 migrations au tag v0.9.4).
+    const SCHEMA_0_9_4: usize = 36;
+
+    /// Base de la 0.9.4 remplie (conversations, messages, pièces jointes,
+    /// réglages), ouverte par cette version : tout est encore là, et la copie
+    /// d'avant la migration existe, lisible, à la version 36.
+    #[test]
+    fn a_filled_0_9_4_database_keeps_everything_and_is_backed_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        let connection = database_at(&path, SCHEMA_0_9_4);
+        connection
+            .execute_batch(
+                "INSERT INTO chats (id, title, created_at, updated_at)
+                     VALUES ('0199-a', 'Recettes', 1, 3), ('0199-b', '', 2, 2);
+                 INSERT INTO messages (chat_id, role, content, model, created_at, updated_at)
+                     VALUES ('0199-a', 'user', 'une tarte ?', NULL, 1, 1),
+                            ('0199-a', 'assistant', 'Voici une tarte.', 'qwen3:0.6b', 2, 3),
+                            ('0199-b', 'user', 'bonjour', NULL, 2, 2);
+                 INSERT INTO attachments (message_id, filename, kind, mime, size, data, text)
+                     VALUES (1, 'liste.txt', 'text', 'text/plain', 5, X'6F65756673', 'oeufs'),
+                            (1, 'photo.png', 'image', 'image/png', 3, X'89504E', NULL);
+                 UPDATE settings SET selected_model = 'qwen3:0.6b', theme = 'dark';
+                 -- Conversation éphémère laissée par un arrêt brutal.
+                 INSERT INTO chats (id, created_at, updated_at, ephemeral)
+                     VALUES ('0199-c', 4, 4, 1);
+                 INSERT INTO messages (chat_id, role, content, created_at, updated_at)
+                     VALUES ('0199-c', 'user', 'secret', 4, 4);",
+            )
+            .unwrap();
+        drop(connection);
+
+        let store = Store::open(&path).unwrap();
+        assert_eq!(version(&store), MIGRATIONS.len() as i64);
+        store
+            .blocking(|c| {
+                assert_eq!(count(c, "chats"), 2);
+                assert_eq!(count(c, "messages"), 3);
+                assert_eq!(count(c, "attachments"), 2);
+                let (model, theme): (String, String) =
+                    c.query_row("SELECT selected_model, theme FROM settings", [], |r| {
+                        Ok((r.get(0)?, r.get(1)?))
+                    })?;
+                assert_eq!((model.as_str(), theme.as_str()), ("qwen3:0.6b", "dark"));
+                let chat = chats::get(c, "0199-a")?;
+                assert_eq!(chat.title, "Recettes");
+                assert_eq!(chat.messages.len(), 2);
+                assert_eq!(chat.messages[0].content, "une tarte ?");
+                assert_eq!(chat.messages[0].attachments.len(), 2);
+                assert_eq!(chat.messages[1].content, "Voici une tarte.");
+                let data: Vec<u8> = c.query_row(
+                    "SELECT data FROM attachments WHERE filename = 'photo.png'",
+                    [],
+                    |r| r.get(0),
+                )?;
+                assert_eq!(data, [0x89, 0x50, 0x4E]);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(backups_in(dir.path()), ["chatonlm.sqlite.v36.bak"]);
+        let copy = Connection::open(backup::path_for(&path, 36)).unwrap();
+        let copied: i64 = copy
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(copied, 36);
+        // Sans la conversation éphémère.
+        assert_eq!(count(&copy, "chats"), 2);
+        assert_eq!(count(&copy, "messages"), 3);
+        assert_eq!(count(&copy, "attachments"), 2);
+    }
+
+    /// Ni une base neuve ni une base déjà à jour ne sont copiées.
+    #[test]
+    fn new_and_current_databases_are_not_backed_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        drop(Store::open(&path).unwrap());
+        drop(Store::open(&path).unwrap());
+        assert_eq!(backups_in(dir.path()), Vec::<String>::new());
+    }
+
+    /// Seules les deux copies les plus récentes restent.
+    #[test]
+    fn only_the_two_latest_backups_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        for old in [3, 12] {
+            std::fs::write(backup::path_for(&path, old), b"").unwrap();
+        }
+        // Fichier voisin qui n'est pas une copie : jamais touché.
+        std::fs::write(dir.path().join("chatonlm.sqlite.broken-1"), b"").unwrap();
+        drop(database_at(&path, 20));
+        drop(Store::open(&path).unwrap());
+        assert_eq!(
+            backups_in(dir.path()),
+            ["chatonlm.sqlite.v12.bak", "chatonlm.sqlite.v20.bak"]
+        );
+        assert!(dir.path().join("chatonlm.sqlite.broken-1").exists());
+    }
+
+    /// Copie impossible (un dossier occupe son nom) : la migration a lieu
+    /// quand même.
+    #[test]
+    fn a_failed_backup_does_not_block_the_migration() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        drop(database_at(&path, 20));
+        std::fs::create_dir(backup::path_for(&path, 20)).unwrap();
+        let store = Store::open(&path).unwrap();
+        assert_eq!(version(&store), MIGRATIONS.len() as i64);
+    }
+
+    /// Une migration qui reconstruit une table parente (nouvelle table,
+    /// copie, DROP, renommage) ne supprime plus les lignes qui s'y rattachent.
+    #[test]
+    fn rebuilding_a_parent_table_keeps_its_children() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        let store = Store::open(&path).unwrap();
+        store
+            .blocking(|c| {
+                c.execute_batch(
+                    "INSERT INTO chats (id, created_at, updated_at) VALUES ('0199-a', 1, 1);
+                     INSERT INTO messages (chat_id, role, created_at, updated_at)
+                         VALUES ('0199-a', 'user', 1, 1);
+                     INSERT INTO attachments (message_id, filename, kind, size, data)
+                         VALUES (1, 'a.txt', 'text', 0, X'');",
+                )?;
+                let schema: String = c.query_row(
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chats'",
+                    [],
+                    |r| r.get(0),
+                )?;
+                let rebuild = format!(
+                    "{};
+                     INSERT INTO chats_new SELECT * FROM chats;
+                     DROP TABLE chats;
+                     ALTER TABLE chats_new RENAME TO chats;",
+                    schema.replacen("CREATE TABLE chats", "CREATE TABLE chats_new", 1)
+                );
+                let mut migrations: Vec<&str> = MIGRATIONS.to_vec();
+                migrations.push(&rebuild);
+                migrate_with(c, &migrations)?;
+                assert_eq!(schema_version(c)?, migrations.len() as i64);
+                assert_eq!(count(c, "chats"), 1);
+                assert_eq!(count(c, "messages"), 1);
+                assert_eq!(count(c, "attachments"), 1);
+                let keys: bool = c.pragma_query_value(None, "foreign_keys", |r| r.get(0))?;
+                assert!(keys, "foreign keys back on after the migrations");
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    /// Une migration qui rompt un lien est annulée en entier : version et
+    /// contenu d'avant, clés étrangères de nouveau actives.
+    #[test]
+    fn a_migration_that_breaks_a_link_changes_nothing() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .blocking(|c| {
+                let breaking = "CREATE TABLE extra (x);
+                     INSERT INTO messages (chat_id, role, created_at, updated_at)
+                         VALUES ('missing', 'user', 1, 1);";
+                let mut migrations: Vec<&str> = MIGRATIONS.to_vec();
+                migrations.push(breaking);
+                let error = migrate_with(c, &migrations).unwrap_err();
+                assert!(matches!(error, AppError::Internal(_)), "{error:?}");
+                assert_eq!(schema_version(c)?, MIGRATIONS.len() as i64);
+                assert_eq!(count(c, "messages"), 0);
+                let extra: i64 = c.query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE name = 'extra'",
+                    [],
+                    |r| r.get(0),
+                )?;
+                assert_eq!(extra, 0);
+                let keys: bool = c.pragma_query_value(None, "foreign_keys", |r| r.get(0))?;
+                assert!(keys);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    /// La garde des clés étrangères est dans le code : aucune migration n'y
+    /// touche (dans une transaction, ce serait sans effet, et une migration
+    /// qui les rallume défait la garde). Toutes celles du dossier sont aussi
+    /// dans la liste.
+    #[test]
+    fn no_migration_touches_the_foreign_keys() {
+        for (index, sql) in MIGRATIONS.iter().enumerate() {
+            assert!(
+                !sql.to_ascii_lowercase().contains("foreign_keys"),
+                "migration {}",
+                index + 1
+            );
+        }
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+        let files = std::fs::read_dir(dir)
+            .unwrap()
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .unwrap()
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "sql")
+            })
+            .count();
+        assert_eq!(files, MIGRATIONS.len());
     }
 
     #[test]

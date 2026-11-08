@@ -3,7 +3,10 @@
 //! Une base illisible ne doit pas empêcher la fenêtre de s'ouvrir : l'erreur
 //! est gardée ici et le frontend l'explique (base d'une version plus récente,
 //! fichier abîmé, base occupée...). Il peut relancer l'ouverture, ou repartir
-//! d'une base neuve en gardant l'ancien fichier à côté, sous un autre nom.
+//! d'une base neuve en gardant l'ancien fichier à côté, sous un autre nom ;
+//! pour une base d'une version plus récente, remettre la dernière copie
+//! d'avant migration que cette version sait ouvrir (`store::backup`), la base
+//! actuelle gardée à côté elle aussi.
 
 use std::path::{Path, PathBuf};
 
@@ -15,7 +18,7 @@ use ts_rs::TS;
 
 use crate::error::{AppError, AppResult};
 use crate::i18n::{self, t};
-use crate::store::{self, Store, chats, settings};
+use crate::store::{self, Store, backup, chats, settings};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +42,20 @@ pub struct DatabaseProblem {
     pub message: String,
     /// Chemin du fichier de la base.
     pub path: String,
+    /// Base d'une version plus récente : dernière copie d'avant migration que
+    /// cette version sait ouvrir, s'il y en a une.
+    pub backup: Option<DatabaseBackup>,
+}
+
+/// Copie de la base qui peut la remplacer (voir `store::backup`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DatabaseBackup {
+    /// Version du schéma de la copie.
+    pub version: i64,
+    /// Date de la copie, en millisecondes depuis l'époque Unix.
+    pub saved_at: i64,
 }
 
 /// État de l'ouverture de la base, géré par Tauri dès le démarrage.
@@ -85,10 +102,19 @@ impl Startup {
             }
             Err(error) => {
                 crate::app_log!("chatonlm: cannot open the database: {error}");
+                let kind = classify(&error);
+                let backup = (kind == DatabaseProblemKind::Newer)
+                    .then(|| self.compatible_backup())
+                    .flatten()
+                    .map(|backup| DatabaseBackup {
+                        version: backup.version,
+                        saved_at: backup.saved_at,
+                    });
                 *self.problem.lock() = Some(DatabaseProblem {
-                    kind: classify(&error),
+                    kind,
                     message: error.to_string(),
                     path: self.database.display().to_string(),
+                    backup,
                 });
                 None
             }
@@ -97,6 +123,11 @@ impl Startup {
 
     fn problem(&self) -> Option<DatabaseProblem> {
         self.problem.lock().clone()
+    }
+
+    /// Dernière copie d'avant migration que cette version sait ouvrir.
+    fn compatible_backup(&self) -> Option<backup::Backup> {
+        backup::latest_compatible(&self.database, store::supported_version())
     }
 }
 
@@ -112,26 +143,41 @@ fn classify(error: &AppError) -> DatabaseProblemKind {
     }
 }
 
-/// Renomme la base et ses fichiers -wal et -shm en `….broken-<horodatage>`.
+/// Base abîmée, mise de côté pour repartir d'une base neuve.
+const BROKEN: &str = "broken";
+/// Base d'une version plus récente, mise de côté pour remettre une copie.
+const NEWER: &str = "newer";
+
+/// Renomme la base et ses fichiers -wal et -shm en `….<label>-<horodatage>` ;
+/// renvoie les renommages faits (ancien nom, nouveau nom). Tous ou aucun : un
+/// renommage refusé défait ceux déjà faits.
 #[cfg(not(windows))]
-fn set_aside(database: &Path) -> AppResult<()> {
-    let suffix = format!("broken-{}", store::now_ms());
+fn set_aside(database: &Path, label: &str) -> AppResult<Vec<(PathBuf, PathBuf)>> {
+    let suffix = format!("{label}-{}", store::now_ms());
+    let mut done: Vec<(PathBuf, PathBuf)> = Vec::new();
     for extension in ["", "-wal", "-shm"] {
         let file = PathBuf::from(format!("{}{extension}", database.display()));
         if file.exists() {
             let kept = PathBuf::from(format!("{}.{suffix}", file.display()));
-            std::fs::rename(&file, kept)?;
+            if let Err(error) = std::fs::rename(&file, &kept) {
+                for (from, to) in done.iter().rev() {
+                    let _ = std::fs::rename(to, from);
+                }
+                return Err(error.into());
+            }
+            done.push((file, kept));
         }
     }
-    Ok(())
+    Ok(done)
 }
 
-/// Renomme la base et ses fichiers -wal et -shm en `….broken-<horodatage>`.
-/// Sous Windows, un fichier tenu ouvert par un autre programme (antivirus,
-/// indexation, autre instance) ne se renomme pas : voir [`rename_all`].
+/// Renomme la base et ses fichiers -wal et -shm en `….<label>-<horodatage>` ;
+/// renvoie les renommages faits (ancien nom, nouveau nom). Sous Windows, un
+/// fichier tenu ouvert par un autre programme (antivirus, indexation, autre
+/// instance) ne se renomme pas : voir [`rename_all`].
 #[cfg(windows)]
-fn set_aside(database: &Path) -> AppResult<()> {
-    let suffix = format!("broken-{}", store::now_ms());
+fn set_aside(database: &Path, label: &str) -> AppResult<Vec<(PathBuf, PathBuf)>> {
+    let suffix = format!("{label}-{}", store::now_ms());
     let with = |path: &Path, end: &str| {
         let mut name = path.as_os_str().to_owned();
         name.push(end);
@@ -149,6 +195,20 @@ fn set_aside(database: &Path) -> AppResult<()> {
     rename_all(&pairs, RENAME_TRIES, RENAME_PAUSE, |from, to| {
         std::fs::rename(from, to)
     })?;
+    Ok(pairs)
+}
+
+/// Remet la copie compatible `backup` à la place de la base : la base actuelle
+/// (et son journal) est d'abord mise de côté, `….newer-<horodatage>` ; si la
+/// copie ne peut pas prendre sa place, la base retrouve son nom.
+fn restore_backup(database: &Path, backup: &backup::Backup) -> AppResult<()> {
+    let aside = set_aside(database, NEWER)?;
+    if let Err(error) = backup::install(backup, database) {
+        for (from, to) in aside.iter().rev() {
+            let _ = std::fs::rename(to, from);
+        }
+        return Err(error);
+    }
     Ok(())
 }
 
@@ -220,21 +280,57 @@ pub async fn recover_database(
     let database = startup.database.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         if fresh {
-            set_aside(&database)?;
+            set_aside(&database, BROKEN)?;
         }
         Store::open(&database)
     })
     .await
     .map_err(|error| AppError::Internal(error.to_string()))?;
+    adopt(&app, &startup, result);
+    Ok(startup.problem())
+}
+
+/// Base d'une version plus récente : la dernière copie d'avant migration que
+/// cette version sait ouvrir la remplace (la base actuelle est gardée à côté,
+/// `….newer-<horodatage>`, avec les conversations créées depuis la copie),
+/// puis la base est rouverte. Refusé pour tout autre problème, ou sans copie.
+#[tauri::command]
+pub async fn restore_database_backup(
+    app: AppHandle,
+    startup: State<'_, Startup>,
+) -> AppResult<Option<DatabaseProblem>> {
+    if app.try_state::<Store>().is_some() {
+        return Ok(None);
+    }
+    let Some(backup) = startup
+        .problem()
+        .is_some_and(|problem| problem.kind == DatabaseProblemKind::Newer)
+        .then(|| startup.compatible_backup())
+        .flatten()
+    else {
+        return Err(AppError::Invalid(t!("startup.noBackup")));
+    };
+    let database = startup.database.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        restore_backup(&database, &backup)?;
+        Store::open(&database)
+    })
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))?;
+    adopt(&app, &startup, result);
+    Ok(startup.problem())
+}
+
+/// Résultat d'une nouvelle ouverture : une base ouverte devient celle de l'app.
+fn adopt(app: &AppHandle, startup: &Startup, result: AppResult<Store>) {
     if let Some(store) = startup.record(result) {
         // Base retrouvée : sa langue remplace celle du bureau.
-        i18n::apply(&app, i18n::saved(Some(&store)));
+        i18n::apply(app, i18n::saved(Some(&store)));
         app.manage(store);
         // Easy Link n'a pas pu démarrer sans base : il démarre maintenant.
-        crate::easy_link::setup(&app);
-        crate::bridge::setup(&app);
+        crate::easy_link::setup(app);
+        crate::bridge::setup(app);
     }
-    Ok(startup.problem())
 }
 
 #[cfg(test)]
@@ -259,7 +355,7 @@ mod tests {
         assert_eq!(problem.kind, DatabaseProblemKind::Corrupt);
         assert!(problem.path.ends_with("chatonlm.sqlite"));
 
-        set_aside(&startup.database).unwrap();
+        set_aside(&startup.database, BROKEN).unwrap();
         assert!(startup.open().is_some());
         assert_eq!(startup.problem(), None);
         let kept: Vec<_> = std::fs::read_dir(dir.path().join("db"))
@@ -361,6 +457,121 @@ mod tests {
         drop(connection);
         assert!(startup.open().is_none());
         assert_eq!(startup.problem().unwrap().kind, DatabaseProblemKind::Newer);
+    }
+
+    /// Base d'une version plus récente avec une copie compatible : le
+    /// problème la propose ; une fois remise, la base s'ouvre avec le contenu
+    /// de la copie, et la base plus récente est gardée à côté, intacte.
+    #[test]
+    fn a_newer_database_can_be_replaced_by_its_latest_compatible_backup() {
+        let (dir, startup) = startup_with(None);
+        let folder = dir.path().join("db");
+        // Ouverte une première fois à une ancienne version : copie v20.
+        {
+            std::fs::create_dir_all(&folder).unwrap();
+            store::database_at(&startup.database, 20)
+                .execute(
+                    "INSERT INTO chats (id, created_at, updated_at) VALUES ('0199-old', 1, 1)",
+                    [],
+                )
+                .unwrap();
+        }
+        drop(startup.open().unwrap());
+        // Copie d'une version future : jamais proposée.
+        let future = store::supported_version() + 5;
+        std::fs::write(backup::path_for(&startup.database, future), b"").unwrap();
+        // Puis une version plus récente de ChatonLM l'a migrée plus loin.
+        {
+            let connection = rusqlite::Connection::open(&startup.database).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO chats (id, created_at, updated_at) VALUES ('0199-new', 2, 2)",
+                    [],
+                )
+                .unwrap();
+            connection
+                .pragma_update(None, "user_version", store::supported_version() + 1)
+                .unwrap();
+        }
+        assert!(startup.open().is_none());
+        let problem = startup.problem().unwrap();
+        assert_eq!(problem.kind, DatabaseProblemKind::Newer);
+        let offered = problem.backup.unwrap();
+        assert_eq!(offered.version, 20);
+        assert!(offered.saved_at > 0);
+
+        let chosen = startup.compatible_backup().unwrap();
+        restore_backup(&startup.database, &chosen).unwrap();
+        let store = startup.open().unwrap();
+        assert_eq!(startup.problem(), None);
+        let ids: Vec<String> = store
+            .blocking(|c| Ok(chats::list(c)?.into_iter().map(|chat| chat.id).collect()))
+            .unwrap();
+        assert_eq!(ids, ["0199-old"]);
+        // La copie reste ; la base plus récente est à côté, intacte.
+        assert!(chosen.path.exists());
+        let aside: Vec<_> = std::fs::read_dir(&folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("chatonlm.sqlite.newer-")
+            })
+            .collect();
+        assert_eq!(aside.len(), 1, "{aside:?}");
+        let kept = rusqlite::Connection::open(&aside[0]).unwrap();
+        let newer: i64 = kept
+            .query_row(
+                "SELECT count(*) FROM chats WHERE id = '0199-new'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(newer, 1);
+    }
+
+    /// Une base plus récente sans copie compatible n'en propose aucune ; une
+    /// base abîmée non plus, même s'il y a une copie.
+    #[test]
+    fn a_backup_is_offered_only_for_a_newer_database() {
+        let (_dir, startup) = startup_with(Some(&[0x42; 8192]));
+        std::fs::write(backup::path_for(&startup.database, 3), b"").unwrap();
+        assert!(startup.open().is_none());
+        let problem = startup.problem().unwrap();
+        assert_eq!(problem.kind, DatabaseProblemKind::Corrupt);
+        assert_eq!(problem.backup, None);
+
+        let (_dir, startup) = startup_with(None);
+        std::fs::create_dir_all(startup.database.parent().unwrap()).unwrap();
+        let connection = rusqlite::Connection::open(&startup.database).unwrap();
+        connection.pragma_update(None, "user_version", 999).unwrap();
+        drop(connection);
+        std::fs::write(backup::path_for(&startup.database, 1000), b"").unwrap();
+        assert!(startup.open().is_none());
+        assert_eq!(startup.problem().unwrap().backup, None);
+    }
+
+    /// La copie ne peut pas prendre la place de la base : la base retrouve
+    /// son nom (rien n'est perdu, l'écran reste celui d'une base plus récente).
+    #[test]
+    fn a_failed_restore_puts_the_database_back() {
+        let (dir, startup) = startup_with(None);
+        std::fs::create_dir_all(startup.database.parent().unwrap()).unwrap();
+        std::fs::write(&startup.database, b"newer").unwrap();
+        let missing = backup::Backup {
+            version: 3,
+            path: dir.path().join("gone.bak"),
+            saved_at: 1,
+        };
+        assert!(restore_backup(&startup.database, &missing).is_err());
+        assert_eq!(std::fs::read(&startup.database).unwrap(), b"newer");
+        let names: Vec<_> = std::fs::read_dir(startup.database.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["chatonlm.sqlite"]);
     }
 
     #[test]

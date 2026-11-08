@@ -22,6 +22,7 @@ mod ollama;
 mod os_util;
 mod paths;
 mod proofread;
+mod shutdown;
 mod startup;
 mod store;
 mod study;
@@ -300,6 +301,9 @@ pub fn run() {
             // Zone de notification, raccourcis globaux, `--dictate`,
             // `--proofread` et `--read-aloud`.
             desktop::setup(app.handle());
+            // Signaux d'arrêt du système (Linux) : l'app se ferme comme par
+            // Ctrl+Q (voir shutdown.rs).
+            shutdown::listen(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| match event {
@@ -544,51 +548,64 @@ pub fn run() {
             context_menu::e2e::e2e_last_context_menu,
             startup::database_problem,
             startup::recover_database,
+            startup::restore_database_backup,
         ])
         .build(context)
         .expect("error while building ChatonLM")
         .run(|app, event| {
-            // Fermeture : services arrêtés proprement (voir `stop_services`),
-            // puis le processus web de WebKit (sinon il survit parfois
-            // plusieurs secondes à l'app).
-            if let RunEvent::ExitRequested { .. } = event {
-                tauri::async_runtime::block_on(stop_services(app));
-                desktop::terminate_web_processes(app);
+            // Fermeture : fenêtre masquée, services arrêtés proprement (voir
+            // `stop_services`), puis le processus web de WebKit (sinon il
+            // survit parfois plusieurs secondes à l'app). Une fin de session
+            // Windows n'annonce que `Exit` ; une fermeture ordinaire, les
+            // deux : l'arrêt n'a lieu qu'une fois (voir shutdown.rs).
+            if let RunEvent::ExitRequested { .. } | RunEvent::Exit = event {
+                shutdown::on_exit(app);
             }
         });
 }
 
 /// Arrête proprement les services, à la fermeture et avant d'installer une
-/// mise à jour (« Restart to update ») : les cours (partie en cours gardée
-/// « en cours », reprise au lancement suivant) et les corrections
-/// s'arrêtent ; les réponses en cours s'arrêtent et s'enregistrent ; les
-/// téléchargements du ModelHub ferment leur requête (Ollama garde les
-/// morceaux : un nouveau clic reprend), comme ceux des modèles de
-/// transcription, des voix et des modèles d'images (`.part` gardés) ; la
-/// séance du mode vocal finit (micro fermé) ; les conversations éphémères
-/// sont effacées une fois les réponses arrêtées ; la dictée en cours est abandonnée et son moteur libéré ; puis
-/// le moteur d'images s'arrête (image en cours abandonnée) ; puis les modèles
+/// mise à jour (« Restart to update »), dans l'ordre de `shutdown::stop` :
+/// plus rien de nouveau (séance du mode vocal finie, micro fermé ; Easy Link
+/// et lien VS Code fermés) ; les conversations éphémères effacées tout de
+/// suite ; puis les cours (partie en cours gardée « en cours », reprise au
+/// lancement suivant) et les corrections s'arrêtent ; les réponses en cours
+/// s'arrêtent et s'enregistrent ; les téléchargements du ModelHub ferment
+/// leur requête (Ollama garde les morceaux : un nouveau clic reprend), comme
+/// ceux des modèles de transcription, des voix et des modèles d'images
+/// (`.part` gardés) ; la dictée en cours est abandonnée et son moteur libéré ;
+/// le moteur d'images s'arrête (image en cours abandonnée) ; les éphémères
+/// sont effacées de nouveau (une réponse a pu y écrire) ; puis les modèles
 /// encore en mémoire dans l'Ollama de la machine sont déchargés (réglage
-/// « Unload models when quitting ») ; puis
-/// l'Ollama intégré s'arrête pour de bon (SIGTERM à son
-/// groupe, SIGKILL après 5 s, attente bornée ; plus aucune relance : un .deb
-/// peut remplacer ses fichiers). Rien ne redémarre ensuite : l'app quitte ou
-/// se relance. Appelée deux fois de suite (mise à jour puis fermeture) : la
-/// seconde ne trouve plus rien à arrêter.
+/// « Unload models when quitting ») ; puis l'Ollama intégré s'arrête pour de
+/// bon (SIGTERM à son groupe, SIGKILL après 5 s, attente bornée ; plus
+/// aucune relance : un .deb peut remplacer ses fichiers). Rien ne redémarre
+/// ensuite : l'app quitte ou se relance. Appelée deux fois de suite (mise à
+/// jour puis fermeture) : la seconde ne trouve plus rien à arrêter.
 pub async fn stop_services(app: &AppHandle) {
+    shutdown::stop(&shutdown::AppSteps(app)).await;
+}
+
+/// Début de l'arrêt : plus de séance vocale, de bot ni d'extension servis.
+fn stop_intake(app: &AppHandle) {
     if let Some(voice_mode) = app.try_state::<voice_mode::VoiceMode>() {
         voice_mode.shutdown();
     }
     // Easy Link : plus d'écoute ni de nouvelle réponse ; celles en cours
-    // s'arrêtent avec le moteur de chat, plus bas.
+    // s'arrêtent avec le moteur de chat (`stop_work`).
     if let Some(easy_link) = app.try_state::<easy_link::EasyLink>() {
         easy_link.shutdown();
     }
     // Lien VS Code : point d'accès fermé, fichier de découverte retiré ; les
-    // réponses en cours s'arrêtent avec le moteur de chat, plus bas.
+    // réponses en cours s'arrêtent avec le moteur de chat (`stop_work`).
     if let Some(bridge) = app.try_state::<bridge::Bridge>() {
         bridge.shutdown();
     }
+}
+
+/// Travail en cours arrêté : réponses, cours, corrections, téléchargements,
+/// dictée, lecture à voix haute et images.
+async fn stop_work(app: &AppHandle) {
     stop_ollama_work(app);
     let engine = app.state::<ChatEngine>();
     let downloads = app.try_state::<HubDownloads>();
@@ -632,14 +649,16 @@ pub async fn stop_services(app: &AppHandle) {
         dictation.shutdown(),
         images
     );
-    forget_ephemeral_chats(app).await;
+}
+
+/// Fin de l'arrêt : modèles déchargés, puis l'Ollama intégré arrêté.
+async fn release_models(app: &AppHandle) {
     unload_models(app).await;
     ollama::builtin::shutdown(app).await;
 }
 
-/// Conversations éphémères (de la page et des bots) effacées, une fois les
-/// réponses arrêtées ; un échec est seulement journalisé (le démarrage
-/// suivant les efface).
+/// Conversations éphémères (de la page et des bots) effacées ; un échec est
+/// seulement journalisé (le démarrage suivant les efface).
 async fn forget_ephemeral_chats(app: &AppHandle) {
     let Some(store) = app.try_state::<Store>() else {
         return;

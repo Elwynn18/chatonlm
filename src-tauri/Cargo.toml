@@ -142,6 +142,9 @@ gtk = "0.18.2"
 # version que celle de wry, qui l'épingle exactement. « v2_34 » :
 # `terminate_web_process` (processus web arrêté à la fin de l'app).
 webkit2gtk = { version = "2.0.2", features = ["v2_34"] }
+# Signaux d'arrêt (SIGTERM, SIGINT, SIGHUP) : l'app se ferme comme par Ctrl+Q
+# (shutdown/linux.rs). Même crate que plus haut, fonctionnalité en plus.
+tokio = { version = "1.53.2", features = ["signal"] }
 # État du service systemd d'Ollama, lu par D-Bus (sans lancer systemctl).
 zbus = { version = "5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
 

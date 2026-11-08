@@ -8,7 +8,12 @@ import { ServerGate } from "@/components/ServerGate";
 import { useSettings } from "@/hooks/useSettings";
 import { useTheme } from "@/hooks/useTheme";
 import { useT } from "@/i18n";
-import { databaseProblem, errorMessage, recoverDatabase } from "@/lib/ipc";
+import {
+  databaseProblem,
+  errorMessage,
+  recoverDatabase,
+  restoreDatabaseBackup,
+} from "@/lib/ipc";
 import { showMainWindow } from "@/lib/window";
 import { router } from "@/router";
 
@@ -59,6 +64,7 @@ function ProblemWindow({
     <DatabaseProblemScreen
       problem={problem}
       onRecover={recoverDatabase}
+      onRestore={restoreDatabaseBackup}
       onRecovered={onRecovered}
     />
   );

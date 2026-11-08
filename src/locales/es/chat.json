@@ -326,7 +326,10 @@
       "description": "{message}. Comprueba que esta carpeta existe y que puedes escribir en ella, y haz clic en Reintentar."
     },
     "startFresh": "Usar una base de datos nueva",
-    "starting": "Iniciando…"
+    "starting": "Iniciando…",
+    "restore": "Restaurar la copia de seguridad del {date}",
+    "restoring": "Restaurando…",
+    "restoreNote": "La base de datos actual se conserva al lado, con otro nombre: los chats creados después de esta copia de seguridad se quedan en ese archivo."
   },
   "adviceWindows": {
     "appStopped": "Ollama está instalado, pero no se está ejecutando. Haz clic en Iniciar Ollama o abre Ollama desde el menú Inicio.",

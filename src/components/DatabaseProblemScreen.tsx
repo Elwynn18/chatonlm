@@ -2,11 +2,17 @@ import { useState } from "react";
 import type { DatabaseProblem } from "@/bindings/DatabaseProblem";
 import { Logo } from "@/components/Logo";
 import { type TFunction, useT } from "@/i18n";
+import { formatDateTime } from "@/i18n/format";
 
 interface Props {
   problem: DatabaseProblem;
   /** Nouvel essai (`fresh` : base neuve) ; renvoie le problème restant. */
   onRecover: (fresh: boolean) => Promise<DatabaseProblem | null>;
+  /**
+   * Base d'une version plus récente : sa copie compatible (`problem.backup`)
+   * prend sa place ; renvoie le problème restant.
+   */
+  onRestore: () => Promise<DatabaseProblem | null>;
   /** Appelé quand la base est ouverte. */
   onRecovered: () => void;
 }
@@ -39,23 +45,32 @@ function texts(t: TFunction, problem: DatabaseProblem) {
   }
 }
 
-/** Écran affiché à la place de l'app quand la base ne s'ouvre pas. */
+/**
+ * Écran affiché à la place de l'app quand la base ne s'ouvre pas. Une base
+ * d'une version plus récente peut être remplacée par la dernière copie
+ * d'avant migration que cette version sait ouvrir (`problem.backup`).
+ */
 export function DatabaseProblemScreen({
   problem: initial,
   onRecover,
+  onRestore,
   onRecovered,
 }: Props) {
   const t = useT();
   const [problem, setProblem] = useState(initial);
-  const [busy, setBusy] = useState<"retry" | "fresh" | null>(null);
+  const [busy, setBusy] = useState<"retry" | "fresh" | "restore" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { title, description } = texts(t, problem);
+  const backup = problem.kind === "newer" ? problem.backup : null;
 
-  const recover = async (fresh: boolean) => {
-    setBusy(fresh ? "fresh" : "retry");
+  const attempt = async (
+    kind: "retry" | "fresh" | "restore",
+    run: () => Promise<DatabaseProblem | null>,
+  ) => {
+    setBusy(kind);
     setError(null);
     try {
-      const remaining = await onRecover(fresh);
+      const remaining = await run();
       if (remaining) {
         setProblem(remaining);
       } else {
@@ -71,6 +86,8 @@ export function DatabaseProblemScreen({
       setBusy(null);
     }
   };
+  const recover = (fresh: boolean) =>
+    attempt(fresh ? "fresh" : "retry", () => onRecover(fresh));
 
   return (
     <main className="flex h-screen overflow-y-auto bg-white px-6 dark:bg-neutral-900">
@@ -85,6 +102,27 @@ export function DatabaseProblemScreen({
         <p className="mt-3 text-xs break-words text-neutral-500">
           {problem.path}
         </p>
+        {backup && (
+          <>
+            <p className="mt-4 text-sm text-neutral-500 dark:text-neutral-400">
+              {t("chat.database.restoreNote")}
+            </p>
+            <div className="mt-6 flex items-center justify-center">
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => void attempt("restore", onRestore)}
+                className="h-10 rounded-full bg-neutral-900 px-6 text-sm font-medium text-white outline-none hover:bg-neutral-700 focus-visible:ring-2 focus-visible:ring-accent-fg focus-visible:ring-offset-2 disabled:opacity-60 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200 dark:focus-visible:ring-offset-neutral-900"
+              >
+                {busy === "restore"
+                  ? t("chat.database.restoring")
+                  : t("chat.database.restore", {
+                      date: formatDateTime(t.lang, backup.savedAt),
+                    })}
+              </button>
+            </div>
+          </>
+        )}
         {problem.kind !== "newer" && (
           <div className="mt-6 flex items-center justify-center gap-4">
             {problem.kind === "corrupt" && (

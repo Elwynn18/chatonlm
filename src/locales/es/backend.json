@@ -386,7 +386,8 @@
     }
   },
   "startup": {
-    "newerDatabase": "actualiza ChatonLM para abrir esta base de datos"
+    "newerDatabase": "actualiza ChatonLM para abrir esta base de datos",
+    "noBackup": "ninguna copia de seguridad puede abrirse con esta versión"
   },
   "bridge": {
     "unavailable": "El enlace con VS Code no está disponible: no se pudo abrir la base de datos",

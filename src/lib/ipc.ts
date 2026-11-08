@@ -105,6 +105,15 @@ export function recoverDatabase(
 }
 
 /**
+ * Base d'une version plus récente : la dernière copie d'avant migration que
+ * cette version sait ouvrir prend sa place (la base actuelle est gardée à
+ * côté). Renvoie le problème restant, ou null.
+ */
+export function restoreDatabaseBackup(): Promise<DatabaseProblem | null> {
+  return invoke<DatabaseProblem | null>("restore_database_backup");
+}
+
+/**
  * Langue de l'interface (réglée, sinon celle du bureau), lue avant le premier
  * affichage ; répond aussi quand la base est illisible.
  */
