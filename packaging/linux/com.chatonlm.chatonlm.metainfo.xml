@@ -43,6 +43,23 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.9.5" date="2026-11-08" type="development">
+      <description>
+        <p>What's new:</p>
+        <ul>
+          <li>Read selected text aloud: a global shortcut (Ctrl+Alt+R suggested) reads the text selected in any application; press it again to stop. Off by default, in Settings › Keyboard shortcuts.</li>
+          <li>Proofread options: keep the words in their order, automatic formatting, and keep numbers as digits. They also apply to the global shortcut and to VS Code.</li>
+          <li>Report a bug from Settings › General: your message, an optional reply address and a diagnostic you can read before sending. ChatonLM now keeps a log of its own, which you can open from there.</li>
+          <li>The database is backed up before each update of its format. If you go back to an older version, ChatonLM offers to restore that backup.</li>
+          <li>Logging out or shutting down closes ChatonLM cleanly: temporary chats are erased and models are unloaded.</li>
+          <li>Text copied by dictation and proofreading stays out of the clipboard history, and out of the Windows cloud clipboard.</li>
+          <li>The model picker shows how much memory a recommended model needs and whether it fits your computer, and says when Ollama can't be reached.</li>
+          <li>The VS Code link can only read and continue the chats started in VS Code.</li>
+          <li>The active tab's highlight slides to the new one, switches and sliders are easier to see, and the French voice speaks a little more slowly.</li>
+          <li>Built-in Ollama updated to 0.40.15.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.9.4" date="2026-11-01" type="development">
       <description>
         <p>What's new:</p>
