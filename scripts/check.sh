@@ -247,6 +247,19 @@ step "Contenu du bundle" node scripts/check-bundle.mjs
 step "Extension VS Code (hôte et panneau)" vscode_extension
 step "Contenu du panneau de l'extension" node scripts/check-bundle.mjs --webview vscode/dist/webview
 step "Licences Rust" cargo deny --manifest-path "$manifest" check licenses
+# Avis de sécurité RustSec (failles, défauts de sûreté, crates abandonnées ;
+# exceptions justifiées dans deny.toml). Base dans $CARGO_HOME/advisory-dbs
+# (.tools/cargo) : relue sans réseau par défaut, mise à jour par --full.
+rust_advisories() {
+  if $full; then
+    cargo deny --manifest-path "$manifest" check advisories
+  elif [ -d "$CARGO_HOME/advisory-dbs" ]; then
+    cargo deny --offline --manifest-path "$manifest" check advisories
+  else
+    echo "  (base RustSec absente : avis vérifiés par « check.sh --full »)"
+  fi
+}
+step "Avis de sécurité Rust (RustSec)" rust_advisories
 step "Licences npm (paquets embarqués)" node scripts/check-npm-licenses.mjs
 step "Attribution Ollama" node scripts/check-headers.mjs
 step "Fichiers d'empaquetage (desktop, AppStream)" packaging_files

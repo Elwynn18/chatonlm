@@ -1,8 +1,27 @@
-# Contrôle des licences des crates compilées dans ChatonLM :
-# cargo deny --manifest-path src-tauri/Cargo.toml check licenses
+# Contrôle des crates compilées dans ChatonLM (licences, avis de sécurité) :
+# cargo deny --manifest-path src-tauri/Cargo.toml check licenses advisories
+# Base des avis (RustSec) : $CARGO_HOME/advisory-dbs, soit .tools/cargo
+# (activate.sh) ; scripts/check.sh la relit sans réseau (--offline), et
+# `check.sh --full` la met à jour.
 
 [graph]
 targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+
+[advisories]
+# Une faille, un défaut de sûreté (unsound) ou une crate abandonnée font
+# échouer le contrôle, sauf exception ci-dessous, justifiée une par une.
+ignore = [
+  # Crates abandonnées, sans faille connue ni version de remplacement dans la
+  # même série : elles partent avec la dépendance qui les tire.
+  # proc-macro-error 1.0.4 : macro de compilation de gtk-rs 0.18 (glib-macros,
+  # gtk3-macros), pile GTK de Tauri sous Linux ; rien n'en reste à l'exécution.
+  { id = "RUSTSEC-2024-0370", reason = "macro de compilation de gtk-rs 0.18 (Tauri), sans faille connue" },
+  # zbus_names, zvariant, zvariant_derive 5.x : fondues dans zbus 6 ; zbus 5
+  # (ashpd, ksni, notify-rust, tauri-plugin-single-instance) les tire encore.
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names fondue dans zbus 6, tirée par zbus 5 ; sans faille connue" },
+  { id = "RUSTSEC-2026-0370", reason = "zvariant fondue dans zbus 6, tirée par zbus 5 ; sans faille connue" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive fondue dans zbus 6, tirée par zbus 5 ; sans faille connue" },
+]
 
 [licenses]
 allow = [

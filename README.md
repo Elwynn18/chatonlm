@@ -425,6 +425,9 @@ commit messages are in French; the interface is in English, Spanish and
 French, and every text change goes into all three languages
 (`src/locales/`). A fix or an improvement applies to both Windows and Linux.
 
+To report a security problem, please do not open an issue: see
+[SECURITY.md](SECURITY.md).
+
 ## License and credits
 
 ChatonLM is released under the [MIT License](LICENSE), Copyright (c) 2026
