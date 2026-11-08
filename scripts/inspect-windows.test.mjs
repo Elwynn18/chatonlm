@@ -292,6 +292,7 @@ function installation(overrides = {}) {
   return {
     files: new Map([...entries.keys()].map((f) => [f, 1])),
     read: content,
+    bytes: (file) => Buffer.from(content(file)),
     hash: (file) => `sum:${content(file)}`,
     pe: (file) => ({
       machine: 0x8664,
@@ -318,6 +319,17 @@ describe("contenu de l'installateur", () => {
       errors: [],
       warnings: [],
     });
+  });
+
+  it("refuse un exécutable construit avec le greffon WebDriver des essais", () => {
+    const { errors } = contentProblems(
+      installation({
+        "chatonlm.exe": { text: "MZ… element not interactable …" },
+      }),
+    );
+    expect(errors).toEqual([
+      "chatonlm.exe contient le greffon WebDriver des essais (« element not interactable ») : build avec la fonctionnalité e2e",
+    ]);
   });
 
   it("signale un fichier attendu absent", () => {

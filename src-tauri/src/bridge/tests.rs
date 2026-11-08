@@ -904,8 +904,16 @@ async fn a_chat_opened_by_the_editor_is_marked_before_the_page_learns_of_it() {
             .all(|mark| *mark == (chat_id.clone(), Some(ChatSource::Vscode))),
         "{marks:?}"
     );
-    // Une conversation de l'app, continuée par l'éditeur, garde sa marque
-    // (aucune).
+    // Sa propre conversation se continue.
+    let again = client
+        .request(
+            "chat.send",
+            json!({ "content": "Again", "chatId": chat_id }),
+        )
+        .await;
+    assert_eq!(again["result"]["outcome"], "done", "{again}");
+    // Une conversation de l'app ne se continue pas depuis l'éditeur : refusée
+    // comme une inconnue, rien n'y est écrit, elle garde sa marque (aucune).
     let own = bench
         .store
         .call(|c| chats::create_with(c, 1, false))
@@ -914,11 +922,33 @@ async fn a_chat_opened_by_the_editor_is_marked_before_the_page_learns_of_it() {
     let continued = client
         .request("chat.send", json!({ "content": "Again", "chatId": own }))
         .await;
-    assert_eq!(continued["result"]["outcome"], "done", "{continued}");
+    assert_eq!(error_code(&continued), code::REFUSED, "{continued}");
+    let read = own.clone();
+    let messages = bench
+        .store
+        .call(move |c| chats::get(c, &read))
+        .await
+        .unwrap()
+        .messages;
+    assert!(messages.is_empty(), "{messages:?}");
     let listed = bench.store.call(|c| chats::list(c)).await.unwrap();
     let source = |id: &str| listed.iter().find(|chat| chat.id == id).unwrap().source;
     assert_eq!(source(&chat_id), Some(ChatSource::Vscode));
     assert_eq!(source(&own), None);
+}
+
+#[tokio::test]
+async fn chat_get_does_not_read_a_chat_of_the_app_or_a_bot() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    let own = bench
+        .store
+        .call(|c| chats::create_with(c, 1, false))
+        .await
+        .unwrap();
+    let got = client.request("chat.get", json!({ "chatId": own })).await;
+    assert_eq!(error_code(&got), code::REFUSED, "{got}");
+    assert!(got.get("result").is_none(), "{got}");
 }
 
 #[tokio::test]
@@ -1372,6 +1402,8 @@ async fn an_answer_larger_than_a_frame_is_refused_without_closing() {
         .store
         .call(|c| {
             let id = chats::create_with(c, 1, false)?;
+            // Conversation de l'éditeur : la seule que `chat.get` lit.
+            chats::set_editor(c, &id)?;
             let content = "a".repeat(frame::MAX_BODY + 1);
             chats::add_user_message(c, &id, &content, &[], 2)?;
             Ok(id)

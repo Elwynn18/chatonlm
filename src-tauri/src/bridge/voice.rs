@@ -682,7 +682,11 @@ pub(super) async fn voice_start<H: Host>(
     let me = || Arc::as_ptr(&talk) as *const ();
     let chat = talk.chat.lock().clone();
     if let Some(chat) = chat {
-        let known = shared.store.call(move |c| chats::get(c, &chat)).await;
+        // Seulement une conversation de l'éditeur, comme `chat.get`.
+        let known = shared
+            .store
+            .call(move |c| chats::get_editor(c, &chat))
+            .await;
         if let Err(error) = known {
             shared.forget_talk(connection, me());
             return refused(

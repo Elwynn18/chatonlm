@@ -154,10 +154,29 @@ pub(super) fn read_selection() -> Result<String, SelectionError> {
         && let Some(previous) = previous
     {
         // Hors de l'historique (Win+V) : ce texte y est déjà.
-        let restored = retried(|| clipboard.set().exclude_from_history().text(&previous));
+        let restored = retried(|| {
+            clipboard
+                .set()
+                .exclude_from_history()
+                .exclude_from_cloud()
+                .text(&previous)
+        });
         if let Err(error) = restored {
             crate::app_log!("chatonlm: previous clipboard text not restored: {error}");
         }
     }
     Ok(captured(before, after, read?))
+}
+
+/// Copie `text` hors de l'historique (Win+V) et du presse-papiers en ligne
+/// de Windows.
+pub(super) fn set_private(
+    clipboard: &mut arboard::Clipboard,
+    text: &str,
+) -> Result<(), arboard::Error> {
+    clipboard
+        .set()
+        .exclude_from_history()
+        .exclude_from_cloud()
+        .text(text)
 }

@@ -998,7 +998,12 @@ async fn chat_get<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value, pa
         return invalid(out, id);
     };
     let chat_id = params.chat_id;
-    match shared.store.call(move |c| chats::get(c, &chat_id)).await {
+    // Seulement une conversation de l'éditeur, comme `chat.list`.
+    match shared
+        .store
+        .call(move |c| chats::get_editor(c, &chat_id))
+        .await
+    {
         Ok(mut chat) => {
             shared.host.engine().overlay(&mut chat);
             out.result(id, json!(chat));
@@ -1164,6 +1169,18 @@ async fn chat_send<H: Host>(
     // Accès agents : une nouvelle conversation éphémère, jamais l'historique.
     if sender.agents && (params.chat_id.is_some() || params.ephemeral != Some(true)) {
         return out.error(id, code::FORBIDDEN, "not allowed", None);
+    }
+    // Suite d'une conversation : seulement une conversation de l'éditeur
+    // (jamais une de l'app ni d'un bot), comme `chat.get` et `chat.list`.
+    if let Some(chat) = params.chat_id.clone() {
+        match shared
+            .store
+            .call(move |c| chats::get_editor(c, &chat))
+            .await
+        {
+            Ok(_) => {}
+            Err(error) => return refused(out, id, &error),
+        }
     }
     let settings = match crate::ollama::target::request_settings(&shared.store).await {
         Ok(settings) => settings,

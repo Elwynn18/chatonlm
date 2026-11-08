@@ -18,3 +18,13 @@ pub(super) fn read_primary() -> Result<String, SelectionError> {
         Err(error) => Err(selection_error(error)),
     }
 }
+
+/// Copie `text` hors de l'historique des gestionnaires du presse-papiers
+/// (indice `x-kde-passwordManagerHint`, Wayland et X11).
+pub(super) fn set_private(
+    clipboard: &mut arboard::Clipboard,
+    text: &str,
+) -> Result<(), arboard::Error> {
+    use arboard::SetExtLinux;
+    clipboard.set().exclude_from_history().text(text)
+}

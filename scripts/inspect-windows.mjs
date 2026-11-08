@@ -32,7 +32,11 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { EXCLUDED_ENGINES, formatSize } from "./inspect-packages.mjs";
+import {
+  EXCLUDED_ENGINES,
+  formatSize,
+  testOnlyErrors,
+} from "./inspect-packages.mjs";
 import { parseEnv } from "./package-notices.mjs";
 import { isOllamaLicenseFile } from "./package-notices-windows.mjs";
 
@@ -363,10 +367,19 @@ export function importProblems({ files, pe }) {
  * { ollama: Map(chemin relatif → SHA-256), onnxruntime: SHA-256 | null,
  *   ollamaVersion, sdServer: Map(chemin relatif → SHA-256) | null,
  *   sdServerPinned } (copies vérifiées de .tools/runtimes, versions de
- * packaging/ollama.env et packaging/sdcpp.env) ; `version` de l'app. Rend
+ * packaging/ollama.env et packaging/sdcpp.env) ; `version` de l'app ;
+ * `bytes(chemin)` : contenu brut (exécutable sans le code des essais). Rend
  * { errors, warnings }.
  */
-export function contentProblems({ files, read, hash, pe, reference, version }) {
+export function contentProblems({
+  files,
+  read,
+  bytes,
+  hash,
+  pe,
+  reference,
+  version,
+}) {
   const errors = [];
   const warnings = [];
   const lower = new Map([...files.keys()].map((f) => [f.toLowerCase(), f]));
@@ -489,6 +502,10 @@ export function contentProblems({ files, read, hash, pe, reference, version }) {
         errors.push(`${file} : mention absente (${mention.source})`);
       }
     }
+  }
+
+  if (files.has(MAIN_BINARY)) {
+    errors.push(...testOnlyErrors(bytes(MAIN_BINARY), MAIN_BINARY));
   }
 
   const imports = importProblems({ files: lower, pe });
@@ -729,6 +746,7 @@ function main() {
       const content = contentProblems({
         files,
         read: (file) => readFileSync(path.join(installed, file), "utf8"),
+        bytes: (file) => readFileSync(path.join(installed, file)),
         hash: (file) => sha256(path.join(installed, file)),
         pe: headers,
         reference: readReference(runtimes),

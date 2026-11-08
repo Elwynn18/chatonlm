@@ -917,6 +917,25 @@ function run(cmd, args, options = {}) {
 }
 
 /**
+ * Chaînes propres au greffon WebDriver des essais (fonctionnalité `e2e` de
+ * l'app : un serveur qui pilote toute l'app) ; aucune ne doit se trouver dans
+ * un binaire publié. Relevées dans un build e2e, absentes du build de
+ * production.
+ */
+export const TEST_ONLY_MARKERS = [
+  "AlertStateManager lock poisoned",
+  "element not interactable",
+];
+
+/** Erreurs si le binaire `label` contient le code des essais (WebDriver). */
+export function testOnlyErrors(buffer, label) {
+  return TEST_ONLY_MARKERS.filter((marker) => buffer.includes(marker)).map(
+    (marker) =>
+      `${label} contient le greffon WebDriver des essais (« ${marker} ») : build avec la fonctionnalité e2e`,
+  );
+}
+
+/**
  * Binaire : sonames demandés, versions de symboles, sonames introuvables et
  * sonames chargés (ldd ; `cleanEnv` : sans LD_LIBRARY_PATH, comme sur une
  * machine d'utilisateur).
@@ -1048,6 +1067,14 @@ export function inspectDeb(
   const binary = files.has("usr/bin/chatonlm")
     ? inspectBinary(path.join(dataDir, "usr/bin/chatonlm"))
     : null;
+  if (binary) {
+    errors.push(
+      ...testOnlyErrors(
+        readFileSync(path.join(dataDir, "usr/bin/chatonlm")),
+        "/usr/bin/chatonlm",
+      ),
+    );
+  }
   const builtin = inspectOllama(dataDir, files, ollama, OLLAMA_PREFIX);
   errors.push(...builtin.errors);
   const images = inspectSdServer(dataDir, files, sdServer, SD_PREFIX);
@@ -1147,6 +1174,14 @@ export function inspectAppImage(
   const binary = files.has("usr/bin/chatonlm")
     ? inspectBinary(path.join(dir, "usr/bin/chatonlm"))
     : null;
+  if (binary) {
+    errors.push(
+      ...testOnlyErrors(
+        readFileSync(path.join(dir, "usr/bin/chatonlm")),
+        "usr/bin/chatonlm (AppImage)",
+      ),
+    );
+  }
   const builtin = inspectOllama(dir, files, ollama, APPIMAGE_OLLAMA_PREFIX);
   errors.push(...builtin.errors);
   const images = inspectSdServer(dir, files, sdServer, APPIMAGE_SD_PREFIX);

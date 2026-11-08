@@ -331,7 +331,14 @@ try {
         assert.equal(s.lastResult.error, null);
         assert.equal(s.lastResult.polished, true);
         assert.match(s.lastResult.text, /^Polished: .*country/is);
-        assert.equal((await readClipboard()).text, s.lastResult.text);
+        const copied = await readClipboard();
+        assert.equal(copied.text, s.lastResult.text);
+        // Texte dicté marqué privé : hors de l'historique des gestionnaires du
+        // presse-papiers (Klipper et ceux qui suivent l'indice de KDE).
+        assert.ok(
+          copied.targets.includes("x-kde-passwordManagerHint"),
+          copied.targets.join(", "),
+        );
         // Collage activé par défaut : copié, puis Ctrl+V envoyé par le
         // portail (clavier seul, autorisation gardée jusqu'à révocation).
         assert.equal(s.lastResult.pasted, true);

@@ -36,6 +36,8 @@ import {
   elfEnd,
   EXCLUDED_ENGINES,
   inspectDeb,
+  testOnlyErrors,
+  TEST_ONLY_MARKERS,
   maxSymbolVersions,
   neededLibraries,
   noticeErrors,
@@ -378,6 +380,22 @@ describe("desktop entries", () => {
       `visible : StartupWMClass=${ID} attendu (app_id Wayland)`,
       "visible : Comment[fr] absent",
     ]);
+  });
+});
+
+describe("testOnlyErrors", () => {
+  it("accepts a binary without the test plugin", () => {
+    expect(testOnlyErrors(Buffer.from("\x7fELF chatonlm"), "bin")).toEqual([]);
+  });
+
+  it("refuses each marker of the WebDriver plugin", () => {
+    for (const marker of TEST_ONLY_MARKERS) {
+      expect(
+        testOnlyErrors(Buffer.from(`\x7fELF…${marker}…`), "/usr/bin/chatonlm"),
+      ).toEqual([
+        `/usr/bin/chatonlm contient le greffon WebDriver des essais (« ${marker} ») : build avec la fonctionnalité e2e`,
+      ]);
+    }
   });
 });
 

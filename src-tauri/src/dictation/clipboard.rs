@@ -14,6 +14,10 @@
 //! [`SELECTION_TIMEOUT`] (une application figée qui détient la sélection ne
 //! bloque ni les copies, ni la lecture suivante).
 //!
+//! Le texte copié (dictée, correction) est marqué privé : hors de
+//! l'historique du presse-papiers (Klipper et les gestionnaires qui suivent
+//! l'indice de KDE, Win+V) et du presse-papiers en ligne de Windows.
+//!
 //! Collage ([`Clipboard::paste`], correction de la sélection et dictée) :
 //! Ctrl+V envoyé à l'application au premier plan, par le portail
 //! RemoteDesktop du bureau sous Linux (`portal.rs`, une autorisation commune,
@@ -41,8 +45,12 @@ mod windows;
 
 #[cfg(target_os = "linux")]
 use linux::read_primary as read_selection;
+#[cfg(target_os = "linux")]
+use linux::set_private;
 #[cfg(windows)]
 use windows::read_selection;
+#[cfg(windows)]
+use windows::set_private;
 
 /// Futur renvoyé par les services de la dictée.
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
@@ -238,7 +246,9 @@ fn copy(clipboard: &mut Option<arboard::Clipboard>, text: &str) -> Result<(), St
         let Some(current) = clipboard.as_mut() else {
             continue;
         };
-        match current.set_text(text) {
+        // Texte dicté ou corrigé : collable, mais ni dans l'historique du
+        // presse-papiers (Win+V, Klipper) ni dans son cloud (Windows).
+        match set_private(current, text) {
             Ok(()) => return Ok(()),
             Err(error) => {
                 last_error = error.to_string();

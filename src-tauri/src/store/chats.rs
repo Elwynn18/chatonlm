@@ -720,6 +720,28 @@ pub fn forget_editor(connection: &Connection, id: &str) -> AppResult<bool> {
     Ok(deleted)
 }
 
+/// [`get`] restreint aux conversations de l'éditeur (pont VS Code) : une
+/// conversation de l'app ou d'un bot est introuvable pour lui, comme une
+/// inconnue.
+pub fn get_editor(connection: &Connection, id: &str) -> AppResult<Chat> {
+    if !is_editor(connection, id)? {
+        return Err(not_found(id));
+    }
+    get(connection, id)
+}
+
+/// Conversation ouverte par l'extension VS Code (éphémère ou gardée) ?
+pub fn is_editor(connection: &Connection, id: &str) -> AppResult<bool> {
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM chats WHERE id = ?1 AND editor = 1",
+            params![id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
 /// [`keep`] restreint aux conversations de l'éditeur : une autre (ou une
 /// inconnue) est introuvable pour lui. Rien à faire pour une conversation de
 /// l'éditeur déjà gardée.
