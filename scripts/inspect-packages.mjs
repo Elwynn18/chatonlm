@@ -7,8 +7,10 @@
 // scripts/fetch-ollama.sh : ni strip ni patchelf de linuxdeploy, sans
 // moteur CUDA, ROCm ni MLX, glibc demandée), moteur d'images (sd-server
 // construit par scripts/build-sd-server.sh : mêmes contrôles, plus ses
-// bibliothèques demandées, sans libgomp). Rapport lisible sur la sortie
-// standard ; code 1 si un contrôle échoue.
+// bibliothèques demandées, sans libgomp), moteur de texte (llama-server
+// construit par scripts/build-llama-server.sh : mêmes contrôles, chaque
+// bibliothèque et moteur de calcul compris, rien hors du système de base).
+// Rapport lisible sur la sortie standard ; code 1 si un contrôle échoue.
 //
 // Usage : node scripts/inspect-packages.mjs [options] <paquet.deb> <paquet.AppImage>
 //   --max-glibc <x.y>       échec si le binaire, l'Ollama intégré ou le
@@ -19,6 +21,9 @@
 //                           (défaut : .tools/runtimes/ollama/SHA256SUMS)
 //   --sd-sums <fichier>     empreintes attendues du moteur d'images (défaut :
 //                           .tools/runtimes/sd-server/SHA256SUMS ; VERSION
+//                           attendue : celle du même dossier)
+//   --llama-sums <fichier>  empreintes attendues du moteur de texte (défaut :
+//                           .tools/runtimes/llama-server/SHA256SUMS ; VERSION
 //                           attendue : celle du même dossier)
 //   --report <fichier>      copie du rapport
 import { execFileSync, spawnSync } from "node:child_process";
@@ -76,6 +81,9 @@ export const COMMON_FILES = [
   "usr/share/doc/chatonlm/licenses/ollama/LIBGOMP_GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt",
   // Licences du moteur d'images (ses fichiers : SD_FILES).
   "usr/share/doc/chatonlm/licenses/sd-server/README.txt",
+  // Licences du moteur de texte (ses fichiers : LLAMA_FILES).
+  "usr/share/doc/chatonlm/licenses/llama-server/README.txt",
+  "usr/share/doc/chatonlm/licenses/llama-server/llama.cpp-LICENSE.txt",
 ];
 
 /**
@@ -186,7 +194,83 @@ export const SD_COMPONENT = {
   hostOnly: [],
   source: "scripts/build-sd-server.sh",
 };
-export const BUILTIN_COMPONENTS = [OLLAMA_COMPONENT, SD_COMPONENT];
+
+/**
+ * Moteur de texte (llama-server de llama.cpp, construit par
+ * scripts/build-llama-server.sh dans .tools/runtimes/llama-server), rangé
+ * comme le moteur d'images : resource_dir()/llama-server dans le .deb,
+ * usr/libexec avec un lien depuis resource_dir()/llama-server dans
+ * l'AppImage (linuxdeploy réécrirait le RUNPATH $ORIGIN de ses
+ * bibliothèques).
+ */
+export const LLAMA_PREFIX = "usr/lib/chatonlm/llama-server/";
+export const APPIMAGE_LLAMA_PREFIX = "usr/libexec/chatonlm/llama-server/";
+export const LLAMA_LINK = "usr/lib/chatonlm/llama-server";
+export const LLAMA_LINK_TARGET = "../../libexec/chatonlm/llama-server";
+
+/**
+ * Fichiers du moteur de texte exigés (chemins relatifs à son dossier) : le
+ * lanceur, des bibliothèques, le moteur Vulkan, les variantes du processeur
+ * sans AVX (x64) et avec AVX2 (haswell), le chargeur Vulkan de secours, la
+ * version et les empreintes. Le détail est comparé aux empreintes du dossier
+ * construit (llamaServerErrors).
+ */
+export const LLAMA_FILES = [
+  "llama-server",
+  "libllama-server-impl.so",
+  "libllama.so.0",
+  "libggml-base.so.0",
+  "libggml-vulkan.so",
+  "libggml-cpu-x64.so",
+  "libggml-cpu-haswell.so",
+  "fallback/libvulkan.so.1",
+  "VERSION",
+  "SHA256SUMS",
+];
+
+/** Seul fichier exécutable du moteur de texte. */
+export const LLAMA_EXECUTABLES = ["llama-server"];
+
+/**
+ * Bibliothèques que les fichiers ELF du moteur de texte peuvent demander hors
+ * de son dossier : le système de base (glibc, libstdc++, libgcc) et le
+ * chargeur Vulkan (celui du système, sinon fallback/). Jamais libgomp,
+ * OpenSSL, curl ni zlib.
+ */
+export const LLAMA_SYSTEM_LIBRARIES = [
+  "linux-vdso.so.1",
+  "ld-linux-x86-64.so.2",
+  "libc.so.6",
+  "libm.so.6",
+  "libstdc++.so.6",
+  "libgcc_s.so.1",
+  "libpthread.so.0",
+  "libdl.so.2",
+  "librt.so.1",
+  "libvulkan.so.1",
+];
+
+export const LLAMA_COMPONENT = {
+  name: "Moteur de texte",
+  of: "du moteur de texte",
+  prefix: LLAMA_PREFIX,
+  appImagePrefix: APPIMAGE_LLAMA_PREFIX,
+  link: LLAMA_LINK,
+  linkTarget: LLAMA_LINK_TARGET,
+  executables: LLAMA_EXECUTABLES,
+  onlyExecutables: true,
+  // Le pack CUDA ne vient jamais dans les paquets (téléchargé à part).
+  excluded: EXCLUDED_ENGINES,
+  hostOnly: [],
+  // Livré à côté des fichiers qu'il décrit (absent de ses propres empreintes).
+  extra: ["SHA256SUMS"],
+  source: "scripts/build-llama-server.sh",
+};
+export const BUILTIN_COMPONENTS = [
+  OLLAMA_COMPONENT,
+  SD_COMPONENT,
+  LLAMA_COMPONENT,
+];
 
 /**
  * Fichiers propres au .deb : entrée de menu visible, AppStream, Ollama et
@@ -197,6 +281,7 @@ export const DEB_FILES = [
   `usr/share/metainfo/${ID}.metainfo.xml`,
   ...OLLAMA_FILES.map((f) => `${OLLAMA_PREFIX}${f}`),
   ...SD_FILES.map((f) => `${SD_PREFIX}${f}`),
+  ...LLAMA_FILES.map((f) => `${LLAMA_PREFIX}${f}`),
 ];
 
 /** Fichiers propres à l'AppImage : textes de la LGPL et notice des bibliothèques. */
@@ -210,6 +295,7 @@ export const APPIMAGE_FILES = [
   "usr/share/doc/chatonlm/appimage-libraries/README.txt",
   ...OLLAMA_FILES.map((f) => `${APPIMAGE_OLLAMA_PREFIX}${f}`),
   ...SD_FILES.map((f) => `${APPIMAGE_SD_PREFIX}${f}`),
+  ...LLAMA_FILES.map((f) => `${APPIMAGE_LLAMA_PREFIX}${f}`),
 ];
 
 /** Dépendances du .deb exigées (les deux premières viennent du CLI Tauri). */
@@ -425,6 +511,10 @@ export const NOTICE_MENTIONS = [
   [
     "usr/share/doc/chatonlm/licenses/sd-server/README.txt",
     [/stable-diffusion\.cpp/, /fallback\/libvulkan\.so\.1/, /Apache License/],
+  ],
+  [
+    "usr/share/doc/chatonlm/licenses/llama-server/README.txt",
+    [/llama\.cpp/, /fallback\/libvulkan\.so\.1/, /Apache License/],
   ],
 ];
 
@@ -724,7 +814,11 @@ export function builtinErrors(
     const rel = file.slice(prefix.length);
     if (component.excluded?.test(rel)) {
       errors.push(`${name} : moteur exclu livré : ${file}`);
-    } else if (!sums.has(rel) && rel !== "VERSION") {
+    } else if (
+      !sums.has(rel) &&
+      rel !== "VERSION" &&
+      !(component.extra ?? []).includes(rel)
+    ) {
       errors.push(
         `${name} : fichier inattendu : ${file}${info.link ? ` -> ${info.link}` : ""}`,
       );
@@ -819,6 +913,41 @@ export function sdServerErrors({ pinned, ...options }) {
 }
 
 /**
+ * Contrôles du moteur de texte (builtinErrors) : `sums` de
+ * .tools/runtimes/llama-server/SHA256SUMS, `version` du VERSION de ce
+ * dossier, `pinned` (LLAMA_VERSION de packaging/llama.env) : la version
+ * livrée doit être « <pinned>+chatonlm.<empreinte de 12 caractères> », et le
+ * SHA256SUMS livré, identique aux empreintes de référence.
+ */
+export function llamaServerErrors({ pinned, ...options }) {
+  const errors = builtinErrors(LLAMA_COMPONENT, options);
+  const prefix = options.prefix ?? LLAMA_PREFIX;
+  if (!(options.sums?.size > 0)) return errors;
+  if (pinned && options.files.has(`${prefix}VERSION`)) {
+    const shipped = options.read(`${prefix}VERSION`).trim();
+    const escaped = pinned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!new RegExp(`^${escaped}\\+chatonlm\\.[0-9a-f]{12}$`).test(shipped)) {
+      errors.push(
+        `Moteur de texte : VERSION ${shipped} hors de la forme ${pinned}+chatonlm.<empreinte> (packaging/llama.env)`,
+      );
+    }
+  }
+  const listed = `${prefix}SHA256SUMS`;
+  if (options.files.has(listed)) {
+    const shipped = parseSums(options.read(listed));
+    const same =
+      shipped.size === options.sums.size &&
+      [...options.sums].every(([rel, sum]) => shipped.get(rel) === sum);
+    if (!same) {
+      errors.push(
+        `Moteur de texte : ${listed} différent des empreintes de référence`,
+      );
+    }
+  }
+  return errors;
+}
+
+/**
  * Fichiers ELF de l'Ollama intégré dans un paquet extrait (`dir`) : versions
  * de symboles les plus récentes, sur l'ensemble (objdump -T).
  */
@@ -856,6 +985,28 @@ export function inspectSdServerElf(dir, files, prefix = SD_PREFIX) {
         ? { rel, elf: true, ...inspectBinary(file, { cleanEnv: true }) }
         : { rel, elf: false },
     );
+  }
+  return entries;
+}
+
+/**
+ * Fichiers ELF du moteur de texte dans un paquet extrait (`dir`) : pour
+ * chacun (lanceur, bibliothèques, moteurs de calcul, chargeur de secours),
+ * { rel, needed, versions, missing, linked } (inspectBinary, sans
+ * LD_LIBRARY_PATH : ses bibliothèques sont trouvées par RUNPATH $ORIGIN).
+ */
+export function inspectLlamaServerElf(dir, files, prefix = LLAMA_PREFIX) {
+  const entries = [];
+  for (const [file, info] of [...files].sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    if (!file.startsWith(prefix) || info.link) continue;
+    const full = path.join(dir, file);
+    if (!isElf(full)) continue;
+    entries.push({
+      rel: file.slice(prefix.length),
+      ...inspectBinary(full, { cleanEnv: true }),
+    });
   }
   return entries;
 }
@@ -1028,10 +1179,28 @@ function inspectSdServer(dir, files, sdServer, prefix) {
   return { errors, elf: inspectSdServerElf(dir, files, prefix) };
 }
 
+/**
+ * Moteur de texte d'un paquet extrait dans `dir` : erreurs
+ * (llamaServerErrors) et inspection de ses fichiers ELF. `llamaServer` :
+ * {sums, version, pinned}, ou null pour ne pas le contrôler (essais).
+ */
+function inspectLlamaServer(dir, files, llamaServer, prefix) {
+  if (!llamaServer) return { errors: [], elf: null };
+  const read = (rel) => readFileSync(path.join(dir, rel), "utf8");
+  const errors = llamaServerErrors({
+    files,
+    read,
+    hash: (rel) => sha256(path.join(dir, rel)),
+    prefix,
+    ...llamaServer,
+  });
+  return { errors, elf: inspectLlamaServerElf(dir, files, prefix) };
+}
+
 /** Inspection d'un .deb, extrait dans `work`. */
 export function inspectDeb(
   file,
-  { work, version, ollama = null, sdServer = null },
+  { work, version, ollama = null, sdServer = null, llamaServer = null },
 ) {
   const members = parseAr(readFileSync(file));
   const member = (prefix) => members.find((m) => m.name.startsWith(prefix));
@@ -1079,6 +1248,8 @@ export function inspectDeb(
   errors.push(...builtin.errors);
   const images = inspectSdServer(dataDir, files, sdServer, SD_PREFIX);
   errors.push(...images.errors);
+  const text = inspectLlamaServer(dataDir, files, llamaServer, LLAMA_PREFIX);
+  errors.push(...text.errors);
   return {
     file,
     size: statSync(file).size,
@@ -1088,6 +1259,7 @@ export function inspectDeb(
     binary,
     ollamaElf: builtin.elf,
     sdServerElf: images.elf,
+    llamaServerElf: text.elf,
     missingTools: validation.missing,
   };
 }
@@ -1116,7 +1288,14 @@ export function appImageRuntime(buffer) {
 /** Inspection d'une AppImage, extraite dans `work` (--appimage-extract). */
 export function inspectAppImage(
   file,
-  { work, requireInventory, runtimePin, ollama = null, sdServer = null },
+  {
+    work,
+    requireInventory,
+    runtimePin,
+    ollama = null,
+    sdServer = null,
+    llamaServer = null,
+  },
 ) {
   const buffer = readFileSync(file);
   const runtime = appImageRuntime(buffer);
@@ -1167,6 +1346,7 @@ export function inspectAppImage(
         !info.link &&
         !rel.startsWith(APPIMAGE_OLLAMA_PREFIX) &&
         !rel.startsWith(APPIMAGE_SD_PREFIX) &&
+        !rel.startsWith(APPIMAGE_LLAMA_PREFIX) &&
         /\.so(\.[0-9.]+)?$/.test(rel),
     )
     .map(([rel, info]) => ({ rel, size: info.size }))
@@ -1186,6 +1366,13 @@ export function inspectAppImage(
   errors.push(...builtin.errors);
   const images = inspectSdServer(dir, files, sdServer, APPIMAGE_SD_PREFIX);
   errors.push(...images.errors);
+  const text = inspectLlamaServer(
+    dir,
+    files,
+    llamaServer,
+    APPIMAGE_LLAMA_PREFIX,
+  );
+  errors.push(...text.errors);
   return {
     file,
     size: buffer.length,
@@ -1197,6 +1384,7 @@ export function inspectAppImage(
     binary,
     ollamaElf: builtin.elf,
     sdServerElf: images.elf,
+    llamaServerElf: text.elf,
     missingTools: validation.missing,
   };
 }
@@ -1302,6 +1490,79 @@ export function sdServerLines(files, elf, { maxGlibc, prefix = SD_PREFIX }) {
   return { lines, errors };
 }
 
+/**
+ * Lignes du rapport sur le moteur de texte : taille, nombre de fichiers ELF,
+ * versions de symboles les plus récentes (sur l'ensemble). Erreurs : glibc
+ * plus récente que `maxGlibc` ; bibliothèque introuvable (ldd) autre que le
+ * chargeur Vulkan ; bibliothèque demandée hors de son dossier qui n'est pas
+ * du système de base (LLAMA_SYSTEM_LIBRARIES : jamais libgomp, OpenSSL ni
+ * curl) ; aucun ELF.
+ */
+export function llamaServerLines(
+  files,
+  elf,
+  { maxGlibc, prefix = LLAMA_PREFIX },
+) {
+  if (!elf) return { lines: [], errors: [] };
+  let size = 0;
+  let count = 0;
+  for (const [rel, info] of files) {
+    if (rel.startsWith(prefix) && !info.link) {
+      size += info.size;
+      count += 1;
+    }
+  }
+  const versions = {};
+  for (const entry of elf) {
+    for (const [name, version] of Object.entries(entry.versions)) {
+      if (!versions[name] || compareVersions(version, versions[name]) > 0) {
+        versions[name] = version;
+      }
+    }
+  }
+  const lines = [
+    `Moteur de texte (llama-server) : ${count} fichiers, ${formatSize(size)}, ` +
+      `${elf.length} ELF ; versions de symboles les plus récentes : ${symbolList(versions)}`,
+  ];
+  const errors = [];
+  if (elf.length === 0) {
+    errors.push(`moteur de texte : aucun fichier ELF dans ${prefix}`);
+  }
+  if (
+    maxGlibc &&
+    versions.GLIBC &&
+    compareVersions(versions.GLIBC, maxGlibc) > 0
+  ) {
+    errors.push(
+      `le moteur de texte demande GLIBC_${versions.GLIBC} (maximum permis : ${maxGlibc})`,
+    );
+  }
+  const own = new Set(
+    [...files.keys()]
+      .filter((rel) => rel.startsWith(prefix))
+      .map((rel) => path.posix.basename(rel)),
+  );
+  for (const entry of elf) {
+    const missing = entry.missing.filter((name) => name !== "libvulkan.so.1");
+    if (missing.length > 0) {
+      errors.push(
+        `moteur de texte : ${entry.rel} : bibliothèques introuvables (ldd) : ${missing.join(", ")}`,
+      );
+    }
+    const outside = [...new Set([...entry.needed, ...entry.linked])]
+      .map((name) => path.posix.basename(name))
+      .filter(
+        (name) => !own.has(name) && !LLAMA_SYSTEM_LIBRARIES.includes(name),
+      );
+    if (outside.length > 0) {
+      errors.push(
+        `moteur de texte : ${entry.rel} dépend de ${outside.join(", ")} (hors du système de base)`,
+      );
+    }
+  }
+  return { lines, errors };
+}
+
 function binaryLines(binary, { maxGlibc, depends }) {
   if (!binary) return { lines: [], errors: [] };
   const { needed, versions, missing } = binary;
@@ -1371,11 +1632,14 @@ export function formatReport({ deb, appimage, maxGlibc }) {
     lines.push(...builtin.lines);
     const images = sdServerLines(deb.files, deb.sdServerElf, { maxGlibc });
     lines.push(...images.lines);
+    const text = llamaServerLines(deb.files, deb.llamaServerElf, { maxGlibc });
+    lines.push(...text.lines);
     errors.push(
       ...deb.errors.map((e) => `.deb : ${e}`),
       ...bin.errors.map((e) => `.deb : ${e}`),
       ...builtin.errors.map((e) => `.deb : ${e}`),
       ...images.errors.map((e) => `.deb : ${e}`),
+      ...text.errors.map((e) => `.deb : ${e}`),
     );
     lines.push("");
   }
@@ -1421,11 +1685,17 @@ export function formatReport({ deb, appimage, maxGlibc }) {
       prefix: APPIMAGE_SD_PREFIX,
     });
     lines.push(...images.lines);
+    const text = llamaServerLines(appimage.files, appimage.llamaServerElf, {
+      maxGlibc,
+      prefix: APPIMAGE_LLAMA_PREFIX,
+    });
+    lines.push(...text.lines);
     errors.push(
       ...appimage.errors.map((e) => `AppImage : ${e}`),
       ...bin.errors.map((e) => `AppImage : ${e}`),
       ...builtin.errors.map((e) => `AppImage : ${e}`),
       ...images.errors.map((e) => `AppImage : ${e}`),
+      ...text.errors.map((e) => `AppImage : ${e}`),
     );
     lines.push("");
   }
@@ -1452,6 +1722,7 @@ function main() {
     report: null,
     ollamaSums: path.join(root, ".tools/runtimes/ollama/SHA256SUMS"),
     sdSums: path.join(root, ".tools/runtimes/sd-server/SHA256SUMS"),
+    llamaSums: path.join(root, ".tools/runtimes/llama-server/SHA256SUMS"),
   };
   const packages = [];
   for (let i = 0; i < args.length; i += 1) {
@@ -1460,6 +1731,7 @@ function main() {
     else if (args[i] === "--report") options.report = args[++i];
     else if (args[i] === "--ollama-sums") options.ollamaSums = args[++i];
     else if (args[i] === "--sd-sums") options.sdSums = args[++i];
+    else if (args[i] === "--llama-sums") options.llamaSums = args[++i];
     else packages.push(args[i]);
   }
   const debFile = packages.find((p) => p.endsWith(".deb"));
@@ -1467,7 +1739,8 @@ function main() {
   if ((!debFile && !appFile) || packages.length > 2) {
     console.error(
       "Usage : node scripts/inspect-packages.mjs [--max-glibc x.y] [--require-inventory] " +
-        "[--ollama-sums fichier] [--sd-sums fichier] [--report fichier] " +
+        "[--ollama-sums fichier] [--sd-sums fichier] [--llama-sums fichier] " +
+        "[--report fichier] " +
         "<paquet.deb> <paquet.AppImage>",
     );
     process.exit(2);
@@ -1502,6 +1775,19 @@ function main() {
       readFileSync(path.join(root, "packaging/sdcpp.env"), "utf8"),
     ).SDCPP_VERSION,
   };
+  // Moteur de texte : de même, dossier construit par build-llama-server.sh.
+  const llamaVersion = path.join(path.dirname(options.llamaSums), "VERSION");
+  const llamaServer = {
+    sums: existsSync(options.llamaSums)
+      ? parseSums(readFileSync(options.llamaSums, "utf8"))
+      : new Map(),
+    version: existsSync(llamaVersion)
+      ? readFileSync(llamaVersion, "utf8").trim()
+      : null,
+    pinned: parseEnv(
+      readFileSync(path.join(root, "packaging/llama.env"), "utf8"),
+    ).LLAMA_VERSION,
+  };
   const work = path.join(root, ".tools/package/inspect");
   const deb = debFile
     ? inspectDeb(debFile, {
@@ -1509,6 +1795,7 @@ function main() {
         version,
         ollama,
         sdServer,
+        llamaServer,
       })
     : null;
   const appimage = appFile
@@ -1518,6 +1805,7 @@ function main() {
         runtimePin: pin,
         ollama,
         sdServer,
+        llamaServer,
       })
     : null;
   const { text, errors } = formatReport({

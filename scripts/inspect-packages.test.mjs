@@ -5,8 +5,8 @@
 // (appimage-libs.sh : classement des licences, liste, comparaison),
 // configuration du bundle (src-tauri/tauri.conf.json), Ollama intégré
 // (fetch-ollama.sh sur une archive fabriquée ici, contrôles des paquets,
-// notices) et moteur d'images (sd-server : contrôles des paquets, rangement
-// dans le bundle).
+// notices), moteur d'images (sd-server : contrôles des paquets, rangement
+// dans le bundle) et moteur de texte (llama-server : de même).
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -36,6 +36,14 @@ import {
   elfEnd,
   EXCLUDED_ENGINES,
   inspectDeb,
+  APPIMAGE_LLAMA_PREFIX,
+  inspectLlamaServerElf,
+  LLAMA_FILES,
+  LLAMA_LINK,
+  LLAMA_LINK_TARGET,
+  LLAMA_PREFIX,
+  llamaServerErrors,
+  llamaServerLines,
   testOnlyErrors,
   TEST_ONLY_MARKERS,
   maxSymbolVersions,
@@ -193,6 +201,10 @@ const SONORA = [
 const SD_README = "usr/share/doc/chatonlm/licenses/sd-server/README.txt";
 const SD_README_TEXT =
   "sd-server of stable-diffusion.cpp\nfallback/libvulkan.so.1: Apache License\n";
+/** Notice du moteur de texte, réduite à ce que noticeErrors exige. */
+const LLAMA_README = "usr/share/doc/chatonlm/licenses/llama-server/README.txt";
+const LLAMA_README_TEXT =
+  "llama-server of llama.cpp\nfallback/libvulkan.so.1: Apache License\n";
 const crateLines = (names) =>
   `Crates\n${names.map((name) => `  ${name} 0.2.0 (BSD-3-Clause) https://example.org\n`).join("")}`;
 
@@ -203,6 +215,7 @@ function packageFiles(extra = {}) {
   files[THIRD_PARTY] = "-- Silero VAD --\n";
   files[RUST_CRATES] = crateLines(SONORA);
   files[SD_README] = SD_README_TEXT;
+  files[LLAMA_README] = LLAMA_README_TEXT;
   files["usr/bin/chatonlm"] = { elf: true };
   files["usr/share/applications/chatonlm.desktop"] = HIDDEN;
   files["usr/share/doc/chatonlm/copyright"] = debCopyright({
@@ -530,6 +543,7 @@ describe("appImageErrors", () => {
     const files = packageFiles({
       [OLLAMA_LINK]: { link: OLLAMA_LINK_TARGET },
       [SD_LINK]: { link: SD_LINK_TARGET },
+      [LLAMA_LINK]: { link: LLAMA_LINK_TARGET },
       ...extra,
     });
     for (const rel of APPIMAGE_FILES) files[rel] ??= "x";
@@ -1886,6 +1900,7 @@ describe("image engine (sd-server) in the packages", () => {
     ]);
     const appimage = packageFiles({
       [OLLAMA_LINK]: { link: OLLAMA_LINK_TARGET },
+      [LLAMA_LINK]: { link: LLAMA_LINK_TARGET },
       [`${SD_PREFIX}sd-server`]: { elf: true },
     });
     for (const rel of APPIMAGE_FILES) appimage[rel] ??= "x";
@@ -2290,4 +2305,230 @@ describe("fetch-ollama.sh", () => {
     },
     30_000,
   );
+});
+
+describe("text engine (llama-server) in the packages", () => {
+  const PINNED = "v0.9.0";
+  const VERSION = `${PINNED}+chatonlm.0123456789ab`;
+  // Empreintes du dossier construit (hash = contenu dans view, sauf VERSION,
+  // qui se lit) ; SHA256SUMS, livré, les reprend.
+  const SUMS = new Map([
+    ["llama-server", "a".repeat(64)],
+    ["libllama.so.0", "b".repeat(64)],
+    ["libggml-base.so.0", "c".repeat(64)],
+    ["libggml-cpu-haswell.so", "d".repeat(64)],
+    ["fallback/libvulkan.so.1", "e".repeat(64)],
+    ["VERSION", "f".repeat(64)],
+  ]);
+  const SUMS_TEXT = [...SUMS].map(([rel, sum]) => `${sum}  ${rel}\n`).join("");
+
+  /** Vue d'un paquet : le moteur de SUMS sous `prefix`, puis `changes`. */
+  function view(changes = {}, prefix = LLAMA_PREFIX) {
+    const entries = new Map();
+    for (const [rel, sum] of SUMS) {
+      entries.set(`${prefix}${rel}`, {
+        content: rel === "VERSION" ? `${VERSION}\n` : sum,
+        sum,
+        mode: rel === "llama-server" ? 0o100755 : 0o100644,
+      });
+    }
+    entries.set(`${prefix}SHA256SUMS`, { content: SUMS_TEXT, mode: 0o100644 });
+    for (const [rel, change] of Object.entries(changes)) {
+      if (change === null) entries.delete(rel);
+      else entries.set(rel, { ...entries.get(rel), ...change });
+    }
+    const files = new Map(
+      [...entries].map(([rel, e]) => [
+        rel,
+        { size: 1, mode: e.mode ?? 0o100644, link: e.link ?? null },
+      ]),
+    );
+    const content = (rel) => entries.get(rel)?.content ?? "";
+    const hash = (rel) =>
+      rel.endsWith("/VERSION") ? entries.get(rel)?.sum : content(rel);
+    return { files, hash, read: content };
+  }
+  const check = (
+    changes,
+    { sums = SUMS, version = VERSION, pinned = PINNED, prefix } = {},
+  ) =>
+    llamaServerErrors({
+      ...view(changes, prefix),
+      sums,
+      version,
+      pinned,
+      ...(prefix ? { prefix } : {}),
+    });
+
+  it("accepts the files of the built directory, with their checksums", () => {
+    expect(check({})).toEqual([]);
+  });
+
+  it("refuses a missing, changed or extra file, a CUDA backend and a stray executable bit", () => {
+    expect(
+      check({
+        [`${LLAMA_PREFIX}libllama.so.0`]: null,
+        [`${LLAMA_PREFIX}libggml-base.so.0`]: { content: "stripped" },
+        [`${LLAMA_PREFIX}libggml-cpu-old.so`]: { content: "x" },
+        [`${LLAMA_PREFIX}libggml-cuda.so`]: { content: "x" },
+        [`${LLAMA_PREFIX}libggml-cpu-haswell.so`]: { mode: 0o100755 },
+      }),
+    ).toEqual([
+      `Moteur de texte : fichier absent : ${LLAMA_PREFIX}libllama.so.0`,
+      `Moteur de texte : fichier modifié (strip, patchelf ?) : ${LLAMA_PREFIX}libggml-base.so.0`,
+      `Moteur de texte : fichier inattendu : ${LLAMA_PREFIX}libggml-cpu-old.so`,
+      `Moteur de texte : moteur exclu livré : ${LLAMA_PREFIX}libggml-cuda.so`,
+      `Moteur de texte : ${LLAMA_PREFIX}libggml-cpu-haswell.so ne doit pas être exécutable`,
+    ]);
+    expect(
+      check({ [`${LLAMA_PREFIX}llama-server`]: { mode: 0o100644 } }),
+    ).toEqual([
+      `Moteur de texte : ${LLAMA_PREFIX}llama-server n'est pas exécutable`,
+    ]);
+  });
+
+  it("requires the pinned version and the shipped checksums of the built directory", () => {
+    expect(check({}, { pinned: "v0.9.1" })).toEqual([
+      `Moteur de texte : VERSION ${VERSION} hors de la forme v0.9.1+chatonlm.<empreinte> (packaging/llama.env)`,
+    ]);
+    expect(
+      check({
+        [`${LLAMA_PREFIX}SHA256SUMS`]: { content: SUMS_TEXT.split("\n")[0] },
+      }),
+    ).toEqual([
+      `Moteur de texte : ${LLAMA_PREFIX}SHA256SUMS différent des empreintes de référence`,
+    ]);
+    expect(check({}, { sums: new Map() })).toEqual([
+      "empreintes du moteur de texte absentes (lancer scripts/build-llama-server.sh)",
+    ]);
+  });
+
+  it("checks the AppImage copy in usr/libexec, behind a link", () => {
+    expect(check({}, { prefix: APPIMAGE_LLAMA_PREFIX })).toEqual([]);
+    for (const rel of LLAMA_FILES) {
+      expect(DEB_FILES).toContain(`${LLAMA_PREFIX}${rel}`);
+      expect(APPIMAGE_FILES).toContain(`${APPIMAGE_LLAMA_PREFIX}${rel}`);
+    }
+    const appimage = packageFiles({
+      [OLLAMA_LINK]: { link: OLLAMA_LINK_TARGET },
+      [SD_LINK]: { link: SD_LINK_TARGET },
+      [`${LLAMA_PREFIX}llama-server`]: { elf: true },
+    });
+    for (const rel of APPIMAGE_FILES) appimage[rel] ??= "x";
+    expect(
+      appImageErrors({
+        ...filesView(appimage),
+        rootDesktops: ["chatonlm.desktop"],
+        requireInventory: false,
+      }),
+    ).toEqual([
+      `fichier propre au .deb dans l'AppImage : ${LLAMA_PREFIX}llama-server`,
+      `${LLAMA_LINK} : lien vers ${LLAMA_LINK_TARGET} attendu (absent)`,
+      `Moteur de texte dans usr/lib (linuxdeploy le traiterait) : ${LLAMA_PREFIX}llama-server`,
+    ]);
+  });
+
+  it("refuses libraries out of the base system, a missing library other than Vulkan and a recent glibc", () => {
+    const { files } = view();
+    const entry = (rel, more = {}) => ({
+      rel,
+      needed: ["libggml-base.so.0", "libstdc++.so.6", "libc.so.6"],
+      versions: { GLIBC: "2.34", GLIBCXX: "3.4.30" },
+      missing: [],
+      linked: ["libggml-base.so.0", "libstdc++.so.6", "libc.so.6"],
+      ...more,
+    });
+    const ok = llamaServerLines(
+      files,
+      [
+        entry("llama-server"),
+        entry("libggml-vulkan.so", {
+          needed: ["libvulkan.so.1", "libggml-base.so.0"],
+          missing: ["libvulkan.so.1"],
+        }),
+      ],
+      { maxGlibc: "2.35" },
+    );
+    expect(ok.errors).toEqual([]);
+    expect(ok.lines).toEqual([
+      "Moteur de texte (llama-server) : 7 fichiers, 7 o, 2 ELF ; versions de symboles les plus récentes : GLIBC_2.34, GLIBCXX_3.4.30",
+    ]);
+    const bad = llamaServerLines(
+      files,
+      [
+        entry("libllama-common.so.0", {
+          needed: ["libssl.so.3", "libggml-base.so.0"],
+          linked: ["libssl.so.3", "libcrypto.so.3"],
+        }),
+        entry("libggml-cpu-haswell.so", {
+          linked: ["libgomp.so.1"],
+          missing: ["libfoo.so.1"],
+          versions: { GLIBC: "2.38" },
+        }),
+      ],
+      { maxGlibc: "2.35" },
+    );
+    expect(bad.errors).toEqual([
+      "le moteur de texte demande GLIBC_2.38 (maximum permis : 2.35)",
+      "moteur de texte : libllama-common.so.0 dépend de libssl.so.3, libcrypto.so.3 (hors du système de base)",
+      "moteur de texte : libggml-cpu-haswell.so : bibliothèques introuvables (ldd) : libfoo.so.1",
+      "moteur de texte : libggml-cpu-haswell.so dépend de libgomp.so.1 (hors du système de base)",
+    ]);
+    expect(llamaServerLines(files, [], {}).errors).toEqual([
+      `moteur de texte : aucun fichier ELF dans ${LLAMA_PREFIX}`,
+    ]);
+    expect(llamaServerLines(files, null, {})).toEqual({
+      lines: [],
+      errors: [],
+    });
+  });
+
+  it("reads every ELF file of its directory, and only those", () => {
+    const dir = tree(tempDir("llama-elf-"), {
+      [`${LLAMA_PREFIX}llama-server`]: { elf: true },
+      [`${LLAMA_PREFIX}fallback/libvulkan.so.1`]: { elf: true },
+      [`${LLAMA_PREFIX}VERSION`]: VERSION,
+      [`${SD_PREFIX}sd-server`]: { elf: true },
+    });
+    const entries = inspectLlamaServerElf(dir, walk(dir));
+    expect(entries.map((entry) => entry.rel)).toEqual([
+      "fallback/libvulkan.so.1",
+      "llama-server",
+    ]);
+    expect(entries[1].needed).toContain("libc.so.6");
+    expect(entries[1].missing).toEqual([]);
+  });
+});
+
+describe("text engine in the bundle configuration", () => {
+  it("installs the whole built directory in both packages, the AppImage copy out of usr/lib", () => {
+    const { deb, appimage } = CONFIG.bundle.linux;
+    const built = "../.tools/runtimes/llama-server";
+    const entries = (files, dest) =>
+      Object.fromEntries(
+        Object.entries(files).filter(
+          ([to, from]) => to === dest || from === built,
+        ),
+      );
+    expect(entries(deb.files, `/${LLAMA_LINK}`)).toEqual({
+      [`/${LLAMA_LINK}`]: built,
+    });
+    expect(
+      entries(appimage.files, `/${APPIMAGE_LLAMA_PREFIX.slice(0, -1)}`),
+    ).toEqual({
+      [`/${APPIMAGE_LLAMA_PREFIX.slice(0, -1)}`]: built,
+    });
+  });
+
+  it("builds the engine after sd-server and links it in the AppImage", () => {
+    const script = readFileSync(path.join(ROOT, "scripts/package.sh"), "utf8");
+    const lib = script.split("appimage_lib() {")[1].split("\n}")[0];
+    expect(lib).toContain(`ln -s ${LLAMA_LINK_TARGET} "$dir/llama-server"`);
+    const sd = script.indexOf("scripts/build-sd-server.sh\n");
+    const llama = script.indexOf(
+      `run "Moteur de texte épinglé" scripts/build-llama-server.sh`,
+    );
+    expect(sd).toBeGreaterThan(0);
+    expect(llama).toBeGreaterThan(sd);
+  });
 });

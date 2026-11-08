@@ -253,7 +253,8 @@ fn list_size(repo: &Repo, parameters: Option<u64>, hardware: Option<&HubHardware
     let download = |index: usize| {
         let model: u64 = versions[index].size;
         let projector = if vision {
-            quant::estimated_projector_size(&files, model).unwrap_or(0)
+            quant::estimated_projector_size(&files, versions[index].quant.as_deref(), model)
+                .unwrap_or(0)
         } else {
             0
         };
@@ -515,17 +516,21 @@ pub fn repo_view(
     let files = repo.file_entries();
     let versions = quant::inventory(&repo.id, &files);
     let vision = repo.capabilities.vision;
-    let projector = if vision {
-        quant::projector_size(&files).unwrap_or(0)
-    } else {
-        0
+    // Projecteur téléchargé avec chaque version (même précision, sinon Q8_0,
+    // F16...).
+    let projector = |version: &quant::Version| {
+        if vision {
+            quant::projector_size(&files, version.quant.as_deref()).unwrap_or(0)
+        } else {
+            0
+        }
     };
     let context_used =
         hardware.map(|hardware| fit::model_context(hardware.context, repo.context_length, vision));
     let mut quants: Vec<HubQuant> = versions
         .iter()
         .map(|version| {
-            let download_size = version.size.saturating_add(projector);
+            let download_size = version.size.saturating_add(projector(version));
             let memory = context_used.map(|context| {
                 let kv = fit::kv_cache(header, parameters, repo.architecture.as_deref(), context);
                 fit::memory(download_size, kv, context)
@@ -744,7 +749,8 @@ mod tests {
             likes: 50,
             ..unknown.clone()
         }));
-        // 5) Version téléchargeable : que des morceaux.
+        // 5) Version téléchargeable : des morceaux dans un sous-dossier le
+        // sont (téléchargements directs).
         let sharded = Repo {
             files: vec![
                 RepoFile {
@@ -758,8 +764,8 @@ mod tests {
             ],
             ..repo("Qwen/Qwen3-235B-GGUF")
         };
-        assert!(!curated(&sharded));
-        assert!(!usable(&sharded));
+        assert!(curated(&sharded));
+        assert!(usable(&sharded));
         // 6) Restreint, privé.
         for other in [
             Repo {
@@ -1017,9 +1023,12 @@ mod tests {
             vec!["lmstudio-community/x".into()],
         );
         assert_eq!(view.context_used, Some(32768));
-        assert_eq!(view.quants.len(), 4);
+        // Le BF16 découpé porte le même nom que celui de la racine : écarté.
+        assert_eq!(view.quants.len(), 3);
         let q8 = view.quants.iter().find(|q| q.label == "Q8_0").unwrap();
+        // Projecteur : pas de Q8_0, donc F16.
         assert_eq!(q8.download_size, 9_527_502_048 + 918_166_080);
+        assert_eq!(q8.model.as_deref(), Some("unsloth/Qwen3.5-9B-GGUF:Q8_0"));
         // Poids + KV (8 × 4 têtes × 512 × 2 octets × 32768) + 0,5 Gio + 768 Mio.
         let kv = 32 * 512 * 2 * 32768u64;
         assert_eq!(
@@ -1029,18 +1038,10 @@ mod tests {
         assert_eq!(q8.fit, Some(HubFit::Fits));
         assert!(q8.recommended);
         assert_eq!(view.quants.iter().filter(|q| q.recommended).count(), 1);
-        let bf16 = view
-            .quants
-            .iter()
-            .find(|q| q.label == "BF16" && q.issue.is_none())
-            .unwrap();
+        let bf16 = view.quants.iter().find(|q| q.label == "BF16").unwrap();
+        assert_eq!(bf16.file, "Qwen3.5-9B-BF16.gguf");
         assert_eq!(bf16.fit, Some(HubFit::Partial));
-        let sharded = view
-            .quants
-            .iter()
-            .find(|q| q.issue == Some(crate::hub::types::HubQuantIssue::Sharded))
-            .unwrap();
-        assert_eq!(sharded.model, None);
+        assert!(view.quants.iter().all(|q| q.issue.is_none()));
         assert_eq!(view.model.estimated_size, Some(q8.download_size));
         assert_eq!(view.model.fit, Some(HubFit::Fits));
         assert_eq!(view.other_sources, ["lmstudio-community/x"]);
@@ -1184,8 +1185,8 @@ mod tests {
         assert_eq!(small.fit, Some(HubFit::Partial));
         assert!(small.estimated_memory.unwrap() > 4 << 30);
 
-        // Restreint, ou sans version téléchargeable (dossier découpé seul) :
-        // l'estimation d'une Q4_K_M.
+        // Restreint : l'estimation d'une Q4_K_M ; dossier découpé seul :
+        // téléchargeable, estimé comme sa version (BF16).
         let fallback = fit::list_size(Some(total), false);
         let gated = Repo {
             gated: true,
@@ -1200,7 +1201,10 @@ mod tests {
                 "BF16/Qwen3.5-9B-BF16-00002-of-00002.gguf",
             ],
         );
-        assert_eq!(model(&sharded, None).estimated_size, fallback);
+        assert_eq!(
+            model(&sharded, None).estimated_size,
+            Some(quant::estimated_size(Some("BF16"), total))
+        );
         // Sans nombre de paramètres (ni annoncé, ni dans le nom) : rien.
         let unknown = Repo {
             total: None,

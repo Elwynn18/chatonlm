@@ -15,7 +15,7 @@ crate-type = ["rlib"]
 
 [workspace]
 # Outils de test ; src-tauri reste la racine (target/ et Cargo.lock ici).
-members = ["crates/easy-link", "crates/fake-ollama", "crates/speech-text", "crates/windows-tray"]
+members = ["crates/easy-link", "crates/fake-llama", "crates/fake-ollama", "crates/speech-text", "crates/windows-tray"]
 
 [features]
 # Essais de l'app réelle uniquement (scripts/e2e-build.sh) : embarque un serveur
@@ -108,6 +108,9 @@ tauri-plugin-webdriver = { version = "=0.2.3", optional = true }
 # (greffon des mises à jour, essais).
 tempfile = "3.27.0"
 thiserror = "2.0.21"
+# Client d'inférence : annulation d'une réponse de llama-server (le flux
+# est lâché, la connexion fermée). Déjà dans l'arbre (hyper, h2).
+tokio-util = "0.7.19"
 # Dictée : transcription locale, Parakeet (ONNX Runtime, voir `ort`) et
 # Whisper (whisper.cpp compilé par cmake).
 transcribe-rs = { version = "0.3.12", features = ["onnx", "whisper-cpp"] }
@@ -226,6 +229,8 @@ opt-level = 3
 [dev-dependencies]
 easy-link = { path = "crates/easy-link", features = ["fake"] }
 fake-ollama = { path = "crates/fake-ollama" }
+# Faux llama-server des essais du client d'inférence (et du moteur, L3).
+fake-llama = { path = "crates/fake-llama" }
 # « test » : app simulée (tauri::test) pour construire le greffon des mises à
 # jour dans les essais du module updater.
 tauri = { version = "2.12", features = ["image-png", "test"] }

@@ -10,6 +10,7 @@ mod desktop;
 mod dictation;
 mod disk;
 mod easy_link;
+mod engine;
 mod error;
 mod gpu;
 mod graphics;
@@ -17,10 +18,13 @@ mod hub;
 mod i18n;
 mod image_gen;
 mod image_models;
+mod inference;
+mod local_models;
 mod logging;
 mod ollama;
 mod os_util;
 mod paths;
+mod process;
 mod proofread;
 mod shutdown;
 mod startup;
@@ -131,6 +135,12 @@ pub fn run() {
             // frontend montre le problème (voir startup.rs).
             let startup = Startup::new(database);
             let store = startup.open();
+            // Base locale des modèles : les téléchargements du ModelHub y
+            // écrivent (`<données>/models` par défaut).
+            if let Some(store) = &store {
+                app.state::<HubDownloads>()
+                    .attach(store.clone(), data_dir.clone());
+            }
             // Langue des textes du moteur (zone de notification, notifications,
             // erreurs) avant tout le reste.
             i18n::set_current(i18n::saved(store.as_ref()));

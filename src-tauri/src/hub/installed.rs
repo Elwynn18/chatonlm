@@ -1,132 +1,96 @@
-//! Modèles installés sur le serveur (onglet Installed du ModelHub) et
-//! suppression (`DELETE /api/delete`).
-//!
-//! Contrairement au sélecteur (`ollama::models::list`), la liste garde tous
-//! les modèles locaux, embeddings compris ; seuls les modèles distants
-//! (`remote_host`, cloud) sont écartés. Ordre : du plus récent au plus ancien
-//! (date `modified_at`), celui du serveur à date égale ou illisible.
+//! Modèles installés (onglet Installed du ModelHub) et suppression, lus dans
+//! la base locale des modèles (`local_models`, migration 0039) depuis le
+//! passage à llama-server : plus de `/api/tags` ni de `DELETE /api/delete`.
+//! Ordre : du plus récent au plus ancien.
 
-use std::time::Duration;
+use std::path::Path;
 
-use serde::Deserialize;
-
-use super::names::parse_hf_name;
 use super::types::HubInstalled;
-use crate::error::{AppError, AppResult};
-use crate::i18n::t;
-use crate::ollama::client;
-use crate::ollama::models::{answered, error_message, unreachable};
+use crate::error::AppResult;
+use crate::local_models;
+use crate::store::Store;
+use crate::store::local_models::{self as table, StoredLocalModel};
 
-/// Délai de la liste : quelques fichiers lus par le serveur.
-const LIST_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Délai d'une suppression (manifeste et couches non partagées effacés).
-const DELETE_TIMEOUT: Duration = Duration::from_secs(30);
-
-#[derive(Deserialize)]
-struct TagsResponse {
-    models: Vec<Tag>,
-}
-
-#[derive(Deserialize)]
-struct Tag {
-    name: String,
-    #[serde(default)]
-    remote_host: Option<String>,
-    #[serde(default)]
-    size: u64,
-    #[serde(default)]
-    modified_at: Option<String>,
-    #[serde(default)]
-    details: Details,
-    #[serde(default)]
-    capabilities: Option<Vec<String>>,
-}
-
-#[derive(Default, Deserialize)]
-struct Details {
-    #[serde(default)]
-    parameter_size: String,
-    #[serde(default)]
-    quantization_level: String,
-    #[serde(default)]
-    family: String,
-}
-
-/// Modèles locaux du serveur `base`, du plus récent au plus ancien.
-pub async fn list(base: &str) -> AppResult<Vec<HubInstalled>> {
-    let url = client::server_url(base)?;
-    let client = client::client(&url, Some(LIST_TIMEOUT)).map_err(unreachable)?;
-    let response = client
-        .get(format!("{base}/api/tags"))
-        .send()
+/// Modèles de la base locale, du plus récent au plus ancien.
+pub async fn list(store: &Store) -> AppResult<Vec<HubInstalled>> {
+    store
+        .call(|connection| Ok(table::list(connection)?.iter().map(installed).collect()))
         .await
-        .map_err(unreachable)?;
-    let status = response.status();
-    let body = response.text().await.map_err(unreachable)?;
-    if !status.is_success() {
-        return Err(answered(status.as_u16(), &error_message(&body)));
-    }
-    parse(&body)
 }
 
-fn parse(body: &str) -> AppResult<Vec<HubInstalled>> {
-    let tags: TagsResponse = serde_json::from_str(body)
-        .map_err(|error| AppError::Ollama(t!("ollama.unexpectedModels", error = error)))?;
-    let mut models: Vec<(Option<i128>, HubInstalled)> = tags
-        .models
-        .into_iter()
-        .filter(|tag| tag.remote_host.as_deref().is_none_or(str::is_empty))
-        .map(|tag| {
-            let repo = parse_hf_name(&tag.name).map(|name| name.repo_id());
-            let date = tag.modified_at.as_deref().and_then(timestamp);
-            (
-                date,
-                HubInstalled {
-                    model: tag.name,
-                    size: tag.size,
-                    modified_at: tag.modified_at,
-                    parameter_size: tag.details.parameter_size,
-                    quantization_level: tag.details.quantization_level,
-                    family: tag.details.family,
-                    capabilities: tag.capabilities.unwrap_or_default(),
-                    repo,
-                },
-            )
-        })
+/// Ligne de la base pour la page : capacités sous les noms d'Ollama que la
+/// page lit (`completion`, `vision`, `tools`, `thinking`, `insert`), date
+/// d'installation en RFC 3339.
+pub fn installed(model: &StoredLocalModel) -> HubInstalled {
+    let caps = model.capabilities;
+    let capabilities = std::iter::once("completion")
+        .chain(caps.vision.then_some("vision"))
+        .chain(caps.tools.then_some("tools"))
+        .chain(caps.thinking.then_some("thinking"))
+        .chain(caps.fim.then_some("insert"))
+        .map(str::to_owned)
         .collect();
-    // Tri stable : dates décroissantes, illisibles à la fin.
-    models.sort_by(|(a, _), (b, _)| b.cmp(a));
-    Ok(models.into_iter().map(|(_, model)| model).collect())
+    HubInstalled {
+        model: model.id.clone(),
+        size: model.size_bytes,
+        modified_at: Some(rfc3339(model.installed_at)),
+        parameter_size: model.params_label.clone().unwrap_or_default(),
+        quantization_level: model.quant.clone(),
+        family: model.arch.clone().unwrap_or_default(),
+        capabilities,
+        repo: (model.source == local_models::ModelSource::Hf).then(|| model.repo.clone()),
+    }
 }
 
-/// Supprime `model` du serveur `base` : 200 → fait ; 404 → introuvable.
-/// Déchargé d'abord, erreurs ignorées, comme `ollama rm` (`cmd/cmd.go`,
-/// `DeleteHandler`) : un modèle supprimé resterait en mémoire, et Ollama
-/// refuserait ensuite de le décharger (404, vu sur 0.35.1).
-pub async fn delete(base: &str, model: &str) -> AppResult<()> {
+/// Supprime le modèle `model` de la base locale et ses fichiers, sauf ceux
+/// que `reserved` garde (voir [`local_models::delete`]).
+pub async fn delete(
+    store: &Store,
+    data_dir: &Path,
+    model: &str,
+    reserved: &local_models::Reserved,
+) -> AppResult<()> {
     if model.trim().is_empty() {
         // i18n-ignore : la page ne demande jamais un nom vide.
-        return Err(AppError::Invalid("model name is empty".into()));
+        return Err(crate::error::AppError::Invalid(
+            "model name is empty".into(),
+        ));
     }
-    let _ = crate::ollama::running::unload(base, model).await;
-    let url = client::server_url(base)?;
-    let client = client::client(&url, Some(DELETE_TIMEOUT)).map_err(unreachable)?;
-    let response = client
-        .delete(format!("{base}/api/delete"))
-        .json(&serde_json::json!({ "model": model }))
-        .send()
-        .await
-        .map_err(unreachable)?;
-    let status = response.status();
-    if status.is_success() {
-        return Ok(());
-    }
-    if status == reqwest::StatusCode::NOT_FOUND {
-        return Err(AppError::NotFound(t!("ollama.installedNotFound")));
-    }
-    let body = response.text().await.unwrap_or_default();
-    Err(answered(status.as_u16(), &error_message(&body)))
+    local_models::delete(store, data_dir, model.trim(), reserved).await
+}
+
+/// Date RFC 3339 en UTC (« 2026-11-08T10:00:00.123Z ») de `ms` depuis 1970.
+pub fn rfc3339(ms: i64) -> String {
+    let seconds = ms.div_euclid(1000);
+    let millis = ms.rem_euclid(1000);
+    let (days, rest) = (seconds.div_euclid(86_400), seconds.rem_euclid(86_400));
+    let (year, month, day) = civil_from_days(days);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{millis:03}Z",
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60
+    )
+}
+
+/// Date d'un nombre de jours depuis 1970 (inverse de [`days_from_civil`] ;
+/// algorithme de Howard Hinnant, `civil_from_days`).
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    (year, month, day)
 }
 
 /// Date RFC 3339 d'Ollama (« 2026-10-04T12:00:00.123456789+02:00 », « …Z »)
@@ -204,9 +168,8 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use fake_ollama::{FakeOllama, Mode};
-
     use super::*;
+    use crate::store::local_models::tests::model;
 
     #[test]
     fn dates_are_read_like_rfc_3339() {
@@ -252,127 +215,59 @@ mod tests {
     }
 
     #[test]
-    fn local_models_newest_first_with_their_repository() {
-        let body = serde_json::json!({ "models": [
-            {
-                "name": "qwen3:0.6b", "size": 522_653_767_u64,
-                "modified_at": "2026-10-01T10:00:00.000000000+02:00",
-                "details": { "family": "qwen3", "parameter_size": "751.63M",
-                    "quantization_level": "Q4_K_M" },
-                "capabilities": ["completion", "thinking"],
-            },
-            // Distant : écarté.
-            {
-                "name": "gpt-oss:120b-cloud", "remote_host": "https://ollama.com:443",
-                "modified_at": "2026-10-05T10:00:00Z",
-            },
-            // Hôte distant vide : local.
-            {
-                "name": "nomic-embed-text:latest", "remote_host": "", "size": 274_302_450_u64,
-                "modified_at": "2026-09-01T00:00:00Z",
-                "details": { "family": "nomic-bert" }, "capabilities": ["embedding"],
-            },
-            // Plus récent malgré son fuseau (08:30 UTC contre 08:00 UTC).
-            {
-                "name": "HF.CO/bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M",
-                "size": 105_455_694_u64,
-                "modified_at": "2026-10-01T04:30:00-04:00",
-                "details": { "family": "llama", "parameter_size": "135M",
-                    "quantization_level": "Q4_K_M" },
-                "capabilities": ["completion"],
-            },
-            // Date illisible : à la fin.
-            { "name": "mystery:latest", "modified_at": "someday" },
-            { "name": "huggingface.co/unsloth/Qwen3-8B-GGUF:UD-Q4_K_XL",
-              "modified_at": "2026-10-02T00:00:00Z" },
-        ]});
-        let models = parse(&body.to_string()).unwrap();
-        let names: Vec<_> = models.iter().map(|m| m.model.as_str()).collect();
-        assert_eq!(
-            names,
-            [
-                "huggingface.co/unsloth/Qwen3-8B-GGUF:UD-Q4_K_XL",
-                "HF.CO/bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M",
-                "qwen3:0.6b",
-                "nomic-embed-text:latest",
-                "mystery:latest",
-            ]
-        );
-        let repos: Vec<_> = models.iter().map(|m| m.repo.as_deref()).collect();
-        assert_eq!(
-            repos,
-            [
-                Some("unsloth/Qwen3-8B-GGUF"),
-                Some("bartowski/SmolLM2-135M-Instruct-GGUF"),
-                None,
-                None,
-                None
-            ]
-        );
-        let smol = &models[1];
-        assert_eq!(smol.size, 105_455_694);
-        assert_eq!(smol.parameter_size, "135M");
-        assert_eq!(smol.quantization_level, "Q4_K_M");
-        assert_eq!(smol.family, "llama");
-        assert_eq!(smol.capabilities, ["completion"]);
-        assert_eq!(
-            smol.modified_at.as_deref(),
-            Some("2026-10-01T04:30:00-04:00")
-        );
-        assert_eq!(models[3].capabilities, ["embedding"]);
-        assert_eq!(models[4].capabilities, Vec::<String>::new());
-        assert!(matches!(parse("{}"), Err(AppError::Ollama(_))));
+    fn dates_are_written_in_rfc_3339() {
+        for ms in [0, 1, 951_868_800_000, 1_794_000_000_123, -86_400_000] {
+            let text = rfc3339(ms);
+            assert_eq!(
+                timestamp(&text),
+                Some(i128::from(ms) * 1_000_000),
+                "{ms} {text}"
+            );
+        }
+        assert_eq!(rfc3339(0), "1970-01-01T00:00:00.000Z");
+        assert_eq!(rfc3339(951_868_800_000), "2000-03-01T00:00:00.000Z");
     }
 
-    #[tokio::test]
-    async fn installed_then_deleted_on_the_server() {
-        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-        let names = |models: Vec<HubInstalled>| -> Vec<String> {
-            models.into_iter().map(|m| m.model).collect()
-        };
-        assert_eq!(
-            names(list(&fake.url()).await.unwrap()),
-            ["qwen3:0.6b", "qwen3.5:0.8b"]
+    #[test]
+    fn installed_models_newest_first_with_their_capabilities() {
+        let store = Store::open_in_memory().unwrap();
+        let mut old = model("u/A-GGUF:Q4_K_M", &["u/A-GGUF/A-Q4_K_M.gguf"], None);
+        old.capabilities.thinking = false;
+        old.capabilities.fim = true;
+        let mut new = model(
+            "u/B-GGUF:Q8_0",
+            &["u/B-GGUF/B.gguf"],
+            Some("u/B-GGUF/mmproj.gguf"),
         );
-        // En mémoire : déchargé avant la suppression (après, Ollama ne le
-        // déchargerait plus).
-        crate::ollama::running::load(&fake.url(), "qwen3:0.6b", 0, -1)
-            .await
+        new.installed_at = 1_794_000_000_000;
+        new.params_label = None;
+        store
+            .blocking(|c| {
+                table::save(c, &old)?;
+                table::save(c, &new)
+            })
             .unwrap();
-        delete(&fake.url(), "qwen3:0.6b").await.unwrap();
-        assert_eq!(names(list(&fake.url()).await.unwrap()), ["qwen3.5:0.8b"]);
-        assert!(
-            crate::ollama::running::list(&fake.url())
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        let listed = tauri::async_runtime::block_on(list(&store)).unwrap();
+        let names: Vec<_> = listed.iter().map(|m| m.model.as_str()).collect();
+        assert_eq!(names, ["u/B-GGUF:Q8_0", "u/A-GGUF:Q4_K_M"]);
         assert_eq!(
-            fake.load_requests()[1],
-            serde_json::json!({ "model": "qwen3:0.6b", "kind": "unload", "keep_alive": 0 })
+            listed[0].capabilities,
+            ["completion", "vision", "tools", "thinking"]
         );
-        let Err(AppError::NotFound(message)) = delete(&fake.url(), "qwen3:0.6b").await else {
-            panic!("expected not found");
-        };
-        assert_eq!(message, "model not found");
-        assert_eq!(fake.delete_requests(), ["qwen3:0.6b", "qwen3:0.6b"]);
-        assert!(matches!(
-            delete(&fake.url(), " ").await,
-            Err(AppError::Invalid(_))
-        ));
-        // Serveur injoignable : texte de models.rs.
-        let url = fake.url();
-        fake.stop().await;
-        let Err(AppError::Ollama(message)) = delete(&url, "qwen3.5:0.8b").await else {
-            panic!("expected an Ollama error");
-        };
-        assert_eq!(message, "can't connect to Ollama");
-        assert!(matches!(list(&url).await, Err(AppError::Ollama(_))));
-        // Autre statut.
-        let proxy = FakeOllama::start(Mode::Status(502)).await.unwrap();
-        let Err(AppError::Ollama(message)) = delete(&proxy.url(), "qwen3.5:0.8b").await else {
-            panic!("expected an Ollama error");
-        };
-        assert!(message.starts_with("Ollama answered HTTP 502"), "{message}");
+        assert_eq!(listed[1].capabilities, ["completion", "tools", "insert"]);
+        assert_eq!(listed[0].repo.as_deref(), Some("u/B-GGUF"));
+        assert_eq!(listed[0].size, 1234);
+        assert_eq!(listed[0].parameter_size, "");
+        assert_eq!(listed[1].parameter_size, "0.6B");
+        assert_eq!(listed[1].quantization_level, "Q4_K_M");
+        assert_eq!(listed[1].family, "qwen3");
+        assert_eq!(
+            listed[1].modified_at.as_deref(),
+            Some("1970-01-01T00:00:00.010Z")
+        );
+        // Importé d'Ollama : pas de dépôt Hugging Face.
+        let mut imported = old.clone();
+        imported.source = local_models::ModelSource::Ollama;
+        assert_eq!(installed(&imported).repo, None);
     }
 }

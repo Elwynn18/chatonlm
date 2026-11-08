@@ -3,6 +3,7 @@ import type { HubDownload } from "@/bindings/HubDownload";
 import type { HubHardware } from "@/bindings/HubHardware";
 import { translator } from "@/i18n";
 import {
+  sameInstalledModel,
   activeText,
   downloadPercent,
   isActiveDownload,
@@ -348,5 +349,19 @@ describe("address parameters", () => {
   it("a search needs two characters", () => {
     expect(searchText(" q ")).toBe("");
     expect(searchText(" qw ")).toBe("qw");
+  });
+});
+
+describe("installed models", () => {
+  it("a local id and Ollama's hf.co name are the same model", () => {
+    const id = "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M";
+    expect(sameInstalledModel(id, `hf.co/${id}`)).toBe(true);
+    expect(sameInstalledModel(id, ` HuggingFace.co/${id.toLowerCase()}`)).toBe(
+      true,
+    );
+    expect(sameInstalledModel(id, "ggml-org/gemma-3-4b-it-GGUF:Q8_0")).toBe(
+      false,
+    );
+    expect(sameInstalledModel(id, `ollama.com/${id}`)).toBe(false);
   });
 });

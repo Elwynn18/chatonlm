@@ -1,9 +1,8 @@
 //! Commandes du ModelHub (`src/lib/ipc.ts`). Contrat :
 //! `.tools/research/37-step15a-contract.md`.
 
-use tauri::State;
+use tauri::{AppHandle, State};
 
-use super::models::server_url;
 use crate::error::AppResult;
 use crate::hub::downloads::HubDownloads;
 use crate::hub::hardware::Machine;
@@ -114,16 +113,15 @@ pub async fn machine_memory(
     Ok(catalog.memory(&settings.effective_server_url).await)
 }
 
-/// Lance (ou met en file) un téléchargement depuis le serveur réglé ; sans
-/// effet s'il est déjà en cours ou en file ; nom invalide : refus.
+/// Lance (ou met en file) un téléchargement depuis Hugging Face, vers la
+/// base locale des modèles ; sans effet s'il est déjà en cours ou en file ;
+/// identifiant invalide : refus.
 #[tauri::command]
 pub async fn hub_download(
-    store: State<'_, Store>,
     downloads: State<'_, HubDownloads>,
     request: HubDownloadRequest,
 ) -> AppResult<()> {
-    let server = server_url(&store).await?;
-    downloads.download(&server, request)
+    downloads.download(request)
 }
 
 /// Arrête un téléchargement en cours ou en file.
@@ -180,15 +178,21 @@ pub async fn hub_dismiss_download(
     Ok(())
 }
 
-/// Tous les modèles installés sur le serveur (embeddings compris), du plus
-/// récent au plus ancien.
+/// Modèles de la base locale, du plus récent au plus ancien.
 #[tauri::command]
 pub async fn hub_installed(store: State<'_, Store>) -> AppResult<Vec<HubInstalled>> {
-    installed::list(&server_url(&store).await?).await
+    installed::list(&store).await
 }
 
-/// Supprime un modèle du serveur (`DELETE /api/delete`).
+/// Supprime un modèle de la base locale et ses fichiers (sauf ceux qu'un
+/// autre modèle partage ou qu'un téléchargement en cours a réservés).
 #[tauri::command]
-pub async fn hub_delete_model(store: State<'_, Store>, model: String) -> AppResult<()> {
-    installed::delete(&server_url(&store).await?, &model).await
+pub async fn hub_delete_model(
+    app: AppHandle,
+    store: State<'_, Store>,
+    downloads: State<'_, HubDownloads>,
+    model: String,
+) -> AppResult<()> {
+    let data_dir = crate::paths::data_dir(&app)?;
+    installed::delete(&store, &data_dir, &model, &downloads.reserved()).await
 }

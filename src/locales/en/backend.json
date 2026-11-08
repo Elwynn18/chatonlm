@@ -253,12 +253,10 @@
     "offline": "Unable to download model. Please check your internet connection to download the model for offline use.",
     "sharded": "This version is split into several files, which Ollama can't download from Hugging Face yet. Choose another version.",
     "unavailableVersion": "This version isn't available on Hugging Face. Choose another version.",
-    "notGguf": "This repository has no model file Ollama can use.",
+    "notGguf": "This repository has no model file ChatonLM can use.",
     "notFoundOrPrivate": "This model doesn't exist on Hugging Face, is private, or needs an account to download.",
-    "unreachable": "Can't reach Ollama. Make sure it's running, then try again.",
     "timedOut": "Hugging Face didn't answer in time. Try again.",
     "locationChanging": "the model location is being changed: try again once it's done",
-    "serverChanged": "Stopped: ChatonLM now uses another Ollama server. Download it again to use it there.",
     "hfTimeout": "Hugging Face didn't answer in time",
     "hfUnreachable": "can't reach Hugging Face: {error}",
     "hfStatus": "Hugging Face answered with status {status}."
@@ -277,7 +275,6 @@
     "unexpectedLoaded": "unexpected list of loaded models from Ollama: {error}",
     "unexpectedAccount": "unexpected account details from Ollama: {error}",
     "modelNotFound": "model '{model}' not found",
-    "installedNotFound": "model not found",
     "registryTimeout": "the model registry didn't answer in time",
     "registryUnreachable": "can't reach the model registry: {error}"
   },
@@ -576,5 +573,17 @@
     "sizeMb": "{value} MB",
     "revisionChanged": "This repository has changed since its page was opened: open it again",
     "unverified": "ChatonLM couldn't check where this model comes from (one of its base models can't be read): turn on “Show uncensored models” in Settings to download it anyway"
+  },
+  "localModels": {
+    "notFound": "This model isn't installed.",
+    "inUse": "{file} is in use: stop the model, then try again.",
+    "deleteFailed": "Could not delete {file}: {error}",
+    "noChecksum": "Hugging Face gives no checksum for {file}: it can't be checked, so it isn't downloaded.",
+    "unsafeName": "{file} has a name that can't be saved on this computer.",
+    "notGgufFile": "{file} isn't a GGUF model file: ChatonLM can't use it.",
+    "noDatabase": "Models can't be installed: ChatonLM's database couldn't be opened.",
+    "unreadableListing": "Hugging Face sent an unreadable list of files. Try again later.",
+    "invalidId": "{model} isn't a Hugging Face model ID (author/repository:QUANT).",
+    "fileMissing": "{file} is missing: download the model again."
   }
 }

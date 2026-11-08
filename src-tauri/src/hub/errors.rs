@@ -36,11 +36,6 @@ pub fn not_found_or_private() -> String {
     t!("downloads.notFoundOrPrivate")
 }
 
-/// Ollama injoignable (ModelHub).
-pub fn unreachable() -> String {
-    t!("downloads.unreachable")
-}
-
 /// Plus aucune ligne du téléchargement pendant le délai d'inactivité
 /// (ModelHub).
 pub fn timed_out() -> String {
@@ -50,12 +45,6 @@ pub fn timed_out() -> String {
 /// Refus d'un téléchargement pendant un changement de dossier des modèles.
 pub fn location_changing() -> String {
     t!("downloads.locationChanging")
-}
-
-/// Téléchargement arrêté : ChatonLM parle maintenant à un autre serveur
-/// (Ollama intégré ou de la machine, adresse changée).
-pub fn server_changed() -> String {
-    t!("downloads.serverChanged")
 }
 
 /// Flux coupé (téléchargement ou réponse du chat), avec le détail technique
@@ -116,16 +105,13 @@ pub mod english {
     pub const SHARDED: &str = "This version is split into several files, which Ollama can't download from Hugging Face yet. Choose another version.";
     pub const UNAVAILABLE_VERSION: &str =
         "This version isn't available on Hugging Face. Choose another version.";
-    pub const NOT_GGUF: &str = "This repository has no model file Ollama can use.";
+    pub const NOT_GGUF: &str = "This repository has no model file ChatonLM can use.";
     pub const NOT_FOUND_OR_PRIVATE: &str =
         "This model doesn't exist on Hugging Face, is private, or needs an account to download.";
-    pub const UNREACHABLE: &str = "Can't reach Ollama. Make sure it's running, then try again.";
     pub const TIMED_OUT: &str = "Hugging Face didn't answer in time. Try again.";
     pub const CONNECTION_LOST: &str = "Connection lost";
     pub const LOCATION_CHANGING: &str =
         "the model location is being changed: try again once it's done";
-    pub const SERVER_CHANGED: &str =
-        "Stopped: ChatonLM now uses another Ollama server. Download it again to use it there.";
 }
 
 #[cfg(test)]
@@ -198,8 +184,8 @@ mod tests {
     fn texts_follow_the_language() {
         use crate::i18n::{Lang, text};
         assert_eq!(
-            text(Lang::Fr, "downloads.unreachable", None, &[]),
-            "Impossible de joindre Ollama. Vérifiez qu'il est lancé, puis réessayez."
+            text(Lang::Fr, "downloads.timedOut", None, &[]),
+            "Hugging Face n'a pas répondu à temps. Réessayez."
         );
         assert_eq!(
             connection_lost(Some(&"reset by peer")),

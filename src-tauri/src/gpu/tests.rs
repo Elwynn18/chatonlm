@@ -657,10 +657,25 @@ async fn suggestions_follow_the_machine() {
         ram_total: 32 * GIB,
         ram_available: 20 * GIB,
     });
-    let suggested = chief.suggest(&inputs).await;
-    assert_eq!(suggested.recommended, "qwen2.5-coder:7b-base");
+    let suggested = chief.suggest(&inputs, &[]).await;
+    assert_eq!(
+        suggested.recommended,
+        "ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF:Q8_0"
+    );
     assert_eq!(suggested.options.len(), 4);
     assert!(suggested.options.iter().all(|option| !option.installed));
+    // Un modèle de la base locale compte installé.
+    let local = ["ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF:Q8_0".to_owned()];
+    let suggested = chief.suggest(&inputs, &local).await;
+    assert_eq!(
+        suggested
+            .options
+            .iter()
+            .filter(|option| option.installed)
+            .map(|option| option.model.as_str())
+            .collect::<Vec<_>>(),
+        [local[0].as_str()]
+    );
     let plan = chief.plan(&inputs).await;
     let memory = plan.memory.unwrap();
     assert!(memory.gpu);

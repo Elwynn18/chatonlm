@@ -9,7 +9,7 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::hub::fit;
-use crate::hub::types::{HubFit, HubGpu, HubQuantIssue, HubSectionId, HubTrust, HubUse};
+use crate::hub::types::{HubFit, HubGpu, HubSectionId, HubTrust, HubUse};
 
 const GIB: u64 = 1 << 30;
 
@@ -116,22 +116,25 @@ async fn the_home_comes_from_two_exact_requests_then_from_the_cache() {
         "LiquidAI/LFM2.5-2.6B-GGUF",
         "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
         "unsloth/DeepSeek-R1-0528-Qwen3-8B-GGUF",
+        // Que des morceaux : téléchargeable depuis les téléchargements
+        // directs.
+        "unsloth/Qwen3.8-Flash-Next-GGUF",
     ] {
         assert!(all.contains(&kept), "{kept} missing from {all:?}");
     }
-    assert_eq!(all.len(), 9, "{all:?}");
-    // Doublons (laboratoire puis le plus téléchargé), non vérifié, que des
-    // morceaux, architecture inconnue, mot exclu, restreint, audience,
-    // reconnaissance vocale : absents.
+    assert_eq!(all.len(), 10, "{all:?}");
+    // Doublons (laboratoire puis le plus téléchargé), non vérifié,
+    // architecture inconnue, mot exclu, restreint, audience, reconnaissance
+    // vocale : absents.
     assert_eq!(all[0], "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF");
     assert_eq!(browse.next_cursor, None);
 
     assert_eq!(
         section(&home, HubSectionId::Trending)[..3],
         [
+            "unsloth/Qwen3.8-Flash-Next-GGUF",
             "unsloth/Qwen3.5-9B-GGUF",
             "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
-            "google/gemma-4-12B-it-qat-q4_0-gguf"
         ]
     );
     assert_eq!(
@@ -173,7 +176,8 @@ async fn the_home_comes_from_two_exact_requests_then_from_the_cache() {
         .iter()
         .map(|f| (f.id.as_str(), f.count))
         .collect();
-    assert_eq!(families[0], ("qwen", 4));
+    // Qwen3.8-Flash-Next (que des morceaux) compte désormais.
+    assert_eq!(families[0], ("qwen", 5));
     for family in ["gpt-oss", "gemma", "lfm", "llama", "deepseek"] {
         assert!(families.contains(&(family, 1)), "{family}: {families:?}");
     }
@@ -185,7 +189,7 @@ async fn the_home_comes_from_two_exact_requests_then_from_the_cache() {
             false,
         )
         .await;
-    assert_eq!(qwen.models.len(), 4);
+    assert_eq!(qwen.models.len(), 5);
 
     // Rien de plus sur le réseau : listes fraîches (mémoire puis disque).
     catalog.home(&HubFilters::default(), None, false).await;
@@ -352,7 +356,7 @@ async fn simultaneous_homes_share_their_requests() {
         catalog.browse(&qwen, &filters, None, false)
     );
     assert_eq!(a.sections, b.sections);
-    assert_eq!(c.models.len(), 4);
+    assert_eq!(c.models.len(), 5);
     assert_eq!(fake.requests().len(), 2);
 }
 
@@ -599,8 +603,8 @@ async fn search_keeps_unverified_publishers_and_excluded_words() {
     assert_eq!(found[0], "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF");
     assert!(found.contains(&"unsloth/Qwen3-8B-GGUF") && found.contains(&"Qwen/Qwen3-8B-GGUF"));
     assert!(found.contains(&"unsloth/Qwen3-4B-Uncensored-GGUF"));
-    // Que des morceaux : écarté partout.
-    assert!(!found.contains(&"unsloth/Qwen3.8-Flash-Next-GGUF"));
+    // Que des morceaux : téléchargeable, donc trouvé.
+    assert!(found.contains(&"unsloth/Qwen3.8-Flash-Next-GGUF"));
     let request = &fake.requests()[0].path;
     assert_eq!(
         request,
@@ -628,7 +632,12 @@ async fn search_keeps_unverified_publishers_and_excluded_words() {
         .await;
     assert_eq!(ids(&granite.models), ["ibm-granite/granite-4.2-tiny-GGUF"]);
     assert_eq!(granite.models[0].trust, HubTrust::Lab);
-    for excluded in ["xing", "gemma-2-2b", "vibevoice", "tiny-sharded"] {
+    // Découpé seulement : téléchargeable, donc trouvé.
+    let sharded = catalog
+        .search(&search("tiny-sharded", HubFilters::default(), None), None)
+        .await;
+    assert_eq!(ids(&sharded.models), ["chatonlm/Tiny-Sharded-GGUF"]);
+    for excluded in ["xing", "gemma-2-2b", "vibevoice"] {
         let result = catalog
             .search(&search(excluded, HubFilters::default(), None), None)
             .await;
@@ -759,13 +768,10 @@ async fn a_repository_view_reads_the_gguf_header_once() {
     assert_eq!(q8.fit, Some(HubFit::Fits));
     assert!(q8.recommended);
     assert_eq!(repo.model.estimated_size, Some(q8.download_size));
-    assert_eq!(
-        q8.model.as_deref(),
-        Some("hf.co/unsloth/Qwen3.5-9B-GGUF:Q8_0")
-    );
+    assert_eq!(q8.model.as_deref(), Some("unsloth/Qwen3.5-9B-GGUF:Q8_0"));
     assert_eq!(
         repo.quants[3].model.as_deref(),
-        Some("hf.co/unsloth/Qwen3.5-9B-GGUF:Qwen3.5-9B-Q6_K.gguf")
+        Some("unsloth/Qwen3.5-9B-GGUF:Q6_K")
     );
 
     // Fiche et en-tête en cache : aucune requête.
@@ -846,15 +852,19 @@ async fn restricted_missing_and_invalid_repositories() {
     assert_eq!(missing.repo, None);
     assert_eq!(missing.status.problem, Some(HubProblem::NotFound));
 
-    // Sharded seulement : fiche montrée, rien de téléchargeable.
+    // Découpé seulement : téléchargeable (morceaux acceptés), conseillé.
     let sharded = catalog
         .repo("chatonlm/Tiny-Sharded-GGUF", None)
         .await
         .repo
         .unwrap();
     assert_eq!(sharded.quants.len(), 1);
-    assert_eq!(sharded.quants[0].issue, Some(HubQuantIssue::Sharded));
-    assert!(sharded.quants.iter().all(|q| !q.recommended));
+    assert_eq!(sharded.quants[0].issue, None);
+    assert_eq!(
+        sharded.quants[0].model.as_deref(),
+        Some("chatonlm/Tiny-Sharded-GGUF:Q4_K_M")
+    );
+    assert!(sharded.quants[0].recommended);
 
     let count = fake.requests().len();
     for id in ["bart.owski/x", "a/b/c", "noslash", "a/-b", ""] {
@@ -1008,28 +1018,6 @@ async fn a_remote_server_has_no_machine() {
     assert_eq!(catalog.memory("not an address").await, None);
 }
 
-/// Manifeste du registre de Hugging Face, comme le demande Ollama :
-/// (statut, JSON).
-async fn registry_manifest(id: &str, tag: &str) -> (u16, serde_json::Value) {
-    let client = reqwest::Client::builder()
-        .user_agent(concat!("ChatonLM/", env!("CARGO_PKG_VERSION")))
-        .timeout(Duration::from_secs(30))
-        .build()
-        .unwrap();
-    let response = client
-        .get(format!("{}/v2/{id}/manifests/{tag}", names::DEFAULT_HF_URL))
-        .header(
-            reqwest::header::ACCEPT,
-            "application/vnd.docker.distribution.manifest.v2+json",
-        )
-        .send()
-        .await
-        .unwrap();
-    let status = response.status().as_u16();
-    let body = response.bytes().await.unwrap();
-    (status, serde_json::from_slice(&body).unwrap_or_default())
-}
-
 fn real_catalog() -> (Catalog, TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let catalog = Catalog::with_urls(
@@ -1123,20 +1111,29 @@ async fn contract_real_headers_follow_hybrid_and_sliding_window_layers() {
     }
 }
 
+/// Contrat : chaque version choisie dans une vraie fiche se télécharge
+/// directement (`hub::files::plan` sur la vraie fiche de l'API : fichiers,
+/// tailles et empreintes LFS), morceaux d'une version découpée dans l'ordre.
 #[tokio::test]
 #[ignore = "huggingface.co : accès au réseau"]
-async fn contract_chosen_tags_have_a_manifest() {
+async fn contract_chosen_versions_have_their_files() {
     let (catalog, _dir) = real_catalog();
     for (id, labels) in [
-        // Libellé, nom de fichier (Q6_K est contenu dans UD-Q6_K_XL).
         ("unsloth/Qwen3.5-9B-GGUF", &["UD-Q4_K_XL", "Q6_K"][..]),
-        // Q4_K_L : inconnu de la regex de Hugging Face, nom de fichier.
         ("bartowski/Qwen3.8-27B-GGUF", &["Q4_K_L", "Q3_K_XL"][..]),
-        // fp16 : nom de fichier.
         ("MaziyarPanahi/Qwen3-8B-GGUF", &["Q4_K_M", "F16"][..]),
         ("ggml-org/gpt-oss-20b-GGUF", &["MXFP4"][..]),
+        // Découpée dans un sous-dossier.
+        ("unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF", &["BF16"][..]),
     ] {
         let repo = catalog.repo(id, None).await.repo.unwrap();
+        let listing = crate::hub::files::fetch(
+            crate::hub::names::DEFAULT_HF_URL,
+            id,
+            Duration::from_secs(30),
+        )
+        .await
+        .unwrap();
         for label in labels {
             let quant = repo
                 .quants
@@ -1144,38 +1141,18 @@ async fn contract_chosen_tags_have_a_manifest() {
                 .find(|q| q.label == *label)
                 .unwrap_or_else(|| panic!("{id}: {label}"));
             let model = quant.model.as_deref().unwrap();
-            let tag = model.rsplit_once(':').unwrap().1;
-            let (status, manifest) = registry_manifest(id, tag).await;
-            assert_eq!(status, 200, "{model}: {manifest}");
-            let layer = manifest["layers"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|l| l["mediaType"] == "application/vnd.ollama.image.model")
-                .unwrap();
-            assert_eq!(layer["size"].as_u64(), Some(quant.size), "{model}");
+            let plan = crate::hub::files::plan(
+                &crate::local_models::id::ModelId::parse(model).unwrap(),
+                &listing,
+            )
+            .unwrap_or_else(|error| panic!("{model}: {error}"));
+            let weights: u64 = plan.files.iter().map(|file| file.size).sum();
+            assert_eq!(weights, quant.size, "{model}");
+            assert!(plan.all().all(|file| file.sha256.len() == 64), "{model}");
+            if *label == "BF16" {
+                assert!(plan.files.len() > 1, "{model}");
+                assert!(plan.files[0].path.contains("-00001-of-"), "{model}");
+            }
         }
     }
-}
-
-/// Contrat : une version découpée est refusée par le registre (400
-/// « sharded »), d'où `issue: Sharded` et aucun nom.
-#[tokio::test]
-#[ignore = "huggingface.co : accès au réseau"]
-async fn contract_a_sharded_version_is_refused() {
-    let (catalog, _dir) = real_catalog();
-    let id = "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF";
-    let repo = catalog.repo(id, None).await.repo.unwrap();
-    let sharded = repo
-        .quants
-        .iter()
-        .find(|q| q.issue == Some(HubQuantIssue::Sharded))
-        .unwrap();
-    assert_eq!(sharded.model, None);
-    let (status, body) = registry_manifest(id, &sharded.label).await;
-    assert_eq!(status, 400, "{body}");
-    assert!(
-        body["error"].as_str().unwrap().contains("sharded GGUF"),
-        "{body}"
-    );
 }

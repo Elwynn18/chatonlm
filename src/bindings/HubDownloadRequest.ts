@@ -5,7 +5,8 @@
  */
 export type HubDownloadRequest = { 
 /**
- * Nom Ollama complet.
+ * Identifiant de la base locale (« auteur/dépôt:QUANT » ; la forme
+ * `hf.co/…` d'Ollama est acceptée).
  */
 model: string, 
 /**

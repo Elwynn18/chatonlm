@@ -5,7 +5,9 @@
 //! `lfs.sha256` exact, Range ; filtres `pipeline_tag` et `filter=gguf`,
 //! fiche à une révision), registre d'Ollama
 //! (`/v2/<auteur>/<dépôt>/manifests/<étiquette>`, erreurs exactes du vrai) et
-//! page d'état (`/index.json`). Serveur à part du faux Ollama, sur son propre
+//! page d'état (`/index.json`), et dépôts GGUF synthétisés au vrai contenu
+//! pour les téléchargements directs (`chatonlm-dl/…`, voir
+//! [`crate::hf_models`]). Serveur à part du faux Ollama, sur son propre
 //! port. Dépôts : `fixtures/hf/repos.json` (réduits des échantillons réels de
 //! `.tools/research/35-samples`). Ce que le serveur a reçu se lit sur
 //! `GET /fake/requests`.
@@ -16,7 +18,9 @@
 //! `hf-silent` (connexion acceptée, jamais de réponse ; page d'état
 //! « incident »).
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
@@ -79,6 +83,38 @@ struct Shared {
     delay: Duration,
     addr: SocketAddr,
     requests: Mutex<Vec<HfRequest>>,
+    /// Révision publiée de chaque dépôt synthétisé (0 par défaut).
+    revisions: Mutex<HashMap<String, u32>>,
+    /// Fichiers synthétisés abandonnés par le client avant leur fin.
+    disconnects: AtomicUsize,
+}
+
+impl Shared {
+    fn synth(&self, id: &str) -> Option<crate::hf_models::Synth> {
+        let key = id.to_ascii_lowercase();
+        let revision = self
+            .revisions
+            .lock()
+            .unwrap()
+            .get(&key)
+            .copied()
+            .unwrap_or(0);
+        crate::hf_models::Synth::parse(id, revision)
+    }
+
+    /// Dépôt synthétisé `id` à la révision dont le commit est `commit`
+    /// (`resolve/<commit>/…` : une ancienne révision reste servie, comme sur
+    /// Hugging Face) ; commit inconnu (`main`…) : la dernière.
+    fn synth_at(&self, id: &str, commit: &str) -> Option<crate::hf_models::Synth> {
+        let latest = self.synth(id)?;
+        let last = latest.revision();
+        Some(
+            (0..last)
+                .filter_map(|revision| crate::hf_models::Synth::parse(id, revision))
+                .find(|older| older.sha() == commit)
+                .unwrap_or(latest),
+        )
+    }
 }
 
 pub struct FakeHf {
@@ -108,6 +144,8 @@ impl FakeHf {
             delay,
             addr,
             requests: Mutex::new(Vec::new()),
+            revisions: Mutex::new(HashMap::new()),
+            disconnects: AtomicUsize::new(0),
         });
         let (shutdown, stop) = oneshot::channel::<()>();
         let app = Router::new().fallback(handle).with_state(shared.clone());
@@ -134,6 +172,17 @@ impl FakeHf {
     /// Requêtes reçues, dans l'ordre.
     pub fn requests(&self) -> Vec<HfRequest> {
         self.shared.requests.lock().unwrap().clone()
+    }
+
+    /// Publie une nouvelle version du dépôt synthétisé `repo` (commit et
+    /// poids changent).
+    pub fn publish(&self, repo: &str) {
+        publish(&self.shared, repo);
+    }
+
+    /// Fichiers synthétisés abandonnés par le client avant leur fin.
+    pub fn disconnects(&self) -> usize {
+        self.shared.disconnects.load(Ordering::SeqCst)
     }
 
     /// Arrête le serveur (1 s au plus).
@@ -337,6 +386,19 @@ async fn handle(
     let path_and_query = uri
         .path_and_query()
         .map_or_else(|| path.clone(), |pq| pq.as_str().to_owned());
+    if path == "/fake/publish-hf" && method == Method::POST {
+        let repo = uri
+            .query()
+            .and_then(|query| {
+                query_pairs(query)
+                    .into_iter()
+                    .find(|(key, _)| key == "repo")
+                    .map(|(_, value)| value)
+            })
+            .unwrap_or_default();
+        publish(&shared, &repo);
+        return json_response(StatusCode::OK, json!({ "repo": repo }).to_string());
+    }
     if path == "/fake/requests" {
         let list: Vec<Value> = shared
             .requests
@@ -400,6 +462,28 @@ async fn handle(
     }
     let query = uri.query().unwrap_or_default();
     let segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    // Dépôts synthétisés (`chatonlm-dl/…`).
+    match segments.as_slice() {
+        ["api", "models", author, name] | ["api", "models", author, name, "revision", _] => {
+            if let Some(synth) = shared.synth(&format!("{author}/{name}")) {
+                return crate::hf_models::detail(&synth);
+            }
+        }
+        [author, name, "resolve", revision, file @ ..] => {
+            if let Some(synth) = shared.synth_at(&format!("{author}/{name}"), revision) {
+                let counter = shared.clone();
+                return crate::hf_models::resolve(
+                    &synth,
+                    &decode(&file.join("/")),
+                    &headers,
+                    move || {
+                        counter.disconnects.fetch_add(1, Ordering::SeqCst);
+                    },
+                );
+            }
+        }
+        _ => {}
+    }
     match segments.as_slice() {
         ["api", "models"] => list(&shared, query, &headers),
         ["api", "models", author, name] => detail(&format!("{author}/{name}"), &headers),
@@ -419,6 +503,16 @@ async fn handle(
             "Sorry, we can't find the page you are looking for.",
         ),
     }
+}
+
+/// Nouvelle révision du dépôt synthétisé `repo`.
+fn publish(shared: &Shared, repo: &str) {
+    *shared
+        .revisions
+        .lock()
+        .unwrap()
+        .entry(repo.to_ascii_lowercase())
+        .or_insert(0) += 1;
 }
 
 /// Page d'état (`index.json` de Better Stack, réduite).
@@ -1095,6 +1189,68 @@ mod tests {
         })
         .await
         .expect("request")
+    }
+
+    /// Dépôts synthétisés : fiche aux vraies empreintes, fichier complet ou
+    /// repris, abandon d'un fichier qui traîne compté.
+    #[tokio::test]
+    async fn synthesized_repositories_serve_real_files() {
+        let fake = FakeHf::start(HfMode::Normal).await.unwrap();
+        let repo = "chatonlm-dl/Tiny-stall-GGUF";
+        let (status, _, body) = get(&fake, &format!("/api/models/{repo}?blobs=true"), "").await;
+        assert_eq!(status, 200);
+        let api = body_json(&body);
+        let synth = crate::hf_models::Synth::parse(repo, 0).unwrap();
+        assert_eq!(api["sha"].as_str(), Some(synth.sha().as_str()));
+        let whole = crate::hf_models::Synth::parse("chatonlm-dl/Tiny-GGUF", 0).unwrap();
+        let file = whole.content("Tiny-Q4_K_M.gguf").unwrap();
+        let (status, _, body) = get(
+            &fake,
+            "/chatonlm-dl/Tiny-GGUF/resolve/x/Tiny-Q4_K_M.gguf",
+            "",
+        )
+        .await;
+        assert_eq!((status, body.len()), (200, file.len()));
+        let (status, head, body) = get(
+            &fake,
+            "/chatonlm-dl/Tiny-GGUF/resolve/x/Tiny-Q4_K_M.gguf",
+            "Range: bytes=100-\r\n",
+        )
+        .await;
+        assert_eq!(status, 206);
+        assert!(head.contains(&format!("bytes 100-{}/{}", file.len() - 1, file.len())));
+        assert_eq!(body, file[100..]);
+        // Abandon pendant que le fichier traîne : compté.
+        let addr = fake.addr;
+        tokio::task::spawn_blocking(move || {
+            use std::io::{Read, Write};
+            let mut stream = std::net::TcpStream::connect(addr).unwrap();
+            stream
+                .write_all(
+                    b"GET /chatonlm-dl/Tiny-stall-GGUF/resolve/x/Tiny-Q4_K_M.gguf HTTP/1.1\r\nHost: x\r\n\r\n",
+                )
+                .unwrap();
+            // Tout ce qui est arrivé est lu (fermeture propre, comme un
+            // client qui abandonne entre deux octets).
+            stream
+                .set_read_timeout(Some(Duration::from_millis(100)))
+                .unwrap();
+            let mut buffer = [0; 65536];
+            let until = std::time::Instant::now() + Duration::from_millis(500);
+            while std::time::Instant::now() < until {
+                if stream.read(&mut buffer).is_ok_and(|read| read == 0) {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while fake.disconnects() == 0 {
+            assert!(std::time::Instant::now() < deadline, "no disconnect seen");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(fake.disconnects(), 1);
     }
 
     fn body_json(body: &[u8]) -> Value {

@@ -166,8 +166,8 @@
     "showAll": "Afficher les {count} versions",
     "showFewer": "Afficher moins de versions",
     "download": "Télécharger · {size}",
-    "ollamaName": "Nom dans Ollama",
-    "copyOllamaName": "Copier le nom dans Ollama",
+    "ollamaName": "Identifiant du modèle",
+    "copyOllamaName": "Copier l'identifiant du modèle",
     "otherSources": "Autres sources"
   },
   "tiers": {
@@ -408,7 +408,7 @@
   },
   "polish": {
     "intro": "Un second modèle met au propre la transcription : ponctuation, hésitations, reprises. Si sa réponse ne ressemble pas à ce que vous avez dit, la transcription brute est copiée à la place.",
-    "unreachable": "Ollama est injoignable. Démarrez-le pour télécharger ou utiliser ces modèles.",
+    "unreachable": "Ollama est injoignable. Démarrez-le pour utiliser ces modèles pour la mise au propre.",
     "label": "Modèles de mise au propre",
     "use": "Utiliser",
     "anyModel": "Tout modèle installé peut être choisi dans les paramètres."

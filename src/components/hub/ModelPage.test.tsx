@@ -133,9 +133,7 @@ describe("Model page", () => {
     );
     expect(radios()).toHaveLength(6);
     expect(checked()).toBe("Q2_K");
-    expect(
-      screen.getByRole("button", { name: "Copy Ollama name" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy model ID" })).toBeTruthy();
   });
 
   it("moves between versions with the arrow keys, skipping unavailable ones", async () => {

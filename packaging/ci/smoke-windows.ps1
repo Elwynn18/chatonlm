@@ -25,9 +25,17 @@
 #    modèle placé dans un dossier accentué est bien OUVERT (page de code
 #    UTF-8, packaging/sdcpp/0002-…) : illisible, il est refusé avec le code 1
 #    après « using gguf format ».
-# 5. Réinstallation silencieuse par-dessus une app et un Ollama intégré en
-#    marche : les crochets de packaging/windows/hooks.nsh doivent les arrêter
-#    (par leur chemin), l'installateur réussir, et rien ne rester en marche.
+#    Puis le moteur de texte (llama-server) : fichiers conformes à SHA256SUMS,
+#    version du fichier VERSION, modèle illisible d'un dossier accentué ouvert
+#    puis refusé (code 1, « failed to load model »), et un vrai petit modèle
+#    (stories260K, empreinte épinglée) sur le processeur : /health, 401 sans
+#    la clé d'API, complétion avec elle.
+# 5. Réinstallation silencieuse par-dessus une app, un Ollama intégré et un
+#    llama-server en marche : les crochets de packaging/windows/hooks.nsh
+#    doivent les arrêter (par leur chemin) et retirer nos fichiers du dossier
+#    llama-server (une variante ggml-cpu-*.dll d'une autre version n'y reste
+#    pas, un fichier de l'utilisateur si),
+#    l'installateur réussir, et rien ne rester en marche.
 # 6. Désinstallation silencieuse : programme, clé et raccourcis disparus,
 #    données de l'utilisateur GARDÉES, aucun processus restant.
 #
@@ -229,8 +237,10 @@ foreach ($file in @(
     $MainBinary, "uninstall.exe", "onnxruntime.dll", "vcruntime140.dll", "msvcp140.dll",
     "ollama\ollama.exe", "ollama\VERSION", "ollama\lib\ollama\llama-server.exe",
     "sd-server\sd-server.exe", "sd-server\VERSION", "sd-server\fallback\vulkan-1.dll",
+    "llama-server\llama-server.exe", "llama-server\VERSION", "llama-server\SHA256SUMS",
+    "llama-server\fallback\vulkan-1.dll",
     "licenses\LICENSE.txt", "licenses\THIRD_PARTY_LICENSES.txt", "licenses\ollama\README.txt",
-    "licenses\sd-server\README.txt")) {
+    "licenses\sd-server\README.txt", "licenses\llama-server\README.txt")) {
   if (-not (Test-Path -LiteralPath (Join-Path $install $file))) { Fail "Fichier installé absent : $file" }
 }
 if (Test-Path -LiteralPath $app) { Pass "Fichiers installés." }
@@ -434,6 +444,108 @@ if ((Test-Path -LiteralPath $sd) -and (Test-Path -LiteralPath $sdVersionFile)) {
   Fail "sd-server non installé : essai du moteur d'images impossible."
 }
 
+# --- 4 ter. Le moteur de texte seul -----------------------------------------
+Section "Moteur de texte (llama-server)"
+$llama = Join-Path $install "llama-server\llama-server.exe"
+$llamaDir = Join-Path $install "llama-server"
+$llamaVersionFile = Join-Path $llamaDir "VERSION"
+# Modèle d'essai : tinyllamas de Karpathy (MIT) en GGUF, révision figée ; même
+# fichier que packaging/ci/smoke-llama-server.sh.
+$llamaModelUrl = "https://huggingface.co/ggml-org/models-moved/resolve/499bc8821c6b12b4e53c5bffcb21ec206f212d81/tinyllamas/stories260K.gguf"
+$llamaModelSha256 = "270cba1bd5109f42d03350f60406024560464db173c0e387d91f0426d3bd256d"
+$llamaModel = $null
+if ((Test-Path -LiteralPath $llama) -and (Test-Path -LiteralPath $llamaVersionFile)) {
+  # Fichiers installés identiques à ceux de SHA256SUMS.
+  $sums = Get-Content -LiteralPath (Join-Path $llamaDir "SHA256SUMS")
+  $bad = @()
+  foreach ($line in $sums) {
+    if ($line -notmatch '^([0-9a-f]{64}) [ *](.+)$') { continue }
+    $file = Join-Path $llamaDir ($Matches[2] -replace '/', '\')
+    $hash = if (Test-Path -LiteralPath $file) { (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLower() } else { "" }
+    if ($hash -ne $Matches[1]) { $bad += $Matches[2] }
+  }
+  if ($sums.Count -gt 0 -and $bad.Count -eq 0) { Pass "llama-server : $($sums.Count) fichiers conformes à SHA256SUMS." } else { Fail "llama-server : fichiers différents de SHA256SUMS : $($bad -join ', ')" }
+  $llamaExpected = "version: " + (Get-Content -LiteralPath $llamaVersionFile -Raw).Trim().Split("+")[0].TrimStart("v") + " (build"
+  # Comme l'app : le chargeur de secours en fin de PATH.
+  $env:PATH = "$env:PATH;$(Join-Path $llamaDir 'fallback')"
+  $llamaReported = (& $llama --version 2>&1 | Select-Object -First 1) -join ""
+  if ($llamaReported -like "$llamaExpected*") { Pass "llama-server --version : $llamaReported" } else { Fail "llama-server --version : « $llamaReported » (attendu : $llamaExpected…)." }
+  $llamaDevices = (& $llama --list-devices 2>&1) -join "; "
+  if ($llamaDevices -match "^Available devices:") { Pass "llama-server --list-devices : $llamaDevices" } else { Fail "llama-server --list-devices illisible : $llamaDevices" }
+  # Modèle illisible dans un dossier accentué : ouvert (page de code UTF-8
+  # du manifeste de llama.cpp), puis refusé avec le code 1.
+  $accented = Join-Path $work "Thé chaton"
+  New-Item -ItemType Directory -Force -Path $accented | Out-Null
+  $badModel = Join-Path $accented "modèle illisible.gguf"
+  [IO.File]::WriteAllBytes($badModel, [byte[]](0x47, 0x47, 0x55, 0x46, 3, 0, 0, 0) + [Text.Encoding]::ASCII.GetBytes("not a model"))
+  $llamaLog = Join-Path $work "llama-server-accent"
+  $llamaProcess = Start-Logged $llama @("--host", "127.0.0.1", "--port", "18438", "-m", "`"$badModel`"", "-c", "256", "--no-webui", "--offline") $llamaLog
+  if (-not $llamaProcess.WaitForExit(60000)) {
+    Stop-Process -Id $llamaProcess.Id -Force -ErrorAction SilentlyContinue
+    Fail "llama-server ne s'est pas arrêté sur un modèle illisible en 60 s."
+  } else {
+    $llamaOutput = (Get-Content -LiteralPath "$llamaLog.out.log", "$llamaLog.err.log" -Raw -ErrorAction SilentlyContinue) -join "`n"
+    if ($llamaProcess.ExitCode -ne 1) { Fail "llama-server : code de sortie $($llamaProcess.ExitCode) sur un modèle illisible (attendu : 1)." }
+    if ($llamaOutput -match "gguf_init_from_reader") { Pass "llama-server : modèle d'un dossier accentué ouvert." } else { Fail "llama-server : modèle d'un dossier accentué non ouvert." }
+    if ($llamaOutput -notmatch "failed to load model") { Fail "Erreur du modèle illisible absente de la sortie de llama-server." }
+    Save-Log "$llamaLog.err.log" "llama-server-accent.err.log"
+  }
+  # Vrai petit modèle, sur le processeur.
+  $llamaModel = Join-Path $work "stories260K.gguf"
+  Invoke-WebRequest -Uri $llamaModelUrl -OutFile $llamaModel -UseBasicParsing
+  if ((Get-FileHash -LiteralPath $llamaModel -Algorithm SHA256).Hash.ToLower() -ne $llamaModelSha256) {
+    Fail "Empreinte inattendue du modèle d'essai."
+    $llamaModel = $null
+  } else {
+    $key = "essai-" + [System.Guid]::NewGuid().ToString("N")
+    $llamaLog = Join-Path $work "llama-server-run"
+    $llamaProcess = Start-Logged $llama @("--host", "127.0.0.1", "--port", "18438", "--api-key", $key, "-m", "`"$llamaModel`"", "-c", "256", "-np", "1", "-ngl", "0", "--no-webui", "--offline") $llamaLog
+    $ready = $false
+    for ($i = 0; $i -lt 240 -and -not $llamaProcess.HasExited; $i++) {
+      try {
+        if ((Invoke-WebRequest -Uri "http://127.0.0.1:18438/health" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) { $ready = $true; break }
+      } catch { }
+      Start-Sleep -Milliseconds 500
+    }
+    if (-not $ready) {
+      # Code de sortie en hexadécimal : 0xC000001D instruction illégale,
+      # 0xC0000005 accès interdit, 0xC0000409 arrêt rapide (tas abîmé).
+      $state = if ($llamaProcess.HasExited) { "sorti, code 0x{0:X8}" -f $llamaProcess.ExitCode } else { "toujours en marche" }
+      Fail "llama-server : /health ne répond pas ($state)."
+      Show-Log "llama-server (erreurs)" "$llamaLog.err.log" 60
+      Show-Log "llama-server (sortie)" "$llamaLog.out.log" 60
+      Save-Log "$llamaLog.out.log" "llama-server-run.out.log"
+      # Diagnostic : même lancement, journal détaillé, un seul fil.
+      Stop-Process -Id $llamaProcess.Id -Force -ErrorAction SilentlyContinue
+      $diagLog = Join-Path $work "llama-server-diag"
+      $diag = Start-Logged $llama @("--host", "127.0.0.1", "--port", "18440", "--api-key", $key, "-m", "`"$llamaModel`"", "-c", "256", "-np", "1", "-ngl", "0", "-t", "1", "-lv", "4", "--no-webui", "--offline") $diagLog
+      $null = $diag.WaitForExit(60000)
+      $diagState = if ($diag.HasExited) { "sorti, code 0x{0:X8}" -f $diag.ExitCode } else { "toujours en marche" }
+      Write-Host "Diagnostic de llama-server (-t 1 -lv 4) : $diagState"
+      Show-Log "llama-server diagnostic (erreurs)" "$diagLog.err.log" 80
+      Stop-Process -Id $diag.Id -Force -ErrorAction SilentlyContinue
+      Save-Log "$diagLog.err.log" "llama-server-diag.err.log"
+    } else {
+      $denied = 0
+      try {
+        Invoke-WebRequest -Uri "http://127.0.0.1:18438/completion" -Method Post -ContentType "application/json" -Body '{"prompt":"Once","n_predict":4}' -UseBasicParsing | Out-Null
+      } catch { $denied = [int]$_.Exception.Response.StatusCode }
+      if ($denied -eq 401) { Pass "llama-server : requête sans clé d'API refusée (401)." } else { Fail "llama-server : requête sans clé d'API : code $denied (attendu : 401)." }
+      try {
+        $answer = Invoke-RestMethod -Uri "http://127.0.0.1:18438/completion" -Method Post -ContentType "application/json" -Headers @{ Authorization = "Bearer $key" } -Body '{"prompt":"Once upon a time","n_predict":8,"temperature":0}'
+        if ($answer.content) { Pass "llama-server : complétion sur le processeur : « $($answer.content) »." } else { Fail "llama-server : complétion vide." }
+      } catch {
+        Fail "llama-server : complétion en échec : $($_.Exception.Message)"
+      }
+    }
+    Stop-Process -Id $llamaProcess.Id -Force -ErrorAction SilentlyContinue
+    $null = $llamaProcess.WaitForExit(10000)
+    Save-Log "$llamaLog.err.log" "llama-server-run.err.log"
+  }
+} else {
+  Fail "llama-server non installé : essai du moteur de texte impossible."
+}
+
 # --- 5. Réinstallation par-dessus une app en marche ------------------------
 Section "Réinstallation par-dessus une app en marche"
 $data = Join-Path $work "$dataName 3"
@@ -445,6 +557,20 @@ if ($builtinPossible) {
   Write-Host "Avant la réinstallation : app pid $($process.Id), Ollama intégré $(if ($port) { "sur le port $port" } else { "non démarré" })."
 } else {
   Start-Sleep -Seconds $Wait
+}
+# Un llama-server en marche (lancé comme par l'app) et une variante laissée
+# par une autre version : les crochets arrêtent l'un et retirent l'autre ; un
+# fichier qui n'est pas à nous (un modèle de l'utilisateur) reste.
+$stale = Join-Path $install "llama-server\ggml-cpu-ancienne.dll"
+$foreign = Join-Path $install "llama-server\modele-utilisateur.gguf"
+$foreignSet = $false
+if (Test-Path -LiteralPath $llama) {
+  Set-Content -LiteralPath $stale -Value "ancienne variante"
+  Set-Content -LiteralPath $foreign -Value "fichier de l'utilisateur"
+  $foreignSet = $true
+  if ($llamaModel) {
+    $null = Start-Logged $llama @("--host", "127.0.0.1", "--port", "18439", "-m", "`"$llamaModel`"", "-c", "256", "-ngl", "0", "--no-webui", "--offline") (Join-Path $work "llama-server-reinstall")
+  }
 }
 Write-Host "Processus de l'installation : $(Format-Processes (Get-ProcessesUnder $install))"
 $code = Invoke-Silent $Installer @("/S") 900
@@ -462,8 +588,16 @@ if ($left.Count -gt 0) {
 } else {
   Pass "App et Ollama intégré arrêtés par l'installateur."
 }
-foreach ($file in @($MainBinary, "ollama\ollama.exe", "ollama\lib\ollama\llama-server.exe", "onnxruntime.dll")) {
+foreach ($file in @($MainBinary, "ollama\ollama.exe", "ollama\lib\ollama\llama-server.exe", "onnxruntime.dll", "llama-server\llama-server.exe", "llama-server\VERSION")) {
   if (-not (Test-Path -LiteralPath (Join-Path $install $file))) { Fail "Fichier absent après la réinstallation : $file" }
+}
+if (Test-Path -LiteralPath $stale) { Fail "Variante d'une autre version restée dans llama-server après la réinstallation." } else { Pass "Nos fichiers de llama-server retirés avant la copie (aucune variante d'une autre version)." }
+if (Test-Path -LiteralPath $foreign) {
+  Pass "Fichier de l'utilisateur gardé dans llama-server (seuls nos fichiers sont retirés)."
+  # Retiré ici : la désinstallation (§ 6) doit vider le dossier d'installation.
+  Remove-Item -LiteralPath $foreign -Force -ErrorAction SilentlyContinue
+} elseif ($foreignSet) {
+  Fail "Fichier de l'utilisateur effacé de llama-server par la réinstallation."
 }
 Save-Log "$log.err.log" "chatonlm-reinstallation.err.log"
 

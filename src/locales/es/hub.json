@@ -166,8 +166,8 @@
     "showAll": "Mostrar las {count} versiones",
     "showFewer": "Mostrar menos versiones",
     "download": "Descargar · {size}",
-    "ollamaName": "Nombre en Ollama",
-    "copyOllamaName": "Copiar el nombre en Ollama",
+    "ollamaName": "Identificador del modelo",
+    "copyOllamaName": "Copiar el identificador del modelo",
     "otherSources": "Otras fuentes"
   },
   "tiers": {
@@ -408,7 +408,7 @@
   },
   "polish": {
     "intro": "Un segundo modelo pule la transcripción: puntuación, muletillas, rectificaciones. Si su respuesta no se parece a lo que dijiste, se copia la transcripción sin procesar.",
-    "unreachable": "No se puede conectar con Ollama. Inícialo para descargar o usar estos modelos.",
+    "unreachable": "No se puede conectar con Ollama. Inícialo para usar estos modelos de pulido.",
     "label": "Modelos de pulido",
     "use": "Usar para pulir",
     "anyModel": "Cualquier modelo instalado se puede elegir en Configuración."

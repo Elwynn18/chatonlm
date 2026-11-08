@@ -1,7 +1,8 @@
 // Onglets Transcription et Polish du ModelHub face au simulateur : cartes,
 // licences et attribution, téléchargement (progression, Cancel, échec),
-// Use / In use, suppression confirmée ; modèles de nettoyage tirés par le
-// pull du ModelHub ; onglets et badge de Downloads.
+// Use / In use, suppression confirmée ; modèles de nettoyage (identifiants
+// de Hugging Face) téléchargés par le ModelHub ; onglets et badge de
+// Downloads.
 
 import {
   act,
@@ -334,11 +335,20 @@ describe("Transcription tab without ONNX Runtime", () => {
   });
 });
 
+// Identifiants de Hugging Face des modèles conseillés (POLISH_MODELS) ; base
+// locale et Hugging Face, propres au passage à llama-server : voir
+// PolishModels.test.tsx.
+const GEMMA_4B = "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M";
+const QWEN_4B = "unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M";
+const QWEN_8B = "Qwen/Qwen3-8B-GGUF:Q4_K_M";
+const GEMMA_12B = "ggml-org/gemma-3-12b-it-GGUF:Q4_K_M";
+const GEMMA_1B = "ggml-org/gemma-3-1b-it-GGUF:Q4_K_M";
+
 describe("Polish tab", () => {
   const polishCard = (model: string) =>
     screen.getByRole("listitem", { name: model }) as HTMLElement;
 
-  it("lists the recommended models of Ollama, with their size and notes", async () => {
+  it("lists the recommended models, with their size and notes", async () => {
     renderHub("/hub/polish");
     await screen.findAllByTestId("polish-model");
     expect(
@@ -350,25 +360,17 @@ describe("Polish tab", () => {
       screen
         .getAllByTestId("polish-model")
         .map((element) => within(element).getByRole("heading").textContent),
-    ).toEqual([
-      "gemma3:4b",
-      "qwen3:4b-instruct-2507-q4_K_M",
-      "qwen3:8b",
-      "gemma3:12b",
-      "gemma3:1b",
-    ]);
-    expect(within(polishCard("gemma3:4b")).getByText("Recommended"));
-    expect(within(polishCard("gemma3:4b")).getByText("3.3 GB"));
+    ).toEqual([GEMMA_4B, QWEN_4B, QWEN_8B, GEMMA_12B, GEMMA_1B]);
+    expect(within(polishCard(GEMMA_4B)).getByText("Recommended"));
+    expect(within(polishCard(GEMMA_4B)).getByText("3.3 GB"));
+    expect(within(polishCard(QWEN_8B)).queryByText("Recommended")).toBeNull();
     expect(
-      within(polishCard("qwen3:8b")).queryByText("Recommended"),
-    ).toBeNull();
-    expect(
-      within(polishCard("gemma3:12b")).getByText(
+      within(polishCard(GEMMA_12B)).getByText(
         "Best quality, needs about 12 GB of GPU memory",
       ),
     );
     expect(
-      within(polishCard("gemma3:1b")).getByText(
+      within(polishCard(GEMMA_1B)).getByText(
         "For small machines, less reliable",
       ),
     );
@@ -377,46 +379,46 @@ describe("Polish tab", () => {
         exact: false,
       }),
     ).toBeTruthy();
-    await within(polishCard("gemma3:4b")).findByRole("button", {
+    await within(polishCard(GEMMA_4B)).findByRole("button", {
       name: "Download",
     });
   });
 
-  it("Download pulls the model through the ModelHub, then Use for polish", async () => {
+  it("Download goes through the ModelHub, then Use for polish", async () => {
     const { simulator, hub } = renderHub("/hub/polish");
     await screen.findAllByTestId("polish-model");
     await userEvent.click(
-      await within(polishCard("qwen3:8b")).findByRole("button", {
+      await within(polishCard(QWEN_8B)).findByRole("button", {
         name: "Download",
       }),
     );
     expect(simulator.callsTo("hub_download")).toEqual([
-      { request: { model: "qwen3:8b", repo: null, label: null } },
+      { request: { model: QWEN_8B, repo: null, label: null } },
     ]);
-    await hub.progress("qwen3:8b", GIB, { total: 4 * GIB });
-    const bar = await within(polishCard("qwen3:8b")).findByRole("progressbar", {
-      name: "Downloading qwen3:8b",
+    await hub.progress(QWEN_8B, GIB, { total: 4 * GIB });
+    const bar = await within(polishCard(QWEN_8B)).findByRole("progressbar", {
+      name: `Downloading ${QWEN_8B}`,
     });
     await waitFor(() => expect(bar.getAttribute("aria-valuenow")).toBe("25"));
     expect(screen.getByTestId("active-downloads").textContent).toBe("1");
-    await hub.finish("qwen3:8b");
-    // Modèles d'Ollama relus à la fin du téléchargement.
+    await hub.finish(QWEN_8B);
+    // Modèles installés relus à la fin du téléchargement.
     await userEvent.click(
-      await within(polishCard("qwen3:8b")).findByRole("button", {
+      await within(polishCard(QWEN_8B)).findByRole("button", {
         name: "Use for polish",
       }),
     );
-    expect(patches(simulator)).toEqual([{ polishModel: "qwen3:8b" }]);
-    await within(polishCard("qwen3:8b")).findByText("In use");
+    expect(patches(simulator)).toEqual([{ polishModel: QWEN_8B }]);
+    await within(polishCard(QWEN_8B)).findByText("In use");
   });
 
-  it("an installed model in use says so; Cancel stops a pull", async () => {
+  it("an installed model in use says so; Cancel stops a download", async () => {
     const { simulator } = renderHub(
       "/hub/polish",
       ({ backend, hub }) => {
-        backend.dictation.settings.polishModel = "gemma3:4b";
+        backend.dictation.settings.polishModel = GEMMA_4B;
         hub.downloads.push({
-          model: "gemma3:12b",
+          model: GEMMA_12B,
           repo: null,
           label: null,
           state: "downloading",
@@ -428,17 +430,17 @@ describe("Polish tab", () => {
           finishedAt: null,
         } satisfies HubDownload);
       },
-      { models: ["gemma3:4b", "qwen3:0.6b"] },
+      { models: [GEMMA_4B, "qwen3:0.6b"] },
     );
     await screen.findAllByTestId("polish-model");
-    await within(polishCard("gemma3:4b")).findByText("In use");
+    await within(polishCard(GEMMA_4B)).findByText("In use");
     await userEvent.click(
-      within(polishCard("gemma3:12b")).getByRole("button", { name: "Cancel" }),
+      within(polishCard(GEMMA_12B)).getByRole("button", { name: "Cancel" }),
     );
     expect(simulator.callsTo("hub_cancel_download")).toEqual([
-      { model: "gemma3:12b" },
+      { model: GEMMA_12B },
     ]);
-    await within(polishCard("gemma3:12b")).findByRole("button", {
+    await within(polishCard(GEMMA_12B)).findByRole("button", {
       name: "Download",
     });
   });
@@ -563,24 +565,24 @@ describe("focus kept in the cards (review 43, F10)", () => {
   });
 
   it("Use for polish leaves the focus on the card title", async () => {
-    renderHub("/hub/polish", () => {}, { models: ["gemma3:4b"] });
+    renderHub("/hub/polish", () => {}, { models: [GEMMA_4B] });
     await screen.findAllByTestId("polish-model");
-    const gemma = screen.getByRole("listitem", { name: "gemma3:4b" });
+    const gemma = screen.getByRole("listitem", { name: GEMMA_4B });
     await userEvent.click(
       await within(gemma).findByRole("button", { name: "Use for polish" }),
     );
     await within(gemma).findByText("In use");
     await waitFor(() =>
       expect(document.activeElement).toBe(
-        within(gemma).getByRole("heading", { name: "gemma3:4b" }),
+        within(gemma).getByRole("heading", { name: GEMMA_4B }),
       ),
     );
   });
 
   it("focus elsewhere in the page is left alone", async () => {
-    renderHub("/hub/polish", () => {}, { models: ["gemma3:4b"] });
+    renderHub("/hub/polish", () => {}, { models: [GEMMA_4B] });
     await screen.findAllByTestId("polish-model");
-    const gemma = screen.getByRole("listitem", { name: "gemma3:4b" });
+    const gemma = screen.getByRole("listitem", { name: GEMMA_4B });
     const use = await within(gemma).findByRole("button", {
       name: "Use for polish",
     });
@@ -594,23 +596,33 @@ describe("focus kept in the cards (review 43, F10)", () => {
   });
 });
 
+// Installés lus dans la base locale : Ollama injoignable est dit (le
+// nettoyage passe encore par lui), sans retirer Download ni Use.
 describe("Polish tab without Ollama (review 43, F2)", () => {
-  it("unreachable: said so, neither Download nor Use", async () => {
-    const { simulator } = renderHub("/hub/polish");
+  it("unreachable: said so, Download and Use stay", async () => {
+    const { simulator } = renderHub("/hub/polish", () => {}, {
+      models: [GEMMA_4B],
+    });
     simulator.handle("list_models", () => {
       throw { kind: "ollama", message: "connection refused" };
     });
     await screen.findByText(
-      "Ollama is unreachable. Start it to download or use these models.",
+      "Ollama is unreachable. Start it to use these models for polish.",
     );
-    for (const element of screen.getAllByTestId("polish-model")) {
-      expect(within(element).queryAllByRole("button")).toEqual([]);
-    }
+    await within(screen.getByRole("listitem", { name: GEMMA_4B })).findByRole(
+      "button",
+      { name: "Use for polish" },
+    );
+    await within(screen.getByRole("listitem", { name: QWEN_8B })).findByRole(
+      "button",
+      { name: "Download" },
+    );
   });
 
-  it("not answered yet: neither Download nor Use, nor unreachable", async () => {
+  it("installed models not read yet: neither Download nor Use, nor unreachable", async () => {
     const { simulator } = renderHub("/hub/polish");
-    simulator.handle("list_models", () => new Promise(() => {}));
+    // Ollama répond : sa liste seule ne dit pas ce qui est installé.
+    simulator.handle("hub_installed", () => new Promise(() => {}));
     await screen.findAllByTestId("polish-model");
     await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
     for (const element of screen.getAllByTestId("polish-model")) {

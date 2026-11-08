@@ -17,8 +17,11 @@
 // GPL-3.0 et de la GCC Runtime Library Exception pour libgomp), licences
 // du moteur d'images (licenses/sd-server/ : notice, textes des parties
 // compilées dans sd-server, de packaging/sdcpp/licenses, et Apache-2.0 du
-// chargeur Vulkan de secours), attribution des modèles de dictée téléchargés
-// à l'usage.
+// chargeur Vulkan de secours), licences du moteur de texte
+// (licenses/llama-server/ : notice, textes des parties compilées dans
+// llama-server, de packaging/llama/licenses, et Apache-2.0 ; voir
+// scripts/package-notices-llama.mjs), attribution des modèles de dictée
+// téléchargés à l'usage.
 //
 // L'inventaire de l'AppImage vient de scripts/appimage-libs.sh (Ubuntu, CI),
 // rangé dans .tools/package/appimage-libs/ ; sans lui (construction locale),
@@ -44,6 +47,11 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  llamaServerCopyright,
+  readLlamaServer,
+  renderLlamaServerReadme,
+} from "./package-notices-llama.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 
@@ -398,6 +406,7 @@ export function debCopyright({
   appimage = false,
   ollama = null,
   sdServer = null,
+  llamaServer = null,
 }) {
   const libraries = appimage
     ? [
@@ -423,15 +432,16 @@ export function debCopyright({
     " ChatonLM includes third-party code (Rust crates, npm packages, whisper.cpp,",
     " ONNX Runtime) and a model built into its executable (Silero VAD, MIT).",
     " The packages also hold programs that ChatonLM runs separately: the",
-    " built-in Ollama and the image engine (sd-server of stable-diffusion.cpp).",
-    " Their notices are in THIRD_PARTY_LICENSES and in the licenses/ directory",
-    " next to this file.",
+    " built-in Ollama, the text engine (llama-server of llama.cpp) and the",
+    " image engine (sd-server of stable-diffusion.cpp). Their notices are in",
+    " THIRD_PARTY_LICENSES and in the licenses/ directory next to this file.",
     ...libraries,
     "",
     ...(ollama ? ollamaCopyright({ ...ollama, appimage }) : []),
     ...(ollama ? libgompLicense({ appimage }) : []),
+    ...(llamaServer ? llamaServerCopyright({ ...llamaServer, appimage }) : []),
     ...(sdServer ? sdServerCopyright({ ...sdServer, appimage }) : []),
-    ...(sdServer ? apacheLicense({ appimage }) : []),
+    ...(sdServer || llamaServer ? apacheLicense({ appimage }) : []),
     "License: Expat",
     dep5Text(license),
     "",
@@ -1208,6 +1218,8 @@ function main() {
   );
   const sdServer = readSdServer(root);
   errors.push(...sdServer.errors);
+  const llamaServer = readLlamaServer(root);
+  errors.push(...llamaServer.errors);
   if (errors.length > 0) fail(errors.join("\n"));
   const ollamaEnv = parseEnv(read("packaging/ollama.env"));
   const installed = installedCargoAbout();
@@ -1280,6 +1292,13 @@ function main() {
   for (const [file, text] of Object.entries(sdServer.texts)) {
     common[`licenses/sd-server/${file}`] = text;
   }
+  common["licenses/llama-server/README.txt"] = renderLlamaServerReadme({
+    env: llamaServer.env,
+    licenseFiles: llamaServer.licenseFiles,
+  });
+  for (const [file, text] of Object.entries(llamaServer.texts)) {
+    common[`licenses/llama-server/${file}`] = text;
+  }
   const ollama = {
     version: ollamaEnv.OLLAMA_VERSION,
     gcc: ollamaEnv.OLLAMA_LIBGOMP_GCC,
@@ -1290,6 +1309,10 @@ function main() {
     version: sdServer.env.SDCPP_VERSION,
     commit: sdServer.env.SDCPP_COMMIT,
   };
+  const llama = {
+    version: llamaServer.env.LLAMA_VERSION,
+    commit: llamaServer.env.LLAMA_COMMIT,
+  };
 
   rmSync(out, { recursive: true, force: true });
   const deb = path.join(out, "deb");
@@ -1298,11 +1321,21 @@ function main() {
     write(deb, file, content);
     write(appimage, file, content);
   }
-  write(deb, "copyright", debCopyright({ license, ollama, sdServer: sd }));
+  write(
+    deb,
+    "copyright",
+    debCopyright({ license, ollama, sdServer: sd, llamaServer: llama }),
+  );
   write(
     appimage,
     "copyright",
-    debCopyright({ license, appimage: true, ollama, sdServer: sd }),
+    debCopyright({
+      license,
+      appimage: true,
+      ollama,
+      sdServer: sd,
+      llamaServer: llama,
+    }),
   );
   for (const file of APPIMAGE_LICENSE_TEXTS) {
     write(appimage, `licenses/${file}`, read(`packaging/licenses/${file}`));

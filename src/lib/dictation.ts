@@ -88,12 +88,21 @@ export function addWord(
 /** Remarque sur un modèle du nettoyage (texte : `polishModelNote`). */
 export type PolishModelNote = "bestQuality" | "smallMachines";
 
-/** Modèle Ollama conseillé pour le nettoyage (mesures du contrat 42 § 0). */
+/**
+ * Modèle conseillé pour le nettoyage (mesures du contrat 42 § 0, faites avec
+ * les mêmes modèles chez Ollama : gemma3:4b, qwen3:4b-instruct-2507,
+ * qwen3:8b, gemma3:12b, gemma3:1b).
+ */
 export interface PolishModel {
-  /** Nom Ollama, tiré tel quel par le téléchargement du ModelHub. */
+  /**
+   * Identifiant de Hugging Face (`auteur/dépôt:QUANT`), téléchargé tel quel
+   * par le ModelHub (base locale des modèles). Le nettoyage passe encore par
+   * Ollama jusqu'au passage complet à llama-server.
+   */
   model: string;
   /**
-   * Taille annoncée par la bibliothèque d'Ollama, en Go (texte :
+   * Taille du téléchargement en Go, projecteur de vision compris quand le
+   * dépôt en a un (fiche de Hugging Face, nov. 2026 ; texte :
    * `polishModelSize`).
    */
   sizeGb: number;
@@ -101,23 +110,38 @@ export interface PolishModel {
   noteKind: PolishModelNote | null;
 }
 
+/**
+ * GGUF officiels de ggml-org (l'organisation de llama.cpp) pour Gemma 3 et
+ * de Qwen pour Qwen3 8B ; Qwen3-4B-Instruct-2507 n'a de GGUF que chez les
+ * quantificateurs : celui d'unsloth. Q4_K_M partout, comme chez Ollama.
+ */
 export const POLISH_MODELS: readonly PolishModel[] = [
-  { model: "gemma3:4b", sizeGb: 3.3, recommended: true, noteKind: null },
   {
-    model: "qwen3:4b-instruct-2507-q4_K_M",
+    model: "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
+    sizeGb: 3.3,
+    recommended: true,
+    noteKind: null,
+  },
+  {
+    model: "unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M",
     sizeGb: 2.5,
     recommended: false,
     noteKind: null,
   },
-  { model: "qwen3:8b", sizeGb: 5.2, recommended: false, noteKind: null },
   {
-    model: "gemma3:12b",
-    sizeGb: 8.1,
+    model: "Qwen/Qwen3-8B-GGUF:Q4_K_M",
+    sizeGb: 5.0,
+    recommended: false,
+    noteKind: null,
+  },
+  {
+    model: "ggml-org/gemma-3-12b-it-GGUF:Q4_K_M",
+    sizeGb: 8.2,
     recommended: false,
     noteKind: "bestQuality",
   },
   {
-    model: "gemma3:1b",
+    model: "ggml-org/gemma-3-1b-it-GGUF:Q4_K_M",
     sizeGb: 0.8,
     recommended: false,
     noteKind: "smallMachines",

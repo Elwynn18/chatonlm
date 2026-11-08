@@ -13,6 +13,7 @@ pub mod desktop;
 pub mod dictation;
 pub mod easy_link;
 pub mod image_models;
+pub mod local_models;
 pub mod model_prefs;
 pub mod settings;
 pub mod study;
@@ -69,6 +70,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0036_bridge_agents.sql"),
     include_str!("../../migrations/0037_read_aloud_shortcut.sql"),
     include_str!("../../migrations/0038_proofread_options.sql"),
+    include_str!("../../migrations/0039_local_models.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.

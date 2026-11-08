@@ -253,12 +253,10 @@
     "offline": "Impossible de télécharger le modèle. Vérifiez votre connexion Internet pour télécharger le modèle et l'utiliser hors ligne.",
     "sharded": "Cette version est découpée en plusieurs fichiers, qu'Ollama ne sait pas encore télécharger depuis Hugging Face. Choisissez une autre version.",
     "unavailableVersion": "Cette version n'est pas disponible sur Hugging Face. Choisissez une autre version.",
-    "notGguf": "Ce dépôt ne contient aucun fichier de modèle utilisable par Ollama.",
+    "notGguf": "Ce dépôt ne contient aucun fichier de modèle utilisable par ChatonLM.",
     "notFoundOrPrivate": "Ce modèle n'existe pas sur Hugging Face, est privé ou demande un compte pour être téléchargé.",
-    "unreachable": "Impossible de joindre Ollama. Vérifiez qu'il est lancé, puis réessayez.",
     "timedOut": "Hugging Face n'a pas répondu à temps. Réessayez.",
     "locationChanging": "l'emplacement des modèles est en train de changer : réessayez une fois le changement terminé",
-    "serverChanged": "Arrêté : ChatonLM utilise maintenant un autre serveur Ollama. Téléchargez-le de nouveau pour l'utiliser avec celui-ci.",
     "hfTimeout": "Hugging Face n'a pas répondu à temps",
     "hfUnreachable": "impossible de joindre Hugging Face : {error}",
     "hfStatus": "Hugging Face a répondu avec le code {status}."
@@ -277,7 +275,6 @@
     "unexpectedLoaded": "réponse inattendue d'Ollama pour la liste des modèles chargés : {error}",
     "unexpectedAccount": "réponse inattendue d'Ollama pour les détails du compte : {error}",
     "modelNotFound": "modèle « {model} » introuvable",
-    "installedNotFound": "modèle introuvable",
     "registryTimeout": "le registre des modèles n'a pas répondu à temps",
     "registryUnreachable": "impossible de joindre le registre des modèles : {error}"
   },
@@ -576,5 +573,17 @@
     "sizeMb": "{value} Mo",
     "revisionChanged": "Ce dépôt a changé depuis l'ouverture de sa page : rouvrez-la",
     "unverified": "ChatonLM n'a pas pu vérifier l'origine de ce modèle (l'un de ses modèles de base est illisible) : activez « Afficher les modèles non censurés » dans les réglages pour le télécharger quand même"
+  },
+  "localModels": {
+    "notFound": "Ce modèle n'est pas installé.",
+    "inUse": "{file} est en cours d'utilisation : arrêtez le modèle, puis réessayez.",
+    "deleteFailed": "Impossible de supprimer {file} : {error}",
+    "noChecksum": "Hugging Face ne donne aucune somme de contrôle pour {file} : impossible de le vérifier, il n'est donc pas téléchargé.",
+    "unsafeName": "{file} porte un nom impossible à enregistrer sur cet ordinateur.",
+    "notGgufFile": "{file} n'est pas un fichier de modèle GGUF : ChatonLM ne peut pas s'en servir.",
+    "noDatabase": "Impossible d'installer des modèles : la base de données de ChatonLM n'a pas pu être ouverte.",
+    "unreadableListing": "Hugging Face a envoyé une liste de fichiers illisible. Réessayez plus tard.",
+    "invalidId": "{model} n'est pas un identifiant de modèle Hugging Face (auteur/dépôt:QUANT).",
+    "fileMissing": "{file} est introuvable : téléchargez de nouveau le modèle."
   }
 }

@@ -253,12 +253,10 @@
     "offline": "No se pudo descargar el modelo. Revisa tu conexión a internet para descargar el modelo y usarlo sin conexión.",
     "sharded": "Esta versión está dividida en varios archivos, que Ollama aún no puede descargar de Hugging Face. Elige otra versión.",
     "unavailableVersion": "Esta versión no está disponible en Hugging Face. Elige otra versión.",
-    "notGguf": "Este repositorio no tiene ningún archivo de modelo que Ollama pueda usar.",
+    "notGguf": "Este repositorio no tiene ningún archivo de modelo que ChatonLM pueda usar.",
     "notFoundOrPrivate": "Este modelo no existe en Hugging Face, es privado o necesita una cuenta para descargarse.",
-    "unreachable": "No se puede conectar con Ollama. Asegúrate de que esté en ejecución y vuelve a intentarlo.",
     "timedOut": "Hugging Face no respondió a tiempo. Vuelve a intentarlo.",
     "locationChanging": "la ubicación de los modelos se está cambiando: vuelve a intentarlo cuando termine",
-    "serverChanged": "Detenida: ChatonLM ahora usa otro servidor de Ollama. Vuelve a descargarlo para usarlo allí.",
     "hfTimeout": "Hugging Face no respondió a tiempo",
     "hfUnreachable": "no se puede conectar con Hugging Face: {error}",
     "hfStatus": "Hugging Face respondió con el estado {status}."
@@ -277,7 +275,6 @@
     "unexpectedLoaded": "Ollama devolvió una lista de modelos cargados inesperada: {error}",
     "unexpectedAccount": "Ollama devolvió datos de la cuenta inesperados: {error}",
     "modelNotFound": "no se encontró el modelo «{model}»",
-    "installedNotFound": "modelo no encontrado",
     "registryTimeout": "el registro de modelos no respondió a tiempo",
     "registryUnreachable": "no se puede conectar con el registro de modelos: {error}"
   },
@@ -576,5 +573,17 @@
     "sizeMb": "{value} MB",
     "revisionChanged": "Este repositorio cambió desde que se abrió su página: vuelve a abrirla",
     "unverified": "ChatonLM no pudo comprobar el origen de este modelo (no se puede leer uno de sus modelos base): activa «Mostrar modelos sin censura» en los ajustes para descargarlo de todos modos"
+  },
+  "localModels": {
+    "notFound": "Este modelo no está instalado.",
+    "inUse": "{file} está en uso: detén el modelo y vuelve a intentarlo.",
+    "deleteFailed": "No se pudo eliminar {file}: {error}",
+    "noChecksum": "Hugging Face no da ninguna suma de verificación para {file}: no se puede comprobar, así que no se descarga.",
+    "unsafeName": "{file} tiene un nombre que no se puede guardar en este equipo.",
+    "notGgufFile": "{file} no es un archivo de modelo GGUF: ChatonLM no puede usarlo.",
+    "noDatabase": "No se pueden instalar modelos: no se pudo abrir la base de datos de ChatonLM.",
+    "unreadableListing": "Hugging Face envió una lista de archivos ilegible. Vuelve a intentarlo más tarde.",
+    "invalidId": "{model} no es un identificador de modelo de Hugging Face (autor/repositorio:QUANT).",
+    "fileMissing": "Falta {file}: vuelve a descargar el modelo."
   }
 }

@@ -359,9 +359,7 @@ describe("built-in image engine: notices", () => {
     expect(text).toContain("licenses/sd-server/Apache-2.0.txt");
     // Paragraphe autonome de la licence Expat toujours à la fin.
     expect(text.trimEnd().endsWith(" Text.")).toBe(true);
-    expect(text).toContain(
-      "the image engine (sd-server of stable-diffusion.cpp)",
-    );
+    expect(text).toContain("image engine (sd-server of stable-diffusion.cpp)");
     for (const line of text.split("\n")) {
       expect(line.length).toBeLessThanOrEqual(80);
     }

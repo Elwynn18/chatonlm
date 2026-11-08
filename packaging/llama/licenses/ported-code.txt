@@ -1,0 +1,129 @@
+Code of other projects ported or adapted into llama.cpp and ggml
+================================================================
+
+The source files of llama.cpp and ggml compiled into llama-server name the
+projects below as the origin of some of their code (ported, adapted or
+copied). llama.cpp distributes that code under its MIT License
+(llama.cpp-LICENSE.txt in this directory); the notes below repeat what the
+source files say about each origin.
+
+-- YaRN --
+
+Used in:  ggml/src/ggml-cpu/ops.cpp and the GPU backends (rope_yarn),
+          "based on LlamaYaRNScaledRotaryEmbedding.py from
+          https://github.com/jquesnelle/yarn"
+License:  "MIT licensed. Copyright (c) 2023 Jeffrey Quesnelle and Bowen Peng."
+
+-- llamafile (Mozilla) --
+
+Used in:  ggml/src/ggml-cpu/llamafile/sgemm.cpp (matrix multiplication
+          kernels of the CPU backend), https://github.com/Mozilla-Ocho/llamafile
+License:  MIT, "Copyright 2024 Mozilla Foundation" (header of sgemm.cpp)
+
+-- ggllm.cpp --
+
+Used in:  src/llama-vocab.cpp, "adapted from
+          https://github.com/cmp-nct/ggllm.cpp [MIT License]"
+License:  MIT
+
+-- KoboldCpp --
+
+Used in:  src/llama-sampler.cpp (DRY sampler), "Ported from Koboldcpp,
+          original PR: https://github.com/LostRuins/koboldcpp/pull/982
+          (Original author: pi6am)"
+License:  distributed by llama.cpp under its MIT License. The pull request
+          that brought this code into llama.cpp,
+          https://github.com/ggml-org/llama.cpp/pull/9702, records the
+          permission of its original author (comment of 18 October 2024):
+          "We now have the explicit permission from @pi6am to base this
+          version on his implementation from koboldcpp. I also added him as
+          a co-author on earlier commits for this PR."
+
+-- Pillow --
+
+Used in:  tools/mtmd/mtmd-image.cpp (image resampling of the multimodal
+          projector), "Adapted from
+          https://github.com/python-pillow/Pillow/blob/main/src/libImaging/Resample.c"
+License:  MIT-CMU, the license of Pillow, whose text follows (from
+          https://github.com/python-pillow/Pillow/blob/main/LICENSE,
+          commit 7c121637c9b0062694069f8f6d173e17dba8c46f):
+
+    The Python Imaging Library (PIL) is
+
+        Copyright © 1997-2011 by Secret Labs AB
+        Copyright © 1995-2011 by Fredrik Lundh and contributors
+
+    Pillow is the friendly PIL fork. It is
+
+        Copyright © 2010 by Jeffrey 'Alex' Clark and contributors
+
+    Like PIL, Pillow is licensed under the open source MIT-CMU License:
+
+    By obtaining, using, and/or copying this software and/or its associated
+    documentation, you agree that you have read, understood, and will comply
+    with the following terms and conditions:
+
+    Permission to use, copy, modify and distribute this software and its
+    documentation for any purpose and without fee is hereby granted,
+    provided that the above copyright notice appears in all copies, and that
+    both that copyright notice and this permission notice appear in supporting
+    documentation, and that the name of Secret Labs AB or the author not be
+    used in advertising or publicity pertaining to distribution of the software
+    without specific, written prior permission.
+
+    SECRET LABS AB AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS
+    SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS.
+    IN NO EVENT SHALL SECRET LABS AB OR THE AUTHOR BE LIABLE FOR ANY SPECIAL,
+    INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+    LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+    OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+    PERFORMANCE OF THIS SOFTWARE.
+
+-- whisper.cpp --
+
+Used in:  tools/mtmd/mtmd-audio.cpp (audio preprocessing of the multimodal
+          projector), "some of the code here is copied from whisper.cpp",
+          https://github.com/ggml-org/whisper.cpp
+License:  MIT, "Copyright (c) 2023-2026 The ggml authors": the same license
+          and copyright holders as llama.cpp (llama.cpp-LICENSE.txt in this
+          directory)
+
+-- base64.hpp --
+
+Used in:  common/base64.hpp, included by the server
+          (tools/server/server-common.cpp, server-context.cpp,
+          server-tools.cpp, server-realtime.cpp)
+License:  public domain (the Unlicense); the notice of the file follows:
+
+    This is free and unencumbered software released into the public domain.
+
+    Anyone is free to copy, modify, publish, use, compile, sell, or
+    distribute this software, either in source code form or as a compiled
+    binary, for any purpose, commercial or non-commercial, and by any
+    means.
+
+    In jurisdictions that recognize copyright laws, the author or authors
+    of this software dedicate any and all copyright interest in the
+    software to the public domain. We make this dedication for the benefit
+    of the public at large and to the detriment of our heirs and
+    successors. We intend this dedication to be an overt act of
+    relinquishment in perpetuity of all present and future rights to this
+    software under copyright law.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+    EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+    IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+    OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+    ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+    OTHER DEALINGS IN THE SOFTWARE.
+
+    For more information, please refer to <http://unlicense.org>
+
+-- Arm Optimized Routines --
+
+Used in:  ggml/src/ggml-cpu/vec.h (vectorized exp and silu), "adapted from
+          arm limited optimized routine",
+          https://github.com/ARM-software/optimized-routines
+License:  MIT OR Apache-2.0 WITH LLVM-exception (the text of the Apache
+          License, Version 2.0 is in Apache-2.0.txt in this directory)

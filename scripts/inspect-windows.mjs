@@ -5,7 +5,9 @@
 // scripts/fetch-ollama.sh et sans moteur CUDA, ROCm ni MLX, ONNX Runtime
 // identique à celui de scripts/fetch-onnxruntime.sh, moteur d'images
 // identique à celui de scripts/build-sd-server.sh (CRT statique : aucune DLL
-// de Visual C++ ni d'OpenMP importée), et surtout imports PE de
+// de Visual C++ ni d'OpenMP importée), moteur de texte identique à celui de
+// scripts/build-llama-server.sh (mêmes contrôles, pour chacune de ses DLL),
+// et surtout imports PE de
 // chaque exécutable et de chaque DLL : une DLL demandée doit être livrée à
 // côté, ou appartenir à Windows. C'est ce contrôle qui remplace la « machine
 // neuve » : le runner de la CI a le redistribuable Visual C++, WebView2 et
@@ -17,7 +19,7 @@
 //
 // Usage : node scripts/inspect-windows.mjs [options] <ChatonLM_x.y.z_x64-setup.exe>
 //   --runtimes <dossier>   copies de référence (défaut : .tools/runtimes ;
-//                          ollama, onnxruntime, sd-server)
+//                          ollama, onnxruntime, sd-server, llama-server)
 //   --report <fichier>     copie du rapport
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -72,6 +74,23 @@ export const REQUIRED_FILES = [
   "sd-server/sd-server.exe",
   "sd-server/fallback/vulkan-1.dll",
   "sd-server/VERSION",
+  // Moteur de texte (scripts/build-llama-server.sh) : le lanceur et ses DLL,
+  // à CRT statique, les moteurs de calcul (variantes du processeur sans AVX
+  // et avec AVX2, Vulkan), le chargeur Vulkan de secours, la version et les
+  // empreintes.
+  "llama-server/llama-server.exe",
+  "llama-server/llama-server-impl.dll",
+  "llama-server/llama.dll",
+  "llama-server/ggml-base.dll",
+  "llama-server/ggml-vulkan.dll",
+  "llama-server/ggml-cpu-x64.dll",
+  "llama-server/ggml-cpu-haswell.dll",
+  "llama-server/vcruntime140.dll",
+  "llama-server/vcruntime140_1.dll",
+  "llama-server/msvcp140.dll",
+  "llama-server/fallback/vulkan-1.dll",
+  "llama-server/VERSION",
+  "llama-server/SHA256SUMS",
   // Notices (scripts/package-notices-windows.mjs).
   "licenses/LICENSE.txt",
   "licenses/THIRD_PARTY_LICENSES.txt",
@@ -90,7 +109,52 @@ export const REQUIRED_FILES = [
   "licenses/ollama/LLVM-LICENSE.txt",
   "licenses/ollama/winpthreads-COPYING.txt",
   "licenses/sd-server/README.txt",
+  "licenses/llama-server/README.txt",
+  "licenses/llama-server/llama.cpp-LICENSE.txt",
 ];
+
+/** Dossier du moteur de texte dans l'installation. */
+export const LLAMA_SERVER_DIR = "llama-server/";
+
+/**
+ * Motifs des fichiers que les crochets NSIS (packaging/windows/hooks.nsh)
+ * retirent de llama-server\ avant une mise à jour : ceux de la macro
+ * CHATONLM_LLAMA_FILES, plus VERSION (la marque, retirée en dernier). Rend
+ * des expressions rationnelles sur le chemin relatif au dossier du moteur
+ * (« / »), insensibles à la casse comme Windows.
+ */
+export function llamaHookPatterns(hooks) {
+  const code = hooks
+    .split("\n")
+    .filter((line) => !line.trim().startsWith(";"))
+    .join("\n");
+  const files = code
+    .split("!macro CHATONLM_LLAMA_FILES")[1]
+    ?.split("!macroend")[0];
+  const quoted = [
+    ...(files ?? "").matchAll(/"\$INSTDIR\\llama-server\\([^"]+)"/g),
+    ...code.matchAll(/^\s*Delete "\$INSTDIR\\llama-server\\(VERSION)"/gm),
+  ].map((match) => match[1]);
+  return quoted.map(
+    (glob) =>
+      new RegExp(
+        `^${glob
+          .replaceAll("\\", "/")
+          .replace(/[.+?^${}()|[\]]/g, "\\$&")
+          .replaceAll("*", "[^/]*")}$`,
+        "i",
+      ),
+  );
+}
+
+/**
+ * DLL qu'aucun fichier du moteur de texte ne doit importer : OpenMP (coupé à
+ * la construction), runtimes de GCC, OpenSSL. Son runtime Visual C++ (CRT en
+ * DLL, voir scripts/build-llama-server.sh) est livré dans son dossier :
+ * importProblems vérifie qu'il y est.
+ */
+export const LLAMA_SERVER_FORBIDDEN =
+  /^(vcomp|libomp|libgomp|libstdc|libgcc|libwinpthread|libssl|libcrypto|libcurl)/;
 
 /** Dossier du moteur d'images dans l'installation, et son serveur. */
 export const SD_SERVER_DIR = "sd-server/";
@@ -124,6 +188,15 @@ export const NOTICE_MENTIONS = [
       /fallback\\vulkan-1\.dll/,
       /Apache License/,
       /Visual C\+\+/,
+    ],
+  ],
+  [
+    "licenses/llama-server/README.txt",
+    [
+      /llama\.cpp/,
+      /fallback\\vulkan-1\.dll/,
+      /Apache License/,
+      /Visual\sC\+\+/,
     ],
   ],
 ];
@@ -312,6 +385,10 @@ function searchDirs(file) {
   // fallback, ajouté en fin de PATH par l'app.
   if (file.startsWith(SD_SERVER_DIR))
     dirs.push("sd-server", "sd-server/fallback");
+  // Moteur de texte : de même (ses moteurs de calcul, chargés par ggml,
+  // trouvent ggml-base.dll dans le dossier du processus).
+  if (file.startsWith(LLAMA_SERVER_DIR))
+    dirs.push("llama-server", "llama-server/fallback");
   return [...new Set(dirs)];
 }
 
@@ -366,8 +443,9 @@ export function importProblems({ files, pe }) {
  * `hash(chemin)` : SHA-256 ; `pe(chemin)` : en-têtes PE ; `reference` :
  * { ollama: Map(chemin relatif → SHA-256), onnxruntime: SHA-256 | null,
  *   ollamaVersion, sdServer: Map(chemin relatif → SHA-256) | null,
- *   sdServerPinned } (copies vérifiées de .tools/runtimes, versions de
- * packaging/ollama.env et packaging/sdcpp.env) ; `version` de l'app ;
+ *   sdServerPinned, llamaServer: Map | null, llamaServerPinned } (copies
+ * vérifiées de .tools/runtimes, versions de packaging/ollama.env,
+ * packaging/sdcpp.env et packaging/llama.env) ; `version` de l'app ;
  * `bytes(chemin)` : contenu brut (exécutable sans le code des essais). Rend
  * { errors, warnings }.
  */
@@ -379,6 +457,7 @@ export function contentProblems({
   pe,
   reference,
   version,
+  hooks = readFileSync(path.join(root, "packaging/windows/hooks.nsh"), "utf8"),
 }) {
   const errors = [];
   const warnings = [];
@@ -490,6 +569,83 @@ export function contentProblems({
     if (crt.length > 0) {
       errors.push(
         `${SD_SERVER_EXE} : DLL du runtime Visual C++ ou d'OpenMP importée (CRT statique attendu) : ${[...new Set(crt)].join(", ")}`,
+      );
+    }
+  }
+
+  // Moteur de texte : exactement les fichiers du dossier construit
+  // (SHA256SUMS compris), sans OpenMP ni runtime de GCC.
+  if (reference.llamaServer) {
+    for (const [rel, sum] of reference.llamaServer) {
+      const file = `${LLAMA_SERVER_DIR}${rel}`;
+      if (!files.has(file)) {
+        errors.push(
+          `Moteur de texte : fichier absent de l'installateur : ${file}`,
+        );
+      } else if (hash(file) !== sum) {
+        errors.push(`Moteur de texte : fichier modifié : ${file}`);
+      }
+    }
+    for (const file of files.keys()) {
+      if (
+        file.startsWith(LLAMA_SERVER_DIR) &&
+        !reference.llamaServer.has(file.slice(LLAMA_SERVER_DIR.length))
+      ) {
+        errors.push(`Moteur de texte : fichier inattendu : ${file}`);
+      }
+    }
+  } else {
+    warnings.push(
+      "Copie de référence du moteur de texte absente (.tools/runtimes/llama-server) : fichiers non comparés",
+    );
+  }
+  // Chaque fichier livré est retiré par les crochets NSIS avant une mise à
+  // jour (sinon une variante d'une autre version resterait, et serait
+  // chargée) ; ils ne retirent que des fichiers à nous, par motifs.
+  const removed = llamaHookPatterns(hooks);
+  if (removed.length === 0) {
+    errors.push(
+      "packaging/windows/hooks.nsh : motifs de CHATONLM_LLAMA_FILES illisibles",
+    );
+  } else {
+    for (const file of [...files.keys()].sort()) {
+      if (!file.startsWith(LLAMA_SERVER_DIR)) continue;
+      const rel = file.slice(LLAMA_SERVER_DIR.length);
+      if (!removed.some((pattern) => pattern.test(rel))) {
+        errors.push(
+          `Moteur de texte : fichier que les crochets NSIS ne retirent pas avant une mise à jour : ${file}`,
+        );
+      }
+    }
+  }
+  const llamaVersion = `${LLAMA_SERVER_DIR}VERSION`;
+  if (reference.llamaServerPinned && files.has(llamaVersion)) {
+    const shipped = read(llamaVersion).trim();
+    const pinned = reference.llamaServerPinned.replace(
+      /[.*+?^${}()|[\]\\]/g,
+      "\\$&",
+    );
+    if (!new RegExp(`^${pinned}\\+chatonlm\\.[0-9a-f]{12}$`).test(shipped)) {
+      errors.push(
+        `${llamaVersion} : « ${shipped} » au lieu de ${reference.llamaServerPinned}+chatonlm.<empreinte> (packaging/llama.env)`,
+      );
+    }
+  }
+  for (const file of [...files.keys()].sort()) {
+    if (
+      !file.startsWith(LLAMA_SERVER_DIR) ||
+      file.startsWith(`${LLAMA_SERVER_DIR}fallback/`) ||
+      !/\.(exe|dll)$/i.test(file)
+    ) {
+      continue;
+    }
+    const headers = pe(file);
+    const banned = [...headers.imports, ...(headers.delayImports ?? [])].filter(
+      (name) => LLAMA_SERVER_FORBIDDEN.test(name),
+    );
+    if (banned.length > 0) {
+      errors.push(
+        `${file} : DLL d'OpenMP, de GCC ou d'OpenSSL importée : ${[...new Set(banned)].join(", ")}`,
       );
     }
   }
@@ -610,6 +766,15 @@ function readReference(runtimes) {
         .map((rel) => [rel, sha256(path.join(sdDir, rel))]),
     );
   }
+  // Moteur de texte : tous les fichiers du dossier construit, SHA256SUMS
+  // compris (livré).
+  const llamaDir = path.join(runtimes, "llama-server");
+  let llamaServer = null;
+  if (existsSync(path.join(llamaDir, "llama-server.exe"))) {
+    llamaServer = new Map(
+      walk(llamaDir).map((rel) => [rel, sha256(path.join(llamaDir, rel))]),
+    );
+  }
   const env = (file) =>
     parseEnv(readFileSync(path.join(root, "packaging", file), "utf8"));
   return {
@@ -618,6 +783,8 @@ function readReference(runtimes) {
     ollamaVersion: env("ollama.env").OLLAMA_VERSION ?? null,
     sdServer,
     sdServerPinned: env("sdcpp.env").SDCPP_VERSION ?? null,
+    llamaServer,
+    llamaServerPinned: env("llama.env").LLAMA_VERSION ?? null,
   };
 }
 
@@ -659,6 +826,7 @@ export function formatReport({
     `    racine (exe, DLL) : ${formatSize(group(""))}`,
     `    ollama/ : ${formatSize(group("ollama/"))}`,
     `    sd-server/ : ${formatSize(group(SD_SERVER_DIR))}`,
+    `    llama-server/ : ${formatSize(group(LLAMA_SERVER_DIR))}`,
     `    licenses/ : ${formatSize(group("licenses/"))}`,
     "",
     "Exécutables et DLL (imports hors Windows, signature) :",

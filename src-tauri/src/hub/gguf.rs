@@ -10,6 +10,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod meta;
+
 /// Octets demandés au serveur (requête Range) : les clés d'architecture
 /// précèdent le vocabulaire dans les fichiers mesurés (34 § 9).
 pub const HEADER_BYTES: usize = 256 * 1024;
@@ -590,6 +592,21 @@ pub(crate) mod tests {
             self.0.extend((values.len() as u64).to_le_bytes());
             self.0.extend(values.iter().map(|&value| u8::from(value)));
             self
+        }
+
+        pub fn string_array(&mut self, key: &str, values: &[&str]) -> &mut Self {
+            self.key(key, ARRAY);
+            self.0.extend(STRING.to_le_bytes());
+            self.0.extend((values.len() as u64).to_le_bytes());
+            for value in values {
+                self.0.extend((value.len() as u64).to_le_bytes());
+                self.0.extend(value.as_bytes());
+            }
+            self
+        }
+
+        pub fn finish(&mut self) -> Vec<u8> {
+            std::mem::take(&mut self.0)
         }
 
         pub fn tokens(&mut self, count: usize) -> &mut Self {

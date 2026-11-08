@@ -8,6 +8,7 @@
       "../.tools/runtimes/sd-server/sd-server.exe": "sd-server/sd-server.exe",
       "../.tools/runtimes/sd-server/fallback/": "sd-server/fallback/",
       "../.tools/runtimes/sd-server/VERSION": "sd-server/VERSION",
+      "../.tools/runtimes/llama-server/": "llama-server/",
       "../.tools/package/notices/windows/": "licenses/"
     }
   }

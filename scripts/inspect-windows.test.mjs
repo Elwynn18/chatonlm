@@ -15,6 +15,7 @@ import {
   importProblems,
   installerProblems,
   isNsisInstaller,
+  llamaHookPatterns,
   MAX_INSTALLER_BYTES,
   parsePe,
   REQUIRED_FILES,
@@ -40,6 +41,7 @@ import {
   WINDOWS_TARGET,
   windowsAboutConfig,
 } from "./package-notices-windows.mjs";
+import { renderLlamaServerReadme } from "./package-notices-llama.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const text = (file) => readFileSync(path.join(ROOT, file), "utf8");
@@ -47,6 +49,8 @@ const json = (file) => JSON.parse(text(file));
 /** Version du moteur d'images épinglée, et celle d'une construction. */
 const SD_PINNED = "master-964-1d0a58a";
 const SD_VERSION = `${SD_PINNED}+chatonlm.0123456789ab`;
+const LLAMA_PINNED = "v0.9.0";
+const LLAMA_VERSION = `${LLAMA_PINNED}+chatonlm.0123456789ab`;
 
 /**
  * Fichier PE32+ minimal : une section, avec la table des imports
@@ -248,6 +252,41 @@ function installation(overrides = {}) {
     pe: { imports: ["kernel32.dll", "cfgmgr32.dll"] },
   });
   set("sd-server/VERSION", { text: `${SD_VERSION}\n` });
+  set("llama-server/llama-server.exe", {
+    pe: {
+      imports: [
+        "kernel32.dll",
+        "llama-server-impl.dll",
+        "llama.dll",
+        "msvcp140.dll",
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+      ],
+    },
+  });
+  set("llama-server/ggml-cpu-haswell.dll", {
+    pe: { imports: ["kernel32.dll", "ggml-base.dll"] },
+  });
+  set("llama-server/ggml-vulkan.dll", {
+    pe: { imports: ["kernel32.dll", "ggml-base.dll", "vulkan-1.dll"] },
+  });
+  set("llama-server/fallback/vulkan-1.dll", {
+    pe: { imports: ["kernel32.dll", "cfgmgr32.dll"] },
+  });
+  set("llama-server/VERSION", { text: `${LLAMA_VERSION}\n` });
+  set("licenses/llama-server/README.txt", {
+    text: renderLlamaServerReadme({
+      env: {
+        LLAMA_VERSION: LLAMA_PINNED,
+        LLAMA_BUILD: "b12110",
+        LLAMA_REPO: "https://github.com/ggml-org/llama.cpp",
+        LLAMA_COMMIT: "cd959bae9",
+        LLAMA_GGML_VERSION: "0.29.0",
+      },
+      licenseFiles: [],
+      windows: true,
+    }),
+  });
   set("licenses/sd-server/README.txt", {
     text: renderSdServerReadme({
       env: {
@@ -289,6 +328,11 @@ function installation(overrides = {}) {
       .filter((f) => f.startsWith("sd-server/"))
       .map((f) => [f.slice("sd-server/".length), `sum:${content(f)}`]),
   );
+  const llamaServer = new Map(
+    [...entries.keys()]
+      .filter((f) => f.startsWith("llama-server/"))
+      .map((f) => [f.slice("llama-server/".length), `sum:${content(f)}`]),
+  );
   return {
     files: new Map([...entries.keys()].map((f) => [f, 1])),
     read: content,
@@ -308,6 +352,8 @@ function installation(overrides = {}) {
       ollamaVersion: "0.40.0",
       sdServer,
       sdServerPinned: SD_PINNED,
+      llamaServer,
+      llamaServerPinned: LLAMA_PINNED,
     },
     version: "0.9.0",
   };
@@ -458,12 +504,17 @@ describe("contenu de l'installateur", () => {
       ollamaVersion: null,
       sdServer: null,
       sdServerPinned: null,
+      llamaServer: null,
+      llamaServerPinned: null,
     };
     const result = contentProblems(bare);
     expect(result.errors).toEqual([]);
-    expect(result.warnings).toHaveLength(3);
+    expect(result.warnings).toHaveLength(4);
     expect(result.warnings[2]).toMatch(
       /^Copie de référence du moteur d'images absente/,
+    );
+    expect(result.warnings[3]).toMatch(
+      /^Copie de référence du moteur de texte absente/,
     );
   });
 
@@ -589,6 +640,63 @@ describe("contenu de l'installateur", () => {
     );
     expect(root.errors).toEqual([
       "sd-server/fallback/vulkan-1.dll : DLL demandée et non livrée à côté : vcruntime140.dll",
+    ]);
+  });
+
+  it("exige le moteur de texte, identique au dossier construit, avec son runtime Visual C++ et à la version épinglée", () => {
+    // Fichier en trop (variante d'une autre version), fichier modifié.
+    const extra = installation({
+      "llama-server/ggml-cpu-old.dll": { pe: { imports: ["kernel32.dll"] } },
+    });
+    extra.reference.llamaServer.delete("ggml-cpu-old.dll");
+    expect(contentProblems(extra).errors).toEqual([
+      "Moteur de texte : fichier inattendu : llama-server/ggml-cpu-old.dll",
+    ]);
+    const changed = installation();
+    changed.reference.llamaServer.set("llama.dll", "sum:autre");
+    expect(contentProblems(changed).errors).toEqual([
+      "Moteur de texte : fichier modifié : llama-server/llama.dll",
+    ]);
+    // Runtime Visual C++ en DLL : accepté parce qu'il est livré dans le
+    // dossier du moteur, refusé sinon ; OpenMP jamais, pour aucune DLL.
+    const crt = installation({ "llama-server/msvcp140.dll": null });
+    crt.reference.llamaServer.delete("msvcp140.dll");
+    expect(contentProblems(crt).errors).toEqual([
+      "Fichier absent : llama-server/msvcp140.dll",
+      "llama-server/llama-server.exe : DLL demandée et non livrée à côté : msvcp140.dll",
+    ]);
+    const omp = installation({
+      "llama-server/ggml-cpu-haswell.dll": {
+        pe: { imports: ["ggml-base.dll", "vcomp140.dll"] },
+      },
+    });
+    expect(contentProblems(omp).errors).toEqual([
+      "llama-server/ggml-cpu-haswell.dll : DLL d'OpenMP, de GCC ou d'OpenSSL importée : vcomp140.dll",
+      "llama-server/ggml-cpu-haswell.dll : DLL demandée et non livrée à côté : vcomp140.dll",
+    ]);
+    const version = installation({
+      "llama-server/VERSION": { text: "b12110\n" },
+    });
+    expect(contentProblems(version).errors).toEqual([
+      `llama-server/VERSION : « b12110 » au lieu de ${LLAMA_PINNED}+chatonlm.<empreinte> (packaging/llama.env)`,
+    ]);
+    // Fichier livré que les crochets NSIS ne retireraient pas avant une mise
+    // à jour (motif oublié dans CHATONLM_LLAMA_FILES).
+    const uncovered = installation({
+      "llama-server/libfoo.dll": { pe: { imports: ["kernel32.dll"] } },
+    });
+    expect(contentProblems(uncovered).errors).toEqual([
+      "Moteur de texte : fichier que les crochets NSIS ne retirent pas avant une mise à jour : llama-server/libfoo.dll",
+    ]);
+    expect(
+      contentProblems({ ...installation(), hooks: "; vide\n" }).errors,
+    ).toEqual([
+      "packaging/windows/hooks.nsh : motifs de CHATONLM_LLAMA_FILES illisibles",
+    ]);
+    const missing = installation();
+    missing.reference.llamaServer = null;
+    expect(contentProblems(missing).warnings).toEqual([
+      "Copie de référence du moteur de texte absente (.tools/runtimes/llama-server) : fichiers non comparés",
     ]);
   });
 
@@ -872,6 +980,7 @@ describe("configuration Windows du bundle", () => {
       "../.tools/runtimes/sd-server/sd-server.exe": "sd-server/sd-server.exe",
       "../.tools/runtimes/sd-server/fallback/": "sd-server/fallback/",
       "../.tools/runtimes/sd-server/VERSION": "sd-server/VERSION",
+      "../.tools/runtimes/llama-server/": "llama-server/",
       "../.tools/package/notices/windows/": "licenses/",
     });
     expect(text("scripts/package-windows.sh")).toContain(
@@ -940,6 +1049,112 @@ describe("crochets NSIS", () => {
     expect(code).not.toMatch(/RMDir .*sd-server/);
   });
 
+  it("n'arrête et ne retire le moteur de texte que si son dossier porte notre marque, fichier par fichier", () => {
+    const macro = (name) =>
+      code
+        .split(`!macro ${name}`)[1]
+        .split("!macroend")[0]
+        .trim()
+        .split("\n")
+        .map((line) => line.trim());
+    // Marque : « +chatonlm. » cherchée dans la première ligne de VERSION.
+    const ours = macro("CHATONLM_OUR_LLAMA");
+    expect(ours[0]).toBe("StrCpy $R1 0");
+    expect(ours).toContain(
+      String.raw`FileOpen $R2 "$INSTDIR\llama-server\VERSION" r`,
+    );
+    expect(ours).toContain('${If} $R5 == "+chatonlm."');
+    expect(ours).toContain("StrCpy $R5 $R3 10 $R2");
+    expect(ours).toContain("StrCpy $R1 1");
+    // Arrêt par le chemin exact, sous la garde de la marque.
+    const builtin = macro("CHATONLM_STOP_BUILTIN");
+    const stop = builtin.indexOf(
+      String.raw`!insertmacro CHATONLM_STOP_FILE "$INSTDIR\llama-server\llama-server.exe"`,
+    );
+    expect(builtin.slice(stop - 2, stop + 2)).toEqual([
+      "!insertmacro CHATONLM_OUR_LLAMA",
+      "${If} $R1 = 1",
+      builtin[stop],
+      "${EndIf}",
+    ]);
+    // Avant la copie, après l'arrêt, sous la même garde ; jamais à la
+    // désinstallation (le modèle de Tauri y retire ses fichiers par nom).
+    const pre = macro("NSIS_HOOK_PREINSTALL");
+    const remove = pre.indexOf("!insertmacro CHATONLM_REMOVE_LLAMA");
+    expect(pre.slice(remove - 2, remove + 2)).toEqual([
+      "!insertmacro CHATONLM_OUR_LLAMA",
+      "${If} $R1 = 1",
+      "!insertmacro CHATONLM_REMOVE_LLAMA",
+      "${EndIf}",
+    ]);
+    expect(pre.indexOf("!insertmacro CHATONLM_STOP_ALL")).toBeLessThan(remove);
+    expect(macro("NSIS_HOOK_PREUNINSTALL").join("\n")).not.toMatch(
+      /RMDir|REMOVE_LLAMA|Delete/,
+    );
+    // Retrait : nos motifs, puis jusqu'à dix nouveaux essais s'il en reste,
+    // puis la marque, puis les dossiers seulement vides.
+    expect(macro("CHATONLM_REMOVE_LLAMA")).toEqual([
+      "!insertmacro CHATONLM_LLAMA_FILES CHATONLM_DELETE_PATTERN",
+      "${For} $R3 1 10",
+      "StrCpy $R2 0",
+      "!insertmacro CHATONLM_LLAMA_FILES CHATONLM_COUNT_LEFT",
+      "${If} $R2 = 0",
+      "${ExitFor}",
+      "${EndIf}",
+      "Sleep 500",
+      "!insertmacro CHATONLM_LLAMA_FILES CHATONLM_DELETE_PATTERN",
+      "${Next}",
+      String.raw`Delete "$INSTDIR\llama-server\VERSION"`,
+      String.raw`RMDir "$INSTDIR\llama-server\fallback"`,
+      String.raw`RMDir "$INSTDIR\llama-server"`,
+    ]);
+    expect(macro("CHATONLM_DELETE_PATTERN pattern")).toEqual([
+      'Delete "${pattern}"',
+    ]);
+    expect(macro("CHATONLM_COUNT_LEFT pattern")).toEqual([
+      '${If} ${FileExists} "${pattern}"',
+      "IntOp $R2 $R2 + 1",
+      "${EndIf}",
+    ]);
+  });
+
+  it("ne retire de llama-server que des fichiers que nous livrons", () => {
+    const patterns = llamaHookPatterns(hooks);
+    const removed = (file) => patterns.some((pattern) => pattern.test(file));
+    for (const file of [
+      "llama-server.exe",
+      "llama-server-impl.dll",
+      "llama.dll",
+      "llama-common.dll",
+      "mtmd.dll",
+      "ggml.dll",
+      "ggml-base.dll",
+      "ggml-cpu-haswell.dll",
+      "GGML-CPU-ZEN4.DLL",
+      "ggml-vulkan.dll",
+      "vcruntime140.dll",
+      "vcruntime140_1.dll",
+      "msvcp140.dll",
+      "fallback/vulkan-1.dll",
+      "SHA256SUMS",
+      "VERSION",
+    ]) {
+      expect(removed(file), file).toBe(true);
+    }
+    // Ce qu'un utilisateur range dans son propre dossier llama.cpp.
+    for (const file of [
+      "model.gguf",
+      "models/qwen3.gguf",
+      "llama-cli.exe",
+      "notes.txt",
+      "fallback/autre.dll",
+      "sub/ggml-base.dll",
+      "VERSION.txt",
+    ]) {
+      expect(removed(file), file).toBe(false);
+    }
+  });
+
   it("réessaie de supprimer uninstall.exe après la désinstallation, lui seul", () => {
     const again = code
       .split("!macro CHATONLM_DELETE_AGAIN filePath")[1]
@@ -969,14 +1184,20 @@ describe("crochets NSIS", () => {
     ]);
     // Le dossier n'est retiré que vide.
     expect(lines.at(-1)).toBe('RMDir "$INSTDIR"');
-    // Aucune autre suppression de fichier dans les crochets.
-    expect(code.match(/^\s*Delete .*/gm)).toEqual(['    Delete "${filePath}"']);
+    // Aucune autre suppression de fichier dans les crochets que celles du
+    // moteur de texte (motifs de CHATONLM_LLAMA_FILES et sa marque).
+    expect(code.match(/^\s*Delete .*/gm)).toEqual([
+      '  Delete "${pattern}"',
+      String.raw`  Delete "$INSTDIR\llama-server\VERSION"`,
+      '    Delete "${filePath}"',
+    ]);
   });
 
   it("n'arrête jamais un processus par son nom et ne touche pas aux données", () => {
     expect(code).not.toMatch(/taskkill|KillProcess|FindProcess/i);
     expect(code).not.toMatch(/\$(LOCAL)?APPDATA|\$PROFILE/);
-    // Une seule suppression récursive : les bibliothèques de l'intégré.
+    // Une seule suppression récursive : les bibliothèques de l'intégré, de
+    // notre dossier seulement (le moteur de texte est retiré par motifs).
     expect(code.match(/RMDir \/r .*/g)).toEqual([
       String.raw`RMDir /r "$INSTDIR\ollama\lib\ollama"`,
     ]);
@@ -1031,7 +1252,7 @@ describe("workflow packages-windows.yml", () => {
     const next = yaml.indexOf("\n      - name: ", start + 1);
     return yaml.slice(start, next < 0 ? undefined : next);
   };
-  const SD_STEP = "SDK Vulkan et moteur d'images (sd-server)";
+  const SD_STEP = "SDK Vulkan et moteurs (sd-server, llama-server)";
 
   it("construit le moteur d'images dans les deux workflows, sans nouvelle action", () => {
     for (const [name, yaml] of [
@@ -1042,6 +1263,11 @@ describe("workflow packages-windows.yml", () => {
       expect(body, name).not.toBeNull();
       expect(body, name).toContain("scripts/build-sd-server.sh");
       expect(body, name).toContain("packaging/sdcpp.env");
+      // Le moteur de texte après le moteur d'images (chargeur de secours).
+      expect(
+        body.indexOf("scripts/build-llama-server.sh"),
+        name,
+      ).toBeGreaterThan(body.indexOf("scripts/build-sd-server.sh"));
       expect(body, name).not.toMatch(/^\s*(?:- )?uses:/m);
       // Avant l'empaquetage, qui l'exige.
       const pack =
@@ -1069,6 +1295,8 @@ describe("workflow packages-windows.yml", () => {
       "'packaging/*.env'",
       "'packaging/sdcpp/*.patch'",
       "'scripts/build-sd-server.sh'",
+      "'packaging/llama/*.patch'",
+      "'scripts/build-llama-server.sh'",
     ]) {
       expect(inputs).toContain(input);
     }

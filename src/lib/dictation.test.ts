@@ -162,19 +162,31 @@ describe("polish models", () => {
   const model = (name: string) =>
     POLISH_MODELS.find((entry) => entry.model === name)!;
 
+  it("are Hugging Face ids the ModelHub downloads", () => {
+    for (const entry of POLISH_MODELS) {
+      expect(entry.model).toMatch(/^[\w.-]+\/[\w.-]+:[\w.-]+$/);
+    }
+  });
+
   it("sizes and notes in the language of the interface", () => {
-    expect(polishModelSize(en, model("gemma3:4b"))).toBe("3.3 GB");
-    expect(polishModelSize(fr, model("gemma3:4b"))).toBe("3,3 Go");
-    expect(polishModelNote(en, model("gemma3:4b"))).toBeNull();
-    expect(polishModelNote(en, model("gemma3:12b"))).toBe(
-      "Best quality, needs about 12 GB of GPU memory",
-    );
-    expect(polishModelNote(fr, model("gemma3:12b"))).toBe(
-      "Meilleure qualité, demande environ 12 Go de mémoire GPU",
-    );
-    expect(polishModelNote(es, model("gemma3:1b"))).toBe(
-      "Para equipos modestos, menos fiable",
-    );
+    expect(
+      polishModelSize(en, model("ggml-org/gemma-3-4b-it-GGUF:Q4_K_M")),
+    ).toBe("3.3 GB");
+    expect(
+      polishModelSize(fr, model("ggml-org/gemma-3-4b-it-GGUF:Q4_K_M")),
+    ).toBe("3,3 Go");
+    expect(
+      polishModelNote(en, model("ggml-org/gemma-3-4b-it-GGUF:Q4_K_M")),
+    ).toBeNull();
+    expect(
+      polishModelNote(en, model("ggml-org/gemma-3-12b-it-GGUF:Q4_K_M")),
+    ).toBe("Best quality, needs about 12 GB of GPU memory");
+    expect(
+      polishModelNote(fr, model("ggml-org/gemma-3-12b-it-GGUF:Q4_K_M")),
+    ).toBe("Meilleure qualité, demande environ 12 Go de mémoire GPU");
+    expect(
+      polishModelNote(es, model("ggml-org/gemma-3-1b-it-GGUF:Q4_K_M")),
+    ).toBe("Para equipos modestos, menos fiable");
   });
 });
 

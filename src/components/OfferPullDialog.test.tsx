@@ -13,7 +13,7 @@ import { installSimulator } from "@/test/simulator";
 configure({ asyncUtilTimeout: 5000 });
 vi.setConfig({ testTimeout: 30_000 });
 
-const MODEL = "qwen2.5-coder:1.5b-base";
+const MODEL = "ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF:Q8_0";
 
 async function offered(
   path: string,
@@ -62,7 +62,7 @@ describe("download offered by VS Code", () => {
     const simulator = await offered(
       "/settings",
       false,
-      "qwen2.5-coder:3b-base",
+      "ggml-org/Qwen2.5-Coder-3B-Q8_0-GGUF:Q8_0",
       false,
     );
     expect(
@@ -70,14 +70,18 @@ describe("download offered by VS Code", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "VS Code asks for qwen2.5-coder:3b-base to suggest code as you type. The model runs on this computer; nothing you type leaves it.",
+        "VS Code asks for ggml-org/Qwen2.5-Coder-3B-Q8_0-GGUF:Q8_0 to suggest code as you type. The model runs on this computer; nothing you type leaves it.",
       ),
     ).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Download" }));
     await waitFor(() =>
       expect(simulator.callsTo("hub_download")).toEqual([
         {
-          request: { model: "qwen2.5-coder:3b-base", repo: null, label: null },
+          request: {
+            model: "ggml-org/Qwen2.5-Coder-3B-Q8_0-GGUF:Q8_0",
+            repo: null,
+            label: null,
+          },
         },
       ]),
     );

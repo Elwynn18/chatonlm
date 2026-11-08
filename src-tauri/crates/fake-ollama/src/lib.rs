@@ -51,6 +51,7 @@ use tokio::task::JoinHandle;
 
 /// Faux Hugging Face (serveur à part) : voir [`hf`].
 pub mod hf;
+pub mod hf_models;
 
 /// Lancé comme `ollama serve` (Ollama intégré de l'app) : voir [`serve`].
 pub mod serve;

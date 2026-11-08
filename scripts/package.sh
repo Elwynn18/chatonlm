@@ -29,9 +29,10 @@
 #
 # Composants livrés tels quels dans /usr/lib/chatonlm (dossier des ressources
 # de Tauri) : ONNX Runtime (scripts/fetch-onnxruntime.sh), l'Ollama intégré
-# (scripts/fetch-ollama.sh, archive de 1,4 Go téléchargée une fois) et le
+# (scripts/fetch-ollama.sh, archive de 1,4 Go téléchargée une fois), le
 # moteur d'images (scripts/build-sd-server.sh, construit depuis les sources,
-# 15 min environ la première fois).
+# 15 min environ la première fois) et le moteur de texte
+# (scripts/build-llama-server.sh, de même, 11 min environ).
 #
 # Le runtime de l'AppImage est épinglé (packaging/appimage-runtime.env) :
 # téléchargé une fois dans .tools/package/runtime, empreinte vérifiée, puis
@@ -153,6 +154,9 @@ run "Ollama intégré épinglé" scripts/fetch-ollama.sh
 # Moteur d'images (sd-server de stable-diffusion.cpp, packaging/sdcpp.env),
 # installé de la même façon dans /usr/lib/chatonlm/sd-server.
 run "Moteur d'images épinglé" scripts/build-sd-server.sh
+# Moteur de texte (llama-server de llama.cpp, packaging/llama.env), installé
+# de la même façon dans /usr/lib/chatonlm/llama-server.
+run "Moteur de texte épinglé" scripts/build-llama-server.sh
 
 # AppImage : linuxdeploy traite chaque fichier ELF de usr/lib (dépendances
 # copiées, RPATH, strip) et échoue sur l'Ollama intégré (libggml-vulkan.so
@@ -160,17 +164,19 @@ run "Moteur d'images épinglé" scripts/build-sd-server.sh
 # son RUNPATH). Ses fichiers vont donc dans usr/libexec/chatonlm/ollama, que
 # linuxdeploy ignore, et usr/lib/chatonlm/ollama (resource_dir()/ollama, comme
 # dans le .deb) est un lien vers ce dossier, copié tel quel par
-# bundle.linux.appimage.files. Même chose pour le moteur d'images : son
+# bundle.linux.appimage.files. Même chose pour le moteur d'images (son
 # chargeur Vulkan de secours ne doit jamais être pris par linuxdeploy pour
-# celui du système.
+# celui du système) et pour le moteur de texte (bibliothèques et moteurs de
+# calcul trouvés par leur RUNPATH $ORIGIN, que linuxdeploy réécrirait).
 appimage_lib() {
   local dir="$root/.tools/package/appimage-lib"
   rm -rf "$dir"
   mkdir -p "$dir"
   ln -s ../../libexec/chatonlm/ollama "$dir/ollama"
   ln -s ../../libexec/chatonlm/sd-server "$dir/sd-server"
+  ln -s ../../libexec/chatonlm/llama-server "$dir/llama-server"
 }
-run "Liens vers l'Ollama intégré et le moteur d'images (AppImage)" appimage_lib
+run "Liens vers l'Ollama intégré et les moteurs (AppImage)" appimage_lib
 
 # Un inventaire d'une construction précédente ne doit jamais entrer dans la
 # 1re passe : il décrirait d'autres bibliothèques. tauri-bundler ne vide pas

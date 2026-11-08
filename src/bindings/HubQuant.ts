@@ -16,8 +16,8 @@ label: string,
  */
 file: string, 
 /**
- * Nom Ollama complet (« hf.co/unsloth/Qwen3-8B-GGUF:Q4_K_M ») ; `None` :
- * non téléchargeable (`issue`).
+ * Identifiant de la base locale (« unsloth/Qwen3-8B-GGUF:Q4_K_M ») ;
+ * `None` : non téléchargeable (dépôt restreint).
  */
 model: string | null, issue: HubQuantIssue | null, 
 /**

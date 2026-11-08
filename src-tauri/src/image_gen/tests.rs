@@ -124,7 +124,7 @@ fn alive(pid: u32) -> bool {
     }
     #[cfg(windows)]
     {
-        crate::ollama::builtin::process::alive(pid)
+        crate::process::alive(pid)
     }
 }
 
@@ -926,11 +926,7 @@ async fn a_spawn_given_up_leaves_no_child() {
     let mut command = std::process::Command::new("sleep");
     command.arg("30").env("CHATONLM_TEST_GIVEN_UP", dir.path());
     // Demande envoyée au fil (un seul poll), futur lâché avant sa réponse.
-    let mut spawning = Box::pin(crate::ollama::builtin::process::spawn_with(
-        &slot,
-        "chatonlm-test",
-        command,
-    ));
+    let mut spawning = Box::pin(crate::process::spawn_with(&slot, "chatonlm-test", command));
     let first = std::future::poll_fn(|cx| std::task::Poll::Ready(spawning.as_mut().poll(cx))).await;
     assert!(first.is_pending());
     drop(spawning);

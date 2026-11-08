@@ -2572,14 +2572,14 @@ async fn measure_suggest_and_offer_pull() {
     let suggested = client.request("completion.suggest", json!({})).await;
     let result = &suggested["result"];
     assert_eq!(
-        result["recommended"], "qwen2.5-coder:0.5b-base",
+        result["recommended"], "ggml-org/Qwen2.5-Coder-0.5B-Q8_0-GGUF:Q8_0",
         "{suggested}"
     );
     let options = result["options"].as_array().unwrap();
     assert_eq!(options.len(), 4);
     let three = options
         .iter()
-        .find(|option| option["model"] == "qwen2.5-coder:3b-base")
+        .find(|option| option["model"] == "ggml-org/Qwen2.5-Coder-3B-Q8_0-GGUF:Q8_0")
         .unwrap();
     assert_eq!(three["commercialUse"], false);
     assert_eq!(three["installed"], false);
@@ -2588,20 +2588,20 @@ async fn measure_suggest_and_offer_pull() {
     let offered = client
         .request(
             "models.offerPull",
-            json!({ "model": "qwen2.5-coder:3b-base" }),
+            json!({ "model": "ggml-org/Qwen2.5-Coder-3B-Q8_0-GGUF:Q8_0" }),
         )
         .await;
     assert_eq!(offered["result"]["installed"], false, "{offered}");
     assert_eq!(
         *bench.host.offers.lock(),
-        ["qwen2.5-coder:3b-base (non-commercial)"]
+        ["ggml-org/Qwen2.5-Coder-3B-Q8_0-GGUF:Q8_0 (non-commercial)"]
     );
     // Une seule proposition montrée par 10 s : un éditeur qui insiste ne
     // ramène pas la fenêtre à chaque appel.
     let offered = client
         .request(
             "models.offerPull",
-            json!({ "model": "qwen2.5-coder:1.5b-base" }),
+            json!({ "model": "ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF:Q8_0" }),
         )
         .await;
     assert_eq!(offered["result"]["installed"], false, "{offered}");
@@ -2620,6 +2620,30 @@ async fn measure_suggest_and_offer_pull() {
     }
     assert_eq!(bench.host.offers.lock().len(), 1);
     assert!(bench._ollama.pull_requests().is_empty());
+    // Téléchargé par le ModelHub (base locale) : installé, plus proposé.
+    let one_five = "ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF:Q8_0";
+    let row = crate::store::local_models::tests::model(
+        one_five,
+        &["ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF/qwen2.5-coder-1.5b-q8_0.gguf"],
+        None,
+    );
+    bench
+        .store
+        .call(move |c| crate::store::local_models::save(c, &row))
+        .await
+        .unwrap();
+    let suggested = client.request("completion.suggest", json!({})).await;
+    let options = suggested["result"]["options"].as_array().unwrap();
+    let installed: Vec<&str> = options
+        .iter()
+        .filter(|option| option["installed"] == true)
+        .map(|option| option["model"].as_str().unwrap())
+        .collect();
+    assert_eq!(installed, [one_five], "{suggested}");
+    let offered = client
+        .request("models.offerPull", json!({ "model": one_five }))
+        .await;
+    assert_eq!(offered["result"]["installed"], true, "{offered}");
 }
 
 #[tokio::test]

@@ -8,8 +8,6 @@ use fake_ollama::{FakeOllama, Mode};
 use tokio::sync::Notify;
 
 use super::*;
-use crate::hub::downloads::Options;
-use crate::hub::types::{HubDownloadRequest, HubDownloadState};
 use crate::ollama::builtin::tests::{fake_config, reaches, temp_dir};
 use crate::ollama::builtin::{Config, Snapshot};
 use crate::store::settings::SettingsPatch;
@@ -464,77 +462,6 @@ async fn a_noted_machine_gives_way_to_the_builtin_once() {
     );
     targeting.status(&store).await.unwrap();
     assert_eq!(changes.lock().len(), 1);
-    builtin.stop().await;
-}
-
-/// rust-9 : le rappel de l'app ([`announce`]) arrête les téléchargements du
-/// ModelHub lancés vers l'ancienne cible, puis prévient la page.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_target_change_closes_the_downloads_to_the_old_one() {
-    let dir = temp_dir();
-    let old = FakeOllama::start(Mode::ollama()).await.unwrap();
-    let downloads = Arc::new(HubDownloads::with_options(
-        |_| {},
-        Options {
-            hf_url: Some(old.url()),
-            ..Options::default()
-        },
-    ));
-    let events = Arc::new(Mutex::new(Vec::new()));
-    let builtin = Builtin::new(fake_config(dir.path(), &[]));
-    let (to_downloads, to_page) = (downloads.clone(), events.clone());
-    let targeting = Targeting::with_check(
-        builtin.clone(),
-        move |target| {
-            announce(target, Some(&to_downloads), |target| {
-                to_page.lock().push(target.clone());
-            });
-        },
-        |url| Box::pin(async move { canned(url, ServerState::Running) }),
-    )
-    .without_ollama_host();
-    let store = store_with_address(&old.url());
-    targeting.settings(&store).await.unwrap();
-    let model = "hf.co/chatonlm/A-stall-GGUF:Q4_K_M".to_owned();
-    downloads
-        .download(
-            &old.url(),
-            HubDownloadRequest {
-                model: model.clone(),
-                repo: None,
-                label: None,
-            },
-        )
-        .unwrap();
-    let state = || {
-        downloads
-            .list()
-            .into_iter()
-            .find(|download| download.model == model)
-            .map(|download| (download.state, download.error))
-    };
-    assert!(
-        eventually(|| state().is_some_and(|(state, _)| state == HubDownloadState::Downloading))
-            .await
-    );
-    targeting
-        .set_source(&store, OllamaSource::Builtin)
-        .await
-        .unwrap();
-    let (state, error) = state().unwrap();
-    assert_eq!(state, HubDownloadState::Failed);
-    assert_eq!(
-        error.as_deref(),
-        Some(crate::hub::errors::english::SERVER_CHANGED)
-    );
-    assert!(eventually(|| old.disconnects() == 1).await);
-    assert_eq!(
-        *events.lock(),
-        [OllamaTarget {
-            url: builtin.snapshot().url.unwrap(),
-            kind: TargetKind::Builtin
-        }]
-    );
     builtin.stop().await;
 }
 

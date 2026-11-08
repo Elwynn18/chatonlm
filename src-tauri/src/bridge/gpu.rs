@@ -211,13 +211,29 @@ pub(super) async fn measure<H: Host>(
     }
 }
 
+/// Identifiants de la base locale des modèles (téléchargés par le ModelHub ;
+/// liste vide si la base ne se lit pas).
+async fn local_models<H: Host>(shared: &Arc<Shared<H>>) -> Vec<String> {
+    shared
+        .store
+        .call(|connection| {
+            Ok(crate::store::local_models::list(connection)?
+                .into_iter()
+                .map(|model| model.id)
+                .collect())
+        })
+        .await
+        .unwrap_or_default()
+}
+
 /// `completion.suggest {}` → `{ recommended, options }`.
 pub(super) async fn suggest<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value) {
     let inputs = match inputs(shared, true).await {
         Ok(inputs) => inputs,
         Err(error) => return refused(out, id, &error),
     };
-    out.result(id, json!(shared.host.gpu().suggest(&inputs).await));
+    let local = local_models(shared).await;
+    out.result(id, json!(shared.host.gpu().suggest(&inputs, &local).await));
 }
 
 /// `models.offerPull { model }` → `{ installed }` : un modèle proposé par
@@ -242,10 +258,11 @@ pub(super) async fn offer_pull<H: Host>(
     if !inputs.local {
         return paused(out, id, Reason::NotLocal);
     }
+    let local = local_models(shared).await;
     let installed = shared
         .host
         .gpu()
-        .suggest(&inputs)
+        .suggest(&inputs, &local)
         .await
         .options
         .iter()

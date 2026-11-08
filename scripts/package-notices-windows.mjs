@@ -18,6 +18,9 @@
 //   sd-server\<licences>       scripts/build-sd-server.sh) : textes de
 //                              packaging/sdcpp/licenses et Apache-2.0 du
 //                              chargeur Vulkan de secours
+//   llama-server\README.txt    le moteur de texte (llama-server construit
+//   llama-server\<licences>    par scripts/build-llama-server.sh) : textes
+//                              de packaging/llama/licenses et Apache-2.0
 //
 // Pas de fichier copyright (format de Debian), pas de textes GPL ni LGPL :
 // l'archive Windows d'Ollama n'a pas libgomp (OpenMP de LLVM à la place) et
@@ -32,6 +35,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import {
+  readLlamaServer,
+  renderLlamaServerReadme,
+} from "./package-notices-llama.mjs";
 import {
   CARGO_ABOUT_VERSION,
   CSS_PACKAGES,
@@ -304,8 +311,10 @@ the Vulkan engine of the built-in Ollama need them (Ollama ships its own
 copies in ollama\\lib\\ollama\\vulkan). They are not open-source software:
 they are redistributable files of Microsoft Visual Studio, shipped
 unmodified under the Microsoft Software License Terms of Visual Studio.
+llama-server\\, the text engine, has its own copies of them (a program
+started by ChatonLM does not look next to chatonlm.exe);
 sd-server\\sd-server.exe, the image engine, contains the static version of
-these libraries, under the same terms.
+these libraries. All under the same terms.
 `;
 }
 
@@ -398,6 +407,8 @@ export function main() {
   );
   const sdServer = readSdServer(root);
   errors.push(...sdServer.errors);
+  const llamaServer = readLlamaServer(root);
+  errors.push(...llamaServer.errors);
   if (errors.length > 0) fail(errors.join("\n"));
   const installed = installedCargoAbout();
   if (installed !== CARGO_ABOUT_VERSION) {
@@ -477,6 +488,14 @@ export function main() {
   for (const [file, text] of Object.entries(sdServer.texts)) {
     files[`sd-server/${file}`] = text;
   }
+  files["llama-server/README.txt"] = renderLlamaServerReadme({
+    env: llamaServer.env,
+    licenseFiles: llamaServer.licenseFiles,
+    windows: true,
+  });
+  for (const [file, text] of Object.entries(llamaServer.texts)) {
+    files[`llama-server/${file}`] = text;
+  }
 
   rmSync(out, { recursive: true, force: true });
   for (const [file, content] of Object.entries(files)) {
@@ -485,6 +504,7 @@ export function main() {
   console.log(
     `Notices Windows écrites dans ${WINDOWS_NOTICES_DIR} ` +
       `(${about.crates.length} crates, ${licenseFiles.length} licences d'Ollama, ` +
-      `${Object.keys(sdServer.texts).length} du moteur d'images).`,
+      `${Object.keys(sdServer.texts).length} du moteur d'images, ` +
+      `${Object.keys(llamaServer.texts).length} du moteur de texte).`,
   );
 }

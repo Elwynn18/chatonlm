@@ -3,7 +3,9 @@
 // montrer sa fenêtre (`models.offerPull`, seulement pour un modèle
 // d'autocomplétion proposé), et c'est l'utilisateur qui accepte ici. Le
 // téléchargement suit alors le chemin du ModelHub (barre latérale, page des
-// téléchargements). Monté par la route racine, sur toute page. Un modèle
+// téléchargements), avec l'identifiant de Hugging Face proposé
+// (`gpu::suggest`) ; un refus du moteur arrive traduit. Monté par la route
+// racine, sur toute page. Un modèle
 // dont la licence n'autorise pas l'usage commercial (Qwen2.5-Coder 3B) le
 // dit ici, puisque c'est ici que l'utilisateur accepte.
 

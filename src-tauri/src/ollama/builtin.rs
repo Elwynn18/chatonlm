@@ -47,17 +47,18 @@
 //!   puis plus aucun démarrage jusqu'à [`resume`].
 //!
 //! Ce module est le superviseur, commun aux deux systèmes (états, port,
-//! environnement, journal, relances, pause, fermeture). Ce qui dépend du
-//! système est monté sous le nom `os` : `builtin/unix.rs` (ce qui est décrit
-//! ci-dessus : groupe, signaux, `/proc`) et `builtin/windows.rs`
-//! (`<ressources>\ollama\ollama.exe`, Job Object fermé avec ChatonLM,
-//! `CREATE_NO_WINDOW`, `USERPROFILE` privé, arrêt par `TerminateJobObject`).
+//! environnement, journal, relances, pause, fermeture). Les outils du
+//! sous-processus (fil de création, groupe et signaux, Job Object, port,
+//! journal) sont communs aux moteurs : `process/`. Ce qui reste propre à
+//! l'Ollama intégré et au système est monté sous le nom `os` :
+//! `builtin/unix.rs` (emplacement, ménage par `/proc`) et
+//! `builtin/windows.rs` (`<ressources>\ollama\ollama.exe`, `USERPROFILE`
+//! privé, ménage par l'exécutable).
 
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io;
-use std::net::{Ipv4Addr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Arc;
@@ -66,11 +67,16 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::Serialize;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::watch;
 use ts_rs::TS;
 
 use super::client::{self, Probe};
 use crate::i18n::t;
+// Outils du sous-processus, communs aux moteurs (`process/`).
+pub(crate) use crate::process::spawn_task as spawn;
+use crate::process::{
+    Spawner, describe_exit, is_executable, pick_port, rotate_log, spawn_with, terminate, watch_exit,
+};
 
 #[cfg(unix)]
 #[path = "builtin/unix.rs"]
@@ -79,24 +85,7 @@ mod os;
 #[path = "builtin/windows.rs"]
 mod os;
 
-use os::{cleanup_leftovers, is_executable, watch_exit};
-// Aussi pour les essais (`use super::*`).
-pub(crate) use os::terminate;
-
-/// Outils du sous-processus, partagés avec le moteur d'images (`image_gen`) :
-/// mêmes garanties (rien ne survit à ChatonLM, arrêt borné), propres à chaque
-/// système (`builtin/unix.rs`, `builtin/windows.rs`).
-pub(crate) mod process {
-    #[cfg(all(test, windows))]
-    pub(crate) use super::os::alive;
-    pub(crate) use super::os::{
-        desktop_changes, is_executable, isolate, scrub, terminate, watch_exit,
-    };
-    pub(crate) use super::{Spawner, describe_exit, pick_port, rotate_log, spawn_with};
-}
-
-/// Ports jamais pris : celui d'Ollama et celui de l'instance de test.
-const RESERVED_PORTS: [u16; 2] = [11434, 11435];
+use os::cleanup_leftovers;
 
 /// État de l'Ollama intégré.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -495,38 +484,8 @@ impl Drop for Done {
     }
 }
 
-pub(crate) fn spawn(future: impl std::future::Future<Output = ()> + Send + 'static) {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) => {
-            handle.spawn(future);
-        }
-        Err(_) => {
-            tauri::async_runtime::spawn(future);
-        }
-    }
-}
-
 fn url_for(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
-}
-
-/// Port libre de 127.0.0.1 : le précédent s'il l'est encore, sinon un port
-/// choisi par le système, jamais ceux d'Ollama ou de l'instance de test.
-pub(crate) fn pick_port(previous: Option<u16>) -> io::Result<u16> {
-    if let Some(port) = previous.filter(|port| !RESERVED_PORTS.contains(port))
-        && TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok()
-    {
-        return Ok(port);
-    }
-    for _ in 0..16 {
-        let port = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?
-            .local_addr()?
-            .port();
-        if !RESERVED_PORTS.contains(&port) {
-            return Ok(port);
-        }
-    }
-    Err(io::Error::other("no free port on 127.0.0.1"))
 }
 
 /// Fin du démarrage.
@@ -696,17 +655,6 @@ async fn answer(url: &str, limit: Duration, poll: Duration) -> Option<String> {
     }
 }
 
-pub(crate) fn describe_exit(status: Option<ExitStatus>) -> String {
-    match status {
-        Some(status) => match (status.code(), os::exit_signal(&status)) {
-            (Some(code), _) => t!("builtinOllama.exitCode", code = code),
-            (None, Some(signal)) => t!("builtinOllama.exitSignal", signal = signal),
-            _ => status.to_string(),
-        },
-        None => t!("builtinOllama.exitUnknown"),
-    }
-}
-
 impl Inner {
     /// Ménage d'un reste d'une session précédente, une fois ; bloquant.
     fn clean_leftovers(&self) {
@@ -720,63 +668,6 @@ impl Inner {
     /// Crée le processus depuis le fil dédié (créé au premier appel).
     async fn spawn(&self, command: Command) -> io::Result<Child> {
         spawn_with(&self.spawner, "chatonlm-ollama", command).await
-    }
-}
-
-/// Crée le processus depuis le fil dédié de `slot`, nommé `name` (créé au
-/// premier appel, puis gardé autant que `slot`).
-pub(crate) async fn spawn_with(
-    slot: &Mutex<Option<Spawner>>,
-    name: &str,
-    command: Command,
-) -> io::Result<Child> {
-    let (reply, answer) = oneshot::channel();
-    {
-        let mut spawner = slot.lock();
-        if spawner.is_none() {
-            *spawner = Some(Spawner::start(name)?);
-        }
-        let Some(spawner) = spawner.as_ref() else {
-            return Err(io::Error::other("no spawner thread"));
-        };
-        spawner
-            .requests
-            .send((command, reply))
-            .map_err(|_| io::Error::other("spawner thread stopped"))?;
-    }
-    answer
-        .await
-        .map_err(|_| io::Error::other("spawner thread stopped"))?
-}
-
-type SpawnRequest = (Command, oneshot::Sender<io::Result<Child>>);
-
-/// Fil qui crée les processus de l'intégré (ou du moteur d'images) et vit
-/// autant que l'app (tant que son propriétaire existe) : `PR_SET_PDEATHSIG`
-/// envoie SIGTERM à l'enfant quand le FIL qui l'a créé se termine, pas
-/// seulement le processus.
-pub(crate) struct Spawner {
-    requests: std::sync::mpsc::Sender<SpawnRequest>,
-}
-
-impl Spawner {
-    fn start(name: &str) -> io::Result<Spawner> {
-        let (requests, received) = std::sync::mpsc::channel::<SpawnRequest>();
-        std::thread::Builder::new()
-            .name(name.into())
-            .spawn(move || {
-                for (mut command, reply) in received {
-                    // Demande abandonnée pendant la création (lancement
-                    // annulé) : l'enfant n'est suivi par personne, il est
-                    // arrêté aussitôt (sous Windows, son Job reste noté
-                    // jusqu'à la fin de ChatonLM).
-                    if let Err(Ok(mut child)) = reply.send(os::spawn(&mut command)) {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                    }
-                }
-            })?;
-        Ok(Spawner { requests })
     }
 }
 
@@ -808,7 +699,7 @@ fn prepare(config: &Config, port: u16, models_dir: &Path) -> io::Result<Command>
         .create(true)
         .append(true)
         .open(&config.log)?;
-    let (appdir, nvidia_workaround) = os::desktop_changes();
+    let (appdir, nvidia_workaround) = crate::process::desktop_changes();
     let environment = child_environment(
         std::env::vars_os(),
         appdir.as_deref(),
@@ -829,7 +720,7 @@ fn prepare(config: &Config, port: u16, models_dir: &Path) -> io::Result<Command>
         .stderr(log);
     // Rien ne lui survit : groupe et signal de fin du parent (Unix), ou
     // drapeaux de création du Job Object (Windows).
-    os::isolate(&mut command);
+    crate::process::isolate(&mut command);
     Ok(command)
 }
 
@@ -848,7 +739,7 @@ pub(crate) fn child_environment(
     extra: &[(OsString, OsString)],
 ) -> BTreeMap<OsString, OsString> {
     let mut environment: BTreeMap<OsString, OsString> = inherited.into_iter().collect();
-    os::scrub(&mut environment, appdir, nvidia_workaround);
+    crate::process::scrub(&mut environment, appdir, nvidia_workaround);
     environment.insert("OLLAMA_HOST".into(), format!("127.0.0.1:{port}").into());
     environment.insert("OLLAMA_MODELS".into(), models_dir.as_os_str().to_owned());
     for name in os::HOME_VARS {
@@ -856,29 +747,6 @@ pub(crate) fn child_environment(
     }
     environment.extend(extra.iter().cloned());
     environment
-}
-
-/// Retire les variables de ces noms, quelle que soit leur casse (sous
-/// Windows, `Ollama_Host` et `OLLAMA_HOST` sont la même variable : en
-/// laisser deux donnerait l'une ou l'autre au serveur).
-#[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) fn remove_ignoring_case(environment: &mut BTreeMap<OsString, OsString>, names: &[&str]) {
-    environment.retain(|key, _| {
-        let key = key.to_string_lossy();
-        !names.iter().any(|name| key.eq_ignore_ascii_case(name))
-    });
-}
-
-/// Journal du lancement : le précédent devient `.1`.
-pub(crate) fn rotate_log(log: &Path) {
-    if let Some(dir) = log.parent() {
-        let _ = fs::create_dir_all(dir);
-    }
-    if log.exists() {
-        let mut previous = log.file_name().unwrap_or_default().to_os_string();
-        previous.push(".1");
-        let _ = fs::rename(log, log.with_file_name(previous));
-    }
 }
 
 /// Arrête l'intégré pour de bon (fermeture de l'app, installation d'une

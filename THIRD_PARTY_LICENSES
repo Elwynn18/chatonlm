@@ -14,6 +14,7 @@ third-party material listed below, with the notices required by each license.
   Part 8  Voice activity detection model, built into ChatonLM
   Part 9  Windows installer only
   Part 10 Built-in image engine (sd-server)
+  Part 11 Built-in text engine (llama-server)
 
 
 == Part 1. Ollama ==
@@ -102,6 +103,9 @@ Files (ChatonLM path <- Ollama path : copied | adapted | translated to Rust):
   src-tauri/src/ollama/builtin/unix.rs <- app/server/server.go : translated to Rust
   src-tauri/src/ollama/builtin/windows.rs <- app/server/server_windows.go : translated to Rust
   src-tauri/src/ollama/builtin/windows.rs <- app/server/server.go : translated to Rust
+  src-tauri/src/process/mod.rs <- app/server/server.go : translated to Rust
+  src-tauri/src/process/unix.rs <- app/server/server.go : translated to Rust
+  src-tauri/src/process/windows.rs <- app/server/server_windows.go : translated to Rust
   src-tauri/src/ollama/host/app.rs <- cmd/start_windows.go : translated to Rust
   src-tauri/src/ollama/host/app.rs <- app/ollama.iss : translated to Rust
   src-tauri/src/ollama/host/app.rs <- app/wintray/tray.go : translated to Rust
@@ -1009,13 +1013,14 @@ License or the Apache License 2.0.
 
 Files:    vcruntime140*.dll, msvcp140*.dll, concrt140.dll and
           vccorlib140.dll, next to chatonlm.exe (and the copies that Ollama
-          ships in ollama\lib\ollama\vulkan)
+          ships in ollama\lib\ollama\vulkan, and those of the text engine
+          in llama-server\)
 License:  Microsoft Software License Terms of Visual Studio (redistributable
           files), Copyright (c) Microsoft Corporation
 
-ChatonLM, ONNX Runtime and the Vulkan engine of the built-in Ollama need these
-libraries, and sd-server.exe of the image engine (part 10) contains their
-static version. They are not open-source software: they are shipped
+ChatonLM, ONNX Runtime, the Vulkan engine of the built-in Ollama and the text
+engine (part 11) need these libraries, and sd-server.exe of the image engine
+(part 10) contains their static version. They are not open-source software: they are shipped
 unmodified, as Microsoft allows for the redistributable files of Visual
 Studio.
 
@@ -1934,3 +1939,477 @@ It also contains the code below, under its own license.
     This software is supplied "as is" without express or implied warranty.
 
     But that said, if there are any problems please get in touch.
+
+
+== Part 11. Built-in text engine (llama-server) ==
+
+Program:  llama-server, the server of llama.cpp v0.9.0 (build b12110),
+          https://github.com/ggml-org/llama.cpp
+          (commit cd959bae99ff4bed22bef2604f45241c09bbb8c8), with ggml 0.29.0
+          (its ggml/ directory), built by ChatonLM from these sources and
+          run as a separate program
+License:  MIT, Copyright (c) 2023-2026 The ggml authors
+
+The .deb, the AppImage and the Windows installer include this program, which
+runs the language models. It is installed in /usr/lib/chatonlm/llama-server
+(in the AppImage: usr/libexec/chatonlm/llama-server), or in the llama-server
+folder next to chatonlm.exe, with its libraries: the CPU backend of ggml in
+one build per instruction set, chosen at startup, and its Vulkan backend. It
+is built without OpenMP, without OpenSSL and without the web interface of the
+server. Besides llama.cpp and ggml, it contains code under the MIT, MIT No
+Attribution, MIT-CMU, BSD-2-Clause and Apache-2.0 licenses, the Unlicense,
+and public-domain code. Next to it, in fallback/, is the Vulkan loader of the
+Khronos Group (Apache License 2.0), the same file as the one of the image
+engine, used only where the system has none; it and the Vulkan headers
+compiled into the Vulkan backend are described in Part 10
+(Vulkan-Loader-components.txt and Vulkan-Headers-LICENSE.txt).
+
+The packages ship these notices, with a README.txt that describes the build,
+in licenses/llama-server/ (licenses\llama-server under Windows), and the full
+text of the Apache License, Version 2.0 there as Apache-2.0.txt. The texts
+follow.
+
+-- llama.cpp-LICENSE.txt --
+
+llama.cpp (https://github.com/ggml-org/llama.cpp), with ggml (its ggml/
+directory: tensor library, CPU and Vulkan backends, Vulkan shaders).
+
+LICENSE of llama.cpp at the commit pinned in packaging/llama.env:
+
+MIT License
+
+Copyright (c) 2023-2026 The ggml authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-- cpp-httplib-LICENSE.txt --
+
+cpp-httplib 0.64.0 (vendor/cpp-httplib of llama.cpp),
+https://github.com/yhirose/cpp-httplib
+
+Header of httplib.h:
+
+//
+//  httplib.h
+//
+//  Copyright (c) 2026 Yuji Hirose. All rights reserved.
+//  MIT License
+//
+
+LICENSE of cpp-httplib (vendor/cpp-httplib/LICENSE):
+
+The MIT License (MIT)
+
+Copyright (c) 2017 yhirose
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-- nlohmann-json-LICENSE.txt --
+
+JSON for Modern C++ 3.12.0 (vendor/nlohmann/json.hpp of llama.cpp),
+https://github.com/nlohmann/json
+
+Copyright and license lines of json.hpp (SPDX), each under the MIT License:
+
+// SPDX-FileCopyrightText: 2008 - 2009 Björn Hoehrmann <bjoern@hoehrmann.de>
+// SPDX-FileCopyrightText: 2009 Florian Loitsch <https://florian.loitsch.com/>
+// SPDX-FileCopyrightText: 2013 - 2025 Niels Lohmann <https://nlohmann.me>
+// SPDX-FileCopyrightText: 2016 - 2021 Evan Nemerson <evan@nemerson.com>
+// SPDX-FileCopyrightText: 2018 The Abseil Authors
+// SPDX-License-Identifier: MIT
+
+License text (licenses/LICENSE-jsonhpp of llama.cpp):
+
+MIT License
+
+Copyright (c) 2013-2025 Niels Lohmann
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-- stb-LICENSE.txt --
+
+stb_image 2.30 (vendor/stb/stb_image.h of llama.cpp),
+https://github.com/nothings/stb
+
+License at the end of stb_image.h:
+
+This software is available under 2 licenses -- choose whichever you prefer.
+------------------------------------------------------------------------------
+ALTERNATIVE A - MIT License
+Copyright (c) 2017 Sean Barrett
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+------------------------------------------------------------------------------
+ALTERNATIVE B - Public Domain (www.unlicense.org)
+This is free and unencumbered software released into the public domain.
+Anyone is free to copy, modify, publish, use, compile, sell, or distribute this
+software, either in source code form or as a compiled binary, for any purpose,
+commercial or non-commercial, and by any means.
+In jurisdictions that recognize copyright laws, the author or authors of this
+software dedicate any and all copyright interest in the software to the public
+domain. We make this dedication for the benefit of the public at large and to
+the detriment of our heirs and successors. We intend this dedication to be an
+overt act of relinquishment in perpetuity of all present and future rights to
+this software under copyright law.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+-- miniaudio-LICENSE.txt --
+
+miniaudio 0.11.26 (vendor/miniaudio/miniaudio.h of llama.cpp),
+https://github.com/mackron/miniaudio
+
+License at the end of miniaudio.h:
+
+This software is available as a choice of the following licenses. Choose
+whichever you prefer.
+
+===============================================================================
+ALTERNATIVE 1 - Public Domain (www.unlicense.org)
+===============================================================================
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or distribute this
+software, either in source code form or as a compiled binary, for any purpose,
+commercial or non-commercial, and by any means.
+
+In jurisdictions that recognize copyright laws, the author or authors of this
+software dedicate any and all copyright interest in the software to the public
+domain. We make this dedication for the benefit of the public at large and to
+the detriment of our heirs and successors. We intend this dedication to be an
+overt act of relinquishment in perpetuity of all present and future rights to
+this software under copyright law.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For more information, please refer to <http://unlicense.org/>
+
+===============================================================================
+ALTERNATIVE 2 - MIT No Attribution
+===============================================================================
+Copyright 2026 David Reid
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-- subprocess-LICENSE.txt --
+
+subprocess.h (vendor/sheredom/subprocess.h of llama.cpp),
+https://github.com/sheredom/subprocess.h
+
+License in the header of subprocess.h (the Unlicense):
+
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or
+distribute this software, either in source code form or as a compiled
+binary, for any purpose, commercial or non-commercial, and by any
+means.
+
+In jurisdictions that recognize copyright laws, the author or authors
+of this software dedicate any and all copyright interest in the
+software to the public domain. We make this dedication for the benefit
+of the public at large and to the detriment of our heirs and
+successors. We intend this dedication to be an overt act of
+relinquishment in perpetuity of all present and future rights to this
+software under copyright law.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+For more information, please refer to <http://unlicense.org/>
+
+-- hash-LICENSES.txt --
+
+Hash functions of vendor/hash of llama.cpp (compiled into libmtmd):
+
+-- xxHash (vendor/hash/xxhash), https://github.com/Cyan4973/xxHash --
+
+xxHash Library
+Copyright (c) 2012-2021 Yann Collet
+All rights reserved.
+
+BSD 2-Clause License (https://www.opensource.org/licenses/bsd-license.php)
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice, this
+  list of conditions and the following disclaimer in the documentation and/or
+  other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+-- SHA-1 in C (vendor/hash/sha1), by Steve Reid --
+
+Header of sha1.c:
+
+/*
+SHA-1 in C
+By Steve Reid <steve@edmweb.com>
+100% Public Domain
+
+Test Vectors (from FIPS PUB 180-1)
+
+-- SHA-256 (vendor/hash/sha256), from 7-Zip by Igor Pavlov --
+
+vendor/hash/sha256/LICENSE:
+
+2010-06-11 : Igor Pavlov : Public domain
+
+-- rotate-bits (vendor/hash/rotate-bits) --
+
+vendor/hash/rotate-bits/LICENSE.md:
+
+MIT License
+
+Copyright (c) 2021 William Casarin <jb55@jb55.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-- ported-code.txt --
+
+Code of other projects ported or adapted into llama.cpp and ggml
+================================================================
+
+The source files of llama.cpp and ggml compiled into llama-server name the
+projects below as the origin of some of their code (ported, adapted or
+copied). llama.cpp distributes that code under its MIT License
+(llama.cpp-LICENSE.txt in this directory); the notes below repeat what the
+source files say about each origin.
+
+-- YaRN --
+
+Used in:  ggml/src/ggml-cpu/ops.cpp and the GPU backends (rope_yarn),
+          "based on LlamaYaRNScaledRotaryEmbedding.py from
+          https://github.com/jquesnelle/yarn"
+License:  "MIT licensed. Copyright (c) 2023 Jeffrey Quesnelle and Bowen Peng."
+
+-- llamafile (Mozilla) --
+
+Used in:  ggml/src/ggml-cpu/llamafile/sgemm.cpp (matrix multiplication
+          kernels of the CPU backend), https://github.com/Mozilla-Ocho/llamafile
+License:  MIT, "Copyright 2024 Mozilla Foundation" (header of sgemm.cpp)
+
+-- ggllm.cpp --
+
+Used in:  src/llama-vocab.cpp, "adapted from
+          https://github.com/cmp-nct/ggllm.cpp [MIT License]"
+License:  MIT
+
+-- KoboldCpp --
+
+Used in:  src/llama-sampler.cpp (DRY sampler), "Ported from Koboldcpp,
+          original PR: https://github.com/LostRuins/koboldcpp/pull/982
+          (Original author: pi6am)"
+License:  distributed by llama.cpp under its MIT License. The pull request
+          that brought this code into llama.cpp,
+          https://github.com/ggml-org/llama.cpp/pull/9702, records the
+          permission of its original author (comment of 18 October 2024):
+          "We now have the explicit permission from @pi6am to base this
+          version on his implementation from koboldcpp. I also added him as
+          a co-author on earlier commits for this PR."
+
+-- Pillow --
+
+Used in:  tools/mtmd/mtmd-image.cpp (image resampling of the multimodal
+          projector), "Adapted from
+          https://github.com/python-pillow/Pillow/blob/main/src/libImaging/Resample.c"
+License:  MIT-CMU, the license of Pillow, whose text follows (from
+          https://github.com/python-pillow/Pillow/blob/main/LICENSE,
+          commit 7c121637c9b0062694069f8f6d173e17dba8c46f):
+
+    The Python Imaging Library (PIL) is
+
+        Copyright © 1997-2011 by Secret Labs AB
+        Copyright © 1995-2011 by Fredrik Lundh and contributors
+
+    Pillow is the friendly PIL fork. It is
+
+        Copyright © 2010 by Jeffrey 'Alex' Clark and contributors
+
+    Like PIL, Pillow is licensed under the open source MIT-CMU License:
+
+    By obtaining, using, and/or copying this software and/or its associated
+    documentation, you agree that you have read, understood, and will comply
+    with the following terms and conditions:
+
+    Permission to use, copy, modify and distribute this software and its
+    documentation for any purpose and without fee is hereby granted,
+    provided that the above copyright notice appears in all copies, and that
+    both that copyright notice and this permission notice appear in supporting
+    documentation, and that the name of Secret Labs AB or the author not be
+    used in advertising or publicity pertaining to distribution of the software
+    without specific, written prior permission.
+
+    SECRET LABS AB AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS
+    SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS.
+    IN NO EVENT SHALL SECRET LABS AB OR THE AUTHOR BE LIABLE FOR ANY SPECIAL,
+    INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+    LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+    OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+    PERFORMANCE OF THIS SOFTWARE.
+
+-- whisper.cpp --
+
+Used in:  tools/mtmd/mtmd-audio.cpp (audio preprocessing of the multimodal
+          projector), "some of the code here is copied from whisper.cpp",
+          https://github.com/ggml-org/whisper.cpp
+License:  MIT, "Copyright (c) 2023-2026 The ggml authors": the same license
+          and copyright holders as llama.cpp (llama.cpp-LICENSE.txt in this
+          directory)
+
+-- base64.hpp --
+
+Used in:  common/base64.hpp, included by the server
+          (tools/server/server-common.cpp, server-context.cpp,
+          server-tools.cpp, server-realtime.cpp)
+License:  public domain (the Unlicense); the notice of the file follows:
+
+    This is free and unencumbered software released into the public domain.
+
+    Anyone is free to copy, modify, publish, use, compile, sell, or
+    distribute this software, either in source code form or as a compiled
+    binary, for any purpose, commercial or non-commercial, and by any
+    means.
+
+    In jurisdictions that recognize copyright laws, the author or authors
+    of this software dedicate any and all copyright interest in the
+    software to the public domain. We make this dedication for the benefit
+    of the public at large and to the detriment of our heirs and
+    successors. We intend this dedication to be an overt act of
+    relinquishment in perpetuity of all present and future rights to this
+    software under copyright law.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+    EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+    IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+    OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+    ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+    OTHER DEALINGS IN THE SOFTWARE.
+
+    For more information, please refer to <http://unlicense.org>
+
+-- Arm Optimized Routines --
+
+Used in:  ggml/src/ggml-cpu/vec.h (vectorized exp and silu), "adapted from
+          arm limited optimized routine",
+          https://github.com/ARM-software/optimized-routines
+License:  MIT OR Apache-2.0 WITH LLVM-exception (the text of the Apache
+          License, Version 2.0 is in Apache-2.0.txt in this directory)

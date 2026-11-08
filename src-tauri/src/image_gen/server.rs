@@ -17,7 +17,7 @@ use std::time::Duration;
 use tokio::sync::{oneshot, watch};
 
 use super::{Config, ImageGenError, ModelSpec, Timing, api};
-use crate::ollama::builtin::process::{
+use crate::process::{
     Spawner, describe_exit, desktop_changes, isolate, pick_port, rotate_log, scrub, spawn_with,
     terminate, watch_exit,
 };
@@ -152,7 +152,7 @@ impl Drop for Running {
             let pid = self.pid;
             let timing = self.timing.clone();
             let token = self.stops.begin();
-            crate::ollama::builtin::spawn(async move {
+            crate::process::spawn_task(async move {
                 terminate(pid, &mut exited, timing.stop_grace, timing.kill_wait).await;
                 drop(token);
             });

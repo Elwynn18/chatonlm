@@ -263,6 +263,8 @@ pub enum HubQuantTier {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum HubQuantIssue {
+    /// Plus produit depuis les téléchargements directs (morceaux et
+    /// sous-dossiers acceptés) ; gardé pour la page.
     /// Découpée en plusieurs fichiers (refusé par le registre de Hugging Face).
     Sharded,
     /// Dans un sous-dossier du dépôt (aucune étiquette ne la désigne).
@@ -278,8 +280,8 @@ pub struct HubQuant {
     pub label: String,
     /// Fichier (premier morceau pour une version découpée).
     pub file: String,
-    /// Nom Ollama complet (« hf.co/unsloth/Qwen3-8B-GGUF:Q4_K_M ») ; `None` :
-    /// non téléchargeable (`issue`).
+    /// Identifiant de la base locale (« unsloth/Qwen3-8B-GGUF:Q4_K_M ») ;
+    /// `None` : non téléchargeable (dépôt restreint).
     pub model: Option<String>,
     pub issue: Option<HubQuantIssue>,
     /// Taille du ou des fichiers du modèle, en octets.
@@ -363,7 +365,8 @@ pub struct HubHardware {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct HubDownloadRequest {
-    /// Nom Ollama complet.
+    /// Identifiant de la base locale (« auteur/dépôt:QUANT » ; la forme
+    /// `hf.co/…` d'Ollama est acceptée).
     pub model: String,
     /// Dépôt Hugging Face d'origine.
     pub repo: Option<String>,
@@ -377,12 +380,12 @@ pub struct HubDownloadRequest {
 pub enum HubDownloadState {
     /// En file : deux téléchargements à la fois au plus.
     Queued,
-    /// Vérification du manifeste, début du pull.
+    /// Lecture des fichiers du dépôt sur Hugging Face, place vérifiée.
     Starting,
     Downloading,
-    /// Octets reçus ; Ollama vérifie et écrit le manifeste.
+    /// Octets reçus ; empreintes et en-tête GGUF vérifiés, modèle enregistré.
     Finishing,
-    /// En pause : requête fermée, morceaux reçus gardés par Ollama, reprise à
+    /// En pause : requête fermée, morceaux reçus gardés (`.part`), reprise à
     /// la demande.
     Paused,
     Done,
@@ -398,7 +401,7 @@ pub struct HubDownload {
     pub repo: Option<String>,
     pub label: Option<String>,
     pub state: HubDownloadState,
-    /// Octets reçus, toutes couches.
+    /// Octets reçus, tous fichiers (projecteur de vision compris).
     pub completed: u64,
     /// Octets à recevoir ; 0 : inconnu.
     pub total: u64,
@@ -411,12 +414,12 @@ pub struct HubDownload {
     pub finished_at: Option<i64>,
 }
 
-/// Modèle installé sur le serveur (onglet Installed).
+/// Modèle de la base locale (onglet Installed).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct HubInstalled {
-    /// Nom Ollama, tel que `/api/tags` le donne.
+    /// Identifiant de la base locale.
     pub model: String,
     /// Octets sur le disque.
     pub size: u64,
@@ -426,6 +429,6 @@ pub struct HubInstalled {
     pub quantization_level: String,
     pub family: String,
     pub capabilities: Vec<String>,
-    /// Dépôt Hugging Face d'un nom `hf.co/<auteur>/<dépôt>:<étiquette>`.
+    /// Dépôt Hugging Face (« auteur/dépôt ») ; `None` pour un importé.
     pub repo: Option<String>,
 }

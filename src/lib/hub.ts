@@ -562,3 +562,17 @@ export function repoParams(id: string): { author: string; repo: string } {
 export function huggingFaceUrl(id: string): string {
   return `https://huggingface.co/${id}`;
 }
+
+/**
+ * Même modèle installé : l'identifiant de la base locale (`auteur/dépôt:QUANT`)
+ * et le nom `hf.co/…` qu'Ollama donne au même modèle se valent (comme
+ * `ModelId::from_request` du moteur) ; sans la casse, comme `sameModel`.
+ */
+export function sameInstalledModel(a: string, b: string): boolean {
+  const bare = (name: string) =>
+    name
+      .trim()
+      .replace(/^(hf\.co|huggingface\.co)\//i, "")
+      .toLowerCase();
+  return bare(a) === bare(b);
+}

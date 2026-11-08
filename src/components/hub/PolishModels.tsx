@@ -1,11 +1,13 @@
-// Onglet Polish du ModelHub (étape 17, propre à ChatonLM) : modèles Ollama
+// Onglet Polish du ModelHub (étape 17, propre à ChatonLM) : modèles
 // conseillés pour nettoyer la transcription de la dictée (mesures du contrat
-// 42 § 0), téléchargés par le pull du ModelHub (onglet Downloads), lus
-// installés par list_models ; « Use for polish » règle le modèle de la
+// 42 § 0), identifiants de Hugging Face téléchargés par le ModelHub (onglet
+// Downloads, base locale des modèles) ; installés : ceux de la base locale
+// (hub_installed), plus ceux d'Ollama (list_models, noms `hf.co/…`) pendant
+// le passage à llama-server. « Use for polish » règle le modèle de la
 // dictée, « In use » pour celui qui l'est. Tout autre modèle installé se
-// choisit dans les réglages. Liste d'Ollama pas encore lue, ou Ollama
-// injoignable : ni Download ni Use, puisqu'on ne sait pas ce qui est
-// installé.
+// choisit dans les réglages. Base locale pas encore lue : ni Download ni
+// Use, puisqu'on ne sait pas ce qui est installé. Ollama injoignable : dit,
+// puisque le nettoyage passe encore par lui.
 
 import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
@@ -27,6 +29,7 @@ import {
   useDownloads,
 } from "@/hooks/useDownloads";
 import { useFocusRescue } from "@/hooks/useFocusRescue";
+import { useHubInstalled } from "@/hooks/useHub";
 import { useModels } from "@/hooks/useModels";
 import { useT } from "@/i18n";
 import {
@@ -35,19 +38,25 @@ import {
   polishModelNote,
   polishModelSize,
 } from "@/lib/dictation";
-import { familyOf, isActiveDownload } from "@/lib/hub";
+import { familyOf, isActiveDownload, sameInstalledModel } from "@/lib/hub";
 import { errorMessage } from "@/lib/ipc";
-import { parseModelName, sameModel } from "@/lib/modelNames";
+import { parseModelName } from "@/lib/modelNames";
 
 export function PolishModels() {
   const t = useT();
   const models = useModels();
+  const local = useHubInstalled();
   const { settings } = useDictationSettings();
-  const names = (models.data ?? []).map((model) => model.model);
-  // Liste lue (même ancienne) ; sinon on ne sait pas ce qui est installé.
-  const read = models.data !== undefined;
-  // Échec, même pendant les nouveaux essais de useModels.
-  const unreachable = !read && (models.isError || models.failureCount > 0);
+  const names = [
+    ...(local.data ?? []).map((model) => model.model),
+    ...(models.data ?? []).map((model) => model.model),
+  ];
+  // Base locale lue (même ancienne) ; sinon on ne sait pas ce qui est
+  // installé.
+  const read = local.data !== undefined;
+  // Échec d'Ollama, même pendant les nouveaux essais de useModels.
+  const unreachable =
+    models.data === undefined && (models.isError || models.failureCount > 0);
   return (
     <div className={PAGE}>
       <p className="pt-4 text-sm text-neutral-600 dark:text-neutral-300">
@@ -68,11 +77,13 @@ export function PolishModels() {
             entry={entry}
             // Liste pas lue : ni Download ni Use (on ne sait pas).
             installed={
-              read ? names.some((name) => sameModel(name, entry.model)) : null
+              read
+                ? names.some((name) => sameInstalledModel(name, entry.model))
+                : null
             }
             inUse={
               settings !== undefined &&
-              sameModel(settings.polishModel, entry.model)
+              sameInstalledModel(settings.polishModel, entry.model)
             }
           />
         ))}
@@ -97,7 +108,7 @@ function PolishModelCard({
   inUse,
 }: {
   entry: PolishModel;
-  /** Présent dans Ollama ; null tant que la liste n'est pas lue. */
+  /** Installé ; null tant que la base locale n'est pas lue. */
   installed: boolean | null;
   inUse: boolean;
 }) {

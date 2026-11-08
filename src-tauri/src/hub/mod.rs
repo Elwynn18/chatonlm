@@ -1,6 +1,8 @@
-//! ModelHub : catalogue des modèles GGUF de Hugging Face, téléchargements par
-//! Ollama (`hf.co/<auteur>/<dépôt>:<étiquette>`) et modèles installés.
-//! Contrat : `.tools/research/37-step15a-contract.md`.
+//! ModelHub : catalogue des modèles GGUF de Hugging Face, téléchargements
+//! directs depuis Hugging Face vers la base locale des modèles
+//! (`crate::local_models`) et modèles installés. Contrats :
+//! `.tools/research/37-step15a-contract.md`, puis
+//! `100-llamacpp-lots-1-2-4-contract.md` § 3.
 
 pub(crate) mod cache;
 mod capabilities;
@@ -8,6 +10,7 @@ pub mod catalog;
 pub(crate) mod curation;
 pub mod downloads;
 pub mod errors;
+pub mod files;
 pub(crate) mod fit;
 pub(crate) mod flight;
 pub(crate) mod gguf;

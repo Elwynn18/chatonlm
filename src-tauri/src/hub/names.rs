@@ -95,14 +95,6 @@ pub fn parse_hf_name(model: &str) -> Option<HfName> {
     })
 }
 
-/// Nom Ollama de la version `tag` du dépôt `repo_id` (« auteur/dépôt »),
-/// `None` si Ollama le refuserait.
-pub fn hf_model_name(repo_id: &str, tag: &str) -> Option<String> {
-    let name = format!("{HF_HOST}/{repo_id}:{tag}");
-    parse_hf_name(&name).filter(|parsed| parsed.tag.is_some())?;
-    Some(name)
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Part {
     Namespace,
@@ -169,16 +161,6 @@ mod tests {
         assert_eq!(parse_hf_name(&format!("hf.co/a/{long}:Q4_K_M")), None);
         assert_eq!(parse_hf_name(&format!("hf.co/a/repo:{long}")), None);
         assert!(parse_hf_name(&format!("hf.co/a/{}:Q4_K_M", "x".repeat(80))).is_some());
-    }
-
-    #[test]
-    fn model_names_need_a_valid_tag() {
-        assert_eq!(
-            hf_model_name("unsloth/Qwen3-8B-GGUF", "Q4_K_M").as_deref(),
-            Some("hf.co/unsloth/Qwen3-8B-GGUF:Q4_K_M")
-        );
-        assert_eq!(hf_model_name("unsloth/Qwen3-8B-GGUF", ""), None);
-        assert_eq!(hf_model_name("un.sloth/Qwen3-8B-GGUF", "Q4_K_M"), None);
     }
 
     #[test]

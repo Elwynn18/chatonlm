@@ -12,7 +12,8 @@
 // wider pattern names versions for display.
 
 //! Versions (quantifications) d'un dépôt GGUF : inventaire des fichiers,
-//! libellés, étiquettes Ollama, qualité et version conseillée.
+//! libellés, identifiants de la base locale (`<auteur>/<dépôt>:<QUANT>`),
+//! étiquettes Ollama (modèles 0.9.x), qualité et version conseillée.
 //! Règles : `.tools/research/35-modelhub-hf-api.md` § 2.2 à 2.4 et R5,
 //! `34-modelhub-ollama-hf.md` § 2-4.
 
@@ -21,8 +22,8 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::names;
 use super::types::{HubQuantIssue, HubQuantTier};
+use crate::local_models::id::ModelId;
 
 /// Noms de l'énumération `GGMLFileQuantizationType` de huggingface.js, dans
 /// l'ordre de déclaration, puis l'alias `MXFP4` (dernier, pour que
@@ -134,13 +135,22 @@ pub fn is_projector(path: &str) -> bool {
 /// `(chemin sans « -0000N-of-0000M.gguf », N)` pour un morceau de fichier
 /// découpé.
 fn shard(path: &str) -> Option<(&str, u32)> {
+    shard_of(path).map(|(prefix, index, _)| (prefix, index))
+}
+
+/// `(chemin sans suffixe, N, M)` pour un morceau `-0000N-of-0000M.gguf`
+/// (N et M de 1 à 99 999, N ≤ M).
+fn shard_of(path: &str) -> Option<(&str, u32, u32)> {
     let captures = SHARD_RE.captures(path)?;
-    let index = captures.get(1)?.as_str().parse().ok()?;
-    Some((&path[..captures.get(0)?.start()], index))
+    let index: u32 = captures.get(1)?.as_str().parse().ok()?;
+    let count: u32 = captures.get(2)?.as_str().parse().ok()?;
+    (index >= 1 && index <= count).then_some((&path[..captures.get(0)?.start()], index, count))
 }
 
 /// Libellé que le registre de Hugging Face lit dans une étiquette :
-/// `parseGGUFQuantLabel` (nom en majuscules, dernière occurrence).
+/// `parseGGUFQuantLabel` (nom en majuscules, dernière occurrence). Voir
+/// [`tag_for`].
+#[allow(dead_code)]
 pub fn hf_label(file: &str) -> Option<String> {
     let upper = file.to_ascii_uppercase();
     HF_QUANT_RE
@@ -237,88 +247,131 @@ pub struct Version {
     pub quant: Option<String>,
     /// Fichier (premier morceau pour une version découpée).
     pub file: String,
-    /// Nom Ollama ; `None` : non téléchargeable (`issue`).
+    /// Tous ses fichiers, morceaux dans l'ordre (le seul fichier sinon).
+    pub files: Vec<String>,
+    /// Identifiant de la base locale (`<auteur>/<dépôt>:<QUANT>`) ; `None` :
+    /// non téléchargeable (`issue`).
     pub model: Option<String>,
+    /// Plus produit depuis les téléchargements directs (morceaux et
+    /// sous-dossiers acceptés) ; gardé pour la page.
     pub issue: Option<HubQuantIssue>,
     pub size: u64,
 }
 
 /// Inventaire des versions d'un dépôt (`repo_id` = « auteur/dépôt ») à
 /// partir de ses fichiers : `.gguf` seulement, auxiliaires écartés, morceaux
-/// regroupés (tailles additionnées, `Sharded`), sous-dossiers marqués
-/// (`Subfolder`). Une version à la racine reçoit son nom Ollama (voir
-/// [`tag_for`]) ; une version dont le nom serait refusé par Ollama est
-/// écartée. Triées de la plus grosse à la plus petite.
+/// regroupés (tailles additionnées ; un découpage incomplet est écarté),
+/// sous-dossiers compris. Chaque version reçoit son identifiant (voir
+/// [`id_quant`]) ; une version sans identifiant possible est écartée. Triées
+/// de la plus grosse à la plus petite.
 pub fn inventory(repo_id: &str, files: &[FileEntry]) -> Vec<Version> {
-    // Regroupement : chemin (sans suffixe de morceau) -> (premier fichier,
-    // taille totale, découpé).
-    let mut groups: BTreeMap<String, (String, u32, u64, bool)> = BTreeMap::new();
+    // Regroupement : chemin (sans suffixe de morceau) -> morceaux (numéro,
+    // chemin), nombre annoncé, taille totale.
+    struct Group {
+        parts: Vec<(u32, String)>,
+        count: u32,
+        size: u64,
+    }
+    let mut groups: BTreeMap<String, Group> = BTreeMap::new();
     for file in files {
         if !is_gguf(file.path) || is_auxiliary(file.path) {
             continue;
         }
-        match shard(file.path) {
-            Some((prefix, index)) => {
-                let entry = groups
-                    .entry(prefix.to_owned())
-                    .or_insert_with(|| (file.path.to_owned(), index, 0, true));
-                if index < entry.1 {
-                    entry.0 = file.path.to_owned();
-                    entry.1 = index;
-                }
-                entry.2 = entry.2.saturating_add(file.size);
-            }
-            None => {
-                groups.insert(
-                    file.path.to_owned(),
-                    (file.path.to_owned(), 0, file.size, false),
-                );
-            }
-        }
-    }
-    // Noms en majuscules de toutes les versions, pour l'ambiguïté des
-    // étiquettes.
-    let names: Vec<String> = groups
-        .values()
-        .map(|(file, ..)| basename(file).to_ascii_uppercase())
-        .collect();
-    let mut versions = Vec::new();
-    for (index, (file, _, size, sharded)) in groups.into_values().enumerate() {
-        let quant = display_label(&file);
-        let label = quant.clone().unwrap_or_else(|| file_stem(&file).to_owned());
-        let issue = if sharded {
-            Some(HubQuantIssue::Sharded)
-        } else if file.contains('/') {
-            Some(HubQuantIssue::Subfolder)
-        } else {
-            None
+        let (key, index, count) = match shard_of(file.path) {
+            Some((prefix, index, count)) => (prefix.to_owned(), index, count),
+            // Numéros de morceau impossibles : écarté.
+            None if SHARD_RE.is_match(file.path) => continue,
+            None => (file.path.to_owned(), 1, 1),
         };
-        let model = match issue {
-            Some(_) => None,
-            None => {
-                let others = names
+        let group = groups.entry(key).or_insert_with(|| Group {
+            parts: Vec::new(),
+            count,
+            size: 0,
+        });
+        group.parts.push((index, file.path.to_owned()));
+        group.count = group.count.max(count);
+        group.size = group.size.saturating_add(file.size);
+    }
+    let complete: Vec<(Vec<String>, u64)> = groups
+        .into_values()
+        .filter_map(|mut group| {
+            group.parts.sort();
+            group.parts.dedup_by_key(|(index, _)| *index);
+            let whole = group.parts.len() == group.count as usize
+                && group
+                    .parts
                     .iter()
                     .enumerate()
-                    .filter(|(other, _)| *other != index)
-                    .map(|(_, name)| name.as_str());
-                match names::hf_model_name(repo_id, &tag_for(&file, others)) {
-                    Some(model) => Some(model),
-                    // Ollama refuserait ce nom : version écartée.
-                    None => continue,
-                }
-            }
+                    .all(|(at, (index, _))| *index as usize == at + 1);
+            whole.then(|| {
+                (
+                    group.parts.into_iter().map(|(_, path)| path).collect(),
+                    group.size,
+                )
+            })
+        })
+        .collect();
+    let labels: Vec<Option<String>> = complete
+        .iter()
+        .map(|(parts, _)| display_label(&parts[0]))
+        .collect();
+    let stems: Vec<String> = complete
+        .iter()
+        .map(|(parts, _)| file_stem(&parts[0]).to_owned())
+        .collect();
+    let mut taken: Vec<String> = Vec::new();
+    let mut versions = Vec::new();
+    // Fichiers à la racine d'abord : à nom égal, c'est eux qui sont gardés.
+    let mut order: Vec<usize> = (0..complete.len()).collect();
+    order.sort_by_key(|&index| complete[index].0[0].contains('/'));
+    let mut complete: Vec<Option<(Vec<String>, u64)>> = complete.into_iter().map(Some).collect();
+    for index in order {
+        let Some((parts, size)) = complete[index].take() else {
+            continue;
         };
+        let file = parts[0].clone();
+        let quant = labels[index].clone();
+        let label = quant.clone().unwrap_or_else(|| stems[index].clone());
+        let id = id_quant(index, &labels, &stems);
+        let Some(id) = Some(id)
+            .filter(|id| !taken.iter().any(|other| other.eq_ignore_ascii_case(id)))
+            .and_then(|id| ModelId::hf(repo_id, &id))
+        else {
+            // Pas d'identifiant possible : version écartée.
+            continue;
+        };
+        taken.push(id.quant().to_owned());
         versions.push(Version {
             label,
             quant,
             file,
-            model,
-            issue,
+            files: parts,
+            model: Some(id.to_string()),
+            issue: None,
             size,
         });
     }
     versions.sort_by(|a, b| b.size.cmp(&a.size).then_with(|| a.label.cmp(&b.label)));
     versions
+}
+
+/// Quantification de l'identifiant de la version `index` : son libellé
+/// d'affichage s'il est seul à le porter (sans la casse), sinon le nom de
+/// son fichier sans `.gguf` ni suffixe de morceau (une version qui le
+/// partage avec une version déjà nommée est écartée par [`inventory`]).
+fn id_quant(index: usize, labels: &[Option<String>], stems: &[String]) -> String {
+    if let Some(label) = labels[index].as_deref() {
+        let unique = labels.iter().enumerate().all(|(other, text)| {
+            other == index
+                || !text
+                    .as_deref()
+                    .is_some_and(|t| t.eq_ignore_ascii_case(label))
+        });
+        if unique {
+            return label.to_owned();
+        }
+    }
+    stems[index].clone()
 }
 
 /// Étiquette Ollama d'un fichier à la racine : son libellé selon le registre
@@ -330,6 +383,11 @@ pub fn inventory(repo_id: &str, files: &[FileEntry]) -> Vec<Version> {
 /// 2.4 : `Q4_K_XL` donne `UD-Q4_K_XL`) : un libellé contenu dans le nom d'une
 /// autre version (`F16` dans `…-BF16`, `Q6_K` dans `…-UD-Q6_K_XL`) est donc
 /// ambigu, comme un libellé partagé.
+///
+/// Plus utilisé par les téléchargements (directs depuis le passage à
+/// llama-server) ; gardé pour retrouver le fichier qu'un nom `hf.co/…:<tag>`
+/// d'un modèle 0.9.x désignait (migration des modèles, lot L6).
+#[allow(dead_code)]
 pub fn tag_for<'a>(file: &str, others: impl IntoIterator<Item = &'a str>) -> String {
     let name = basename(file);
     match hf_label(name) {
@@ -343,19 +401,33 @@ pub fn tag_for<'a>(file: &str, others: impl IntoIterator<Item = &'a str>) -> Str
     }
 }
 
-/// Taille du projecteur de vision que le registre ajoutera (estimation :
-/// `mmproj` F16, sinon BF16, sinon le plus petit) ; `None` sans projecteur.
-pub fn projector_size(files: &[FileEntry]) -> Option<u64> {
-    let projectors: Vec<&FileEntry> = files.iter().filter(|f| is_projector(f.path)).collect();
-    let with = |quant: &str| {
+/// Projecteur de vision à prendre avec une version de libellé `quant` : celui
+/// de même précision s'il existe, sinon Q8_0, sinon F16, sinon BF16, sinon le
+/// plus petit (chemin à égalité) ; `None` sans projecteur.
+pub fn projector_for<'a, 'b>(
+    files: &'b [FileEntry<'a>],
+    quant: Option<&str>,
+) -> Option<&'b FileEntry<'a>> {
+    let mut projectors: Vec<&FileEntry> = files.iter().filter(|f| is_projector(f.path)).collect();
+    projectors.sort_by(|a, b| a.path.cmp(b.path));
+    let with = |wanted: &str| {
         projectors
             .iter()
-            .find(|f| display_label(f.path).as_deref() == Some(quant))
-            .map(|f| f.size)
+            .copied()
+            .find(|f| display_label(f.path).is_some_and(|label| label.eq_ignore_ascii_case(wanted)))
     };
-    with("F16")
+    quant
+        .and_then(with)
+        .or_else(|| with("Q8_0"))
+        .or_else(|| with("F16"))
         .or_else(|| with("BF16"))
-        .or_else(|| projectors.iter().map(|f| f.size).min())
+        .or_else(|| projectors.iter().copied().min_by_key(|f| f.size))
+}
+
+/// Taille du projecteur de vision téléchargé avec une version de libellé
+/// `quant` ([`projector_for`]) ; `None` sans projecteur.
+pub fn projector_size(files: &[FileEntry], quant: Option<&str>) -> Option<u64> {
+    projector_for(files, quant).map(|f| f.size)
 }
 
 /// Octets par paramètre d'une version selon son libellé, en millièmes :
@@ -480,30 +552,19 @@ pub fn estimated_size(label: Option<&str>, parameters: u64) -> u64 {
     u64::try_from(u128::from(parameters) * u128::from(density(label)) / 1000).unwrap_or(u64::MAX)
 }
 
-/// Taille estimée du projecteur de vision que le registre ajoutera, d'après
-/// les seuls noms des fichiers : celui que [`projector_size`] retiendrait
-/// (F16, sinon BF16, sinon le plus léger d'après son libellé ; sans libellé :
-/// F16, le cas courant), plafonnée à la moitié de `model_size` (un petit
-/// modèle a un petit projecteur) ; `None` sans projecteur.
-pub fn estimated_projector_size(files: &[FileEntry], model_size: u64) -> Option<u64> {
-    let labels: Vec<Option<String>> = files
-        .iter()
-        .filter(|file| is_projector(file.path))
-        .map(|file| display_label(file.path))
-        .collect();
-    if labels.is_empty() {
-        return None;
-    }
-    let has = |quant: &str| labels.iter().any(|label| label.as_deref() == Some(quant));
-    let per_parameter = if has("F16") || has("BF16") {
-        2000
-    } else {
-        labels
-            .iter()
-            .map(|label| label.as_deref().map_or(2000, |label| density(Some(label))))
-            .min()
-            .unwrap_or(2000)
-    };
+/// Taille estimée du projecteur de vision téléchargé avec une version de
+/// libellé `quant`, d'après les seuls noms des fichiers (les listes n'ont pas
+/// leurs tailles) : celui que [`projector_for`] retiendrait, à la densité de
+/// son libellé (sans libellé : F16, le cas courant), plafonnée à la moitié de
+/// `model_size` (un petit modèle a un petit projecteur) ; `None` sans
+/// projecteur.
+pub fn estimated_projector_size(
+    files: &[FileEntry],
+    quant: Option<&str>,
+    model_size: u64,
+) -> Option<u64> {
+    let chosen = projector_for(files, quant)?;
+    let per_parameter = display_label(chosen.path).map_or(2000, |label| density(Some(&label)));
     Some((PROJECTOR_PARAMETERS * per_parameter / 1000).min(model_size / 2))
 }
 
@@ -688,33 +749,34 @@ mod tests {
     #[test]
     fn the_projector_is_estimated_from_the_file_names() {
         let big = 20_000_000_000;
-        let of = |names: &[&str], model: u64| {
+        let of = |names: &[&str], quant: &str, model: u64| {
             let list: Vec<(&str, u64)> = names.iter().map(|&name| (name, 0)).collect();
-            estimated_projector_size(&files(&list), model)
+            estimated_projector_size(&files(&list), Some(quant), model)
         };
         // Sans projecteur.
-        assert_eq!(of(&["model-Q4_K_M.gguf", "README.md"], big), None);
-        // F16 ou BF16 : celui que le registre prend (0,92 Go, relevé :
-        // 918 166 080 pour Qwen3.5-9B).
+        assert_eq!(of(&["model-Q4_K_M.gguf", "README.md"], "Q4_K_M", big), None);
+        let all = ["mmproj-F32.gguf", "mmproj-F16.gguf", "mmproj-Q8_0.gguf"];
+        // Même précision que le modèle : F16 (0,92 Go).
+        assert_eq!(of(&all, "F16", big), Some(920_000_000));
+        // Sinon Q8_0.
+        assert_eq!(of(&all, "Q4_K_M", big), Some(489_900_000));
+        // Sinon F16 ou BF16 ; sans libellé : F16, le cas courant.
         for names in [
-            &["mmproj-F32.gguf", "mmproj-F16.gguf", "mmproj-Q8_0.gguf"][..],
-            &["mmproj-BF16.gguf", "mmproj-Q4_0.gguf"],
-            // Sans libellé : F16, le cas courant.
+            &["mmproj-BF16.gguf", "mmproj-F32.gguf"][..],
             &["model.mmproj.gguf"],
         ] {
-            assert_eq!(of(names, big), Some(920_000_000), "{names:?}");
+            assert_eq!(of(names, "Q4_K_M", big), Some(920_000_000), "{names:?}");
         }
-        // Sinon le plus léger (gemma-4-12B QAT : 175 115 616 réels).
+        // Sinon celui qui reste (gemma-4-12B QAT : 175 115 616 réels).
         assert_eq!(
-            of(&["mmproj-gemma-4-12b-it-qat-q4_0.gguf"], big),
+            of(&["mmproj-gemma-4-12b-it-qat-q4_0.gguf"], "Q8_0", big),
             Some(273_700_000)
         );
-        assert_eq!(
-            of(&["mmproj-Q8_0.gguf", "mmproj-F32.gguf"], big),
-            Some(489_900_000)
-        );
         // Petit modèle : la moitié de sa taille au plus.
-        assert_eq!(of(&["mmproj-F16.gguf"], 600_000_000), Some(300_000_000));
+        assert_eq!(
+            of(&["mmproj-F16.gguf"], "F16", 600_000_000),
+            Some(300_000_000)
+        );
     }
 
     fn version<'a>(versions: &'a [Version], file: &str) -> &'a Version {
@@ -809,32 +871,29 @@ mod tests {
         }
     }
 
-    /// Exemples des rapports (35 R5, 34 § 2) : libellé unique → étiquette,
-    /// sinon nom de fichier ; morceaux non téléchargeables.
+    /// Identifiants : libellé d'affichage s'il est seul à le porter, sinon
+    /// nom du fichier ; morceaux et sous-dossiers téléchargeables.
     #[test]
-    fn tags_follow_the_registry() {
+    fn ids_follow_the_labels() {
         let versions = inventory("unsloth/Qwen3.5-9B-GGUF", &files(QWEN35_9B));
         let model = |file: &str| version(&versions, file).model.clone();
-        assert_eq!(
-            model("Qwen3.5-9B-UD-Q4_K_XL.gguf").as_deref(),
-            Some("hf.co/unsloth/Qwen3.5-9B-GGUF:UD-Q4_K_XL")
-        );
-        assert_eq!(
-            model("Qwen3.5-9B-Q4_K_M.gguf").as_deref(),
-            Some("hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M")
-        );
-        // « Q6_K » figure dans le nom de UD-Q6_K_XL : nom de fichier.
-        assert_eq!(
-            model("Qwen3.5-9B-Q6_K.gguf").as_deref(),
-            Some("hf.co/unsloth/Qwen3.5-9B-GGUF:Qwen3.5-9B-Q6_K.gguf")
-        );
-        assert_eq!(
-            model("Qwen3.5-9B-BF16.gguf").as_deref(),
-            Some("hf.co/unsloth/Qwen3.5-9B-GGUF:BF16")
-        );
+        for (file, id) in [
+            (
+                "Qwen3.5-9B-UD-Q4_K_XL.gguf",
+                "unsloth/Qwen3.5-9B-GGUF:UD-Q4_K_XL",
+            ),
+            ("Qwen3.5-9B-Q4_K_M.gguf", "unsloth/Qwen3.5-9B-GGUF:Q4_K_M"),
+            // Comparaison exacte : « Q6_K » n'est plus ambigu avec UD-Q6_K_XL.
+            ("Qwen3.5-9B-Q6_K.gguf", "unsloth/Qwen3.5-9B-GGUF:Q6_K"),
+            ("Qwen3.5-9B-BF16.gguf", "unsloth/Qwen3.5-9B-GGUF:BF16"),
+        ] {
+            assert_eq!(model(file).as_deref(), Some(id), "{file}");
+        }
         // Ni projecteur, ni imatrix, ni README.
         assert_eq!(versions.len(), 13);
         assert!(versions.iter().all(|v| !v.file.contains("mmproj")));
+        assert!(versions.iter().all(|v| v.files == [v.file.clone()]));
+        assert!(versions.iter().all(|v| v.issue.is_none()));
         // Du plus gros au plus petit.
         assert!(versions.windows(2).all(|w| w[0].size >= w[1].size));
         assert_eq!(versions[0].label, "BF16");
@@ -845,12 +904,12 @@ mod tests {
                 ("Qwen3.8-27B-Q4_K_L.gguf", 18820703968),
                 ("Qwen3.8-27B-Q3_K_XL.gguf", 16391919200),
                 (
-                    "Qwen3.8-27B-bf16/Qwen3.8-27B-bf16-00001-of-00002.gguf",
-                    40_000_000_000,
-                ),
-                (
                     "Qwen3.8-27B-bf16/Qwen3.8-27B-bf16-00002-of-00002.gguf",
                     14_000_000_000,
+                ),
+                (
+                    "Qwen3.8-27B-bf16/Qwen3.8-27B-bf16-00001-of-00002.gguf",
+                    40_000_000_000,
                 ),
             ]),
         );
@@ -858,42 +917,27 @@ mod tests {
         assert_eq!(q4kl.label, "Q4_K_L");
         assert_eq!(
             q4kl.model.as_deref(),
-            Some("hf.co/bartowski/Qwen3.8-27B-GGUF:Qwen3.8-27B-Q4_K_L.gguf")
+            Some("bartowski/Qwen3.8-27B-GGUF:Q4_K_L")
         );
-        assert_eq!(
-            version(&bartowski, "Qwen3.8-27B-Q3_K_XL.gguf")
-                .model
-                .as_deref(),
-            Some("hf.co/bartowski/Qwen3.8-27B-GGUF:Q3_K_XL")
-        );
+        // Découpée dans un sous-dossier : téléchargeable, morceaux dans l'ordre.
         let bf16 = version(
             &bartowski,
             "Qwen3.8-27B-bf16/Qwen3.8-27B-bf16-00001-of-00002.gguf",
         );
-        assert_eq!(bf16.issue, Some(HubQuantIssue::Sharded));
-        assert_eq!(bf16.model, None);
+        assert_eq!(
+            bf16.model.as_deref(),
+            Some("bartowski/Qwen3.8-27B-GGUF:BF16")
+        );
+        assert_eq!(bf16.issue, None);
+        assert_eq!(
+            bf16.files,
+            [
+                "Qwen3.8-27B-bf16/Qwen3.8-27B-bf16-00001-of-00002.gguf",
+                "Qwen3.8-27B-bf16/Qwen3.8-27B-bf16-00002-of-00002.gguf"
+            ]
+        );
         assert_eq!(bf16.size, 54_000_000_000);
         assert_eq!(bf16.label, "BF16");
-
-        let mradermacher = inventory(
-            "mradermacher/Qwen3-VL-8B-Instruct-abliterated-i1-GGUF",
-            &files(&[
-                (
-                    "Qwen3-VL-8B-Instruct-abliterated.i1-Q4_K_M.gguf",
-                    5027785792,
-                ),
-                (
-                    "Qwen3-VL-8B-Instruct-abliterated.i1-IQ4_XS.gguf",
-                    4593298496,
-                ),
-                ("Qwen3-VL-8B-Instruct-abliterated.imatrix.gguf", 7_000_000),
-            ]),
-        );
-        assert_eq!(mradermacher.len(), 2);
-        assert_eq!(
-            mradermacher[0].model.as_deref(),
-            Some("hf.co/mradermacher/Qwen3-VL-8B-Instruct-abliterated-i1-GGUF:Q4_K_M")
-        );
 
         let maziyar = inventory(
             "MaziyarPanahi/Qwen3-8B-GGUF",
@@ -906,46 +950,45 @@ mod tests {
         assert_eq!(fp16.label, "F16");
         assert_eq!(
             fp16.model.as_deref(),
-            Some("hf.co/MaziyarPanahi/Qwen3-8B-GGUF:Qwen3-8B.fp16.gguf")
-        );
-        assert_eq!(
-            version(&maziyar, "Qwen3-8B.Q4_K_M.gguf").model.as_deref(),
-            Some("hf.co/MaziyarPanahi/Qwen3-8B-GGUF:Q4_K_M")
+            Some("MaziyarPanahi/Qwen3-8B-GGUF:F16")
         );
     }
 
     #[test]
-    fn shared_or_contained_labels_use_the_file_name() {
-        // Même libellé deux fois.
+    fn shared_labels_use_the_file_name() {
+        // Même libellé deux fois (casse comprise) : noms de fichiers.
         let same = inventory(
             "a/b-GGUF",
-            &files(&[("b-Q4_K_M.gguf", 10), ("b-v2-Q4_K_M.gguf", 11)]),
+            &files(&[("b-Q4_K_M.gguf", 10), ("b-v2-q4_k_m.gguf", 11)]),
         );
-        assert!(
-            same.iter()
-                .all(|v| v.model.as_deref().is_some_and(|m| m.ends_with(".gguf")))
-        );
-        // F16 se lit dans le nom du BF16 (34 § 2 : le registre servait le BF16).
+        let mut ids: Vec<_> = same.iter().filter_map(|v| v.model.clone()).collect();
+        ids.sort();
+        assert_eq!(ids, ["a/b-GGUF:b-Q4_K_M", "a/b-GGUF:b-v2-q4_k_m"]);
+        // F16 et BF16 sont deux libellés distincts.
         let f16 = inventory(
             "ggml-org/Qwen3-0.6B-GGUF",
             &files(&[
                 ("Qwen3-0.6B-BF16.gguf", 1_510_000_000),
                 ("Qwen3-0.6B-f16.gguf", 1_510_000_001),
-                ("Qwen3-0.6B-Q4_0.gguf", 430_000_000),
             ]),
         );
         assert_eq!(
             version(&f16, "Qwen3-0.6B-f16.gguf").model.as_deref(),
-            Some("hf.co/ggml-org/Qwen3-0.6B-GGUF:Qwen3-0.6B-f16.gguf")
+            Some("ggml-org/Qwen3-0.6B-GGUF:F16")
         );
         assert_eq!(
             version(&f16, "Qwen3-0.6B-BF16.gguf").model.as_deref(),
-            Some("hf.co/ggml-org/Qwen3-0.6B-GGUF:BF16")
+            Some("ggml-org/Qwen3-0.6B-GGUF:BF16")
         );
-        assert_eq!(
-            version(&f16, "Qwen3-0.6B-Q4_0.gguf").model.as_deref(),
-            Some("hf.co/ggml-org/Qwen3-0.6B-GGUF:Q4_0")
+        // Même libellé et même nom dans deux dossiers : seule la première
+        // version (racine d'abord, puis ordre des chemins) garde
+        // l'identifiant.
+        let twice = inventory(
+            "a/b-GGUF",
+            &files(&[("x/b-Q4_K_M.gguf", 10), ("y/b-Q4_K_M.gguf", 10)]),
         );
+        assert_eq!(twice.len(), 1);
+        assert_eq!(twice[0].file, "x/b-Q4_K_M.gguf");
     }
 
     #[test]
@@ -955,22 +998,14 @@ mod tests {
             &versions,
             "BF16/Qwen3-Coder-30B-A3B-Instruct-BF16-00001-of-00002.gguf",
         );
-        assert_eq!(bf16.issue, Some(HubQuantIssue::Sharded));
+        assert_eq!(bf16.issue, None);
+        assert_eq!(bf16.files.len(), 2);
         assert_eq!(bf16.size, 49655154016 + 11440652032);
-        // « Q2_K » est contenu dans « Q2_K_L » : nom de fichier.
         assert_eq!(
             version(&versions, "Qwen3-Coder-30B-A3B-Instruct-Q2_K.gguf")
                 .model
                 .as_deref(),
-            Some(
-                "hf.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Qwen3-Coder-30B-A3B-Instruct-Q2_K.gguf"
-            )
-        );
-        assert_eq!(
-            version(&versions, "Qwen3-Coder-30B-A3B-Instruct-Q2_K_L.gguf")
-                .model
-                .as_deref(),
-            Some("hf.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q2_K_L")
+            Some("unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q2_K")
         );
         assert_eq!(
             version(&versions, "Qwen3-Coder-30B-A3B-Instruct-UD-TQ1_0.gguf").label,
@@ -980,26 +1015,24 @@ mod tests {
     }
 
     #[test]
-    fn subfolders_and_names_ollama_refuses_are_not_downloadable() {
-        // Étiquette = nom de fichier de plus de 80 caractères.
-        let long = format!("{}.gguf", "x".repeat(90));
+    fn incomplete_splits_and_impossible_ids_are_left_out() {
         let versions = inventory(
             "a/b-GGUF",
             &files(&[
-                ("Q4_K_M/b-Q4_K_M.gguf", 10),
-                ("b-Q8_0.gguf", 20),
-                (long.as_str(), 5),
+                // Morceau 2 sur 3 manquant.
+                ("b-Q8_0-00001-of-00003.gguf", 10),
+                ("b-Q8_0-00003-of-00003.gguf", 10),
+                // Numéro plus grand que le nombre annoncé.
+                ("b-Q6_K-00002-of-00001.gguf", 10),
+                // Nom sans libellé, non ASCII : pas d'identifiant.
+                ("模型.gguf", 10),
+                ("b-Q4_K_M.gguf", 10),
             ]),
         );
-        assert_eq!(versions.len(), 2);
-        let sub = version(&versions, "Q4_K_M/b-Q4_K_M.gguf");
-        assert_eq!(sub.issue, Some(HubQuantIssue::Subfolder));
-        assert_eq!(sub.model, None);
-        // Auteur avec un point : rien n'est téléchargeable.
-        assert!(
-            inventory("a.b/c-GGUF", &files(&[("c-Q4_K_M.gguf", 1)])).is_empty(),
-            "invalid namespace"
-        );
+        let ids: Vec<_> = versions.iter().filter_map(|v| v.model.as_deref()).collect();
+        assert_eq!(ids, ["a/b-GGUF:Q4_K_M"]);
+        // Dépôt invalide : rien.
+        assert!(inventory("a b/c-GGUF", &files(&[("c-Q4_K_M.gguf", 1)])).is_empty());
     }
 
     #[test]
@@ -1034,20 +1067,39 @@ mod tests {
     }
 
     #[test]
-    fn the_projector_estimate_prefers_f16() {
-        assert_eq!(projector_size(&files(QWEN35_9B)), Some(918166080));
+    fn the_projector_follows_the_model_precision() {
+        let qwen = files(QWEN35_9B);
+        let path = |quant: &str| projector_for(&qwen, Some(quant)).map(|f| f.path);
+        assert_eq!(path("F16"), Some("mmproj-F16.gguf"));
+        assert_eq!(path("BF16"), Some("mmproj-BF16.gguf"));
+        assert_eq!(path("f32"), Some("mmproj-F32.gguf"));
+        // Pas de Q4_K_M ni de Q8_0 : F16.
+        assert_eq!(path("Q4_K_M"), Some("mmproj-F16.gguf"));
+        assert_eq!(projector_size(&qwen, Some("Q4_K_M")), Some(918166080));
+        let some = files(&[
+            ("mmproj-Q8_0.gguf", 5),
+            ("mmproj-F16.gguf", 9),
+            ("x.mmproj-Q4_K_M.gguf", 3),
+        ]);
+        assert_eq!(projector_size(&some, Some("Q4_K_M")), Some(3));
+        assert_eq!(projector_size(&some, Some("Q6_K")), Some(5));
+        assert_eq!(projector_size(&some, None), Some(5));
+        // Sinon BF16, sinon le plus petit.
         assert_eq!(
-            projector_size(&files(&[("mmproj-BF16.gguf", 7), ("mmproj-F32.gguf", 9),])),
+            projector_size(
+                &files(&[("mmproj-BF16.gguf", 7), ("mmproj-F32.gguf", 9)]),
+                None
+            ),
             Some(7)
         );
         assert_eq!(
-            projector_size(&files(&[
-                ("mmproj-Q8_0.gguf", 5),
-                ("x.mmproj-Q4_K_M.gguf", 3),
-            ])),
-            Some(3)
+            projector_size(
+                &files(&[("mmproj-F32.gguf", 9), ("b.mmproj.gguf", 8)]),
+                None
+            ),
+            Some(8)
         );
-        assert_eq!(projector_size(&files(CODER)), None);
+        assert_eq!(projector_size(&files(CODER), Some("Q4_K_M")), None);
     }
 
     #[test]
@@ -1090,7 +1142,7 @@ mod tests {
         );
         let fits_all = recommended(&unsloth, |_| true).unwrap();
         assert_eq!(unsloth[fits_all].label, "UD-Q6_K_XL");
-        // Rien de téléchargeable : rien.
+        // Découpée : téléchargeable, donc conseillée.
         let sharded = inventory(
             "a/b-GGUF",
             &files(&[
@@ -1098,6 +1150,8 @@ mod tests {
                 ("b-Q4_K_M-00002-of-00002.gguf", 1),
             ]),
         );
-        assert_eq!(recommended(&sharded, |_| true), None);
+        assert_eq!(recommended(&sharded, |_| true), Some(0));
+        // Rien de téléchargeable : rien.
+        assert_eq!(recommended(&[], |_| true), None);
     }
 }

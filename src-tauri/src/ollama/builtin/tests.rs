@@ -7,7 +7,7 @@ use std::ffi::OsString;
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 #[cfg(unix)]
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use super::os::{Ours, group_of, leftover_processes};
 use super::*;
+use crate::process::RESERVED_PORTS;
 
 /// Faux `ollama serve` (et ses runners) : ignoré, sauf relancé par un essai.
 #[tokio::test(flavor = "multi_thread")]
@@ -81,7 +82,7 @@ fn alive(pid: u32) -> bool {
 /// Vivant (pas encore sorti).
 #[cfg(windows)]
 fn alive(pid: u32) -> bool {
-    super::os::alive(pid)
+    crate::process::alive(pid)
 }
 
 /// Attend que `condition` soit vraie, `limit` au plus.
@@ -124,24 +125,6 @@ async fn runner_pid(config: &Config) -> u32 {
 
 fn environment_of(config: &Config) -> String {
     std::fs::read_to_string(config.home().join("env")).unwrap_or_default()
-}
-
-#[test]
-fn ports_avoid_ollama_and_the_test_instance() {
-    for previous in [Some(11434), Some(11435), None] {
-        let port = pick_port(previous).unwrap();
-        assert!(!RESERVED_PORTS.contains(&port), "{port}");
-    }
-    // Le port précédent est repris tant qu'il est libre.
-    let free = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    assert_eq!(pick_port(Some(free)).unwrap(), free);
-    let held = TcpListener::bind((Ipv4Addr::LOCALHOST, free)).unwrap();
-    assert_ne!(pick_port(Some(free)).unwrap(), free);
-    drop(held);
 }
 
 #[cfg(unix)]
@@ -222,29 +205,6 @@ fn the_environment_is_cleaned_then_completed() {
             "__NV_DISABLE_EXPLICIT_SYNC"
         ]
     );
-}
-
-#[test]
-fn variables_are_removed_whatever_their_case() {
-    let mut environment: BTreeMap<OsString, OsString> = [
-        ("Ollama_Host", "0.0.0.0"),
-        ("OLLAMA_MODELS", "D:\\Models"),
-        ("UserProfile", "C:\\Users\\me"),
-        ("OLLAMA_KEEP_ALIVE", "10m"),
-        ("Path", "C:\\Windows"),
-    ]
-    .map(|(key, value)| (OsString::from(key), OsString::from(value)))
-    .into_iter()
-    .collect();
-    remove_ignoring_case(
-        &mut environment,
-        &["OLLAMA_HOST", "OLLAMA_MODELS", "USERPROFILE", "HOME"],
-    );
-    let keys: Vec<_> = environment
-        .keys()
-        .map(|key| key.to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(keys, ["OLLAMA_KEEP_ALIVE", "Path"]);
 }
 
 #[cfg(unix)]
@@ -658,38 +618,6 @@ async fn after_shutdown_nothing_starts_until_resumed() {
     builtin.ensure_started(&models).unwrap();
     assert_eq!(builtin.snapshot().state, BuiltinState::Starting);
     builtin.stop().await;
-}
-
-/// Après SIGKILL, la récolte n'est attendue qu'un temps : un processus
-/// bloqué dans le noyau ne fige pas ChatonLM (simulé par une fin jamais
-/// signalée).
-#[cfg(unix)]
-#[tokio::test(flavor = "multi_thread")]
-async fn the_wait_after_sigkill_is_bounded() {
-    // SIGTERM ignoré (par le shell et son `sleep`) : seul SIGKILL l'arrête.
-    let mut child = Command::new("sh")
-        .args(["-c", "trap '' TERM; sleep 30"])
-        .process_group(0)
-        .spawn()
-        .unwrap();
-    std::thread::sleep(Duration::from_millis(200));
-    let (_never, mut exited) = oneshot::channel::<Option<ExitStatus>>();
-    let started = Instant::now();
-    let reaped = tokio::time::timeout(
-        Duration::from_secs(10),
-        terminate(
-            child.id(),
-            &mut exited,
-            Duration::from_millis(100),
-            Duration::from_millis(300),
-        ),
-    )
-    .await
-    .expect("terminate must give up");
-    assert!(!reaped);
-    assert!(started.elapsed() < Duration::from_secs(3));
-    // SIGKILL a bien été envoyé au groupe.
-    assert!(child.wait().unwrap().signal() == Some(libc::SIGKILL));
 }
 
 /// La fermeture rend la main même si l'arrêt ne finit jamais.

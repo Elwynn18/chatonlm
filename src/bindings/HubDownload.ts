@@ -3,7 +3,7 @@ import type { HubDownloadState } from "./HubDownloadState";
 
 export type HubDownload = { model: string, repo: string | null, label: string | null, state: HubDownloadState, 
 /**
- * Octets reçus, toutes couches.
+ * Octets reçus, tous fichiers (projecteur de vision compris).
  */
 completed: number, 
 /**

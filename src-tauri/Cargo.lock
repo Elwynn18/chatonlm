@@ -705,6 +705,7 @@ dependencies = [
  "cpal",
  "dunce",
  "easy-link",
+ "fake-llama",
  "fake-ollama",
  "futures-util",
  "gtk",
@@ -740,6 +741,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
  "transcribe-rs",
  "ts-rs",
  "url",
@@ -1523,6 +1525,16 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
+]
+
+[[package]]
+name = "fake-llama"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "futures-util",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

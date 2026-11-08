@@ -166,8 +166,8 @@
     "showAll": "Show all {count} versions",
     "showFewer": "Show fewer versions",
     "download": "Download · {size}",
-    "ollamaName": "Ollama name",
-    "copyOllamaName": "Copy Ollama name",
+    "ollamaName": "Model ID",
+    "copyOllamaName": "Copy model ID",
     "otherSources": "Other sources"
   },
   "tiers": {
@@ -408,7 +408,7 @@
   },
   "polish": {
     "intro": "A second model cleans up the transcript: punctuation, filler words, self-corrections. If its answer does not look like what you said, the raw transcript is copied instead.",
-    "unreachable": "Ollama is unreachable. Start it to download or use these models.",
+    "unreachable": "Ollama is unreachable. Start it to use these models for polish.",
     "label": "Polish models",
     "use": "Use for polish",
     "anyModel": "Any installed model can be chosen in Settings."

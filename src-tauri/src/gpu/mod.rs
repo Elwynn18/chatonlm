@@ -717,14 +717,17 @@ impl GpuChief {
         })
     }
 
-    /// Propositions de modèles pour cette machine.
-    pub async fn suggest(&self, inputs: &Inputs) -> suggest::Suggestions {
+    /// Propositions de modèles pour cette machine ; `local` : modèles de la
+    /// base locale (téléchargés par le ModelHub), comptés installés avec
+    /// ceux du serveur Ollama pendant la transition (lot L5).
+    pub async fn suggest(&self, inputs: &Inputs, local: &[String]) -> suggest::Suggestions {
         let installed: Vec<String> = if inputs.local {
             self.installed(&inputs.server.url, true)
                 .await
                 .unwrap_or_default()
                 .into_iter()
                 .map(|info| info.model)
+                .chain(local.iter().cloned())
                 .collect()
         } else {
             Vec::new()

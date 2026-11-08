@@ -16,7 +16,7 @@
 //!   étapes et guidage sont vérifiés ici avant tout lancement ; méthode
 //!   d'échantillonnage et planificateur viennent du catalogue des modèles et
 //!   passent tels quels (un nom inconnu est ignoré par le serveur).
-//! - Sous-processus isolé comme l'intégré (`ollama::builtin::process` :
+//! - Sous-processus isolé comme l'intégré (`process/` :
 //!   groupe et PDEATHSIG sous Linux, Job Object sous Windows) : rien ne
 //!   survit à ChatonLM.
 //! - Arrêt d'une image : abandonner (lâcher) le futur de [`ImageGen::generate`].
@@ -47,7 +47,7 @@ use rand::RngExt;
 use tokio::sync::watch;
 
 use crate::i18n::t;
-use crate::ollama::builtin::process::{Spawner, is_executable};
+use crate::process::{Spawner, is_executable};
 use server::{Running, Stops};
 
 /// Côtés permis d'une image, en pixels (pas de 16 : exigence des modèles
@@ -565,7 +565,7 @@ impl ImageGen {
     fn schedule_idle_stop(&self) {
         let mark = self.touch();
         let inner = self.inner.clone();
-        crate::ollama::builtin::spawn(async move {
+        crate::process::spawn_task(async move {
             tokio::time::sleep(inner.config.timing.idle_stop).await;
             if inner.activity.load(Ordering::SeqCst) != mark {
                 return;

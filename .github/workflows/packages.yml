@@ -18,7 +18,9 @@
 # l'app qui démarre elle-même l'Ollama intégré de son paquet (--builtin : ces
 # machines n'ont pas d'Ollama ; binaire du paquet, environnement nettoyé,
 # aucun processus restant après l'arrêt de l'app), puis l'Ollama intégré de
-# chaque paquet lancé seul (packaging/ci/smoke-ollama.sh).
+# chaque paquet lancé seul (packaging/ci/smoke-ollama.sh), ses moteurs
+# d'images (packaging/ci/smoke-sd-server.sh) et de texte
+# (packaging/ci/smoke-llama-server.sh : vrai petit modèle sur le processeur).
 name: Packages
 
 on:
@@ -158,11 +160,21 @@ jobs:
           path: .tools/runtimes/sd-server
           key: sd-server-${{ runner.os }}-${{ inputs.build-runner || 'ubuntu-22.04' }}-${{ hashFiles('packaging/sdcpp.env', 'packaging/sdcpp/*.patch', 'scripts/build-sd-server.sh') }}
 
+      # Moteur de texte construit de même (scripts/build-llama-server.sh, après
+      # sd-server dont il reprend le chargeur Vulkan de secours) : en cache tant
+      # que sa version, ses épingles et son script ne changent pas.
+      - name: Cache du moteur de texte (restauration)
+        id: llama-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/runtimes/llama-server
+          key: llama-server-${{ runner.os }}-${{ inputs.build-runner || 'ubuntu-22.04' }}-${{ hashFiles('packaging/llama.env', 'packaging/sdcpp.env', 'packaging/llama/*.patch', 'scripts/build-llama-server.sh') }}
+
       # En-têtes Vulkan, SPIR-V et glslc récents (ceux d'Ubuntu 22.04 sont trop
       # anciens pour ggml-vulkan) : dépôt de LunarG, version de packaging/sdcpp.env.
       # Son chargeur libvulkan.so.1 devient le chargeur de secours livré.
-      - name: SDK Vulkan et moteur d'images (sd-server)
-        if: steps.sd-cache.outputs.cache-hit != 'true'
+      - name: SDK Vulkan et moteurs (sd-server, llama-server)
+        if: steps.sd-cache.outputs.cache-hit != 'true' || steps.llama-cache.outputs.cache-hit != 'true'
         run: |
           source packaging/sdcpp.env
           curl -fsSL https://packages.lunarg.com/lunarg-signing-key-pub.asc |
@@ -173,6 +185,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends libvulkan1 libvulkan-dev vulkan-sdk spirv-headers
           glslc --version | head -1
           SDCPP_JOBS="$(nproc)" scripts/build-sd-server.sh
+          if ! LLAMA_JOBS="$(nproc)" scripts/build-llama-server.sh; then
+            tail -n 60 .tools/llama-build/configure.log .tools/llama-build/build.log 2>/dev/null || true
+            exit 1
+          fi
+          du -sh .tools/runtimes/llama-server
+          ls -l .tools/runtimes/llama-server
 
       - name: Cache du moteur d'images (sauvegarde)
         if: steps.sd-cache.outputs.cache-hit != 'true'
@@ -180,6 +198,13 @@ jobs:
         with:
           path: .tools/runtimes/sd-server
           key: ${{ steps.sd-cache.outputs.cache-primary-key }}
+
+      - name: Cache du moteur de texte (sauvegarde)
+        if: steps.llama-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/runtimes/llama-server
+          key: ${{ steps.llama-cache.outputs.cache-primary-key }}
 
       # Sans clé (paquets non signés : voir l'en-tête).
       - name: Construction, inventaire et 2e passe de l'AppImage
@@ -222,6 +247,7 @@ jobs:
             echo
             echo "Ollama intégré : $(du -sh .tools/runtimes/ollama | cut -f1) non compressé."
             echo "Moteur d'images : $(du -sh .tools/runtimes/sd-server | cut -f1) non compressé ($(cat .tools/runtimes/sd-server/VERSION))."
+            echo "Moteur de texte : $(du -sh .tools/runtimes/llama-server | cut -f1) non compressé ($(cat .tools/runtimes/llama-server/VERSION))."
           } >>"$GITHUB_STEP_SUMMARY"
 
       - name: Code source des bibliothèques de l'AppImage
@@ -283,6 +309,9 @@ jobs:
       - name: Moteur d'images
         run: packaging/ci/smoke-sd-server.sh /usr/lib/chatonlm/sd-server
 
+      - name: Moteur de texte
+        run: packaging/ci/smoke-llama-server.sh /usr/lib/chatonlm/llama-server
+
   smoke-appimage:
     name: AppImage sur ubuntu-24.04
     needs: build
@@ -328,13 +357,14 @@ jobs:
           app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
           packaging/ci/smoke-launch.sh --builtin "$app"
 
-      - name: Ollama intégré et moteur d'images
+      - name: Ollama intégré et moteurs
         run: |
           app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
           cd "$RUNNER_TEMP"
           "$app" --appimage-extract >/dev/null
           "$GITHUB_WORKSPACE/packaging/ci/smoke-ollama.sh" squashfs-root/usr/lib/chatonlm/ollama
           "$GITHUB_WORKSPACE/packaging/ci/smoke-sd-server.sh" squashfs-root/usr/lib/chatonlm/sd-server
+          "$GITHUB_WORKSPACE/packaging/ci/smoke-llama-server.sh" squashfs-root/usr/lib/chatonlm/llama-server
 
   smoke-appimage-fedora:
     name: AppImage sur Fedora 44
@@ -386,10 +416,11 @@ jobs:
           app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
           packaging/ci/smoke-launch.sh --builtin "$app"
 
-      - name: Ollama intégré et moteur d'images
+      - name: Ollama intégré et moteurs
         run: |
           app="$(ls "$PWD"/out/chatonlm_*_amd64.AppImage)"
           cd "$RUNNER_TEMP"
           "$app" --appimage-extract >/dev/null
           "$GITHUB_WORKSPACE/packaging/ci/smoke-ollama.sh" squashfs-root/usr/lib/chatonlm/ollama
           "$GITHUB_WORKSPACE/packaging/ci/smoke-sd-server.sh" squashfs-root/usr/lib/chatonlm/sd-server
+          "$GITHUB_WORKSPACE/packaging/ci/smoke-llama-server.sh" squashfs-root/usr/lib/chatonlm/llama-server
