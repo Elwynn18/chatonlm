@@ -37,10 +37,10 @@ import { PENDING_CALLS } from "./lib/page.mjs";
 const binary = process.argv[2];
 const fake = await startFake("ollama");
 
-const FIRST = "i saw teh film.";
+const FIRST = "I saw teh film.";
 const SECOND = "Je suis allez au cinema hier.";
 const TEXT = `${FIRST}\n\n${SECOND}`;
-const CORRECTED = "i saw the film.\n\nJe suis allé au cinéma hier.";
+const CORRECTED = "I saw the film.\n\nJe suis allé au cinéma hier.";
 
 async function waitUntil(check, what, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;

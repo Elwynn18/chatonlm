@@ -17,7 +17,7 @@ const label = (driver) =>
   );
 const options = (driver) =>
   driver.execute(
-    "return [...document.querySelectorAll('[role=option]')].map((o) => o.textContent)",
+    "return [...document.querySelectorAll('[role=option]')].map((o) => o.title)",
   );
 /** Pour chaque ligne du sélecteur : porte-t-elle l'icône « non téléchargé » ? */
 const missing = (driver) =>

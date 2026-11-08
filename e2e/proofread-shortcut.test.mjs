@@ -476,7 +476,7 @@ try {
             );
             assert.equal(
               replaced.body,
-              "the text\n\nThe model chatonlm-vanished is no longer installed: corrected with chatonlm-proofread, loaded in Ollama.",
+              "The text\n\nThe model chatonlm-vanished is no longer installed: corrected with chatonlm-proofread, loaded in Ollama.",
             );
           } finally {
             await missing.release();
@@ -487,7 +487,7 @@ try {
           );
           // Le texte corrigé est copié ; rien ne le remplace ensuite.
           const copied = (await readClipboard()).text;
-          assert.equal(copied, "the text");
+          assert.equal(copied, "The text");
 
           // « Auto » (rien de choisi pour la correction) sans modèle en
           // mémoire : celui du chat ; cloud ou distant (`/api/show`), rien
@@ -558,7 +558,7 @@ try {
           try {
             const { progress, final } = await pressProofread(desk, CORRECTED);
             assert.equal(progress.body, PROGRESS);
-            assert.equal(final.body, "the text");
+            assert.equal(final.body, "The text");
           } finally {
             await auto.release();
           }

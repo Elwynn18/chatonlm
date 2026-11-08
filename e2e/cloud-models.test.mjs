@@ -95,13 +95,26 @@ const shownModel = (driver) =>
     "return document.querySelector('[title=\"Select model\"]')?.textContent ?? null",
   );
 
-/** Lignes du sélecteur ouvert : texte et nuage. */
+/** Lignes du sélecteur ouvert : texte (nom et formule, sans la mémoire ni la
+ * pastille d'un modèle recommandé, lues par `pickerNeeds`) et nuage. */
 const pickerRows = (driver) =>
   driver.execute(
-    `return [...document.querySelectorAll("[role=option]")].map((o) => ({
-       text: o.textContent,
-       cloud: o.querySelector("[aria-label='${CLOUD}']") !== null,
-     }));`,
+    `return [...document.querySelectorAll("[role=option]")].map((o) => {
+       const copy = o.cloneNode(true);
+       copy.querySelectorAll("[title$=' of memory to run'], [data-fit]").forEach((e) => e.remove());
+       return {
+         text: copy.textContent,
+         cloud: o.querySelector("[aria-label='${CLOUD}']") !== null,
+       };
+     });`,
+  );
+
+/** Lignes qui montrent la mémoire demandée et une pastille d'adéquation. */
+const pickerNeeds = (driver) =>
+  driver.execute(
+    `return [...document.querySelectorAll("[role=option]")]
+       .filter((o) => o.querySelector("[title$=' of memory to run']") && o.querySelector("[data-fit]"))
+       .map((o) => o.title);`,
   );
 
 /** Ouvre le sélecteur et attend ses lignes ; `first` : texte de la première. */
@@ -218,6 +231,8 @@ try {
         ["gemma4", "qwen3.5", "qwen3:0.6b", "qwen3.5:0.8b"],
       );
       assert.ok(rows.every((row) => !row.cloud));
+      // Recommandés non téléchargés : mémoire demandée et pastille.
+      assert.deepEqual(await pickerNeeds(driver), ["gemma4", "qwen3.5"]);
       await closePicker(driver);
 
       // Activé dans Settings › Models.
