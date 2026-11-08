@@ -10,8 +10,11 @@ import userEvent from "@testing-library/user-event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ModelInfo } from "@/bindings/ModelInfo";
+import type { HubHardware } from "@/bindings/HubHardware";
 import type { RecommendedModel } from "@/bindings/RecommendedModel";
+import type { ServerState } from "@/bindings/ServerState";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
+import { healthKey, useServerHealth } from "@/hooks/useServerHealth";
 import { ModelPicker } from "./ModelPicker";
 
 afterEach(() => {
@@ -38,7 +41,8 @@ const INSTALLED = [info("qwen3.5:0.8b"), info("qwen3:0.6b"), info("llama3")];
  * `recommended` : réponse de recommended_models (Error : échec) ; `upstream` :
  * réponse du registre par nom (absent : false, Error : registre injoignable) ;
  * `cloudModels` : réglage des modèles cloud ; `cloudDisabled` : cloud coupé
- * sur le serveur (cloud_status).
+ * sur le serveur (cloud_status) ; `server.state` : état que donne
+ * server_status (modifiable en cours d'essai).
  */
 function backend(
   models: ModelInfo[] | Promise<never>,
@@ -48,6 +52,8 @@ function backend(
     upstream = {} as Record<string, boolean | Error>,
     cloudModels = false,
     cloudDisabled = false,
+    server = { state: "running" as ServerState },
+    hardware = null as HubHardware | null,
   } = {},
 ) {
   const settings = {
@@ -73,6 +79,11 @@ function backend(
         return models;
       case "cloud_status":
         return { disabled: cloudDisabled, source: "none" };
+      case "server_status":
+        return {
+          state: server.state,
+          builtin: server.state.startsWith("builtin"),
+        };
       case "recommended_models":
         if (recommended instanceof Error) throw recommended;
         return recommended.map((entry) =>
@@ -80,6 +91,8 @@ function backend(
             ? { model: entry, requiredPlan: null }
             : entry,
         );
+      case "hub_hardware":
+        return hardware;
       case "model_exists_upstream": {
         const { model } = args as { model: string };
         lookups.push({ model, at: Date.now() });
@@ -94,15 +107,23 @@ function backend(
   return { patches, lookups };
 }
 
-function renderPicker() {
+/** Comme Chat.tsx : zone de saisie inactive tant qu'Ollama ne répond pas. */
+function FollowingHealth() {
+  const { healthy } = useServerHealth();
+  return <ModelPicker chatId="new" isDisabled={!healthy} />;
+}
+
+/** `followHealth` : `isDisabled` suit l'état du serveur, comme dans l'app. */
+function renderPicker({ followHealth = false } = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { networkMode: "always", retry: false } },
   });
   render(
     <QueryClientProvider client={client}>
-      <ModelPicker chatId="new" />
+      {followHealth ? <FollowingHealth /> : <ModelPicker chatId="new" />}
     </QueryClientProvider>,
   );
+  return client;
 }
 
 const button = () => screen.getByTitle("Select model");
@@ -163,6 +184,52 @@ describe("ModelPicker", () => {
     expect(screen.getAllByLabelText("Not downloaded")).toHaveLength(1);
   });
 
+  it("shows the memory a recommended model needs and whether it fits", async () => {
+    const GB = 1_000_000_000;
+    // Tailles affichées en Gio (formatBytes) : 12 Gio s'écrivent « 12 GB ».
+    const GIB = 1024 ** 3;
+    backend([], "", {
+      recommended: [
+        {
+          model: "gemma4",
+          requiredPlan: null,
+          vramBytes: 12 * GIB,
+          fit: "fits",
+        },
+        {
+          model: "llama4",
+          requiredPlan: null,
+          vramBytes: 90 * GB,
+          fit: "tooLarge",
+        },
+        // Le serveur ne dit rien de sa mémoire : ni taille ni pastille.
+        { model: "qwen3.5", requiredPlan: null, vramBytes: null, fit: null },
+      ],
+      hardware: {
+        gpus: [{ name: "GPU", vramTotal: 24 * GB, vramFree: null }],
+        ramTotal: 32 * GB,
+        ramAvailable: 16 * GB,
+        context: 4096,
+      },
+    });
+    renderPicker();
+    await userEvent.click(button());
+    const row = (name: string) =>
+      screen.getAllByRole("option").find((option) => option.title === name)!;
+    await waitFor(() =>
+      expect(within(row("gemma4")).getByText("Fits your GPU")).toBeTruthy(),
+    );
+    const size = within(row("gemma4")).getByTitle(
+      /^Needs .* of memory to run$/,
+    );
+    expect(size.textContent).toMatch(/12/);
+    expect(within(row("llama4")).getByText("Too large")).toBeTruthy();
+    expect(within(row("qwen3.5")).queryByTitle(/of memory/)).toBeNull();
+    expect(row("qwen3.5").querySelector("[data-fit]")).toBeNull();
+    // Toujours l'icône « pas téléchargé ».
+    expect(screen.getAllByLabelText("Not downloaded")).toHaveLength(3);
+  });
+
   it("chooses the most recently installed model when none is selected", async () => {
     const { patches } = backend(INSTALLED);
     renderPicker();
@@ -179,6 +246,25 @@ describe("ModelPicker", () => {
     await userEvent.click(button());
     expect(screen.getByText("No models found")).toBeTruthy();
     expect(patches).toEqual([]);
+  });
+
+  it("says Unavailable while Ollama does not answer, then the model again", async () => {
+    const server = { state: "notResponding" as ServerState };
+    backend(INSTALLED, "llama3", { server });
+    const client = renderPicker({ followHealth: true });
+    await waitFor(() => expect(button().textContent).toBe("Unavailable"));
+    server.state = "running";
+    await client.refetchQueries({ queryKey: healthKey });
+    await waitFor(() => expect(button().textContent).toBe("llama3"));
+  });
+
+  it("says Loading..., not Unavailable, while the built-in Ollama starts", async () => {
+    backend(INSTALLED, "llama3", {
+      server: { state: "builtinStarting" as ServerState },
+    });
+    const client = renderPicker({ followHealth: true });
+    await waitFor(() => expect(client.getQueryData(healthKey)).toBeDefined());
+    expect(button().textContent).toBe("Loading...");
   });
 
   it("says Loading... until the list arrives, Escape closes", async () => {
@@ -399,9 +485,19 @@ describe("ModelPicker: Hugging Face names", () => {
 
 describe("ModelPicker: cloud models", () => {
   const RECOMMENDED: RecommendedModel[] = [
-    { model: "kimi-k2.6:cloud", requiredPlan: "pro" },
-    { model: "qwen3.5:cloud", requiredPlan: "free" },
-    { model: "gemma4", requiredPlan: null },
+    {
+      model: "kimi-k2.6:cloud",
+      requiredPlan: "pro",
+      vramBytes: null,
+      fit: null,
+    },
+    {
+      model: "qwen3.5:cloud",
+      requiredPlan: "free",
+      vramBytes: null,
+      fit: null,
+    },
+    { model: "gemma4", requiredPlan: null, vramBytes: null, fit: null },
   ];
   const CLOUD = "Cloud model: runs on ollama.com";
   /** Pour chaque ligne : porte-t-elle l'icône du nuage ? */

@@ -125,6 +125,10 @@ struct Recommendation {
     /// reste.
     #[serde(default)]
     required_plan: Value,
+    /// Mémoire qu'il faut au modèle pour tourner, estimée par le serveur ;
+    /// lue à la main comme le forfait.
+    #[serde(default)]
+    vram_bytes: Value,
 }
 
 /// Modèle recommandé par le serveur, en tête du sélecteur.
@@ -138,6 +142,14 @@ pub struct RecommendedModel {
     /// tel que le serveur le donne ; absent pour un modèle local ou si le
     /// serveur ne le dit pas.
     pub required_plan: Option<String>,
+    /// Mémoire qu'il faut au modèle local pour tourner (estimation du
+    /// serveur) ; absente pour un modèle cloud ou si le serveur ne la donne
+    /// pas.
+    pub vram_bytes: Option<u64>,
+    /// Place de ce besoin dans la machine du serveur (comme la pastille du
+    /// ModelHub) ; absente pour un serveur distant ou sans `vram_bytes`.
+    /// Remplie par la commande `recommended_models`.
+    pub fit: Option<crate::hub::types::HubFit>,
 }
 
 #[derive(Deserialize)]
@@ -455,9 +467,15 @@ fn parse_recommendations(body: &str) -> AppResult<Vec<RecommendedModel>> {
             .map(str::trim)
             .filter(|plan| !plan.is_empty() && is_cloud_name(&model))
             .map(str::to_ascii_lowercase);
+        let vram_bytes = recommendation
+            .vram_bytes
+            .as_u64()
+            .filter(|bytes| *bytes > 0 && !is_cloud_name(&model));
         models.push(RecommendedModel {
             model,
             required_plan,
+            vram_bytes,
+            fit: None,
         });
     }
     Ok(models)
@@ -853,6 +871,22 @@ mod tests {
     /// Noms recommandés, dans l'ordre.
     fn names(models: &[RecommendedModel]) -> Vec<&str> {
         models.iter().map(|m| m.model.as_str()).collect()
+    }
+
+    #[test]
+    fn local_recommendations_carry_the_memory_they_need() {
+        let body = r#"{"recommendations": [
+            {"model": "gemma4", "vram_bytes": 12000000000},
+            {"model": "qwen3.5", "vram_bytes": "lots"},
+            {"model": "llama3.2:3b", "vram_bytes": 0},
+            {"model": "kimi-k2.6:cloud", "vram_bytes": 5}
+        ]}"#;
+        let models = parse_recommendations(body).unwrap();
+        let memory: Vec<_> = models.iter().map(|m| m.vram_bytes).collect();
+        // Illisible, nulle ou d'un modèle cloud : aucune ; la place dans la
+        // machine est laissée à la commande.
+        assert_eq!(memory, [Some(12_000_000_000), None, None, None]);
+        assert!(models.iter().all(|m| m.fit.is_none()));
     }
 
     #[test]

@@ -126,7 +126,7 @@ describe("Slider", () => {
     expect(slider().parentElement!.className).toContain("h-5 w-5");
     const rail = track().previousElementSibling!;
     expect(rail.className).toContain(
-      "absolute top-[9px] right-6 left-6 h-1 rounded-full bg-neutral-300 dark:bg-neutral-600",
+      "absolute top-[9px] right-6 left-6 h-1 rounded-full bg-neutral-400 dark:bg-neutral-500",
     );
     expect(track().className).toContain("flex");
     expect(track().className).toContain("justify-between");

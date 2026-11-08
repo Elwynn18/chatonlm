@@ -28,6 +28,16 @@ function colorsOf(opening, closing) {
   return colors;
 }
 
+// Interrupteur des réglages : ses couleurs sont lues dans le composant.
+const sliderSource = readFileSync(
+  path.resolve(import.meta.dirname, "../src/components/settings/Slider.tsx"),
+  "utf8",
+);
+const switchSource = readFileSync(
+  path.resolve(import.meta.dirname, "../src/components/settings/Row.tsx"),
+  "utf8",
+);
+
 const light = colorsOf("@theme {", "\n}");
 // Thème sombre : les mêmes noms, redéfinis par la règle « .dark ».
 const dark = { ...light, ...colorsOf("\n  .dark {", "\n  }") };
@@ -179,6 +189,56 @@ describe("thème central", () => {
   it("estompé (invites des champs, icônes) : 3:1 au moins", () => {
     expect(
       failing(light, ["neutral-400"], ["white", "neutral-100"], 3),
+    ).toEqual([]);
+  });
+
+  it("contrôles (interrupteur) : 3:1 au moins, éteint compris (WCAG 1.4.11)", () => {
+    /** Couleur claire et sombre d'une constante `bg-… dark:bg-…` de Row.tsx. */
+    const colorOf = (name) => {
+      const match = switchSource.match(
+        new RegExp(`const ${name} = "bg-([a-z0-9-]+) dark:bg-([a-z0-9-]+)";`),
+      );
+      expect(match, name).not.toBeNull();
+      return { light: match[1], dark: match[2] };
+    };
+    // Cartes et menus où il se trouve : réglages, options de la correction
+    // (blanc ; sombre 800), carte de la carte graphique de VS Code (100).
+    const cards = {
+      light: ["white", "neutral-50", "neutral-100"],
+      dark: ["neutral-800", "neutral-900"],
+    };
+    for (const state of ["ON", "OFF"]) {
+      const track = colorOf(`SWITCH_TRACK_${state}`);
+      const knob = colorOf(`SWITCH_KNOB_${state}`);
+      for (const [theme, palette] of [
+        ["light", light],
+        ["dark", dark],
+      ]) {
+        const where = `${state} (${theme})`;
+        // La piste se détache de la carte...
+        expect(
+          failing(palette, [track[theme]], cards[theme], 3),
+          where,
+        ).toEqual([]);
+        // ... et la pastille de la piste.
+        expect(
+          failing(palette, [knob[theme]], [track[theme]], 3),
+          where,
+        ).toEqual([]);
+      }
+    }
+  });
+
+  it("rail du curseur des réglages : 3:1 au moins contre la carte", () => {
+    const match = sliderSource.match(
+      /const RAIL =\s*"[^"]*bg-([a-z0-9-]+) dark:bg-([a-z0-9-]+)";/,
+    );
+    expect(match).not.toBeNull();
+    expect(
+      failing(light, [match[1]], ["white", "neutral-50", "neutral-100"], 3),
+    ).toEqual([]);
+    expect(
+      failing(dark, [match[2]], ["neutral-800", "neutral-900"], 3),
     ).toEqual([]);
   });
 });

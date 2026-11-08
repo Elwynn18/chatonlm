@@ -54,6 +54,17 @@ export function RowError({ message }: { message?: string | null }) {
 }
 
 /**
+ * Couleurs de l'interrupteur : piste puis pastille, allumé et éteint. Chaque
+ * piste se détache à 3:1 au moins de la carte (contrôle, WCAG 1.4.11) et sa
+ * pastille à 3:1 de la piste, dans les deux thèmes : couples lus et mesurés
+ * par scripts/theme-contrast.test.mjs (une chaîne `bg-… dark:bg-…` chacune).
+ */
+const SWITCH_TRACK_ON = "bg-neutral-900 dark:bg-white";
+const SWITCH_TRACK_OFF = "bg-neutral-400 dark:bg-neutral-500";
+const SWITCH_KNOB_ON = "bg-white dark:bg-neutral-900";
+const SWITCH_KNOB_OFF = "bg-white dark:bg-neutral-900";
+
+/**
  * Interrupteur (rôle switch) : un bouton natif, Espace et Entrée compris.
  * `label` : nom lu par les lecteurs d'écran.
  */
@@ -80,17 +91,15 @@ export function Switch({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-6 w-10 flex-none cursor-pointer items-center rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent-fg focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-neutral-800 ${
-        checked
-          ? "bg-neutral-900 dark:bg-white"
-          : "bg-neutral-300 dark:bg-neutral-600"
+        checked ? SWITCH_TRACK_ON : SWITCH_TRACK_OFF
       }`}
     >
       <span
         aria-hidden="true"
         className={`inline-block h-5 w-5 rounded-full shadow-sm transition-transform ${
           checked
-            ? "translate-x-[18px] bg-white dark:bg-neutral-900"
-            : "translate-x-0.5 bg-white dark:bg-neutral-300"
+            ? `translate-x-[18px] ${SWITCH_KNOB_ON}`
+            : `translate-x-0.5 ${SWITCH_KNOB_OFF}`
         }`}
       />
     </button>

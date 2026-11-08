@@ -17,7 +17,11 @@
  * cut at their start so that their tag stays visible, a Hugging Face name
  * (hf.co/...) shown as a title and a tag chip (full name as tooltip); the
  * button has a maximum width; names compared without case (src/lib/models.ts);
- * texts translated into English, Spanish and French (src/i18n).
+ * while Ollama does not answer (src/hooks/useServerHealth.ts), the button says
+ * "Unavailable" instead of "Loading..." (still "Loading..." while the built-in
+ * Ollama starts); a recommended model not yet downloaded shows the memory it
+ * needs and whether it fits this machine (ModelHub's pill); texts translated
+ * into English, Spanish and French (src/i18n).
  */
 
 import { ArrowDownTrayIcon, CloudIcon } from "@heroicons/react/24/outline";
@@ -33,6 +37,7 @@ import {
   useState,
 } from "react";
 import { ModelLabel } from "@/components/ModelLabel";
+import { FitPill } from "@/components/hub/ModelBits";
 import type { RecommendedModel } from "@/bindings/RecommendedModel";
 import {
   useCloudModels,
@@ -40,7 +45,10 @@ import {
   useSelectedModel,
   useUpstreamModel,
 } from "@/hooks/useModels";
+import { useHubHardware } from "@/hooks/useHub";
+import { useServerHealth } from "@/hooks/useServerHealth";
 import { useT } from "@/i18n";
+import { formatBytes } from "@/i18n/format";
 import { isCloudModel } from "@/lib/dictation";
 import { sameModel } from "@/lib/modelNames";
 import {
@@ -73,6 +81,10 @@ export function ModelPicker({
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const { selected, models, loading, select } = useSelectedModel(chatId);
+  // Ollama ne répond plus (bandeau « Ollama isn't responding ») : pas de
+  // « Loading... » sans fin ; l'intégré qui (re)démarre reste « Loading... ».
+  const health = useServerHealth();
+  const unavailable = !health.healthy && !health.starting;
   const recommendations = useRecommendedModels();
   const cloud = useCloudModels();
   const recommended = useMemo(
@@ -177,7 +189,9 @@ export function ModelPicker({
         className="flex max-w-64 cursor-pointer items-center gap-1.5 rounded-full bg-neutral-200 px-3.5 py-1.5 text-neutral-800 select-none focus:outline-2 focus:outline-offset-2 focus:outline-accent-fg dark:bg-neutral-700 dark:text-neutral-100"
       >
         <div className="flex min-w-0 items-center gap-2">
-          {isDisabled || loading ? (
+          {unavailable ? (
+            <span>{t("chat.picker.unavailable")}</span>
+          ) : isDisabled || loading ? (
             <span>{t("chat.picker.loading")}</span>
           ) : selected ? (
             <>
@@ -349,11 +363,19 @@ function ModelList({
               </>
             ) : (
               entry.info === null && (
-                <ArrowDownTrayIcon
-                  className="h-4 w-4 text-neutral-500 dark:text-neutral-400"
-                  strokeWidth={1.75}
-                  aria-label={t("chat.picker.notDownloaded")}
-                />
+                <>
+                  <NeedBits
+                    recommendation={recommendationOf(
+                      recommendations,
+                      entry.model,
+                    )}
+                  />
+                  <ArrowDownTrayIcon
+                    className="h-4 w-4 text-neutral-500 dark:text-neutral-400"
+                    strokeWidth={1.75}
+                    aria-label={t("chat.picker.notDownloaded")}
+                  />
+                </>
               )
             )}
           </button>
@@ -364,6 +386,45 @@ function ModelList({
 }
 
 /** Forfait payant qu'exige un modèle cloud (rien s'il est gratuit ou inconnu). */
+/** Recommandation du serveur pour ce modèle, s'il en est une. */
+function recommendationOf(
+  recommendations: readonly RecommendedModel[],
+  model: string,
+): RecommendedModel | null {
+  return recommendations.find((entry) => sameModel(entry.model, model)) ?? null;
+}
+
+/**
+ * Modèle recommandé pas encore téléchargé : la mémoire qu'il lui faut et sa
+ * place dans la machine (pastille du ModelHub), pour choisir un premier
+ * modèle qui tient. Rien si le serveur ne la donne pas.
+ */
+function NeedBits({
+  recommendation,
+}: {
+  recommendation: RecommendedModel | null;
+}) {
+  const t = useT();
+  const hardware = useHubHardware().data ?? null;
+  const need = recommendation?.vramBytes ?? null;
+  if (need === null) return null;
+  const size = formatBytes(t, need);
+  return (
+    <>
+      <span
+        title={t("chat.picker.memory", { size })}
+        className="flex-none text-xs whitespace-nowrap text-neutral-500 tabular-nums dark:text-neutral-400"
+      >
+        {size}
+      </span>
+      <FitPill
+        fit={recommendation?.fit ?? null}
+        gpu={hardware === null ? null : hardware.gpus.length > 0}
+      />
+    </>
+  );
+}
+
 function PlanChip({ plan }: { plan: "pro" | "max" | null }) {
   const t = useT();
   if (plan === null) return null;

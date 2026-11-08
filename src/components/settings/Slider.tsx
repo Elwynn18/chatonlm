@@ -55,6 +55,8 @@ interface Drag {
   index: number;
 }
 
+const RAIL =
+  "pointer-events-none absolute top-[9px] right-6 left-6 h-1 rounded-full bg-neutral-400 dark:bg-neutral-500";
 export function Slider({
   options,
   value,
@@ -207,7 +209,9 @@ export function Slider({
   return (
     <div className={disabled ? "opacity-50" : undefined}>
       <div className="relative">
-        <div className="pointer-events-none absolute top-[9px] right-6 left-6 h-1 rounded-full bg-neutral-300 dark:bg-neutral-600" />
+        {/* Rail à 3:1 au moins contre la carte, comme l'interrupteur éteint
+            (scripts/theme-contrast.test.mjs). */}
+        <div className={RAIL} />
         <div
           ref={trackRef}
           className={`flex touch-none justify-between rounded-md outline-none focus-visible:ring-2 focus-visible:ring-accent-fg ${

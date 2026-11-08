@@ -18,7 +18,7 @@ use crate::store::Store;
 /// Machine du serveur qui sert (cible, contexte réglé) ; `None` pour un
 /// serveur distant. Sans attendre l'intégré : seul compte que l'adresse soit
 /// locale (le catalogue de Hugging Face ne dépend pas d'Ollama).
-async fn machine(catalog: &Catalog, store: &Store) -> AppResult<Option<HubHardware>> {
+pub(crate) async fn machine(catalog: &Catalog, store: &Store) -> AppResult<Option<HubHardware>> {
     Ok(machine_and_uncensored(catalog, store).await?.0)
 }
 

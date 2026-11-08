@@ -569,7 +569,13 @@ export function fakeBackend(
     details?: (ModelDetails | [string, AppError])[];
     thinkPrefs?: Record<string, Think>;
     /** Modèles recommandés par le serveur (un nom : sans forfait). */
-    recommended?: (string | RecommendedModel)[];
+    /** Un nom seul, ou une entrée dont la mémoire et la pastille sont
+     * absentes par défaut. */
+    recommended?: (
+      | string
+      | (Pick<RecommendedModel, "model" | "requiredPlan"> &
+          Partial<RecommendedModel>)
+    )[];
     /** Modèles présents au registre. */
     upstream?: string[];
     /** Disque lu par stage_paths, par chemin. */
@@ -635,7 +641,9 @@ export function fakeBackend(
     thinkPrefs: new Map(Object.entries(thinkPrefs)),
     models: [...models],
     recommended: recommended.map((entry) =>
-      typeof entry === "string" ? { model: entry, requiredPlan: null } : entry,
+      typeof entry === "string"
+        ? { model: entry, requiredPlan: null, vramBytes: null, fit: null }
+        : { vramBytes: null, fit: null, ...entry },
     ),
     upstream: new Set(upstream),
     outdated: new Set(),

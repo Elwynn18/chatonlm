@@ -23,10 +23,32 @@ pub async fn model_details(store: State<'_, Store>, model: String) -> AppResult<
 }
 
 /// Modèles recommandés par le serveur, cloud compris (avec le forfait
-/// exigé), sans `:latest`.
+/// exigé), sans `:latest` ; un modèle local porte la mémoire qu'il lui faut
+/// et sa place dans la machine (pastille du ModelHub), pour choisir un
+/// premier modèle qui tient.
 #[tauri::command]
-pub async fn recommended_models(store: State<'_, Store>) -> AppResult<Vec<RecommendedModel>> {
-    recommended(&store).await
+pub async fn recommended_models(
+    store: State<'_, Store>,
+    catalog: State<'_, crate::hub::state::Catalog>,
+) -> AppResult<Vec<RecommendedModel>> {
+    let models = recommended(&store).await?;
+    // Machine inconnue (serveur distant, détection en échec) : pas de pastille.
+    let hardware = super::hub::machine(&catalog, &store).await.ok().flatten();
+    Ok(with_fit(models, hardware.as_ref()))
+}
+
+/// Pastille de chaque modèle local dont la mémoire est connue.
+fn with_fit(
+    mut models: Vec<RecommendedModel>,
+    hardware: Option<&crate::hub::types::HubHardware>,
+) -> Vec<RecommendedModel> {
+    for model in &mut models {
+        model.fit = match (model.vram_bytes, hardware) {
+            (Some(need), Some(hardware)) => Some(crate::hub::fit::level(need, hardware)),
+            _ => None,
+        };
+    }
+    models
 }
 
 /// Vrai si le modèle existe au registre d'Ollama (nom tapé dans le
@@ -185,6 +207,42 @@ mod tests {
 
     use super::*;
     use crate::store::settings::{self, SettingsPatch};
+
+    #[test]
+    fn a_recommended_model_gets_the_fit_of_the_machine() {
+        use crate::hub::types::{HubFit, HubGpu, HubHardware};
+        const GIB: u64 = 1024 * 1024 * 1024;
+        let model = |name: &str, vram_bytes: Option<u64>| RecommendedModel {
+            model: name.into(),
+            required_plan: None,
+            vram_bytes,
+            fit: None,
+        };
+        let models = || {
+            vec![
+                model("small", Some(4 * GIB)),
+                model("large", Some(200 * GIB)),
+                model("unknown", None),
+            ]
+        };
+        let hardware = HubHardware {
+            gpus: vec![HubGpu {
+                name: "GPU".into(),
+                vram_total: 24 * GIB,
+                vram_free: None,
+            }],
+            ram_total: 32 * GIB,
+            ram_available: 16 * GIB,
+            context: 4096,
+        };
+        let fits: Vec<_> = with_fit(models(), Some(&hardware))
+            .into_iter()
+            .map(|m| m.fit)
+            .collect();
+        assert_eq!(fits, [Some(HubFit::Fits), Some(HubFit::TooLarge), None]);
+        // Serveur distant : aucune pastille.
+        assert!(with_fit(models(), None).iter().all(|m| m.fit.is_none()));
+    }
 
     /// Base dont le serveur réglé est `url`.
     fn configured(url: String) -> Store {

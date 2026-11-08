@@ -206,11 +206,26 @@ describe("names without case (Ollama resolves them so)", () => {
 
 describe("cloud models", () => {
   const RECOMMENDED: RecommendedModel[] = [
-    { model: "kimi-k2.6:cloud", requiredPlan: "pro" },
-    { model: "gpt-oss:120b-cloud", requiredPlan: "max" },
-    { model: "qwen3.5:cloud", requiredPlan: "free" },
-    { model: "glm-5.3:cloud", requiredPlan: null },
-    { model: "gemma4", requiredPlan: "pro" },
+    {
+      model: "kimi-k2.6:cloud",
+      requiredPlan: "pro",
+      vramBytes: null,
+      fit: null,
+    },
+    {
+      model: "gpt-oss:120b-cloud",
+      requiredPlan: "max",
+      vramBytes: null,
+      fit: null,
+    },
+    {
+      model: "qwen3.5:cloud",
+      requiredPlan: "free",
+      vramBytes: null,
+      fit: null,
+    },
+    { model: "glm-5.3:cloud", requiredPlan: null, vramBytes: null, fit: null },
+    { model: "gemma4", requiredPlan: "pro", vramBytes: null, fit: null },
   ];
 
   it("are recommended only once allowed", () => {

@@ -144,12 +144,14 @@
   "picker": {
     "button": "Choisir un modèle",
     "loading": "Chargement…",
+    "unavailable": "Indisponible",
     "none": "Choisir un modèle",
     "search": "Rechercher un modèle…",
     "searchLabel": "Rechercher un modèle",
     "list": "Modèles",
     "empty": "Aucun modèle trouvé",
     "notDownloaded": "Non téléchargé",
+    "memory": "Nécessite {size} de mémoire pour tourner",
     "cloud": "Modèle cloud : tourne sur ollama.com",
     "plans": {
       "pro": "Pro",

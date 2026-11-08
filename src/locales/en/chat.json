@@ -144,12 +144,14 @@
   "picker": {
     "button": "Select model",
     "loading": "Loading...",
+    "unavailable": "Unavailable",
     "none": "Select a model",
     "search": "Find model...",
     "searchLabel": "Find model",
     "list": "Models",
     "empty": "No models found",
     "notDownloaded": "Not downloaded",
+    "memory": "Needs {size} of memory to run",
     "cloud": "Cloud model: runs on ollama.com",
     "plans": {
       "pro": "Pro",
