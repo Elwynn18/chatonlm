@@ -1,15 +1,15 @@
 {
   "fr/": {
-    "hash": "041864b027751558",
-    "date": "2026-11-01"
+    "hash": "8c15accd5466b2c9",
+    "date": "2026-11-08"
   },
   "en/": {
-    "hash": "fd807118bce01c2e",
-    "date": "2026-11-01"
+    "hash": "f78d01d039175711",
+    "date": "2026-11-08"
   },
   "es/": {
-    "hash": "747637c139b2ed6a",
-    "date": "2026-11-01"
+    "hash": "fbf0e08779889c97",
+    "date": "2026-11-08"
   },
   "fr/contact/": {
     "hash": "a72baf7c9ae2646d",
@@ -36,15 +36,15 @@
     "date": "2026-11-01"
   },
   "fr/privacy/": {
-    "hash": "1b12a293a4b78bea",
+    "hash": "c4aaddc17430dcfb",
     "date": "2026-11-08"
   },
   "en/privacy/": {
-    "hash": "ae4d9c21430eccc0",
+    "hash": "326f805a31a5f30a",
     "date": "2026-11-08"
   },
   "es/privacy/": {
-    "hash": "b179e205b1799c45",
+    "hash": "39f5f1102e6d3dcd",
     "date": "2026-11-08"
   },
   "fr/donate/": {
@@ -96,28 +96,28 @@
     "date": "2026-11-01"
   },
   "fr/mode-vocal/": {
-    "hash": "6b4939e7e80527c7",
-    "date": "2026-11-01"
+    "hash": "37c47c02af69bfda",
+    "date": "2026-11-08"
   },
   "en/voice-mode/": {
-    "hash": "adeb604c91f5c20f",
-    "date": "2026-11-01"
+    "hash": "457008ed1d9f94c2",
+    "date": "2026-11-08"
   },
   "es/modo-de-voz/": {
-    "hash": "aa66977d9e83a193",
-    "date": "2026-11-01"
+    "hash": "35f74e0474fa4434",
+    "date": "2026-11-08"
   },
   "fr/correcteur-de-texte/": {
-    "hash": "a87b903f5705741e",
-    "date": "2026-11-01"
+    "hash": "e4e4bf05472fdb6a",
+    "date": "2026-11-08"
   },
   "en/proofreading/": {
-    "hash": "06f0ce41bf7d6c95",
-    "date": "2026-11-01"
+    "hash": "0902fed7bd55abb0",
+    "date": "2026-11-08"
   },
   "es/corrector-de-textos/": {
-    "hash": "fc923087ea945b39",
-    "date": "2026-11-01"
+    "hash": "9baffb19f61241e4",
+    "date": "2026-11-08"
   },
   "fr/apprendre-avec-une-ia/": {
     "hash": "fa27efad3b981dc3",
