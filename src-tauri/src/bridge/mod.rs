@@ -145,7 +145,7 @@ pub fn after_connect<P>(
             match create() {
                 Ok(fresh) => *next = fresh,
                 Err(again) => {
-                    eprintln!("ChatonLM: VS Code bridge pipe instance not replaced: {again}");
+                    crate::app_log!("ChatonLM: VS Code bridge pipe instance not replaced: {again}");
                 }
             }
             Err(error)
@@ -549,7 +549,7 @@ impl<H: Host> Shared<H> {
         let mut listener = match os::open(&dir).await {
             Ok(listener) => listener,
             Err(error) => {
-                eprintln!("ChatonLM: VS Code bridge not opened: {error}");
+                crate::app_log!("ChatonLM: VS Code bridge not opened: {error}");
                 *this.status.lock() = BridgeStatus::Failed;
                 return;
             }
@@ -564,7 +564,7 @@ impl<H: Host> Shared<H> {
             "startedAt": now_ms(),
         });
         if let Err(error) = write_private(&dir.join(DISCOVERY), &discovery) {
-            eprintln!("ChatonLM: VS Code bridge discovery file not written: {error}");
+            crate::app_log!("ChatonLM: VS Code bridge discovery file not written: {error}");
             listener.close();
             *this.status.lock() = BridgeStatus::Failed;
             return;
@@ -587,7 +587,7 @@ impl<H: Host> Shared<H> {
                     accepted = listener.accept() => match accepted {
                         Ok(stream) => Shared::serve(&shared, stream),
                         Err(error) => {
-                            eprintln!("ChatonLM: VS Code bridge accept failed: {error}");
+                            crate::app_log!("ChatonLM: VS Code bridge accept failed: {error}");
                             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                         }
                     },
@@ -922,7 +922,7 @@ impl<H: Host> Shared<H> {
                 .call(move |c| crate::store::chats::forget_editor(c, &id))
                 .await
             {
-                eprintln!("chatonlm: cannot erase an ephemeral editor chat: {error}");
+                crate::app_log!("chatonlm: cannot erase an ephemeral editor chat: {error}");
             }
         }
     }
@@ -1103,7 +1103,7 @@ pub fn setup(app: &AppHandle) {
     let config = match Config::for_app(app) {
         Ok(config) => config,
         Err(error) => {
-            eprintln!("ChatonLM: VS Code bridge unavailable: {error}");
+            crate::app_log!("ChatonLM: VS Code bridge unavailable: {error}");
             return;
         }
     };

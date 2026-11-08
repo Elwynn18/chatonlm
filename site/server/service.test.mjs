@@ -1,7 +1,7 @@
 // @vitest-environment node
 // Essais du service du site (service.mjs) : validation du formulaire, garde
 // contre l'injection d'en-têtes, plafonds d'envoi, dialogue SMTP contre un faux
-// serveur, routes HTTP (contact, version, téléchargements).
+// serveur, routes HTTP (contact, signalement de bug, version, téléchargements).
 import { createServer as createTcpServer } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -15,8 +15,11 @@ import {
   createService,
   encodeHeader,
   pickAssets,
+  reportHtml,
+  reportSubject,
   sendMail,
   validateContact,
+  validateReport,
 } from "./service.mjs";
 
 const closers = [];
@@ -872,5 +875,338 @@ describe("service HTTP", () => {
       published: true,
       version: "0.9.0",
     });
+  });
+});
+
+const REPORT = {
+  message: "La dictée s'arrête\r\naprès dix secondes.",
+  email: "elodie@example.org",
+  lang: "fr",
+  version: "0.9.4",
+  platform: "linux",
+  diagnostic: "ChatonLM 0.9.4\nOllama 0.40.13",
+};
+
+describe("validateReport", () => {
+  it("accepte un signalement et nettoie ses champs", () => {
+    expect(
+      validateReport({
+        ...REPORT,
+        email: "  elodie@example.org ",
+        diagnostic: "\nligne\t1\r\nligne\u0000 2\u001b[31m\rfin\u007f  \n",
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        message: "La dictée s'arrête\naprès dix secondes.",
+        email: "elodie@example.org",
+        lang: "fr",
+        version: "0.9.4",
+        platform: "linux",
+        diagnostic: "ligne\t1\nligne 2[31m\nfin",
+      },
+    });
+  });
+
+  it("rend l'adresse et le diagnostic facultatifs, l'anglais par défaut", () => {
+    for (const absent of [undefined, null, "", "  "]) {
+      const { value } = validateReport({
+        ...REPORT,
+        email: absent,
+        diagnostic: absent,
+        lang: "de",
+      });
+      expect([value.email, value.diagnostic, value.lang]).toEqual([
+        null,
+        null,
+        "en",
+      ]);
+    }
+  });
+
+  it("nomme le champ fautif", () => {
+    const cases = {
+      message: ["Court", "a".repeat(LIMITS.messageMax + 1), 42, undefined],
+      email: ["nope", "a@b.fr\r\nBcc: victime@example.org", 7, {}],
+      version: [
+        "0.9.4\r\nBcc: victime@example.org",
+        "0.9 4",
+        "",
+        "a".repeat(33),
+        "0.9.4é",
+        94,
+        undefined,
+      ],
+      platform: ["macos", "Linux", ["linux"], "__proto__", undefined],
+      diagnostic: ["a".repeat(LIMITS.diagnosticMax + 1), 3, ["x"]],
+    };
+    for (const [field, values] of Object.entries(cases)) {
+      for (const value of values) {
+        expect(
+          validateReport({ ...REPORT, [field]: value }),
+          `${field} = ${JSON.stringify(value)}`,
+        ).toEqual({ ok: false, error: field });
+      }
+    }
+    expect(validateReport({ ...REPORT, version: "1.0.0-beta.2+abc" }).ok).toBe(
+      true,
+    );
+    expect(
+      validateReport({
+        ...REPORT,
+        diagnostic: "a".repeat(LIMITS.diagnosticMax),
+      }).ok,
+    ).toBe(true);
+  });
+});
+
+describe("courriel d'un signalement", () => {
+  it("échappe tout ce que l'app a envoyé, diagnostic compris", () => {
+    const html = reportHtml({
+      message: "Ligne 1 <script>alert('x')</script>\nLigne 2 & fin",
+      email: "eve&co@example.org",
+      lang: "es",
+      version: "0.9.4",
+      platform: "windows",
+      diagnostic: "</pre><img src=x onerror=alert(1)>\n\"q\" & 'a'",
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("<img");
+    expect(html).toContain(
+      "Ligne 1 &lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;<br>Ligne 2 &amp; fin",
+    );
+    expect(html).toContain(
+      "&lt;/pre&gt;&lt;img src=x onerror=alert(1)&gt;\n&quot;q&quot; &amp; &#39;a&#39;</pre>",
+    );
+    expect(html).toContain("font-family:ui-monospace,Consolas,monospace;");
+    expect(html).toContain("white-space:pre-wrap;");
+    expect(html).toContain('href="mailto:eve&amp;co@example.org"');
+    expect(html).toContain(
+      "mailto:eve&amp;co@example.org?subject=Re%3A%20%5BChatonLM%5D%20Bug%200.9.4%20(Windows)",
+    );
+    expect(html).toContain(">Répondre</a>");
+    expect(html).toContain("ChatonLM 0.9.4 · Windows");
+    expect(html).toContain("app en espagnol");
+    expect(html).toContain("<title>Signalement de bug</title>");
+  });
+
+  it("sans adresse, ne propose pas de répondre ; sans diagnostic, n'en montre pas", () => {
+    const html = reportHtml({
+      ...validateReport(REPORT).value,
+      email: null,
+      diagnostic: null,
+    });
+    expect(html).not.toContain("mailto:");
+    expect(html).not.toContain("Répondre");
+    expect(html).not.toContain("<pre");
+    expect(html).toContain("Sans adresse de réponse");
+  });
+});
+
+describe("service HTTP, signalement de bug", () => {
+  const ORIGIN = "https://chatonlm.com";
+  async function start(deps = {}, env = { SMTP_PASS: "abcd efgh" }) {
+    const sent = [];
+    const journal = [];
+    const config = configFromEnv({ SMTP_USER: "contact@example.org", ...env });
+    const service = createService(config, {
+      send: async (mail) => void sent.push(mail),
+      release: createReleaseSource(config, async () => RELEASE),
+      log: (entry) => journal.push(entry),
+      ...deps,
+    });
+    const base = `http://127.0.0.1:${await listen(service)}`;
+    const raw = (body, headers = {}, path = "/api/report") =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body,
+      });
+    const post = (fields, headers) => raw(JSON.stringify(fields), headers);
+    const result = async (response) => [response.status, await response.json()];
+    return { base, raw, post, result, sent, journal };
+  }
+
+  it("relaie un signalement de l'app, sans en-tête Origin", async () => {
+    const { post, result, sent } = await start();
+    expect(await result(await post(REPORT))).toEqual([200, { ok: true }]);
+    const value = validateReport(REPORT).value;
+    expect(sent).toEqual([
+      {
+        from: '"ChatonLM (app)" <contact@example.org>',
+        to: "contact@example.org",
+        replyTo: "elodie@example.org",
+        subject: "[ChatonLM] Bug 0.9.4 (Linux)",
+        text: "De : elodie@example.org\nVersion : 0.9.4\nSystème : Linux\nLangue de l'app : fr\n\nLa dictée s'arrête\naprès dix secondes.\n\n--- Diagnostic ---\nChatonLM 0.9.4\nOllama 0.40.13\n",
+        html: reportHtml(value),
+      },
+    ]);
+    expect(reportSubject(value)).toBe(sent[0].subject);
+  });
+
+  it("sans adresse ni diagnostic : ni « Reply-To » ni section Diagnostic", async () => {
+    const { post, sent } = await start();
+    const fields = {
+      ...REPORT,
+      email: "",
+      diagnostic: undefined,
+      platform: "windows",
+    };
+    expect((await post(fields)).status).toBe(200);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).not.toHaveProperty("replyTo");
+    expect(sent[0].subject).toBe("[ChatonLM] Bug 0.9.4 (Windows)");
+    expect(sent[0].text).toBe(
+      "De : sans adresse de réponse\nVersion : 0.9.4\nSystème : Windows\nLangue de l'app : fr\n\nLa dictée s'arrête\naprès dix secondes.\n",
+    );
+    const head = buildMessage(sent[0]).split("\r\n\r\n")[0];
+    expect(head).not.toContain("Reply-To");
+    expect(head).toContain("Subject: [ChatonLM] Bug 0.9.4 (Windows)\r\n");
+  });
+
+  it("refuse un autre format, un corps trop long ou illisible, une autre méthode", async () => {
+    const { base, raw, post, result, sent } = await start();
+    for (const type of [
+      "text/plain",
+      "application/x-www-form-urlencoded",
+      "application/jsonp",
+    ]) {
+      expect(
+        await result(
+          await raw(JSON.stringify(REPORT), { "Content-Type": type }),
+        ),
+        type,
+      ).toEqual([415, { ok: false, error: "format" }]);
+    }
+    expect(
+      await result(
+        await post({ ...REPORT, diagnostic: "a".repeat(LIMITS.reportBody) }),
+      ),
+    ).toEqual([413, { ok: false, error: "format" }]);
+    for (const body of ["{", "[]", "null", '"texte"', "3"]) {
+      expect(await result(await raw(body)), body).toEqual([
+        400,
+        { ok: false, error: "format" },
+      ]);
+    }
+    const get = await fetch(`${base}/api/report`);
+    expect([get.status, get.headers.get("allow")]).toEqual([405, "POST"]);
+    expect(sent).toEqual([]);
+    // Le plus long signalement permis dépasse le plafond du contact (16 Kio),
+    // pas celui des signalements.
+    const longest = {
+      ...REPORT,
+      message: "é".repeat(LIMITS.messageMax),
+      diagnostic: "a".repeat(LIMITS.diagnosticMax),
+    };
+    expect(JSON.stringify(longest).length).toBeGreaterThan(LIMITS.body);
+    expect((await post(longest)).status).toBe(200);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("nomme le champ invalide", async () => {
+    const { post, result, sent } = await start();
+    for (const [field, value] of [
+      ["message", "Court"],
+      ["email", "nope"],
+      ["version", "0.9.4\r\nBcc: victime@example.org"],
+      ["platform", "macos"],
+      ["diagnostic", 12],
+    ]) {
+      expect(await result(await post({ ...REPORT, [field]: value }))).toEqual([
+        422,
+        { ok: false, error: field },
+      ]);
+    }
+    expect(sent).toEqual([]);
+  });
+
+  it("refuse une page d'un autre site, accepte une page du site", async () => {
+    const { post, result, sent } = await start();
+    for (const origin of ["https://exemple.invalid", "null", ""]) {
+      expect(
+        await result(await post(REPORT, { Origin: origin })),
+        origin,
+      ).toEqual([403, { ok: false, error: "origin" }]);
+    }
+    expect(sent).toEqual([]);
+    expect((await post(REPORT, { Origin: ORIGIN })).status).toBe(200);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("sans mot de passe d'envoi, répond qu'il ne peut pas envoyer", async () => {
+    const { post, result, journal } = await start({ send: undefined }, {});
+    expect(await result(await post(REPORT))).toEqual([
+      503,
+      { ok: false, error: "send" },
+    ]);
+    expect(journal).toEqual([{ ev: "report", result: "send" }]);
+  });
+
+  it("plafonne les signalements d'une adresse, à part du formulaire de contact", async () => {
+    const { post, raw, sent } = await start();
+    const ip = { "X-Real-IP": "203.0.113.7" };
+    const statuses = [];
+    for (let i = 0; i <= LIMITS.report.perIp; i += 1)
+      statuses.push((await post(REPORT, ip)).status);
+    expect(statuses).toEqual([...Array(LIMITS.report.perIp).fill(200), 429]);
+    expect((await post(REPORT, { "X-Real-IP": "203.0.113.8" })).status).toBe(
+      200,
+    );
+    // Le formulaire du site reste ouvert à cette adresse…
+    const contact = (headers) =>
+      raw(
+        JSON.stringify(VALID),
+        { Origin: ORIGIN, ...headers },
+        "/api/contact",
+      );
+    for (let i = 0; i < LIMITS.perIp; i += 1)
+      expect((await contact(ip)).status).toBe(200);
+    expect((await contact(ip)).status).toBe(429);
+    // … et ses plafonds ne touchent pas les signalements d'une autre adresse.
+    const other = { "X-Real-IP": "203.0.113.9" };
+    for (let i = 0; i < LIMITS.perIp; i += 1)
+      expect((await contact(other)).status).toBe(200);
+    expect((await post(REPORT, other)).status).toBe(200);
+    expect(sent).toHaveLength(LIMITS.report.perIp + 2 + 2 * LIMITS.perIp);
+  });
+
+  it("ne compte pas un signalement dont l'envoi a échoué", async () => {
+    let down = true;
+    const delivered = [];
+    const { post, result } = await start({
+      send: async (mail) => {
+        if (down) throw new Error("SMTP : panne");
+        delivered.push(mail);
+      },
+    });
+    for (let i = 0; i < LIMITS.report.perIp + 2; i += 1)
+      expect(await result(await post(REPORT))).toEqual([
+        502,
+        { ok: false, error: "send" },
+      ]);
+    down = false;
+    expect((await post(REPORT)).status).toBe(200);
+    expect(delivered).toHaveLength(1);
+  });
+
+  it("ne journalise rien du contenu", async () => {
+    const { post, journal } = await start();
+    const secret = {
+      ...REPORT,
+      message: "Secret-message-123 qui ne doit pas sortir",
+      email: "secret-adresse@example.org",
+      version: "9.8.7-secret",
+      diagnostic: "Secret-diagnostic-456",
+    };
+    await post(secret);
+    await post({ ...secret, platform: "macos" });
+    await post(secret, { Origin: "https://exemple.invalid" });
+    expect(journal).toEqual([
+      { ev: "report", result: "sent" },
+      { ev: "report", result: "platform" },
+      { ev: "report", result: "origin" },
+    ]);
+    expect(JSON.stringify(journal)).not.toMatch(/secret|Secret/);
   });
 });

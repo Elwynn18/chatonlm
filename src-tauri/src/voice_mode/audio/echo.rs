@@ -442,7 +442,7 @@ pub(super) mod tests {
             let capture = echo_of(&render, delay, 0.5);
             let out = cancel(&render, &capture, true);
             let erle = erle(&capture, &out, 2.0);
-            eprintln!("echo delay {delay} ms: ERLE {erle:.1} dB after 2 s");
+            crate::app_log!("echo delay {delay} ms: ERLE {erle:.1} dB after 2 s");
             assert!(erle >= 15.0, "{delay} ms: ERLE {erle:.1} dB");
         }
     }
@@ -479,7 +479,7 @@ pub(super) mod tests {
             .collect();
         let out = cancel(&render, &capture, true);
         let kept = db(power(&out[from..to]) / power(&near[from..to]));
-        eprintln!("double talk: near speech kept at {kept:.1} dB");
+        crate::app_log!("double talk: near speech kept at {kept:.1} dB");
         assert!(kept >= -6.0, "near speech at {kept:.1} dB");
         let dot = |a: &[f32], b: &[f32]| -> f64 {
             a.iter()
@@ -500,7 +500,7 @@ pub(super) mod tests {
                 .fold(f64::MIN, f64::max)
         };
         let (with_near, with_echo) = (best(&near), best(&echo));
-        eprintln!(
+        crate::app_log!(
             "double talk: correlation {with_near:.2} with the near speech, {with_echo:.2} with the echo"
         );
         assert!(with_near > 0.5, "{with_near:.2}");

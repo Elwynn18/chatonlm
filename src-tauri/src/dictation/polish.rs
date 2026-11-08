@@ -631,7 +631,7 @@ mod tests {
             .await
             {
                 Ok(text) => {
-                    eprintln!("polished: {text}");
+                    crate::app_log!("polished: {text}");
                     assert!(accept(transcript, &text));
                 }
                 Err(error) => assert_eq!(error, skipped()),

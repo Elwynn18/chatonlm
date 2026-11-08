@@ -143,6 +143,39 @@
     },
     "loadError": "Couldn't read the update status: {message}"
   },
+  "bugReport": {
+    "title": "Report a bug",
+    "description": "Something isn't working? Describe it here. Your message is sent to the ChatonLM team by email, through chatonlm.com. Nothing is sent until you click Send.",
+    "message": {
+      "label": "What happened?",
+      "placeholder": "What you did, what you expected, and what happened instead.",
+      "hint": "At least {min} characters."
+    },
+    "email": {
+      "label": "Your email (optional)",
+      "hint": "Only used to reply to you."
+    },
+    "diagnostic": {
+      "label": "Attach diagnostic information",
+      "show": "Show",
+      "hide": "Hide",
+      "loading": "Reading the diagnostic…",
+      "hint": "Versions, system, the Ollama in use and the end of ChatonLM's log. Never the content of your conversations; your home folder and user name are hidden.",
+      "error": "Couldn't read the diagnostic: {error}"
+    },
+    "openLogs": "Open logs folder",
+    "send": "Send",
+    "sending": "Sending…",
+    "sent": "Thank you! Your report has been sent.",
+    "error": {
+      "tooMany": "Too many reports were sent recently. Try again in an hour.",
+      "invalidEmail": "This email address doesn't look valid.",
+      "invalidMessage": "Write between {min} and {max} characters.",
+      "unavailable": "The report couldn't be sent. Check your connection and try again, or write to {email}.",
+      "unknown": "The report couldn't be sent ({error}). Try again, or write to {email}."
+    },
+    "logsError": "Couldn't open the logs folder: {error}"
+  },
   "donate": {
     "title": "Support ChatonLM",
     "description": "Donations keep ChatonLM growing. In particular, they will pay for servers of its own, so that web search no longer depends on Ollama.",

@@ -168,7 +168,7 @@ fn remove_others(dir: &Path, keep: &[&str]) {
             std::fs::remove_file(&path)
         };
         if let Err(error) = removed {
-            eprintln!("chatonlm: cannot remove {}: {error}", path.display());
+            crate::app_log!("chatonlm: cannot remove {}: {error}", path.display());
         }
     }
 }
@@ -182,7 +182,7 @@ pub(crate) fn save_failure(dir: &Path, failure: &Failure) {
             write_atomically(&dir.join(FAILURE), &bytes)
         });
     if let Err(error) = written {
-        eprintln!("chatonlm: cannot record the failed update: {error}");
+        crate::app_log!("chatonlm: cannot record the failed update: {error}");
     }
 }
 

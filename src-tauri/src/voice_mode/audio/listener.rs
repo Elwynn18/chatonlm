@@ -554,7 +554,7 @@ impl SystemMicrophone {
                 }
             },
             move |error: cpal::Error| {
-                eprintln!("chatonlm: voice mode microphone error: {error}");
+                crate::app_log!("chatonlm: voice mode microphone error: {error}");
                 if matches!(
                     error.kind(),
                     cpal::ErrorKind::DeviceNotAvailable
@@ -585,7 +585,7 @@ impl SystemMicrophone {
         self.feed.read(out);
         self.failure.lock().take();
         let (stream, rate) = Self::start(&self.feed.ring, &self.failure, &self.waker)?;
-        eprintln!("chatonlm: voice mode microphone reopened at {rate} Hz");
+        crate::app_log!("chatonlm: voice mode microphone reopened at {rate} Hz");
         self.stream = Some(stream);
         self.reopened = Some(Instant::now());
         Ok(())
@@ -604,7 +604,7 @@ impl Microphone for SystemMicrophone {
                 return Err(microphone_lost(&failure.message));
             }
             if let Err(error) = self.reopen(out) {
-                eprintln!("chatonlm: voice mode microphone not reopened: {error}");
+                crate::app_log!("chatonlm: voice mode microphone not reopened: {error}");
                 return Err(microphone_lost(&failure.message));
             }
         }

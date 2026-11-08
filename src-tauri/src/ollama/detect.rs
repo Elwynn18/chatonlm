@@ -421,7 +421,7 @@ fn injected_facts() -> Option<HostFacts> {
     let value = std::env::var("CHATONLM_E2E_HOST_FACTS").ok()?;
     let facts = parse_facts(&value);
     if facts.is_none() {
-        eprintln!("chatonlm: CHATONLM_E2E_HOST_FACTS invalide, ignoré : {value}");
+        crate::app_log!("chatonlm: CHATONLM_E2E_HOST_FACTS invalide, ignoré : {value}");
     }
     facts
 }

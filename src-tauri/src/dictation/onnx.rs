@@ -172,8 +172,10 @@ pub fn ensure() -> Result<(), RuntimeProblem> {
                 })
             });
             match &loaded {
-                Ok(()) => eprintln!("chatonlm: ONNX Runtime loaded"),
-                Err(problem) => eprintln!("chatonlm: ONNX Runtime unavailable: {}", problem.detail),
+                Ok(()) => crate::app_log!("chatonlm: ONNX Runtime loaded"),
+                Err(problem) => {
+                    crate::app_log!("chatonlm: ONNX Runtime unavailable: {}", problem.detail)
+                }
             }
             loaded
         })

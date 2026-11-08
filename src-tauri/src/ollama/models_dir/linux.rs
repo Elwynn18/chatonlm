@@ -623,7 +623,7 @@ pub(super) fn injected_detection() -> Option<Detection> {
     let value = std::env::var("CHATONLM_E2E_MODELS_FACTS").ok()?;
     let detection = parse_injected(&value, find_pkexec().is_some());
     if detection.is_none() {
-        eprintln!("chatonlm: CHATONLM_E2E_MODELS_FACTS invalide, ignoré : {value}");
+        crate::app_log!("chatonlm: CHATONLM_E2E_MODELS_FACTS invalide, ignoré : {value}");
     }
     detection
 }

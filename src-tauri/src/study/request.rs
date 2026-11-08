@@ -268,7 +268,7 @@ impl<'a> Gen<'a> {
             .filter(|value| !super::checks::runaway(value, &schema.value()));
         if parsed.is_none() {
             // i18n-ignore : journal.
-            eprintln!(
+            crate::app_log!(
                 "chatonlm: study: unreadable answer from {} (done_reason {}, {} characters)",
                 self.model,
                 answer["done_reason"],
@@ -304,7 +304,7 @@ impl<'a> Gen<'a> {
                 stop,
             }) => {
                 // i18n-ignore : journal.
-                eprintln!("chatonlm: study: {stop:?}, trying again once");
+                crate::app_log!("chatonlm: study: {stop:?}, trying again once");
                 tokio::select! {
                     biased;
                     () = self.cancel.cancelled() => return Err(Stop::Cancelled),

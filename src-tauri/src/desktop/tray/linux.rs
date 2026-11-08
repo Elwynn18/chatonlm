@@ -40,7 +40,7 @@ static PIXMAPS: LazyLock<Pixmaps> = LazyLock::new(|| {
                     badge,
                 )),
                 Err(error) => {
-                    eprintln!("chatonlm: cannot decode the tray icon: {error}");
+                    crate::app_log!("chatonlm: cannot decode the tray icon: {error}");
                     None
                 }
             })
@@ -169,7 +169,7 @@ impl ksni::Tray for LibreTray {
 
     fn watcher_offline(&self, reason: OfflineReason) -> bool {
         if let OfflineReason::Error(error) = reason {
-            eprintln!("chatonlm: system tray unavailable: {error}");
+            crate::app_log!("chatonlm: system tray unavailable: {error}");
         }
         self.set_online(false);
         // Le service continue : l'icône revient avec la zone de notification.
@@ -207,7 +207,7 @@ pub(in crate::desktop) fn spawn(app: &AppHandle) {
         let handle = match tray.assume_sni_available(true).spawn().await {
             Ok(handle) => handle,
             Err(error) => {
-                eprintln!("chatonlm: cannot start the system tray icon: {error}");
+                crate::app_log!("chatonlm: cannot start the system tray icon: {error}");
                 return;
             }
         };

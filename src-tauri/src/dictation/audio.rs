@@ -241,7 +241,7 @@ fn open_stream(buffer: Arc<Mutex<Vec<f32>>>) -> Result<(cpal::Stream, u32), Stri
                 }
             }
         },
-        |error| eprintln!("chatonlm: microphone error: {error}"),
+        |error| crate::app_log!("chatonlm: microphone error: {error}"),
     )
 }
 

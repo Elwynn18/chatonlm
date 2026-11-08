@@ -401,7 +401,7 @@ async fn deliver(
                         current = None;
                         if !warned {
                             warned = true;
-                            eprintln!("chatonlm: notification not shown: {error}");
+                            crate::app_log!("chatonlm: notification not shown: {error}");
                         }
                     }
                 }

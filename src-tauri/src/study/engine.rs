@@ -508,7 +508,7 @@ impl StudyEngine {
         let (rows, cut) = sources::documents(files);
         if cut {
             // i18n-ignore : journal.
-            eprintln!(
+            crate::app_log!(
                 "chatonlm: study: documents cut to {} characters",
                 sources::DOCUMENTS_CHARS
             );
@@ -1215,7 +1215,7 @@ async fn work(shared: Arc<Shared>, ctx: Ctx) {
             }
             Ok(_) => {}
             // i18n-ignore : journal.
-            Err(error) => eprintln!(
+            Err(error) => crate::app_log!(
                 "chatonlm: study: generation of {:?} failed: {error}",
                 job.part
             ),

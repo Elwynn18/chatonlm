@@ -316,7 +316,7 @@ impl Families {
             {
                 Ok(families) => return families,
                 // i18n-ignore : journal.
-                Err(error) => eprintln!("chatonlm: {FAMILIES_ENV} ignored: {error}"),
+                Err(error) => crate::app_log!("chatonlm: {FAMILIES_ENV} ignored: {error}"),
             }
         }
         Self::embedded()

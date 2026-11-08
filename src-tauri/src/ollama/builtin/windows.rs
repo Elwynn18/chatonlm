@@ -157,7 +157,7 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
     match job_for(&child) {
         Ok(job) => JOBS.lock().push((child.id(), Arc::new(job))),
         // i18n-ignore : journal.
-        Err(error) => eprintln!("chatonlm: no job object for the built-in Ollama: {error}"),
+        Err(error) => crate::app_log!("chatonlm: no job object for the built-in Ollama: {error}"),
     }
     Ok(child)
 }
@@ -216,7 +216,7 @@ pub(crate) fn watch_exit(mut child: Child) -> oneshot::Receiver<Option<ExitStatu
         });
     if let Err(error) = watcher {
         // i18n-ignore : journal.
-        eprintln!("chatonlm: cannot watch the built-in Ollama: {error}");
+        crate::app_log!("chatonlm: cannot watch the built-in Ollama: {error}");
     }
     receiver
 }
@@ -264,7 +264,7 @@ pub(crate) async fn terminate(
         return true;
     }
     // i18n-ignore : journal.
-    eprintln!(
+    crate::app_log!(
         "chatonlm: the built-in Ollama (pid {pid}) didn't exit after being terminated; leaving it"
     );
     false
@@ -319,7 +319,7 @@ pub(super) fn cleanup_leftovers(config: &Config) {
         return;
     }
     // i18n-ignore : journal.
-    eprintln!("chatonlm: stopping a built-in Ollama left over by a previous session: {pid}");
+    crate::app_log!("chatonlm: stopping a built-in Ollama left over by a previous session: {pid}");
     // SAFETY : descripteur ouvert ci-dessus.
     unsafe {
         let _ = TerminateProcess(process.0, STOPPED);

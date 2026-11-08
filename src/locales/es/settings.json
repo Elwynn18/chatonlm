@@ -143,6 +143,39 @@
     },
     "loadError": "No se pudo leer el estado de las actualizaciones: {message}"
   },
+  "bugReport": {
+    "title": "Informar de un error",
+    "description": "¿Algo no funciona? Descríbelo aquí. Tu mensaje se envía por correo al equipo de ChatonLM a través de chatonlm.com. No se envía nada hasta que hagas clic en Enviar.",
+    "message": {
+      "label": "¿Qué ha pasado?",
+      "placeholder": "Qué hiciste, qué esperabas y qué ocurrió en su lugar.",
+      "hint": "Al menos {min} caracteres."
+    },
+    "email": {
+      "label": "Tu correo electrónico (opcional)",
+      "hint": "Solo para responderte."
+    },
+    "diagnostic": {
+      "label": "Adjuntar información de diagnóstico",
+      "show": "Mostrar",
+      "hide": "Ocultar",
+      "loading": "Leyendo el diagnóstico…",
+      "hint": "Versiones, sistema, el Ollama en uso y el final del registro de ChatonLM. Nunca el contenido de tus conversaciones; tu carpeta personal y tu nombre de usuario se ocultan.",
+      "error": "No se pudo leer el diagnóstico: {error}"
+    },
+    "openLogs": "Abrir la carpeta de registros",
+    "send": "Enviar",
+    "sending": "Enviando…",
+    "sent": "¡Gracias! Tu informe se ha enviado.",
+    "error": {
+      "tooMany": "Se han enviado demasiados informes recientemente. Vuelve a intentarlo dentro de una hora.",
+      "invalidEmail": "Esta dirección de correo no parece válida.",
+      "invalidMessage": "Escribe entre {min} y {max} caracteres.",
+      "unavailable": "No se pudo enviar el informe. Comprueba tu conexión y vuelve a intentarlo, o escribe a {email}.",
+      "unknown": "No se pudo enviar el informe ({error}). Vuelve a intentarlo, o escribe a {email}."
+    },
+    "logsError": "No se pudo abrir la carpeta de registros: {error}"
+  },
   "donate": {
     "title": "Apoyar ChatonLM",
     "description": "Las donaciones permiten que ChatonLM siga creciendo. En particular, pagarán servidores propios, para que la búsqueda web ya no dependa de Ollama.",

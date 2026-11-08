@@ -29,7 +29,7 @@ pub async fn update_dictation_settings(
         .await?;
     // Réglages enregistrés : un échec du raccourci se lit dans le statut.
     if let Err(error) = crate::desktop::apply(&app, &settings).await {
-        eprintln!("chatonlm: dictation shortcut not applied: {error}");
+        crate::app_log!("chatonlm: dictation shortcut not applied: {error}");
     }
     dictation.settings_changed(&settings);
     dictation.emit_status(&app);

@@ -219,10 +219,11 @@ describe("Model location", () => {
       "Moving models… 1.5 GB of 4.5 GB",
     );
     expect(bar.closest("[aria-live]")).toBe(null);
+    // Les zones vides des autres cartes (Report a bug) n'annoncent rien.
     expect(
-      [...document.querySelectorAll("[aria-live]")].map(
-        (live) => live.textContent,
-      ),
+      [...document.querySelectorAll("[aria-live]")]
+        .map((live) => live.textContent)
+        .filter((text) => text !== ""),
     ).toEqual(["Moving models…"]);
     await channel.send({ type: "progress", done: 4.5 * GIB });
     await channel.send({ type: "step", step: "config" });

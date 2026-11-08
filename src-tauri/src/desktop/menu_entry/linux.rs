@@ -148,7 +148,7 @@ fn mark_theme_changed(icon: &Path) {
     let marked =
         fs::File::open(theme).and_then(|theme| theme.set_modified(std::time::SystemTime::now()));
     if let Err(error) = marked {
-        eprintln!(
+        crate::app_log!(
             "chatonlm: icon theme {} not marked as changed: {error}",
             theme.display()
         );
@@ -174,7 +174,7 @@ fn announce_icon_change() {
         )
     });
     if let Err(error) = sent {
-        eprintln!("chatonlm: icon change not announced to the desktop: {error}");
+        crate::app_log!("chatonlm: icon change not announced to the desktop: {error}");
     }
 }
 
@@ -373,18 +373,18 @@ pub async fn at_startup(app: &AppHandle, enabled: bool) {
     let path = target.paths.desktop.clone();
     match tauri::async_runtime::spawn_blocking(move || target.apply(true)).await {
         Ok(Ok(Outcome::Written)) => {
-            eprintln!(
+            crate::app_log!(
                 "chatonlm: applications menu entry written: {}",
                 path.display()
             );
         }
-        Ok(Ok(Outcome::Foreign)) => eprintln!(
+        Ok(Ok(Outcome::Foreign)) => crate::app_log!(
             "chatonlm: {} was not written by ChatonLM, left as is",
             path.display()
         ),
         Ok(Ok(_)) => {}
-        Ok(Err(error)) => eprintln!("chatonlm: applications menu entry not written: {error}"),
-        Err(error) => eprintln!("chatonlm: applications menu entry not written: {error}"),
+        Ok(Err(error)) => crate::app_log!("chatonlm: applications menu entry not written: {error}"),
+        Err(error) => crate::app_log!("chatonlm: applications menu entry not written: {error}"),
     }
 }
 

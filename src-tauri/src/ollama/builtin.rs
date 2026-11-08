@@ -462,7 +462,7 @@ impl Builtin {
         let limit = timing.stop_grace + timing.kill_wait + Duration::from_secs(1);
         if tokio::time::timeout(limit, self.stop()).await.is_err() {
             // i18n-ignore : journal.
-            eprintln!("chatonlm: the built-in Ollama didn't stop in time; leaving it");
+            crate::app_log!("chatonlm: the built-in Ollama didn't stop in time; leaving it");
         }
     }
 

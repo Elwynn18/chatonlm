@@ -5,6 +5,7 @@ import { type Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AccountStatus } from "@/bindings/AccountStatus";
 import type { AppError } from "@/bindings/AppError";
+import type { BugReport } from "@/bindings/BugReport";
 import type { Chat } from "@/bindings/Chat";
 import type { ChatEvent } from "@/bindings/ChatEvent";
 import type { ChatInfo } from "@/bindings/ChatInfo";
@@ -86,6 +87,7 @@ import type { BridgeState } from "@/bindings/BridgeState";
 import type { OfferPull } from "@/bindings/OfferPull";
 import type { EasyLinkPlatform } from "@/bindings/EasyLinkPlatform";
 import type { EasyLinkState } from "@/bindings/EasyLinkState";
+import type { ReportOutcome } from "@/bindings/ReportOutcome";
 
 /** Problème rencontré à l'ouverture de la base au démarrage, ou null. */
 export function databaseProblem(): Promise<DatabaseProblem | null> {
@@ -233,6 +235,24 @@ export function openBuiltinFolder(): Promise<void> {
 /** Ouvre le journal de l'Ollama intégré (son dossier s'il n'existe pas encore). */
 export function openBuiltinLog(): Promise<void> {
   return invoke<void>("open_builtin_log");
+}
+
+/**
+ * Diagnostic qui serait joint à un signalement de bug (versions, système,
+ * Ollama utilisé, fin du journal de l'app ; dossier personnel masqué).
+ */
+export function bugReportDiagnostic(): Promise<string> {
+  return invoke<string>("bug_report_diagnostic");
+}
+
+/** Envoie un signalement de bug par le service de chatonlm.com. */
+export function sendBugReport(report: BugReport): Promise<ReportOutcome> {
+  return invoke<ReportOutcome>("send_bug_report", { report });
+}
+
+/** Ouvre le dossier des journaux (app et Ollama intégré). */
+export function openAppLogs(): Promise<void> {
+  return invoke<void>("open_app_logs");
 }
 
 /**

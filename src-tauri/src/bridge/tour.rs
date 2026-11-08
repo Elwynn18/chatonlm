@@ -376,7 +376,7 @@ pub async fn plan(
             return Ok(planned);
         }
         // i18n-ignore : journal.
-        eprintln!(
+        crate::app_log!(
             "chatonlm: tour plan from {model} unusable ({} characters)",
             content.chars().count()
         );

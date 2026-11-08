@@ -57,7 +57,7 @@ fn icon(phase: DictationPhase) -> Option<Image<'static>> {
     let image = match Image::from_bytes(ICON_PNGS[0]) {
         Ok(image) => image,
         Err(error) => {
-            eprintln!("chatonlm: cannot decode the tray icon: {error}");
+            crate::app_log!("chatonlm: cannot decode the tray icon: {error}");
             return None;
         }
     };
@@ -149,7 +149,7 @@ fn show(app: &AppHandle, next: Shown) {
         tray.set_menu(Some(menu(app, &next)?))
     })();
     if let Err(error) = applied {
-        eprintln!("chatonlm: cannot update the system tray icon: {error}");
+        crate::app_log!("chatonlm: cannot update the system tray icon: {error}");
     }
     *shown = Some(next);
 }
@@ -177,7 +177,7 @@ pub(in crate::desktop) fn spawn(app: &AppHandle) {
         Ok(tray) => tray,
         Err(error) => {
             // Sans icône, la fermeture de la fenêtre quitte l'app.
-            eprintln!("chatonlm: cannot start the system tray icon: {error}");
+            crate::app_log!("chatonlm: cannot start the system tray icon: {error}");
             return;
         }
     };

@@ -522,7 +522,7 @@ fn terminate_web_process<R: Runtime>(window: &tauri::WebviewWindow<R>) {
         webview.inner().terminate_web_process();
     });
     if let Err(error) = result {
-        eprintln!("chatonlm: cannot stop the web process: {error}");
+        crate::app_log!("chatonlm: cannot stop the web process: {error}");
     }
 }
 
@@ -619,7 +619,7 @@ pub fn on_close_requested<R: Runtime>(window: &Window<R>, api: &CloseRequestApi)
         {
             Ok(true) => notify_tray_hint(&identifier, icon.as_deref()).await,
             Ok(false) => {}
-            Err(error) => eprintln!("chatonlm: cannot read the tray hint flag: {error}"),
+            Err(error) => crate::app_log!("chatonlm: cannot read the tray hint flag: {error}"),
         }
     });
 }
@@ -637,7 +637,7 @@ async fn notify_tray_hint(identifier: &str, icon: Option<&str>) {
         .icon(icon.unwrap_or(identifier))
         .hint(notify_rust::Hint::DesktopEntry(identifier.to_owned()));
     if let Err(error) = notification.show_async().await {
-        eprintln!("chatonlm: cannot show the tray notification: {error}");
+        crate::app_log!("chatonlm: cannot show the tray notification: {error}");
     }
 }
 
@@ -656,8 +656,8 @@ async fn notify_tray_hint(identifier: &str, _icon: Option<&str>) {
     .await;
     match shown {
         Ok(Ok(())) => {}
-        Ok(Err(error)) => eprintln!("chatonlm: cannot show the tray notification: {error}"),
-        Err(error) => eprintln!("chatonlm: cannot show the tray notification: {error}"),
+        Ok(Err(error)) => crate::app_log!("chatonlm: cannot show the tray notification: {error}"),
+        Err(error) => crate::app_log!("chatonlm: cannot show the tray notification: {error}"),
     }
 }
 
@@ -723,7 +723,9 @@ pub fn setup(app: &AppHandle) {
                     let hold = dictation.mode == crate::store::dictation::DictationMode::Hold;
                     shortcut::init(&app, wanted, hold);
                 }
-                Err(error) => eprintln!("chatonlm: cannot read the shortcut settings: {error}"),
+                Err(error) => {
+                    crate::app_log!("chatonlm: cannot read the shortcut settings: {error}")
+                }
             }
         });
     }

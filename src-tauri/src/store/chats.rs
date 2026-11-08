@@ -675,7 +675,7 @@ pub fn forget_all(connection: &Connection) -> AppResult<usize> {
 /// à la fermeture de la base.
 fn truncate_journal(connection: &Connection) {
     if let Err(error) = connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())) {
-        eprintln!("chatonlm: cannot truncate the journal: {error}");
+        crate::app_log!("chatonlm: cannot truncate the journal: {error}");
     }
 }
 

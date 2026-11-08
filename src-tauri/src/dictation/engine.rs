@@ -219,7 +219,7 @@ impl Engine {
         tauri::async_runtime::spawn_blocking(move || {
             let mut slot = shared.slot.lock();
             if let Err(error) = shared.ensure(&mut slot, &spec) {
-                eprintln!("chatonlm: speech model {}: {error}", spec.id);
+                crate::app_log!("chatonlm: speech model {}: {error}", spec.id);
             }
         });
     }
@@ -984,7 +984,7 @@ mod tests {
         #[ignore = "needs the speech models and samples of .tools"]
         fn contract_whisper_tiny_transcribes_english_and_french() {
             let (english, french) = run(&whisper_tiny(), Some("fr"));
-            eprintln!("whisper tiny: {english} | {french}");
+            crate::app_log!("whisper tiny: {english} | {french}");
             assert!(recall(&english, JFK) > 0.9, "{english}");
             assert!(recall(&french, &reference("fr0.txt")) > 0.5, "{french}");
         }
@@ -993,7 +993,7 @@ mod tests {
         #[ignore = "needs the speech models and samples of .tools"]
         fn contract_parakeet_transcribes_english_and_french() {
             let (english, french) = run(&parakeet(), None);
-            eprintln!("parakeet: {english} | {french}");
+            crate::app_log!("parakeet: {english} | {french}");
             assert!(recall(&english, JFK) > 0.9, "{english}");
             assert!(recall(&french, &reference("fr0.txt")) > 0.8, "{french}");
             // Ponctuée, avec majuscules.
@@ -1022,7 +1022,7 @@ mod tests {
             let text = engine
                 .transcribe(&parakeet(), &long, &Request::default(), &GO)
                 .unwrap();
-            eprintln!(
+            crate::app_log!(
                 "parakeet, {} s in {:?}: {} words",
                 long.len() / 16_000,
                 started.elapsed(),

@@ -758,10 +758,10 @@ async fn bind_and_listen(
         match app.config().identifier.parse::<ashpd::AppID>() {
             Ok(app_id) => {
                 if let Err(error) = ashpd::register_host_app(app_id).await {
-                    eprintln!("chatonlm: portal registration failed: {error}");
+                    crate::app_log!("chatonlm: portal registration failed: {error}");
                 }
             }
-            Err(error) => eprintln!("chatonlm: invalid application id: {error}"),
+            Err(error) => crate::app_log!("chatonlm: invalid application id: {error}"),
         }
     }
 
@@ -834,7 +834,7 @@ async fn bind_and_listen(
             .configure_shortcuts(&bound.session, None, ConfigureShortcutsOptions::default())
             .await;
         if let Err(error) = configured {
-            eprintln!("chatonlm: cannot open the shortcut settings: {error}");
+            crate::app_log!("chatonlm: cannot open the shortcut settings: {error}");
         }
     }
 

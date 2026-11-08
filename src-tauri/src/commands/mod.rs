@@ -15,6 +15,7 @@ pub mod models;
 pub mod models_dir;
 pub mod platform;
 pub mod proofread;
+pub mod report;
 pub mod server;
 pub mod settings;
 pub mod study;

@@ -101,7 +101,7 @@ impl Bus for DbusBus {
                 });
             });
         if let Err(error) = spawned {
-            eprintln!("chatonlm: notification action not watched: {error}");
+            crate::app_log!("chatonlm: notification action not watched: {error}");
         }
     }
 }

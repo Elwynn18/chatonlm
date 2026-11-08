@@ -131,7 +131,7 @@ impl Backend {
                 super::engine::Synthesizer::load(&voice.dir, language)
                     .map(|synth| Box::new(synth) as Box<dyn Synth>)
                     .map_err(|error| {
-                        eprintln!("chatonlm: cannot load the voice {}: {error}", voice.id);
+                        crate::app_log!("chatonlm: cannot load the voice {}: {error}", voice.id);
                         ReadAloudError::EngineFailed
                     })
             }),
@@ -139,7 +139,7 @@ impl Backend {
                 super::playback::Player::open()
                     .map(|player| Arc::new(player) as Arc<dyn Output>)
                     .map_err(|error| {
-                        eprintln!("chatonlm: cannot open the audio output: {error}");
+                        crate::app_log!("chatonlm: cannot open the audio output: {error}");
                         ReadAloudError::NoOutputDevice
                     })
             }),
@@ -1051,7 +1051,7 @@ impl Inner {
             .spawn(move || worker.run());
         if let Err(error) = spawned {
             self.workers.fetch_sub(1, Ordering::AcqRel);
-            eprintln!("chatonlm: cannot start reading aloud: {error}");
+            crate::app_log!("chatonlm: cannot start reading aloud: {error}");
             shared.session = None;
             shared.state = ReadAloudState {
                 source: Some(source),
@@ -1390,7 +1390,7 @@ impl Worker {
                 None => self.speak(),
             }))
             .unwrap_or_else(|_| {
-                eprintln!("chatonlm: reading aloud failed (panic)");
+                crate::app_log!("chatonlm: reading aloud failed (panic)");
                 let mut slot = inner.engine.lock();
                 if slot.busy {
                     slot.busy = false;
@@ -1639,7 +1639,7 @@ impl Worker {
                     }
                 });
                 if let Err(error) = spoken {
-                    eprintln!("chatonlm: reading aloud failed: {error}");
+                    crate::app_log!("chatonlm: reading aloud failed: {error}");
                     result = Err(ReadingEnd::Failed(ReadAloudError::EngineFailed));
                     break;
                 }
@@ -1712,7 +1712,7 @@ impl Worker {
                     }
                 })
                 .map_err(|error| {
-                    eprintln!("chatonlm: reading aloud failed: {error}");
+                    crate::app_log!("chatonlm: reading aloud failed: {error}");
                     ReadingEnd::Failed(ReadAloudError::EngineFailed)
                 })?;
         }

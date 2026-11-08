@@ -72,7 +72,7 @@ pub fn create_main_window(app: &App, store: Option<&Store>) -> tauri::Result<()>
         builder = builder.general_autofill_enabled(false);
         match crate::paths::data_dir(app.handle()) {
             Ok(dir) => builder = builder.data_directory(dir),
-            Err(error) => eprintln!("chatonlm: no data folder for the web view: {error}"),
+            Err(error) => crate::app_log!("chatonlm: no data folder for the web view: {error}"),
         }
         if let Some(saved) = &saved {
             builder = builder.theme(title_bar_theme(saved.theme));
@@ -97,7 +97,7 @@ pub fn create_main_window(app: &App, store: Option<&Store>) -> tauri::Result<()>
         if !window.is_visible().unwrap_or(true) {
             // Signalé : les essais en session virtuelle échouent sur ce message,
             // car c'est au frontend d'afficher la fenêtre.
-            eprintln!("chatonlm: window shown by the startup fallback");
+            crate::app_log!("chatonlm: window shown by the startup fallback");
             let _ = window.show();
         }
     });
@@ -139,7 +139,7 @@ pub fn remember_size<R: Runtime>(window: &Window<R>) {
         settings::save_window_size(c, size.width.round() as u32, size.height.round() as u32)
     });
     if let Err(error) = result {
-        eprintln!("chatonlm: cannot save the window size: {error}");
+        crate::app_log!("chatonlm: cannot save the window size: {error}");
     }
 }
 
@@ -164,7 +164,7 @@ pub fn apply_theme<R: Runtime>(app: &tauri::AppHandle<R>, theme: Theme) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW)
         && let Err(error) = window.set_theme(title_bar_theme(theme))
     {
-        eprintln!("chatonlm: cannot set the title bar theme: {error}");
+        crate::app_log!("chatonlm: cannot set the title bar theme: {error}");
     }
     #[cfg(not(windows))]
     let _ = (app, theme);
@@ -197,7 +197,7 @@ fn is_app_url(url: &Url, dev_origin: Option<&Url>, windows: bool) -> bool {
 /// nouvelle fenêtre (sans gestionnaire, WebKit ne l'ouvrait pas non plus, mais
 /// sans le dire). Signalé pour repérer un lien que le frontend n'intercepte pas.
 fn refuse_new_window<R: Runtime>(url: &Url) -> NewWindowResponse<R> {
-    eprintln!("chatonlm: new window refused: {url}");
+    crate::app_log!("chatonlm: new window refused: {url}");
     NewWindowResponse::Deny
 }
 

@@ -98,7 +98,7 @@ pub struct Hf {
 
 /// Installe une fois le moteur cryptographique de rustls (ring), comme le
 /// client d'Ollama.
-fn ensure_crypto_provider() {
+pub(crate) fn ensure_crypto_provider() {
     static INSTALLED: std::sync::Once = std::sync::Once::new();
     INSTALLED.call_once(|| {
         let _ = rustls::crypto::ring::default_provider().install_default();

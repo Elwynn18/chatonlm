@@ -2,6 +2,7 @@
 
 pub mod attachments;
 mod bridge;
+mod bug_report;
 mod chat;
 mod commands;
 mod context_menu;
@@ -16,6 +17,7 @@ mod hub;
 mod i18n;
 mod image_gen;
 mod image_models;
+mod logging;
 mod ollama;
 mod os_util;
 mod paths;
@@ -115,12 +117,14 @@ pub fn run() {
             ));
             #[cfg(debug_assertions)]
             // Permet aux essais de vérifier l'identifiant et le dossier de données.
-            eprintln!(
+            crate::app_log!(
                 "chatonlm: identifier={} data={:?}",
                 app.config().identifier,
                 app.path().app_local_data_dir()
             );
             let data_dir = paths::data_dir(app.handle())?;
+            // Journal de l'app et crochet de panique, avant tout le reste.
+            logging::init(&data_dir.join("logs"));
             let database = data_dir.join("db").join("chatonlm.sqlite");
             // Une base illisible n'empêche pas la fenêtre de s'ouvrir : le
             // frontend montre le problème (voir startup.rs).
@@ -511,6 +515,9 @@ pub fn run() {
             commands::study::study_skip,
             commands::study::study_start,
             commands::study::study_stream_cancel,
+            commands::report::bug_report_diagnostic,
+            commands::report::send_bug_report,
+            commands::report::open_app_logs,
             commands::system::open_external,
             commands::system::quit_app,
             commands::updates::app_versions,
@@ -638,7 +645,7 @@ async fn forget_ephemeral_chats(app: &AppHandle) {
         return;
     };
     if let Err(error) = store.call(|c| store::chats::forget_all(c)).await {
-        eprintln!("chatonlm: cannot erase the ephemeral chats: {error}");
+        crate::app_log!("chatonlm: cannot erase the ephemeral chats: {error}");
     }
 }
 
@@ -658,13 +665,13 @@ async fn unload_models(app: &AppHandle) {
         Ok(Some(url)) => url,
         Ok(None) => return,
         Err(error) => {
-            eprintln!("chatonlm: cannot read the unload-on-quit setting: {error}");
+            crate::app_log!("chatonlm: cannot read the unload-on-quit setting: {error}");
             return;
         }
     };
     match tokio::time::timeout(EXIT_UNLOAD_LIMIT, ollama::running::unload_all(&url)).await {
         Ok(Ok(())) => {}
-        Ok(Err(error)) => eprintln!("chatonlm: cannot unload the models: {error}"),
-        Err(_) => eprintln!("chatonlm: unloading the models took too long"),
+        Ok(Err(error)) => crate::app_log!("chatonlm: cannot unload the models: {error}"),
+        Err(_) => crate::app_log!("chatonlm: unloading the models took too long"),
     }
 }

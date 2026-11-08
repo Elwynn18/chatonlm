@@ -17,7 +17,9 @@
  * the update, the official "Auto-download updates" switch; untouched by
  * "Reset to defaults"; scrolled into view and focused each time the page is
  * opened for it from the system tray, card=updates), then "Reset to
- * defaults", then ChatonLM's own "Support ChatonLM" card, last
+ * defaults", then ChatonLM's own "Report a bug" card (settings/BugReport.tsx:
+ * a message sent through chatonlm.com, an optional reply address, diagnostic
+ * shown before sending, logs folder) and "Support ChatonLM" card, last
  * (settings/Donate.tsx: what donations pay for, and a button that opens the
  * donation page of the website);
  * Account: the Ollama
@@ -84,6 +86,7 @@ import type { LanguageChoice } from "@/bindings/LanguageChoice";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import type { Theme } from "@/bindings/Theme";
 import { AddressField } from "@/components/AddressField";
+import { BugReport } from "@/components/settings/BugReport";
 import { Dictation } from "@/components/settings/Dictation";
 import { CloseButtonRow } from "@/components/settings/CloseButton";
 import { Donate } from "@/components/settings/Donate";
@@ -616,7 +619,8 @@ export function Settings({
               </button>
             </div>
 
-            {/* Propre à ChatonLM, tout en bas : aucun réglage. */}
+            {/* Propres à ChatonLM, tout en bas : aucun réglage. */}
+            <BugReport />
             <Donate />
           </fieldset>
         )}

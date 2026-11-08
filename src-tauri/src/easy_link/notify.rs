@@ -418,7 +418,7 @@ impl<H: Host> Shared<H> {
                 Err(problem) => {
                     self.board.release(account.id, reserved);
                     // i18n-ignore : journal.
-                    eprintln!("chatonlm: Easy Link notice not sent: {problem:?}");
+                    crate::app_log!("chatonlm: Easy Link notice not sent: {problem:?}");
                 }
             }
         }

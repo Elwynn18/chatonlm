@@ -131,7 +131,7 @@ pub(crate) fn watch_exit(mut child: Child) -> oneshot::Receiver<Option<ExitStatu
             let _ = sender.send(child.wait().ok());
         });
     if let Err(error) = watcher {
-        eprintln!("chatonlm: cannot watch the built-in Ollama: {error}");
+        crate::app_log!("chatonlm: cannot watch the built-in Ollama: {error}");
     }
     receiver
 }
@@ -201,7 +201,9 @@ pub(crate) async fn terminate(
         return true;
     }
     // i18n-ignore : journal.
-    eprintln!("chatonlm: the built-in Ollama (pid {pid}) didn't exit after SIGKILL; leaving it");
+    crate::app_log!(
+        "chatonlm: the built-in Ollama (pid {pid}) didn't exit after SIGKILL; leaving it"
+    );
     false
 }
 
@@ -229,7 +231,9 @@ pub(super) fn cleanup_leftovers(config: &Config) {
     if found.is_empty() {
         return;
     }
-    eprintln!("chatonlm: stopping a built-in Ollama left over by a previous session: {found:?}");
+    crate::app_log!(
+        "chatonlm: stopping a built-in Ollama left over by a previous session: {found:?}"
+    );
     stop_processes(&found, config.timing.stop_grace, |pid| ours.owns(proc, pid));
 }
 

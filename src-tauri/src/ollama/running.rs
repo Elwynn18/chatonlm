@@ -645,7 +645,7 @@ pub(crate) mod tests {
             })
             .join();
             if !matches!(unloaded, Ok(Ok(()))) {
-                eprintln!("{model} not unloaded: {unloaded:?}");
+                crate::app_log!("{model} not unloaded: {unloaded:?}");
             }
         }
     }

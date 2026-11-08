@@ -129,7 +129,7 @@ pub fn install(window: &WebviewWindow) {
             .connect_context_menu(|_, menu, _, _| filter(menu));
     });
     if let Err(error) = result {
-        eprintln!("chatonlm: cannot filter the context menu: {error}");
+        crate::app_log!("chatonlm: cannot filter the context menu: {error}");
     }
 }
 

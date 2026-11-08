@@ -81,7 +81,7 @@ impl ImageDownloads {
         self.on_installed(move |id| {
             if let Err(error) = store.blocking(|connection| mark_installed(connection, id)) {
                 // i18n-ignore : journal.
-                eprintln!("chatonlm: image model {id} not marked installed: {error}");
+                crate::app_log!("chatonlm: image model {id} not marked installed: {error}");
             }
         });
     }

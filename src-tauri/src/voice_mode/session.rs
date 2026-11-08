@@ -586,7 +586,7 @@ impl Inner {
     fn report(&mut self, first_sound: bool) {
         if let Some(timing) = self.timing.take() {
             let sound = first_sound.then(|| timing.ended.elapsed());
-            eprintln!("{}", timing.line(sound));
+            crate::app_log!("{}", timing.line(sound));
         }
     }
 }
@@ -1477,7 +1477,7 @@ impl Host for AppHost {
                     dictation.settings_changed(&settings);
                     dictation.emit_status(&app);
                 }
-                Err(error) => eprintln!("chatonlm: speech model not saved: {error}"),
+                Err(error) => crate::app_log!("chatonlm: speech model not saved: {error}"),
             }
         })
     }

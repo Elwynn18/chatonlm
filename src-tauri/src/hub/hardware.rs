@@ -266,7 +266,7 @@ pub fn injected() -> Option<Option<Machine>> {
     let value = std::env::var("CHATONLM_E2E_HARDWARE").ok()?;
     let parsed = parse_injected(&value);
     if parsed.is_none() {
-        eprintln!("chatonlm: CHATONLM_E2E_HARDWARE invalide, ignoré : {value}");
+        crate::app_log!("chatonlm: CHATONLM_E2E_HARDWARE invalide, ignoré : {value}");
     }
     parsed
 }

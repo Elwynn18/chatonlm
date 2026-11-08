@@ -149,7 +149,7 @@ fn commands(app: &AppHandle) -> Option<mpsc::Sender<Command>> {
             });
         match spawned {
             Ok(_) => inner.commands = Some(sender),
-            Err(error) => eprintln!("chatonlm: cannot start the shortcut thread: {error}"),
+            Err(error) => crate::app_log!("chatonlm: cannot start the shortcut thread: {error}"),
         }
     }
     inner.commands.clone()
@@ -178,7 +178,7 @@ fn on_event(app: &AppHandle, id: &'static str, state: ShortcutState) {
 fn register(app: &AppHandle, targets: &[(&'static str, Combo)]) -> Vec<(&'static str, Outcome)> {
     let plugin = app.global_shortcut();
     if let Err(error) = plugin.unregister_all() {
-        eprintln!("chatonlm: cannot unregister the global shortcuts: {error}");
+        crate::app_log!("chatonlm: cannot unregister the global shortcuts: {error}");
     }
     targets
         .iter()
@@ -191,7 +191,7 @@ fn register(app: &AppHandle, targets: &[(&'static str, Combo)]) -> Vec<(&'static
                     .map_err(|error| error.to_string())
             });
             if let Err(error) = &result {
-                eprintln!("chatonlm: global shortcut {id} not set: {error}");
+                crate::app_log!("chatonlm: global shortcut {id} not set: {error}");
             }
             (id, Outcome::of(result))
         })
@@ -221,7 +221,7 @@ async fn sync(app: &AppHandle) {
     let outcomes = match outcomes {
         Ok(outcomes) => outcomes,
         Err(error) => {
-            eprintln!("chatonlm: global shortcuts not set: {error}");
+            crate::app_log!("chatonlm: global shortcuts not set: {error}");
             Vec::new()
         }
     };
@@ -277,7 +277,7 @@ pub(in crate::desktop) fn init(app: &AppHandle, wanted: Wanted, hold: bool) {
                         stored.read_aloud.as_deref(),
                     );
                 }
-                Err(error) => eprintln!("chatonlm: cannot read the shortcut keys: {error}"),
+                Err(error) => crate::app_log!("chatonlm: cannot read the shortcut keys: {error}"),
             }
         }
         sync(&app).await;

@@ -505,7 +505,7 @@ mod tests {
                 );
                 assert_eq!(local.digest, upstream.digest, "{HF_REAL} changed upstream?");
             }
-            None => eprintln!("{HF_REAL} is not installed: not compared"),
+            None => crate::app_log!("{HF_REAL} is not installed: not compared"),
         }
     }
 }

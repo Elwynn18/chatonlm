@@ -181,7 +181,7 @@ fn lock_openings(path: &Path, wait: Duration) -> Option<File> {
     let mut name = path.as_os_str().to_owned();
     name.push(".opening");
     let without = |error: &dyn std::fmt::Display| {
-        eprintln!("chatonlm: opening the database without its opening lock: {error}");
+        crate::app_log!("chatonlm: opening the database without its opening lock: {error}");
         None
     };
     let file = match OpenOptions::new()

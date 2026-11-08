@@ -225,7 +225,7 @@ impl Dictation {
                     .map_or(Ok(()), std::fs::create_dir_all)
                     .and_then(|()| std::fs::write(&path, ICON));
                 if let Err(error) = written {
-                    eprintln!("chatonlm: notification icon not written: {error}");
+                    crate::app_log!("chatonlm: notification icon not written: {error}");
                 }
             });
         }
@@ -824,7 +824,7 @@ impl Core {
         let engine = self.services.engine.clone();
         let released = tauri::async_runtime::spawn_blocking(move || engine.shutdown(limit)).await;
         if !matches!(released, Ok(true)) {
-            eprintln!("chatonlm: the speech model was still busy at exit");
+            crate::app_log!("chatonlm: the speech model was still busy at exit");
         }
     }
 

@@ -156,7 +156,7 @@ pub(super) fn read_selection() -> Result<String, SelectionError> {
         // Hors de l'historique (Win+V) : ce texte y est déjà.
         let restored = retried(|| clipboard.set().exclude_from_history().text(&previous));
         if let Err(error) = restored {
-            eprintln!("chatonlm: previous clipboard text not restored: {error}");
+            crate::app_log!("chatonlm: previous clipboard text not restored: {error}");
         }
     }
     Ok(captured(before, after, read?))

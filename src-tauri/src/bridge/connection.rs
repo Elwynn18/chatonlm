@@ -152,7 +152,7 @@ impl Outbox {
     /// conversation se relit par `chat.get`).
     pub(super) fn notify(&self, method: &str, params: Value) {
         if !self.send(&json!({ "jsonrpc": "2.0", "method": method, "params": params })) {
-            eprintln!("chatonlm: a {method} notification is too large for the bridge");
+            crate::app_log!("chatonlm: a {method} notification is too large for the bridge");
         }
     }
 }
@@ -1249,7 +1249,7 @@ async fn chat_send<H: Host>(
                         .call(move |c| chats::set_editor(c, &marked))
                         .await
                     {
-                        eprintln!("chatonlm: cannot mark an editor chat: {error}");
+                        crate::app_log!("chatonlm: cannot mark an editor chat: {error}");
                     }
                     if ephemeral
                         && !shared.track_ephemeral(sender.connection, &sender.client, created)

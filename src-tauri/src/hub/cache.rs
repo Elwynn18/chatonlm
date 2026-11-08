@@ -143,7 +143,7 @@ impl Cache {
         })
         .await;
         if let Ok(Err(error)) = written {
-            eprintln!("chatonlm: cache du ModelHub non écrit : {error}");
+            crate::app_log!("chatonlm: cache du ModelHub non écrit : {error}");
         }
     }
 }

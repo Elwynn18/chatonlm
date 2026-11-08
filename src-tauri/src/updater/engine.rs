@@ -223,7 +223,7 @@ impl Engine {
             match staging::read_verified(&dir, &staged, &pubkey, require) {
                 Ok(_) => (Some(staged), failure),
                 Err(error) => {
-                    eprintln!("chatonlm: kept update refused: {error:?}");
+                    crate::app_log!("chatonlm: kept update refused: {error:?}");
                     staging::clear(&dir);
                     (None, None)
                 }

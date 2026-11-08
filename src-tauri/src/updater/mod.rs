@@ -310,7 +310,7 @@ pub fn setup(app: &AppHandle) {
         Support::Installable(_) => match build_updater(app) {
             Ok(updater) => Some(updater),
             Err(error) => {
-                eprintln!("chatonlm: updater unavailable: {error}");
+                crate::app_log!("chatonlm: updater unavailable: {error}");
                 None
             }
         },
@@ -421,7 +421,7 @@ fn forward(
                         })
                         .await
                     {
-                        eprintln!("chatonlm: cannot save the update notification: {error}");
+                        crate::app_log!("chatonlm: cannot save the update notification: {error}");
                     }
                 }
             }
@@ -449,7 +449,7 @@ async fn notify_ready(app: &AppHandle, version: &str) {
     {
         notification.hint(notify_rust::Hint::DesktopEntry(identifier.clone()));
         if let Err(error) = notification.show_async().await {
-            eprintln!("chatonlm: cannot show the update notification: {error}");
+            crate::app_log!("chatonlm: cannot show the update notification: {error}");
         }
     }
     // Windows : notification au nom de l'app (identifiant du raccourci posé
@@ -465,7 +465,7 @@ async fn notify_ready(app: &AppHandle, version: &str) {
         })
         .await;
         if let Ok(Err(error)) = shown {
-            eprintln!("chatonlm: cannot show the update notification: {error}");
+            crate::app_log!("chatonlm: cannot show the update notification: {error}");
         }
     }
 }

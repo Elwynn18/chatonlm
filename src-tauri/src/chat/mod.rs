@@ -1355,7 +1355,7 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
                 }
                 Err(Outcome::Cancelled) => return Outcome::Cancelled,
                 Err(Outcome::Failed(_, message)) => {
-                    eprintln!("chatonlm: automatic compaction failed: {message}");
+                    crate::app_log!("chatonlm: automatic compaction failed: {message}");
                 }
                 Err(Outcome::Done) => {}
             }
@@ -2024,7 +2024,7 @@ async fn voice_instructions(store: &Store) -> String {
     {
         Ok(settings) => settings.effective_instructions().to_owned(),
         Err(error) => {
-            eprintln!("chatonlm: voice mode settings not read: {error}");
+            crate::app_log!("chatonlm: voice mode settings not read: {error}");
             crate::voice_mode::DEFAULT_INSTRUCTIONS.to_owned()
         }
     }
@@ -2038,7 +2038,7 @@ async fn system_prompt(store: &Store) -> Option<String> {
     {
         Ok(settings) => Some(settings.system_prompt).filter(|text| !text.trim().is_empty()),
         Err(error) => {
-            eprintln!("chatonlm: system prompt not read: {error}");
+            crate::app_log!("chatonlm: system prompt not read: {error}");
             None
         }
     }
@@ -2277,7 +2277,7 @@ fn load_outcome(model: &str, loaded: Result<(), LoadFailure>) -> Option<Outcome>
             status_error(status, &message),
         )),
         Err(LoadFailure::Failed(error)) => {
-            eprintln!("chatonlm: cannot load {model}: {error}");
+            crate::app_log!("chatonlm: cannot load {model}: {error}");
             None
         }
     }
@@ -8042,7 +8042,7 @@ mod tests {
             let chat = saved(&store, &recorder.chat_id());
             assert_eq!(chat.messages[0].attachments.len(), 1, "{model}");
             let answer = chat.messages[1].content.to_lowercase();
-            eprintln!("{model} answered: {answer:?}");
+            crate::app_log!("{model} answered: {answer:?}");
             if model == "qwen3.5:0.8b" {
                 assert!(answer.contains("red"), "{model}: {answer}");
             }
@@ -8382,7 +8382,7 @@ mod tests {
             })
             .join();
             if !matches!(deleted, Ok(Ok(true))) {
-                eprintln!("{name} not deleted: {deleted:?}");
+                crate::app_log!("{name} not deleted: {deleted:?}");
             }
         }
     }

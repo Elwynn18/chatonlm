@@ -554,7 +554,7 @@ impl GpuChief {
                         .await
                         {
                             // i18n-ignore : journal.
-                            eprintln!("chatonlm: chat model not reloaded: {error}");
+                            crate::app_log!("chatonlm: chat model not reloaded: {error}");
                         }
                     });
                 }
@@ -752,7 +752,7 @@ impl GpuChief {
         if loaded {
             if let Err(error) = running::unload(&url, &completion).await {
                 // i18n-ignore : journal.
-                eprintln!("chatonlm: completion model not unloaded before an image: {error}");
+                crate::app_log!("chatonlm: completion model not unloaded before an image: {error}");
             }
             self.poke();
         }

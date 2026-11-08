@@ -86,7 +86,7 @@ fn with_files((mut model, json): (StoredModel, String)) -> Option<StoredModel> {
         }
         Err(error) => {
             // i18n-ignore : journal.
-            eprintln!("chatonlm: image model {} ignored: {error}", model.id);
+            crate::app_log!("chatonlm: image model {} ignored: {error}", model.id);
             None
         }
     }

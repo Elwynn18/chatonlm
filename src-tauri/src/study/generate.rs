@@ -197,7 +197,9 @@ impl Job<'_> {
                 }
                 WebOutcome::Failed(reason) => {
                     // i18n-ignore : journal.
-                    eprintln!("chatonlm: study: web search failed, planning without it: {reason}");
+                    crate::app_log!(
+                        "chatonlm: study: web search failed, planning without it: {reason}"
+                    );
                 }
             }
         }
@@ -290,7 +292,7 @@ impl Job<'_> {
             }
             PlanVerdict::Invalid(reason) => {
                 // i18n-ignore : journal.
-                eprintln!("chatonlm: study: unusable plan: {reason}");
+                crate::app_log!("chatonlm: study: unusable plan: {reason}");
                 self.plan_stopped(Stop::Failed(invalid())).await
             }
         }
@@ -491,7 +493,7 @@ impl Job<'_> {
                 Some(LessonVerdict::Length(lesson)) => fallback = Some(lesson),
                 Some(LessonVerdict::Invalid(reason)) => {
                     // i18n-ignore : journal.
-                    eprintln!("chatonlm: study: unusable lesson: {reason}");
+                    crate::app_log!("chatonlm: study: unusable lesson: {reason}");
                 }
                 None => {}
             }
@@ -591,7 +593,7 @@ impl Job<'_> {
         let kept = types.len() - optional - missing.len();
         if kept < MIN_QUESTIONS || (with_explanation && generated.explanation.is_none()) {
             // i18n-ignore : journal.
-            eprintln!(
+            crate::app_log!(
                 "chatonlm: study: {prefix}: {kept} question(s) kept, last chance with multiple choice"
             );
             let asked = vec![QType::Choice; missing.len()];
@@ -934,7 +936,7 @@ fn short(text: &str) -> String {
 /// Question écartée, au journal : partie, type, raison, début de l'énoncé.
 fn dropped(prefix: &str, qtype: QType, reason: &str, item: &serde_json::Value) {
     // i18n-ignore : journal.
-    eprintln!(
+    crate::app_log!(
         "chatonlm: study: question dropped ({prefix}, {qtype:?}): {reason} — \"{}\"",
         checks::excerpt(item)
     );

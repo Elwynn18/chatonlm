@@ -140,7 +140,7 @@ fn write_token(path: &Path, token: &str) {
         let _ = std::fs::create_dir_all(parent);
     }
     if let Err(error) = std::fs::write(path, token) {
-        eprintln!("chatonlm: paste permission not saved: {error}");
+        crate::app_log!("chatonlm: paste permission not saved: {error}");
     }
 }
 

@@ -413,7 +413,7 @@ async fn send_turn<H: Host>(
                         .call(move |c| chats::set_editor(c, &marked))
                         .await
                     {
-                        eprintln!("chatonlm: cannot mark an editor chat: {error}");
+                        crate::app_log!("chatonlm: cannot mark an editor chat: {error}");
                     }
                     // Suivie comme les autres éphémères du pont : effacée au
                     // retrait de l'éditeur, à la coupure du pont, par

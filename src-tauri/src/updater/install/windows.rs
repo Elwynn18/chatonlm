@@ -156,7 +156,7 @@ impl Platform {
                 }
                 std::thread::sleep(CLEANUP_PAUSE);
             }
-            eprintln!("chatonlm: cannot remove {}", folder.display());
+            crate::app_log!("chatonlm: cannot remove {}", folder.display());
         });
     }
 }

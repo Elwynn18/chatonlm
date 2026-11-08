@@ -389,7 +389,7 @@ impl EnginePainter<'_> {
                 .await;
             if let Err(error) = noted {
                 // i18n-ignore : journal.
-                eprintln!("chatonlm: image time not recorded: {error}");
+                crate::app_log!("chatonlm: image time not recorded: {error}");
             }
         }
         Ok(Painted {

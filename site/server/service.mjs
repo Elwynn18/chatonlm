@@ -2,6 +2,8 @@
 // Service du site chatonlm.com, lancé sur le VPS derrière nginx (il n'écoute
 // que sur 127.0.0.1) :
 //   POST /api/contact         formulaire de contact, relayé par courriel (SMTP) ;
+//   POST /api/report          signalement de bug envoyé par l'application de
+//                             bureau (JSON), relayé de même ;
 //   GET  /api/release         dernière version publiée de ChatonLM, en JSON ;
 //   GET  /download/<fichier>  redirection vers le fichier de cette version
 //                             (windows, appimage ou deb) ;
@@ -12,8 +14,10 @@
 // chatonlm-site.env.example ; installation : chatonlm-site.service.
 //
 // Vie privée : rien n'est écrit sur le disque. Le journal ne contient ni le
-// message, ni le nom, ni l'adresse du visiteur ; son adresse IP ne sert qu'à
-// limiter les envois et reste en mémoire un jour au plus.
+// message, ni le nom, ni l'adresse du visiteur, ni rien d'un signalement de
+// bug (message, adresse, version, diagnostic) ; l'adresse IP ne sert qu'à
+// limiter les envois et reste en mémoire un jour au plus. Le diagnostic d'un
+// signalement n'est que relayé dans le courriel, jamais gardé.
 
 import { randomBytes } from "node:crypto";
 import { realpathSync } from "node:fs";
@@ -41,7 +45,21 @@ export const LIMITS = {
   perDay: 200,
   /** Temps minimal entre l'affichage du formulaire et l'envoi (robots), en ms. */
   minElapsed: 2500,
+  /** Signalement de bug de l'app : corps (comme nginx), diagnostic, plafonds à part. */
+  reportBody: 32 * 1024,
+  diagnosticMax: 20000,
+  report: {
+    perIp: 3,
+    perIpWindow: 60 * 60 * 1000,
+    perIpDay: 10,
+    perDay: 100,
+  },
 };
+
+/** Systèmes de l'app, et leur nom dans le courriel. */
+export const PLATFORMS = { linux: "Linux", windows: "Windows" };
+// Version de l'app : rien qui puisse sortir du sujet du courriel.
+const VERSION = /^[0-9A-Za-z.+-]{1,32}$/;
 
 // ---------------------------------------------------------------------------
 // Formulaire : validation
@@ -51,33 +69,92 @@ const CONTROL = /\p{Cc}/gu;
 // en-tête : elle est recopiée telle quelle dans « Reply-To ».
 const EMAIL = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[a-z0-9-]{2,}$/i;
 
+const text = (value) => (typeof value === "string" ? value : "");
+
 /**
  * Vérifie les champs du formulaire. Rend `{ ok: true, value }` avec les champs
  * nettoyés, ou `{ ok: false, error }` avec le nom du champ fautif.
  */
 export function validateContact(fields) {
-  const text = (value) => (typeof value === "string" ? value : "");
   const name = text(fields.name)
     .replace(CONTROL, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (!name || name.length > LIMITS.name) return { ok: false, error: "name" };
   const email = text(fields.email).trim();
-  if (
-    email.length > LIMITS.email ||
-    !/^[\x21-\x7e]+$/.test(email) ||
-    !EMAIL.test(email)
-  ) {
-    return { ok: false, error: "email" };
-  }
-  const message = text(fields.message).replace(/\r\n?/g, "\n").trim();
-  if (
-    message.length < LIMITS.messageMin ||
-    message.length > LIMITS.messageMax
-  ) {
-    return { ok: false, error: "message" };
-  }
+  if (!isEmail(email)) return { ok: false, error: "email" };
+  const message = cleanMessage(fields.message);
+  if (message === null) return { ok: false, error: "message" };
   return { ok: true, value: { name, email, message, lang: langOf(fields) } };
+}
+
+/** Adresse recopiable telle quelle dans « Reply-To ». */
+function isEmail(email) {
+  return (
+    email.length <= LIMITS.email &&
+    /^[\x21-\x7e]+$/.test(email) &&
+    EMAIL.test(email)
+  );
+}
+
+/** Message aux retours à la ligne normalisés, ou `null` s'il est trop court ou trop long. */
+function cleanMessage(value) {
+  const message = text(value).replace(/\r\n?/g, "\n").trim();
+  return message.length < LIMITS.messageMin ||
+    message.length > LIMITS.messageMax
+    ? null
+    : message;
+}
+
+// Caractères de contrôle d'un diagnostic, sauf la tabulation et le retour à la ligne.
+const DIAGNOSTIC_CONTROL = /[^\P{Cc}\n\t]/gu;
+
+/**
+ * Vérifie un signalement de bug envoyé par l'app. Rend `{ ok: true, value }`
+ * (`email` et `diagnostic` à `null` quand ils manquent) ou `{ ok: false, error }`
+ * avec le nom du champ fautif.
+ */
+export function validateReport(fields) {
+  const message = cleanMessage(fields.message);
+  if (message === null) return { ok: false, error: "message" };
+  // Adresse facultative : absente, nulle ou vide, la personne ne sera pas
+  // recontactée ; donnée, elle doit être valable.
+  let email = null;
+  if (fields.email !== undefined && fields.email !== null) {
+    if (typeof fields.email !== "string") return { ok: false, error: "email" };
+    email = fields.email.trim() || null;
+    if (email && !isEmail(email)) return { ok: false, error: "email" };
+  }
+  const { version, platform } = fields;
+  if (typeof version !== "string" || !VERSION.test(version))
+    return { ok: false, error: "version" };
+  if (typeof platform !== "string" || !Object.hasOwn(PLATFORMS, platform))
+    return { ok: false, error: "platform" };
+  let diagnostic = null;
+  if (fields.diagnostic !== undefined && fields.diagnostic !== null) {
+    if (
+      typeof fields.diagnostic !== "string" ||
+      fields.diagnostic.length > LIMITS.diagnosticMax
+    )
+      return { ok: false, error: "diagnostic" };
+    diagnostic =
+      fields.diagnostic
+        .replace(/\r\n?/g, "\n")
+        .replace(DIAGNOSTIC_CONTROL, "")
+        .replace(/^\n+/, "")
+        .trimEnd() || null;
+  }
+  return {
+    ok: true,
+    value: {
+      message,
+      email,
+      lang: langOf(fields),
+      version,
+      platform,
+      diagnostic,
+    },
+  };
 }
 
 function langOf(fields) {
@@ -246,58 +323,165 @@ const escapeHtml = (text) => text.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
 
 const LANG_NAMES = { fr: "français", en: "anglais", es: "espagnol" };
 
+const SANS =
+  "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+
 /**
- * Version mise en forme du courriel d'un message du formulaire, aux couleurs
- * du site (contrat de la direction visuelle : crème, encre, roux). HTML de
- * courriel : tableaux et styles en ligne, ni image, ni police, ni feuille de
- * style externes, que Gmail retirerait. Tout ce que le visiteur a saisi est
- * échappé.
+ * Gabarit des courriels mis en forme, aux couleurs du site (contrat de la
+ * direction visuelle : crème, encre, roux). HTML de courriel : tableaux et
+ * styles en ligne, ni image, ni police, ni feuille de style externes, que
+ * Gmail retirerait. `title`, `heading` et `rows` sont déjà en HTML : chaque
+ * appelant échappe ce qui vient de la requête ; `preview` est le début du
+ * message, échappé ici.
  */
-export function contactHtml({ name, email, message, lang }) {
-  const who = escapeHtml(name);
-  const address = escapeHtml(email);
-  const reply = escapeHtml(
-    `mailto:${email}?subject=${encodeURIComponent(`Re: [ChatonLM] Message de ${name}`)}`,
-  );
-  const body = escapeHtml(message).replace(/\n/g, "<br>");
-  const preview = escapeHtml(message.replace(/\s+/g, " ").slice(0, 120));
-  const sans =
-    "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+function mailHtml({ title, heading, preview, rows }) {
+  const hidden = escapeHtml(preview.replace(/\s+/g, " ").slice(0, 120));
   return `<!doctype html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<title>Message de ${who}</title>
+<title>${title}</title>
 </head>
 <body style="margin:0;padding:0;background:#FFF4E8;">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${preview}</div>
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${hidden}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#FFF4E8;">
 <tr><td align="center" style="padding:32px 16px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#FFFCF8;border:1px solid #E8D2BA;border-radius:24px;">
-<tr><td style="padding:28px 28px 8px 28px;font-family:${sans};">
+<tr><td style="padding:28px 28px 8px 28px;font-family:${SANS};">
 <span style="display:inline-block;background:#F28A38;color:#2A1A10;font-size:12px;font-weight:700;letter-spacing:0.04em;padding:5px 12px;border-radius:999px;">ChatonLM</span>
-<h1 style="margin:16px 0 0 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25;font-weight:700;color:#2A1A10;">Nouveau message du site</h1>
+<h1 style="margin:16px 0 0 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25;font-weight:700;color:#2A1A10;">${heading}</h1>
 </td></tr>
-<tr><td style="padding:16px 28px 0 28px;font-family:${sans};">
-<p style="margin:0;font-size:17px;font-weight:700;color:#2A1A10;">${who}</p>
-<p style="margin:4px 0 0 0;font-size:15px;"><a href="mailto:${address}" style="color:#B84A12;text-decoration:underline;">${address}</a></p>
-<p style="margin:4px 0 0 0;font-size:13px;color:#6B5647;">Écrit depuis le site en ${LANG_NAMES[lang] ?? lang}</p>
-</td></tr>
-<tr><td style="padding:20px 28px 0 28px;font-family:${sans};">
-<div style="background:#FBF1E4;border-radius:16px;padding:18px 20px;font-size:15px;line-height:1.6;color:#2A1A10;word-break:break-word;overflow-wrap:anywhere;">${body}</div>
-</td></tr>
-<tr><td style="padding:24px 28px 28px 28px;font-family:${sans};">
-<a href="${reply}" style="display:inline-block;background:#2A1A10;color:#FFF4E8;font-size:15px;font-weight:700;text-decoration:none;padding:12px 24px;border-radius:999px;">Répondre à ${who}</a>
-<p style="margin:20px 0 0 0;font-size:12px;line-height:1.5;color:#6B5647;">Reçu par le formulaire de contact de chatonlm.com. « Répondre » dans la messagerie écrit aussi directement à cette adresse.</p>
-</td></tr>
+${rows.join("\n")}
 </table>
 </td></tr>
 </table>
 </body>
 </html>
 `;
+}
+
+/** Bloc d'identité : titre en gras, puis lignes secondaires (HTML). */
+function headerRow(title, lines) {
+  return `<tr><td style="padding:16px 28px 0 28px;font-family:${SANS};">
+<p style="margin:0;font-size:17px;font-weight:700;color:#2A1A10;">${title}</p>
+${lines.join("\n")}
+</td></tr>`;
+}
+
+/** Ligne d'une adresse cliquable, ou d'un texte discret à sa place. */
+function addressLine(email, missing) {
+  if (!email)
+    return `<p style="margin:4px 0 0 0;font-size:15px;color:#6B5647;">${missing}</p>`;
+  const address = escapeHtml(email);
+  return `<p style="margin:4px 0 0 0;font-size:15px;"><a href="mailto:${address}" style="color:#B84A12;text-decoration:underline;">${address}</a></p>`;
+}
+
+const noteLine = (note) =>
+  `<p style="margin:4px 0 0 0;font-size:13px;color:#6B5647;">${note}</p>`;
+
+/** Le message, échappé, ses retours à la ligne gardés. */
+function messageRow(message) {
+  const body = escapeHtml(message).replace(/\n/g, "<br>");
+  return `<tr><td style="padding:20px 28px 0 28px;font-family:${SANS};">
+<div style="background:#FBF1E4;border-radius:16px;padding:18px 20px;font-size:15px;line-height:1.6;color:#2A1A10;word-break:break-word;overflow-wrap:anywhere;">${body}</div>
+</td></tr>`;
+}
+
+/**
+ * Pied : bouton « Répondre » (si `reply` : adresse et sujet, non échappés)
+ * et note finale (HTML).
+ */
+function footerRow(reply, note) {
+  const button = reply
+    ? `<a href="${escapeHtml(`mailto:${reply.email}?subject=${encodeURIComponent(reply.subject)}`)}" style="display:inline-block;background:#2A1A10;color:#FFF4E8;font-size:15px;font-weight:700;text-decoration:none;padding:12px 24px;border-radius:999px;">${reply.label}</a>\n`
+    : "";
+  return `<tr><td style="padding:24px 28px 28px 28px;font-family:${SANS};">
+${button}<p style="margin:${reply ? "20px 0 0 0" : "0"};font-size:12px;line-height:1.5;color:#6B5647;">${note}</p>
+</td></tr>`;
+}
+
+/** Version mise en forme du courriel d'un message du formulaire. */
+export function contactHtml({ name, email, message, lang }) {
+  const who = escapeHtml(name);
+  return mailHtml({
+    title: `Message de ${who}`,
+    heading: "Nouveau message du site",
+    preview: message,
+    rows: [
+      headerRow(who, [
+        addressLine(email),
+        noteLine(`Écrit depuis le site en ${LANG_NAMES[lang] ?? lang}`),
+      ]),
+      messageRow(message),
+      footerRow(
+        {
+          email,
+          subject: `Re: [ChatonLM] Message de ${name}`,
+          label: `Répondre à ${who}`,
+        },
+        "Reçu par le formulaire de contact de chatonlm.com. « Répondre » dans la messagerie écrit aussi directement à cette adresse.",
+      ),
+    ],
+  });
+}
+
+/** Sujet du courriel d'un signalement (version et système déjà vérifiés). */
+export function reportSubject({ version, platform }) {
+  return `[ChatonLM] Bug ${version} (${PLATFORMS[platform]})`;
+}
+
+/**
+ * Version mise en forme du courriel d'un signalement de bug : même gabarit que
+ * le contact, diagnostic en chasse fixe. Tout ce que l'app a envoyé est échappé.
+ */
+export function reportHtml({
+  message,
+  email,
+  lang,
+  version,
+  platform,
+  diagnostic,
+}) {
+  const system = PLATFORMS[platform] ?? platform;
+  const label = escapeHtml(`ChatonLM ${version} · ${system}`);
+  const rows = [
+    headerRow(label, [
+      addressLine(email, "Sans adresse de réponse"),
+      noteLine(
+        `Envoyé depuis l'app en ${escapeHtml(LANG_NAMES[lang] ?? lang)}`,
+      ),
+    ]),
+    messageRow(message),
+  ];
+  if (diagnostic) {
+    rows.push(`<tr><td style="padding:20px 28px 0 28px;font-family:${SANS};">
+<p style="margin:0 0 8px 0;font-size:13px;font-weight:700;color:#6B5647;">Diagnostic</p>
+<pre style="margin:0;background:#FBF1E4;border-radius:16px;padding:14px 16px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.5;color:#2A1A10;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">${escapeHtml(diagnostic)}</pre>
+</td></tr>`);
+  }
+  rows.push(
+    email
+      ? footerRow(
+          {
+            email,
+            subject: `Re: ${reportSubject({ version, platform })}`,
+            label: "Répondre",
+          },
+          "Reçu par le signalement de bug de l'app ChatonLM. « Répondre » dans la messagerie écrit aussi directement à cette adresse.",
+        )
+      : footerRow(
+          null,
+          "Reçu par le signalement de bug de l'app ChatonLM, sans adresse : la personne ne peut pas être recontactée.",
+        ),
+  );
+  return mailHtml({
+    title: "Signalement de bug",
+    heading: "Signalement de bug",
+    preview: message,
+    rows,
+  });
 }
 
 function openSocket({ host, port, secure = true, connectTimeout = 8000 }) {
@@ -542,8 +726,8 @@ function parseFields(type, body) {
 
 /**
  * Le serveur du site. `deps` remplace, pour les essais, l'envoi du courriel
- * (`send`), le limiteur (`allow`), la source des versions (`release`) et le
- * journal (`log`).
+ * (`send`), les limiteurs du contact (`allow`) et des signalements
+ * (`allowReport`), la source des versions (`release`) et le journal (`log`).
  */
 export function createService(config, deps = {}) {
   // Sans mot de passe d'envoi, le formulaire est en pause : le service répond
@@ -555,6 +739,9 @@ export function createService(config, deps = {}) {
       ? (mail) => sendMail(mail, config.smtp)
       : null);
   const allow = deps.allow ?? createLimiter(LIMITS);
+  // Plafonds à part : les signalements de l'app ne ferment pas le formulaire
+  // du site, et inversement.
+  const allowReport = deps.allowReport ?? createLimiter(LIMITS.report);
   const release = deps.release ?? createReleaseSource(config);
   const log =
     deps.log ??
@@ -640,6 +827,72 @@ export function createService(config, deps = {}) {
     return finish(200);
   }
 
+  /**
+   * Signalement de bug envoyé par l'application de bureau, en JSON seulement.
+   * L'app n'envoie pas d'en-tête Origin ; un navigateur, si : une page tierce
+   * est donc refusée, une page du site acceptée. Ni champ piège ni délai,
+   * qu'une app ne saurait remplir : les plafonds suffisent.
+   */
+  async function report(req, res) {
+    const finish = (status, error) => {
+      log({ ev: "report", result: error ?? "sent" });
+      return json(res, status, error ? { ok: false, error } : { ok: true });
+    };
+    const type = String(req.headers["content-type"] ?? "")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    if (type !== "application/json") return finish(415, "format");
+    const origin = req.headers.origin;
+    if (origin !== undefined && !config.origins.includes(origin))
+      return finish(403, "origin");
+    let fields;
+    try {
+      fields = JSON.parse(await readBody(req, LIMITS.reportBody));
+    } catch (error) {
+      return finish(error.status ?? 400, "format");
+    }
+    if (!fields || typeof fields !== "object" || Array.isArray(fields))
+      return finish(400, "format");
+    const checked = validateReport(fields);
+    if (!checked.ok) return finish(422, checked.error);
+    if (!send) return finish(503, "send");
+    const ip = String(
+      req.headers["x-real-ip"] ?? req.socket.remoteAddress ?? "",
+    );
+    if (!allowReport(ip)) return finish(429, "rate");
+
+    const { message, email, lang, version, platform, diagnostic } =
+      checked.value;
+    const lines = [
+      `De : ${email ?? "sans adresse de réponse"}`,
+      `Version : ${version}`,
+      `Système : ${PLATFORMS[platform]}`,
+      `Langue de l'app : ${lang}`,
+      "",
+      message,
+      ...(diagnostic ? ["", "--- Diagnostic ---", diagnostic] : []),
+    ];
+    try {
+      await send({
+        from: `"ChatonLM (app)" <${config.smtp.user}>`,
+        to: config.to,
+        ...(email ? { replyTo: email } : {}),
+        subject: reportSubject(checked.value),
+        text: `${lines.join("\n")}\n`,
+        html: reportHtml(checked.value),
+      });
+    } catch (error) {
+      allowReport.refund?.(ip);
+      log({
+        ev: "smtp",
+        message: String(error?.message ?? error).slice(0, 200),
+      });
+      return finish(502, "send");
+    }
+    return finish(200);
+  }
+
   async function route(req, res) {
     const { pathname } = new URL(req.url ?? "/", "http://localhost");
     const read = req.method === "GET" || req.method === "HEAD";
@@ -652,6 +905,16 @@ export function createService(config, deps = {}) {
           { Allow: "POST" },
         );
       return contact(req, res);
+    }
+    if (pathname === "/api/report") {
+      if (req.method !== "POST")
+        return json(
+          res,
+          405,
+          { ok: false, error: "method" },
+          { Allow: "POST" },
+        );
+      return report(req, res);
     }
     if (pathname === "/api/health" && read) return json(res, 200, { ok: true });
     if (pathname === "/api/release" && read) {
@@ -682,7 +945,13 @@ export function createService(config, deps = {}) {
     return json(res, 404, { ok: false, error: "not_found" });
   }
 
-  const purge = setInterval(() => allow.purge?.(), 10 * 60 * 1000);
+  const purge = setInterval(
+    () => {
+      allow.purge?.();
+      allowReport.purge?.();
+    },
+    10 * 60 * 1000,
+  );
   purge.unref();
   const server = createServer((req, res) => {
     route(req, res).catch((error) => {

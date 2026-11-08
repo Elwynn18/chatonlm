@@ -579,7 +579,7 @@ impl Synthesizer {
             if first.released {
                 if first.ended && first.frames < guard {
                     // Déjà entendu (échéance du premier son) : pas refait.
-                    eprintln!(
+                    crate::app_log!(
                         "chatonlm: read aloud: early stop ({} of {guard} frames) after the first sound",
                         first.frames
                     );
@@ -587,7 +587,7 @@ impl Synthesizer {
                 continue;
             }
             // Fini avant le seuil : arrêt prématuré, un nouvel essai.
-            eprintln!(
+            crate::app_log!(
                 "chatonlm: read aloud: early stop ({} of {guard} frames), retrying",
                 first.frames
             );

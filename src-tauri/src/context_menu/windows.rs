@@ -29,11 +29,11 @@ pub fn install(window: &WebviewWindow) {
         // des interfaces obtenues de son contrôleur vivant.
         let installed = unsafe { install_on(&webview) };
         if let Err(error) = installed {
-            eprintln!("chatonlm: cannot filter the context menu: {error}");
+            crate::app_log!("chatonlm: cannot filter the context menu: {error}");
         }
     });
     if let Err(error) = result {
-        eprintln!("chatonlm: cannot filter the context menu: {error}");
+        crate::app_log!("chatonlm: cannot filter the context menu: {error}");
     }
 }
 
@@ -42,7 +42,7 @@ unsafe fn install_on(webview: &tauri::webview::PlatformWebview) -> windows::core
     match unsafe { core.Settings() }.and_then(|settings| settings.cast::<ICoreWebView2Settings3>())
     {
         Ok(settings) => unsafe { settings.SetAreBrowserAcceleratorKeysEnabled(false) }?,
-        Err(error) => eprintln!("chatonlm: browser keys left enabled: {error}"),
+        Err(error) => crate::app_log!("chatonlm: browser keys left enabled: {error}"),
     }
     let handler = ContextMenuRequestedEventHandler::create(Box::new(|_, args| {
         if let Some(args) = args {
@@ -80,7 +80,7 @@ unsafe fn filter(args: &ICoreWebView2ContextMenuRequestedEventArgs) -> windows::
         }
     }
     #[cfg(debug_assertions)]
-    eprintln!("chatonlm: context menu entries: {names:?}");
+    crate::app_log!("chatonlm: context menu entries: {names:?}");
     let entries: Vec<Option<&str>> = names.iter().map(Option::as_deref).collect();
     let kept = retained_names(&entries, INSPECTOR);
     // De la fin vers le début : les rangs des entrées restantes ne bougent pas.

@@ -42,6 +42,8 @@ const DROPPED_ENV = [
   // serveurs).
   "CHATONLM_TELEGRAM_URL",
   "CHATONLM_DISCORD_URL",
+  // Signaler un bug : service du site, donné par un test qui s'en sert.
+  "CHATONLM_REPORT_URL",
 ];
 
 /**
@@ -215,6 +217,9 @@ export async function withApp(
       // (startFakeMessenger).
       CHATONLM_TELEGRAM_URL: "http://127.0.0.1:1",
       CHATONLM_DISCORD_URL: "http://127.0.0.1:1",
+      // Signaler un bug : chatonlm.com fermé (aucun signalement d'essai ne
+      // part vers la vraie boîte).
+      CHATONLM_REPORT_URL: "http://127.0.0.1:1",
       // Interface en anglais (langue « System » des essais), quelle que soit
       // la langue du bureau du développeur ; un test des langues donne la
       // sienne (LANG, LANGUAGE).

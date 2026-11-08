@@ -679,7 +679,9 @@ impl<H: Host> Shared<H> {
     /// journalisé sans empêcher de délier (la fin de l'app l'effacera).
     pub(crate) async fn forget_ephemeral_chat_or_log(&self, account_id: i64) {
         if let Err(error) = self.forget_ephemeral_chat(account_id).await {
-            eprintln!("chatonlm: cannot erase the ephemeral chat of a linked account: {error}");
+            crate::app_log!(
+                "chatonlm: cannot erase the ephemeral chat of a linked account: {error}"
+            );
         }
     }
 

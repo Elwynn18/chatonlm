@@ -652,7 +652,7 @@ impl Player {
                 queue.playing = false;
                 #[cfg(any(test, feature = "e2e"))]
                 if self.null {
-                    eprintln!("chatonlm: e2e audio: {} samples played", queue.played);
+                    crate::app_log!("chatonlm: e2e audio: {} samples played", queue.played);
                 }
                 return true;
             }
@@ -663,7 +663,7 @@ impl Player {
                 progress = (queue.played, Instant::now());
             } else if progress.1.elapsed() > self.shared.stall {
                 // Sortie bloquée (périphérique débranché...) : abandon.
-                eprintln!("chatonlm: audio output stalled, dropping the rest");
+                crate::app_log!("chatonlm: audio output stalled, dropping the rest");
                 queue.samples.clear();
                 queue.draining = false;
                 queue.playing = false;
@@ -813,7 +813,7 @@ where
                     fill_frame(frame, T::from_sample(*sample), T::EQUILIBRIUM, FRONT);
                 }
             },
-            |error| eprintln!("chatonlm: audio output error: {error}"),
+            |error| crate::app_log!("chatonlm: audio output error: {error}"),
             None,
         )
         .map_err(|error| error.to_string())

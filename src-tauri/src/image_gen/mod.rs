@@ -595,7 +595,7 @@ impl ImageGen {
         };
         if tokio::time::timeout(limit, stopping).await.is_err() {
             // i18n-ignore : journal.
-            eprintln!("chatonlm: the image engine didn't stop in time; leaving it");
+            crate::app_log!("chatonlm: the image engine didn't stop in time; leaving it");
         }
     }
 }

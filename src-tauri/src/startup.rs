@@ -66,11 +66,11 @@ impl Startup {
                 self.problem.lock().take();
                 // Réponses interrompues par un arrêt brutal de l'app.
                 if let Err(error) = store.blocking(|c| chats::repair(c)) {
-                    eprintln!("chatonlm: cannot repair interrupted answers: {error}");
+                    crate::app_log!("chatonlm: cannot repair interrupted answers: {error}");
                 }
                 // Conversations éphémères restées après un arrêt brutal.
                 if let Err(error) = store.blocking(|c| chats::forget_all(c)) {
-                    eprintln!("chatonlm: cannot erase the ephemeral chats: {error}");
+                    crate::app_log!("chatonlm: cannot erase the ephemeral chats: {error}");
                 }
                 // Premier démarrage montré de nouveau ou passé d'office
                 // (`CHATONLM_ONBOARDING`), avant que la page lise les
@@ -79,12 +79,12 @@ impl Startup {
                     std::env::var("CHATONLM_ONBOARDING").ok().as_deref(),
                 ) && let Err(error) = store.blocking(|c| settings::set_onboarding_done(c, done))
                 {
-                    eprintln!("chatonlm: CHATONLM_ONBOARDING ignored: {error}");
+                    crate::app_log!("chatonlm: CHATONLM_ONBOARDING ignored: {error}");
                 }
                 Some(store)
             }
             Err(error) => {
-                eprintln!("chatonlm: cannot open the database: {error}");
+                crate::app_log!("chatonlm: cannot open the database: {error}");
                 *self.problem.lock() = Some(DatabaseProblem {
                     kind: classify(&error),
                     message: error.to_string(),

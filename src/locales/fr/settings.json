@@ -143,6 +143,39 @@
     },
     "loadError": "Impossible de lire l'état des mises à jour : {message}"
   },
+  "bugReport": {
+    "title": "Signaler un bug",
+    "description": "Quelque chose ne fonctionne pas ? Décrivez-le ici. Votre message est envoyé par courriel à l'équipe de ChatonLM, en passant par chatonlm.com. Rien ne part avant que vous cliquiez sur Envoyer.",
+    "message": {
+      "label": "Que s'est-il passé ?",
+      "placeholder": "Ce que vous avez fait, ce que vous attendiez, et ce qui s'est passé à la place.",
+      "hint": "Au moins {min} caractères."
+    },
+    "email": {
+      "label": "Votre adresse e-mail (facultatif)",
+      "hint": "Seulement pour vous répondre."
+    },
+    "diagnostic": {
+      "label": "Joindre les informations de diagnostic",
+      "show": "Afficher",
+      "hide": "Masquer",
+      "loading": "Lecture du diagnostic…",
+      "hint": "Versions, système, Ollama utilisé et fin du journal de ChatonLM. Jamais le contenu de vos conversations ; votre dossier personnel et votre nom d'utilisateur sont masqués.",
+      "error": "Impossible de lire le diagnostic : {error}"
+    },
+    "openLogs": "Ouvrir le dossier des journaux",
+    "send": "Envoyer",
+    "sending": "Envoi…",
+    "sent": "Merci ! Votre signalement a été envoyé.",
+    "error": {
+      "tooMany": "Trop de signalements ont été envoyés récemment. Réessayez dans une heure.",
+      "invalidEmail": "Cette adresse e-mail ne semble pas valide.",
+      "invalidMessage": "Écrivez entre {min} et {max} caractères.",
+      "unavailable": "Le signalement n'a pas pu être envoyé. Vérifiez votre connexion et réessayez, ou écrivez à {email}.",
+      "unknown": "Le signalement n'a pas pu être envoyé ({error}). Réessayez, ou écrivez à {email}."
+    },
+    "logsError": "Impossible d'ouvrir le dossier des journaux : {error}"
+  },
   "donate": {
     "title": "Soutenir ChatonLM",
     "description": "Les dons permettent à ChatonLM de continuer à se développer. Ils serviront notamment à louer ses propres serveurs, pour que la recherche web ne dépende plus d'Ollama.",

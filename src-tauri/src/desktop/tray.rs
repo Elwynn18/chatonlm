@@ -274,7 +274,7 @@ fn run(app: &AppHandle, action: Action) {
         // « Updates », ouverte ici.
         tauri::async_runtime::spawn(async move {
             if let Err(error) = updater::restart_to_update(&app).await {
-                eprintln!("chatonlm: update not installed: {error}");
+                crate::app_log!("chatonlm: update not installed: {error}");
                 super::open_route(&app, updater::UPDATES_SETTINGS_ROUTE);
             }
         });

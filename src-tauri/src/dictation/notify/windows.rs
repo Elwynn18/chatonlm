@@ -105,7 +105,7 @@ pub(super) fn register_app(app_id: &str, icon: Option<&Path>) {
         Ok(())
     })();
     if let Err(error) = registered {
-        eprintln!("chatonlm: notifications not registered: {error}");
+        crate::app_log!("chatonlm: notifications not registered: {error}");
     }
 }
 
@@ -179,7 +179,7 @@ impl Bus for ToastBus {
             })
             .await;
             if let Ok(Err(error)) = removed {
-                eprintln!("chatonlm: notification not removed: {error}");
+                crate::app_log!("chatonlm: notification not removed: {error}");
             }
         })
     }
