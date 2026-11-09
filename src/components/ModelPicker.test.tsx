@@ -40,7 +40,7 @@ const INSTALLED = [info("qwen3.5:0.8b"), info("qwen3:0.6b"), info("llama3")];
  * Backend simulé : réglages en mémoire, liste de modèles donnée ;
  * `recommended` : réponse de recommended_models (Error : échec) ; `upstream` :
  * réponse du registre par nom (absent : false, Error : registre injoignable) ;
- * `cloudModels` : réglage des modèles cloud ; `cloudDisabled` : cloud coupé
+ * `remoteModels` : réglage des modèles cloud ; `cloudDisabled` : cloud coupé
  * sur le serveur (cloud_status) ; `server.state` : état que donne
  * server_status (modifiable en cours d'essai).
  */
@@ -50,7 +50,7 @@ function backend(
   {
     recommended = [] as (string | RecommendedModel)[] | Error,
     upstream = {} as Record<string, boolean | Error>,
-    cloudModels = false,
+    remoteModels = false,
     cloudDisabled = false,
     server = { state: "running" as ServerState },
     hardware = null as HubHardware | null,
@@ -60,7 +60,7 @@ function backend(
     serverUrl: "",
     selectedModel,
     theme: "system",
-    cloudModels,
+    remoteModels,
   };
   const patches: SettingsPatch[] = [];
   /** Noms demandés au registre, avec l'heure de la demande. */
@@ -530,7 +530,7 @@ describe("ModelPicker: cloud models", () => {
   it("are listed once turned on, with a cloud and the paid plan they need", async () => {
     backend(INSTALLED, "llama3", {
       recommended: RECOMMENDED,
-      cloudModels: true,
+      remoteModels: true,
     });
     renderPicker();
     await waitFor(() => expect(button().textContent).toBe("llama3"));
@@ -552,7 +552,7 @@ describe("ModelPicker: cloud models", () => {
   it("stay hidden when the server has its cloud turned off", async () => {
     backend(INSTALLED, "llama3", {
       recommended: RECOMMENDED,
-      cloudModels: true,
+      remoteModels: true,
       cloudDisabled: true,
     });
     renderPicker();
@@ -570,7 +570,7 @@ describe("ModelPicker: cloud models", () => {
   it("a selected one shows its cloud on the button", async () => {
     const { patches } = backend(INSTALLED, "kimi-k2.6:cloud", {
       recommended: RECOMMENDED,
-      cloudModels: true,
+      remoteModels: true,
     });
     renderPicker();
     await waitFor(() => expect(button().textContent).toBe("kimi-k2.6:cloud"));
@@ -584,10 +584,10 @@ describe("ModelPicker: cloud models", () => {
     ["the server has its cloud turned off", true, true],
   ])(
     "a selected one gives way to the most recently installed model when %s",
-    async (_, cloudModels, cloudDisabled) => {
+    async (_, remoteModels, cloudDisabled) => {
       const { patches } = backend(INSTALLED, "kimi-k2.6:cloud", {
         recommended: RECOMMENDED,
-        cloudModels,
+        remoteModels,
         cloudDisabled,
       });
       renderPicker();

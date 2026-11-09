@@ -41,7 +41,7 @@ use serde_json::{Value, json};
 use tokio::sync::watch;
 use url::Url;
 
-use super::cancelled;
+use super::{ChatErrorKind, WebTools, cancelled};
 use crate::ollama::client;
 
 pub const WEB_SEARCH: &str = "web_search";
@@ -153,9 +153,19 @@ pub enum Executed {
     Error(String),
     /// Arrêt demandé pendant l'appel : ni résultat ni erreur.
     Cancelled,
-    /// 401 du serveur : aucun compte ollama.com relié ; l'envoi s'arrête,
-    /// l'appel reste sans résultat ni erreur.
-    SignedOut,
+    /// L'envoi s'arrête avec ce code (recherche impossible : relais
+    /// injoignable, quota, pause ; jusqu'au lot L7, 401 d'Ollama sans compte
+    /// relié) ; l'appel reste sans résultat ni erreur.
+    Stop(ChatErrorKind, String),
+}
+
+/// Arrêt « recherche web impossible » (jusqu'au lot L7 : 401 d'Ollama, aucun
+/// compte relié).
+fn search_unavailable() -> Executed {
+    Executed::Stop(
+        ChatErrorKind::WebSearchUnavailable,
+        crate::i18n::t!("chat.webSearchSignedOut"),
+    )
 }
 
 /// Délais des deux outils (raccourcis dans les tests).
@@ -170,15 +180,16 @@ const TIMEOUTS: Timeouts = Timeouts {
     fetch: FETCH_TIMEOUT,
 };
 
-/// Exécute l'appel `name` par le serveur `base` (`Registry.Execute`).
+/// Exécute l'appel `name` avec les outils web de l'envoi
+/// (`Registry.Execute` ; jusqu'au lot L7, par l'Ollama de `web`).
 pub async fn execute(
-    base: &str,
+    web: &WebTools,
     name: &str,
     arguments: &Value,
     allowed: &mut AllowedUrls,
     cancel: &mut watch::Receiver<bool>,
 ) -> Executed {
-    execute_with(base, name, arguments, allowed, cancel, TIMEOUTS).await
+    execute_with(&web.ollama_url, name, arguments, allowed, cancel, TIMEOUTS).await
 }
 
 async fn execute_with(
@@ -279,7 +290,7 @@ async fn web_search(
         }
     };
     if answer.status == reqwest::StatusCode::UNAUTHORIZED {
-        return Executed::SignedOut;
+        return search_unavailable();
     }
     let body = match answer.into_body("search") {
         Ok(body) => body,
@@ -323,7 +334,7 @@ async fn web_fetch(
         }
     };
     if answer.status == reqwest::StatusCode::UNAUTHORIZED {
-        return Executed::SignedOut;
+        return search_unavailable();
     }
     let body = match answer.into_body("fetch") {
         Ok(body) => body,
@@ -468,7 +479,8 @@ mod tests {
 
     async fn run(base: &str, name: &str, arguments: Value, allowed: &mut AllowedUrls) -> Executed {
         let mut cancel = idle();
-        let running = execute(base, name, &arguments, allowed, &mut cancel);
+        let web = WebTools::on_ollama(base);
+        let running = execute(&web, name, &arguments, allowed, &mut cancel);
         tokio::time::timeout(WAIT, running)
             .await
             .unwrap_or_else(|_| panic!("{name} still running after {WAIT:?}"))
@@ -783,11 +795,11 @@ mod tests {
         // Compte délié (401) : à part, l'envoi s'arrêtera.
         assert_eq!(
             run(&fake.url(), WEB_SEARCH, search.clone(), &mut allowed).await,
-            Executed::SignedOut
+            search_unavailable()
         );
         assert_eq!(
             run(&fake.url(), WEB_FETCH, fetch.clone(), &mut allowed).await,
-            Executed::SignedOut
+            search_unavailable()
         );
         fake.set_cloud_disabled(true);
         assert_eq!(
@@ -880,7 +892,14 @@ mod tests {
         let task = tokio::spawn(async move {
             let mut allowed = AllowedUrls::default();
             let arguments = json!({ "query": "slow" });
-            execute(&base, WEB_SEARCH, &arguments, &mut allowed, &mut cancel).await
+            execute(
+                &WebTools::on_ollama(&base),
+                WEB_SEARCH,
+                &arguments,
+                &mut allowed,
+                &mut cancel,
+            )
+            .await
         });
         let polling = async {
             while fake.web_requests().is_empty() {
@@ -951,14 +970,14 @@ mod tests {
         let arguments = json!({ "query": "ollama", "max_results": 1 });
         assert_eq!(
             execute(
-                TEST_INSTANCE,
+                &WebTools::on_ollama(TEST_INSTANCE),
                 WEB_SEARCH,
                 &arguments,
                 &mut allowed,
                 &mut idle()
             )
             .await,
-            Executed::SignedOut
+            search_unavailable()
         );
     }
 

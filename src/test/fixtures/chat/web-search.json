@@ -8,24 +8,24 @@
   },
   "events": [
     {
-      "chatId": "chat-1",
-      "type": "chatCreated"
+      "type": "chatCreated",
+      "chatId": "chat-1"
     },
     {
+      "type": "userMessage",
       "message": {
-        "attachments": [],
-        "content": "What is the latest Ollama release?",
-        "createdAt": 1700000000000,
         "id": 1,
-        "model": null,
         "role": "user",
+        "content": "What is the latest Ollama release?",
         "thinking": "",
-        "thinkingEndedAt": null,
+        "model": null,
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000000,
         "thinkingStartedAt": null,
-        "toolCalls": [],
-        "updatedAt": 1700000000000
-      },
-      "type": "userMessage"
+        "thinkingEndedAt": null,
+        "attachments": [],
+        "toolCalls": []
+      }
     },
     {
       "type": "loading"
@@ -34,149 +34,149 @@
       "type": "loaded"
     },
     {
-      "createdAt": 1700000000000,
+      "type": "replyStarted",
       "messageId": 2,
-      "type": "replyStarted"
+      "createdAt": 1700000000000
     },
     {
-      "text": "The user wants a",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "The user wants a"
     },
     {
-      "text": " web search.",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " web search."
     },
     {
+      "type": "toolCalls",
       "messageId": 2,
       "toolCalls": [
         {
-          "arguments": "{\"query\":\"What is the latest Ollama release?\"}",
-          "error": null,
           "name": "web_search",
-          "result": null
+          "arguments": "{\"query\":\"What is the latest Ollama release?\"}",
+          "result": null,
+          "error": null
         }
-      ],
-      "type": "toolCalls"
+      ]
     },
     {
-      "error": null,
-      "index": 0,
+      "type": "toolResult",
       "messageId": 2,
+      "index": 0,
       "result": "{\"results\":[{\"title\":\"Result 1 for What is the latest Ollama release?\",\"url\":\"https://example.com/1?q=What+is+the+latest+Ollama+release%3F\",\"content\":\"Content 1 about What is the latest Ollama release?.\"},{\"title\":\"Result 2 for What is the latest Ollama release?\",\"url\":\"https://example.com/2?q=What+is+the+latest+Ollama+release%3F\",\"content\":\"Content 2 about What is the latest Ollama release?.\"}]}",
-      "type": "toolResult"
+      "error": null
     },
     {
-      "createdAt": 1700000000000,
+      "type": "replyStarted",
       "messageId": 3,
-      "type": "replyStarted"
+      "createdAt": 1700000000000
     },
     {
-      "text": "Found: {\"results",
-      "type": "content"
+      "type": "content",
+      "text": "Found: {\"results"
     },
     {
-      "text": "\":[{\"title\":\"Res",
-      "type": "content"
+      "type": "content",
+      "text": "\":[{\"title\":\"Res"
     },
     {
-      "text": "ult 1 for What i",
-      "type": "content"
+      "type": "content",
+      "text": "ult 1 for What i"
     },
     {
-      "text": "s the latest Oll",
-      "type": "content"
+      "type": "content",
+      "text": "s the latest Oll"
     },
     {
-      "text": "ama release?\",\"u",
-      "type": "content"
+      "type": "content",
+      "text": "ama release?\",\"u"
     },
     {
-      "text": "rl\":\"https://exa",
-      "type": "content"
+      "type": "content",
+      "text": "rl\":\"https://exa"
     },
     {
-      "text": "mple.com/1?q=Wha",
-      "type": "content"
+      "type": "content",
+      "text": "mple.com/1?q=Wha"
     },
     {
-      "text": "t+is+the+latest+",
-      "type": "content"
+      "type": "content",
+      "text": "t+is+the+latest+"
     },
     {
-      "text": "Ollama+release%3",
-      "type": "content"
+      "type": "content",
+      "text": "Ollama+release%3"
     },
     {
-      "text": "F\",\"content\":\"Co",
-      "type": "content"
+      "type": "content",
+      "text": "F\",\"content\":\"Co"
     },
     {
-      "text": "ntent 1 about Wh",
-      "type": "content"
+      "type": "content",
+      "text": "ntent 1 about Wh"
     },
     {
-      "text": "at is the latest",
-      "type": "content"
+      "type": "content",
+      "text": "at is the latest"
     },
     {
-      "text": " Ollama release?",
-      "type": "content"
+      "type": "content",
+      "text": " Ollama release?"
     },
     {
-      "text": ".\"},{\"title\":\"Re",
-      "type": "content"
+      "type": "content",
+      "text": ".\"},{\"title\":\"Re"
     },
     {
-      "text": "sult 2 for What ",
-      "type": "content"
+      "type": "content",
+      "text": "sult 2 for What "
     },
     {
-      "text": "is the latest Ol",
-      "type": "content"
+      "type": "content",
+      "text": "is the latest Ol"
     },
     {
-      "text": "lama release?\",\"",
-      "type": "content"
+      "type": "content",
+      "text": "lama release?\",\""
     },
     {
-      "text": "url\":\"https://ex",
-      "type": "content"
+      "type": "content",
+      "text": "url\":\"https://ex"
     },
     {
-      "text": "ample.com/2?q=Wh",
-      "type": "content"
+      "type": "content",
+      "text": "ample.com/2?q=Wh"
     },
     {
-      "text": "at+is+the+latest",
-      "type": "content"
+      "type": "content",
+      "text": "at+is+the+latest"
     },
     {
-      "text": "+Ollama+release%",
-      "type": "content"
+      "type": "content",
+      "text": "+Ollama+release%"
     },
     {
-      "text": "3F\",\"content\":\"C",
-      "type": "content"
+      "type": "content",
+      "text": "3F\",\"content\":\"C"
     },
     {
-      "text": "ontent 2 about W",
-      "type": "content"
+      "type": "content",
+      "text": "ontent 2 about W"
     },
     {
-      "text": "hat is the lates",
-      "type": "content"
+      "type": "content",
+      "text": "hat is the lates"
     },
     {
-      "text": "t Ollama release",
-      "type": "content"
+      "type": "content",
+      "text": "t Ollama release"
     },
     {
-      "text": "?.\"}]}",
-      "type": "content"
+      "type": "content",
+      "text": "?.\"}]}"
     },
     {
-      "messageId": 3,
-      "type": "done"
+      "type": "done",
+      "messageId": 3
     }
   ],
   "error": null

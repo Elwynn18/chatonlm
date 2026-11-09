@@ -2,28 +2,19 @@
 import type { HubFit } from "./HubFit";
 
 /**
- * Modèle recommandé par le serveur, en tête du sélecteur.
+ * Modèle recommandé (tête du sélecteur, premier modèle) ; corps de la
+ * commande : lot L5b (`hub/curation.json` + `hub::fit`).
  */
 export type RecommendedModel = { 
 /**
- * Nom affiché, sans `:latest`.
+ * Identifiant Hugging Face (`<auteur>/<dépôt>:<QUANT>`).
  */
-model: string, 
+model: string, displayName: string, sizeBytes: number | null, 
 /**
- * Forfait ollama.com exigé par un modèle cloud (« free », « pro »...),
- * tel que le serveur le donne ; absent pour un modèle local ou si le
- * serveur ne le dit pas.
- */
-requiredPlan: string | null, 
-/**
- * Mémoire qu'il faut au modèle local pour tourner (estimation du
- * serveur) ; absente pour un modèle cloud ou si le serveur ne la donne
- * pas.
+ * Mémoire qu'il faut au modèle pour tourner.
  */
 vramBytes: number | null, 
 /**
- * Place de ce besoin dans la machine du serveur (comme la pastille du
- * ModelHub) ; absente pour un serveur distant ou sans `vram_bytes`.
- * Remplie par la commande `recommended_models`.
+ * Place de ce besoin dans la machine (pastille du ModelHub).
  */
 fit: HubFit | null, };

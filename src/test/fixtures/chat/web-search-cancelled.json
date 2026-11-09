@@ -8,24 +8,24 @@
   },
   "events": [
     {
-      "chatId": "chat-1",
-      "type": "chatCreated"
+      "type": "chatCreated",
+      "chatId": "chat-1"
     },
     {
+      "type": "userMessage",
       "message": {
-        "attachments": [],
-        "content": "Search slowly for the latest Ollama release.",
-        "createdAt": 1700000000000,
         "id": 1,
-        "model": null,
         "role": "user",
+        "content": "Search slowly for the latest Ollama release.",
         "thinking": "",
-        "thinkingEndedAt": null,
+        "model": null,
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000000,
         "thinkingStartedAt": null,
-        "toolCalls": [],
-        "updatedAt": 1700000000000
-      },
-      "type": "userMessage"
+        "thinkingEndedAt": null,
+        "attachments": [],
+        "toolCalls": []
+      }
     },
     {
       "type": "loading"
@@ -34,29 +34,29 @@
       "type": "loaded"
     },
     {
-      "createdAt": 1700000000000,
+      "type": "replyStarted",
       "messageId": 2,
-      "type": "replyStarted"
+      "createdAt": 1700000000000
     },
     {
-      "text": "The user wants a",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "The user wants a"
     },
     {
-      "text": " web search.",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " web search."
     },
     {
+      "type": "toolCalls",
       "messageId": 2,
       "toolCalls": [
         {
-          "arguments": "{\"query\":\"Search slowly for the latest Ollama release.\"}",
-          "error": null,
           "name": "web_search",
-          "result": null
+          "arguments": "{\"query\":\"Search slowly for the latest Ollama release.\"}",
+          "result": null,
+          "error": null
         }
-      ],
-      "type": "toolCalls"
+      ]
     },
     {
       "type": "cancelled"

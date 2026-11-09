@@ -252,7 +252,7 @@ pub async fn unload_url_at_exit(store: &Store) -> AppResult<Option<String>> {
 
 /// Erreur d'une requête vers un intégré qui ne tourne pas (échec, arrêt).
 fn not_running(failure: Option<String>) -> AppError {
-    AppError::Ollama(match failure {
+    AppError::Engine(match failure {
         Some(reason) => crate::i18n::t!("builtinOllama.notRunningBecause", reason = reason),
         None => crate::i18n::t!("builtinOllama.notRunning"),
     })

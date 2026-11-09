@@ -41,7 +41,7 @@ pub(super) async fn inputs<H: Host>(shared: &Arc<Shared<H>>, fresh: bool) -> App
         .await;
     let busy = Arc::clone(shared);
     Ok(Inputs {
-        server: Server::from_settings(&settings),
+        server: Server::with_settings(shared.access.clone(), &settings),
         chat_model: settings.selected_model.clone(),
         local: on_this_computer(&url),
         // Réponse de conversation, ou autre travail de l'app sur Ollama.

@@ -712,7 +712,7 @@ mod tests {
         let Outcome::Failed(kind, message) = outcome else {
             panic!("expected a failure");
         };
-        assert_eq!(kind, ChatErrorKind::Unreachable);
+        assert_eq!(kind, ChatErrorKind::EngineFailed);
         assert_eq!(message, format!("can't connect to Ollama at {url}"));
     }
 

@@ -8,120 +8,120 @@
   },
   "events": [
     {
-      "chatId": "chat-1",
-      "type": "chatCreated"
+      "type": "chatCreated",
+      "chatId": "chat-1"
     },
     {
+      "type": "userMessage",
       "message": {
-        "attachments": [],
-        "content": "A red fox in the snow, watercolor",
-        "createdAt": 1700000000000,
         "id": 1,
-        "model": null,
         "role": "user",
+        "content": "A red fox in the snow, watercolor",
         "thinking": "",
-        "thinkingEndedAt": null,
+        "model": null,
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000000,
         "thinkingStartedAt": null,
-        "toolCalls": [],
-        "updatedAt": 1700000000000
-      },
-      "type": "userMessage"
+        "thinkingEndedAt": null,
+        "attachments": [],
+        "toolCalls": []
+      }
     },
     {
-      "createdAt": 1700000000000,
+      "type": "replyStarted",
       "messageId": 2,
-      "type": "replyStarted"
+      "createdAt": 1700000000000
     },
     {
+      "type": "toolCalls",
       "messageId": 2,
       "toolCalls": [
         {
-          "arguments": "{\"prompt\":\"A red fox in the snow, watercolor\"}",
-          "error": null,
           "name": "generate_image",
-          "result": null
+          "arguments": "{\"prompt\":\"A red fox in the snow, watercolor\"}",
+          "result": null,
+          "error": null
         }
-      ],
-      "type": "toolCalls"
+      ]
     },
     {
-      "index": 0,
+      "type": "imageProgress",
       "messageId": 2,
+      "index": 0,
       "progress": {
-        "cpu": false,
-        "height": 1024,
-        "preview": null,
         "stage": "starting",
         "step": null,
         "total": null,
-        "width": 1024
-      },
-      "type": "imageProgress"
+        "preview": null,
+        "cpu": false,
+        "width": 1024,
+        "height": 1024
+      }
     },
     {
-      "index": 0,
+      "type": "imageProgress",
       "messageId": 2,
+      "index": 0,
       "progress": {
-        "cpu": false,
-        "height": 1024,
-        "preview": null,
         "stage": "loading",
         "step": null,
         "total": null,
-        "width": 1024
-      },
-      "type": "imageProgress"
+        "preview": null,
+        "cpu": false,
+        "width": 1024,
+        "height": 1024
+      }
     },
     {
-      "index": 0,
+      "type": "imageProgress",
       "messageId": 2,
+      "index": 0,
       "progress": {
-        "cpu": false,
-        "height": 1024,
-        "preview": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAP0lEQVR4AQE0AMv/AP8AAP8AAP8AAP8AAAD/AAD/AAD/AAD/AAAA/wAA/wAA/wAA/wAAAP8AAP8AAP8AAP8AAK6TD/FxtSpPAAAAAElFTkSuQmCC",
         "stage": "generating",
         "step": 1,
         "total": 2,
-        "width": 1024
-      },
-      "type": "imageProgress"
+        "preview": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAP0lEQVR4AQE0AMv/AP8AAP8AAP8AAP8AAAD/AAD/AAD/AAD/AAAA/wAA/wAA/wAA/wAAAP8AAP8AAP8AAP8AAK6TD/FxtSpPAAAAAElFTkSuQmCC",
+        "cpu": false,
+        "width": 1024,
+        "height": 1024
+      }
     },
     {
-      "index": 0,
+      "type": "imageProgress",
       "messageId": 2,
+      "index": 0,
       "progress": {
-        "cpu": false,
-        "height": 1024,
-        "preview": null,
         "stage": "generating",
         "step": 2,
         "total": 2,
-        "width": 1024
-      },
-      "type": "imageProgress"
+        "preview": null,
+        "cpu": false,
+        "width": 1024,
+        "height": 1024
+      }
     },
     {
+      "type": "imageReady",
+      "messageId": 2,
+      "index": 0,
       "attachment": {
-        "filename": "image-7.png",
         "id": 1,
+        "filename": "image-7.png",
         "kind": "image",
         "mime": "image/png",
         "size": 120
-      },
-      "index": 0,
-      "messageId": 2,
-      "type": "imageReady"
+      }
     },
     {
-      "error": null,
-      "index": 0,
+      "type": "toolResult",
       "messageId": 2,
+      "index": 0,
       "result": "{\"attachmentId\":1,\"width\":1024,\"height\":1024,\"seed\":7,\"model\":\"Fake image model\"}",
-      "type": "toolResult"
+      "error": null
     },
     {
-      "messageId": 2,
-      "type": "done"
+      "type": "done",
+      "messageId": 2
     }
   ],
   "error": null

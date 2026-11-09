@@ -841,6 +841,7 @@ mod tests {
                     context_length: 0,
                     keep_alive: 0,
                     cloud: false,
+                    ..crate::chat::Server::detached()
                 },
                 chat_model: "qwen3:0.6b".into(),
                 local: true,

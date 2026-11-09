@@ -19,6 +19,7 @@ fn server(url: &str) -> Server {
         context_length: 0,
         keep_alive: 0,
         cloud: false,
+        ..crate::chat::Server::detached()
     }
 }
 

@@ -14,13 +14,14 @@ use crate::store::Store;
 #[tauri::command]
 pub async fn proofread_run(
     store: State<'_, Store>,
+    access: State<'_, crate::llm::Access>,
     proofreader: State<'_, Proofreader>,
     job_id: String,
     text: String,
     mode: ProofreadMode,
     on_event: Channel<ProofreadEvent>,
 ) -> AppResult<()> {
-    proofread::run_job(&store, &proofreader, job_id, text, mode, &on_event).await
+    proofread::run_job(&store, &access, &proofreader, job_id, text, mode, &on_event).await
 }
 
 /// Arrête une correction en cours ; sans effet si elle est déjà finie.

@@ -214,7 +214,7 @@ describe("preloading the chosen model", () => {
     // Comme le moteur : Ollama injoignable, la liste des modèles aussi.
     simulator.handle("list_models", () => {
       if (backend.serverState !== "running") {
-        throw { kind: "ollama", message: "Could not connect to Ollama" };
+        throw { kind: "engine", message: "Could not connect to Ollama" };
       }
       return backend.models.map(modelInfo);
     });
@@ -255,7 +255,7 @@ describe("preloading the chosen model", () => {
     // Liste lue, puis Ollama ne répond plus pour elle ; ses nouveaux essais
     // (useModels) passés d'un coup.
     simulator.handle("list_models", () => {
-      throw { kind: "ollama", message: "Could not connect to Ollama" };
+      throw { kind: "engine", message: "Could not connect to Ollama" };
     });
     vi.useFakeTimers();
     await act(async () => {
@@ -277,7 +277,7 @@ describe("preloading the chosen model", () => {
   it("ignores a failed load, without trying again", async () => {
     const { app, loads } = setup("/c/new", {}, (backend) => {
       backend.runningErrors.load.set("qwen3:0.6b", {
-        kind: "ollama",
+        kind: "engine",
         message: "model requires more system memory",
       });
     });

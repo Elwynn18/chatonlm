@@ -8,7 +8,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::chat::stream::Think;
 use crate::error::{AppError, AppResult};
-use crate::ollama::models::display_name;
+use crate::llm::ids::legacy_key;
 
 /// Longueur maximale d'un nom de modèle, en octets (comme `selected_model`).
 const MODEL_LEN: usize = 256;
@@ -83,14 +83,15 @@ pub fn set_always_thinks(connection: &Connection, model: &str) -> AppResult<()> 
     Ok(())
 }
 
-/// Clé d'un modèle : son nom affiché. `llama3:latest` et `llama3` désignent le
-/// même modèle et partagent donc leurs préférences.
+/// Clé d'un modèle ([`legacy_key`]) : un identifiant tel quel ; un ancien nom
+/// d'Ollama sans `:latest` (`llama3:latest` et `llama3` désignent le même
+/// modèle et partagent donc leurs préférences).
 fn key(model: &str) -> AppResult<String> {
     if model.is_empty() || model.trim() != model || model.len() > MODEL_LEN {
         // i18n-ignore : nom donné par la page, déjà valide.
         return Err(AppError::Invalid(format!("invalid model name: {model}")));
     }
-    Ok(display_name(model))
+    Ok(legacy_key(model))
 }
 
 #[cfg(test)]

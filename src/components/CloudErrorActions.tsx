@@ -55,13 +55,13 @@ export function CloudErrorActions({
   const t = useT();
   const [failure, setFailure] = useState<string | null>(null);
   let action;
-  if (kind === "cloudOff") {
+  if (kind === "remoteOff") {
     action = (
       <button type="button" onClick={onOpenSettings} className={PRIMARY}>
         {t("chat.cloud.openSettings")}
       </button>
     );
-  } else if (kind === "cloudLimit") {
+  } else if (kind === "remoteLimit") {
     action = (
       <button
         type="button"

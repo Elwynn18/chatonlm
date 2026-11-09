@@ -268,7 +268,7 @@ describe("Settings: Ollama account", () => {
 
   it("a failed sign-out keeps the account and says so", async () => {
     const { backend } = setup(ADA);
-    backend.accountErrors.signOut = { kind: "ollama", message: "status 500" };
+    backend.accountErrors.signOut = { kind: "engine", message: "status 500" };
     const account = await card();
     await userEvent.click(
       await within(account).findByRole("button", { name: "Sign out" }),
@@ -503,7 +503,7 @@ describe("Settings: Ollama account", () => {
 
 describe("Settings: Ollama account that cannot be read", () => {
   const UNAVAILABLE = {
-    kind: "ollama",
+    kind: "engine",
     message: "account unavailable",
   } as const;
   const REASON = "Couldn't check your Ollama account: account unavailable";
@@ -631,7 +631,7 @@ describe("Settings: Ollama account in other languages", () => {
   /** Données du compte et raisons venues du serveur : montrées telles quelles. */
   const DATA = ["ada", "ada@example.com", "account unavailable"];
   const UNAVAILABLE = {
-    kind: "ollama",
+    kind: "engine",
     message: "account unavailable",
   } as const;
 
@@ -656,7 +656,7 @@ describe("Settings: Ollama account in other languages", () => {
     expect(account.getAttribute("aria-label")).toBe("⟦Ollama account⟧");
     expect(untranslatedTexts(account, DATA)).toEqual([]);
 
-    backend.accountErrors.signOut = { kind: "ollama", message: "status 500" };
+    backend.accountErrors.signOut = { kind: "engine", message: "status 500" };
     await userEvent.click(
       within(account).getByRole("button", { name: /Sign out/ }),
     );

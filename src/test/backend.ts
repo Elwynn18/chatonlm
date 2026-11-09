@@ -630,7 +630,7 @@ export function fakeBackend(
       showUncensored: false,
       systemPrompt: "",
       unloadOnQuit: true,
-      cloudModels: false,
+      remoteModels: false,
     },
     settingsErrors: { get: null, update: null },
     details: new Map<string, ModelDetails | AppError>(

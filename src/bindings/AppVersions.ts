@@ -5,7 +5,7 @@
  */
 export type AppVersions = { chatonlm: string, 
 /**
- * Ollama intégré (fichier `ollama/VERSION` des ressources, livré avec
- * les paquets) ; `None` : pas d'Ollama intégré.
+ * Moteur `llama-server` livré (fichier `VERSION` à côté du binaire) ;
+ * `None` : pas de moteur, ou version illisible.
  */
-ollama: string | null, };
+llamaCpp: string | null, };

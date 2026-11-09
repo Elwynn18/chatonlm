@@ -341,6 +341,8 @@ impl Open {
 
 pub(crate) struct Shared<H: Host> {
     pub(crate) host: H,
+    /// Accès aux modèles (`llm`) ; `store` en est la base.
+    pub(crate) access: crate::llm::Access,
     pub(crate) store: Store,
     /// Pièces jointes du pont : à part de celles de la page.
     pub(crate) staging: Staging,
@@ -379,10 +381,11 @@ impl<H: Host> Clone for Bridge<H> {
 }
 
 impl<H: Host> Bridge<H> {
-    pub fn new(host: H, store: Store, config: Config) -> Self {
+    pub fn new(host: H, access: crate::llm::Access, config: Config) -> Self {
         Self(Arc::new(Shared {
             host,
-            store,
+            store: access.store().clone(),
+            access,
             staging: Staging::default(),
             config,
             pairings: Mutex::new(Pairings::default()),
@@ -1097,7 +1100,11 @@ pub fn setup(app: &AppHandle) {
     if app.try_state::<Bridge>().is_some() {
         return;
     }
-    let Some(store) = app.try_state::<Store>().map(|store| store.inner().clone()) else {
+    // Accès aux modèles posé avec la base (`llm::setup`).
+    let Some(access) = app
+        .try_state::<crate::llm::Access>()
+        .map(|access| access.inner().clone())
+    else {
         return;
     };
     let config = match Config::for_app(app) {
@@ -1112,7 +1119,7 @@ pub fn setup(app: &AppHandle) {
         voice: voice::AppVoice(app.clone()),
         dictation: dictation::AppDictation(app.clone()),
     };
-    let service = Bridge::new(host, store, config);
+    let service = Bridge::new(host, access, config);
     app.manage(service.clone());
     tauri::async_runtime::spawn(async move { service.start_saved().await });
 }

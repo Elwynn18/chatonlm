@@ -136,7 +136,7 @@ describe("useThink", () => {
     };
 
     // Ollama lent une fois : le bouton reste, et Off avec lui.
-    await reread({ kind: "ollama", message: "Ollama didn't answer in time" });
+    await reread({ kind: "engine", message: "Ollama didn't answer in time" });
     expect(client.getQueryState(modelDetailsKey(QWEN))?.status).toBe("error");
     expect(result.current.control).toEqual({ kind: "toggle", value: false });
 

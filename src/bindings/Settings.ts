@@ -115,9 +115,11 @@ systemPrompt: string,
  */
 unloadOnQuit: boolean, 
 /**
- * Modèles cloud d'Ollama montrés dans le sélecteur et acceptés à l'envoi
- * (chat, mode vocal, Easy Link, correction, étude) ; coupé par défaut :
- * rien ne part alors sur ollama.com. « Reset to defaults » n'y touche
- * pas.
+ * Modèles distants (fournisseurs compatibles OpenAI, clé de
+ * l'utilisateur) montrés dans le sélecteur et acceptés à l'envoi (chat,
+ * mode vocal, Easy Link, correction, étude) ; coupé par défaut : rien ne
+ * part alors chez un fournisseur. Colonne `cloud_models` (remise à 0 par
+ * la migration 0041 : le sens a changé). « Reset to defaults » n'y
+ * touche pas.
  */
-cloudModels: boolean, };
+remoteModels: boolean, };

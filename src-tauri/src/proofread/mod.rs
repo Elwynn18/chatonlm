@@ -127,8 +127,9 @@ pub enum ProofreadErrorCode {
     NoModel,
     /// Modèle absent du serveur.
     ModelNotFound,
-    /// Serveur Ollama injoignable.
-    Unreachable,
+    /// Le moteur n'a pas pu servir le modèle (jusqu'au lot L5a : Ollama
+    /// injoignable).
+    EngineFailed,
     /// Texte vide (seulement des espaces).
     Empty,
     /// Texte au-delà de [`MAX_CHARS`].
@@ -376,7 +377,7 @@ impl Job<'_> {
             Ok(details) => Some(details),
             Err(ShowError::Unreachable(_)) => {
                 let message = t!("ollama.unreachableAt", address = self.server.url);
-                return self.fail(outcome, ProofreadErrorCode::Unreachable, message);
+                return self.fail(outcome, ProofreadErrorCode::EngineFailed, message);
             }
             Err(ShowError::NotFound(message)) if message.contains("not found") => {
                 let message = t!("proofread.modelNotFound", model = self.model);
@@ -464,7 +465,7 @@ impl Job<'_> {
         };
         let unreachable = || {
             Asked::Failed(
-                ProofreadErrorCode::Unreachable,
+                ProofreadErrorCode::EngineFailed,
                 t!("ollama.unreachableAt", address = base),
             )
         };
@@ -628,6 +629,7 @@ impl Proofreader {
 /// le travail.
 pub async fn run_job(
     store: &Store,
+    access: &crate::llm::Access,
     proofreader: &Proofreader,
     job_id: String,
     text: String,
@@ -653,7 +655,7 @@ pub async fn run_job(
     };
     let model = model_of(&settings).await.unwrap_or_default();
     run(
-        &Server::from_settings(&settings),
+        &Server::with_settings(access.clone(), &settings),
         &model,
         mode,
         ProofreadOptions::of(&settings),

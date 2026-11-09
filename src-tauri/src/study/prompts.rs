@@ -902,6 +902,7 @@ mod tests {
             context_length,
             keep_alive,
             cloud: false,
+            ..crate::chat::Server::detached()
         }
     }
 

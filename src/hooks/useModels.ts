@@ -76,7 +76,7 @@ export function useRecommendedModels(): readonly RecommendedModel[] {
  */
 export function useCloudModels(): boolean {
   const { settings } = useSettings();
-  const on = settings?.cloudModels ?? false;
+  const on = settings?.remoteModels ?? false;
   const { cloudDisabled } = useCloudStatus({ enabled: on });
   return on && !cloudDisabled;
 }

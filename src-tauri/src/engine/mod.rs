@@ -45,6 +45,7 @@ pub mod options;
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
@@ -347,9 +348,20 @@ pub struct Lease {
     /// Identifiant du modèle.
     pub model: String,
     /// Sur le processeur après l'échec de la carte.
-    #[allow(dead_code, reason = "lu par le chat (lot L5)")]
     pub cpu_fallback: bool,
+    /// Posé quand ce processus est arrêté à la demande ([`Engine::unload`],
+    /// [`Engine::unload_all`], [`Engine::shutdown`]).
+    unloaded: Arc<AtomicBool>,
     _guard: LeaseGuard,
+}
+
+impl Lease {
+    /// Le moteur a déchargé ce processus à la demande (bouton, suppression,
+    /// fin de l'app) : une coupure de ses requêtes est un arrêt, pas une
+    /// panne (contrat 102 § 1.2). Jamais vrai pour une mort du processus.
+    pub fn unloaded(&self) -> bool {
+        self.unloaded.load(Ordering::SeqCst)
+    }
 }
 
 impl std::fmt::Debug for Lease {
@@ -459,6 +471,8 @@ struct Instance {
     /// Vrai pendant qu'un processus est créé mais pas encore noté
     /// (`process` encore vide) : un arrêt l'attend.
     creating: watch::Receiver<bool>,
+    /// Déchargé à la demande (partagé avec ses `Lease`).
+    unloaded: Arc<AtomicBool>,
 }
 
 impl Instance {
@@ -578,7 +592,6 @@ impl Engine {
     }
 
     /// Un binaire est là.
-    #[allow(dead_code, reason = "lu par le chat et la page (lot L5)")]
     pub fn available(&self) -> bool {
         self.inner
             .config
@@ -692,6 +705,7 @@ impl Engine {
     /// place, elle, ne touche jamais un modèle tenu.
     pub async fn unload(&self, id: &str) {
         let taken = self.inner.take(|instance| same_model(&instance.id, id));
+        mark_unloaded(&taken);
         self.inner.stop_all(taken).await;
     }
 
@@ -709,7 +723,64 @@ impl Engine {
     /// Arrête tous les modèles.
     pub async fn unload_all(&self) {
         let taken = self.inner.take(|_| true);
+        mark_unloaded(&taken);
         self.inner.stop_all(taken).await;
+    }
+
+    /// Le modèle `id` est prêt avec ces options (même contexte calculé, même
+    /// processeur) et vivant : [`Engine::ensure`] rendrait un `Lease` sans
+    /// attendre de chargement. Lecture seule (rien n'est lancé).
+    pub async fn is_ready(&self, id: &str, options: LoadOptions) -> bool {
+        let inner = &self.inner;
+        if inner.config.bin.is_none() || *inner.closed.borrow() {
+            return false;
+        }
+        let Ok(Some(model)) = inner.models.local(id).await else {
+            return false;
+        };
+        let vram_total = match options.ctx.filter(|ctx| *ctx > 0) {
+            Some(_) => 0,
+            None => inner.vram_total().await,
+        };
+        let ctx = options::context_for(
+            options.ctx,
+            vram_total,
+            model.context_max,
+            model.capabilities.vision,
+        );
+        let state = inner.state.lock();
+        let cpu = options.cpu_only || state.gpu_failed.contains(&model.id);
+        state.instances.iter().any(|instance| {
+            same_model(&instance.id, &model.id)
+                && matches!(instance.phase, Phase::Ready)
+                && instance.spec.ctx == ctx
+                && instance.spec.cpu == cpu
+                && instance
+                    .process
+                    .as_ref()
+                    .is_some_and(|process| process.exited().is_none())
+        })
+    }
+
+    /// La carte graphique a échoué pendant cette session (un modèle au
+    /// moins est passé au processeur) : écran du moteur.
+    pub fn gpu_failed(&self) -> bool {
+        !self.inner.state.lock().gpu_failed.is_empty()
+    }
+
+    /// Binaire du moteur (version, écran du moteur) ; `None` : indisponible.
+    pub fn binary(&self) -> Option<PathBuf> {
+        self.inner.config.bin.clone()
+    }
+
+    /// Dossier des journaux (`<données>/logs`).
+    pub fn logs_dir(&self) -> PathBuf {
+        self.inner.config.logs.clone()
+    }
+
+    /// Machine vue par le moteur (cartes, mémoire), lecture récente.
+    pub async fn machine(&self) -> Option<Machine> {
+        self.inner.models.machine().await
     }
 
     /// Arrête les modèles inactifs (aucune requête en cours, chargement fini) :
@@ -861,6 +932,7 @@ impl Inner {
                             ctx: instance.spec.ctx,
                             model: instance.id.clone(),
                             cpu_fallback: instance.cpu_fallback,
+                            unloaded: instance.unloaded.clone(),
                             _guard: LeaseGuard {
                                 inner: self.this.clone(),
                                 generation: instance.generation,
@@ -912,6 +984,7 @@ impl Inner {
             cpu_fallback: fallback,
             outcome,
             creating,
+            unloaded: Arc::new(AtomicBool::new(false)),
         });
         drop(state);
         let inner = self.arc();
@@ -1432,6 +1505,14 @@ struct Created<'a>(&'a watch::Sender<bool>);
 impl Drop for Created<'_> {
     fn drop(&mut self) {
         self.0.send_replace(false);
+    }
+}
+
+/// Note « déchargé à la demande » sur les modèles retirés (leurs `Lease`
+/// le voient).
+fn mark_unloaded(taken: &[Instance]) {
+    for instance in taken {
+        instance.unloaded.store(true, Ordering::SeqCst);
     }
 }
 

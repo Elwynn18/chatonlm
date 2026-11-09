@@ -162,7 +162,9 @@ struct Storage {
     data_dir: PathBuf,
 }
 
-/// Téléchargements en cours, en file et terminés, partagés par les commandes.
+/// Téléchargements en cours, en file et terminés, partagés par les commandes
+/// (clonable : même file, pour `llm::Access`).
+#[derive(Clone)]
 pub struct HubDownloads {
     inner: Arc<Inner>,
 }

@@ -102,7 +102,7 @@ describe("useOutdatedModels", () => {
   it("an unreachable Ollama or registry says nothing", async () => {
     const { backend, asked } = setup([A]);
     backend.outdated.add(A.model);
-    backend.outdatedError = { kind: "ollama", message: "unreachable" };
+    backend.outdatedError = { kind: "engine", message: "unreachable" };
     await waitFor(() => expect(asked()).toHaveLength(1));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(probe()).toBe("none");

@@ -25,7 +25,7 @@ async function offered(
   const backend = fakeBackend(simulator, { selectedModel: "qwen3:0.6b" });
   if (failing) {
     backend.hub.failures.set("hub_download", {
-      kind: "ollama",
+      kind: "engine",
       message: "can't connect to Ollama",
     });
   }

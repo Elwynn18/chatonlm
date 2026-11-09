@@ -86,7 +86,7 @@ type Field =
   | "preloadModel"
   | "unloadOnQuit"
   | "showUncensored"
-  | "cloudModels"
+  | "remoteModels"
   | "systemPrompt";
 
 /** Longueur maximale du pré-prompt (`MAX_SYSTEM_PROMPT_CHARS` du moteur). */
@@ -118,7 +118,7 @@ export function Models({
   // Cloud coupé sur le serveur : lu seulement une fois les modèles cloud
   // activés.
   const { cloudDisabled } = useCloudStatus({
-    enabled: settings?.cloudModels ?? false,
+    enabled: settings?.remoteModels ?? false,
   });
   const ids = {
     keepAlive: useId(),
@@ -272,19 +272,19 @@ export function Models({
               description={t("settings.models.cloud.description")}
               descriptionId={ids.cloudDescription}
             >
-              {settings.cloudModels && cloudDisabled && (
+              {settings.remoteModels && cloudDisabled && (
                 <p className={`mt-1 ${MUTED}`}>
                   {t("settings.models.cloud.serverOff")}
                 </p>
               )}
-              <RowError message={errors.cloudModels} />
+              <RowError message={errors.remoteModels} />
             </Row>
             <Switch
               label={t("settings.models.cloud.label")}
-              checked={settings.cloudModels}
+              checked={settings.remoteModels}
               describedBy={ids.cloudDescription}
-              onChange={(cloudModels) =>
-                void save("cloudModels", { cloudModels })
+              onChange={(remoteModels) =>
+                void save("remoteModels", { remoteModels })
               }
             />
           </div>

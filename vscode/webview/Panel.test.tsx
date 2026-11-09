@@ -347,7 +347,7 @@ describe("Panel", () => {
       renderPanel({ chatId: "c1" });
       stream(3, {
         type: "error",
-        kind: "unreachable",
+        kind: "engineFailed",
         message: "Ollama is not running",
       });
       expect(screen.getByRole("alert").textContent).toContain(

@@ -117,7 +117,7 @@ async fn bench(model: &str) -> Bench {
         discord: discord.url(),
     };
     Bench {
-        service: EasyLink::new(host, store.clone(), urls),
+        service: EasyLink::new(host, crate::llm::access_for(&store), urls),
         ollama,
         telegram,
         discord,
@@ -1257,7 +1257,7 @@ async fn a_conversation_busy_in_the_app_refuses_the_message_and_keeps_its_photo(
                 &store,
                 &service.shared().host.engine,
                 &Staging::default(),
-                Server::from_settings(&settings),
+                Server::with_settings(service.shared().access.clone(), &settings),
                 request,
                 Origin::Page,
                 &|_| {},

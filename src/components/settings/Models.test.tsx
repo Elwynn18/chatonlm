@@ -312,15 +312,15 @@ describe("Settings: Models", () => {
       await waitFor(() =>
         expect(cloudSwitch().getAttribute("aria-checked")).toBe("true"),
       );
-      expect(backend.settings.cloudModels).toBe(true);
+      expect(backend.settings.remoteModels).toBe(true);
       expect(screen.queryByText(SERVER_CLOUD_OFF)).toBeNull();
       await userEvent.click(cloudSwitch());
       await waitFor(() =>
         expect(cloudSwitch().getAttribute("aria-checked")).toBe("false"),
       );
       expect(patches(simulator)).toEqual([
-        { cloudModels: true },
-        { cloudModels: false },
+        { remoteModels: true },
+        { remoteModels: false },
       ]);
     });
 
@@ -329,7 +329,7 @@ describe("Settings: Models", () => {
         (backend) => {
           backend.cloud = { disabled: true, source: "env" };
         },
-        { cloudModels: true },
+        { remoteModels: true },
       );
       await screen.findByTestId("models-settings");
       expect(await screen.findByText(SERVER_CLOUD_OFF)).toBeTruthy();
@@ -493,7 +493,7 @@ describe("Settings: Models", () => {
       setup((backend) => {
         backend.running = [runningModel("qwen3:0.6b")];
         backend.runningErrors.unload = {
-          kind: "ollama",
+          kind: "engine",
           message: "Ollama returned HTTP 500",
         };
       });
@@ -595,7 +595,7 @@ describe("Settings: Models", () => {
     it("says why a model could not be loaded", async () => {
       setup((backend) => {
         backend.runningErrors.load.set("qwen3:0.6b", {
-          kind: "ollama",
+          kind: "engine",
           message:
             "model requires more system memory (64.0 GiB) than is available (8.0 GiB)",
         });
@@ -632,7 +632,7 @@ describe("Settings: Models", () => {
     it("says when Ollama can't be reached, and tries again", async () => {
       const { backend } = setup((backend) => {
         backend.runningErrors.list = {
-          kind: "ollama",
+          kind: "engine",
           message: "Could not connect to Ollama at http://127.0.0.1:11434",
         };
       });
@@ -719,7 +719,7 @@ describe("Settings: Models", () => {
       await screen.findByText("No models are loaded.");
       expect(document.activeElement).toBe(title());
 
-      backend.runningErrors.list = { kind: "ollama", message: "down" };
+      backend.runningErrors.list = { kind: "engine", message: "down" };
       await screen.findByTestId("loaded-models-error", undefined, {
         timeout: 4000,
       });
@@ -733,7 +733,7 @@ describe("Settings: Models", () => {
 
     it("Try again stays available while the list is read again by itself", async () => {
       const { simulator, backend } = setup((backend) => {
-        backend.runningErrors.list = { kind: "ollama", message: "down" };
+        backend.runningErrors.list = { kind: "engine", message: "down" };
       });
       await screen.findByTestId("loaded-models-error");
       // Relecture automatique retenue.
@@ -773,7 +773,7 @@ describe("Settings: Models", () => {
         backend.running = [runningModel("qwen3:0.6b")];
       });
       await loadedCard();
-      backend.runningErrors.list = { kind: "ollama", message: "down" };
+      backend.runningErrors.list = { kind: "engine", message: "down" };
       await screen.findByTestId("loaded-models-error", undefined, {
         timeout: 4000,
       });
@@ -807,7 +807,7 @@ describe("Settings: Models", () => {
       const { backend } = setup((backend) => {
         backend.running = [runningModel("gemma3:270m")];
         backend.runningErrors.load.set("qwen3:0.6b", {
-          kind: "ollama",
+          kind: "engine",
           message: "out of memory",
         });
       });
@@ -818,7 +818,7 @@ describe("Settings: Models", () => {
         "Couldn't load qwen3:0.6b: out of memory",
       );
       // Unload d'une autre ligne : l'échec du chargement disparaît.
-      backend.runningErrors.unload = { kind: "ollama", message: "busy" };
+      backend.runningErrors.unload = { kind: "engine", message: "busy" };
       await userEvent.click(unloadButton("gemma3:270m"));
       expect((await screen.findByTestId("unload-error")).textContent).toBe(
         "Couldn't unload gemma3:270m: busy",
@@ -836,7 +836,7 @@ describe("Settings: Models", () => {
       expect(screen.queryByTestId("unload-error")).toBeNull();
       // Unload all : l'échec d'un chargement disparaît aussi.
       backend.runningErrors.load.set("qwen3.5:0.8b", {
-        kind: "ollama",
+        kind: "engine",
         message: "out of memory",
       });
       await waitFor(() => expect(loadSelect().value).toBe("qwen3.5:0.8b"));
@@ -853,10 +853,10 @@ describe("Settings: Models", () => {
       const { app, backend } = setup((backend) => {
         backend.running = [runningModel("gemma3:270m")];
         backend.runningErrors.load.set("qwen3:0.6b", {
-          kind: "ollama",
+          kind: "engine",
           message: "out of memory",
         });
-        backend.runningErrors.unload = { kind: "ollama", message: "busy" };
+        backend.runningErrors.unload = { kind: "engine", message: "busy" };
       });
       const reread = () =>
         act(() =>
@@ -1131,7 +1131,7 @@ describe("Settings: Models in other languages", () => {
         runningModel("gemma3:270m", { sizeVram: 0, expiresAt: now - MINUTE }),
       ];
       backend.runningErrors.load.set("qwen3.5:0.8b", {
-        kind: "ollama",
+        kind: "engine",
         message: "out of memory",
       });
     });
@@ -1154,7 +1154,7 @@ describe("Settings: Models in other languages", () => {
     expect(untranslatedTexts(tab(), allow)).toEqual([]);
 
     // Échec d'un déchargement, puis Unloading… pendant Unload all.
-    backend.runningErrors.unload = { kind: "ollama", message: "busy" };
+    backend.runningErrors.unload = { kind: "engine", message: "busy" };
     await userEvent.click(screen.getAllByTestId("unload-model")[0]);
     await screen.findByTestId("unload-error");
     expect(untranslatedTexts(tab(), [...allow, "busy"])).toEqual([]);
@@ -1171,7 +1171,7 @@ describe("Settings: Models in other languages", () => {
     expect(untranslatedTexts(tab(), NAMES)).toEqual([]);
 
     const message = "Could not connect to Ollama at http://127.0.0.1:11434";
-    backend.runningErrors.list = { kind: "ollama", message };
+    backend.runningErrors.list = { kind: "engine", message };
     await within(card).findByRole("alert", undefined, { timeout: 4000 });
     expect(untranslatedTexts(tab(), [message])).toEqual([]);
   });

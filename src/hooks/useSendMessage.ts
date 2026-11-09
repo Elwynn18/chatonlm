@@ -184,13 +184,16 @@ export function useSendMessage() {
             }
             break;
           case "error":
-            if (event.kind === "unreachable" || event.kind === "connectionLost")
+            if (
+              event.kind === "engineFailed" ||
+              event.kind === "connectionLost"
+            )
               void queryClient.invalidateQueries({ queryKey: healthKey });
             // Le serveur n'a pas (ou plus) de compte : la carte des réglages,
             // où mène l'erreur, ne doit pas montrer un compte périmé.
             if (
-              event.kind === "webSearchSignedOut" ||
-              event.kind === "cloudSignedOut"
+              event.kind === "webSearchUnavailable" ||
+              event.kind === "remoteKey"
             )
               void queryClient.invalidateQueries({ queryKey: accountKey });
             finalEvent();

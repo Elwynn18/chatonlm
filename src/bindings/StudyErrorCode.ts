@@ -4,4 +4,4 @@
  * Code d'une erreur : l'interface choisit l'action à proposer ; le message
  * (dans la langue de l'interface au moment de l'erreur) est montré tel quel.
  */
-export type StudyErrorCode = "noModel" | "modelNotFound" | "unreachable" | "signedOut" | "invalid" | "failed";
+export type StudyErrorCode = "noModel" | "modelNotFound" | "engineFailed" | "webSearch" | "invalid" | "failed";

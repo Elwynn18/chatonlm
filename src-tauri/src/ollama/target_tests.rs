@@ -352,7 +352,7 @@ async fn a_failed_builtin_is_restarted_only_on_request() {
     assert_eq!(std::fs::read_to_string(&crashes).unwrap(), left);
     // Une requête échoue aussitôt, clairement, sans viser l'ancien port.
     let started = Instant::now();
-    let Err(AppError::Ollama(message)) = targeting.request_settings(&store).await else {
+    let Err(AppError::Engine(message)) = targeting.request_settings(&store).await else {
         panic!("a request went to a failed built-in Ollama");
     };
     assert!(
@@ -623,7 +623,7 @@ async fn after_shutdown_nothing_restarts_the_builtin() {
     for _ in 0..2 {
         targeting.status(&store).await.unwrap();
         targeting.runtime(&store).await.unwrap();
-        let Err(AppError::Ollama(message)) = targeting.request_settings(&store).await else {
+        let Err(AppError::Engine(message)) = targeting.request_settings(&store).await else {
             panic!("request after shutdown");
         };
         assert!(message.contains("isn't running"), "{message}");

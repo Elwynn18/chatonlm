@@ -1137,7 +1137,7 @@ fn a_voice_send_without_a_reply_ends_at_once() {
     rig.observe_voice(user_message(), None);
     rig.observe_voice(
         ChatEvent::Error {
-            kind: ChatErrorKind::Unreachable,
+            kind: ChatErrorKind::EngineFailed,
             message: "unreachable".into(),
         },
         None,

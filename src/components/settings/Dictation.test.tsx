@@ -970,7 +970,7 @@ describe("Dictation without the lists (review 43, F2)", () => {
   it("Ollama unreachable: said so, the polish model never not installed", async () => {
     const { simulator } = setup(ready({ polishModel: "gemma3:4b" }));
     simulator.handle("list_models", () => {
-      throw { kind: "ollama", message: "connection refused" };
+      throw { kind: "engine", message: "connection refused" };
     });
     const element = await card();
     await within(element).findByText(
@@ -1398,7 +1398,7 @@ describe("Dictation texts translated (pseudo-language)", () => {
       });
     });
     simulator.handle("list_models", () => {
-      throw { kind: "ollama", message: "connection refused" };
+      throw { kind: "engine", message: "connection refused" };
     });
     const element = await screen.findByTestId("dictation");
     await within(element).findByText(/Ollama is unreachable/);

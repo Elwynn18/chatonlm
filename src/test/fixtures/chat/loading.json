@@ -7,24 +7,24 @@
   },
   "events": [
     {
-      "chatId": "chat-1",
-      "type": "chatCreated"
+      "type": "chatCreated",
+      "chatId": "chat-1"
     },
     {
+      "type": "userMessage",
       "message": {
-        "attachments": [],
-        "content": "Say hello in one word.",
-        "createdAt": 1700000000000,
         "id": 1,
-        "model": null,
         "role": "user",
+        "content": "Say hello in one word.",
         "thinking": "",
-        "thinkingEndedAt": null,
+        "model": null,
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000000,
         "thinkingStartedAt": null,
-        "toolCalls": [],
-        "updatedAt": 1700000000000
-      },
-      "type": "userMessage"
+        "thinkingEndedAt": null,
+        "attachments": [],
+        "toolCalls": []
+      }
     },
     {
       "type": "loading"
@@ -33,774 +33,774 @@
       "type": "loaded"
     },
     {
-      "createdAt": 1700000000000,
+      "type": "replyStarted",
       "messageId": 2,
-      "type": "replyStarted"
+      "createdAt": 1700000000000
     },
     {
-      "text": "Okay",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "Okay"
     },
     {
-      "text": ",",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ","
     },
     {
-      "text": " the",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " the"
     },
     {
-      "text": " user",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " user"
     },
     {
-      "text": " wants",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " wants"
     },
     {
-      "text": " me",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " me"
     },
     {
-      "text": " to",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " to"
     },
     {
-      "text": " say",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " say"
     },
     {
-      "text": " \"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " \""
     },
     {
-      "text": "hello",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "hello"
     },
     {
-      "text": "\"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "\""
     },
     {
-      "text": " in",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " in"
     },
     {
-      "text": " one",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " one"
     },
     {
-      "text": " word",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " word"
     },
     {
-      "text": ".",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "."
     },
     {
-      "text": " Let",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " Let"
     },
     {
-      "text": " me",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " me"
     },
     {
-      "text": " think",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " think"
     },
     {
-      "text": ".",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "."
     },
     {
-      "text": " The",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " The"
     },
     {
-      "text": " word",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " word"
     },
     {
-      "text": " \"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " \""
     },
     {
-      "text": "hello",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "hello"
     },
     {
-      "text": "\"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "\""
     },
     {
-      "text": " is",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " is"
     },
     {
-      "text": " the",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " the"
     },
     {
-      "text": " standard",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " standard"
     },
     {
-      "text": " way",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " way"
     },
     {
-      "text": " to",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " to"
     },
     {
-      "text": " greet",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " greet"
     },
     {
-      "text": ",",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ","
     },
     {
-      "text": " but",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " but"
     },
     {
-      "text": " maybe",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " maybe"
     },
     {
-      "text": " they",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " they"
     },
     {
-      "text": " want",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " want"
     },
     {
-      "text": " a",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " a"
     },
     {
-      "text": " more",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " more"
     },
     {
-      "text": " creative",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " creative"
     },
     {
-      "text": " or",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " or"
     },
     {
-      "text": " unique",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " unique"
     },
     {
-      "text": " approach",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " approach"
     },
     {
-      "text": ".",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "."
     },
     {
-      "text": " Could",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " Could"
     },
     {
-      "text": " they",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " they"
     },
     {
-      "text": " be",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " be"
     },
     {
-      "text": " looking",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " looking"
     },
     {
-      "text": " for",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " for"
     },
     {
-      "text": " a",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " a"
     },
     {
-      "text": " playful",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " playful"
     },
     {
-      "text": " way",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " way"
     },
     {
-      "text": ",",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ","
     },
     {
-      "text": " like",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " like"
     },
     {
-      "text": " a",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " a"
     },
     {
-      "text": " pun",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " pun"
     },
     {
-      "text": " or",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " or"
     },
     {
-      "text": " a",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " a"
     },
     {
-      "text": " word",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " word"
     },
     {
-      "text": "play",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "play"
     },
     {
-      "text": "?",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "?"
     },
     {
-      "text": " For",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " For"
     },
     {
-      "text": " example",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " example"
     },
     {
-      "text": ",",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ","
     },
     {
-      "text": " \"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " \""
     },
     {
-      "text": "h",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "h"
     },
     {
-      "text": "elo",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "elo"
     },
     {
-      "text": "\"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "\""
     },
     {
-      "text": " is",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " is"
     },
     {
-      "text": " a",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " a"
     },
     {
-      "text": " common",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " common"
     },
     {
-      "text": " abbreviation",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " abbreviation"
     },
     {
-      "text": ",",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ","
     },
     {
-      "text": " or",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " or"
     },
     {
-      "text": " \"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " \""
     },
     {
-      "text": "h",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "h"
     },
     {
-      "text": "elo",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "elo"
     },
     {
-      "text": "\"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "\""
     },
     {
-      "text": " as",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " as"
     },
     {
-      "text": " in",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " in"
     },
     {
-      "text": " \"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " \""
     },
     {
-      "text": "Hello",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "Hello"
     },
     {
-      "text": ",",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ","
     },
     {
-      "text": " I",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " I"
     },
     {
-      "text": "'m",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "'m"
     },
     {
-      "text": " hel",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " hel"
     },
     {
-      "text": "o",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "o"
     },
     {
-      "text": ".\"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ".\""
     },
     {
-      "text": " But",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " But"
     },
     {
-      "text": " wait",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " wait"
     },
     {
-      "text": ",",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ","
     },
     {
-      "text": " the",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " the"
     },
     {
-      "text": " user",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " user"
     },
     {
-      "text": " specified",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " specified"
     },
     {
-      "text": " \"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " \""
     },
     {
-      "text": "one",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "one"
     },
     {
-      "text": " word",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " word"
     },
     {
-      "text": ",\"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ",\""
     },
     {
-      "text": " so",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " so"
     },
     {
-      "text": " it",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " it"
     },
     {
-      "text": "'s",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "'s"
     },
     {
-      "text": " just",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " just"
     },
     {
-      "text": " the",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " the"
     },
     {
-      "text": " word",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " word"
     },
     {
-      "text": " \"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " \""
     },
     {
-      "text": "hello",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "hello"
     },
     {
-      "text": ".\"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ".\""
     },
     {
-      "text": " But",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " But"
     },
     {
-      "text": " maybe",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " maybe"
     },
     {
-      "text": " they",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " they"
     },
     {
-      "text": " want",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " want"
     },
     {
-      "text": " a",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " a"
     },
     {
-      "text": " different",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " different"
     },
     {
-      "text": " approach",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " approach"
     },
     {
-      "text": ".",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "."
     },
     {
-      "text": " Let",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " Let"
     },
     {
-      "text": " me",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " me"
     },
     {
-      "text": " check",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " check"
     },
     {
-      "text": " if",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " if"
     },
     {
-      "text": " there",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " there"
     },
     {
-      "text": "'s",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "'s"
     },
     {
-      "text": " any",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " any"
     },
     {
-      "text": " other",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " other"
     },
     {
-      "text": " word",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " word"
     },
     {
-      "text": " that",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " that"
     },
     {
-      "text": " can",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " can"
     },
     {
-      "text": " be",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " be"
     },
     {
-      "text": " used",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " used"
     },
     {
-      "text": ".",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "."
     },
     {
-      "text": " No",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " No"
     },
     {
-      "text": ",",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ","
     },
     {
-      "text": " \"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " \""
     },
     {
-      "text": "hello",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "hello"
     },
     {
-      "text": "\"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "\""
     },
     {
-      "text": " is",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " is"
     },
     {
-      "text": " the",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " the"
     },
     {
-      "text": " only",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " only"
     },
     {
-      "text": " standard",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " standard"
     },
     {
-      "text": " one",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " one"
     },
     {
-      "text": ".",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "."
     },
     {
-      "text": " Maybe",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " Maybe"
     },
     {
-      "text": " they",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " they"
     },
     {
-      "text": " want",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " want"
     },
     {
-      "text": " a",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " a"
     },
     {
-      "text": " creative",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " creative"
     },
     {
-      "text": " twist",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " twist"
     },
     {
-      "text": ",",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ","
     },
     {
-      "text": " like",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " like"
     },
     {
-      "text": " \"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " \""
     },
     {
-      "text": "h",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "h"
     },
     {
-      "text": "elo",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "elo"
     },
     {
-      "text": "\"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "\""
     },
     {
-      "text": " as",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " as"
     },
     {
-      "text": " in",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " in"
     },
     {
-      "text": " \"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " \""
     },
     {
-      "text": "Hello",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "Hello"
     },
     {
-      "text": ",",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ","
     },
     {
-      "text": " I",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " I"
     },
     {
-      "text": "'m",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "'m"
     },
     {
-      "text": " hel",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " hel"
     },
     {
-      "text": "o",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "o"
     },
     {
-      "text": ".\"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ".\""
     },
     {
-      "text": " But",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " But"
     },
     {
-      "text": " the",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " the"
     },
     {
-      "text": " user",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " user"
     },
     {
-      "text": " said",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " said"
     },
     {
-      "text": " \"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " \""
     },
     {
-      "text": "one",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "one"
     },
     {
-      "text": " word",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " word"
     },
     {
-      "text": ",\"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ",\""
     },
     {
-      "text": " so",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " so"
     },
     {
-      "text": " it",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " it"
     },
     {
-      "text": "'s",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "'s"
     },
     {
-      "text": " just",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " just"
     },
     {
-      "text": " \"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " \""
     },
     {
-      "text": "hello",
-      "type": "thinking"
+      "type": "thinking",
+      "text": "hello"
     },
     {
-      "text": ".\"",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ".\""
     },
     {
-      "text": " I",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " I"
     },
     {
-      "text": " should",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " should"
     },
     {
-      "text": " confirm",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " confirm"
     },
     {
-      "text": " that",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " that"
     },
     {
-      "text": " and",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " and"
     },
     {
-      "text": " maybe",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " maybe"
     },
     {
-      "text": " offer",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " offer"
     },
     {
-      "text": " alternatives",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " alternatives"
     },
     {
-      "text": " if",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " if"
     },
     {
-      "text": " needed",
-      "type": "thinking"
+      "type": "thinking",
+      "text": " needed"
     },
     {
-      "text": ".\n",
-      "type": "thinking"
+      "type": "thinking",
+      "text": ".\n"
     },
     {
-      "text": "\"",
-      "type": "content"
+      "type": "content",
+      "text": "\""
     },
     {
-      "text": "Hello",
-      "type": "content"
+      "type": "content",
+      "text": "Hello"
     },
     {
-      "text": "\"",
-      "type": "content"
+      "type": "content",
+      "text": "\""
     },
     {
-      "size": 4096,
       "type": "context",
-      "used": 34
+      "used": 34,
+      "size": 4096
     },
     {
-      "messageId": 2,
-      "type": "done"
+      "type": "done",
+      "messageId": 2
     }
   ],
   "error": null

@@ -702,7 +702,7 @@ async fn respond<H: Host>(
     }
     // Nom d'un modèle cloud, réglage coupé : rien ne part, pas même
     // /api/show.
-    if models::is_cloud_name(&model) && !settings.cloud_models {
+    if models::is_cloud_name(&model) && !settings.remote_models {
         return say(messenger, channel, &models::cloud_off(&model)).await;
     }
     // Modèle absent du serveur (supprimé depuis son choix) : le moteur de
@@ -832,7 +832,7 @@ async fn respond<H: Host>(
         // Seulement pour une conversation à ouvrir (ignoré sinon).
         ephemeral: Some(account.ephemeral),
     };
-    let server = Server::from_settings(&settings);
+    let server = Server::with_settings(shared.access.clone(), &settings);
     let (events, mut received) = mpsc::unbounded_channel::<ChatEvent>();
     // L'envoi dans sa tâche : la lecture de la réponse d'Ollama n'attend pas
     // les requêtes à la messagerie.
@@ -979,11 +979,11 @@ async fn respond<H: Host>(
         }
         Ok(Ok(())) if incomplete => Some(t!("easyLink.bot.incomplete")),
         Ok(Ok(())) => match failure {
-            Some((ChatErrorKind::WebSearchSignedOut, _)) => {
+            Some((ChatErrorKind::WebSearchUnavailable, _)) => {
                 Some(t!("easyLink.bot.webSignedOut", p = p))
             }
             // Sans l'adresse du serveur, qui ne regarde pas le correspondant.
-            Some((ChatErrorKind::Unreachable, _)) => Some(t!("easyLink.bot.ollamaDown")),
+            Some((ChatErrorKind::EngineFailed, _)) => Some(t!("easyLink.bot.ollamaDown")),
             // Le correspondant ne peut pas compacter : l'envoi suivant le
             // fera de lui-même.
             Some((ChatErrorKind::ContextFull, _)) => Some(t!("easyLink.bot.contextFull")),
@@ -1086,7 +1086,7 @@ async fn sees(settings: &Settings, model: &str, p: &str) -> Result<(), String> {
         return Err(t!("easyLink.bot.noModel", p = p));
     }
     // Nom d'un modèle cloud, réglage coupé : pas même /api/show.
-    if models::is_cloud_name(model) && !settings.cloud_models {
+    if models::is_cloud_name(model) && !settings.remote_models {
         return Err(models::cloud_off(model));
     }
     let details = models::show(&settings.effective_server_url, model)

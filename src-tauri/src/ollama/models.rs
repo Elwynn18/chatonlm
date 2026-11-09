@@ -6,7 +6,7 @@
 //! capacité `completion` (ce qui écarte embeddings, modèles d'images et de
 //! décision), et pas de modèle distant (un modèle cloud n'est pas installé :
 //! le sélecteur le propose par les recommandations, si le réglage
-//! `cloud_models` le permet). L'ordre est celui d'Ollama : du plus récemment
+//! `remote_models` le permet). L'ordre est celui d'Ollama : du plus récemment
 //! installé au plus ancien.
 
 use std::time::Duration;
@@ -50,10 +50,10 @@ pub struct ModelInfo {
     pub capabilities: Vec<String>,
 }
 
-/// Détails d'un modèle utiles à l'interface (`POST /api/show`).
+/// Détails d'un modèle utiles à l'interface (`POST /api/show`). Plus
+/// exporté vers la page (lot L10) : `llm::models::ModelDetails` porte ce nom.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct ModelDetails {
     /// Nom demandé, tel que reçu.
     pub model: String,
@@ -131,10 +131,10 @@ struct Recommendation {
     vram_bytes: Value,
 }
 
-/// Modèle recommandé par le serveur, en tête du sélecteur.
+/// Modèle recommandé par le serveur, en tête du sélecteur. Plus exporté
+/// vers la page (lot L10) : `llm::models::RecommendedModel` porte ce nom.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
 pub struct RecommendedModel {
     /// Nom affiché, sans `:latest`.
     pub model: String,
@@ -204,7 +204,7 @@ pub async fn list(base: &str) -> AppResult<Vec<ModelInfo>> {
 
 fn parse(body: &str) -> AppResult<Vec<ModelInfo>> {
     let tags: TagsResponse = serde_json::from_str(body)
-        .map_err(|error| AppError::Ollama(t!("ollama.unexpectedModels", error = error)))?;
+        .map_err(|error| AppError::Engine(t!("ollama.unexpectedModels", error = error)))?;
     Ok(tags
         .models
         .into_iter()
@@ -245,7 +245,7 @@ fn usable(tag: &Tag) -> bool {
 /// Détails du modèle `model` (nom affiché ou complet : Ollama complète
 /// `:latest`). Erreurs : modèle absent → [`AppError::NotFound`] (404
 /// d'Ollama) ; serveur injoignable, autre statut d'erreur ou réponse illisible
-/// → [`AppError::Ollama`].
+/// → [`AppError::Engine`].
 pub async fn details(base: &str, model: &str) -> AppResult<ModelDetails> {
     show(base, model).await.map_err(|error| match error {
         ShowError::Unreachable(error) | ShowError::Other(error) => error,
@@ -311,7 +311,7 @@ pub async fn show(base: &str, model: &str) -> Result<ModelDetails, ShowError> {
 
 fn parse_details(model: &str, body: &str) -> AppResult<ModelDetails> {
     let show: ShowResponse = serde_json::from_str(body)
-        .map_err(|error| AppError::Ollama(t!("ollama.unexpectedDetails", error = error)))?;
+        .map_err(|error| AppError::Engine(t!("ollama.unexpectedDetails", error = error)))?;
     Ok(ModelDetails {
         model: model.to_owned(),
         capabilities: show.capabilities.unwrap_or_default(),
@@ -368,7 +368,7 @@ impl CloudRefusal {
     }
 }
 
-/// Modèle cloud demandé alors que le réglage `cloud_models` est coupé :
+/// Modèle cloud demandé alors que le réglage `remote_models` est coupé :
 /// rien n'est envoyé (texte de l'erreur).
 pub fn cloud_off(model: &str) -> String {
     t!("cloud.off", model = model)
@@ -427,7 +427,7 @@ fn think_value(value: &Value) -> Option<Think> {
 
 /// Modèles recommandés par le serveur, dans son ordre, comme le sélecteur de
 /// l'officiel (`useModels.ts`) : ceux du cloud compris (le sélecteur les
-/// écarte tant que le réglage `cloud_models` est coupé), noms affichés sans
+/// écarte tant que le réglage `remote_models` est coupé), noms affichés sans
 /// `:latest`, sans doublon. Serveur sans cette route (404) : liste vide.
 pub async fn recommended(base: &str) -> AppResult<Vec<RecommendedModel>> {
     let url = client::server_url(base)?;
@@ -450,7 +450,7 @@ pub async fn recommended(base: &str) -> AppResult<Vec<RecommendedModel>> {
 
 fn parse_recommendations(body: &str) -> AppResult<Vec<RecommendedModel>> {
     let response: RecommendationsResponse = serde_json::from_str(body)
-        .map_err(|error| AppError::Ollama(t!("ollama.unexpectedRecommendations", error = error)))?;
+        .map_err(|error| AppError::Engine(t!("ollama.unexpectedRecommendations", error = error)))?;
     let mut models: Vec<RecommendedModel> = Vec::new();
     for recommendation in response.recommendations.unwrap_or_default() {
         if recommendation.model.is_empty() {
@@ -500,7 +500,7 @@ fn ollama_error(body: &str) -> Option<String> {
 
 pub(crate) fn unreachable(error: reqwest::Error) -> AppError {
     let error = error.without_url();
-    AppError::Ollama(if error.is_timeout() {
+    AppError::Engine(if error.is_timeout() {
         t!("ollama.timeout")
     } else if error.is_connect() {
         t!("ollama.unreachable")
@@ -511,7 +511,7 @@ pub(crate) fn unreachable(error: reqwest::Error) -> AppError {
 
 /// Réponse d'erreur d'Ollama : son statut, puis son message tel quel.
 pub(crate) fn answered(status: u16, message: &str) -> AppError {
-    AppError::Ollama(t!("ollama.http", status = status, message = message))
+    AppError::Engine(t!("ollama.http", status = status, message = message))
 }
 
 #[cfg(test)]
@@ -553,7 +553,7 @@ mod tests {
             "model 'x' not found"
         );
         assert_eq!(error_message("<html>"), "<html>");
-        assert!(matches!(parse("{}"), Err(AppError::Ollama(_))));
+        assert!(matches!(parse("{}"), Err(AppError::Engine(_))));
     }
 
     #[tokio::test]
@@ -564,7 +564,7 @@ mod tests {
         assert!(list(&empty.url()).await.unwrap().is_empty());
         let url = empty.url();
         empty.stop().await;
-        let Err(AppError::Ollama(message)) = list(&url).await else {
+        let Err(AppError::Engine(message)) = list(&url).await else {
             panic!("expected an Ollama error");
         };
         assert_eq!(message, "can't connect to Ollama");
@@ -781,7 +781,7 @@ mod tests {
         ));
 
         let failing = FakeOllama::start(Mode::Status(500)).await.unwrap();
-        let Err(AppError::Ollama(message)) = details(&failing.url(), "qwen3:0.6b").await else {
+        let Err(AppError::Engine(message)) = details(&failing.url(), "qwen3:0.6b").await else {
             panic!("expected an Ollama error");
         };
         assert!(message.starts_with("Ollama answered HTTP 500"), "{message}");
@@ -793,14 +793,14 @@ mod tests {
         assert_eq!(message, "model 'qwen3:0.6b' not found");
 
         let other = FakeOllama::start(Mode::NotOllama).await.unwrap();
-        let Err(AppError::Ollama(message)) = details(&other.url(), "qwen3:0.6b").await else {
+        let Err(AppError::Engine(message)) = details(&other.url(), "qwen3:0.6b").await else {
             panic!("expected an Ollama error");
         };
         assert!(message.starts_with("unexpected model details"), "{message}");
 
         let url = server.url();
         server.stop().await;
-        let Err(AppError::Ollama(message)) = details(&url, "qwen3:0.6b").await else {
+        let Err(AppError::Engine(message)) = details(&url, "qwen3:0.6b").await else {
             panic!("expected an Ollama error");
         };
         assert_eq!(message, "can't connect to Ollama");
@@ -851,7 +851,7 @@ mod tests {
         let failing = FakeOllama::start(Mode::Status(500)).await.unwrap();
         assert!(matches!(
             show(&failing.url(), "qwen3:0.6b").await,
-            Err(ShowError::Other(AppError::Ollama(_)))
+            Err(ShowError::Other(AppError::Engine(_)))
         ));
         // Connexion acceptée puis fermée : le serveur est là.
         let closing = FakeOllama::start(Mode::Close).await.unwrap();
@@ -861,7 +861,7 @@ mod tests {
         ));
         let url = server.url();
         server.stop().await;
-        let Err(ShowError::Unreachable(AppError::Ollama(message))) = show(&url, "qwen3:0.6b").await
+        let Err(ShowError::Unreachable(AppError::Engine(message))) = show(&url, "qwen3:0.6b").await
         else {
             panic!("expected an unreachable server");
         };
@@ -937,7 +937,7 @@ mod tests {
             r#"{"recommendations": [{"model": 1}]}"#,
         ] {
             assert!(
-                matches!(parse_recommendations(unreadable), Err(AppError::Ollama(_))),
+                matches!(parse_recommendations(unreadable), Err(AppError::Engine(_))),
                 "{unreadable}"
             );
         }
@@ -967,12 +967,12 @@ mod tests {
         let old = FakeOllama::start(Mode::Status(404)).await.unwrap();
         assert!(recommended(&old.url()).await.unwrap().is_empty());
         let failing = FakeOllama::start(Mode::Status(500)).await.unwrap();
-        let Err(AppError::Ollama(message)) = recommended(&failing.url()).await else {
+        let Err(AppError::Engine(message)) = recommended(&failing.url()).await else {
             panic!("expected an Ollama error");
         };
         assert!(message.starts_with("Ollama answered HTTP 500"), "{message}");
         let other = FakeOllama::start(Mode::NotOllama).await.unwrap();
-        let Err(AppError::Ollama(message)) = recommended(&other.url()).await else {
+        let Err(AppError::Engine(message)) = recommended(&other.url()).await else {
             panic!("expected an Ollama error");
         };
         assert!(
@@ -981,7 +981,7 @@ mod tests {
         );
         let url = old.url();
         old.stop().await;
-        let Err(AppError::Ollama(message)) = recommended(&url).await else {
+        let Err(AppError::Engine(message)) = recommended(&url).await else {
             panic!("expected an Ollama error");
         };
         assert_eq!(message, "can't connect to Ollama");

@@ -34,7 +34,21 @@ import type { HubScope } from "@/bindings/HubScope";
 import type { HubSearch } from "@/bindings/HubSearch";
 import type { MenuEntryStatus } from "@/bindings/MenuEntryStatus";
 import type { ModelDetails } from "@/bindings/ModelDetails";
-import type { ModelInfo } from "@/bindings/ModelInfo";
+import type { ChatModel } from "@/bindings/ChatModel";
+import type { EngineRunningModel } from "@/bindings/EngineRunningModel";
+import type { EngineStatus } from "@/bindings/EngineStatus";
+import type { EngineModelsDir } from "@/bindings/EngineModelsDir";
+import type { FolderEvent } from "@/bindings/FolderEvent";
+import type { FolderMoved } from "@/bindings/FolderMoved";
+import type { ImportOrigin } from "@/bindings/ImportOrigin";
+import type { ImportSource } from "@/bindings/ImportSource";
+import type { ImportState } from "@/bindings/ImportState";
+import type { Leftovers } from "@/bindings/Leftovers";
+import type { CleanupReport } from "@/bindings/CleanupReport";
+import type { RemoteProvider } from "@/bindings/RemoteProvider";
+import type { RemoteProviderInput } from "@/bindings/RemoteProviderInput";
+import type { RemoteCheck } from "@/bindings/RemoteCheck";
+import type { WebSearchStatus } from "@/bindings/WebSearchStatus";
 import type { ModelsLocation } from "@/bindings/ModelsLocation";
 import type { ProofreadEvent } from "@/bindings/ProofreadEvent";
 import type { ProofreadMode } from "@/bindings/ProofreadMode";
@@ -42,7 +56,6 @@ import type { MoveEvent } from "@/bindings/MoveEvent";
 import type { Lang } from "@/bindings/Lang";
 import type { MoveOutcome } from "@/bindings/MoveOutcome";
 import type { RecommendedModel } from "@/bindings/RecommendedModel";
-import type { RunningModel } from "@/bindings/RunningModel";
 import type { SelectionResult } from "@/bindings/SelectionResult";
 import type { SendRequest } from "@/bindings/SendRequest";
 import type { ServerStatus } from "@/bindings/ServerStatus";
@@ -362,24 +375,25 @@ export function openExternal(url: string): Promise<void> {
   return invoke<void>("open_external", { url });
 }
 
-/** Modèles installés utilisables en conversation, du plus récent au plus ancien. */
-export function listModels(): Promise<ModelInfo[]> {
-  return invoke<ModelInfo[]>("list_models");
+/**
+ * Modèles du sélecteur : installés (du plus récent au plus ancien), puis
+ * distants (`origin: "remote"`) si le réglage `remoteModels` les permet.
+ */
+export function listModels(): Promise<ChatModel[]> {
+  return invoke<ChatModel[]>("list_models");
 }
 
 /**
- * Capacités et réglages du raisonnement d'un modèle (/api/show). Rejette
- * comme listModels (Ollama injoignable...), et si le modèle est absent.
+ * Capacités et réglages de la réflexion d'un modèle (lus dans son GGUF).
+ * Rejette (`notFound`) si le modèle est absent.
  */
 export function modelDetails(model: string): Promise<ModelDetails> {
   return invoke<ModelDetails>("model_details", { model });
 }
 
 /**
- * Modèles recommandés par le serveur Ollama
- * (/api/experimental/model-recommendations), modèles cloud compris (avec le
- * forfait exigé), sans le suffixe `:latest` ; liste vide si le serveur n'en
- * propose pas.
+ * Modèles recommandés (identifiants Hugging Face), avec la mémoire qu'il
+ * leur faut et leur place dans la machine ; liste vide s'il n'y en a pas.
  */
 export function recommendedModels(): Promise<RecommendedModel[]> {
   return invoke<RecommendedModel[]>("recommended_models");
@@ -394,21 +408,130 @@ export function modelExistsUpstream(model: string): Promise<boolean> {
 }
 
 /**
- * Parmi `models`, les modèles installés dont le registre (ollama.com,
- * Hugging Face) a une version plus récente, dans l'ordre reçu. Rejette comme
- * listModels (Ollama injoignable...) ; un registre injoignable ne signale
- * rien.
+ * Parmi `models`, les modèles installés dont Hugging Face a une version plus
+ * récente, dans l'ordre reçu ; Hugging Face injoignable : rien.
  */
 export function outdatedModels(models: string[]): Promise<string[]> {
   return invoke<string[]>("outdated_models", { models });
 }
 
+/** Modèles du moteur (chargés ou en chargement), du plus récemment servi au plus ancien. */
+export function runningModels(): Promise<EngineRunningModel[]> {
+  return invoke<EngineRunningModel[]>("running_models");
+}
+
+/** Événement du moteur : la liste complète de ses modèles à chaque changement. */
+export const ENGINE_MODELS_EVENT = "engine-models";
+
+export function listenEngineModels(
+  onChange: (models: EngineRunningModel[]) => void,
+): Promise<UnlistenFn> {
+  return listen<EngineRunningModel[]>(ENGINE_MODELS_EVENT, (event) =>
+    onChange(event.payload),
+  );
+}
+
+/** État du moteur de texte : version de llama.cpp, accélération, repli sur le processeur. */
+export function engineStatus(): Promise<EngineStatus> {
+  return invoke<EngineStatus>("engine_status");
+}
+
+/** Ouvre le dossier des journaux du moteur (`llama-*.log`). */
+export function openEngineLogs(): Promise<void> {
+  return invoke<void>("open_engine_logs");
+}
+
+/** Dossier des modèles du moteur (réglé, ou celui par défaut). */
+export function engineModelsDir(): Promise<EngineModelsDir> {
+  return invoke<EngineModelsDir>("engine_models_dir");
+}
+
 /**
- * Modèles en mémoire (/api/ps), dans l'ordre d'Ollama. Rejette comme
- * listModels (Ollama injoignable...).
+ * Change le dossier des modèles du moteur (choisi par pickModelsFolder), en
+ * y déplaçant les modèles si `moveModels` ; progression sur `onEvent`.
  */
-export function runningModels(): Promise<RunningModel[]> {
-  return invoke<RunningModel[]>("running_models");
+export function changeEngineModelsDir(
+  path: string,
+  moveModels: boolean,
+  onEvent: Channel<FolderEvent>,
+): Promise<FolderMoved> {
+  return invoke<FolderMoved>("change_engine_models_dir", {
+    path,
+    moveModels,
+    onEvent,
+  });
+}
+
+/** État de la reprise des modèles d'Ollama (ChatonLM 0.9.x). */
+export function modelImportState(): Promise<ImportState> {
+  return invoke<ImportState>("model_import_state");
+}
+
+/** Dossiers d'Ollama de cette origine et leurs modèles. */
+export function modelImportScan(origin: ImportOrigin): Promise<ImportSource[]> {
+  return invoke<ImportSource[]>("model_import_scan", { origin });
+}
+
+/** Reprend `names` du dossier `dir` ; progression par l'événement `model-import`. */
+export function modelImportStart(
+  origin: ImportOrigin,
+  dir: string,
+  names: string[],
+): Promise<void> {
+  return invoke<void>("model_import_start", { origin, dir, names });
+}
+
+/** Arrête la reprise (ou le déplacement du dossier) en cours. */
+export function modelImportCancel(): Promise<void> {
+  return invoke<void>("model_import_cancel");
+}
+
+/** Ce qui reste de l'Ollama intégré après sa reprise ; null si rien. */
+export function modelImportLeftovers(): Promise<Leftovers | null> {
+  return invoke<Leftovers | null>("model_import_leftovers");
+}
+
+/** Supprime ce qui reste de l'Ollama intégré (après confirmation). */
+export function modelImportCleanup(): Promise<CleanupReport> {
+  return invoke<CleanupReport>("model_import_cleanup");
+}
+
+/** Événement du moteur : l'état de la reprise à chaque changement. */
+export const MODEL_IMPORT_EVENT = "model-import";
+
+export function listenModelImport(
+  onChange: (state: ImportState) => void,
+): Promise<UnlistenFn> {
+  return listen<ImportState>(MODEL_IMPORT_EVENT, (event) =>
+    onChange(event.payload),
+  );
+}
+
+/** Fournisseurs des modèles distants (jamais la clé, seulement son indice). */
+export function remoteProviders(): Promise<RemoteProvider[]> {
+  return invoke<RemoteProvider[]>("remote_providers");
+}
+
+/** Ajoute ou modifie un fournisseur (la clé ne repart jamais vers la page). */
+export function saveRemoteProvider(
+  input: RemoteProviderInput,
+): Promise<RemoteProvider> {
+  return invoke<RemoteProvider>("save_remote_provider", { input });
+}
+
+/** Retire un fournisseur et sa clé. */
+export function deleteRemoteProvider(id: string): Promise<void> {
+  return invoke<void>("delete_remote_provider", { id });
+}
+
+/** Vérifie la clé et l'adresse d'un fournisseur. */
+export function checkRemoteProvider(id: string): Promise<RemoteCheck> {
+  return invoke<RemoteCheck>("check_remote_provider", { id });
+}
+
+/** État de la recherche web par le relais (quota du jour, pause). */
+export function webSearchStatus(): Promise<WebSearchStatus> {
+  return invoke<WebSearchStatus>("web_search_status");
 }
 
 /**
@@ -1418,7 +1541,7 @@ export function setAutoDownload(enabled: boolean): Promise<UpdateStatus> {
   return invoke<UpdateStatus>("set_auto_download", { enabled });
 }
 
-/** Versions installées : ChatonLM, et l'Ollama intégré s'il est livré. */
+/** Versions installées : ChatonLM, et le moteur llama.cpp s'il est livré. */
 export function appVersions(): Promise<AppVersions> {
   return invoke<AppVersions>("app_versions");
 }

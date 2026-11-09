@@ -84,7 +84,11 @@ rustls-platform-verifier = "0.7.1"
 # Versions des mises à jour (comparées à celle de l'app). Déjà dans l'arbre.
 semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+# `preserve_order` : l'ordre des propriétés d'un schéma (sortie structurée,
+# outils) est celui de l'écriture, que la grammaire de llama-server impose
+# (contrat 102 § 1.5). Unifié par Cargo pour tout le dépôt ; indexmap déjà
+# dans l'arbre.
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
 # Dictée : empreintes des modèles de transcription téléchargés. Déjà dans
 # l'arbre.
 sha2 = "0.10.9"

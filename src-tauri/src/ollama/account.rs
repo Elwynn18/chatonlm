@@ -57,7 +57,7 @@ const DEFAULT_OLLAMA_COM: &str = "https://ollama.com";
 /// Texte de l'officiel (`fetchConnectUrl`) quand le serveur ne donne pas
 /// d'adresse de connexion.
 fn no_connect_url() -> AppError {
-    AppError::Ollama(t!("account.noConnectUrl"))
+    AppError::Engine(t!("account.noConnectUrl"))
 }
 
 /// État du compte relié au serveur.
@@ -274,7 +274,7 @@ async fn me_within(base: &str, timeout: Duration) -> Result<Me, MeError> {
         200 => match serde_json::from_slice::<UserResponse>(&body) {
             Ok(user) if !user.name.trim().is_empty() => Ok(Me::User(user)),
             Ok(_) => Ok(Me::SignedOut(None)),
-            Err(error) => Err(MeError::Answer(AppError::Ollama(t!(
+            Err(error) => Err(MeError::Answer(AppError::Engine(t!(
                 "ollama.unexpectedAccount",
                 error = error
             )))),
@@ -577,7 +577,7 @@ mod tests {
             ))
         );
         // Page d'un autre site que celui d'ollama.com : refusée.
-        let Err(AppError::Ollama(message)) = sign_in_url_with(&base, DEFAULT_OLLAMA_COM).await
+        let Err(AppError::Engine(message)) = sign_in_url_with(&base, DEFAULT_OLLAMA_COM).await
         else {
             panic!("expected an error");
         };
@@ -591,7 +591,7 @@ mod tests {
         let failing = FakeOllama::start(Mode::Status(503)).await.unwrap();
         let base = failing.url();
         assert!(status_with(&base, &base).await.is_err());
-        let Err(AppError::Ollama(message)) = sign_in_url_with(&base, &base).await else {
+        let Err(AppError::Engine(message)) = sign_in_url_with(&base, &base).await else {
             panic!("expected an error");
         };
         assert_eq!(message, "Failed to fetch connect URL");
@@ -602,7 +602,7 @@ mod tests {
     #[tokio::test]
     async fn an_unreachable_server_keeps_its_message() {
         let base = "http://127.0.0.1:9";
-        let Err(AppError::Ollama(message)) = sign_in_url_with(base, base).await else {
+        let Err(AppError::Engine(message)) = sign_in_url_with(base, base).await else {
             panic!("expected an error");
         };
         assert_eq!(message, "can't connect to Ollama");

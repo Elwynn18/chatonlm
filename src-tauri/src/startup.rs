@@ -326,6 +326,9 @@ fn adopt(app: &AppHandle, startup: &Startup, result: AppResult<Store>) {
     if let Some(store) = startup.record(result) {
         // Base retrouvée : sa langue remplace celle du bureau.
         i18n::apply(app, i18n::saved(Some(&store)));
+        if let Err(error) = crate::llm::setup(app, store.clone()) {
+            crate::app_log!("chatonlm: model access unavailable: {error}");
+        }
         app.manage(store);
         // Easy Link n'a pas pu démarrer sans base : il démarre maintenant.
         crate::easy_link::setup(app);

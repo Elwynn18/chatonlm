@@ -310,7 +310,7 @@ describe("Compact now", () => {
     // Le focus passe au panneau (le bouton est désactivé).
     expect(document.activeElement).toBe(panel);
 
-    act(() => fail({ kind: "ollama", message: "Ollama isn't responding." }));
+    act(() => fail({ kind: "engine", message: "Ollama isn't responding." }));
     const alert = await within(panel).findByRole("alert");
     // Fin du compactage : la zone de saisie ne reprend pas le focus au
     // panneau, qui reste ouvert avec l'échec, sans le rouvrir.
@@ -430,7 +430,7 @@ describe("Compact now", () => {
   it("disables Retry of the other errors while it runs", async () => {
     for (const [kind, name] of [
       ["loop", "Retry"],
-      ["webSearchSignedOut", "Generate without web search"],
+      ["webSearchUnavailable", "Generate without web search"],
     ] as const) {
       const { simulator } = setup();
       simulator.handle("compact_chat", () => new Promise(() => {}));
@@ -590,7 +590,7 @@ describe("a reply cut because the context is full", () => {
       { name: "Compacting…" },
     );
     expect(running.disabled).toBe(true);
-    act(() => fail({ kind: "ollama", message: "The model failed." }));
+    act(() => fail({ kind: "engine", message: "The model failed." }));
     expect(await within(alert).findByText("The model failed.")).toBeTruthy();
     expect(
       within(alert).getByRole<HTMLButtonElement>("button", {

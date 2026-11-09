@@ -140,6 +140,7 @@ use crate::attachments::{Staging, Taken};
 use crate::error::{AppError, AppResult};
 use crate::hub::errors::connection_lost;
 use crate::i18n::t;
+use crate::llm::{Access, Prefs};
 use crate::ollama::models::{self, CloudRefusal, ModelDetails, ShowError};
 use crate::ollama::running::{self, LoadFailure, RunningModel};
 use crate::ollama::{account, client};
@@ -270,27 +271,36 @@ impl SendRequest {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub enum ChatErrorKind {
-    /// Connexion à Ollama impossible.
-    Unreachable,
+    /// Pas de moteur (`llama-server` absent de l'installation).
+    EngineUnavailable,
+    /// Le moteur n'a pas pu servir le modèle (démarrage, plantage, délai,
+    /// connexion locale impossible ; jusqu'au lot L5a : Ollama injoignable).
+    EngineFailed,
     /// Connexion coupée pendant la réponse.
     ConnectionLost,
-    /// Modèle absent du serveur.
+    /// Modèle absent (base locale, fichier, serveur).
     ModelMissing,
     /// Échec du téléchargement du modèle.
     Download,
-    /// Erreur renvoyée par Ollama ou par le modèle.
+    /// Erreur renvoyée par le modèle (image refusée, réponse illisible…).
     Model,
-    /// Recherche web demandée sans compte ollama.com relié au serveur.
-    WebSearchSignedOut,
-    /// Modèle cloud alors que le réglage `cloud_models` est coupé : rien n'est
-    /// envoyé (propre à ChatonLM).
-    CloudOff,
-    /// Modèle cloud sans compte ollama.com relié au serveur (« cloud
-    /// unauthorized » de l'officiel).
-    CloudSignedOut,
-    /// Limite d'usage du forfait ollama.com atteinte (402, « usage limit
-    /// upgrade » de l'officiel).
-    CloudLimit,
+    /// Modèle distant alors que le réglage `remoteModels` est coupé : rien
+    /// n'est envoyé (propre à ChatonLM).
+    RemoteOff,
+    /// Clé du fournisseur distant refusée (401, 403).
+    RemoteKey,
+    /// Limite du fournisseur distant atteinte (402, 429).
+    RemoteLimit,
+    /// Fournisseur distant injoignable.
+    RemoteUnreachable,
+    /// Recherche web impossible (relais injoignable, refus).
+    WebSearchUnavailable,
+    /// Quota de recherches de l'installation atteint (relais).
+    WebSearchLimit,
+    /// Recherche web en pause (budget du relais épuisé, service suspendu).
+    WebSearchPaused,
+    /// Version de l'app trop ancienne pour le relais.
+    WebSearchOutdated,
     /// Réponse arrêtée : le modèle répétait mot pour mot le même passage
     /// (propre à ChatonLM, voir `repetition.rs`).
     Loop,
@@ -301,25 +311,25 @@ pub enum ChatErrorKind {
     Internal,
 }
 
-/// Erreur [`ChatErrorKind::WebSearchSignedOut`] (texte de l'officiel,
+/// Erreur [`ChatErrorKind::WebSearchUnavailable`] (texte de l'officiel,
 /// bandeau de `ChatForm.tsx`).
 fn signed_out() -> Outcome {
     Outcome::Failed(
-        ChatErrorKind::WebSearchSignedOut,
+        ChatErrorKind::WebSearchUnavailable,
         t!("chat.webSearchSignedOut"),
     )
 }
 
-/// Erreur [`ChatErrorKind::CloudOff`].
+/// Erreur [`ChatErrorKind::RemoteOff`].
 fn cloud_off(model: &str) -> Outcome {
-    Outcome::Failed(ChatErrorKind::CloudOff, models::cloud_off(model))
+    Outcome::Failed(ChatErrorKind::RemoteOff, models::cloud_off(model))
 }
 
 /// Erreur d'un refus propre au cloud (compte, limite d'usage).
 fn cloud_refused(refusal: CloudRefusal) -> Outcome {
     let kind = match refusal {
-        CloudRefusal::SignedOut => ChatErrorKind::CloudSignedOut,
-        CloudRefusal::UsageLimit => ChatErrorKind::CloudLimit,
+        CloudRefusal::SignedOut => ChatErrorKind::RemoteKey,
+        CloudRefusal::UsageLimit => ChatErrorKind::RemoteLimit,
     };
     Outcome::Failed(kind, refusal.message())
 }
@@ -648,28 +658,54 @@ async fn cancelled(cancel: &mut watch::Receiver<bool>) {
     }
 }
 
-/// Réglages du serveur utilisés pour l'envoi.
+/// Réglages et accès utilisés pour l'envoi. Construit par
+/// [`Server::current`] (commandes, Easy Link, pont) : le lot L5a change
+/// l'intérieur, pas cette signature.
 #[derive(Clone)]
 pub struct Server {
+    /// Accès aux modèles (moteur, distants, relais).
+    pub access: Access,
+    /// Réglages lus pour cet envoi.
+    #[allow(dead_code, reason = "lu par le chat (lot L5a)")]
+    pub prefs: Prefs,
+    /// Transition (jusqu'au lot L5a) : adresse de l'Ollama qui sert encore.
     pub url: String,
     /// 0 = défaut du serveur.
     pub context_length: u32,
     /// `keep_alive` envoyé (secondes ; 0 = rien d'envoyé, défaut du serveur ;
     /// -1 = garder chargé).
     pub keep_alive: i64,
-    /// Modèles cloud permis (réglage `cloud_models`) ; coupé, rien ne part
-    /// vers un modèle qui tourne sur ollama.com.
+    /// Transition (jusqu'au lot L5a) : modèles cloud d'Ollama permis (suit
+    /// le réglage `remoteModels`).
     pub cloud: bool,
 }
 
 impl Server {
-    /// Adresse effective, contexte, durée en mémoire et cloud réglés.
-    pub fn from_settings(settings: &Settings) -> Self {
+    /// Réglages du moment et accès de l'app.
+    pub async fn current(access: &Access) -> AppResult<Server> {
+        // Transition : adresse de la cible d'Ollama (le chat y parle encore
+        // jusqu'au lot L5a).
+        let settings = crate::ollama::target::request_settings(access.store()).await?;
+        Ok(Self::with_settings(access.clone(), &settings))
+    }
+
+    /// Accès donné, réglages déjà lus.
+    pub fn with_settings(access: Access, settings: &Settings) -> Self {
         Self {
+            access,
+            prefs: Prefs::of(settings),
             url: settings.effective_server_url.clone(),
             context_length: settings.context_length,
             keep_alive: settings.keep_alive,
-            cloud: settings.cloud_models,
+            cloud: settings.remote_models,
+        }
+    }
+
+    /// Outils web de l'envoi (recherche, lecture de page).
+    pub fn web_tools(&self) -> WebTools {
+        WebTools {
+            relay: self.access.relay().clone(),
+            ollama_url: self.url.clone(),
         }
     }
 
@@ -677,6 +713,47 @@ impl Server {
     /// texte de l'erreur, rien sinon.
     pub fn refuses(&self, model: &str, remote: bool) -> Option<String> {
         (remote && !self.cloud).then(|| models::cloud_off(model))
+    }
+}
+
+/// Essais restés sur l'ancien chemin d'Ollama : accès de secours (aucun
+/// moteur) sur une base en mémoire.
+#[cfg(test)]
+impl Server {
+    pub(crate) fn detached() -> Server {
+        let store = Store::open_in_memory().expect("store");
+        Server {
+            access: crate::llm::access_for(&store),
+            prefs: Prefs::default(),
+            url: String::new(),
+            context_length: 0,
+            keep_alive: 0,
+            cloud: false,
+        }
+    }
+}
+
+/// Outils web d'un envoi (`chat::tools::execute`, Étude) : recherche par le
+/// relais de ChatonLM ; le lot L7 complète (lecture des pages par l'app).
+#[derive(Clone)]
+pub struct WebTools {
+    #[allow(dead_code, reason = "recherche par le relais (lot L7)")]
+    pub relay: Arc<crate::relay::RelayClient>,
+    /// Transition (jusqu'au lot L7) : Ollama qui fait encore la recherche.
+    pub ollama_url: String,
+}
+
+#[cfg(test)]
+impl WebTools {
+    /// Outils sur un Ollama d'essai (relais fermé).
+    pub(crate) fn on_ollama(url: &str) -> WebTools {
+        WebTools {
+            relay: Arc::new(crate::relay::RelayClient::with_url(
+                "http://127.0.0.1:9".into(),
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.tools/tmp/relay"),
+            )),
+            ollama_url: url.to_owned(),
+        }
     }
 }
 
@@ -972,7 +1049,7 @@ async fn compact_now(
         Shown::Missing | Shown::Unknown => None,
         Shown::Unreachable => {
             let message = t!("ollama.unreachableAt", address = server.url);
-            return Err(AppError::Ollama(message));
+            return Err(AppError::Engine(message));
         }
         Shown::Cancelled => return Err(AppError::Invalid(t!("chat.compactStopped"))),
     };
@@ -1004,7 +1081,7 @@ async fn compact_now(
     )
     .await
     .map_err(|outcome| match outcome {
-        Outcome::Failed(_, message) => AppError::Ollama(message),
+        Outcome::Failed(_, message) => AppError::Engine(message),
         Outcome::Cancelled | Outcome::Done => AppError::Invalid(t!("chat.compactStopped")),
     })?;
     // Tout résumé : jusqu'au dernier message (messages vides compris) ;
@@ -1203,7 +1280,7 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
         let mut allowed = AllowedUrls::default();
         match self
             .run_tools(
-                &server.url,
+                &server.web_tools(),
                 &[call],
                 &mut allowed,
                 false,
@@ -1440,7 +1517,7 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
             tool_turns += 1;
             if let Err(outcome) = self
                 .run_tools(
-                    &server.url,
+                    &server.web_tools(),
                     &calls,
                     &mut allowed,
                     web,
@@ -1594,7 +1671,7 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
     #[allow(clippy::too_many_arguments)]
     async fn run_tools(
         &self,
-        base: &str,
+        web_tools: &WebTools,
         received: &[StreamToolCall],
         allowed: &mut AllowedUrls,
         web: bool,
@@ -1634,13 +1711,13 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
                         .await?
                 }
                 name @ (tools::WEB_SEARCH | tools::WEB_FETCH) if !web => unknown_tool(name),
-                name => tools::execute(base, name, &call.arguments, allowed, cancel).await,
+                name => tools::execute(web_tools, name, &call.arguments, allowed, cancel).await,
             };
             let (result, error) = match executed {
                 Executed::Result(result) => (Some(result), None),
                 Executed::Error(error) => (None, Some(error)),
                 Executed::Cancelled => return Err(Outcome::Cancelled),
-                Executed::SignedOut => return Err(signed_out()),
+                Executed::Stop(kind, message) => return Err(Outcome::Failed(kind, message)),
             };
             if let Some(live) = reply.reply.tool_calls.get_mut(index as usize) {
                 live.result.clone_from(&result);
@@ -2180,7 +2257,7 @@ fn refuses_tools(details: Option<&ModelDetails>) -> bool {
 /// Erreur d'une connexion impossible, la même pour chaque requête.
 fn unreachable(base: &str) -> Outcome {
     Outcome::Failed(
-        ChatErrorKind::Unreachable,
+        ChatErrorKind::EngineFailed,
         t!("ollama.unreachableAt", address = base),
     )
 }
@@ -2197,7 +2274,7 @@ async fn post(
     let failed = |kind, message: String| Err(Outcome::Failed(kind, message));
     let Ok(url) = Url::parse(base) else {
         return failed(
-            ChatErrorKind::Unreachable,
+            ChatErrorKind::EngineFailed,
             format!("invalid address: {base}"),
         );
     };
@@ -2612,6 +2689,7 @@ mod tests {
             context_length: 0,
             keep_alive: 0,
             cloud: false,
+            ..crate::chat::Server::detached()
         }
     }
 
@@ -3134,6 +3212,7 @@ mod tests {
             context_length: 8192,
             keep_alive: 0,
             cloud: false,
+            ..crate::chat::Server::detached()
         };
         let (channel, second) = recorder();
         let again = request(Some(&chat_id), "qwen3:0.6b", Some(Think::Enabled(false)));
@@ -3230,9 +3309,9 @@ mod tests {
             show_uncensored: false,
             system_prompt: String::new(),
             unload_on_quit: true,
-            cloud_models: false,
+            remote_models: false,
         };
-        let server = Server::from_settings(&settings);
+        let server = Server::with_settings(Server::detached().access, &settings);
         assert_eq!(
             (
                 server.url.as_str(),
@@ -3258,6 +3337,7 @@ mod tests {
             context_length,
             keep_alive,
             cloud: false,
+            ..crate::chat::Server::detached()
         };
         let (engine, staging) = (ChatEngine::default(), Staging::default());
         let ask = request(chat_id, model, None);
@@ -3497,7 +3577,7 @@ mod tests {
     #[test]
     fn only_a_refused_load_ends_the_send() {
         assert!(load_outcome("m", Ok(())).is_none());
-        let lost = AppError::Ollama("can't connect to Ollama".into());
+        let lost = AppError::Engine("can't connect to Ollama".into());
         assert!(load_outcome("m", Err(LoadFailure::Failed(lost))).is_none());
         for (status, message, kind, shown) in [
             (
@@ -3664,6 +3744,7 @@ mod tests {
                 context_length: 0,
                 keep_alive: 0,
                 cloud: false,
+                ..crate::chat::Server::detached()
             };
             send(
                 &store,
@@ -3710,6 +3791,7 @@ mod tests {
             context_length: 0,
             keep_alive: 0,
             cloud: false,
+            ..crate::chat::Server::detached()
         };
         let request = request(None, "chatonlm-repeat", None);
         // Sans garde, le faux modèle ne s'arrête jamais.
@@ -3778,6 +3860,7 @@ mod tests {
             context_length: context,
             keep_alive: 0,
             cloud: false,
+            ..crate::chat::Server::detached()
         };
         let mut request = request(chat_id, "chatonlm-context", None);
         request.content = content.into();
@@ -3895,6 +3978,7 @@ mod tests {
             context_length: 4096,
             keep_alive: 0,
             cloud: false,
+            ..crate::chat::Server::detached()
         };
         // Rien encore : conversation inconnue ou vide.
         let chat_id = store.call(|c| chats::create(c, now_ms())).await.unwrap();
@@ -3988,6 +4072,7 @@ mod tests {
             context_length: 4096,
             keep_alive: 0,
             cloud: false,
+            ..crate::chat::Server::detached()
         };
         compact_chat(&store, &engine, server, &chat_id, "chatonlm-context")
             .await
@@ -4000,6 +4085,7 @@ mod tests {
             context_length: 4096,
             keep_alive: 0,
             cloud: false,
+            ..crate::chat::Server::detached()
         };
         send(&store, &engine, &Staging::default(), server, edit, &channel)
             .await
@@ -4224,6 +4310,7 @@ mod tests {
                     context_length: 0,
                     keep_alive: 0,
                     cloud: false,
+                    ..crate::chat::Server::detached()
                 };
                 let request = request(None, model, None);
                 tokio::spawn(async move {
@@ -4303,7 +4390,7 @@ mod tests {
     #[test]
     fn an_unreachable_server_is_not_a_missing_model() {
         let shown = |result| -> Shown { Shown::from(result) };
-        let unreachable = AppError::Ollama("can't connect to Ollama".into());
+        let unreachable = AppError::Engine("can't connect to Ollama".into());
         assert!(matches!(
             shown(Err(ShowError::Unreachable(unreachable))),
             Shown::Unreachable
@@ -4320,7 +4407,7 @@ mod tests {
                 Shown::Unknown
             ));
         }
-        let other = AppError::Ollama("Ollama answered HTTP 500: boom".into());
+        let other = AppError::Engine("Ollama answered HTTP 500: boom".into());
         assert!(matches!(
             shown(Err(ShowError::Other(other))),
             Shown::Unknown
@@ -4509,7 +4596,7 @@ mod tests {
             "{events:?}"
         );
         let last = events.last().unwrap();
-        assert_eq!(last["kind"], json!("unreachable"));
+        assert_eq!(last["kind"], json!("engineFailed"));
         assert_eq!(
             last["message"],
             json!(format!("can't connect to Ollama at {url}"))
@@ -5599,7 +5686,7 @@ mod tests {
     fn signed_out_event() -> Value {
         json!({
             "type": "error",
-            "kind": "webSearchSignedOut",
+            "kind": "webSearchUnavailable",
             "message": "Web search requires an Ollama account",
         })
     }
@@ -5649,7 +5736,7 @@ mod tests {
         assert!(reply.thinking_ended_at.is_some());
     }
 
-    /// Envoi à un modèle cloud, réglage `cloud_models` donné.
+    /// Envoi à un modèle cloud, réglage `remote_models` donné.
     async fn sent_to_cloud(store: &Store, fake: &FakeOllama, model: &str, cloud: bool) -> Recorder {
         let (channel, recorder) = recorder();
         let (engine, staging) = (ChatEngine::default(), Staging::default());
@@ -5683,7 +5770,7 @@ mod tests {
         assert_eq!(
             recorder.events().last().unwrap(),
             &cloud_error(
-                "cloudOff",
+                "remoteOff",
                 "Cloud models are turned off: kimi-k2.6:cloud runs on ollama.com. Turn them on in Settings › Models to use it."
             )
         );
@@ -5695,12 +5782,18 @@ mod tests {
         assert_eq!(chat.messages.len(), 1);
         // Nom en majuscules : lu comme le serveur le lit, refusé de même.
         let recorder = sent_to_cloud(&store, &fake, "kimi-k2.6:Cloud", false).await;
-        assert_eq!(recorder.events().last().unwrap()["kind"], json!("cloudOff"));
+        assert_eq!(
+            recorder.events().last().unwrap()["kind"],
+            json!("remoteOff")
+        );
         assert!(fake.show_requests().is_empty());
         // Modèle d'ollama.com sous un nom local (`remote_host` de /api/show) :
         // refusé de même, une fois ses détails lus.
         let recorder = sent_to_cloud(&store, &fake, "chatonlm-polish-remote", false).await;
-        assert_eq!(recorder.events().last().unwrap()["kind"], json!("cloudOff"));
+        assert_eq!(
+            recorder.events().last().unwrap()["kind"],
+            json!("remoteOff")
+        );
         assert!(fake.chat_requests().is_empty());
     }
 
@@ -5733,7 +5826,7 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         let recorder = sent_to_cloud(&store, &fake, "kimi-k2.6:cloud", true).await;
         let events = recorder.events();
-        let signed_out = cloud_error("cloudSignedOut", "Cloud models require an Ollama account");
+        let signed_out = cloud_error("remoteKey", "Cloud models require an Ollama account");
         assert_eq!(events.last().unwrap(), &signed_out);
         assert!(of_type(&events, "replyStarted").is_empty());
         assert!(fake.chat_requests().is_empty());
@@ -5756,7 +5849,7 @@ mod tests {
         assert_eq!(
             recorder.events().last().unwrap(),
             &cloud_error(
-                "cloudLimit",
+                "remoteLimit",
                 "You've reached your usage limit, please upgrade to continue"
             )
         );
@@ -6270,6 +6363,7 @@ mod tests {
             context_length: 0,
             keep_alive: 0,
             cloud: false,
+            ..crate::chat::Server::detached()
         };
         let sending = send(store, engine, staging, server, ask, &channel);
         let result = tokio::time::timeout(WAIT, sending)
@@ -6598,7 +6692,7 @@ mod tests {
         ];
         let ran = conversation
             .run_tools(
-                "http://127.0.0.1:9",
+                &WebTools::on_ollama("http://127.0.0.1:9"),
                 &calls,
                 &mut allowed,
                 false,
@@ -6641,7 +6735,7 @@ mod tests {
         reply.next_turn();
         let ran = conversation
             .run_tools(
-                "http://127.0.0.1:9",
+                &WebTools::on_ollama("http://127.0.0.1:9"),
                 &[draw(6)],
                 &mut allowed,
                 false,
@@ -6660,7 +6754,7 @@ mod tests {
         };
         let ran = conversation
             .run_tools(
-                "http://127.0.0.1:9",
+                &WebTools::on_ollama("http://127.0.0.1:9"),
                 &[draw(7)],
                 &mut allowed,
                 false,
@@ -6756,7 +6850,7 @@ mod tests {
         };
         let ran = conversation
             .run_tools(
-                "http://127.0.0.1:9",
+                &WebTools::on_ollama("http://127.0.0.1:9"),
                 &[draw],
                 &mut AllowedUrls::default(),
                 false,
@@ -7205,6 +7299,7 @@ mod tests {
             context_length,
             keep_alive: 0,
             cloud,
+            ..crate::chat::Server::detached()
         };
         let sending = send(store, &engine, staging, server, request.clone(), &channel);
         let cancelling = async {
@@ -7854,6 +7949,7 @@ mod tests {
             context_length: 4096,
             keep_alive: 0,
             cloud: false,
+            ..crate::chat::Server::detached()
         };
         let think = Some(Think::Enabled(true));
         send(
@@ -7951,6 +8047,7 @@ mod tests {
             context_length: 4096,
             keep_alive: 0,
             cloud: false,
+            ..crate::chat::Server::detached()
         };
         let mut used = Vec::new();
         let mut chat_id = None;
@@ -8028,6 +8125,7 @@ mod tests {
                 context_length: 4096,
                 keep_alive: 0,
                 cloud: false,
+                ..crate::chat::Server::detached()
             };
             send(&store, &engine, &staging, real, ask, &channel)
                 .await
@@ -8082,6 +8180,7 @@ mod tests {
                 context_length: 4096,
                 keep_alive: 0,
                 cloud: false,
+                ..crate::chat::Server::detached()
             };
             tokio::spawn(async move {
                 send(&store, &engine, &Staging::default(), real, long, &channel).await
@@ -8166,6 +8265,7 @@ mod tests {
             context_length: 0,
             keep_alive: 0,
             cloud: false,
+            ..crate::chat::Server::detached()
         };
         let ask = request(None, "chatonlm-does-not-exist-xyz", None);
         send(&store, &engine, &Staging::default(), real, ask, &channel)
@@ -8211,8 +8311,9 @@ mod tests {
             context_length: 0,
             keep_alive: 0,
             cloud,
+            ..crate::chat::Server::detached()
         };
-        for (cloud, kind) in [(true, "cloudSignedOut"), (false, "cloudOff")] {
+        for (cloud, kind) in [(true, "remoteKey"), (false, "remoteOff")] {
             let (store, engine) = (Store::open_in_memory().unwrap(), ChatEngine::default());
             let (channel, recorder) = recorder();
             let ask = request(None, &model, None);
@@ -8409,6 +8510,7 @@ mod tests {
             context_length,
             keep_alive,
             cloud: false,
+            ..crate::chat::Server::detached()
         };
         // Un vrai chargement prend des secondes, sans rechargement ~2 ms.
         let no_reload = Duration::from_millis(500);

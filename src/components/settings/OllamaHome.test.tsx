@@ -355,7 +355,7 @@ describe("Fix in Settings › General", () => {
     const backend = fakeBackend(simulator);
     backend.ollamaHome = { ...HIDDEN };
     backend.accountErrors.status = {
-      kind: "ollama",
+      kind: "engine",
       message: "account unavailable",
     };
     const app = renderApp("/settings?section=account");
@@ -375,7 +375,7 @@ describe("Fix in Settings › General", () => {
     const simulator = installSimulator();
     const backend = fakeBackend(simulator);
     backend.accountErrors.status = {
-      kind: "ollama",
+      kind: "engine",
       message: "account unavailable",
     };
     renderApp("/settings?section=account");
@@ -390,7 +390,7 @@ describe("Fix in Settings › General", () => {
     const simulator = installSimulator();
     const backend = fakeBackend(simulator);
     backend.ollamaHome = { ...HIDDEN };
-    backend.accountErrors.status = { kind: "ollama", message: "boom" };
+    backend.accountErrors.status = { kind: "engine", message: "boom" };
     renderApp("/settings?section=account");
     await screen.findByTestId("account-failure");
     expect(link()).toBeNull();
@@ -540,7 +540,7 @@ describe("Ollama's own folder in other languages", () => {
     const backend = fakeBackend(simulator);
     backend.ollamaHome = { ...HIDDEN };
     backend.accountErrors.status = {
-      kind: "ollama",
+      kind: "engine",
       message: "account unavailable",
     };
     renderApp("/settings?section=account");

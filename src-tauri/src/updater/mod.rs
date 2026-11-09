@@ -246,9 +246,9 @@ pub enum UpdateInstaller {
 #[ts(export)]
 pub struct AppVersions {
     pub chatonlm: String,
-    /// Ollama intégré (fichier `ollama/VERSION` des ressources, livré avec
-    /// les paquets) ; `None` : pas d'Ollama intégré.
-    pub ollama: Option<String>,
+    /// Moteur `llama-server` livré (fichier `VERSION` à côté du binaire) ;
+    /// `None` : pas de moteur, ou version illisible.
+    pub llama_cpp: Option<String>,
 }
 
 /// Moteur des mises à jour, géré par Tauri une fois l'app prête.
@@ -541,17 +541,13 @@ fn refusal_text(refusal: &engine::Refusal) -> String {
     }
 }
 
-/// Versions installées : ChatonLM, et l'Ollama intégré s'il est livré.
+/// Versions installées : ChatonLM, et le moteur `llama-server` s'il est
+/// livré.
 pub fn versions(app: &AppHandle) -> AppVersions {
-    let ollama = app
-        .path()
-        .resource_dir()
-        .ok()
-        .and_then(|dir| std::fs::read_to_string(dir.join("ollama").join("VERSION")).ok())
-        .map(|text| text.trim().to_owned())
-        .filter(|text| !text.is_empty());
     AppVersions {
         chatonlm: app.package_info().version.to_string(),
-        ollama,
+        llama_cpp: crate::engine::binary::llama_server_bin(app)
+            .as_deref()
+            .and_then(crate::engine::binary::version),
     }
 }

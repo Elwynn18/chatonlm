@@ -169,9 +169,10 @@ pub fn renamed(connection: &Connection, name: &str) -> AppResult<Option<String>>
     Ok(renames(connection)?.remove(&ollama_key(name)))
 }
 
-/// Clé de `model_prefs` et `model_traits` : sans `:latest`.
+/// Clé de `model_prefs` et `model_traits` (`llm::ids::legacy_key`) : un
+/// identifiant tel quel (`@ollama/qwen3:latest` garde `:latest`).
 fn prefs_key(id: &str) -> String {
-    crate::ollama::models::display_name(id)
+    crate::llm::ids::legacy_key(id)
 }
 
 /// Réécrit les réglages qui nomment un modèle repris :
@@ -470,7 +471,7 @@ mod tests {
                  UPDATE dictation_settings SET polish_model = 'gemma3';
                  INSERT INTO model_prefs (model, think) VALUES ('qwen3:0.6b', 'true');
                  INSERT INTO model_prefs (model, think) VALUES ('gemma3', 'false');
-                 INSERT INTO model_prefs (model, think) VALUES ('@ollama/gemma3', 'true');
+                 INSERT INTO model_prefs (model, think) VALUES ('@ollama/gemma3:latest', 'true');
                  INSERT INTO model_traits (model, always_thinks) VALUES ('Qwen3:0.6B', 1);
                  INSERT INTO chats (id, title, created_at, updated_at)
                      VALUES ('c1', 't', 1, 1);
@@ -535,9 +536,15 @@ mod tests {
                 assert_eq!(
                     prefs,
                     vec![
-                        ("@ollama/gemma3".into(), "true".into()),
+                        ("@ollama/gemma3:latest".into(), "true".into()),
                         ("@ollama/qwen3:0.6b".into(), "true".into()),
                     ]
+                );
+                // Relue sous le nouvel identifiant, `:latest` compris (avant
+                // `legacy_key`, la clé `@ollama/gemma3` ne se relisait plus).
+                assert_eq!(
+                    crate::store::model_prefs::think(c, "@ollama/gemma3:latest")?,
+                    Some(crate::chat::stream::Think::Enabled(true))
                 );
                 let traits: String =
                     c.query_row("SELECT model FROM model_traits", [], |r| r.get(0))?;

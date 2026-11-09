@@ -17,15 +17,13 @@ import type { ChatErrorKind } from "@/bindings/ChatErrorKind";
 /** Erreurs propres aux modèles cloud. */
 export type CloudErrorKind = Extract<
   ChatErrorKind,
-  "cloudOff" | "cloudSignedOut" | "cloudLimit"
+  "remoteOff" | "remoteKey" | "remoteLimit"
 >;
 
 export function isCloudError(
   kind: ChatErrorKind | undefined,
 ): kind is CloudErrorKind {
-  return (
-    kind === "cloudOff" || kind === "cloudSignedOut" || kind === "cloudLimit"
-  );
+  return kind === "remoteOff" || kind === "remoteKey" || kind === "remoteLimit";
 }
 
 /**

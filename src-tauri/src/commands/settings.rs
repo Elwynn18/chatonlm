@@ -3,15 +3,17 @@ use tauri::{AppHandle, Manager, State};
 use super::ollama_host_env;
 use crate::error::AppResult;
 use crate::i18n::{self, Lang};
-use crate::ollama::target;
 use crate::store::Store;
 use crate::store::settings::{self, Settings, SettingsPatch};
 
-/// Réglages ; `effectiveServerUrl` : adresse du serveur qui sert (Ollama
-/// intégré compris).
+/// Réglages enregistrés (`serverUrl` et `effectiveServerUrl` restent
+/// jusqu'au lot L10, plus lus par la page).
 #[tauri::command]
 pub async fn get_settings(store: State<'_, Store>) -> AppResult<Settings> {
-    target::display_settings(&store).await
+    let host = ollama_host_env();
+    store
+        .call(move |connection| settings::get(connection, host.as_deref()))
+        .await
 }
 
 #[tauri::command]
@@ -37,10 +39,7 @@ pub async fn update_settings(
     if let Some(enabled) = read_aloud_shortcut {
         crate::desktop::apply_read_aloud_shortcut(&app, enabled);
     }
-    // Adresse changée : la cible aussi (téléchargements vers l'ancienne
-    // fermés, événement `ollama-target`, intégré arrêté s'il ne sert plus ;
-    // une vérification en cours ne note plus sa décision).
-    target::settings_updated(&store).await
+    Ok(settings)
 }
 
 /// Langue de l'interface, lue par la page avant son premier affichage ;

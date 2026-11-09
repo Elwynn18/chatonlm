@@ -604,7 +604,7 @@ async fn web_search_needs_an_account_and_feeds_the_plan() {
     assert_eq!(
         course.error,
         Some(StudyError {
-            code: StudyErrorCode::SignedOut,
+            code: StudyErrorCode::WebSearch,
             message: "Web search requires an Ollama account".into(),
         })
     );
@@ -870,7 +870,7 @@ async fn a_missing_model_fails_a_part_until_retried() {
         let snapshot = db_load(&store, &id).await;
         if snapshot.row.status == CourseStatus::Failed {
             let error = snapshot.row.error.unwrap();
-            assert_eq!(error.code, StudyErrorCode::Unreachable);
+            assert_eq!(error.code, StudyErrorCode::EngineFailed);
             assert_eq!(error.message, format!("can't connect to Ollama at {url}"));
             break;
         }
@@ -2533,7 +2533,7 @@ async fn a_cloud_model_writes_courses_only_once_turned_on() {
     assert!(bench.fake.show_requests().is_empty());
     bench.idle().await;
     let on = SettingsPatch {
-        cloud_models: Some(true),
+        remote_models: Some(true),
         ..Default::default()
     };
     bench

@@ -12,6 +12,9 @@ use tokio::sync::watch;
 
 use super::data::SourceRow;
 use super::{SourceKind, StudySource};
+use tokio_util::sync::CancellationToken;
+
+use crate::chat::WebTools;
 use crate::chat::tools::{self, AllowedUrls, Executed};
 use crate::proofread::{guard, language};
 
@@ -260,8 +263,9 @@ pub fn documents(files: &[(String, String)]) -> (Vec<SourceRow>, bool) {
 #[derive(Debug, PartialEq, Eq)]
 pub enum WebOutcome {
     Found(Vec<SourceRow>),
-    /// Aucun compte relié au serveur (401).
-    SignedOut,
+    /// Recherche impossible (relais, quota, pause ; jusqu'au lot L7, 401
+    /// d'Ollama) : le cours s'arrête avec ce texte.
+    Stopped(String),
     /// Autre échec : le cours se prépare sans le web.
     Failed(String),
 }
@@ -269,21 +273,25 @@ pub enum WebOutcome {
 /// Une recherche par le serveur (`/api/experimental/web_search`, comme
 /// l'outil du chat) : [`WEB_RESULTS`] résultats, contenu de chacun coupé à
 /// [`WEB_RESULT_CHARS`].
-pub async fn web_search(base: &str, query: &str) -> WebOutcome {
-    // Arrêt jamais demandé ici : l'arrêt du travail abandonne ce futur.
-    let (_keep, mut cancel) = watch::channel(false);
+pub async fn web_search(web: &WebTools, query: &str, cancel: &CancellationToken) -> WebOutcome {
+    // L'arrêt passe par `cancel` (ou par l'abandon de ce futur).
+    let (_keep, mut stop) = watch::channel(false);
     let arguments = json!({ "query": query, "max_results": WEB_RESULTS });
-    let executed = tools::execute(
-        base,
-        tools::WEB_SEARCH,
-        &arguments,
-        &mut AllowedUrls::default(),
-        &mut cancel,
-    )
-    .await;
+    let mut allowed = AllowedUrls::default();
+    let executed = tokio::select! {
+        biased;
+        () = cancel.cancelled() => Executed::Cancelled,
+        executed = tools::execute(
+            web,
+            tools::WEB_SEARCH,
+            &arguments,
+            &mut allowed,
+            &mut stop,
+        ) => executed,
+    };
     let text = match executed {
         Executed::Result(text) => text,
-        Executed::SignedOut => return WebOutcome::SignedOut,
+        Executed::Stop(_, message) => return WebOutcome::Stopped(message),
         Executed::Error(error) => return WebOutcome::Failed(error),
         Executed::Cancelled => return WebOutcome::Failed("cancelled".into()),
     };
@@ -467,12 +475,14 @@ mod tests {
     #[tokio::test]
     async fn web_results_come_from_the_server() {
         let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-        assert_eq!(
-            web_search(&fake.url(), "photosynthesis").await,
-            WebOutcome::SignedOut
-        );
+        let web = WebTools::on_ollama(&fake.url());
+        let never = CancellationToken::new();
+        assert!(matches!(
+            web_search(&web, "photosynthesis", &never).await,
+            WebOutcome::Stopped(_)
+        ));
         fake.set_signed_in(true);
-        let WebOutcome::Found(rows) = web_search(&fake.url(), "photosynthesis").await else {
+        let WebOutcome::Found(rows) = web_search(&web, "photosynthesis", &never).await else {
             panic!()
         };
         assert_eq!(rows.len(), 2);
@@ -488,12 +498,19 @@ mod tests {
         // Réponse trop grande, cloud coupé : préparé sans le web.
         const { assert!(WEB_HUGE > 4 * 1024 * 1024) };
         assert!(matches!(
-            web_search(&fake.url(), "huge").await,
+            web_search(&web, "huge", &never).await,
             WebOutcome::Failed(_)
         ));
         fake.set_cloud_disabled(true);
         assert!(matches!(
-            web_search(&fake.url(), "x").await,
+            web_search(&web, "x", &never).await,
+            WebOutcome::Failed(_)
+        ));
+        // Arrêt demandé : rien de trouvé.
+        let stopped = CancellationToken::new();
+        stopped.cancel();
+        assert!(matches!(
+            web_search(&web, "photosynthesis", &stopped).await,
             WebOutcome::Failed(_)
         ));
     }

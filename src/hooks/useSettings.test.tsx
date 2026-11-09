@@ -44,7 +44,7 @@ const SAVED: Settings = {
   showUncensored: false,
   systemPrompt: "",
   unloadOnQuit: true,
-  cloudModels: false,
+  remoteModels: false,
 };
 
 function newClient() {

@@ -180,7 +180,7 @@ async fn installed(base: &str) -> AppResult<Vec<(String, Local)>> {
 
 fn parse(body: &str) -> AppResult<Vec<(String, Local)>> {
     let tags: TagsResponse = serde_json::from_str(body)
-        .map_err(|error| AppError::Ollama(t!("ollama.unexpectedModels", error = error)))?;
+        .map_err(|error| AppError::Engine(t!("ollama.unexpectedModels", error = error)))?;
     Ok(tags
         .models
         .into_iter()
@@ -323,7 +323,7 @@ mod tests {
                 ("here".to_owned(), local("0123", None)),
             ]
         );
-        assert!(matches!(parse("<html>"), Err(AppError::Ollama(_))));
+        assert!(matches!(parse("<html>"), Err(AppError::Engine(_))));
     }
 
     /// Faux serveur et faux registre : un modèle installé n'est périmé
@@ -444,7 +444,7 @@ mod tests {
         fake.stop().await;
         assert!(matches!(
             outdated_in(&url, &url, &url, &models).await,
-            Err(AppError::Ollama(_))
+            Err(AppError::Engine(_))
         ));
     }
 

@@ -4,6 +4,7 @@ use tauri::ipc::Channel;
 use crate::attachments::Staging;
 use crate::chat::{self, ChatEngine, ChatEvent, SendRequest, Server};
 use crate::error::AppResult;
+use crate::llm::Access;
 use crate::store::Store;
 use crate::store::chats::{self, Chat, ChatInfo, Compaction};
 
@@ -129,13 +130,13 @@ async fn stop_work(
 #[tauri::command]
 pub async fn send_message(
     store: State<'_, Store>,
+    access: State<'_, Access>,
     engine: State<'_, ChatEngine>,
     staging: State<'_, Staging>,
     request: SendRequest,
     on_event: Channel<ChatEvent>,
 ) -> AppResult<()> {
-    let settings = crate::ollama::target::request_settings(&store).await?;
-    let server = Server::from_settings(&settings);
+    let server = Server::current(&access).await?;
     chat::send(&store, &engine, &staging, server, request, &on_event).await
 }
 
@@ -145,12 +146,12 @@ pub async fn send_message(
 #[tauri::command]
 pub async fn compact_chat(
     store: State<'_, Store>,
+    access: State<'_, Access>,
     engine: State<'_, ChatEngine>,
     chat_id: String,
     model: String,
 ) -> AppResult<Compaction> {
-    let settings = crate::ollama::target::request_settings(&store).await?;
-    let server = Server::from_settings(&settings);
+    let server = Server::current(&access).await?;
     chat::compact_chat(&store, &engine, server, &chat_id, &model).await
 }
 

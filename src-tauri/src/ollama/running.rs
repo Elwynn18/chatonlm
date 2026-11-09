@@ -116,7 +116,7 @@ pub(crate) async fn list_within(base: &str, timeout: Duration) -> AppResult<Vec<
 
 fn parse(body: &str) -> AppResult<Vec<RunningModel>> {
     let response: PsResponse = serde_json::from_str(body).map_err(|error| {
-        AppError::Ollama(crate::i18n::t!("ollama.unexpectedLoaded", error = error))
+        AppError::Engine(crate::i18n::t!("ollama.unexpectedLoaded", error = error))
     })?;
     Ok(response
         .models
@@ -232,7 +232,7 @@ impl From<LoadFailure> for AppError {
         match failure {
             LoadFailure::Failed(error) => error,
             LoadFailure::Refused { status, message } if message.trim().is_empty() => {
-                AppError::Ollama(crate::i18n::t!(
+                AppError::Engine(crate::i18n::t!(
                     "ollama.httpStatus",
                     status = status.as_u16()
                 ))
@@ -242,7 +242,7 @@ impl From<LoadFailure> for AppError {
             {
                 AppError::NotFound(message)
             }
-            LoadFailure::Refused { message, .. } => AppError::Ollama(message),
+            LoadFailure::Refused { message, .. } => AppError::Engine(message),
         }
     }
 }
@@ -337,7 +337,7 @@ pub(crate) mod tests {
             r#"{"models":{}}"#,
             r#"{"models":[{"size":"big"}]}"#,
         ] {
-            let Err(AppError::Ollama(message)) = parse(unreadable) else {
+            let Err(AppError::Engine(message)) = parse(unreadable) else {
                 panic!("{unreadable}");
             };
             assert!(
@@ -486,7 +486,7 @@ pub(crate) mod tests {
             panic!("expected a missing model");
         };
         assert_eq!(message, "model 'nope:1b' not found");
-        let Err(AppError::Ollama(message)) = load(&base, "chatonlm-loadfail", 4096, 0).await else {
+        let Err(AppError::Engine(message)) = load(&base, "chatonlm-loadfail", 4096, 0).await else {
             panic!("expected a failed load");
         };
         assert_eq!(message, LOAD_FAILURE);
@@ -497,16 +497,16 @@ pub(crate) mod tests {
 
         // Proxy : statut seul, ou première ligne de sa page.
         let proxy = FakeOllama::start(Mode::Status(502)).await.unwrap();
-        let Err(AppError::Ollama(message)) = load(&proxy.url(), "qwen3:0.6b", 0, 0).await else {
+        let Err(AppError::Engine(message)) = load(&proxy.url(), "qwen3:0.6b", 0, 0).await else {
             panic!("expected an HTTP error");
         };
         assert_eq!(message, "Ollama answered HTTP 502");
-        let Err(AppError::Ollama(message)) = list(&proxy.url()).await else {
+        let Err(AppError::Engine(message)) = list(&proxy.url()).await else {
             panic!("expected an HTTP error");
         };
         assert!(message.starts_with("Ollama answered HTTP 502"), "{message}");
         let other = FakeOllama::start(Mode::NotOllama).await.unwrap();
-        let Err(AppError::Ollama(message)) = list(&other.url()).await else {
+        let Err(AppError::Engine(message)) = list(&other.url()).await else {
             panic!("expected an unreadable list");
         };
         assert!(
@@ -522,7 +522,7 @@ pub(crate) mod tests {
             unload(&url, "qwen3:0.6b").await,
             unload_all(&url).await,
         ] {
-            let Err(AppError::Ollama(message)) = result else {
+            let Err(AppError::Engine(message)) = result else {
                 panic!("expected an unreachable server: {result:?}");
             };
             assert_eq!(message, "can't connect to Ollama");
@@ -606,7 +606,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn unloading_everything_goes_on_after_a_failure() {
         let (base, received) = scripted(&["a:1b", "b:latest", "c:2b"], "b:latest").await;
-        let Err(AppError::Ollama(message)) = unload_all(&base).await else {
+        let Err(AppError::Engine(message)) = unload_all(&base).await else {
             panic!("expected the failure of b");
         };
         assert_eq!(message, "stuck");

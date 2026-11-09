@@ -773,7 +773,7 @@ describe("Proofread page", () => {
     const { simulator, fake } = setup((backend) => {
       backend.proofread.failAt = {
         afterParts: 1,
-        code: "unreachable",
+        code: "engineFailed",
         message: "Could not connect to Ollama",
       };
     });

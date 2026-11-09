@@ -3,10 +3,10 @@ import { isCloudError, upgradeUrl } from "./cloud";
 
 describe("cloud errors", () => {
   it("are the three kinds of the cloud", () => {
-    expect(isCloudError("cloudOff")).toBe(true);
-    expect(isCloudError("cloudSignedOut")).toBe(true);
-    expect(isCloudError("cloudLimit")).toBe(true);
-    expect(isCloudError("webSearchSignedOut")).toBe(false);
+    expect(isCloudError("remoteOff")).toBe(true);
+    expect(isCloudError("remoteKey")).toBe(true);
+    expect(isCloudError("remoteLimit")).toBe(true);
+    expect(isCloudError("webSearchUnavailable")).toBe(false);
     expect(isCloudError("model")).toBe(false);
     expect(isCloudError(undefined)).toBe(false);
   });

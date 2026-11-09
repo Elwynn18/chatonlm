@@ -210,7 +210,7 @@ describe("panel model", () => {
 
   it("forgets a refused send (nothing saved) at the next one", () => {
     const refused = run(
-      event(4, { type: "error", kind: "unreachable", message: "down" }),
+      event(4, { type: "error", kind: "engineFailed", message: "down" }),
     );
     expect(refused.turns[0].error?.message).toBe("down");
     const next = reduce(refused, { type: "sent", text: "again" });

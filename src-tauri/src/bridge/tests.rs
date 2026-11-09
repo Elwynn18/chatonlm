@@ -376,7 +376,7 @@ async fn bench_with(auth_timeout: std::time::Duration) -> Bench {
     };
     let host = TestHost::default();
     host.store.set(store.clone()).ok();
-    let bridge = Bridge::new(host.clone(), store.clone(), config);
+    let bridge = Bridge::new(host.clone(), crate::llm::access_for(&store), config);
     Bench {
         bridge,
         host,
@@ -805,7 +805,11 @@ async fn the_bridge_is_unavailable_without_a_runtime_dir() {
     let mut bench = bench().await;
     let mut config = bench.bridge.shared().config.clone();
     config.dir = None;
-    bench.bridge = Bridge::new(bench.host.clone(), bench.store.clone(), config);
+    bench.bridge = Bridge::new(
+        bench.host.clone(),
+        crate::llm::access_for(&bench.store),
+        config,
+    );
     let state = bench.bridge.set_enabled(true).await.unwrap();
     assert_eq!(state.status, BridgeStatus::Unavailable);
     assert!(state.enabled);
@@ -2654,7 +2658,11 @@ async fn switching_off_and_on_quickly_always_reopens() {
     let mut bench = bench().await;
     let mut config = bench.bridge.shared().config.clone();
     config.close_delay = std::time::Duration::from_millis(300);
-    bench.bridge = Bridge::new(bench.host.clone(), bench.store.clone(), config);
+    bench.bridge = Bridge::new(
+        bench.host.clone(),
+        crate::llm::access_for(&bench.store),
+        config,
+    );
     for round in 0..3 {
         let state = bench.bridge.set_enabled(true).await.unwrap();
         assert_eq!(state.status, BridgeStatus::Listening, "round {round}");
@@ -3206,7 +3214,7 @@ async fn the_editor_proofreads_a_text_part_by_part() {
 async fn auto_never_sends_the_text_to_a_cloud_or_remote_chat_model() {
     let bench = bench().await;
     let patch = SettingsPatch {
-        cloud_models: Some(true),
+        remote_models: Some(true),
         ..Default::default()
     };
     bench
@@ -3839,7 +3847,7 @@ fn not_local(answer: &Value, message: &str) {
 async fn agents_and_local_only_never_send_outside_this_computer() {
     let bench = bench().await;
     let patch = SettingsPatch {
-        cloud_models: Some(true),
+        remote_models: Some(true),
         ..Default::default()
     };
     patch_settings(&bench, patch).await;

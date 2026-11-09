@@ -4,4 +4,4 @@
  * Code d'une erreur : le frontend choisit l'action à proposer, le message
  * (dans la langue de l'interface) est montré tel quel.
  */
-export type ProofreadErrorCode = "noModel" | "modelNotFound" | "unreachable" | "empty" | "tooLong" | "failed";
+export type ProofreadErrorCode = "noModel" | "modelNotFound" | "engineFailed" | "empty" | "tooLong" | "failed";

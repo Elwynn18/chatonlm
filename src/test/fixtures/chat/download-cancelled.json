@@ -7,42 +7,42 @@
   },
   "events": [
     {
-      "chatId": "chat-1",
-      "type": "chatCreated"
+      "type": "chatCreated",
+      "chatId": "chat-1"
     },
     {
+      "type": "userMessage",
       "message": {
-        "attachments": [],
-        "content": "Say hello in one word.",
-        "createdAt": 1700000000000,
         "id": 1,
-        "model": null,
         "role": "user",
+        "content": "Say hello in one word.",
         "thinking": "",
-        "thinkingEndedAt": null,
+        "model": null,
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000000,
         "thinkingStartedAt": null,
-        "toolCalls": [],
-        "updatedAt": 1700000000000
-      },
-      "type": "userMessage"
+        "thinkingEndedAt": null,
+        "attachments": [],
+        "toolCalls": []
+      }
     },
     {
+      "type": "download",
+      "total": 5046586573,
       "completed": 1160714911,
-      "done": false,
-      "total": 5046586573,
-      "type": "download"
+      "done": false
     },
     {
+      "type": "download",
+      "total": 5046586573,
       "completed": 1211180777,
-      "done": false,
-      "total": 5046586573,
-      "type": "download"
+      "done": false
     },
     {
-      "completed": 1261646643,
-      "done": false,
+      "type": "download",
       "total": 5046586573,
-      "type": "download"
+      "completed": 1261646643,
+      "done": false
     },
     {
       "type": "cancelled"

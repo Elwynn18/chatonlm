@@ -418,7 +418,7 @@ describe("web search without an account", () => {
       events: [
         {
           type: "error",
-          kind: "webSearchSignedOut",
+          kind: "webSearchUnavailable",
           message: SIGNED_OUT_ERROR,
         },
       ],

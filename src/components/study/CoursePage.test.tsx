@@ -222,7 +222,7 @@ describe("Failed course", () => {
     const { simulator } = setup({
       status: "failed",
       web: true,
-      error: { code: "signedOut", message: "Sign in to use web search." },
+      error: { code: "webSearch", message: "Sign in to use web search." },
     });
     const alert = await screen.findByTestId("study-error");
     expect(alert.textContent).toContain("Sign in to use web search.");
@@ -245,7 +245,7 @@ describe("Failed course", () => {
       {
         status: "failed",
         web: true,
-        error: { code: "signedOut", message: "Sign in to use web search." },
+        error: { code: "webSearch", message: "Sign in to use web search." },
       },
       (b) => {
         b.account = {
@@ -292,7 +292,7 @@ describe("Failed course", () => {
   it("other failures: Retry only", async () => {
     setup({
       status: "failed",
-      error: { code: "unreachable", message: "Ollama is not reachable" },
+      error: { code: "engineFailed", message: "Ollama is not reachable" },
     });
     const alert = await screen.findByTestId("study-error");
     expect(
@@ -391,7 +391,7 @@ describe("Course page in other languages", () => {
     await study.failPlan("c1", { code: "modelNotFound", message: "Boom" });
     expect(untranslatedTexts(document.body, allow)).toEqual([]);
     // Recherche web sans compte, puis compte relié.
-    await study.failPlan("c1", { code: "signedOut", message: "Boom" });
+    await study.failPlan("c1", { code: "webSearch", message: "Boom" });
     await screen.findByRole("button", { name: "⟦Sign In⟧" });
     expect(untranslatedTexts(document.body, allow)).toEqual([]);
     backend.account = {

@@ -604,7 +604,7 @@ describe("Polish tab without Ollama (review 43, F2)", () => {
       models: [GEMMA_4B],
     });
     simulator.handle("list_models", () => {
-      throw { kind: "ollama", message: "connection refused" };
+      throw { kind: "engine", message: "connection refused" };
     });
     await screen.findByText(
       "Ollama is unreachable. Start it to use these models for polish.",

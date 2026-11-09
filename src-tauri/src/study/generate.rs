@@ -166,10 +166,15 @@ impl Job<'_> {
             .any(|source| source.source.kind == super::SourceKind::Web);
         if snapshot.row.web && !has_web {
             let query = web_query(&snapshot);
+            // Arrêt par `self.cancel` (ce futur est alors abandonné).
+            let (web, never) = (
+                ollama.server.web_tools(),
+                tokio_util::sync::CancellationToken::new(),
+            );
             let outcome = tokio::select! {
                 biased;
                 () = self.cancel.cancelled() => return Ok(Next::default()),
-                outcome = sources::web_search(&ollama.server.url, &query) => outcome,
+                outcome = sources::web_search(&web, &query, &never) => outcome,
             };
             match outcome {
                 WebOutcome::Found(rows) => {
@@ -191,8 +196,8 @@ impl Job<'_> {
                     (self.changed)();
                     sources.extend(rows);
                 }
-                WebOutcome::SignedOut => {
-                    let error = error(StudyErrorCode::SignedOut, t!("study.signedOut"));
+                WebOutcome::Stopped(_) => {
+                    let error = error(StudyErrorCode::WebSearch, t!("study.signedOut"));
                     return self.plan_stopped(Stop::Failed(error)).await;
                 }
                 WebOutcome::Failed(reason) => {

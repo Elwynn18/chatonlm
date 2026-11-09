@@ -299,7 +299,11 @@ describe("live streams", () => {
   it("an error after the creation goes to the created chat", () => {
     streams.start({ streamId: "a", chatId: null, content: "x", model: "m" });
     streams.apply("a", { type: "chatCreated", chatId: "c" });
-    streams.apply("a", { type: "error", kind: "unreachable", message: "down" });
+    streams.apply("a", {
+      type: "error",
+      kind: "engineFailed",
+      message: "down",
+    });
     expect(streams.errorFor("c")?.message).toBe("down");
     expect(streams.errorFor(streams.NEW_CHAT)).toBeNull();
   });

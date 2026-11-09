@@ -124,7 +124,7 @@ pub(crate) async fn upstream_in(
                 push_time: None,
             })),
             Manifest::Refused(_) | Manifest::Unexpected => Ok(None),
-            Manifest::Unreachable(message) => Err(AppError::Ollama(message)),
+            Manifest::Unreachable(message) => Err(AppError::Engine(message)),
         };
     }
     let Some(path) = manifest_path(model) else {
@@ -174,7 +174,7 @@ pub(crate) fn normalize_digest(digest: &str) -> String {
 
 fn failed(error: reqwest::Error) -> AppError {
     let error = error.without_url();
-    AppError::Ollama(if error.is_timeout() {
+    AppError::Engine(if error.is_timeout() {
         crate::i18n::t!("ollama.registryTimeout")
     } else {
         crate::i18n::t!("ollama.registryUnreachable", error = error)
@@ -348,7 +348,7 @@ mod tests {
         let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
         let url = fake.url();
         fake.stop().await;
-        let Err(AppError::Ollama(message)) = model_exists(&url, "gemma4").await else {
+        let Err(AppError::Engine(message)) = model_exists(&url, "gemma4").await else {
             panic!("expected an error");
         };
         assert!(
@@ -406,7 +406,7 @@ mod tests {
         // Pas de réponse : erreur.
         let url = hf.url();
         hf.stop().await;
-        let Err(AppError::Ollama(message)) =
+        let Err(AppError::Engine(message)) =
             upstream_in(&ollama.url(), &url, "hf.co/chatonlm/Tiny-GGUF:Q4_K_M").await
         else {
             panic!("expected an error");

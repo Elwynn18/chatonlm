@@ -16,61 +16,61 @@
   },
   "events": [
     {
+      "type": "userMessage",
       "message": {
+        "id": 1,
+        "role": "user",
+        "content": "Describe this file instead.",
+        "thinking": "",
+        "model": null,
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000000,
+        "thinkingStartedAt": null,
+        "thinkingEndedAt": null,
         "attachments": [
           {
-            "filename": "notes.txt",
             "id": 1,
+            "filename": "notes.txt",
             "kind": "text",
             "mime": "text/plain",
             "size": 13
           },
           {
-            "filename": "extra.md",
             "id": 3,
+            "filename": "extra.md",
             "kind": "text",
             "mime": "text/markdown",
             "size": 18
           }
         ],
-        "content": "Describe this file instead.",
-        "createdAt": 1700000000000,
-        "id": 1,
-        "model": null,
-        "role": "user",
-        "thinking": "",
-        "thinkingEndedAt": null,
-        "thinkingStartedAt": null,
-        "toolCalls": [],
-        "updatedAt": 1700000000000
-      },
-      "type": "userMessage"
+        "toolCalls": []
+      }
     },
     {
-      "createdAt": 1700000000000,
+      "type": "replyStarted",
       "messageId": 3,
-      "type": "replyStarted"
+      "createdAt": 1700000000000
     },
     {
-      "text": "\"",
-      "type": "content"
+      "type": "content",
+      "text": "\""
     },
     {
-      "text": "Hi",
-      "type": "content"
+      "type": "content",
+      "text": "Hi"
     },
     {
-      "text": "!\"",
-      "type": "content"
+      "type": "content",
+      "text": "!\""
     },
     {
-      "size": 4096,
       "type": "context",
-      "used": 26
+      "used": 26,
+      "size": 4096
     },
     {
-      "messageId": 3,
-      "type": "done"
+      "type": "done",
+      "messageId": 3
     }
   ],
   "error": null

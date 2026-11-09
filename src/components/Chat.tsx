@@ -190,7 +190,7 @@ const NO_COMPACTIONS: readonly Compaction[] = [];
 
 /** Recherche web refusée faute de compte relié au serveur. */
 function isWebSearchSignedOut(error: StreamError | null) {
-  return error?.kind === "webSearchSignedOut";
+  return error?.kind === "webSearchUnavailable";
 }
 
 /** Nouvelle conversation : logo et zone de saisie, centrés verticalement. */
@@ -369,8 +369,8 @@ function ChatView({ chatId }: { chatId: string }) {
   const { isAuthenticated, account } = useAccount({
     enabled:
       signedOutError ||
-      cloudError === "cloudSignedOut" ||
-      cloudError === "cloudLimit",
+      cloudError === "remoteKey" ||
+      cloudError === "remoteLimit",
   });
   // Dernier message enregistré de l'utilisateur : celui qu'on relance.
   const lastSent = messages.findLast((m) => m.role === "user" && m.id > 0);

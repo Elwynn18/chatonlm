@@ -586,6 +586,26 @@
     "invalidId": "{model} n'est pas un identifiant de modèle Hugging Face (auteur/dépôt:QUANT).",
     "fileMissing": "{file} est introuvable : téléchargez de nouveau le modèle."
   },
+  "llm": {
+    "remoteOff": "Les modèles distants sont coupés. Activez-les dans les réglages pour utiliser ce modèle.",
+    "remoteUnavailable": "Ce modèle distant n'est pas disponible : son fournisseur n'est pas configuré.",
+    "remoteKey": "{provider} a refusé la clé d'API. Vérifiez-la dans les réglages.",
+    "remoteLimit": "{provider} indique que votre limite d'utilisation est atteinte.",
+    "remoteUnreachable": "{provider} est injoignable. Vérifiez votre connexion à Internet, puis réessayez.",
+    "cancelled": "la requête a été arrêtée",
+    "inference": {
+      "loading": "le modèle est encore en cours de chargement",
+      "modelNotFound": "le moteur de texte ne connaît pas ce modèle",
+      "contextExceeded": "la conversation dépasse le contexte du modèle",
+      "imageUnsupported": "ce modèle n'accepte pas les images",
+      "unauthorized": "le moteur de texte a refusé la requête",
+      "http": "le moteur de texte a répondu par une erreur (HTTP {status})",
+      "connect": "le moteur de texte est injoignable",
+      "timeout": "le moteur de texte a mis trop de temps à répondre",
+      "interrupted": "la réponse a été interrompue",
+      "malformed": "le moteur de texte a envoyé une réponse illisible"
+    }
+  },
   "modelImport": {
     "busy": "Des modèles sont déjà en cours de reprise ou de déplacement. Attendez la fin.",
     "cancelled": "Reprise arrêtée.",

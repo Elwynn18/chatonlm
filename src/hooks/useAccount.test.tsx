@@ -68,7 +68,7 @@ describe("useAccount", () => {
     let failures = 1;
     const { calls, wrapper } = setup({
       account_status: () => {
-        if (failures-- > 0) throw { kind: "ollama", message: "down" };
+        if (failures-- > 0) throw { kind: "engine", message: "down" };
         return ADA;
       },
     });
@@ -153,14 +153,14 @@ describe("useAccount", () => {
         return new Promise((resolve) => (answer = () => resolve(ADA)));
       },
       account_sign_out: () => {
-        throw { kind: "ollama", message: "status 500" };
+        throw { kind: "engine", message: "status 500" };
       },
     });
     const { result } = renderHook(() => useAccount(), { wrapper });
     await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
     await act(async () => {
       await expect(result.current.signOut()).rejects.toEqual({
-        kind: "ollama",
+        kind: "engine",
         message: "status 500",
       });
     });
@@ -291,7 +291,7 @@ describe("useCloudStatus", () => {
     const { calls, client, wrapper } = setup(
       {
         cloud_status: () => {
-          throw { kind: "ollama", message: "down" };
+          throw { kind: "engine", message: "down" };
         },
       },
       3,

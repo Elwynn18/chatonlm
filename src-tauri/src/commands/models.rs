@@ -1,44 +1,41 @@
 use tauri::State;
 
 use crate::chat::stream::Think;
-use crate::engine::{Engine, LoadOptions, RunningModel as EngineRunningModel};
+use crate::engine::{Engine, RunningModel as EngineRunningModel};
 use crate::error::{AppError, AppResult};
 use crate::i18n::t;
-use crate::ollama::models::{self, ModelDetails, ModelInfo, RecommendedModel};
-use crate::ollama::outdated;
+use crate::llm::Access;
+use crate::llm::models::{self as facade, ChatModel, ModelDetails, RecommendedModel};
+use crate::ollama::models;
 use crate::ollama::registry;
 use crate::ollama::running;
 use crate::store::settings::{self, Settings};
 use crate::store::{Store, model_prefs};
 
-/// Modèles utilisables en conversation, à l'adresse effective du serveur.
+/// Modèles du sélecteur : installés (du plus récent), puis distants si le
+/// réglage les permet.
 #[tauri::command]
-pub async fn list_models(store: State<'_, Store>) -> AppResult<Vec<ModelInfo>> {
-    models::list(&server_url(&store).await?).await
+pub async fn list_models(access: State<'_, Access>) -> AppResult<Vec<ChatModel>> {
+    facade::list(&access).await
 }
 
-/// Capacités et réglages du raisonnement d'un modèle (`/api/show`).
+/// Capacités et réglages de la réflexion d'un modèle.
 #[tauri::command]
-pub async fn model_details(store: State<'_, Store>, model: String) -> AppResult<ModelDetails> {
-    details(&store, &model).await
+pub async fn model_details(access: State<'_, Access>, model: String) -> AppResult<ModelDetails> {
+    facade::details(&access, &model).await
 }
 
-/// Modèles recommandés par le serveur, cloud compris (avec le forfait
-/// exigé), sans `:latest` ; un modèle local porte la mémoire qu'il lui faut
-/// et sa place dans la machine (pastille du ModelHub), pour choisir un
-/// premier modèle qui tient.
+/// Modèles recommandés (tête du sélecteur, premier modèle), avec leur place
+/// dans la machine. Corps : lot L5b (`hub/curation.json` + `hub::fit`) ;
+/// provisoire : aucun.
 #[tauri::command]
-pub async fn recommended_models(
-    store: State<'_, Store>,
-    catalog: State<'_, crate::hub::state::Catalog>,
-) -> AppResult<Vec<RecommendedModel>> {
-    let models = recommended(&store).await?;
-    // Machine inconnue (serveur distant, détection en échec) : pas de pastille.
-    let hardware = super::hub::machine(&catalog, &store).await.ok().flatten();
-    Ok(with_fit(models, hardware.as_ref()))
+pub async fn recommended_models() -> AppResult<Vec<RecommendedModel>> {
+    Ok(Vec::new())
 }
 
-/// Pastille de chaque modèle local dont la mémoire est connue.
+/// Pastille de chaque modèle recommandé dont la mémoire est connue (pour le
+/// corps de `recommended_models`, lot L5b).
+#[allow(dead_code, reason = "corps de recommended_models (lot L5b)")]
 fn with_fit(
     mut models: Vec<RecommendedModel>,
     hardware: Option<&crate::hub::types::HubHardware>,
@@ -52,23 +49,20 @@ fn with_fit(
     models
 }
 
-/// Vrai si le modèle existe au registre d'Ollama (nom tapé dans le
-/// sélecteur) ; une erreur réseau vaut « non » pour l'interface.
+/// Vrai si le modèle existe au registre d'Ollama (retirée de la page ; code
+/// gardé jusqu'au lot L10).
 #[tauri::command]
 pub async fn model_exists_upstream(model: String) -> AppResult<bool> {
     registry::model_exists(&registry::registry_url(), &model).await
 }
 
-/// Parmi `models`, les modèles installés dont le registre (ollama.com,
-/// Hugging Face) a une version plus récente. Rejette si Ollama ne répond
-/// pas ; un registre injoignable ne signale rien.
+/// Parmi `models`, les modèles installés dont Hugging Face a une version plus
+/// récente. Corps : lot L5b (`local_models::check_outdated`) ; provisoire :
+/// aucun.
 #[tauri::command]
-pub async fn outdated_models(
-    store: State<'_, Store>,
-    models: Vec<String>,
-) -> AppResult<Vec<String>> {
-    let server = server_url(&store).await?;
-    outdated::outdated(&server, &registry::registry_url(), &models).await
+pub async fn outdated_models(models: Vec<String>) -> AppResult<Vec<String>> {
+    let _ = models;
+    Ok(Vec::new())
 }
 
 /// Réglage du raisonnement mémorisé pour ce modèle (`null` : aucun).
@@ -119,12 +113,11 @@ pub async fn auto_model(
 /// Le chef de la carte graphique replanifie aussitôt (lien VS Code).
 #[tauri::command]
 pub async fn load_model(
-    store: State<'_, Store>,
-    engine: State<'_, Engine>,
+    access: State<'_, Access>,
     gpu: State<'_, crate::gpu::GpuChief>,
     model: String,
 ) -> AppResult<()> {
-    let loaded = load_in_engine(&store, &engine, &model).await;
+    let loaded = load_in_engine(&access, &model).await;
     gpu.poke();
     loaded
 }
@@ -132,12 +125,12 @@ pub async fn load_model(
 /// Décharge un modèle (attend la fin de son processus).
 #[tauri::command]
 pub async fn unload_model(
-    engine: State<'_, Engine>,
+    access: State<'_, Access>,
     gpu: State<'_, crate::gpu::GpuChief>,
     model: String,
 ) -> AppResult<()> {
     let working = crate::gpu::activity::hold();
-    engine.unload(&model).await;
+    facade::unload(&access, &model).await;
     drop(working);
     gpu.poke();
     Ok(())
@@ -146,31 +139,33 @@ pub async fn unload_model(
 /// Décharge tous les modèles du moteur.
 #[tauri::command]
 pub async fn unload_all_models(
-    engine: State<'_, Engine>,
+    access: State<'_, Access>,
     gpu: State<'_, crate::gpu::GpuChief>,
 ) -> AppResult<()> {
     let working = crate::gpu::activity::hold();
-    engine.unload_all().await;
+    facade::unload_all(&access).await;
     drop(working);
     gpu.poke();
     Ok(())
 }
 
 /// Adresse du serveur auquel parler : celle de la cible (`ollama::target` :
-/// Ollama intégré, sinon adresse réglée, `OLLAMA_HOST` ou défaut).
+/// Ollama intégré, sinon adresse réglée, `OLLAMA_HOST` ou défaut). Transition
+/// (lots L5a, L9).
 pub(crate) async fn server_url(store: &Store) -> AppResult<String> {
     Ok(app_settings(store).await?.effective_server_url)
 }
 
 /// Réglages de l'app, avec l'adresse de la cible (point unique de toutes les
-/// requêtes à Ollama).
+/// requêtes à Ollama). Transition (lots L5a, L9).
 pub(crate) async fn app_settings(store: &Store) -> AppResult<Settings> {
     crate::ollama::target::request_settings(store).await
 }
 
 /// Détails d'Ollama, plus ce que ChatonLM a observé : le modèle raisonne même
-/// avec `think: false`.
-pub(crate) async fn details(store: &Store, model: &str) -> AppResult<ModelDetails> {
+/// avec `think: false`. Transition (pont, lot L9) : la page passe par
+/// [`facade::details`].
+pub(crate) async fn details(store: &Store, model: &str) -> AppResult<models::ModelDetails> {
     let mut details = models::details(&server_url(store).await?, model).await?;
     let name = model.to_owned();
     details.always_thinks = store
@@ -179,28 +174,17 @@ pub(crate) async fn details(store: &Store, model: &str) -> AppResult<ModelDetail
     Ok(details)
 }
 
-async fn recommended(store: &Store) -> AppResult<Vec<RecommendedModel>> {
-    models::recommended(&server_url(store).await?).await
-}
-
 /// Chargement avec les options d'un envoi du chat (contexte et durée
 /// réglés : le message suivant ne relance pas le modèle), dans le moteur de
 /// l'app (bouton Load, préchargement).
-pub(crate) async fn load_in_engine(store: &Store, engine: &Engine, model: &str) -> AppResult<()> {
+pub(crate) async fn load_in_engine(access: &Access, model: &str) -> AppResult<()> {
     // L'autocomplétion de l'éditeur attend pendant ce temps.
     let _working = crate::gpu::activity::hold();
-    let settings = store.call(|c| settings::get(c, None)).await?;
-    engine
-        .preload(
-            model,
-            LoadOptions::from_settings(settings.context_length, settings.keep_alive),
-        )
-        .await
-        .map_err(AppError::from)
+    facade::load(access, model).await.map_err(AppError::from)
 }
 
 /// Chargement dans Ollama avec les options d'un envoi du chat (Easy Link,
-/// jusqu'au lot L5) : adresse effective,
+/// jusqu'au lot L9) : adresse effective,
 /// contexte et durée réglés (le message suivant ne recharge pas le modèle).
 /// Refusé pour un modèle distant (nom cloud, ou `/api/show` qui le dit) :
 /// rien à charger ici.
@@ -242,7 +226,8 @@ mod tests {
         const GIB: u64 = 1024 * 1024 * 1024;
         let model = |name: &str, vram_bytes: Option<u64>| RecommendedModel {
             model: name.into(),
-            required_plan: None,
+            display_name: name.into(),
+            size_bytes: None,
             vram_bytes,
             fit: None,
         };
@@ -372,48 +357,31 @@ mod tests {
     /// absent de la base locale est introuvable.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_model_is_loaded_in_the_engine_as_the_chat_would() {
-        let bench = crate::engine::tests::bench();
-        let id = bench.install("simple", 1 << 30);
-        let store = Store::open_in_memory().unwrap();
-        let patch = SettingsPatch {
+        let id = "test/Simple-GGUF:Q4_K_M";
+        let bench = crate::llm::testing::FakeBench::new(&[(id, "simple")]);
+        bench.set(SettingsPatch {
             context_length: Some(8192),
             keep_alive: Some(-1),
             ..Default::default()
-        };
-        store
-            .blocking(|c| settings::update(c, patch, None).map(drop))
-            .unwrap();
-        load_in_engine(&store, &bench.engine, &id).await.unwrap();
-        let running = bench.engine.running();
+        });
+        load_in_engine(&bench.access, id).await.unwrap();
+        let running = bench.engine().running();
         assert_eq!(running.len(), 1);
         assert_eq!(running[0].context_length, 8192);
         assert!(running[0].kept && !running[0].in_use);
-        let patch = SettingsPatch {
+        bench.set(SettingsPatch {
             keep_alive: Some(60),
             ..Default::default()
-        };
-        store
-            .blocking(|c| settings::update(c, patch, None).map(drop))
-            .unwrap();
-        load_in_engine(&store, &bench.engine, &id).await.unwrap();
-        let left = bench.engine.running()[0].expires_at.unwrap() - crate::store::now_ms();
+        });
+        load_in_engine(&bench.access, id).await.unwrap();
+        let left = bench.engine().running()[0].expires_at.unwrap() - crate::store::now_ms();
         assert!((55_000..=60_000).contains(&left), "{left}");
         let Err(AppError::NotFound(message)) =
-            load_in_engine(&store, &bench.engine, "a/nope-GGUF:Q4_K_M").await
+            load_in_engine(&bench.access, "a/nope-GGUF:Q4_K_M").await
         else {
             panic!("expected a missing model");
         };
         assert!(message.contains("a/nope-GGUF:Q4_K_M"), "{message}");
-        bench.engine.shutdown().await;
-    }
-
-    /// Les recommandations aussi.
-    #[tokio::test]
-    async fn recommendations_are_asked_to_the_configured_server() {
-        let server = FakeOllama::start(Mode::no_models()).await.unwrap();
-        let store = configured(server.url());
-        let models = recommended(&store).await.unwrap();
-        let names: Vec<_> = models.iter().map(|m| m.model.as_str()).collect();
-        assert_eq!(names[4..], ["gemma4", "qwen3.5"]);
+        bench.shutdown().await;
     }
 }

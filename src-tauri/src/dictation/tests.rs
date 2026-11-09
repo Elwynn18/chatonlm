@@ -228,6 +228,7 @@ impl Host for FakeHost {
             context_length: *self.context_length.lock(),
             keep_alive: *self.keep_alive.lock(),
             cloud: false,
+            ..crate::chat::Server::detached()
         };
         let gate = self.server_gate.lock().clone();
         Box::pin(async move {

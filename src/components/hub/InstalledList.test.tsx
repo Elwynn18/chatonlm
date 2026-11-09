@@ -117,7 +117,7 @@ describe("Installed", () => {
   it("a failed deletion is shown on its row", async () => {
     renderHub("/hub/installed", ({ hub }) => {
       hub.failures.set("hub_delete_model", {
-        kind: "ollama",
+        kind: "engine",
         message: "Can't reach Ollama. Make sure it's running, then try again.",
       });
     });
@@ -164,7 +164,7 @@ describe("Installed", () => {
     // La première échoue, la seconde réussit.
     await act(async () =>
       answers.get("qwen3:0.6b")!.reject({
-        kind: "ollama",
+        kind: "engine",
         message: "Can't reach Ollama. Make sure it's running, then try again.",
       }),
     );
@@ -326,7 +326,7 @@ describe("Installed", () => {
   it("Ollama unreachable: the error and Retry", async () => {
     const { hub } = renderHub("/hub/installed", ({ hub }) => {
       hub.failures.set("hub_installed", {
-        kind: "ollama",
+        kind: "engine",
         message: "Can't reach Ollama. Make sure it's running, then try again.",
       });
     });

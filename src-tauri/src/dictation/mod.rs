@@ -495,16 +495,15 @@ impl Host for AppHost {
     }
 
     fn server(&self) -> BoxFuture<Result<Server, String>> {
-        let store = self
+        let access = self
             .0
-            .try_state::<Store>()
-            .map(|store| store.inner().clone());
+            .try_state::<crate::llm::Access>()
+            .map(|access| access.inner().clone());
         Box::pin(async move {
-            let store = store.ok_or_else(|| t!("dictation.noDatabase"))?;
-            let settings = crate::commands::models::app_settings(&store)
+            let access = access.ok_or_else(|| t!("dictation.noDatabase"))?;
+            Server::current(&access)
                 .await
-                .map_err(|error| error.to_string())?;
-            Ok(Server::from_settings(&settings))
+                .map_err(|error| error.to_string())
         })
     }
 

@@ -42,7 +42,8 @@ pub async fn set_auto_download(app: AppHandle, enabled: bool) -> AppResult<Updat
     updater::set_auto_download(&app, enabled).await
 }
 
-/// Versions installées : ChatonLM, et l'Ollama intégré s'il est livré.
+/// Versions installées : ChatonLM, et le moteur `llama-server` s'il est
+/// livré.
 #[tauri::command]
 pub async fn app_versions(app: AppHandle) -> AppResult<AppVersions> {
     Ok(updater::versions(&app))

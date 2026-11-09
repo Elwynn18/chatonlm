@@ -108,7 +108,8 @@ impl<'a> Gen<'a> {
                 t!("study.noModel"),
             )));
         };
-        let server = Server::from_settings(&settings);
+        // Transition (lot L5a) : accès de l'app retrouvé par la base.
+        let server = Server::with_settings(crate::llm::access_for(store), &settings);
         // Nom d'un modèle cloud, réglage coupé : pas même /api/show.
         if let Some(message) = server.refuses(&model, models::is_cloud_name(&model)) {
             return Err(Stop::Failed(error(StudyErrorCode::Failed, message)));
@@ -122,7 +123,7 @@ impl<'a> Gen<'a> {
             Ok(details) => Some(details),
             Err(ShowError::Unreachable(_)) => {
                 return Err(Stop::Failed(error(
-                    StudyErrorCode::Unreachable,
+                    StudyErrorCode::EngineFailed,
                     t!("ollama.unreachableAt", address = server.url),
                 )));
             }
@@ -154,7 +155,7 @@ impl<'a> Gen<'a> {
 
     fn unreachable(&self) -> Stop {
         Stop::Failed(error(
-            StudyErrorCode::Unreachable,
+            StudyErrorCode::EngineFailed,
             t!("ollama.unreachableAt", address = self.server.url),
         ))
     }

@@ -56,6 +56,7 @@ use tokio::task::JoinHandle;
 pub mod args;
 pub mod cli;
 pub mod scenario;
+pub mod scenarios;
 pub mod tokens;
 
 pub use scenario::{FIM_COMPLETION, FIM_JUNK, LOOP_SENTENCE, Scenario};
@@ -231,6 +232,8 @@ pub enum Exit {
 struct Shared {
     config: Config,
     scenario: Scenario,
+    /// Scénario d'un lot (`scenarios`), quand aucun intégré n'est nommé.
+    custom: Option<&'static scenarios::Custom>,
     started: Instant,
     ready_at: Instant,
     requests: Mutex<Vec<Value>>,
@@ -250,15 +253,28 @@ struct Shared {
 impl Shared {
     /// État d'un serveur qui démarre, et durée de son chargement.
     fn new(config: Config) -> (Arc<Shared>, Duration) {
-        let scenario = Scenario::of(config.alias.as_deref(), &config.model);
+        let builtin = Scenario::find(config.alias.as_deref(), &config.model);
+        let custom = match builtin {
+            Some(_) => None,
+            None => scenarios::find(config.alias.as_deref(), &config.model),
+        };
+        let scenario = builtin.unwrap_or(Scenario::Simple);
         let load = match config.mode {
             Mode::Loading(delay) => delay,
-            _ => scenario.load_delay().unwrap_or(config.load_delay),
+            _ => scenario
+                .load_delay()
+                .or_else(|| {
+                    custom
+                        .and_then(|custom| custom.load_ms)
+                        .map(Duration::from_millis)
+                })
+                .unwrap_or(config.load_delay),
         };
         let now = Instant::now();
         let (exit, _) = watch::channel(None);
         let shared = Arc::new(Shared {
             scenario,
+            custom,
             started: now,
             ready_at: now + load,
             requests: Mutex::default(),
@@ -277,7 +293,12 @@ impl Shared {
     }
 
     fn loading(&self) -> bool {
-        Instant::now() < self.ready_at || self.scenario == Scenario::LoadFail
+        Instant::now() < self.ready_at || self.fails_load()
+    }
+
+    /// Chargement raté (`chatonlm-loadfail`, ou scénario d'un lot).
+    fn fails_load(&self) -> bool {
+        self.scenario == Scenario::LoadFail || self.custom.is_some_and(|custom| custom.fail_load)
     }
 
     fn log(&self, level: char, message: &str) {
@@ -407,7 +428,7 @@ impl FakeLlama {
         let loader = shared.clone();
         tokio::spawn(async move {
             tokio::time::sleep(load).await;
-            if loader.scenario == Scenario::LoadFail {
+            if loader.fails_load() {
                 let model = &loader.config.model;
                 loader.log(
                     'E',
@@ -939,6 +960,26 @@ async fn chat(shared: Arc<Shared>, path: &str, body: &[u8]) -> Response {
                 "n_prompt_tokens": prompt.len(), "n_ctx": ctx } }),
         );
     }
+    if let Some(custom) = shared.custom {
+        let model = shared.model_name();
+        let script = (custom.chat)(&scenarios::ChatCall {
+            body: &request,
+            model: &model,
+        });
+        let (cache_n, prompt_n) = shared.cached(&prompt, request["cache_prompt"] != false);
+        let stats = Stats {
+            prompt: prompt.len(),
+            cache_n,
+            prompt_n,
+            predicted: script.iter().filter(|step| step.produces()).count(),
+        };
+        return if request["stream"] == true {
+            let usage = request["stream_options"]["include_usage"] == true;
+            script_stream(shared, slot, script, stats, usage).await
+        } else {
+            script_once(shared, slot, script, stats).await
+        };
+    }
     let reply = scenario::limit(
         scenario::plan(shared.scenario, &request, vision),
         &request,
@@ -982,6 +1023,8 @@ enum Step {
     Ping,
     /// Connexion coupée par le serveur, puis plantage.
     Crash,
+    /// Connexion coupée par le serveur (scénario d'un lot), qui continue.
+    Cut,
 }
 
 fn data(value: &Value) -> String {
@@ -1063,6 +1106,11 @@ fn stream(
             steps.push(Step::Send("data: [DONE]\n\n".into()));
         }
     }
+    sse(shared, slot, steps)
+}
+
+/// Réponse SSE qui joue `steps`.
+fn sse(shared: Arc<Shared>, slot: OwnedSemaphorePermit, steps: Vec<Step>) -> Response {
     let guard = Guard::new(shared, slot);
     let body = futures_util::stream::unfold(
         (steps.into_iter(), guard),
@@ -1087,6 +1135,12 @@ fn stream(
                         guard.shared.request_exit(Exit::Abort);
                         let reset =
                             std::io::Error::new(std::io::ErrorKind::ConnectionReset, "fake crash");
+                        return Some((Err(reset), (steps, guard)));
+                    }
+                    Some(Step::Cut) => {
+                        guard.finish();
+                        let reset =
+                            std::io::Error::new(std::io::ErrorKind::ConnectionReset, "fake cut");
                         return Some((Err(reset), (steps, guard)));
                     }
                     Some(Step::Send(text)) => {
@@ -1168,6 +1222,235 @@ async fn once(
     )
 }
 
+/// Réponse en flux d'un script ([`scenarios`]).
+async fn script_stream(
+    shared: Arc<Shared>,
+    slot: OwnedSemaphorePermit,
+    script: scenarios::Script,
+    stats: Stats,
+    usage: bool,
+) -> Response {
+    // Échec avant tout morceau : réponse HTTP d'erreur, après les attentes.
+    if let Some((waited, status, body)) = early_failure(&script) {
+        tokio::time::sleep(waited).await;
+        drop(slot);
+        return script_error(status, &body);
+    }
+    let id = shared.next_id("chatcmpl-");
+    let created = now_seconds();
+    let model = shared.model_name();
+    let chunk = |delta: Value, finish: Option<&str>| {
+        json!({
+            "choices": [{ "finish_reason": finish, "index": 0, "delta": delta }],
+            "created": created, "id": id, "model": model,
+            "system_fingerprint": BUILD_INFO, "object": "chat.completion.chunk",
+        })
+    };
+    let mut steps = vec![Step::Send(data(&chunk(
+        json!({ "role": "assistant", "content": null }),
+        None,
+    )))];
+    let mut calls = 0;
+    let mut finish = None;
+    let mut ended = false;
+    for step in script {
+        match step {
+            scenarios::Step::Reasoning(text) => steps.push(Step::Send(data(&chunk(
+                json!({ "reasoning_content": text }),
+                None,
+            )))),
+            scenarios::Step::Content(text) => {
+                steps.push(Step::Send(data(&chunk(json!({ "content": text }), None))));
+            }
+            scenarios::Step::ToolCall { name, arguments } => {
+                let entry = json!({ "index": calls, "id": format!("fake-call-{calls}"),
+                    "type": "function", "function": { "name": name, "arguments": arguments } });
+                calls += 1;
+                steps.push(Step::Send(data(&chunk(
+                    json!({ "tool_calls": [entry] }),
+                    None,
+                ))));
+            }
+            scenarios::Step::Wait(delay) => steps.push(Step::Wait(delay)),
+            scenarios::Step::Fail { body, .. } => {
+                steps.push(Step::Send(data(&body)));
+                ended = true;
+                break;
+            }
+            scenarios::Step::Cut => {
+                steps.push(Step::Cut);
+                ended = true;
+                break;
+            }
+            scenarios::Step::Finish(reason) => {
+                finish = Some(reason);
+                break;
+            }
+        }
+    }
+    if !ended {
+        let reason = finish.unwrap_or(if calls > 0 { "tool_calls" } else { "stop" });
+        let mut end = chunk(json!({}), Some(reason));
+        if usage {
+            steps.push(Step::Send(data(&end)));
+            let mut last = chunk(json!({}), None);
+            last["choices"] = json!([]);
+            last["usage"] = stats.usage();
+            last["timings"] = stats.timings();
+            steps.push(Step::Send(data(&last)));
+        } else {
+            end["timings"] = stats.timings();
+            steps.push(Step::Send(data(&end)));
+        }
+        steps.push(Step::Send("data: [DONE]\n\n".into()));
+    }
+    sse(shared, slot, steps)
+}
+
+/// Échec d'un script avant tout morceau : attente cumulée, code et corps.
+fn early_failure(script: &[scenarios::Step]) -> Option<(Duration, u16, Value)> {
+    let mut waited = Duration::ZERO;
+    for step in script {
+        match step {
+            scenarios::Step::Wait(delay) => waited += *delay,
+            scenarios::Step::Fail { status, body } => {
+                return Some((waited, *status, body.clone()));
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn script_error(status: u16, body: &Value) -> Response {
+    json_response(
+        StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        body,
+    )
+}
+
+/// Connexion coupée en guise de corps.
+fn cut_body() -> Response {
+    let reset = std::io::Error::new(std::io::ErrorKind::ConnectionReset, "fake cut");
+    let body = futures_util::stream::once(async move { Err::<String, _>(reset) });
+    Response::builder()
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from_stream(body))
+        .unwrap_or_default()
+}
+
+/// Réponse entière d'un script ([`scenarios`]).
+async fn script_once(
+    shared: Arc<Shared>,
+    slot: OwnedSemaphorePermit,
+    script: scenarios::Script,
+    stats: Stats,
+) -> Response {
+    let mut guard = Guard::new(shared.clone(), slot);
+    let (mut reasoning, mut content) = (String::new(), String::new());
+    let mut calls = Vec::new();
+    let mut finish = None;
+    for step in script {
+        match step {
+            scenarios::Step::Reasoning(text) => reasoning.push_str(&text),
+            scenarios::Step::Content(text) => content.push_str(&text),
+            scenarios::Step::ToolCall { name, arguments } => {
+                calls.push(
+                    json!({ "type": "function", "id": format!("fake-call-{}", calls.len()),
+                    "function": { "name": name, "arguments": arguments } }),
+                );
+            }
+            scenarios::Step::Wait(delay) => tokio::time::sleep(delay).await,
+            scenarios::Step::Fail { status, body } => {
+                guard.finish();
+                return script_error(status, &body);
+            }
+            scenarios::Step::Cut => {
+                guard.finish();
+                return cut_body();
+            }
+            scenarios::Step::Finish(reason) => {
+                finish = Some(reason);
+                break;
+            }
+        }
+    }
+    guard.finish();
+    let reason = finish.unwrap_or(if calls.is_empty() {
+        "stop"
+    } else {
+        "tool_calls"
+    });
+    let mut message = json!({ "role": "assistant", "content": content });
+    if !reasoning.is_empty() {
+        message["reasoning_content"] = json!(reasoning);
+    }
+    if !calls.is_empty() {
+        message["tool_calls"] = json!(calls);
+    }
+    json_response(
+        StatusCode::OK,
+        &json!({
+            "choices": [{ "finish_reason": reason, "index": 0, "message": message }],
+            "created": now_seconds(), "model": shared.model_name(),
+            "system_fingerprint": BUILD_INFO, "object": "chat.completion",
+            "usage": stats.usage(), "id": shared.next_id("chatcmpl-"), "timings": stats.timings(),
+        }),
+    )
+}
+
+/// `/infill` d'un scénario de lot : contenu des morceaux, raison de fin
+/// (`eos` par défaut ; `Finish("limit")`, `Finish("word")`…).
+async fn script_infill(
+    shared: Arc<Shared>,
+    mut guard: Guard,
+    script: scenarios::Script,
+    evaluated: usize,
+) -> Response {
+    let mut content = String::new();
+    let mut stop_type = "eos";
+    let mut pieces = 0;
+    for step in script {
+        match step {
+            scenarios::Step::Content(text) | scenarios::Step::Reasoning(text) => {
+                content.push_str(&text);
+                pieces += 1;
+            }
+            scenarios::Step::ToolCall { .. } => {}
+            scenarios::Step::Wait(delay) => tokio::time::sleep(delay).await,
+            scenarios::Step::Fail { status, body } => {
+                guard.finish();
+                return script_error(status, &body);
+            }
+            scenarios::Step::Cut => {
+                guard.finish();
+                return cut_body();
+            }
+            scenarios::Step::Finish(reason) => {
+                stop_type = reason;
+                break;
+            }
+        }
+    }
+    let stats = Stats {
+        prompt: evaluated,
+        cache_n: 0,
+        prompt_n: evaluated,
+        predicted: pieces,
+    };
+    guard.finish();
+    json_response(
+        StatusCode::OK,
+        &json!({
+            "index": 0, "content": content, "tokens": [], "id_slot": 0, "stop": true,
+            "model": shared.model_name(), "tokens_predicted": pieces,
+            "tokens_evaluated": evaluated, "prompt": "", "has_new_line": content.contains('\n'),
+            "truncated": false, "stop_type": stop_type, "stopping_word": "",
+            "tokens_cached": evaluated + pieces, "timings": stats.timings(),
+        }),
+    )
+}
+
 async fn infill(shared: Arc<Shared>, body: &[u8]) -> Response {
     let request: Value = match serde_json::from_slice(body) {
         Ok(request) => request,
@@ -1177,6 +1460,17 @@ async fn infill(shared: Arc<Shared>, body: &[u8]) -> Response {
     shared.touch();
     let slot = shared.slot().await;
     let mut guard = Guard::new(shared.clone(), slot);
+    if let Some(script) = shared.custom.and_then(|custom| custom.infill) {
+        let model = shared.model_name();
+        let script = script(&scenarios::InfillCall {
+            body: &request,
+            model: &model,
+        });
+        let prefix = request["input_prefix"].as_str().unwrap_or_default();
+        let suffix = request["input_suffix"].as_str().unwrap_or_default();
+        let evaluated = tokens::ids(&format!("{prefix}{suffix}")).len();
+        return script_infill(shared.clone(), guard, script, evaluated).await;
+    }
     if shared.scenario == Scenario::FimSlow {
         tokio::time::sleep(Duration::from_millis(300)).await;
     }

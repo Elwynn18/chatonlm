@@ -500,7 +500,7 @@ pub(super) async fn proofread_run<H: Host>(
         }
     };
     let outcome = proofread::run(
-        &Server::from_settings(&settings),
+        &Server::with_settings(shared.access.clone(), &settings),
         &model,
         params.mode,
         proofread::ProofreadOptions::of(&settings),

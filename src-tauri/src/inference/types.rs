@@ -208,6 +208,9 @@ pub enum ResponseFormat {
 /// ceux du serveur.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChatRequest {
+    /// Nom du modèle écrit dans le corps s'il est posé (fournisseur
+    /// distant) ; `llama-server` sert un seul modèle et l'ignore.
+    pub model: Option<String>,
     pub messages: Vec<Message>,
     /// Définitions des outils, au format d'OpenAI (`{"type": "function",
     /// "function": {name, description, parameters}}`), telles quelles.
@@ -220,6 +223,11 @@ pub struct ChatRequest {
     pub top_k: Option<u32>,
     pub min_p: Option<f32>,
     pub repeat_penalty: Option<f32>,
+    /// Pénalités et fenêtre de la répétition (acceptées par `llama-server`
+    /// ; défauts repris d'Ollama).
+    pub presence_penalty: Option<f32>,
+    pub frequency_penalty: Option<f32>,
+    pub repeat_last_n: Option<i32>,
     pub seed: Option<u32>,
     pub stop: Vec<String>,
     /// Réutiliser le cache du prompt (défaut du serveur : oui).
@@ -237,6 +245,9 @@ impl ChatRequest {
     /// Corps JSON de `/v1/chat/completions`.
     pub fn body(&self, stream: bool) -> Value {
         let mut body = Map::new();
+        if let Some(model) = &self.model {
+            body.insert("model".into(), json!(model));
+        }
         body.insert(
             "messages".into(),
             self.messages.iter().map(Message::to_json).collect(),
@@ -294,6 +305,9 @@ impl ChatRequest {
         set("top_k", self.top_k.map(Value::from));
         set("min_p", self.min_p.map(Value::from));
         set("repeat_penalty", self.repeat_penalty.map(Value::from));
+        set("presence_penalty", self.presence_penalty.map(Value::from));
+        set("frequency_penalty", self.frequency_penalty.map(Value::from));
+        set("repeat_last_n", self.repeat_last_n.map(Value::from));
         set("seed", self.seed.map(Value::from));
         set("cache_prompt", self.cache_prompt.map(Value::from));
         if !self.stop.is_empty() {

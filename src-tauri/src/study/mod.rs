@@ -125,10 +125,13 @@ pub enum StudyErrorCode {
     NoModel,
     /// Modèle absent du serveur.
     ModelNotFound,
-    /// Serveur Ollama injoignable.
-    Unreachable,
-    /// Recherche web demandée sans compte relié au serveur (401).
-    SignedOut,
+    /// Le moteur n'a pas pu servir le modèle (jusqu'au lot L5a : Ollama
+    /// injoignable). Ancien code `unreachable`, réécrit dans les cours
+    /// enregistrés par la migration 0041.
+    EngineFailed,
+    /// Recherche web impossible (relais injoignable, quota, pause). Ancien
+    /// code `signedOut`, réécrit de même.
+    WebSearch,
     /// Réponses du modèle inutilisables après les essais prévus.
     Invalid,
     /// Autre échec (erreur du modèle, délai dépassé...).

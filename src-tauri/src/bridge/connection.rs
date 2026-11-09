@@ -974,7 +974,7 @@ async fn models_details<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Val
     };
     match crate::commands::models::details(&shared.store, &params.model).await {
         Ok(details) => {
-            let server = Server::from_settings(&settings);
+            let server = Server::with_settings(shared.access.clone(), &settings);
             let context = chat::context_size(&server, &params.model, Some(&details)).await;
             let mut result = json!(details);
             result["remote"] = json!(details.remote);
@@ -1105,7 +1105,7 @@ async fn tour_plan<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value, p
         .clone()
         .filter(|model| !model.trim().is_empty())
         .unwrap_or_else(|| settings.selected_model.clone());
-    let server = Server::from_settings(&settings);
+    let server = Server::with_settings(shared.access.clone(), &settings);
     // L'autocomplétion attend pendant ce temps (calcul partagé).
     let _working = shared.host.engine().hold();
     match super::tour::plan(&server, &model, &params).await {
@@ -1244,7 +1244,7 @@ async fn chat_send<H: Host>(
             &shared.store,
             shared.host.engine(),
             &shared.staging,
-            Server::from_settings(&settings),
+            Server::with_settings(shared.access.clone(), &settings),
             request,
             Origin::Bridge,
             &sink,

@@ -38,7 +38,7 @@ export function StudyErrorNotice({
     >
       <p>{error.message}</p>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
-        {error.code === "signedOut" ? (
+        {error.code === "webSearch" ? (
           <>
             {isAuthenticated ? (
               <>

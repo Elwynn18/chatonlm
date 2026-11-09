@@ -19,8 +19,12 @@ mod i18n;
 mod image_gen;
 mod image_models;
 mod inference;
+mod llm;
 mod local_models;
 mod logging;
+// Code d'Ollama sans appelant depuis le passage à llama.cpp (contrat 102),
+// retiré au lot L10.
+#[allow(dead_code, reason = "code d'Ollama gardé jusqu'au lot L10")]
 mod ollama;
 mod os_util;
 mod paths;
@@ -343,6 +347,9 @@ pub fn run() {
             }
             app.manage(model_import);
             if let Some(store) = store {
+                // Accès aux modèles (moteur, distants, relais de la
+                // recherche web) pour les commandes, Easy Link et le pont.
+                llm::setup(app.handle(), store.clone())?;
                 app.manage(store);
             }
             app.manage(startup);
@@ -516,6 +523,8 @@ pub fn run() {
             commands::image_models::image_repo,
             commands::image_models::image_search,
             commands::image_models::image_use_model,
+            commands::engine::engine_status,
+            commands::engine::open_engine_logs,
             commands::models::get_think_pref,
             commands::models::auto_model,
             commands::models::list_models,

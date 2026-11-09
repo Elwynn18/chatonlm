@@ -7,96 +7,96 @@
   },
   "events": [
     {
-      "chatId": "chat-1",
-      "type": "chatCreated"
+      "type": "chatCreated",
+      "chatId": "chat-1"
     },
     {
+      "type": "userMessage",
       "message": {
-        "attachments": [],
-        "content": "Say hello in one word.",
-        "createdAt": 1700000000000,
         "id": 1,
-        "model": null,
         "role": "user",
+        "content": "Say hello in one word.",
         "thinking": "",
-        "thinkingEndedAt": null,
+        "model": null,
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000000,
         "thinkingStartedAt": null,
-        "toolCalls": [],
-        "updatedAt": 1700000000000
-      },
-      "type": "userMessage"
+        "thinkingEndedAt": null,
+        "attachments": [],
+        "toolCalls": []
+      }
     },
     {
+      "type": "download",
+      "total": 5046586573,
       "completed": 0,
-      "done": false,
-      "total": 5046586573,
-      "type": "download"
+      "done": false
     },
     {
+      "type": "download",
+      "total": 5046586573,
       "completed": 504658657,
-      "done": false,
-      "total": 5046586573,
-      "type": "download"
+      "done": false
     },
     {
+      "type": "download",
+      "total": 5046586573,
       "completed": 1009317314,
-      "done": false,
-      "total": 5046586573,
-      "type": "download"
+      "done": false
     },
     {
+      "type": "download",
+      "total": 5046586573,
       "completed": 1513975971,
-      "done": false,
-      "total": 5046586573,
-      "type": "download"
+      "done": false
     },
     {
+      "type": "download",
+      "total": 5046586573,
       "completed": 2018634629,
-      "done": false,
-      "total": 5046586573,
-      "type": "download"
+      "done": false
     },
     {
+      "type": "download",
+      "total": 5046586573,
       "completed": 2523293286,
-      "done": false,
-      "total": 5046586573,
-      "type": "download"
+      "done": false
     },
     {
+      "type": "download",
+      "total": 5046586573,
       "completed": 3027951943,
-      "done": false,
-      "total": 5046586573,
-      "type": "download"
+      "done": false
     },
     {
+      "type": "download",
+      "total": 5046586573,
       "completed": 3532610601,
-      "done": false,
-      "total": 5046586573,
-      "type": "download"
+      "done": false
     },
     {
+      "type": "download",
+      "total": 5046586573,
       "completed": 4037269258,
-      "done": false,
-      "total": 5046586573,
-      "type": "download"
+      "done": false
     },
     {
+      "type": "download",
+      "total": 5046586573,
       "completed": 4541927915,
-      "done": false,
-      "total": 5046586573,
-      "type": "download"
+      "done": false
     },
     {
-      "completed": 5046586573,
-      "done": false,
+      "type": "download",
       "total": 5046586573,
-      "type": "download"
+      "completed": 5046586573,
+      "done": false
     },
     {
-      "completed": 5046586573,
-      "done": true,
+      "type": "download",
       "total": 5046586573,
-      "type": "download"
+      "completed": 5046586573,
+      "done": true
     },
     {
       "type": "loading"
@@ -105,30 +105,30 @@
       "type": "loaded"
     },
     {
-      "createdAt": 1700000000000,
+      "type": "replyStarted",
       "messageId": 2,
-      "type": "replyStarted"
+      "createdAt": 1700000000000
     },
     {
-      "text": "\"",
-      "type": "content"
+      "type": "content",
+      "text": "\""
     },
     {
-      "text": "Hi",
-      "type": "content"
+      "type": "content",
+      "text": "Hi"
     },
     {
-      "text": "!\"",
-      "type": "content"
+      "type": "content",
+      "text": "!\""
     },
     {
-      "size": 4096,
       "type": "context",
-      "used": 26
+      "used": 26,
+      "size": 4096
     },
     {
-      "messageId": 2,
-      "type": "done"
+      "type": "done",
+      "messageId": 2
     }
   ],
   "error": null

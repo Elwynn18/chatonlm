@@ -2,25 +2,21 @@
 import type { ThinkingOptions } from "./ThinkingOptions";
 
 /**
- * Détails d'un modèle utiles à l'interface (`POST /api/show`).
+ * Détails d'un modèle utiles à l'interface (capacités, réglages de la
+ * réflexion) ; même forme que ceux d'Ollama en 0.9.x.
  */
 export type ModelDetails = { 
 /**
- * Nom demandé, tel que reçu.
+ * Identifiant demandé, tel que reçu.
  */
-model: string, 
+model: string, capabilities: Array<string>, 
 /**
- * Capacités annoncées ; vide pour un serveur trop ancien.
- */
-capabilities: Array<string>, 
-/**
- * Réglages du raisonnement acceptés ; `null` si Ollama n'en dit rien
- * (serveur antérieur à 0.34.3, modèle sans métadonnées) : se fier alors
- * aux capacités.
+ * Réglages de la réflexion acceptés : `[true, false]` pour un modèle
+ * qui réfléchit, niveaux pour gpt-oss ; `null` sinon.
  */
 thinking: ThinkingOptions | null, 
 /**
- * Le modèle a déjà raisonné alors que `think: false` était envoyé (vu par
- * ChatonLM, pas par Ollama) : le raisonnement ne peut pas être coupé.
+ * Le modèle a déjà réfléchi alors que la réflexion était coupée (vu par
+ * ChatonLM) : la réflexion ne peut pas être coupée.
  */
 alwaysThinks: boolean, };

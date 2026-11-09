@@ -101,13 +101,13 @@ pub(crate) struct Bench {
     changes: Arc<Mutex<usize>>,
 }
 
-fn temp_dir() -> tempfile::TempDir {
+pub(crate) fn temp_dir() -> tempfile::TempDir {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.tools/tmp");
     std::fs::create_dir_all(&base).unwrap();
     tempfile::tempdir_in(std::fs::canonicalize(base).unwrap()).unwrap()
 }
 
-fn fake_config(data: &Path) -> Config {
+pub(crate) fn fake_config(data: &Path) -> Config {
     let mut config = Config::new(Some(std::env::current_exe().unwrap()), data);
     config.prefix_args = [
         "engine::tests::fake_llama_server",
@@ -554,6 +554,7 @@ async fn models_are_unloaded_even_while_loading() {
 async fn a_card_failure_falls_back_to_the_processor() {
     let bench = bench();
     let id = bench.install("chatonlm-vulkanfail", GIB);
+    assert!(!bench.engine.gpu_failed());
     // Borné : sans la note de la session (`gpu_failed`), `ensure` relancerait
     // sans fin (essai sur la carte, repli, autre `Spec`, …).
     let lease = tokio::time::timeout(Duration::from_secs(20), bench.engine.ensure(&id, kept()))
@@ -561,6 +562,8 @@ async fn a_card_failure_falls_back_to_the_processor() {
         .expect("no endless relaunch")
         .unwrap();
     assert!(lease.cpu_fallback);
+    // Écran du moteur : repli de la session.
+    assert!(bench.engine.gpu_failed());
     let args: Vec<String> = serde_json::from_value(pilot(&lease, "args").await).unwrap();
     assert!(args.join(" ").ends_with("-ngl 0"), "{args:?}");
     let env = pilot(&lease, "env").await;
@@ -587,6 +590,17 @@ async fn a_card_failure_falls_back_to_the_processor() {
         .await
         .expect("no endless relaunch")
         .unwrap();
+    assert_eq!(bench.engine.pid_of(&id), Some(pid));
+    // Prêt avec ces options (le repli compte comme le processeur), pas avec
+    // un autre contexte ; rien n'est lancé par la question.
+    assert!(bench.engine.is_ready(&id, kept()).await);
+    assert!(!bench.engine.is_ready(&id, with_ctx(2048)).await);
+    assert!(
+        !bench
+            .engine
+            .is_ready("test/absent-GGUF:Q4_K_M", kept())
+            .await
+    );
     assert_eq!(bench.engine.pid_of(&id), Some(pid));
     // Et après un déchargement : directement sur le processeur.
     bench.engine.unload(&id).await;

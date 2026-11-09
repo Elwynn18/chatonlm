@@ -773,7 +773,7 @@ function ErrorNotice({
   const t = useT();
   const modelProblem =
     error.code === "noModel" || error.code === "modelNotFound";
-  const retry = error.code === "unreachable" || error.code === "failed";
+  const retry = error.code === "engineFailed" || error.code === "failed";
   return (
     <div
       role="alert"

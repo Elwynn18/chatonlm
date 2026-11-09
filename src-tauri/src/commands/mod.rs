@@ -9,6 +9,7 @@ pub mod chats;
 pub mod desktop;
 pub mod dictation;
 pub mod easy_link;
+pub mod engine;
 pub mod hub;
 pub mod image_models;
 pub mod models;

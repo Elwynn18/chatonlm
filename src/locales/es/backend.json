@@ -586,6 +586,26 @@
     "invalidId": "{model} no es un identificador de modelo de Hugging Face (autor/repositorio:QUANT).",
     "fileMissing": "Falta {file}: vuelve a descargar el modelo."
   },
+  "llm": {
+    "remoteOff": "Los modelos remotos están desactivados. Actívalos en los ajustes para usar este modelo.",
+    "remoteUnavailable": "Este modelo remoto no está disponible: su proveedor no está configurado.",
+    "remoteKey": "{provider} rechazó la clave de API. Revísala en los ajustes.",
+    "remoteLimit": "{provider} indica que se alcanzó tu límite de uso.",
+    "remoteUnreachable": "No se puede conectar con {provider}. Revisa tu conexión a Internet y vuelve a intentarlo.",
+    "cancelled": "la solicitud se detuvo",
+    "inference": {
+      "loading": "el modelo todavía se está cargando",
+      "modelNotFound": "el motor de texto no conoce este modelo",
+      "contextExceeded": "la conversación supera el contexto del modelo",
+      "imageUnsupported": "este modelo no acepta imágenes",
+      "unauthorized": "el motor de texto rechazó la solicitud",
+      "http": "el motor de texto respondió con un error (HTTP {status})",
+      "connect": "no se puede conectar con el motor de texto",
+      "timeout": "el motor de texto tardó demasiado en responder",
+      "interrupted": "la respuesta se interrumpió",
+      "malformed": "el motor de texto envió una respuesta ilegible"
+    }
+  },
   "modelImport": {
     "busy": "Ya se están importando o moviendo modelos. Espera a que termine.",
     "cancelled": "Importación detenida.",

@@ -8,203 +8,203 @@
   },
   "events": [
     {
+      "type": "userMessage",
       "message": {
-        "attachments": [],
-        "content": "Say hello in one word.",
-        "createdAt": 1700000000000,
         "id": 3,
-        "model": null,
         "role": "user",
+        "content": "Say hello in one word.",
         "thinking": "",
-        "thinkingEndedAt": null,
+        "model": null,
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000000,
         "thinkingStartedAt": null,
-        "toolCalls": [],
-        "updatedAt": 1700000000000
-      },
-      "type": "userMessage"
+        "thinkingEndedAt": null,
+        "attachments": [],
+        "toolCalls": []
+      }
     },
     {
       "type": "compacting"
     },
     {
+      "type": "compacted",
       "compaction": {
-        "automatic": true,
-        "createdAt": 1700000000000,
         "id": 1,
+        "throughMessageId": 2,
         "summary": "The user said hello; the model answered at length.",
-        "throughMessageId": 2
+        "automatic": true,
+        "createdAt": 1700000000000
       },
       "context": {
-        "size": 4096,
-        "used": 49
-      },
-      "type": "compacted"
+        "used": 49,
+        "size": 4096
+      }
     },
     {
-      "createdAt": 1700000000000,
+      "type": "replyStarted",
       "messageId": 4,
-      "type": "replyStarted"
+      "createdAt": 1700000000000
     },
     {
-      "text": "This answer fills the context of the model, fifteen tokens. This",
-      "type": "content"
+      "type": "content",
+      "text": "This answer fills the context of the model, fifteen tokens. This"
     },
     {
-      "text": " answer fills the context of the model, fifteen tokens. This ans",
-      "type": "content"
+      "type": "content",
+      "text": " answer fills the context of the model, fifteen tokens. This ans"
     },
     {
-      "text": "wer fills the context of the model, fifteen tokens. This answer ",
-      "type": "content"
+      "type": "content",
+      "text": "wer fills the context of the model, fifteen tokens. This answer "
     },
     {
-      "text": "fills the context of the model, fifteen tokens. This answer fill",
-      "type": "content"
+      "type": "content",
+      "text": "fills the context of the model, fifteen tokens. This answer fill"
     },
     {
-      "text": "s the context of the model, fifteen tokens. This answer fills th",
-      "type": "content"
+      "type": "content",
+      "text": "s the context of the model, fifteen tokens. This answer fills th"
     },
     {
-      "text": "e context of the model, fifteen tokens. This answer fills the co",
-      "type": "content"
+      "type": "content",
+      "text": "e context of the model, fifteen tokens. This answer fills the co"
     },
     {
-      "text": "ntext of the model, fifteen tokens. This answer fills the contex",
-      "type": "content"
+      "type": "content",
+      "text": "ntext of the model, fifteen tokens. This answer fills the contex"
     },
     {
-      "text": "t of the model, fifteen tokens. This answer fills the context of",
-      "type": "content"
+      "type": "content",
+      "text": "t of the model, fifteen tokens. This answer fills the context of"
     },
     {
-      "text": " the model, fifteen tokens. This answer fills the context of the",
-      "type": "content"
+      "type": "content",
+      "text": " the model, fifteen tokens. This answer fills the context of the"
     },
     {
-      "text": " model, fifteen tokens. This answer fills the context of the mod",
-      "type": "content"
+      "type": "content",
+      "text": " model, fifteen tokens. This answer fills the context of the mod"
     },
     {
-      "text": "el, fifteen tokens. This answer fills the context of the model, ",
-      "type": "content"
+      "type": "content",
+      "text": "el, fifteen tokens. This answer fills the context of the model, "
     },
     {
-      "text": "fifteen tokens. This answer fills the context of the model, fift",
-      "type": "content"
+      "type": "content",
+      "text": "fifteen tokens. This answer fills the context of the model, fift"
     },
     {
-      "text": "een tokens. This answer fills the context of the model, fifteen ",
-      "type": "content"
+      "type": "content",
+      "text": "een tokens. This answer fills the context of the model, fifteen "
     },
     {
-      "text": "tokens. This answer fills the context of the model, fifteen toke",
-      "type": "content"
+      "type": "content",
+      "text": "tokens. This answer fills the context of the model, fifteen toke"
     },
     {
-      "text": "ns. This answer fills the context of the model, fifteen tokens. ",
-      "type": "content"
+      "type": "content",
+      "text": "ns. This answer fills the context of the model, fifteen tokens. "
     },
     {
-      "text": "This answer fills the context of the model, fifteen tokens. This",
-      "type": "content"
+      "type": "content",
+      "text": "This answer fills the context of the model, fifteen tokens. This"
     },
     {
-      "text": " answer fills the context of the model, fifteen tokens. This ans",
-      "type": "content"
+      "type": "content",
+      "text": " answer fills the context of the model, fifteen tokens. This ans"
     },
     {
-      "text": "wer fills the context of the model, fifteen tokens. This answer ",
-      "type": "content"
+      "type": "content",
+      "text": "wer fills the context of the model, fifteen tokens. This answer "
     },
     {
-      "text": "fills the context of the model, fifteen tokens. This answer fill",
-      "type": "content"
+      "type": "content",
+      "text": "fills the context of the model, fifteen tokens. This answer fill"
     },
     {
-      "text": "s the context of the model, fifteen tokens. This answer fills th",
-      "type": "content"
+      "type": "content",
+      "text": "s the context of the model, fifteen tokens. This answer fills th"
     },
     {
-      "text": "e context of the model, fifteen tokens. This answer fills the co",
-      "type": "content"
+      "type": "content",
+      "text": "e context of the model, fifteen tokens. This answer fills the co"
     },
     {
-      "text": "ntext of the model, fifteen tokens. This answer fills the contex",
-      "type": "content"
+      "type": "content",
+      "text": "ntext of the model, fifteen tokens. This answer fills the contex"
     },
     {
-      "text": "t of the model, fifteen tokens. This answer fills the context of",
-      "type": "content"
+      "type": "content",
+      "text": "t of the model, fifteen tokens. This answer fills the context of"
     },
     {
-      "text": " the model, fifteen tokens. This answer fills the context of the",
-      "type": "content"
+      "type": "content",
+      "text": " the model, fifteen tokens. This answer fills the context of the"
     },
     {
-      "text": " model, fifteen tokens. This answer fills the context of the mod",
-      "type": "content"
+      "type": "content",
+      "text": " model, fifteen tokens. This answer fills the context of the mod"
     },
     {
-      "text": "el, fifteen tokens. This answer fills the context of the model, ",
-      "type": "content"
+      "type": "content",
+      "text": "el, fifteen tokens. This answer fills the context of the model, "
     },
     {
-      "text": "fifteen tokens. This answer fills the context of the model, fift",
-      "type": "content"
+      "type": "content",
+      "text": "fifteen tokens. This answer fills the context of the model, fift"
     },
     {
-      "text": "een tokens. This answer fills the context of the model, fifteen ",
-      "type": "content"
+      "type": "content",
+      "text": "een tokens. This answer fills the context of the model, fifteen "
     },
     {
-      "text": "tokens. This answer fills the context of the model, fifteen toke",
-      "type": "content"
+      "type": "content",
+      "text": "tokens. This answer fills the context of the model, fifteen toke"
     },
     {
-      "text": "ns. This answer fills the context of the model, fifteen tokens. ",
-      "type": "content"
+      "type": "content",
+      "text": "ns. This answer fills the context of the model, fifteen tokens. "
     },
     {
-      "text": "This answer fills the context of the model, fifteen tokens. This",
-      "type": "content"
+      "type": "content",
+      "text": "This answer fills the context of the model, fifteen tokens. This"
     },
     {
-      "text": " answer fills the context of the model, fifteen tokens. This ans",
-      "type": "content"
+      "type": "content",
+      "text": " answer fills the context of the model, fifteen tokens. This ans"
     },
     {
-      "text": "wer fills the context of the model, fifteen tokens. This answer ",
-      "type": "content"
+      "type": "content",
+      "text": "wer fills the context of the model, fifteen tokens. This answer "
     },
     {
-      "text": "fills the context of the model, fifteen tokens. This answer fill",
-      "type": "content"
+      "type": "content",
+      "text": "fills the context of the model, fifteen tokens. This answer fill"
     },
     {
-      "text": "s the context of the model, fifteen tokens. This answer fills th",
-      "type": "content"
+      "type": "content",
+      "text": "s the context of the model, fifteen tokens. This answer fills th"
     },
     {
-      "text": "e context of the model, fifteen tokens. This answer fills the co",
-      "type": "content"
+      "type": "content",
+      "text": "e context of the model, fifteen tokens. This answer fills the co"
     },
     {
-      "text": "ntext of the model, fifteen tokens. This answer fills the contex",
-      "type": "content"
+      "type": "content",
+      "text": "ntext of the model, fifteen tokens. This answer fills the contex"
     },
     {
-      "text": "t of the model, fifteen tokens. ",
-      "type": "content"
+      "type": "content",
+      "text": "t of the model, fifteen tokens. "
     },
     {
-      "size": 4096,
       "type": "context",
-      "used": 641
+      "used": 641,
+      "size": 4096
     },
     {
-      "messageId": 4,
-      "type": "done"
+      "type": "done",
+      "messageId": 4
     }
   ],
   "error": null

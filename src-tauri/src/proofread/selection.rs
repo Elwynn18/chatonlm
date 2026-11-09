@@ -44,7 +44,6 @@ use crate::dictation::clipboard::{
 use crate::dictation::notify::{self, Action, DesktopNotifier, Notice, Notifier, Offer};
 use crate::i18n::t;
 use crate::ollama::{auto, models, running};
-use crate::store::Store;
 
 /// Ce que la correction lit de l'app au moment de l'appui.
 pub(crate) struct Prepared {
@@ -460,17 +459,17 @@ struct AppHost(AppHandle);
 
 impl Host for AppHost {
     fn prepare(&self) -> BoxFuture<Result<Prepared, String>> {
-        let store = self
+        let access = self
             .0
-            .try_state::<Store>()
-            .map(|store| store.inner().clone());
+            .try_state::<crate::llm::Access>()
+            .map(|access| access.inner().clone());
         Box::pin(async move {
-            let store = store.ok_or_else(|| t!("dictation.noDatabase"))?;
-            let settings = crate::commands::models::app_settings(&store)
+            let access = access.ok_or_else(|| t!("dictation.noDatabase"))?;
+            let settings = crate::commands::models::app_settings(access.store())
                 .await
                 .map_err(|error| error.to_string())?;
             Ok(Prepared {
-                server: Server::from_settings(&settings),
+                server: Server::with_settings(access.clone(), &settings),
                 model: model_of(&settings).await,
                 auto: settings.proofread_model.is_empty(),
                 paste: settings.proofread_paste,
@@ -658,6 +657,7 @@ mod tests {
                         context_length: 0,
                         keep_alive: 0,
                         cloud: false,
+                        ..crate::chat::Server::detached()
                     },
                     model,
                     auto,

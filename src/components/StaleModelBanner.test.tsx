@@ -100,7 +100,7 @@ describe("StaleModelBanner", () => {
     const { simulator } = renderBanner({
       prepare: (backend) => {
         backend.outdated.add(QWEN);
-        backend.outdatedError = { kind: "ollama", message: "unreachable" };
+        backend.outdatedError = { kind: "engine", message: "unreachable" };
       },
     });
     await waitFor(() =>

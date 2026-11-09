@@ -41,7 +41,7 @@ function setup({
     selectedModel: model,
     recommended: [{ model: MODEL, requiredPlan: "pro" }, "gemma4"],
   });
-  backend.settings.cloudModels = true;
+  backend.settings.remoteModels = true;
   backend.account = account;
   const app = renderApp("/c/new");
   return { simulator, backend, app };
@@ -195,13 +195,13 @@ describe("cloud models turned off", () => {
 });
 
 describe("opening a chat held with a cloud model", () => {
-  function withChat(cloudModels: boolean) {
+  function withChat(remoteModels: boolean) {
     const simulator = installSimulator({ latencyMs: 20 });
     const backend = fakeBackend(simulator, {
       selectedModel: "qwen3.5:0.8b",
       models: ["qwen3:0.6b", "qwen3.5:0.8b"],
     });
-    backend.settings.cloudModels = cloudModels;
+    backend.settings.remoteModels = remoteModels;
     const message = (id: number, role: "user" | "assistant") => ({
       id,
       role,

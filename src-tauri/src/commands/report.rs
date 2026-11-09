@@ -40,7 +40,9 @@ async fn facts(app: &AppHandle, store: &Store) -> Facts {
                         BuiltinState::Running => "running",
                         BuiltinState::Failed => "failed",
                     };
-                    let version = versions.ollama.as_deref().unwrap_or("?");
+                    // Version de l'intégré plus lue (lot L5b : diagnostic
+                    // du moteur llama.cpp).
+                    let version = "?";
                     format!("{version}, {state}")
                 });
                 (ollama, builtin)

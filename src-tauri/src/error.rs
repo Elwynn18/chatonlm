@@ -25,9 +25,10 @@ pub enum AppError {
     /// quel.
     #[error("{0}")]
     System(String),
-    /// Le serveur Ollama est injoignable ou a répondu par une erreur.
+    /// Le moteur (ou, jusqu'au lot L10, le serveur Ollama) est injoignable
+    /// ou a répondu par une erreur.
     #[error("{0}")]
-    Ollama(String),
+    Engine(String),
     #[error("{}", t!("errors.internal", error = _0))]
     Internal(String),
 }
@@ -48,7 +49,7 @@ pub enum AppErrorKind {
     NotFound,
     Database,
     System,
-    Ollama,
+    Engine,
     Internal,
 }
 
@@ -59,7 +60,7 @@ impl AppError {
             AppError::NotFound(_) => AppErrorKind::NotFound,
             AppError::NewerDatabase { .. } | AppError::Database(_) => AppErrorKind::Database,
             AppError::System(_) => AppErrorKind::System,
-            AppError::Ollama(_) => AppErrorKind::Ollama,
+            AppError::Engine(_) => AppErrorKind::Engine,
             AppError::Io(_) | AppError::Internal(_) => AppErrorKind::Internal,
         }
     }

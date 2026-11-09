@@ -520,11 +520,11 @@ describe("models in memory in the fake backend", () => {
       kind: "notFound",
       message: "model 'nope:1b' not found",
     });
-    const memory = { kind: "ollama" as const, message: "out of memory" };
+    const memory = { kind: "engine" as const, message: "out of memory" };
     backend.runningErrors.load.set("qwen3:0.6b", memory);
     await expect(loadModel("qwen3:0.6b")).rejects.toEqual(memory);
     await loadModel("qwen3.5:0.8b");
-    const down = { kind: "ollama" as const, message: "down" };
+    const down = { kind: "engine" as const, message: "down" };
     backend.runningErrors.list = down;
     await expect(runningModels()).rejects.toEqual(down);
     backend.runningErrors.unload = down;
@@ -555,7 +555,7 @@ describe("account and web search in the fake backend", () => {
     await accountSignOut();
     await expect(accountStatus()).resolves.toEqual({ state: "signedOut" });
 
-    const broken = { kind: "ollama" as const, message: "down" };
+    const broken = { kind: "engine" as const, message: "down" };
     backend.accountErrors = { status: broken, signIn: broken, signOut: broken };
     await expect(accountStatus()).rejects.toEqual(broken);
     await expect(accountSignIn()).rejects.toEqual(broken);

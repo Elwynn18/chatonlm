@@ -122,11 +122,13 @@ pub struct Settings {
     /// l'Ollama de la machine (`ollama::target::unload_url_at_exit`) ;
     /// activé par défaut. « Reset to defaults » n'y touche pas.
     pub unload_on_quit: bool,
-    /// Modèles cloud d'Ollama montrés dans le sélecteur et acceptés à l'envoi
-    /// (chat, mode vocal, Easy Link, correction, étude) ; coupé par défaut :
-    /// rien ne part alors sur ollama.com. « Reset to defaults » n'y touche
-    /// pas.
-    pub cloud_models: bool,
+    /// Modèles distants (fournisseurs compatibles OpenAI, clé de
+    /// l'utilisateur) montrés dans le sélecteur et acceptés à l'envoi (chat,
+    /// mode vocal, Easy Link, correction, étude) ; coupé par défaut : rien ne
+    /// part alors chez un fournisseur. Colonne `cloud_models` (remise à 0 par
+    /// la migration 0041 : le sens a changé). « Reset to defaults » n'y
+    /// touche pas.
+    pub remote_models: bool,
 }
 
 /// Mise à jour partielle : seuls les champs présents changent.
@@ -181,7 +183,7 @@ pub struct SettingsPatch {
     #[ts(optional)]
     pub unload_on_quit: Option<bool>,
     #[ts(optional)]
-    pub cloud_models: Option<bool>,
+    pub remote_models: Option<bool>,
 }
 
 /// `CHATONLM_ONBOARDING` : `show` remontre le premier démarrage au prochain
@@ -266,7 +268,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         show_uncensored,
         system_prompt,
         unload_on_quit,
-        cloud_models,
+        remote_models,
         read_aloud_shortcut,
         proofread_keep_order,
         proofread_formatting,
@@ -300,7 +302,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         show_uncensored,
         system_prompt,
         unload_on_quit,
-        cloud_models,
+        remote_models,
     })
 }
 
@@ -482,7 +484,7 @@ pub fn update(
             params![enabled],
         )?;
     }
-    if let Some(enabled) = patch.cloud_models {
+    if let Some(enabled) = patch.remote_models {
         transaction.execute(
             "UPDATE settings SET cloud_models = ?1 WHERE id = 1",
             params![enabled],
@@ -552,23 +554,23 @@ mod tests {
                 show_uncensored: false,
                 system_prompt: String::new(),
                 unload_on_quit: true,
-                cloud_models: false,
+                remote_models: false,
             }
         );
     }
 
-    /// Modèles cloud : coupés par défaut, enregistrés, et « Reset to
+    /// Modèles distants : coupés par défaut, enregistrés, et « Reset to
     /// defaults » (adresse, contexte, thème) n'y touche pas.
     #[test]
-    fn cloud_models_are_off_until_turned_on() {
+    fn remote_models_are_off_until_turned_on() {
         let store = store();
-        assert!(!store.blocking(|c| get(c, None)).unwrap().cloud_models);
-        let patch: SettingsPatch = serde_json::from_str(r#"{"cloudModels":true}"#).unwrap();
+        assert!(!store.blocking(|c| get(c, None)).unwrap().remote_models);
+        let patch: SettingsPatch = serde_json::from_str(r#"{"remoteModels":true}"#).unwrap();
         assert!(
             store
                 .blocking(|c| update(c, patch, None))
                 .unwrap()
-                .cloud_models
+                .remote_models
         );
         let reset = SettingsPatch {
             server_url: Some(String::new()),
@@ -580,14 +582,37 @@ mod tests {
             store
                 .blocking(|c| update(c, reset, None))
                 .unwrap()
-                .cloud_models
+                .remote_models
         );
         let off = SettingsPatch {
-            cloud_models: Some(false),
+            remote_models: Some(false),
             ..Default::default()
         };
         store.blocking(|c| update(c, off, None)).unwrap();
-        assert!(!store.blocking(|c| get(c, None)).unwrap().cloud_models);
+        assert!(!store.blocking(|c| get(c, None)).unwrap().remote_models);
+    }
+
+    /// Une base 0.9.x où les modèles cloud d'Ollama étaient permis : le
+    /// réglage `remoteModels` (même colonne, autre sens) repart coupé
+    /// (migration 0041), les autres réglages restent.
+    #[test]
+    fn a_version_40_database_turns_remote_models_off() {
+        use crate::store::MIGRATIONS;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        for sql in &MIGRATIONS[..40] {
+            connection.execute_batch(sql).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 40).unwrap();
+        connection
+            .execute_batch("UPDATE settings SET cloud_models = 1, unload_on_quit = 0")
+            .unwrap();
+        drop(connection);
+        let store = Store::open(&path).unwrap();
+        let settings = store.blocking(|c| get(c, None)).unwrap();
+        assert!(!settings.remote_models);
+        assert!(!settings.unload_on_quit);
     }
 
     /// Déchargement des modèles en quittant : activé par défaut, enregistré,

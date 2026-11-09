@@ -603,6 +603,69 @@ mod tests {
         store
     }
 
+    /// Cours d'une base 0.9.x qui gardent les anciens codes d'erreur
+    /// (`unreachable`, `signedOut`) : relus sous les nouveaux après la
+    /// migration 0041 (sinon le cours ne se relit plus).
+    #[test]
+    fn old_study_error_codes_are_rewritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        let connection = crate::store::database_at(&path, 40);
+        let mut row = course_row(20);
+        row.id = "c1".into();
+        row.error = Some(StudyError {
+            code: StudyErrorCode::EngineFailed,
+            message: "a \"code\":\"signedOut\" text".into(),
+        });
+        row.final_quiz = Some(FinalData {
+            error: Some(StudyError {
+                code: StudyErrorCode::WebSearch,
+                message: "f".into(),
+            }),
+            ..FinalData::default()
+        });
+        insert(&connection, &row, &[]).unwrap();
+        let mut failed = level(0, 1);
+        failed.error = Some(StudyError {
+            code: StudyErrorCode::EngineFailed,
+            message: "l".into(),
+        });
+        put_levels(&connection, "c1", &[failed]).unwrap();
+        // Comme écrit par la 0.9.x.
+        for (table, column) in [
+            ("courses", "error"),
+            ("courses", "final"),
+            ("course_levels", "data"),
+        ] {
+            connection
+                .execute_batch(&format!(
+                    "UPDATE {table} SET {column} = replace(replace({column},
+                        '\"code\":\"engineFailed\"', '\"code\":\"unreachable\"'),
+                        '\"code\":\"webSearch\"', '\"code\":\"signedOut\"')"
+                ))
+                .unwrap();
+        }
+        assert!(
+            load(&connection, "c1").is_err(),
+            "unreadable before the migration"
+        );
+        drop(connection);
+        let store = crate::store::Store::open(&path).unwrap();
+        let snapshot = store.blocking(|c| load(c, "c1")).unwrap().unwrap();
+        let error = snapshot.row.error.unwrap();
+        assert_eq!(error.code, StudyErrorCode::EngineFailed);
+        // Le texte n'est pas touché.
+        assert_eq!(error.message, "a \"code\":\"signedOut\" text");
+        assert_eq!(
+            snapshot.row.final_quiz.unwrap().error.unwrap().code,
+            StudyErrorCode::WebSearch
+        );
+        assert_eq!(
+            snapshot.levels[0].error.as_ref().unwrap().code,
+            StudyErrorCode::EngineFailed
+        );
+    }
+
     #[test]
     fn a_course_round_trips_through_the_database() {
         let store = store_with("c1");

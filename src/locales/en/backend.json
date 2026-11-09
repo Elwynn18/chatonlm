@@ -586,6 +586,26 @@
     "invalidId": "{model} isn't a Hugging Face model ID (author/repository:QUANT).",
     "fileMissing": "{file} is missing: download the model again."
   },
+  "llm": {
+    "remoteOff": "Remote models are turned off. Turn them on in the settings to use this model.",
+    "remoteUnavailable": "This remote model isn't available: its provider isn't set up.",
+    "remoteKey": "{provider} refused the API key. Check it in the settings.",
+    "remoteLimit": "{provider} says your usage limit is reached.",
+    "remoteUnreachable": "{provider} can't be reached. Check your Internet connection, then try again.",
+    "cancelled": "the request was stopped",
+    "inference": {
+      "loading": "the model is still loading",
+      "modelNotFound": "the text engine doesn't know this model",
+      "contextExceeded": "the conversation is longer than the model's context",
+      "imageUnsupported": "this model doesn't accept images",
+      "unauthorized": "the text engine refused the request",
+      "http": "the text engine answered with an error (HTTP {status})",
+      "connect": "the text engine can't be reached",
+      "timeout": "the text engine took too long to answer",
+      "interrupted": "the reply was interrupted",
+      "malformed": "the text engine sent an unreadable reply"
+    }
+  },
   "modelImport": {
     "busy": "Models are already being imported or moved. Wait until it's done.",
     "cancelled": "Import stopped.",

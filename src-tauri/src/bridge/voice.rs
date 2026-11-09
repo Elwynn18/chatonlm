@@ -340,7 +340,7 @@ async fn send_turn<H: Host>(
         Ok(settings) => settings,
         Err(error) => return failed(error.to_string()),
     };
-    let server = Server::from_settings(&settings);
+    let server = Server::with_settings(shared.access.clone(), &settings);
     let model = talk
         .model
         .clone()

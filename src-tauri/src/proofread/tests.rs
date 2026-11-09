@@ -20,6 +20,7 @@ fn server(url: &str) -> Server {
         context_length: 0,
         keep_alive: 0,
         cloud: false,
+        ..crate::chat::Server::detached()
     }
 }
 
@@ -528,7 +529,7 @@ async fn errors_after_the_start_are_reported_with_their_code() {
     assert_eq!(
         error_of(&events),
         (
-            ProofreadErrorCode::Unreachable,
+            ProofreadErrorCode::EngineFailed,
             format!("can't connect to Ollama at {url}")
         )
     );
@@ -770,6 +771,7 @@ async fn a_job_uses_the_proofread_model_then_the_chat_model() {
         let (channel, events) = channel(None);
         run_job(
             &store,
+            &crate::llm::access_for(&store),
             &Proofreader::default(),
             "job".into(),
             TEXT.into(),
@@ -808,6 +810,7 @@ async fn a_job_is_registered_while_it_runs_and_can_be_cancelled() {
         tokio::spawn(async move {
             run_job(
                 &store,
+                &crate::llm::access_for(&store),
                 &proofreader,
                 "job-1".into(),
                 TEXT.into(),
@@ -853,6 +856,7 @@ async fn a_closed_channel_stops_the_job() {
     let started = Instant::now();
     run_job(
         &store,
+        &crate::llm::access_for(&store),
         &proofreader,
         "job".into(),
         TEXT.into(),

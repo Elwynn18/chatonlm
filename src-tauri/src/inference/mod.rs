@@ -82,7 +82,23 @@ const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(4);
 /// qu'après environ 2 s (voir `ollama::client`).
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(if cfg!(windows) { 3 } else { 2 });
 
-/// Adresse d'un `llama-server` et sa clé d'API.
+/// Connexion à un fournisseur distant (modèles distants, contrat 102
+/// § 1.2) : Internet, proxy du système compris.
+const REMOTE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Langue d'un serveur : `llama-server` (champs propres à llama.cpp permis)
+/// ou API d'OpenAI stricte (fournisseurs distants : le corps n'a ni
+/// `cache_prompt`, ni `chat_template_kwargs`, ni les réglages propres à
+/// llama.cpp ; filtrage écrit par le lot L7).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Dialect {
+    #[default]
+    LlamaServer,
+    OpenAi,
+}
+
+/// Adresse d'un `llama-server` (ou d'un fournisseur distant) et sa clé
+/// d'API.
 #[derive(Clone)]
 pub struct Endpoint {
     /// `http://127.0.0.1:<port>`, sans barre finale.
@@ -94,6 +110,8 @@ pub struct Endpoint {
     /// Attente des en-têtes d'un flux ; `None` (par défaut) : sans limite,
     /// l'appelant annule (requête en file, modèle qui se réveille).
     pub header_timeout: Option<Duration>,
+    /// Langue du serveur ([`Dialect::LlamaServer`] pour [`Endpoint::new`]).
+    pub dialect: Dialect,
     client: reqwest::Client,
 }
 
@@ -102,6 +120,7 @@ impl std::fmt::Debug for Endpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Endpoint")
             .field("base_url", &self.base_url)
+            .field("dialect", &self.dialect)
             .finish_non_exhaustive()
     }
 }
@@ -135,6 +154,30 @@ impl Endpoint {
             api_key: api_key.into(),
             idle_timeout: IDLE_TIMEOUT,
             header_timeout: None,
+            dialect: Dialect::LlamaServer,
+            client,
+        })
+    }
+
+    /// Fournisseur distant (API d'OpenAI) : proxy du système permis,
+    /// connexion bornée à 10 s, [`Dialect::OpenAi`].
+    pub fn remote(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> Result<Self, InferenceError> {
+        ensure_crypto_provider();
+        let client = reqwest::Client::builder()
+            .connect_timeout(REMOTE_CONNECT_TIMEOUT)
+            .pool_idle_timeout(POOL_IDLE_TIMEOUT)
+            .user_agent(concat!("ChatonLM/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|error| InferenceError::Connect(error.to_string()))?;
+        Ok(Self {
+            base_url: base_url.into().trim_end_matches('/').to_owned(),
+            api_key: api_key.into(),
+            idle_timeout: IDLE_TIMEOUT,
+            header_timeout: None,
+            dialect: Dialect::OpenAi,
             client,
         })
     }

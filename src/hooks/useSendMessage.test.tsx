@@ -189,7 +189,7 @@ describe("useSendMessage", () => {
     },
   );
   it.each([
-    ["webSearchSignedOut", true],
+    ["webSearchUnavailable", true],
     ["model", false],
   ] as const)("a %s error re-reads the account: %s", async (kind, reread) => {
     const { client, result } = setup((onEvent) => {

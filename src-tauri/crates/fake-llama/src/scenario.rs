@@ -114,17 +114,29 @@ const NAMES: &[(&str, Scenario)] = &[
     ("chatonlm-simple", Scenario::Simple),
 ];
 
+/// Noms des scénarios intégrés (essai des scénarios des lots).
+pub fn builtin_names() -> Vec<&'static str> {
+    NAMES.iter().map(|(name, _)| *name).collect()
+}
+
 impl Scenario {
-    /// Scénario d'après l'alias puis le nom du fichier du modèle.
+    /// Scénario d'après l'alias puis le nom du fichier du modèle ; à défaut,
+    /// `chatonlm-simple`.
     pub fn of(alias: Option<&str>, model: &str) -> Scenario {
+        Self::find(alias, model).unwrap_or(Scenario::Simple)
+    }
+
+    /// Scénario intégré nommé par l'alias puis le nom du fichier, s'il y en
+    /// a un.
+    pub fn find(alias: Option<&str>, model: &str) -> Option<Scenario> {
         let file = model.rsplit(['/', '\\']).next().unwrap_or(model);
         for text in alias.into_iter().chain([file]) {
             let text = text.to_ascii_lowercase();
             if let Some((_, scenario)) = NAMES.iter().find(|(name, _)| text.contains(name)) {
-                return *scenario;
+                return Some(*scenario);
             }
         }
-        Scenario::Simple
+        None
     }
 
     /// Délai de chargement propre au scénario.

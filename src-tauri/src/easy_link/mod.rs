@@ -261,6 +261,8 @@ pub(crate) struct Claim {
 
 pub(crate) struct Shared<H: Host> {
     pub(crate) host: H,
+    /// Accès aux modèles (`llm`) ; `store` en est la base.
+    pub(crate) access: crate::llm::Access,
     pub(crate) store: Store,
     /// Pièces jointes des bots : à part de celles de la page, qui sont vidées
     /// à chaque rechargement.
@@ -298,10 +300,11 @@ impl<H: Host> Clone for EasyLink<H> {
 }
 
 impl<H: Host> EasyLink<H> {
-    pub fn new(host: H, store: Store, urls: Urls) -> Self {
+    pub fn new(host: H, access: crate::llm::Access, urls: Urls) -> Self {
         Self(Arc::new(Shared {
             host,
-            store,
+            store: access.store().clone(),
+            access,
             staging: Staging::default(),
             urls,
             live: Mutex::default(),
@@ -887,10 +890,13 @@ pub fn setup(app: &AppHandle) {
     if app.try_state::<EasyLink>().is_some() {
         return;
     }
-    let Some(store) = app.try_state::<Store>().map(|store| store.inner().clone()) else {
+    let Some(access) = app
+        .try_state::<crate::llm::Access>()
+        .map(|access| access.inner().clone())
+    else {
         return;
     };
-    let service = EasyLink::new(AppHost { app: app.clone() }, store, Urls::from_env());
+    let service = EasyLink::new(AppHost { app: app.clone() }, access, Urls::from_env());
     app.manage(service.clone());
     tauri::async_runtime::spawn(async move { service.start_saved().await });
 }
