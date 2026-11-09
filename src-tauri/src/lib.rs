@@ -26,6 +26,7 @@ mod os_util;
 mod paths;
 mod process;
 mod proofread;
+mod relay;
 mod shutdown;
 mod startup;
 mod store;
@@ -196,6 +197,32 @@ pub fn run() {
             app.manage(image_gen::ImageGen::new(image_gen::Config::new(
                 sd_bin, &data_dir,
             )));
+            // Moteur de texte (`llama-server`, un processus par modèle de la
+            // base locale) : chaque changement part vers la page (événement
+            // `engine-models`) et le chef de la carte graphique ; avant une
+            // image, ses modèles inactifs rendent la VRAM.
+            let text_engine = engine::Engine::new(
+                engine::Config::new(engine::binary::llama_server_bin(app.handle()), &data_dir),
+                Arc::new(engine::AppModels::new(store.clone(), data_dir.clone())),
+            );
+            let handle = app.handle().clone();
+            text_engine.on_change(move |models| {
+                let _ = handle.emit(engine::MODELS_EVENT, models);
+                if let Some(gpu) = handle.try_state::<gpu::GpuChief>() {
+                    gpu.poke();
+                }
+            });
+            let releasing = text_engine.clone();
+            app.state::<image_gen::ImageGen>()
+                .before_image(Arc::new(move || {
+                    let engine = releasing.clone();
+                    Box::pin(async move {
+                        engine.release_idle().await;
+                    })
+                }));
+            app.state::<gpu::GpuChief>()
+                .attach_engine(text_engine.clone());
+            app.manage(text_engine);
             // Catalogue du ModelHub : cache disque sous le dossier des données.
             app.manage(hub::state::Catalog::new(data_dir.join("modelhub")));
             // Modèles d'images : file des téléchargements (liste complète vers
@@ -296,6 +323,25 @@ pub fn run() {
             gpu::activity::install(app.state::<ChatEngine>().work());
             app.state::<Dictation>().setup(app.handle());
             window::create_main_window(app, store.as_ref())?;
+            // Reprise des modèles des Ollama de ChatonLM 0.9.x (événement
+            // `model-import`) ; celle de l'intégré au premier lancement.
+            let handle = app.handle().clone();
+            let model_import = local_models::import::service::ModelImport::new(move |state| {
+                let _ = handle.emit(local_models::import::EVENT, state);
+            });
+            // Changement de dossier des modèles coupé : remis en état à chaque
+            // lancement, même tant que la reprise automatique est coupée.
+            if let Some(store) = store.clone() {
+                let (import, data_dir) = (model_import.clone(), data_dir.clone());
+                tauri::async_runtime::spawn(async move {
+                    if local_models::import::service::AUTO_AT_STARTUP {
+                        local_models::import::service::at_startup(&import, store, data_dir).await;
+                    } else {
+                        let _ = local_models::import::folder::recover(&store, &data_dir).await;
+                    }
+                });
+            }
+            app.manage(model_import);
             if let Some(store) = store {
                 app.manage(store);
             }
@@ -489,6 +535,14 @@ pub fn run() {
             commands::models_dir::get_models_location,
             commands::models_dir::get_ollama_home,
             commands::models_dir::pick_models_folder,
+            commands::models_import::change_engine_models_dir,
+            commands::models_import::engine_models_dir,
+            commands::models_import::model_import_cancel,
+            commands::models_import::model_import_cleanup,
+            commands::models_import::model_import_leftovers,
+            commands::models_import::model_import_scan,
+            commands::models_import::model_import_start,
+            commands::models_import::model_import_state,
             commands::platform::app_platform,
             commands::proofread::proofread_cancel,
             commands::proofread::proofread_cancel_all,
@@ -661,8 +715,13 @@ async fn stop_work(app: &AppHandle) {
     );
 }
 
-/// Fin de l'arrêt : modèles déchargés, puis l'Ollama intégré arrêté.
+/// Fin de l'arrêt : moteur de texte arrêté, modèles de l'Ollama déchargés,
+/// puis l'Ollama intégré arrêté.
 async fn release_models(app: &AppHandle) {
+    // Processus `llama-server` de l'app : toujours arrêtés.
+    if let Some(engine) = app.try_state::<engine::Engine>() {
+        engine.shutdown().await;
+    }
     unload_models(app).await;
     ollama::builtin::shutdown(app).await;
 }

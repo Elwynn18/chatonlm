@@ -21,6 +21,11 @@
 //!   s'arrête aussi.
 //! - Avant une image (sd-server, qui prend la VRAM libre), le modèle
 //!   d'autocomplétion est déchargé ([`GpuChief::before_image`]).
+//! - Passage à llama.cpp (lot L3) : une fois le moteur de l'app attaché
+//!   ([`GpuChief::attach_engine`]), les modèles en mémoire, les chargements
+//!   et les déchargements sont ceux du moteur ([`engine_facts`] les donne au
+//!   plan, inchangé). Restent sur Ollama jusqu'au lot L5a : la fiche d'un
+//!   modèle (`/api/show`), les installés (`/api/tags`) et les requêtes FIM.
 
 pub mod activity;
 pub mod fim;
@@ -180,6 +185,8 @@ pub struct GpuChief {
     machine: tokio::sync::Mutex<Option<(Instant, Option<Machine>)>>,
     /// Dernière proposition de téléchargement montrée (`models.offerPull`).
     offered: Mutex<Option<Instant>>,
+    /// Moteur de l'app (processus `llama-server`), une fois attaché.
+    engine: std::sync::OnceLock<crate::engine::Engine>,
 }
 
 impl Default for GpuChief {
@@ -196,6 +203,7 @@ impl Default for GpuChief {
             polling: AtomicBool::new(false),
             machine: tokio::sync::Mutex::new(None),
             offered: Mutex::new(None),
+            engine: std::sync::OnceLock::new(),
         }
     }
 }
@@ -264,6 +272,47 @@ impl GpuChief {
         }
         *offered = Some(Instant::now());
         true
+    }
+
+    /// Attache le moteur de l'app : ses modèles font les constats, ses
+    /// chargements et déchargements remplacent ceux d'Ollama.
+    pub fn attach_engine(&self, engine: crate::engine::Engine) {
+        let _ = self.engine.set(engine);
+    }
+
+    /// Modèles en mémoire : ceux du moteur s'il est attaché, sinon
+    /// `/api/ps` (`None` : illisible).
+    async fn loaded(&self, url: &str) -> Option<Vec<RunningModel>> {
+        match self.engine.get() {
+            Some(engine) => Some(engine_facts(&engine.running())),
+            None => running::list_within(url, PS_TIMEOUT).await.ok(),
+        }
+    }
+
+    /// Charge `model` avec les options figées (moteur, sinon Ollama).
+    async fn load_fixed(&self, url: &str, model: &str, fixed: fim::Fixed) -> Result<(), String> {
+        match self.engine.get() {
+            Some(engine) => engine
+                .preload(model, engine_options(fixed))
+                .await
+                .map_err(|error| error.to_string()),
+            None => running::try_load(url, model, fixed.num_ctx, fixed.keep_alive)
+                .await
+                .map_err(|failure| crate::error::AppError::from(failure).to_string()),
+        }
+    }
+
+    /// Décharge `model` (moteur, sinon Ollama).
+    async fn unload_one(&self, url: &str, model: &str) -> Result<(), String> {
+        match self.engine.get() {
+            Some(engine) => {
+                engine.unload(model).await;
+                Ok(())
+            }
+            None => running::unload(url, model)
+                .await
+                .map_err(|error| error.to_string()),
+        }
     }
 
     /// Un chargement ou un déchargement vient d'avoir lieu.
@@ -400,7 +449,7 @@ impl GpuChief {
     /// Plan du moment (publié aux éditeurs à l'écoute s'il a changé).
     pub async fn plan(&self, inputs: &Inputs) -> GpuPlan {
         let url = inputs.server.url.as_str();
-        let running = running::list_within(url, PS_TIMEOUT).await.ok();
+        let running = self.loaded(url).await;
         self.plan_with(inputs, running.as_deref()).await
     }
 
@@ -518,17 +567,15 @@ impl GpuChief {
         // file), sinon Ollama chasserait la conversation à la fin de sa
         // réponse pour le faire.
         let loaded = tokio::select! {
-            loaded = running::try_load(&url, model, fixed.num_ctx, fixed.keep_alive) => loaded,
+            loaded = self.load_fixed(&url, model, fixed) => loaded,
             () = until_busy(&*inputs.busy) => {
                 self.poke();
                 return Err(Refusal::Paused(Reason::ChatBusy));
             }
         };
         self.poke();
-        if let Err(failure) = loaded {
-            return Err(Refusal::Refused(
-                crate::error::AppError::from(failure).to_string(),
-            ));
+        if let Err(message) = loaded {
+            return Err(Refusal::Refused(message));
         }
         let after = self.plan(inputs).await;
         match plan::after_load(&before, &after) {
@@ -538,21 +585,35 @@ impl GpuChief {
             Loaded::Ready => Ok(after),
             Loaded::Exclusive { reload_chat } => {
                 *self.exclusive.lock() = Some((inputs.chat_model.clone(), model.to_owned()));
-                let _ = running::unload(&url, model).await;
+                let _ = self.unload_one(&url, model).await;
                 if reload_chat {
                     // La conversation, chassée, revient avec ses options
                     // (le prochain message ne la rechargerait qu'alors).
                     let server = inputs.server.clone();
                     let chat = inputs.chat_model.clone();
+                    let engine = self.engine.get().cloned();
                     tauri::async_runtime::spawn(async move {
-                        if let Err(error) = running::load(
-                            &server.url,
-                            &chat,
-                            server.context_length,
-                            server.keep_alive,
-                        )
-                        .await
-                        {
+                        let reloaded = match engine {
+                            Some(engine) => engine
+                                .preload(
+                                    &chat,
+                                    crate::engine::LoadOptions::from_settings(
+                                        server.context_length,
+                                        server.keep_alive,
+                                    ),
+                                )
+                                .await
+                                .map_err(|error| error.to_string()),
+                            None => running::load(
+                                &server.url,
+                                &chat,
+                                server.context_length,
+                                server.keep_alive,
+                            )
+                            .await
+                            .map_err(|error| error.to_string()),
+                        };
+                        if let Err(error) = reloaded {
                             // i18n-ignore : journal.
                             crate::app_log!("chatonlm: chat model not reloaded: {error}");
                         }
@@ -563,7 +624,7 @@ impl GpuChief {
                 Err(Refusal::Paused(Reason::Exclusive))
             }
             Loaded::DoesNotFit => {
-                let _ = running::unload(&url, model).await;
+                let _ = self.unload_one(&url, model).await;
                 self.poke();
                 self.plan(inputs).await;
                 Err(Refusal::Paused(Reason::DoesNotFit))
@@ -583,7 +644,7 @@ impl GpuChief {
         }
         self.set_completion(model);
         let url = inputs.server.url.as_str();
-        let listed = running::list_within(url, PS_TIMEOUT).await.ok();
+        let listed = self.loaded(url).await;
         let Some(running) = listed
             .as_deref()
             .unwrap_or_default()
@@ -748,12 +809,12 @@ impl GpuChief {
         if same_model(&completion, &chat) {
             return;
         }
-        let loaded = running::list_within(&url, PS_TIMEOUT)
+        let loaded = self
+            .loaded(&url)
             .await
-            .ok()
             .is_some_and(|list| list.iter().any(|m| same_model(&m.name, &completion)));
         if loaded {
-            if let Err(error) = running::unload(&url, &completion).await {
+            if let Err(error) = self.unload_one(&url, &completion).await {
                 // i18n-ignore : journal.
                 crate::app_log!("chatonlm: completion model not unloaded before an image: {error}");
             }
@@ -777,6 +838,37 @@ impl GpuChief {
                 .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                 .is_ok()
     }
+}
+
+/// Les modèles du moteur dans la forme des constats du plan (celle de
+/// `/api/ps`) : nom = identifiant, mémoire et VRAM lues dans le journal,
+/// contexte du processus, échéance ; les modèles en chargement n'y sont pas
+/// (Ollama ne les montrait qu'une fois chargés).
+pub fn engine_facts(models: &[crate::engine::RunningModel]) -> Vec<RunningModel> {
+    models
+        .iter()
+        .filter(|model| model.state == crate::engine::ModelState::Ready)
+        .map(|model| RunningModel {
+            name: model.id.clone(),
+            size: model.size_bytes,
+            size_vram: model.vram_bytes,
+            context_length: Some(model.context_length),
+            expires_at: model.expires_at,
+            kept: model.kept,
+            parameter_size: model.params_label.clone().unwrap_or_default(),
+            quantization_level: model
+                .id
+                .rsplit_once(':')
+                .map(|(_, quant)| quant.to_owned())
+                .unwrap_or_default(),
+        })
+        .collect()
+}
+
+/// Options du moteur pour les options figées de l'autocomplétion (contexte
+/// 0 : celui par défaut ; durée en secondes comme le réglage).
+pub fn engine_options(fixed: fim::Fixed) -> crate::engine::LoadOptions {
+    crate::engine::LoadOptions::from_settings(fixed.num_ctx, fixed.keep_alive)
 }
 
 /// Modèle prêt à servir une proposition.

@@ -54,6 +54,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot, watch};
 use tokio::task::JoinHandle;
 
 pub mod args;
+pub mod cli;
 pub mod scenario;
 pub mod tokens;
 
@@ -691,10 +692,14 @@ fn props(shared: &Shared) -> Value {
                 "n_predict": -1, "stream": false, "chat_format": "Content-only",
                 "reasoning_format": "deepseek",
             },
-            "n_ctx": config.ctx,
+            "n_ctx": if shared.scenario == Scenario::OtherCtx { config.ctx / 2 } else { config.ctx },
         },
         "total_slots": config.slots,
-        "model_alias": shared.model_name(),
+        "model_alias": if shared.scenario == Scenario::OtherAlias {
+            "someone/else-GGUF:Q8_0".to_owned()
+        } else {
+            shared.model_name()
+        },
         "model_ftype": "Q4_K - Medium",
         "model_path": config.model,
         "modalities": { "vision": config.mmproj.is_some(), "video": false, "audio": false },

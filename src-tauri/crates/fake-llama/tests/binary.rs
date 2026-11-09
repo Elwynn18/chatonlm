@@ -19,6 +19,19 @@ fn model(name: &str) -> PathBuf {
     path
 }
 
+/// Le binaire, sans vidage mémoire sous Unix (`ulimit -c 0` puis `exec`,
+/// même processus) : les plantages voulus (`crash`, `vulkanfail`)
+/// n'encombrent pas systemd-coredump.
+fn command() -> Command {
+    if cfg!(unix) {
+        let mut command = Command::new("sh");
+        command.args(["-c", "ulimit -c 0 && exec \"$0\" \"$@\"", BIN]);
+        command
+    } else {
+        Command::new(BIN)
+    }
+}
+
 /// Serveur lancé, journal lu ligne à ligne.
 struct Server {
     child: Child,
@@ -28,7 +41,7 @@ struct Server {
 }
 
 fn launch(model: &PathBuf, extra: &[&str], env: &[(&str, &str)]) -> Server {
-    let mut command = Command::new(BIN);
+    let mut command = command();
     command
         .args(["--host", "127.0.0.1", "--port", "0", "--api-key", "k", "-m"])
         .arg(model)
@@ -293,4 +306,45 @@ fn keys_also_come_from_the_environment_and_a_file() {
         .unwrap();
     assert_eq!(missing.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&missing.stderr).contains("failed to open file"));
+}
+
+/// Lot L3 : sur la carte, `chatonlm-vulkanfail` meurt au chargement en
+/// accusant Vulkan ; sur le processeur (`-ngl 0`, ou aucune carte visible),
+/// il sert. Le journal dit la mémoire réservée comme le vrai à `-lv 4`.
+#[test]
+fn the_vulkan_failure_and_the_memory_lines_follow_the_real_server() {
+    let path = model("x-chatonlm-vulkanfail.gguf");
+    let output = command()
+        .args(["--host", "127.0.0.1", "--port", "0", "-m"])
+        .arg(&path)
+        .env("FAKE_LLAMA_LOAD_MS", "10")
+        .env_remove("GGML_VK_VISIBLE_DEVICES")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(output.status.signal(), Some(6));
+    }
+    let log = String::from_utf8_lossy(&output.stderr);
+    assert!(log.contains("vk::DeviceLostError"), "{log}");
+    assert!(!log.contains("listening on"), "{log}");
+
+    let cpu = launch(&path, &["-ngl", "0", "-c", "4096"], &[]);
+    cpu.wait_line("model loaded");
+    cpu.wait_line("CPU KV buffer size =   448.00 MiB");
+    assert!(
+        !cpu.lines
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.contains("Vulkan0"))
+    );
+    let hidden = launch(&path, &[], &[("GGML_VK_VISIBLE_DEVICES", "none")]);
+    hidden.wait_line("model loaded");
+
+    let gpu = launch(&model("plain.gguf"), &["-c", "8192"], &[]);
+    gpu.wait_line("offloaded 29/29 layers to GPU");
+    gpu.wait_line("Vulkan0 KV buffer size =   896.00 MiB");
 }

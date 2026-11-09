@@ -1,0 +1,80 @@
+# Relais de ChatonLM (recherche web sans compte), crate src-tauri/crates/relay-server.
+# À copier dans /etc/systemd/system/chatonlm-relay.service, puis
+# « systemctl daemon-reload » et « systemctl enable --now chatonlm-relay ».
+# Cloisonné au maximum : compte jetable, aucun droit, n'écrit que dans sa base,
+# ne lit que sa configuration et ses secrets, n'écoute que sur 127.0.0.1.
+[Unit]
+Description=Relais de ChatonLM (recherche web)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/lib/chatonlm-relay/chatonlm-relay serve --config /etc/chatonlm-relay/config.toml
+# Secrets (clés Brave et Mojeek, clé du sceau des défis) : fichier root:root en
+# 0600, que systemd recopie pour ce service seul dans $CREDENTIALS_DIRECTORY.
+LoadCredential=secrets:/etc/chatonlm-relay/secrets.toml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+
+# Compte sans droits, créé par systemd le temps du service. Seul dossier
+# accessible en écriture : /var/lib/chatonlm-relay (base SQLite, sans IP ni
+# requête).
+DynamicUser=yes
+StateDirectory=chatonlm-relay
+StateDirectoryMode=0700
+UMask=0077
+WorkingDirectory=/var/lib/chatonlm-relay
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=yes
+PrivateIPC=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RemoveIPC=yes
+KeyringMode=private
+# AF_UNIX : résolution des noms par le système (systemd-resolved), journal.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @mount @debug @cpu-emulation @obsolete
+SystemCallErrorNumber=EPERM
+
+# Ressources bornées : une attaque ne prend ni la mémoire ni le processeur du
+# site qui partage la machine. Mémoire du relais au pire : tables en mémoire
+# toutes pleines < 64 Mio (relay-server/src/limits.rs), preuves de travail
+# vérifiées < 64 Mio (deux à 32 Mio, ou une à 64 Mio), reste du processus
+# quelques dizaines de Mio : sous MemoryHigh.
+MemoryHigh=192M
+MemoryMax=256M
+MemorySwapMax=0
+CPUQuota=100%
+TasksMax=64
+LimitNOFILE=4096
+
+# Journal à part (journald@chatonlm-relay.conf : 14 jours au plus), lu par
+# « journalctl --namespace=chatonlm-relay ». Le relais n'y écrit jamais ni
+# requête, ni adresse IP, ni clé.
+LogNamespace=chatonlm-relay
+LogLevelMax=info
+
+[Install]
+WantedBy=multi-user.target

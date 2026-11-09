@@ -1,0 +1,22 @@
+[package]
+name = "relay-proto"
+version = "0.1.0"
+description = "Protocole du relais de ChatonLM : types partagés, signature Ed25519 des requêtes, preuve de travail"
+license = "MIT"
+edition = "2024"
+rust-version = "1.91"
+publish = false
+
+[dependencies]
+# Preuve de travail de l'inscription : Argon2id (mémoire-dure, gêne les
+# fermes de cartes graphiques). RustCrypto, MIT OR Apache-2.0 ; sans
+# `password-hash` (aucun hachage de mot de passe ici).
+argon2 = { version = "0.6.0", default-features = false, features = ["alloc"] }
+base64 = "0.22.1"
+# Ed25519, HMAC-SHA256, SHA-256 et aléa du système : déjà dans l'arbre (moteur
+# de rustls), pour l'app comme pour le serveur.
+ring = "0.17.14"
+serde = { version = "1.0.229", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0.151"

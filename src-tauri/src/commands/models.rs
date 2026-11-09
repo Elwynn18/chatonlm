@@ -1,13 +1,14 @@
 use tauri::State;
 
 use crate::chat::stream::Think;
+use crate::engine::{Engine, LoadOptions, RunningModel as EngineRunningModel};
 use crate::error::{AppError, AppResult};
 use crate::i18n::t;
 use crate::ollama::models::{self, ModelDetails, ModelInfo, RecommendedModel};
 use crate::ollama::outdated;
 use crate::ollama::registry;
-use crate::ollama::running::{self, RunningModel};
-use crate::store::settings::Settings;
+use crate::ollama::running;
+use crate::store::settings::{self, Settings};
 use crate::store::{Store, model_prefs};
 
 /// Modèles utilisables en conversation, à l'adresse effective du serveur.
@@ -86,22 +87,31 @@ pub async fn set_think_pref(store: State<'_, Store>, model: String, think: Think
         .await
 }
 
-/// Modèles en mémoire (`/api/ps`), à l'adresse effective du serveur.
+/// Modèles du moteur de l'app (processus `llama-server`), du plus récemment
+/// servi au plus ancien.
 #[tauri::command]
-pub async fn running_models(store: State<'_, Store>) -> AppResult<Vec<RunningModel>> {
-    running::list(&server_url(&store).await?).await
+pub async fn running_models(engine: State<'_, Engine>) -> AppResult<Vec<EngineRunningModel>> {
+    Ok(engine.running())
 }
 
 /// Modèle que prend « Auto » (pages Proofread et Study, rien de choisi) en ce
-/// moment : le meilleur modèle en mémoire, sinon celui du chat ; `None` si
-/// aucun. Réglages à montrer : la page ne patiente pas pour l'intégré.
+/// moment : le meilleur modèle prêt dans le moteur, sinon celui du chat ;
+/// `None` si aucun.
 #[tauri::command]
-pub async fn auto_model(store: State<'_, Store>) -> AppResult<Option<String>> {
-    let settings = crate::ollama::target::display_settings(&store).await?;
-    Ok(
-        crate::ollama::auto::model_of(&settings.effective_server_url, "", &settings.selected_model)
-            .await,
-    )
+pub async fn auto_model(
+    app: tauri::AppHandle,
+    store: State<'_, Store>,
+    engine: State<'_, Engine>,
+) -> AppResult<Option<String>> {
+    let data_dir = crate::paths::data_dir(&app)?;
+    let installed = crate::local_models::list(&store, &data_dir).await?;
+    let settings = store.call(|c| settings::get(c, None)).await?;
+    Ok(crate::engine::auto::model_of(
+        &engine.running(),
+        &installed,
+        "",
+        &settings.selected_model,
+    ))
 }
 
 /// Charge un modèle avec le contexte et la durée des réglages ; rend la main
@@ -110,39 +120,40 @@ pub async fn auto_model(store: State<'_, Store>) -> AppResult<Option<String>> {
 #[tauri::command]
 pub async fn load_model(
     store: State<'_, Store>,
+    engine: State<'_, Engine>,
     gpu: State<'_, crate::gpu::GpuChief>,
     model: String,
 ) -> AppResult<()> {
-    let loaded = load(&store, &model).await;
+    let loaded = load_in_engine(&store, &engine, &model).await;
     gpu.poke();
     loaded
 }
 
-/// Décharge un modèle.
+/// Décharge un modèle (attend la fin de son processus).
 #[tauri::command]
 pub async fn unload_model(
-    store: State<'_, Store>,
+    engine: State<'_, Engine>,
     gpu: State<'_, crate::gpu::GpuChief>,
     model: String,
 ) -> AppResult<()> {
     let working = crate::gpu::activity::hold();
-    let unloaded = running::unload(&server_url(&store).await?, &model).await;
+    engine.unload(&model).await;
     drop(working);
     gpu.poke();
-    unloaded
+    Ok(())
 }
 
-/// Décharge tous les modèles en mémoire (la première erreur est rendue).
+/// Décharge tous les modèles du moteur.
 #[tauri::command]
 pub async fn unload_all_models(
-    store: State<'_, Store>,
+    engine: State<'_, Engine>,
     gpu: State<'_, crate::gpu::GpuChief>,
 ) -> AppResult<()> {
     let working = crate::gpu::activity::hold();
-    let unloaded = running::unload_all(&server_url(&store).await?).await;
+    engine.unload_all().await;
     drop(working);
     gpu.poke();
-    unloaded
+    Ok(())
 }
 
 /// Adresse du serveur auquel parler : celle de la cible (`ollama::target` :
@@ -172,7 +183,24 @@ async fn recommended(store: &Store) -> AppResult<Vec<RecommendedModel>> {
     models::recommended(&server_url(store).await?).await
 }
 
-/// Chargement avec les options d'un envoi du chat : adresse effective,
+/// Chargement avec les options d'un envoi du chat (contexte et durée
+/// réglés : le message suivant ne relance pas le modèle), dans le moteur de
+/// l'app (bouton Load, préchargement).
+pub(crate) async fn load_in_engine(store: &Store, engine: &Engine, model: &str) -> AppResult<()> {
+    // L'autocomplétion de l'éditeur attend pendant ce temps.
+    let _working = crate::gpu::activity::hold();
+    let settings = store.call(|c| settings::get(c, None)).await?;
+    engine
+        .preload(
+            model,
+            LoadOptions::from_settings(settings.context_length, settings.keep_alive),
+        )
+        .await
+        .map_err(AppError::from)
+}
+
+/// Chargement dans Ollama avec les options d'un envoi du chat (Easy Link,
+/// jusqu'au lot L5) : adresse effective,
 /// contexte et durée réglés (le message suivant ne recharge pas le modèle).
 /// Refusé pour un modèle distant (nom cloud, ou `/api/show` qui le dit) :
 /// rien à charger ici.
@@ -337,6 +365,46 @@ mod tests {
             );
         }
         assert_eq!(server.load_requests().len(), 3);
+    }
+
+    /// Chargement (bouton Load, préchargement) dans le moteur, avec le
+    /// contexte et la durée en mémoire réglés, comme le chat ; un modèle
+    /// absent de la base locale est introuvable.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_model_is_loaded_in_the_engine_as_the_chat_would() {
+        let bench = crate::engine::tests::bench();
+        let id = bench.install("simple", 1 << 30);
+        let store = Store::open_in_memory().unwrap();
+        let patch = SettingsPatch {
+            context_length: Some(8192),
+            keep_alive: Some(-1),
+            ..Default::default()
+        };
+        store
+            .blocking(|c| settings::update(c, patch, None).map(drop))
+            .unwrap();
+        load_in_engine(&store, &bench.engine, &id).await.unwrap();
+        let running = bench.engine.running();
+        assert_eq!(running.len(), 1);
+        assert_eq!(running[0].context_length, 8192);
+        assert!(running[0].kept && !running[0].in_use);
+        let patch = SettingsPatch {
+            keep_alive: Some(60),
+            ..Default::default()
+        };
+        store
+            .blocking(|c| settings::update(c, patch, None).map(drop))
+            .unwrap();
+        load_in_engine(&store, &bench.engine, &id).await.unwrap();
+        let left = bench.engine.running()[0].expires_at.unwrap() - crate::store::now_ms();
+        assert!((55_000..=60_000).contains(&left), "{left}");
+        let Err(AppError::NotFound(message)) =
+            load_in_engine(&store, &bench.engine, "a/nope-GGUF:Q4_K_M").await
+        else {
+            panic!("expected a missing model");
+        };
+        assert!(message.contains("a/nope-GGUF:Q4_K_M"), "{message}");
+        bench.engine.shutdown().await;
     }
 
     /// Les recommandations aussi.

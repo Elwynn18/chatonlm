@@ -277,6 +277,16 @@ fn same(a: &str, b: &str) -> bool {
     same_model(&normalize(a), &normalize(b))
 }
 
+impl Inner {
+    /// Un changement de dossier des modèles est en cours : celui d'Ollama
+    /// (`Options::location_changing`), ou celui de la base locale
+    /// (`local_models::import::folder`, lot L6) ; vu sous le verrou de la
+    /// file, que le changement prend avant de regarder la file.
+    fn location_changing(&self) -> bool {
+        (self.options.location_changing)() || crate::local_models::import::folder::is_busy()
+    }
+}
+
 impl HubDownloads {
     /// `emit` reçoit la liste complète à chaque changement.
     pub fn with_options(
@@ -344,7 +354,7 @@ impl HubDownloads {
         // Sous le verrou de la file : un changement qui commence voit ce
         // téléchargement dans `any_active`, ou ce téléchargement voit le
         // changement.
-        if (inner.options.location_changing)() {
+        if inner.location_changing() {
             return Err(AppError::Invalid(errors::location_changing()));
         }
         if let Some(index) = state
@@ -452,7 +462,7 @@ impl HubDownloads {
         }) else {
             return Ok(());
         };
-        if (inner.options.location_changing)() {
+        if inner.location_changing() {
             return Err(AppError::Invalid(errors::location_changing()));
         }
         state.entries[index].download.state = HubDownloadState::Queued;
@@ -482,7 +492,7 @@ impl HubDownloads {
             return Ok(());
         };
         let paused = state.entries[index].download.state == HubDownloadState::Paused;
-        if paused && (inner.options.location_changing)() {
+        if paused && inner.location_changing() {
             return Err(AppError::Invalid(errors::location_changing()));
         }
         let mut entry = state.entries.remove(index);

@@ -46,7 +46,10 @@ mod os;
 
 #[cfg(all(test, windows))]
 pub(crate) use os::alive;
-pub(crate) use os::{desktop_changes, is_executable, isolate, scrub, terminate, watch_exit};
+pub(crate) use os::{
+    desktop_changes, exit_signal, is_executable, isolate, no_core_dump, scrub, terminate,
+    watch_exit,
+};
 
 /// Ports jamais pris : celui d'Ollama et celui de l'instance de test.
 pub(crate) const RESERVED_PORTS: [u16; 2] = [11434, 11435];

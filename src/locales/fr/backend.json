@@ -585,5 +585,57 @@
     "unreadableListing": "Hugging Face a envoyé une liste de fichiers illisible. Réessayez plus tard.",
     "invalidId": "{model} n'est pas un identifiant de modèle Hugging Face (auteur/dépôt:QUANT).",
     "fileMissing": "{file} est introuvable : téléchargez de nouveau le modèle."
+  },
+  "modelImport": {
+    "busy": "Des modèles sont déjà en cours de reprise ou de déplacement. Attendez la fin.",
+    "cancelled": "Reprise arrêtée.",
+    "checksum": "{file} n'a pas été copié correctement (sa somme de contrôle ne correspond pas). Réessayez.",
+    "copyFailed": "Impossible de copier {file} : {error}",
+    "invalidName": "{name} porte un nom impossible à enregistrer sur cet ordinateur.",
+    "notGguf": "{name} n'est pas un fichier de modèle GGUF : ChatonLM ne peut pas s'en servir.",
+    "unreadableFolder": "Impossible de lire le dossier d'Ollama {dir} : {error}",
+    "noSpace": "Pas assez de place sur le disque : {needed} nécessaires, {free} libres.",
+    "folderNotAbsolute": "Choisissez le chemin complet d'un dossier.",
+    "folderInside": "Le nouveau dossier ne peut pas se trouver dans le dossier actuel des modèles.",
+    "folderNotWritable": "ChatonLM ne peut pas écrire dans {dir}. Choisissez un autre dossier.",
+    "downloadsRunning": "Attendez la fin des téléchargements de modèles (ou annulez-les) avant de déplacer les modèles.",
+    "notImportedYet": "Les modèles de l'Ollama intégré n'ont pas encore tous été repris : rien n'est supprimé.",
+    "folderContains": "Le dossier actuel des modèles ne peut pas se trouver dans le nouveau dossier.",
+    "fileExists": "{file} existe déjà avec un autre contenu : ChatonLM ne le remplace pas.",
+    "undoFailed": "{error} Des fichiers n'ont pas pu être remis à leur place.",
+    "saveFailed": "ChatonLM n'a pas pu enregistrer le modèle repris : {error}",
+    "sameId": "{name} remplacerait un autre modèle ({id}) : il n'a pas été repris.",
+    "sharedFolder": "Ce dossier appartient aussi à l'Ollama installé sur cet ordinateur : ChatonLM n'y efface jamais rien."
+  },
+  "relay": {
+    "offline": "Le service de recherche de ChatonLM est injoignable. Vérifiez votre connexion à Internet, puis réessayez.",
+    "quotaExceeded": "Les recherches web du jour sont épuisées. De nouvelles seront possibles demain.",
+    "rateLimited": "Trop de recherches web pour le moment. Réessayez plus tard.",
+    "budgetExhausted": "La recherche web est en pause jusqu'au mois prochain : le budget du mois, payé par les dons, est épuisé.",
+    "budgetExhaustedToday": "La recherche web est en pause jusqu'à demain : la part du budget de ce jour, payé par les dons, est épuisée.",
+    "paused": "La recherche web est en pause pour maintenance. Réessayez plus tard.",
+    "outdated": "Cette version de ChatonLM ne peut plus chercher sur le web. Mettez ChatonLM à jour pour chercher de nouveau.",
+    "banned": "La recherche web a été coupée pour cette installation.",
+    "providerUnavailable": "Le moteur de recherche ne répond pas pour le moment. Réessayez dans un instant.",
+    "registrationFailed": "ChatonLM n'a pas pu s'inscrire auprès de son service de recherche. Réessayez plus tard.",
+    "rejected": "Le service de recherche a refusé la requête. Réessayez plus tard.",
+    "invalidQuery": "Cette recherche ne peut pas être envoyée : elle est vide ou trop longue.",
+    "malformed": "Le service de recherche a envoyé une réponse illisible. Réessayez plus tard.",
+    "storage": "ChatonLM n'a pas pu enregistrer la clé de son service de recherche. Vérifiez qu'il reste de la place sur le disque, puis réessayez.",
+    "cancelled": "Recherche web annulée."
+  },
+  "engine": {
+    "unavailable": "cette version de ChatonLM ne contient pas le moteur de texte",
+    "notInstalled": "le modèle {model} n'est pas installé",
+    "missingFile": "le fichier du modèle {path} est introuvable",
+    "startFailed": "le moteur de texte n'a pas pu charger le modèle : {reason}",
+    "notReady": "le moteur de texte n'a pas chargé le modèle en {seconds} secondes",
+    "crashed": "le moteur de texte s'est arrêté pendant le chargement du modèle : {reason}",
+    "unloaded": "le modèle a été déchargé pendant son chargement",
+    "closed": "le moteur de texte s'arrête",
+    "cpuFallback": "la carte graphique n'a pas pu faire tourner ce modèle : il tourne sur le processeur (plus lentement)",
+    "detail": {
+      "portTaken": "un autre programme a répondu sur le port du moteur"
+    }
   }
 }

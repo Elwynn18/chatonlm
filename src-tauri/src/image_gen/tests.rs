@@ -1151,3 +1151,27 @@ mod real {
         assert!(gone_within(pid, Duration::from_secs(6)).await);
     }
 }
+
+/// Lot L3 : avant chaque image (une fois son tour venu), le crochet de l'app
+/// libère la carte (modèles inactifs du moteur de texte arrêtés) ; une image
+/// refusée d'avance ne l'appelle pas.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_card_is_freed_before_each_image() {
+    let dir = temp_dir();
+    let engine = ImageGen::new(fake_config(dir.path()));
+    let spec = spec(dir.path(), "klein");
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = calls.clone();
+    engine.before_image(Arc::new(move || {
+        let counted = counted.clone();
+        Box::pin(async move {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        })
+    }));
+    generate(&engine, &spec, "a ginger kitten").await.unwrap();
+    generate(&engine, &spec, "a black kitten").await.unwrap();
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert!(generate(&engine, &spec, " ").await.is_err());
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    engine.shutdown().await;
+}

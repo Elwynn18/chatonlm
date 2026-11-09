@@ -239,11 +239,7 @@ fn prepare(config: &Config, bin: &Path, port: u16, spec: &ModelSpec) -> std::io:
     }
     // Chargeur Vulkan livré, seulement si le système n'en a pas.
     if let Some(dir) = bin.parent() {
-        super::os::vulkan_loader(
-            &mut environment,
-            &dir.join("fallback"),
-            super::os::system_has_loader(),
-        );
+        super::offer_vulkan_loader(&mut environment, &dir.join("fallback"));
     }
     let mut command = Command::new(bin);
     command.args(&config.prefix_args);

@@ -1,0 +1,82 @@
+# Configuration du relais de ChatonLM (lisible par tous : aucun secret ici).
+# À copier dans /etc/chatonlm-relay/config.toml. Après un changement :
+# « chatonlm-relay check --config … --secrets … », puis
+# « systemctl restart chatonlm-relay ».
+
+# Boucle locale seulement : nginx sert relay.chatonlm.com devant.
+listen = "127.0.0.1:8790"
+# StateDirectory de l'unité systemd.
+database = "/var/lib/chatonlm-relay/relay.sqlite"
+# Adresse du client lue dans X-Real-IP, posé par nginx, seulement pour une
+# connexion venue de 127.0.0.1 (tout processus local du serveur est donc cru).
+trust_proxy = true
+# Versions de l'app refusées (code « outdated ») ; en commentaire : aucune.
+# min_app_version = "0.10.0"
+# Interrupteur : recherche en pause (code « paused »).
+paused = false
+# Clés d'installation bannies (base64url).
+banned_keys = []
+# Clés oubliées après ce nombre de jours sans usage.
+key_retention_days = 90
+
+[quota]
+# Recherches par installation et par jour (UTC).
+daily_per_key = 50
+# Pendant les 24 premières heures d'une clé (égal : sans effet).
+new_key_daily = 50
+# Par réseau, en cascade, en mémoire seulement : [étroit, moyen, large] =
+# IPv6 [/56, /48, /32], IPv4 [/24, /16, —]. Une adresse compte à chaque niveau.
+per_ip_daily_searches = [1000, 3000, 10000]
+per_ip_daily_registrations = [3, 10, 50]
+per_ip_daily_challenges = [30, 100, 500]
+per_ip_per_minute = [120, 600, 3000]
+per_key_per_minute = 30
+
+[pow]
+# Preuve de travail de l'inscription : 4 nonces de 5 bits, Argon2id à 32 Mio,
+# soit 2 s environ sur un Ryzen 7 3700X et 4 s sur un portable moyen.
+memory_kib = 32768
+iterations = 1
+parallelism = 1
+bits = 5
+count = 4
+challenge_ttl_secs = 600
+
+[budget]
+# Plafond mensuel global (dons) ; au-delà, « budget_exhausted » jusqu'au 1er.
+monthly_limit_eur = 30.0
+# Ligne d'avertissement au journal à 80 %.
+alert_ratio = 0.8
+# Enveloppe du jour : plafond × 3 ÷ jours du mois (≈ 3 € par jour pour 30 €) ;
+# au-delà, « budget_exhausted » jusqu'à minuit UTC. Une vague d'abus coûte une
+# journée de recherche, pas le reste du mois.
+daily_share = 3.0
+
+[providers]
+# Ordre d'essai : le suivant sert de secours.
+order = ["brave", "mojeek"]
+
+[providers.brave]
+base_url = "https://api.search.brave.com"
+# 5 $ les 1 000 requêtes (officiel), compté large en euros.
+cost_per_1000_eur = 5.0
+timeout_secs = 8
+# Extraits supplémentaires : à essayer au banc R0 (offre et prix).
+extra_snippets = false
+cooldown_secs = 30
+
+[providers.mojeek]
+base_url = "https://api.mojeek.com"
+# 2 £ les 1 000 (offre Startup), compté large.
+cost_per_1000_eur = 2.5
+timeout_secs = 8
+cooldown_secs = 30
+
+[tables]
+# Entrées au plus des tables en mémoire (défauts = maximums permis : toutes
+# pleines, elles tiennent sous 64 Mio, voir relay-server/src/limits.rs).
+network_minute = 229376
+network_daily = 458752
+challenges = 114688
+keys = 229376
+replay = 114688

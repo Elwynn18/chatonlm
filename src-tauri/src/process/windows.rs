@@ -85,6 +85,10 @@ pub(crate) fn isolate(command: &mut Command) {
     command.creation_flags(CREATE_NO_WINDOW.0 | CREATE_NEW_PROCESS_GROUP.0);
 }
 
+/// Sans objet sous Windows (pas de fichier `core` ; le rapport d'erreurs
+/// de Windows reste réglé par le système).
+pub(crate) fn no_core_dump(_command: &mut Command) {}
+
 /// Job Object de chaque processus lancé, par numéro de processus, jusqu'à sa
 /// fin. Ce sont les seuls descripteurs de ces Jobs : la fin de ChatonLM les
 /// ferme, et le noyau tue alors ce qu'ils contiennent.
@@ -165,7 +169,7 @@ fn wait_empty(job: &Owned, limit: Duration) {
 }
 
 /// Pas de signaux sous Windows.
-pub(super) fn exit_signal(_status: &ExitStatus) -> Option<i32> {
+pub(crate) fn exit_signal(_status: &ExitStatus) -> Option<i32> {
     None
 }
 

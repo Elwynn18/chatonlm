@@ -585,5 +585,57 @@
     "unreadableListing": "Hugging Face sent an unreadable list of files. Try again later.",
     "invalidId": "{model} isn't a Hugging Face model ID (author/repository:QUANT).",
     "fileMissing": "{file} is missing: download the model again."
+  },
+  "modelImport": {
+    "busy": "Models are already being imported or moved. Wait until it's done.",
+    "cancelled": "Import stopped.",
+    "checksum": "{file} was not copied correctly (its checksum doesn't match). Try again.",
+    "copyFailed": "Could not copy {file}: {error}",
+    "invalidName": "{name} has a name that can't be saved on this computer.",
+    "notGguf": "{name} isn't a GGUF model file: ChatonLM can't use it.",
+    "unreadableFolder": "Could not read the Ollama folder {dir}: {error}",
+    "noSpace": "Not enough disk space: {needed} needed, {free} free.",
+    "folderNotAbsolute": "Choose a full folder path.",
+    "folderInside": "The new folder can't be inside the current models folder.",
+    "folderNotWritable": "ChatonLM can't write to {dir}. Choose another folder.",
+    "downloadsRunning": "Wait for the model downloads to finish (or cancel them) before moving the models.",
+    "notImportedYet": "The built-in Ollama's models haven't all been imported yet: nothing is deleted.",
+    "folderContains": "The current models folder can't be inside the new folder.",
+    "fileExists": "{file} already exists with different content: ChatonLM doesn't overwrite it.",
+    "undoFailed": "{error} Some files could not be put back where they were.",
+    "saveFailed": "ChatonLM could not save the imported model: {error}",
+    "sameId": "{name} would replace another model ({id}): it was not imported.",
+    "sharedFolder": "This folder also belongs to the Ollama installed on this computer: ChatonLM never deletes anything in it."
+  },
+  "relay": {
+    "offline": "ChatonLM's search service can't be reached. Check your internet connection, then try again.",
+    "quotaExceeded": "Today's web searches have all been used. More will be available tomorrow.",
+    "rateLimited": "Too many web searches right now. Try again later.",
+    "budgetExhausted": "Web search is paused until next month: this month's budget, paid for by donations, has been used up.",
+    "budgetExhaustedToday": "Web search is paused until tomorrow: today's share of the budget, paid for by donations, has been used up.",
+    "paused": "Web search is paused for maintenance. Try again later.",
+    "outdated": "This version of ChatonLM can no longer search the web. Update ChatonLM to search again.",
+    "banned": "Web search has been turned off for this installation.",
+    "providerUnavailable": "The search engine isn't responding right now. Try again in a moment.",
+    "registrationFailed": "ChatonLM couldn't register with its search service. Try again later.",
+    "rejected": "The search service refused the request. Try again later.",
+    "invalidQuery": "This search can't be sent: it's empty or too long.",
+    "malformed": "The search service sent an unreadable reply. Try again later.",
+    "storage": "ChatonLM couldn't save its search service key. Check that there is free space on the disk, then try again.",
+    "cancelled": "Web search canceled."
+  },
+  "engine": {
+    "unavailable": "this build of ChatonLM doesn't include the text engine",
+    "notInstalled": "the model {model} isn't installed",
+    "missingFile": "the model file {path} is missing",
+    "startFailed": "the text engine couldn't load the model: {reason}",
+    "notReady": "the text engine didn't load the model within {seconds} seconds",
+    "crashed": "the text engine stopped while loading the model: {reason}",
+    "unloaded": "the model was unloaded while it was loading",
+    "closed": "the text engine is shutting down",
+    "cpuFallback": "the graphics card couldn't run this model, so it runs on the processor (slower)",
+    "detail": {
+      "portTaken": "another program answered on the engine's port"
+    }
   }
 }

@@ -91,13 +91,32 @@ pub(crate) fn isolate(command: &mut Command) {
     }
 }
 
+/// Pas de fichier `core` si le processus plante (`RLIMIT_CORE` à 0, que
+/// `systemd-coredump` respecte) : la mémoire d'un moteur de texte contient
+/// les conversations.
+pub(crate) fn no_core_dump(command: &mut Command) {
+    // SAFETY : entre fork et exec, un seul appel système, sans allocation.
+    unsafe {
+        command.pre_exec(|| {
+            let none = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
+            };
+            if libc::setrlimit(libc::RLIMIT_CORE, &none) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
 /// Crée le processus (depuis le fil dédié : voir `Spawner`).
 pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
     command.spawn()
 }
 
 /// Signal qui a mis fin au processus.
-pub(super) fn exit_signal(status: &ExitStatus) -> Option<i32> {
+pub(crate) fn exit_signal(status: &ExitStatus) -> Option<i32> {
     status.signal()
 }
 

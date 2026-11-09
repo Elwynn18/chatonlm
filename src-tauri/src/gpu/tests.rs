@@ -756,3 +756,97 @@ async fn contract_fim_and_measure_on_the_test_instance() {
     assert!(measure.tokens_per_second > 0.0, "{measure:?}");
     eprintln!("measure: {}", json!(measure));
 }
+
+/// Lot L3 : les modèles prêts du moteur deviennent les constats du plan
+/// (forme de `/api/ps`) ; les options figées deviennent celles du moteur.
+#[test]
+fn engine_models_become_the_facts_of_the_plan() {
+    use crate::engine::{KeepAlive, LoadOptions, ModelState, RunningModel as EngineModel};
+    let model = |id: &str, state| EngineModel {
+        id: id.into(),
+        state,
+        size_bytes: 3 * GIB,
+        vram_bytes: 2 * GIB,
+        context_length: 4096,
+        expires_at: Some(1_000),
+        kept: false,
+        in_use: true,
+        gpu_layers: Some(20),
+        total_layers: Some(29),
+        cpu_fallback: false,
+        notice: None,
+        cpu_only: false,
+        params_label: Some("1.5B".into()),
+    };
+    let facts = engine_facts(&[
+        model("Qwen/Qwen2.5-Coder-1.5B-GGUF:Q8_0", ModelState::Ready),
+        model("a/loading-GGUF:Q4_K_M", ModelState::Loading),
+    ]);
+    assert_eq!(
+        facts,
+        [RunningModel {
+            name: "Qwen/Qwen2.5-Coder-1.5B-GGUF:Q8_0".into(),
+            size: 3 * GIB,
+            size_vram: 2 * GIB,
+            context_length: Some(4096),
+            expires_at: Some(1_000),
+            kept: false,
+            parameter_size: "1.5B".into(),
+            quantization_level: "Q8_0".into(),
+        }]
+    );
+    // Partiellement sur la carte : le plan le voit comme Ollama le disait.
+    assert!(facts[0].size_vram < facts[0].size);
+    assert_eq!(
+        engine_options(fim::Fixed {
+            num_ctx: COMPLETION_CONTEXT,
+            keep_alive: 600,
+        }),
+        LoadOptions {
+            ctx: Some(COMPLETION_CONTEXT),
+            keep_alive: KeepAlive::For(Duration::from_secs(600)),
+            cpu_only: false,
+        }
+    );
+    let defaults = engine_options(fim::Fixed {
+        num_ctx: 0,
+        keep_alive: -1,
+    });
+    assert_eq!(defaults.ctx, None);
+    assert_eq!(defaults.keep_alive, KeepAlive::Forever);
+}
+
+/// Moteur attaché : le plan constate ses modèles (pas `/api/ps`), et avant
+/// une image le modèle d'autocomplétion quitte le moteur.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_the_engine_the_plan_and_the_image_use_its_models() {
+    let bench = crate::engine::tests::bench();
+    let id = bench.install("coder-simple", GIB);
+    let chief = GpuChief::default();
+    chief.attach_engine(bench.engine.clone());
+    chief.set_completion(&id);
+    // Adresse fermée : rien ne vient d'Ollama.
+    let closed = "http://127.0.0.1:9";
+    let before = chief.plan(&inputs(closed, "")).await;
+    assert!(!before.completion.as_ref().is_some_and(|c| c.loaded));
+    bench
+        .engine
+        .preload(
+            &id,
+            crate::engine::LoadOptions {
+                keep_alive: crate::engine::KeepAlive::Forever,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let after = chief.plan(&inputs(closed, "")).await;
+    assert!(
+        after.completion.as_ref().is_some_and(|c| c.loaded),
+        "{after:?}"
+    );
+    chief.remember(closed, "");
+    chief.before_image().await;
+    assert!(bench.engine.running().is_empty());
+    bench.engine.shutdown().await;
+}

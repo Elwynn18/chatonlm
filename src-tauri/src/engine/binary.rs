@@ -105,6 +105,7 @@ pub fn fallback_dir(bin: &Path) -> Option<PathBuf> {
     Some(llama_server_dir(bin)?.join(FALLBACK_DIR))
 }
 
+#[allow(dead_code, reason = "signalement des bogues et mises à jour (lot L5)")]
 /// Version construite (`VERSION` à côté de `bin` :
 /// `<version épinglée>+chatonlm.<empreinte>`), si elle est lisible.
 pub fn version(bin: &Path) -> Option<String> {

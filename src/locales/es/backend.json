@@ -585,5 +585,57 @@
     "unreadableListing": "Hugging Face envió una lista de archivos ilegible. Vuelve a intentarlo más tarde.",
     "invalidId": "{model} no es un identificador de modelo de Hugging Face (autor/repositorio:QUANT).",
     "fileMissing": "Falta {file}: vuelve a descargar el modelo."
+  },
+  "modelImport": {
+    "busy": "Ya se están importando o moviendo modelos. Espera a que termine.",
+    "cancelled": "Importación detenida.",
+    "checksum": "{file} no se copió correctamente (su suma de verificación no coincide). Vuelve a intentarlo.",
+    "copyFailed": "No se pudo copiar {file}: {error}",
+    "invalidName": "{name} tiene un nombre que no se puede guardar en este equipo.",
+    "notGguf": "{name} no es un archivo de modelo GGUF: ChatonLM no puede usarlo.",
+    "unreadableFolder": "No se pudo leer la carpeta de Ollama {dir}: {error}",
+    "noSpace": "No hay suficiente espacio en el disco: se necesitan {needed}, hay {free} libres.",
+    "folderNotAbsolute": "Elige la ruta completa de una carpeta.",
+    "folderInside": "La nueva carpeta no puede estar dentro de la carpeta actual de los modelos.",
+    "folderNotWritable": "ChatonLM no puede escribir en {dir}. Elige otra carpeta.",
+    "downloadsRunning": "Espera a que terminen las descargas de modelos (o cancélalas) antes de mover los modelos.",
+    "notImportedYet": "Aún no se han importado todos los modelos del Ollama integrado: no se elimina nada.",
+    "folderContains": "La carpeta actual de los modelos no puede estar dentro de la nueva carpeta.",
+    "fileExists": "{file} ya existe con otro contenido: ChatonLM no lo sobrescribe.",
+    "undoFailed": "{error} Algunos archivos no se pudieron devolver a su sitio.",
+    "saveFailed": "ChatonLM no pudo guardar el modelo importado: {error}",
+    "sameId": "{name} sustituiría a otro modelo ({id}): no se importó.",
+    "sharedFolder": "Esta carpeta también pertenece al Ollama instalado en este equipo: ChatonLM nunca elimina nada en ella."
+  },
+  "relay": {
+    "offline": "No se puede acceder al servicio de búsqueda de ChatonLM. Comprueba tu conexión a internet y vuelve a intentarlo.",
+    "quotaExceeded": "Ya se han usado todas las búsquedas web de hoy. Mañana habrá más.",
+    "rateLimited": "Hay demasiadas búsquedas web en este momento. Vuelve a intentarlo más tarde.",
+    "budgetExhausted": "La búsqueda web está en pausa hasta el mes que viene: el presupuesto de este mes, pagado con donaciones, se ha agotado.",
+    "budgetExhaustedToday": "La búsqueda web está en pausa hasta mañana: la parte del presupuesto de hoy, pagado con donaciones, se ha agotado.",
+    "paused": "La búsqueda web está en pausa por mantenimiento. Vuelve a intentarlo más tarde.",
+    "outdated": "Esta versión de ChatonLM ya no puede buscar en la web. Actualiza ChatonLM para volver a buscar.",
+    "banned": "La búsqueda web se ha desactivado para esta instalación.",
+    "providerUnavailable": "El motor de búsqueda no responde en este momento. Inténtalo de nuevo en un momento.",
+    "registrationFailed": "ChatonLM no ha podido registrarse en su servicio de búsqueda. Vuelve a intentarlo más tarde.",
+    "rejected": "El servicio de búsqueda ha rechazado la solicitud. Vuelve a intentarlo más tarde.",
+    "invalidQuery": "Esta búsqueda no se puede enviar: está vacía o es demasiado larga.",
+    "malformed": "El servicio de búsqueda ha enviado una respuesta ilegible. Vuelve a intentarlo más tarde.",
+    "storage": "ChatonLM no ha podido guardar la clave de su servicio de búsqueda. Comprueba que queda espacio libre en el disco y vuelve a intentarlo.",
+    "cancelled": "Búsqueda web cancelada."
+  },
+  "engine": {
+    "unavailable": "esta versión de ChatonLM no incluye el motor de texto",
+    "notInstalled": "el modelo {model} no está instalado",
+    "missingFile": "falta el archivo del modelo {path}",
+    "startFailed": "el motor de texto no pudo cargar el modelo: {reason}",
+    "notReady": "el motor de texto no cargó el modelo en {seconds} segundos",
+    "crashed": "el motor de texto se detuvo mientras cargaba el modelo: {reason}",
+    "unloaded": "el modelo se descargó mientras se estaba cargando",
+    "closed": "el motor de texto se está cerrando",
+    "cpuFallback": "la tarjeta gráfica no pudo ejecutar este modelo, así que se ejecuta en el procesador (más lento)",
+    "detail": {
+      "portTaken": "otro programa respondió en el puerto del motor"
+    }
   }
 }

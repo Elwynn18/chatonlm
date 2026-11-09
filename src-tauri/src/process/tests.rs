@@ -86,3 +86,15 @@ async fn the_wait_after_sigkill_is_bounded() {
     // SIGKILL a bien été envoyé au groupe.
     assert!(child.wait().unwrap().signal() == Some(libc::SIGKILL));
 }
+
+/// Lot L3 : un moteur de texte qui plante ne laisse pas de fichier `core`
+/// (sa mémoire contient les conversations).
+#[cfg(unix)]
+#[test]
+fn engines_leave_no_core_dump() {
+    let mut command = Command::new("sh");
+    command.args(["-c", "ulimit -c; ulimit -H -c"]);
+    no_core_dump(&mut command);
+    let output = command.output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "0\n0\n");
+}

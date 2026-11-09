@@ -23,8 +23,9 @@
 //!   Le serveur ne sait pas interrompre un calcul (409) : une image commencée
 //!   est arrêtée en arrêtant le processus, relancé à la demande suivante.
 //! - Mémoire de la carte : le serveur place lui-même poids et calculs selon
-//!   la VRAM libre au moment de générer (« auto-fit ») ; rien n'est déchargé
-//!   d'Ollama ici.
+//!   la VRAM libre au moment de générer (« auto-fit ») ; avant chaque image,
+//!   le crochet [`ImageGen::before_image`] (posé par l'app : modèles inactifs
+//!   du moteur de texte arrêtés) libère la carte.
 
 mod api;
 mod server;
@@ -303,7 +304,12 @@ struct Inner {
     /// Passé à `true` par [`ImageGen::shutdown`] : plus aucune image, celle en
     /// cours s'arrête.
     closed: watch::Sender<bool>,
+    /// Appelé avant chaque image, une fois son tour venu.
+    before: parking_lot::Mutex<Option<BeforeImage>>,
 }
+
+/// Crochet appelé avant chaque image (mémoire de la carte libérée).
+pub type BeforeImage = Arc<dyn Fn() -> futures_util::future::BoxFuture<'static, ()> + Send + Sync>;
 
 impl ImageGen {
     pub fn new(config: Config) -> ImageGen {
@@ -316,6 +322,7 @@ impl ImageGen {
                 stops: Stops::default(),
                 activity: AtomicU64::new(0),
                 closed: watch::channel(false).0,
+                before: parking_lot::Mutex::new(None),
             }),
         }
     }
@@ -323,6 +330,13 @@ impl ImageGen {
     /// Un binaire est là.
     pub fn available(&self) -> bool {
         self.inner.config.bin.as_deref().is_some_and(is_executable)
+    }
+
+    /// Pose le crochet appelé avant chaque image, une fois son tour venu
+    /// (l'app : modèles inactifs du moteur de texte arrêtés, leur VRAM rendue
+    /// au serveur d'images, qui ne prend que la mémoire libre).
+    pub fn before_image(&self, hook: BeforeImage) {
+        *self.inner.before.lock() = Some(hook);
     }
 
     /// Instructions du processeur qui manquent au moteur (vide : aucune).
@@ -401,6 +415,10 @@ impl ImageGen {
         };
         if *closed.borrow() {
             return Err(ImageGenError::Closed);
+        }
+        let before = self.inner.before.lock().clone();
+        if let Some(before) = before {
+            before().await;
         }
         self.touch();
         let outcome = {
@@ -598,6 +616,13 @@ impl ImageGen {
             crate::app_log!("chatonlm: the image engine didn't stop in time; leaving it");
         }
     }
+}
+
+/// Chargeur Vulkan de secours livré dans `fallback` (à côté d'un moteur :
+/// `sd-server`, `llama-server`) donné au processus seulement si le système
+/// n'en a pas (voir `linux.rs` et `windows.rs`).
+pub(crate) fn offer_vulkan_loader(environment: &mut BTreeMap<OsString, OsString>, fallback: &Path) {
+    os::vulkan_loader(environment, fallback, os::system_has_loader());
 }
 
 /// Ajoute `dir` à la liste de dossiers `variable` de `environment`, en tête

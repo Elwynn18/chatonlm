@@ -23,6 +23,12 @@
 //! | `chatonlm-slowload` | chargement de 1,5 s (`/health` 503 pendant ce temps) |
 //! | `chatonlm-longload` | chargement de 6 s |
 //! | `chatonlm-loadfail` | chargement raté : le processus s'arrête (code 1) au bout du délai de chargement |
+//! | `chatonlm-vulkanfail` | binaire seulement : sur la carte, erreur de Vulkan puis `abort` au chargement ; sur le processeur (`-ngl 0`, `GGML_VK_VISIBLE_DEVICES=none`), comme `chatonlm-simple` |
+//! | `chatonlm-bigctx` | binaire seulement : chargement de 1,5 s, puis refus (code 1, cache de contexte non alloué) si `-c` dépasse 8 192 ; sinon comme `chatonlm-simple` |
+//! | `chatonlm-bindfail` | binaire seulement : le premier lancement (fichier `<modèle>.bound` absent, alors créé) ne peut pas lier son port (code 1, comme le vrai) ; les suivants servent ; chaque lancement ajoute une ligne à `<modèle>.attempts` |
+//! | `chatonlm-bindfail-always` | idem, à chaque lancement |
+//! | `chatonlm-otheralias` | `/props` annonce un autre `model_alias` (un autre serveur sur le port) ; lancements comptés dans `<modèle>.attempts` |
+//! | `chatonlm-otherctx` | `/props` annonce un autre `n_ctx` ; lancements comptés de même |
 //!
 //! Règles communes, comme le vrai serveur : les requêtes attendent un
 //! emplacement libre (`-np`, un seul par défaut dans [`crate::Config::new`]),
@@ -72,6 +78,12 @@ pub enum Scenario {
     SlowLoad,
     LongLoad,
     LoadFail,
+    VulkanFail,
+    BigCtx,
+    BindFail,
+    BindFailAlways,
+    OtherAlias,
+    OtherCtx,
 }
 
 /// Noms, du plus long au plus court quand l'un contient l'autre.
@@ -86,6 +98,12 @@ const NAMES: &[(&str, Scenario)] = &[
     ("chatonlm-slowload", Scenario::SlowLoad),
     ("chatonlm-longload", Scenario::LongLoad),
     ("chatonlm-loadfail", Scenario::LoadFail),
+    ("chatonlm-vulkanfail", Scenario::VulkanFail),
+    ("chatonlm-bigctx", Scenario::BigCtx),
+    ("chatonlm-bindfail-always", Scenario::BindFailAlways),
+    ("chatonlm-bindfail", Scenario::BindFail),
+    ("chatonlm-otheralias", Scenario::OtherAlias),
+    ("chatonlm-otherctx", Scenario::OtherCtx),
     ("chatonlm-slow", Scenario::Slow),
     ("chatonlm-loop", Scenario::Loop),
     ("chatonlm-long", Scenario::Long),
@@ -112,7 +130,7 @@ impl Scenario {
     /// Délai de chargement propre au scénario.
     pub fn load_delay(self) -> Option<Duration> {
         match self {
-            Scenario::SlowLoad => Some(Duration::from_millis(1500)),
+            Scenario::SlowLoad | Scenario::BigCtx => Some(Duration::from_millis(1500)),
             Scenario::LongLoad => Some(Duration::from_secs(6)),
             _ => None,
         }

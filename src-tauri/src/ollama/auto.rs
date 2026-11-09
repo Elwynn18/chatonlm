@@ -105,26 +105,9 @@ fn ranked(loaded: &[RunningModel]) -> Vec<String> {
         .collect()
 }
 
-/// Nombre de paramètres d'après le texte d'Ollama (« 8.2B », « 751.63M »,
-/// « 1.2T », « 270K ») ; `None` si illisible.
-pub(crate) fn parameters(size: &str) -> Option<f64> {
-    let size = size.trim();
-    let unit = size.chars().last()?;
-    let factor = match unit.to_ascii_uppercase() {
-        'K' => 1e3,
-        'M' => 1e6,
-        'B' => 1e9,
-        'T' => 1e12,
-        _ => {
-            return size
-                .parse::<f64>()
-                .ok()
-                .filter(|n| n.is_finite() && *n > 0.0);
-        }
-    };
-    let number: f64 = size[..size.len() - unit.len_utf8()].trim().parse().ok()?;
-    (number.is_finite() && number > 0.0).then_some(number * factor)
-}
+/// Nombre de paramètres d'après le texte d'Ollama (« 8.2B », « 751.63M ») :
+/// la même lecture que le moteur de l'app.
+pub(crate) use crate::engine::auto::parameters;
 
 #[cfg(test)]
 mod tests {
@@ -142,23 +125,6 @@ mod tests {
             kept: false,
             parameter_size: parameter_size.into(),
             quantization_level: String::new(),
-        }
-    }
-
-    #[test]
-    fn parameters_read_ollama_sizes() {
-        for (text, expected) in [
-            ("8.2B", 8.2e9),
-            ("751.63M", 751.63e6),
-            ("1.2T", 1.2e12),
-            ("270k", 270e3),
-            (" 4B ", 4e9),
-        ] {
-            let read = parameters(text).unwrap();
-            assert!((read - expected).abs() < expected * 1e-9, "{text}: {read}");
-        }
-        for unreadable in ["", "B", "abcB", "-1B", "0B", "NaNB", "?"] {
-            assert_eq!(parameters(unreadable), None, "{unreadable}");
         }
     }
 

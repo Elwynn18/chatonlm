@@ -185,14 +185,112 @@ pub async fn hub_installed(store: State<'_, Store>) -> AppResult<Vec<HubInstalle
 }
 
 /// Supprime un modèle de la base locale et ses fichiers (sauf ceux qu'un
-/// autre modèle partage ou qu'un téléchargement en cours a réservés).
+/// autre modèle partage ou qu'un téléchargement en cours a réservés), après
+/// l'arrêt de son processus dans le moteur (sous Windows, un fichier ouvert
+/// ne s'efface pas).
 #[tauri::command]
 pub async fn hub_delete_model(
     app: AppHandle,
     store: State<'_, Store>,
     downloads: State<'_, HubDownloads>,
+    engine: State<'_, crate::engine::Engine>,
     model: String,
 ) -> AppResult<()> {
     let data_dir = crate::paths::data_dir(&app)?;
-    installed::delete(&store, &data_dir, &model, &downloads.reserved()).await
+    delete_model(&engine, &store, &data_dir, &model, &downloads.reserved()).await
+}
+
+/// Arrête le processus du modèle, puis le supprime.
+async fn delete_model(
+    engine: &crate::engine::Engine,
+    store: &Store,
+    data_dir: &std::path::Path,
+    model: &str,
+    reserved: &crate::local_models::Reserved,
+) -> AppResult<()> {
+    unload_then(
+        engine,
+        model.trim(),
+        installed::delete(store, data_dir, model, reserved),
+    )
+    .await
+}
+
+/// Arrête le processus de `id` (attendu fini), PUIS lance `delete` ; aucune
+/// demande ne le relance entre les deux (`Engine::deleting`).
+async fn unload_then<T>(
+    engine: &crate::engine::Engine,
+    id: &str,
+    delete: impl std::future::Future<Output = T>,
+) -> T {
+    let _deleting = engine.deleting(id);
+    engine.unload(id).await;
+    delete.await
+}
+
+#[cfg(test)]
+mod engine_tests {
+    use super::*;
+
+    /// Lot L3 : le processus du modèle est arrêté avant la suppression (sous
+    /// Windows, un fichier ouvert ne s'efface pas), même si elle échoue
+    /// ensuite (modèle absent de la base).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_engine_lets_go_of_a_model_before_its_deletion() {
+        let bench = crate::engine::tests::bench();
+        let id = bench.install("simple", 1 << 30);
+        bench
+            .engine
+            .preload(&id, crate::engine::LoadOptions::default())
+            .await
+            .unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let reserved = crate::local_models::Reserved::default();
+        let _ = delete_model(
+            &bench.engine,
+            &store,
+            data.path(),
+            &format!(" {id} "),
+            &reserved,
+        )
+        .await;
+        assert!(bench.engine.running().is_empty());
+        bench.engine.shutdown().await;
+    }
+
+    /// Le processus est fini AVANT que le fichier parte (le faux note, à son
+    /// arrêt, un fichier déjà effacé), et rien ne relance le modèle pendant
+    /// l'effacement.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_model_stops_before_its_file_goes_and_stays_stopped() {
+        let bench = crate::engine::tests::bench();
+        let id = bench.install("simple", 1 << 30);
+        let path = bench.model_path(&id);
+        bench
+            .engine
+            .preload(&id, crate::engine::LoadOptions::default())
+            .await
+            .unwrap();
+        let engine = bench.engine.clone();
+        let relaunch = unload_then(&bench.engine, &id, async {
+            let relaunch = engine
+                .ensure(&id, crate::engine::LoadOptions::default())
+                .await
+                .map(drop);
+            std::fs::remove_file(&path).unwrap();
+            relaunch
+        })
+        .await;
+        assert_eq!(
+            relaunch.unwrap_err().code(),
+            "notInstalled",
+            "no relaunch while deleting"
+        );
+        assert!(bench.engine.running().is_empty());
+        let log = std::fs::read_to_string(bench.logs().join("llama-0.log")).unwrap();
+        assert!(log.contains("stopping on a termination signal"), "{log}");
+        assert!(!log.contains(fake_llama::cli::DELETED_BEFORE_STOP), "{log}");
+        bench.engine.shutdown().await;
+    }
 }

@@ -1,0 +1,40 @@
+[package]
+name = "relay-server"
+version = "0.1.0"
+description = "Relais de ChatonLM : recherche web sans compte (inscription par preuve de travail, requêtes signées, quotas, budget)"
+license = "MIT"
+edition = "2024"
+rust-version = "1.91"
+publish = false
+
+[features]
+# Faux fournisseurs de recherche (Brave, Mojeek) et relais d'essai lancé dans
+# le processus : essais du serveur et du client de l'app. Jamais dans le
+# binaire déployé.
+fake = []
+
+[[bin]]
+name = "chatonlm-relay"
+path = "src/main.rs"
+
+[dependencies]
+# Mêmes versions que le reste de l'espace de travail (déjà dans l'arbre).
+axum = "0.8.9"
+relay-proto = { path = "../relay-proto" }
+# Clients des fournisseurs : mêmes choix que l'app (rustls avec ring, sans
+# fournisseur par défaut) ; `gzip` : réponses de Brave compressées.
+reqwest = { version = "0.13.5", default-features = false, features = ["gzip", "rustls-no-provider"] }
+ring = "0.17.14"
+# Clés inscrites et budget du mois (aucune adresse IP, aucune requête).
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.2", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+# Configuration et secrets lisibles par un humain.
+toml = { version = "1.1.6", default-features = false, features = ["parse", "serde", "std"] }
+url = "2.5.8"
+
+[dev-dependencies]
+relay-server = { path = ".", features = ["fake"] }
+tempfile = "3.27.0"

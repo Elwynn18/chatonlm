@@ -1205,11 +1205,14 @@ async fn a_file_gone_before_the_end_installs_nothing() {
     .await;
     let model = format!("{EYE}:Q4_K_M");
     env.ask(&model);
+    // `Finishing` paraît au dernier octet reçu, parfois avant que le `.part`
+    // ait pris son nom : attendre aussi le fichier (machine chargée).
+    let projector = env.models().join(EYE).join("mmproj-Q8_0.gguf");
     wait_until("the installation", WAIT, || {
-        env.entry(&model).state == Finishing
+        env.entry(&model).state == Finishing && projector.is_file()
     })
     .await;
-    std::fs::remove_file(env.models().join(EYE).join("mmproj-Q8_0.gguf")).unwrap();
+    std::fs::remove_file(&projector).unwrap();
     let failed = env.finished(&model).await;
     assert_eq!(failed.state, Failed);
     assert_eq!(

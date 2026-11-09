@@ -13,6 +13,7 @@ pub mod hub;
 pub mod image_models;
 pub mod models;
 pub mod models_dir;
+pub mod models_import;
 pub mod platform;
 pub mod proofread;
 pub mod report;
