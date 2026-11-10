@@ -2,23 +2,21 @@
 // contrôle et fichiers du .deb, AppImage extraite (--appimage-extract, dans
 // .tools/package/inspect), runtime épinglé, fichiers .desktop, icônes,
 // métadonnées AppStream, notices, bibliothèques demandées par le binaire et
-// bibliothèques embarquées dans l'AppImage (liste, tailles), Ollama intégré
-// (fichiers identiques à ceux de l'archive officielle extraite par
-// scripts/fetch-ollama.sh : ni strip ni patchelf de linuxdeploy, sans
-// moteur CUDA, ROCm ni MLX, glibc demandée), moteur d'images (sd-server
-// construit par scripts/build-sd-server.sh : mêmes contrôles, plus ses
+// bibliothèques embarquées dans l'AppImage (liste, tailles), moteur d'images
+// (sd-server construit par scripts/build-sd-server.sh : fichiers identiques à
+// ceux du dossier construit, ni strip ni patchelf de linuxdeploy, glibc et
 // bibliothèques demandées, sans libgomp), moteur de texte (llama-server
 // construit par scripts/build-llama-server.sh : mêmes contrôles, chaque
-// bibliothèque et moteur de calcul compris, rien hors du système de base).
+// bibliothèque et moteur de calcul compris, rien hors du système de base), et
+// aucun fichier CUDA, ROCm ni HIP nulle part dans les paquets (le pack CUDA
+// est un téléchargement facultatif de l'app).
 // Rapport lisible sur la sortie standard ; code 1 si un contrôle échoue.
 //
 // Usage : node scripts/inspect-packages.mjs [options] <paquet.deb> <paquet.AppImage>
-//   --max-glibc <x.y>       échec si le binaire, l'Ollama intégré ou le
-//                           moteur d'images demande une glibc plus récente
+//   --max-glibc <x.y>       échec si le binaire ou un moteur (images,
+//                           texte) demande une glibc plus récente
 //   --require-inventory     échec si l'AppImage n'a pas l'inventaire LGPL
 //                           (construction de publication, CI)
-//   --ollama-sums <fichier> empreintes attendues de l'Ollama intégré
-//                           (défaut : .tools/runtimes/ollama/SHA256SUMS)
 //   --sd-sums <fichier>     empreintes attendues du moteur d'images (défaut :
 //                           .tools/runtimes/sd-server/SHA256SUMS ; VERSION
 //                           attendue : celle du même dossier)
@@ -72,13 +70,6 @@ export const COMMON_FILES = [
   // ONNX Runtime officiel, chargé à l'exécution depuis le dossier des
   // ressources de Tauri (/usr/lib/chatonlm).
   "usr/lib/chatonlm/libonnxruntime.so.1",
-  // Licences de l'Ollama intégré (ses fichiers : OLLAMA_FILES).
-  "usr/share/doc/chatonlm/licenses/ollama/README.txt",
-  "usr/share/doc/chatonlm/licenses/ollama/GO_LICENSE",
-  "usr/share/doc/chatonlm/licenses/ollama/LLAMA_CPP_LICENSE",
-  "usr/share/doc/chatonlm/licenses/ollama/XGRAMMAR_NOTICE",
-  "usr/share/doc/chatonlm/licenses/ollama/LIBGOMP_GPL-3.0.txt",
-  "usr/share/doc/chatonlm/licenses/ollama/LIBGOMP_GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt",
   // Licences du moteur d'images (ses fichiers : SD_FILES).
   "usr/share/doc/chatonlm/licenses/sd-server/README.txt",
   // Licences du moteur de texte (ses fichiers : LLAMA_FILES).
@@ -87,54 +78,48 @@ export const COMMON_FILES = [
 ];
 
 /**
- * Dossier de l'Ollama intégré : resource_dir()/ollama dans le .deb ; dans
- * l'AppImage, hors de usr/lib (linuxdeploy traite chaque ELF de usr/lib),
- * avec un lien depuis resource_dir()/ollama.
- */
-export const OLLAMA_PREFIX = "usr/lib/chatonlm/ollama/";
-export const APPIMAGE_OLLAMA_PREFIX = "usr/libexec/chatonlm/ollama/";
-export const OLLAMA_LINK = "usr/lib/chatonlm/ollama";
-export const OLLAMA_LINK_TARGET = "../../libexec/chatonlm/ollama";
-
-/**
- * Fichiers de l'Ollama intégré exigés (chemins relatifs à son dossier) ; le
- * détail est comparé aux empreintes de l'archive (ollamaErrors).
- */
-export const OLLAMA_FILES = [
-  "bin/ollama",
-  "VERSION",
-  "lib/ollama/llama-server",
-  "lib/ollama/libggml-base.so.0",
-  "lib/ollama/vulkan/libggml-vulkan.so",
-];
-
-/**
- * Fichiers des moteurs exclus de l'Ollama intégré (CUDA, ROCm/HIP, MLX), où
- * qu'ils soient rangés (dossiers cuda_*, rocm*, mlx* ou premier niveau de
- * lib/ollama). Même motif que excluded_re de scripts/fetch-ollama.sh.
+ * Fichiers CUDA (moteur ggml-cuda, bibliothèques de NVIDIA) et ROCm/HIP,
+ * refusés partout dans les paquets, où qu'ils soient rangés : le pack CUDA
+ * est un téléchargement facultatif de l'app (bibliothèques de NVIDIA sous la
+ * licence du CUDA Toolkit, jamais redistribuées par les paquets).
  */
 export const EXCLUDED_ENGINES =
-  /cuda|cublas|cudart|cudnn|nvrtc|nvidia|rocm|rocblas|hipblas|amdhip|(^|[/_.-])hip([_.-]|$)|mlx/i;
-
-/** Fichiers de l'Ollama intégré qui doivent rester exécutables. */
-export const OLLAMA_EXECUTABLES = [
-  "bin/ollama",
-  "lib/ollama/llama-server",
-  "lib/ollama/llama-quantize",
-];
+  /(^|[/_.-])(lib)?(cuda|cudart|cublas|cublaslt|cudnn|nvrtc|nvcuda|nvidia|rocm|rocblas|hipblas|amdhip|hip)(\d+)?([/_.-]|$)/i;
 
 /**
- * Bibliothèques que linuxdeploy ne doit pas copier dans usr/lib de l'AppImage
- * en suivant les dépendances de l'Ollama intégré : le chargeur Vulkan est
- * celui du système (avec ses pilotes).
+ * Chemins de l'ancien Ollama intégré (versions 0.9.x) : son dossier dans le
+ * .deb, dans l'AppImage (et le lien vers celui-ci) et ses notices. Plus rien
+ * n'y est livré.
  */
-export const HOST_ONLY_LIBRARIES = ["libvulkan.so.1"];
+export const RETIRED_PATHS =
+  /^usr\/(lib|libexec)\/chatonlm\/ollama(\/|$)|^usr\/share\/doc\/chatonlm\/licenses\/ollama(\/|$)/;
+
+/**
+ * Fichiers CUDA, ROCm ou HIP d'un paquet (`files` : chemins du paquet), où
+ * qu'ils soient (EXCLUDED_ENGINES, sur le chemin entier), puis fichiers de
+ * l'ancien Ollama intégré (RETIRED_PATHS).
+ */
+export function excludedEngineErrors(files) {
+  const paths = [...files.keys()];
+  return [
+    ...paths
+      .filter((file) => EXCLUDED_ENGINES.test(file))
+      .map(
+        (file) =>
+          `fichier CUDA, ROCm ou HIP livré (pack CUDA téléchargé à part) : ${file}`,
+      ),
+    ...paths
+      .filter((file) => RETIRED_PATHS.test(file))
+      .map((file) => `fichier de l'ancien Ollama intégré livré : ${file}`),
+  ];
+}
 
 /**
  * Moteur d'images (sd-server de stable-diffusion.cpp, construit par
- * scripts/build-sd-server.sh dans .tools/runtimes/sd-server), rangé comme
- * l'Ollama intégré : resource_dir()/sd-server dans le .deb, usr/libexec avec
- * un lien depuis resource_dir()/sd-server dans l'AppImage.
+ * scripts/build-sd-server.sh dans .tools/runtimes/sd-server) :
+ * resource_dir()/sd-server dans le .deb ; dans l'AppImage, hors de usr/lib
+ * (linuxdeploy traite chaque ELF de usr/lib), dans usr/libexec, avec un lien
+ * depuis resource_dir()/sd-server.
  */
 export const SD_PREFIX = "usr/lib/chatonlm/sd-server/";
 export const APPIMAGE_SD_PREFIX = "usr/libexec/chatonlm/sd-server/";
@@ -166,21 +151,10 @@ export const SD_ELF = {
  * Composants livrés à part dans les paquets, contrôlés de la même façon
  * (builtinErrors) : nom dans les messages, dossiers, lien de l'AppImage,
  * exécutables (`onlyExecutables` : aucun autre fichier exécutable), motif
- * des fichiers exclus, script qui produit la copie de référence.
+ * des fichiers exclus, bibliothèques de la machine qui ne doivent pas être
+ * copiées dans usr/lib (`hostOnly`), script qui produit la copie de
+ * référence.
  */
-export const OLLAMA_COMPONENT = {
-  name: "Ollama intégré",
-  of: "de l'Ollama intégré",
-  prefix: OLLAMA_PREFIX,
-  appImagePrefix: APPIMAGE_OLLAMA_PREFIX,
-  link: OLLAMA_LINK,
-  linkTarget: OLLAMA_LINK_TARGET,
-  executables: OLLAMA_EXECUTABLES,
-  onlyExecutables: false,
-  excluded: EXCLUDED_ENGINES,
-  hostOnly: HOST_ONLY_LIBRARIES,
-  source: "scripts/fetch-ollama.sh",
-};
 export const SD_COMPONENT = {
   name: "Moteur d'images",
   of: "du moteur d'images",
@@ -266,20 +240,15 @@ export const LLAMA_COMPONENT = {
   extra: ["SHA256SUMS"],
   source: "scripts/build-llama-server.sh",
 };
-export const BUILTIN_COMPONENTS = [
-  OLLAMA_COMPONENT,
-  SD_COMPONENT,
-  LLAMA_COMPONENT,
-];
+export const BUILTIN_COMPONENTS = [SD_COMPONENT, LLAMA_COMPONENT];
 
 /**
- * Fichiers propres au .deb : entrée de menu visible, AppStream, Ollama et
- * moteur d'images.
+ * Fichiers propres au .deb : entrée de menu visible, AppStream, moteurs
+ * d'images et de texte.
  */
 export const DEB_FILES = [
   `usr/share/applications/${ID}.desktop`,
   `usr/share/metainfo/${ID}.metainfo.xml`,
-  ...OLLAMA_FILES.map((f) => `${OLLAMA_PREFIX}${f}`),
   ...SD_FILES.map((f) => `${SD_PREFIX}${f}`),
   ...LLAMA_FILES.map((f) => `${LLAMA_PREFIX}${f}`),
 ];
@@ -293,7 +262,6 @@ export const APPIMAGE_FILES = [
   "usr/share/doc/chatonlm/licenses/LGPL-3.0.txt",
   "usr/share/doc/chatonlm/licenses/GPL-3.0.txt",
   "usr/share/doc/chatonlm/appimage-libraries/README.txt",
-  ...OLLAMA_FILES.map((f) => `${APPIMAGE_OLLAMA_PREFIX}${f}`),
   ...SD_FILES.map((f) => `${APPIMAGE_SD_PREFIX}${f}`),
   ...LLAMA_FILES.map((f) => `${APPIMAGE_LLAMA_PREFIX}${f}`),
 ];
@@ -631,6 +599,7 @@ export function debErrors({ control, files, read, version }) {
     errors.push(...dep5Errors(read("usr/share/doc/chatonlm/copyright")));
   }
   errors.push(...noticeErrors({ files, read }));
+  errors.push(...excludedEngineErrors(files));
   return errors;
 }
 
@@ -742,7 +711,7 @@ export function appImageErrors({
       ),
     );
   }
-  // Ollama intégré et moteur d'images : hors de usr/lib, derrière un lien.
+  // Moteurs d'images et de texte : hors de usr/lib, derrière un lien.
   for (const component of BUILTIN_COMPONENTS) {
     const link = files.get(component.link);
     if (link?.link !== component.linkTarget) {
@@ -766,6 +735,7 @@ export function appImageErrors({
   if (requireInventory && !files.has(inventory)) {
     errors.push("inventaire LGPL absent (appimage-libraries/libraries.txt)");
   }
+  errors.push(...excludedEngineErrors(files));
   return errors;
 }
 
@@ -780,8 +750,8 @@ export function parseSums(text) {
 }
 
 /**
- * Contrôles d'un composant livré à part (`component` : OLLAMA_COMPONENT ou
- * SD_COMPONENT) : `files` (chemins du paquet → {size, mode, link}),
+ * Contrôles d'un composant livré à part (`component` : SD_COMPONENT ou
+ * LLAMA_COMPONENT) : `files` (chemins du paquet → {size, mode, link}),
  * `hash(chemin)` (sha256 d'un fichier du paquet), `read(chemin)`, `sums`
  * (parseSums du SHA256SUMS de sa copie de référence, chemins relatifs à son
  * dossier), `version` attendue, `prefix` (son dossier dans le paquet).
@@ -880,14 +850,6 @@ export function builtinErrors(
 }
 
 /**
- * Contrôles de l'Ollama intégré (builtinErrors) : `sums` de
- * .tools/runtimes/ollama/SHA256SUMS, `version` épinglée (packaging/ollama.env).
- */
-export function ollamaErrors(options) {
-  return builtinErrors(OLLAMA_COMPONENT, options);
-}
-
-/**
  * Contrôles du moteur d'images (builtinErrors) : `sums` de
  * .tools/runtimes/sd-server/SHA256SUMS, `version` du VERSION de ce dossier,
  * `pinned` (SDCPP_VERSION de packaging/sdcpp.env) : la version livrée doit
@@ -945,28 +907,6 @@ export function llamaServerErrors({ pinned, ...options }) {
     }
   }
   return errors;
-}
-
-/**
- * Fichiers ELF de l'Ollama intégré dans un paquet extrait (`dir`) : versions
- * de symboles les plus récentes, sur l'ensemble (objdump -T).
- */
-export function inspectOllamaElf(dir, files, prefix = OLLAMA_PREFIX) {
-  const versions = {};
-  let count = 0;
-  for (const [rel, info] of files) {
-    if (!rel.startsWith(prefix) || info.link) continue;
-    const file = path.join(dir, rel);
-    if (!isElf(file)) continue;
-    count += 1;
-    const max = maxSymbolVersions(run("objdump", ["-T", file]));
-    for (const [name, version] of Object.entries(max)) {
-      if (!versions[name] || compareVersions(version, versions[name]) > 0) {
-        versions[name] = version;
-      }
-    }
-  }
-  return { count, versions };
 }
 
 /**
@@ -1144,24 +1084,6 @@ function packageOfSoname(soname) {
 }
 
 /**
- * Ollama intégré d'un paquet extrait dans `dir` : erreurs (ollamaErrors) et
- * versions de symboles de ses fichiers ELF. `ollama` : {sums, version}, ou
- * null pour ne pas le contrôler (essais).
- */
-function inspectOllama(dir, files, ollama, prefix) {
-  if (!ollama) return { errors: [], elf: null };
-  const read = (rel) => readFileSync(path.join(dir, rel), "utf8");
-  const errors = ollamaErrors({
-    files,
-    read,
-    hash: (rel) => sha256(path.join(dir, rel)),
-    prefix,
-    ...ollama,
-  });
-  return { errors, elf: inspectOllamaElf(dir, files, prefix) };
-}
-
-/**
  * Moteur d'images d'un paquet extrait dans `dir` : erreurs (sdServerErrors)
  * et inspection de ses fichiers ELF. `sdServer` : {sums, version, pinned},
  * ou null pour ne pas le contrôler (essais).
@@ -1200,7 +1122,7 @@ function inspectLlamaServer(dir, files, llamaServer, prefix) {
 /** Inspection d'un .deb, extrait dans `work`. */
 export function inspectDeb(
   file,
-  { work, version, ollama = null, sdServer = null, llamaServer = null },
+  { work, version, sdServer = null, llamaServer = null },
 ) {
   const members = parseAr(readFileSync(file));
   const member = (prefix) => members.find((m) => m.name.startsWith(prefix));
@@ -1244,8 +1166,6 @@ export function inspectDeb(
       ),
     );
   }
-  const builtin = inspectOllama(dataDir, files, ollama, OLLAMA_PREFIX);
-  errors.push(...builtin.errors);
   const images = inspectSdServer(dataDir, files, sdServer, SD_PREFIX);
   errors.push(...images.errors);
   const text = inspectLlamaServer(dataDir, files, llamaServer, LLAMA_PREFIX);
@@ -1257,7 +1177,6 @@ export function inspectDeb(
     files,
     errors,
     binary,
-    ollamaElf: builtin.elf,
     sdServerElf: images.elf,
     llamaServerElf: text.elf,
     missingTools: validation.missing,
@@ -1288,14 +1207,7 @@ export function appImageRuntime(buffer) {
 /** Inspection d'une AppImage, extraite dans `work` (--appimage-extract). */
 export function inspectAppImage(
   file,
-  {
-    work,
-    requireInventory,
-    runtimePin,
-    ollama = null,
-    sdServer = null,
-    llamaServer = null,
-  },
+  { work, requireInventory, runtimePin, sdServer = null, llamaServer = null },
 ) {
   const buffer = readFileSync(file);
   const runtime = appImageRuntime(buffer);
@@ -1344,7 +1256,6 @@ export function inspectAppImage(
     .filter(
       ([rel, info]) =>
         !info.link &&
-        !rel.startsWith(APPIMAGE_OLLAMA_PREFIX) &&
         !rel.startsWith(APPIMAGE_SD_PREFIX) &&
         !rel.startsWith(APPIMAGE_LLAMA_PREFIX) &&
         /\.so(\.[0-9.]+)?$/.test(rel),
@@ -1362,8 +1273,6 @@ export function inspectAppImage(
       ),
     );
   }
-  const builtin = inspectOllama(dir, files, ollama, APPIMAGE_OLLAMA_PREFIX);
-  errors.push(...builtin.errors);
   const images = inspectSdServer(dir, files, sdServer, APPIMAGE_SD_PREFIX);
   errors.push(...images.errors);
   const text = inspectLlamaServer(
@@ -1382,7 +1291,6 @@ export function inspectAppImage(
     errors,
     libraries,
     binary,
-    ollamaElf: builtin.elf,
     sdServerElf: images.elf,
     llamaServerElf: text.elf,
     missingTools: validation.missing,
@@ -1408,35 +1316,6 @@ const symbolList = (versions) =>
   Object.entries(versions)
     .map(([k, v]) => `${k}_${v}`)
     .join(", ") || "aucune";
-
-/** Lignes du rapport sur l'Ollama intégré : taille, glibc demandée. */
-export function ollamaLines(files, elf, { maxGlibc, prefix = OLLAMA_PREFIX }) {
-  if (!elf) return { lines: [], errors: [] };
-  let size = 0;
-  let count = 0;
-  for (const [rel, info] of files) {
-    if (rel.startsWith(prefix) && !info.link) {
-      size += info.size;
-      count += 1;
-    }
-  }
-  const versions = symbolList(elf.versions);
-  const lines = [
-    `Ollama intégré : ${count} fichiers, ${formatSize(size)}, ${elf.count} ELF ; ` +
-      `versions de symboles les plus récentes : ${versions}`,
-  ];
-  const errors = [];
-  if (
-    maxGlibc &&
-    elf.versions.GLIBC &&
-    compareVersions(elf.versions.GLIBC, maxGlibc) > 0
-  ) {
-    errors.push(
-      `l'Ollama intégré demande GLIBC_${elf.versions.GLIBC} (maximum permis : ${maxGlibc})`,
-    );
-  }
-  return { lines, errors };
-}
 
 /**
  * Lignes du rapport sur le moteur d'images : taille, bibliothèques et glibc
@@ -1628,8 +1507,6 @@ export function formatReport({ deb, appimage, maxGlibc }) {
       depends: hasDpkg ? dependsNames(c.Depends) : null,
     });
     lines.push(...bin.lines);
-    const builtin = ollamaLines(deb.files, deb.ollamaElf, { maxGlibc });
-    lines.push(...builtin.lines);
     const images = sdServerLines(deb.files, deb.sdServerElf, { maxGlibc });
     lines.push(...images.lines);
     const text = llamaServerLines(deb.files, deb.llamaServerElf, { maxGlibc });
@@ -1637,7 +1514,6 @@ export function formatReport({ deb, appimage, maxGlibc }) {
     errors.push(
       ...deb.errors.map((e) => `.deb : ${e}`),
       ...bin.errors.map((e) => `.deb : ${e}`),
-      ...builtin.errors.map((e) => `.deb : ${e}`),
       ...images.errors.map((e) => `.deb : ${e}`),
       ...text.errors.map((e) => `.deb : ${e}`),
     );
@@ -1675,11 +1551,6 @@ export function formatReport({ deb, appimage, maxGlibc }) {
     );
     const bin = binaryLines(appimage.binary, { maxGlibc, depends: null });
     lines.push(...bin.lines);
-    const builtin = ollamaLines(appimage.files, appimage.ollamaElf, {
-      maxGlibc,
-      prefix: APPIMAGE_OLLAMA_PREFIX,
-    });
-    lines.push(...builtin.lines);
     const images = sdServerLines(appimage.files, appimage.sdServerElf, {
       maxGlibc,
       prefix: APPIMAGE_SD_PREFIX,
@@ -1693,7 +1564,6 @@ export function formatReport({ deb, appimage, maxGlibc }) {
     errors.push(
       ...appimage.errors.map((e) => `AppImage : ${e}`),
       ...bin.errors.map((e) => `AppImage : ${e}`),
-      ...builtin.errors.map((e) => `AppImage : ${e}`),
       ...images.errors.map((e) => `AppImage : ${e}`),
       ...text.errors.map((e) => `AppImage : ${e}`),
     );
@@ -1720,7 +1590,6 @@ function main() {
     maxGlibc: null,
     requireInventory: false,
     report: null,
-    ollamaSums: path.join(root, ".tools/runtimes/ollama/SHA256SUMS"),
     sdSums: path.join(root, ".tools/runtimes/sd-server/SHA256SUMS"),
     llamaSums: path.join(root, ".tools/runtimes/llama-server/SHA256SUMS"),
   };
@@ -1729,17 +1598,21 @@ function main() {
     if (args[i] === "--max-glibc") options.maxGlibc = args[++i];
     else if (args[i] === "--require-inventory") options.requireInventory = true;
     else if (args[i] === "--report") options.report = args[++i];
-    else if (args[i] === "--ollama-sums") options.ollamaSums = args[++i];
     else if (args[i] === "--sd-sums") options.sdSums = args[++i];
     else if (args[i] === "--llama-sums") options.llamaSums = args[++i];
-    else packages.push(args[i]);
+    else if (args[i].startsWith("--")) {
+      // Option inconnue (--ollama-sums, retirée avec l'Ollama intégré…) :
+      // jamais prise pour un paquet.
+      console.error(`Option inconnue : ${args[i]}`);
+      process.exit(2);
+    } else packages.push(args[i]);
   }
   const debFile = packages.find((p) => p.endsWith(".deb"));
   const appFile = packages.find((p) => p.endsWith(".AppImage"));
   if ((!debFile && !appFile) || packages.length > 2) {
     console.error(
       "Usage : node scripts/inspect-packages.mjs [--max-glibc x.y] [--require-inventory] " +
-        "[--ollama-sums fichier] [--sd-sums fichier] [--llama-sums fichier] " +
+        "[--sd-sums fichier] [--llama-sums fichier] " +
         "[--report fichier] " +
         "<paquet.deb> <paquet.AppImage>",
     );
@@ -1751,16 +1624,6 @@ function main() {
   const pin = parseEnv(
     readFileSync(path.join(root, "packaging/appimage-runtime.env"), "utf8"),
   ).TYPE2_RUNTIME_COMMIT;
-  // Ollama intégré : empreintes de la copie extraite par fetch-ollama.sh
-  // (vides si elle manque : erreur dans le rapport).
-  const ollama = {
-    sums: existsSync(options.ollamaSums)
-      ? parseSums(readFileSync(options.ollamaSums, "utf8"))
-      : new Map(),
-    version: parseEnv(
-      readFileSync(path.join(root, "packaging/ollama.env"), "utf8"),
-    ).OLLAMA_VERSION,
-  };
   // Moteur d'images : empreintes et version du dossier construit par
   // build-sd-server.sh (vides s'il manque : erreur dans le rapport).
   const sdVersion = path.join(path.dirname(options.sdSums), "VERSION");
@@ -1793,7 +1656,6 @@ function main() {
     ? inspectDeb(debFile, {
         work: path.join(work, "deb"),
         version,
-        ollama,
         sdServer,
         llamaServer,
       })
@@ -1803,7 +1665,6 @@ function main() {
         work: path.join(work, "appimage"),
         requireInventory: options.requireInventory,
         runtimePin: pin,
-        ollama,
         sdServer,
         llamaServer,
       })

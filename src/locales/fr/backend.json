@@ -661,6 +661,14 @@
     "cpuFallback": "la carte graphique n'a pas pu faire tourner ce modèle : il tourne sur le processeur (plus lentement)",
     "detail": {
       "portTaken": "un autre programme a répondu sur le port du moteur"
+    },
+    "cuda": {
+      "licenseRequired": "acceptez la licence de NVIDIA pour télécharger le pack NVIDIA",
+      "incompatible": "cet ordinateur ne peut pas utiliser le pack NVIDIA",
+      "fetchFailed": "impossible d'obtenir le pack NVIDIA de cette version de ChatonLM : {reason}",
+      "downloadFailed": "le téléchargement du pack NVIDIA a échoué : {reason}",
+      "installFailed": "impossible d'installer le pack NVIDIA : {reason}",
+      "removeFailed": "impossible de retirer le pack NVIDIA : {reason}"
     }
   }
 }

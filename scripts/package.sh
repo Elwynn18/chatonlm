@@ -28,9 +28,7 @@
 # dans le journal du job ; les paquets publiés viennent de là.
 #
 # Composants livrés tels quels dans /usr/lib/chatonlm (dossier des ressources
-# de Tauri) : ONNX Runtime (scripts/fetch-onnxruntime.sh), l'Ollama intégré
-# (scripts/fetch-ollama.sh, archive de 1,4 Go téléchargée une fois), le
-# moteur d'images (scripts/build-sd-server.sh, construit depuis les sources,
+# de Tauri) : ONNX Runtime (scripts/fetch-onnxruntime.sh), le moteur d'images (scripts/build-sd-server.sh, construit depuis les sources,
 # 15 min environ la première fois) et le moteur de texte
 # (scripts/build-llama-server.sh, de même, 11 min environ).
 #
@@ -146,42 +144,39 @@ fi
 # ONNX Runtime officiel, installé par bundle.linux.*.files dans
 # /usr/lib/chatonlm (packaging/onnxruntime.env).
 run "ONNX Runtime épinglé" scripts/fetch-onnxruntime.sh
-# Ollama intégré (archive officielle sans CUDA, ROCm ni MLX), installé par
-# bundle.linux.*.files dans /usr/lib/chatonlm/ollama (packaging/ollama.env) ;
-# scripts/inspect-packages.mjs vérifie que linuxdeploy n'en modifie aucun
-# fichier (empreintes de .tools/runtimes/ollama/SHA256SUMS).
-run "Ollama intégré épinglé" scripts/fetch-ollama.sh
 # Moteur d'images (sd-server de stable-diffusion.cpp, packaging/sdcpp.env),
-# installé de la même façon dans /usr/lib/chatonlm/sd-server.
+# installé par bundle.linux.*.files dans /usr/lib/chatonlm/sd-server ;
+# scripts/inspect-packages.mjs vérifie que linuxdeploy n'en modifie aucun
+# fichier (empreintes de .tools/runtimes/sd-server/SHA256SUMS). Aucun fichier
+# CUDA, ROCm ni HIP dans les paquets (inspect-packages.mjs le refuse) : le pack
+# CUDA est un téléchargement facultatif de l'app.
 run "Moteur d'images épinglé" scripts/build-sd-server.sh
 # Moteur de texte (llama-server de llama.cpp, packaging/llama.env), installé
 # de la même façon dans /usr/lib/chatonlm/llama-server.
 run "Moteur de texte épinglé" scripts/build-llama-server.sh
 
 # AppImage : linuxdeploy traite chaque fichier ELF de usr/lib (dépendances
-# copiées, RPATH, strip) et échoue sur l'Ollama intégré (libggml-vulkan.so
-# trouve libggml-base.so.0 par le dossier que lui donne le serveur, pas par
-# son RUNPATH). Ses fichiers vont donc dans usr/libexec/chatonlm/ollama, que
-# linuxdeploy ignore, et usr/lib/chatonlm/ollama (resource_dir()/ollama, comme
-# dans le .deb) est un lien vers ce dossier, copié tel quel par
-# bundle.linux.appimage.files. Même chose pour le moteur d'images (son
-# chargeur Vulkan de secours ne doit jamais être pris par linuxdeploy pour
-# celui du système) et pour le moteur de texte (bibliothèques et moteurs de
-# calcul trouvés par leur RUNPATH $ORIGIN, que linuxdeploy réécrirait).
+# copiées, RPATH, strip), ce que les moteurs ne supportent pas : le chargeur
+# Vulkan de secours du moteur d'images ne doit jamais être pris par
+# linuxdeploy pour celui du système, et les bibliothèques et moteurs de calcul
+# du moteur de texte sont trouvés par leur RUNPATH $ORIGIN, que linuxdeploy
+# réécrirait. Leurs fichiers vont donc dans usr/libexec/chatonlm/<moteur>, que
+# linuxdeploy ignore, et usr/lib/chatonlm/<moteur> (resource_dir()/<moteur>,
+# comme dans le .deb) est un lien vers ce dossier, copié tel quel par
+# bundle.linux.appimage.files.
 appimage_lib() {
   local dir="$root/.tools/package/appimage-lib"
   rm -rf "$dir"
   mkdir -p "$dir"
-  ln -s ../../libexec/chatonlm/ollama "$dir/ollama"
   ln -s ../../libexec/chatonlm/sd-server "$dir/sd-server"
   ln -s ../../libexec/chatonlm/llama-server "$dir/llama-server"
 }
-run "Liens vers l'Ollama intégré et les moteurs (AppImage)" appimage_lib
+run "Liens vers les moteurs (AppImage)" appimage_lib
 
 # Un inventaire d'une construction précédente ne doit jamais entrer dans la
 # 1re passe : il décrirait d'autres bibliothèques. tauri-bundler ne vide pas
 # le dossier où il prépare l'AppImage (appimage_deb) : le lien
-# usr/lib/chatonlm/ollama d'une passe précédente y ferait échouer la copie
+# usr/lib/chatonlm/sd-server d'une passe précédente y ferait échouer la copie
 # (« File exists »).
 rm -rf "$inventory" "$bundle_dir/appimage_deb"
 # Signatures comprises : jamais un `.sig` d'une signature précédente à côté

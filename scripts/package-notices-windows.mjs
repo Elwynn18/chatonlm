@@ -10,10 +10,6 @@
 //   onnxruntime-LICENSE.txt, onnxruntime-ThirdPartyNotices.txt
 //   windows-components.txt     chargeur WebView2, NSIS, runtime Visual C++
 //   WebView2-SDK-LICENSE.txt, NSIS-COPYING.txt
-//   ollama\README.txt          l'Ollama intégré pour Windows, ses fichiers
-//   ollama\<licences>          de licence (archive officielle), et les
-//                              textes des bibliothèques de LLVM et de
-//                              mingw-w64 qu'elle contient sans licence
 //   sd-server\README.txt       le moteur d'images (sd-server construit par
 //   sd-server\<licences>       scripts/build-sd-server.sh) : textes de
 //                              packaging/sdcpp/licenses et Apache-2.0 du
@@ -23,7 +19,6 @@
 //                              de packaging/llama/licenses et Apache-2.0
 //
 // Pas de fichier copyright (format de Debian), pas de textes GPL ni LGPL :
-// l'archive Windows d'Ollama n'a pas libgomp (OpenMP de LLVM à la place) et
 // l'installateur n'embarque aucune bibliothèque du système.
 import { execFileSync } from "node:child_process";
 import {
@@ -42,13 +37,8 @@ import {
 import {
   CARGO_ABOUT_VERSION,
   CSS_PACKAGES,
-  OLLAMA_DIR,
-  OLLAMA_LICENSE_SUMMARY,
-  OLLAMA_LICENSES,
   ONNXRUNTIME_DIR,
-  ollamaLicenseKindErrors,
   onnxRuntimeErrors,
-  parseEnv,
   readSdServer,
   renderNpmPackages,
   renderRustCrates,
@@ -66,108 +56,12 @@ export const WINDOWS_TARGET = "x86_64-pc-windows-msvc";
 /** Dossier des notices Windows, relatif à la racine. */
 export const WINDOWS_NOTICES_DIR = ".tools/package/notices/windows";
 
-/**
- * Licences que livre Ollama dans lib\ollama de l'archive Windows : nom du
- * fichier → ce qu'il couvre (celles de Linux, plus deux propres à Windows).
- * Toutes sont livrées quand l'archive les contient ; seules celles de
- * OLLAMA_WINDOWS_REQUIRED sont exigées.
- */
-export const OLLAMA_WINDOWS_LICENSES = {
-  ...OLLAMA_LICENSES,
-  DLFCN_WIN32_COPYING: "dlfcn-win32 (MIT)",
-  "JSON_LICENSE.MIT": "JSON for Modern C++ (MIT)",
-};
-
-/**
- * Licences exigées dans l'archive Windows : celles du code livré (ollama.exe,
- * llama.cpp et ggml, ce qu'ils incluent). Depuis la 0.40.11, l'archive ne
- * livre plus celles du moteur MLX (XGrammar, DLPack, fmt, PicoJSON,
- * nlohmann/json, dlfcn-win32), dont les bibliothèques sont dans l'archive MLX
- * à part, jamais embarquée : ollama.exe ne fait que les charger s'il les
- * trouve (vérifié sur 0.40.11 : aucune trace de leur code dans ollama.exe).
- */
-export const OLLAMA_WINDOWS_REQUIRED = [
-  "GO_LICENSE",
-  "LLAMA_CPP_LICENSE",
-  "LLAMA_CPP_VENDORS_LICENSE",
-  "CPP_HTTPLIB_LICENSE",
-];
-
-/**
- * Fichiers de licence de l'archive qui ne sont pas livrés : ils couvrent les
- * bibliothèques de CUDA (cuDNN, CUTLASS, NVTX), retirées de l'Ollama intégré.
- */
-export const OLLAMA_WINDOWS_SKIPPED = /^(CUDNN|CUTLASS|NVTX\d*)_/i;
-
-/** Textes de licence ajoutés par ChatonLM à ceux de l'archive d'Ollama. */
-export const OLLAMA_WINDOWS_EXTRA_TEXTS = {
-  "LLVM-LICENSE.txt": "packaging/windows/licenses/LLVM-LICENSE.txt",
-  "winpthreads-COPYING.txt":
-    "packaging/windows/licenses/winpthreads-COPYING.txt",
-};
-
 /** Textes de licence des composants propres à l'installateur Windows. */
 export const WINDOWS_COMPONENT_TEXTS = {
   "WebView2-SDK-LICENSE.txt":
     "packaging/windows/licenses/WebView2-SDK-LICENSE.txt",
   "NSIS-COPYING.txt": "packaging/windows/licenses/NSIS-COPYING.txt",
 };
-
-/** Vrai pour un fichier de licence de lib\ollama (GO_LICENSE, X_NOTICE…). */
-export function isOllamaLicenseFile(name) {
-  return /(_LICENSE(\.txt|\.MIT)?|_NOTICE(\.txt)?|_COPYING(\.txt)?)$/.test(
-    name,
-  );
-}
-
-/**
- * Fichiers de licence à livrer parmi `names` (noms des fichiers de
- * licenses/ ou de lib/ollama) : ceux de l'archive, sans ceux de CUDA.
- */
-export function ollamaWindowsLicenseFiles(names) {
-  return names
-    .filter(
-      (name) => isOllamaLicenseFile(name) && !OLLAMA_WINDOWS_SKIPPED.test(name),
-    )
-    .sort();
-}
-
-/**
- * Erreurs si la copie de l'Ollama intégré (`fetchedVersion` : son fichier
- * VERSION, ou null) n'est pas la version épinglée (texte de
- * packaging/ollama.env), ou s'il manque une licence attendue.
- */
-export function ollamaWindowsErrors(envText, fetchedVersion, licenseFiles) {
-  const pinned = parseEnv(envText).OLLAMA_VERSION;
-  if (!pinned) return ["OLLAMA_VERSION absent de packaging/ollama.env."];
-  if (fetchedVersion !== pinned) {
-    return [
-      `Ollama ${fetchedVersion ?? "absent"} dans ${OLLAMA_DIR} au lieu ` +
-        `de ${pinned} : lancer scripts/fetch-ollama.sh.`,
-    ];
-  }
-  return OLLAMA_WINDOWS_REQUIRED.filter(
-    (file) => !licenseFiles.includes(file),
-  ).map((file) => `Licence d'Ollama absente (archive Windows) : ${file}`);
-}
-
-/**
- * Adresse et empreinte de l'archive Windows d'Ollama, d'après
- * packaging/ollama.env (clés dont le nom contient WIN, quel que soit le nom
- * exact choisi) ; à défaut, l'adresse officielle de la version épinglée.
- */
-export function ollamaWindowsArchive(env) {
-  const find = (suffix) =>
-    Object.entries(env).find(
-      ([key]) => /WIN/.test(key) && key.endsWith(suffix),
-    )?.[1];
-  return {
-    url:
-      find("URL") ??
-      `https://github.com/ollama/ollama/releases/download/v${env.OLLAMA_VERSION}/ollama-windows-amd64.zip`,
-    sha256: find("SHA256") ?? null,
-  };
-}
 
 /**
  * Configuration de cargo-about pour Windows : celle de packaging/about.toml
@@ -185,94 +79,6 @@ export function windowsAboutConfig(aboutToml) {
 
 function heading(title) {
   return `${title}\n${"-".repeat(title.length)}`;
-}
-
-/** Texte en lignes de 76 caractères au plus (mots entiers). */
-function wrap(text, width = 76) {
-  const lines = [];
-  let line = "";
-  for (const word of text.split(/\s+/)) {
-    if (line && line.length + 1 + word.length > width) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = line ? `${line} ${word}` : word;
-    }
-  }
-  if (line) lines.push(line);
-  return lines.join("\n");
-}
-
-/** Ligne « nom  description » de la liste des fichiers de licence. */
-function licenseRow(file, text) {
-  if (!text) return `  ${file}`;
-  return file.length < 26
-    ? `  ${file.padEnd(28)}${text}`
-    : `  ${file}\n  ${"".padEnd(28)}${text}`;
-}
-
-/**
- * licenses\ollama\README.txt : l'Ollama intégré pour Windows (`env` :
- * packaging/ollama.env ; `licenseFiles` : fichiers de licence livrés).
- */
-export function renderOllamaWindowsReadme({ env, licenseFiles }) {
-  const version = env.OLLAMA_VERSION;
-  const archive = ollamaWindowsArchive(env);
-  const describe = (file) =>
-    OLLAMA_WINDOWS_LICENSES[file] ??
-    (/^MLX/.test(file) ? "MLX (MIT), whose library is not shipped" : "");
-  const rows = [
-    ...licenseFiles.map((file) => licenseRow(file, describe(file))),
-    licenseRow("LLVM-LICENSE.txt", "LLVM runtime libraries (see below)"),
-    licenseRow("winpthreads-COPYING.txt", "winpthreads (see below)"),
-  ];
-  return `ChatonLM - Built-in Ollama
-${RULE}
-
-ChatonLM includes a copy of Ollama ${version}, the official build for Windows
-(x86-64), used when no other Ollama server is available or when chosen in
-Settings. It is installed in the ollama folder, next to chatonlm.exe, and runs
-as a separate program.
-
-Release:      https://github.com/ollama/ollama/releases/tag/v${version}
-Archive:      ${archive.url}
-${archive.sha256 ? `SHA-256:      ${archive.sha256}\n` : ""}Source code:  https://github.com/ollama/ollama/tree/v${version}
-License:      MIT, Copyright (c) Ollama
-
-Only part of the archive is shipped: the server (ollama.exe), the llama.cpp
-runner (lib\\ollama\\llama-server.exe, lib\\ollama\\llama-quantize.exe) and the
-CPU and Vulkan libraries. The CUDA libraries are left out: graphics cards are
-used through Vulkan. The files themselves are not modified.
-
-${heading("Licenses")}
-${wrap(
-  "The license files below are those of the lib\\ollama folder of the " +
-    "archive, shipped unmodified in this folder, plus the texts that apply " +
-    "to the runtime libraries described below. Besides Ollama itself, they " +
-    `cover code under the ${OLLAMA_LICENSE_SUMMARY}.`,
-)}
-
-${rows.join("\n")}
-
-${heading("Runtime libraries")}
-The archive also contains runtime libraries made by other projects, for which
-it carries no license file:
-
-  lib\\ollama\\libc++.dll, libunwind.dll, libomp.dll
-      C++, unwinding and OpenMP runtime libraries of the LLVM Project
-      (https://llvm.org), as built by llvm-mingw, under the Apache License
-      2.0 with LLVM Exceptions: LLVM-LICENSE.txt in this folder.
-
-  lib\\ollama\\libwinpthread-1.dll
-      winpthreads, POSIX threads library of the mingw-w64 project
-      (https://www.mingw-w64.org), under the MIT License, with parts under a
-      BSD 3-Clause License: winpthreads-COPYING.txt in this folder.
-
-  lib\\ollama\\vulkan\\vcruntime140*.dll, msvcp140*.dll, concrt140.dll,
-  vccorlib140.dll
-      Microsoft Visual C++ runtime libraries, shipped by Ollama for its
-      Vulkan engine: see windows-components.txt in the licenses folder.
-`;
 }
 
 /**
@@ -306,11 +112,10 @@ License or the Apache License 2.0.
 ${heading("Microsoft Visual C++ runtime")}
 The files vcruntime140*.dll, msvcp140*.dll, concrt140.dll and
 vccorlib140.dll next to chatonlm.exe are the Microsoft Visual C++ runtime
-libraries, Copyright (c) Microsoft Corporation. ChatonLM, ONNX Runtime and
-the Vulkan engine of the built-in Ollama need them (Ollama ships its own
-copies in ollama\\lib\\ollama\\vulkan). They are not open-source software:
-they are redistributable files of Microsoft Visual Studio, shipped
-unmodified under the Microsoft Software License Terms of Visual Studio.
+libraries, Copyright (c) Microsoft Corporation. ChatonLM and ONNX Runtime
+need them. They are not open-source software: they are redistributable files
+of Microsoft Visual Studio, shipped unmodified under the Microsoft Software
+License Terms of Visual Studio.
 llama-server\\, the text engine, has its own copies of them (a program
 started by ChatonLM does not look next to chatonlm.exe);
 sd-server\\sd-server.exe, the image engine, contains the static version of
@@ -361,17 +166,6 @@ function nodePackage(name) {
   };
 }
 
-/**
- * Dossier des fichiers de licence de l'Ollama intégré : licenses/ s'il
- * existe (rangés à part par scripts/fetch-ollama.sh, comme sous Linux),
- * sinon lib/ollama (arborescence de l'archive).
- */
-function ollamaLicenseDir() {
-  const apart = path.join(root, OLLAMA_DIR, "licenses");
-  if (existsSync(apart) && readdirSync(apart).length > 0) return apart;
-  return path.join(root, OLLAMA_DIR, "lib", "ollama");
-}
-
 export function main() {
   const offline = process.argv.includes("--offline");
   const out = path.join(root, WINDOWS_NOTICES_DIR);
@@ -382,28 +176,6 @@ export function main() {
     existsSync(ortVersionFile)
       ? readFileSync(ortVersionFile, "utf8").trim()
       : null,
-  );
-  const licenseDir = ollamaLicenseDir();
-  const licenseFiles = existsSync(licenseDir)
-    ? ollamaWindowsLicenseFiles(readdirSync(licenseDir))
-    : [];
-  const ollamaVersionFile = path.join(root, OLLAMA_DIR, "VERSION");
-  errors.push(
-    ...ollamaWindowsErrors(
-      read("packaging/ollama.env"),
-      existsSync(ollamaVersionFile)
-        ? readFileSync(ollamaVersionFile, "utf8").trim()
-        : null,
-      licenseFiles,
-    ),
-    ...ollamaLicenseKindErrors(
-      new Map(
-        licenseFiles.map((file) => [
-          file,
-          readFileSync(path.join(licenseDir, file), "utf8"),
-        ]),
-      ),
-    ),
   );
   const sdServer = readSdServer(root);
   errors.push(...sdServer.errors);
@@ -466,19 +238,9 @@ export function main() {
       `${ONNXRUNTIME_DIR}/ThirdPartyNotices.txt`,
     ),
     "windows-components.txt": renderWindowsComponents(),
-    "ollama/README.txt": renderOllamaWindowsReadme({
-      env: parseEnv(read("packaging/ollama.env")),
-      licenseFiles,
-    }),
   };
   for (const [file, source] of Object.entries(WINDOWS_COMPONENT_TEXTS)) {
     files[file] = read(source);
-  }
-  for (const file of licenseFiles) {
-    files[`ollama/${file}`] = readFileSync(path.join(licenseDir, file), "utf8");
-  }
-  for (const [file, source] of Object.entries(OLLAMA_WINDOWS_EXTRA_TEXTS)) {
-    files[`ollama/${file}`] = read(source);
   }
   files["sd-server/README.txt"] = renderSdServerReadme({
     env: sdServer.env,
@@ -503,7 +265,7 @@ export function main() {
   }
   console.log(
     `Notices Windows écrites dans ${WINDOWS_NOTICES_DIR} ` +
-      `(${about.crates.length} crates, ${licenseFiles.length} licences d'Ollama, ` +
+      `(${about.crates.length} crates, ` +
       `${Object.keys(sdServer.texts).length} du moteur d'images, ` +
       `${Object.keys(llamaServer.texts).length} du moteur de texte).`,
   );

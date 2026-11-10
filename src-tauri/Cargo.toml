@@ -40,6 +40,9 @@ hound = "3.5.1"
 # Easy Link : protocoles des bots Telegram et Discord, dans un crate à part
 # (essais rapides, sans Tauri).
 easy-link = { path = "crates/easy-link" }
+# Pack CUDA (engine/cuda) : archives .tar.gz du pack de ChatonLM. Déjà dans
+# l'arbre (greffon des mises à jour, png) ; décodeur en Rust pur.
+flate2 = "1.1.10"
 futures-util = "0.3.34"
 # Images jointes envoyées au moteur : WebP, GIF, BMP… convertis en PNG
 # (llama-server ne lit WebP qu'avec un `ffmpeg` du PATH). Déjà dans l'arbre
@@ -48,6 +51,9 @@ image = { version = "0.25.10", default-features = false, features = ["bmp", "gif
 # Relais de ChatonLM (recherche web sans Ollama) : protocole partagé avec le
 # serveur (signatures Ed25519 par ring, preuve de travail Argon2id).
 relay-proto = { path = "crates/relay-proto" }
+# Pack CUDA (engine/cuda) : archives .tar.xz des bibliothèques de NVIDIA
+# (Linux). Déjà dans l'arbre (ort-sys) ; Rust pur, Apache-2.0.
+lzma-rust2 = { version = "0.15.8", default-features = false, features = ["std", "xz"] }
 # Mise à jour gardée sur disque (étape 18c) : sa signature minisign est
 # revérifiée à chaque démarrage et avant l'installation, comme le fait
 # tauri-plugin-updater après un téléchargement (fonction qu'il n'expose pas).
@@ -117,6 +123,9 @@ tauri-plugin-webdriver = { version = "=0.2.3", optional = true }
 # Mise à jour .deb (étape 18c) : paquet vérifié écrit dans un dossier
 # temporaire à soi (0700) le temps de `pkexec dpkg -i`. Déjà dans l'arbre
 # (greffon des mises à jour, essais).
+# Pack CUDA (engine/cuda) : lecture des archives .tar (.gz, .xz). Déjà dans
+# l'arbre (greffon des mises à jour).
+tar = "0.4.46"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 # Client d'inférence : annulation d'une réponse de llama-server (le flux
@@ -135,6 +144,10 @@ uuid = { version = "1.27.0", features = ["v7"] }
 # Même version que celle de transcribe-rs : seulement pour faire taire les
 # journaux de whisper.cpp (une cinquantaine de lignes par chargement).
 whisper-rs = { version = "0.16.0", default-features = false }
+# Pack CUDA (engine/cuda) : archives .zip du pack et des bibliothèques de
+# NVIDIA (Windows ; lues aussi par les essais sous Linux). Lecture seule,
+# deflate par flate2 (MIT).
+zip = { version = "9.5.0", default-features = false, features = ["deflate-flate2"] }
 
 # Bureau Linux seulement (GTK, WebKitGTK, D-Bus) et limites POSIX : sans objet
 # sous Windows, dont les équivalents sont plus bas.
@@ -248,6 +261,8 @@ easy-link = { path = "crates/easy-link", features = ["fake"] }
 fake-ollama = { path = "crates/fake-ollama" }
 # Faux llama-server des essais du client d'inférence (et du moteur, L3).
 fake-llama = { path = "crates/fake-llama" }
+# Archives .tar.xz fabriquées par les essais du pack CUDA (engine/cuda).
+lzma-rust2 = { version = "0.15.8", default-features = false, features = ["encoder", "std", "xz"] }
 # Vrai relais avec de faux fournisseurs de recherche (essais du client).
 relay-server = { path = "crates/relay-server", features = ["fake"] }
 # « test » : app simulée (tauri::test) pour construire le greffon des mises à

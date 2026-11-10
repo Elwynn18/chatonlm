@@ -26,6 +26,19 @@ const GIB: u64 = 1024 * 1024 * 1024;
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "faux serveur lancé par les autres essais"]
 async fn fake_llama_server() {
+    // Pack CUDA des essais : comme le vrai serveur dont le moteur CUDA ne se
+    // charge pas (pilote absent…), un moteur marqué `FAIL` fait échouer le
+    // lancement (`--device CUDA0` refusé), avant tout le reste.
+    if let Some(path) = std::env::var_os(super::cuda::BACKEND_PATH_ENV)
+        && std::fs::read(&path).is_ok_and(|bytes| bytes.starts_with(b"FAIL"))
+    {
+        eprintln!(
+            "load_backend: failed to load {}: libcuda.so.1: cannot open shared object file",
+            Path::new(&path).display()
+        );
+        eprintln!("error: invalid device: CUDA0");
+        std::process::exit(1);
+    }
     if let Some(args) = fake_llama::cli::args_from_env() {
         std::process::exit(fake_llama::cli::run(args).await);
     }
@@ -1085,6 +1098,7 @@ async fn the_end_is_published_before_the_engine_hears_of_it() {
             spawner: &spawner,
             stopping: &stopping,
             cache_ram: 1024,
+            cuda: None,
         },
         &Spec {
             model: bench.model_path(&id),
@@ -1381,4 +1395,84 @@ async fn real_engine_by_hand() {
     drop(lease);
     engine.shutdown().await;
     assert!(dead(pid).await);
+}
+
+/// Banc dont le pack CUDA est installé (moteur factice de contenu `engine` :
+/// `FAIL` le fait refuser par le faux serveur) et la carte compatible.
+fn cuda_bench(engine: &[u8]) -> (Bench, super::cuda::Runtime) {
+    let gpu = super::cuda::detect::NvidiaGpu {
+        name: "NVIDIA GeForce RTX 3090".into(),
+        uuid: "GPU-3090".into(),
+        compute: (8, 6),
+        driver: "615.78.08".into(),
+    };
+    let platform = super::cuda::Platform::current().unwrap_or(super::cuda::Platform::Linux);
+    let mut runtime = None;
+    let bench = bench_with(|config| {
+        let root = config.logs.parent().unwrap().join("engine").join("cuda");
+        let dir = root.join("b12110");
+        std::fs::create_dir_all(&dir).unwrap();
+        for file in super::cuda::pack::installed_files(platform, 13) {
+            std::fs::write(dir.join(&file), b"x").unwrap();
+        }
+        std::fs::write(dir.join(platform.engine_file()), engine).unwrap();
+        let fixed = super::cuda::Runtime::fixed(root, platform, vec![gpu]);
+        config.cuda = fixed.clone();
+        runtime = Some(fixed);
+    });
+    (bench, runtime.unwrap())
+}
+
+/// Pack CUDA installé : le modèle est lancé avec le moteur du pack, la carte
+/// de CUDA seule et Vulkan caché ; un CUDA qui ne se charge pas coupe CUDA
+/// pour la session et le modèle est relancé sur Vulkan (pas le processeur).
+#[tokio::test(flavor = "multi_thread")]
+async fn cuda_runs_the_model_and_falls_back_to_vulkan() {
+    let (bench, runtime) = cuda_bench(b"engine");
+    let id = bench.install("chatonlm-simple", GIB);
+    let lease = bench.engine.ensure(&id, kept()).await.unwrap();
+    let args: Vec<String> = serde_json::from_value(pilot(&lease, "args").await).unwrap();
+    assert!(
+        args.windows(2).any(|w| w == ["--device", "CUDA0"]),
+        "{args:?}"
+    );
+    let env = pilot(&lease, "env").await;
+    assert!(
+        env[super::cuda::BACKEND_PATH_ENV]
+            .as_str()
+            .is_some_and(|path| path.ends_with(runtime.platform().unwrap().engine_file())),
+        "{env}"
+    );
+    assert_eq!(env["CUDA_VISIBLE_DEVICES"], "GPU-3090");
+    assert_eq!(env["GGML_VK_VISIBLE_DEVICES"], "none");
+    assert!(!lease.cpu_fallback);
+    drop(lease);
+    bench.engine.shutdown().await;
+
+    let (bench, runtime) = cuda_bench(b"FAIL");
+    let id = bench.install("chatonlm-simple", GIB);
+    let lease = tokio::time::timeout(Duration::from_secs(20), bench.engine.ensure(&id, kept()))
+        .await
+        .expect("no endless relaunch")
+        .unwrap();
+    // Relancé sur Vulkan : ni le moteur du pack, ni `--device`, ni le
+    // processeur.
+    let args: Vec<String> = serde_json::from_value(pilot(&lease, "args").await).unwrap();
+    assert!(!args.iter().any(|arg| arg == "--device"), "{args:?}");
+    assert!(!args.join(" ").ends_with("-ngl 0"), "{args:?}");
+    let env = pilot(&lease, "env").await;
+    assert!(
+        env.get(super::cuda::BACKEND_PATH_ENV)
+            .is_none_or(Value::is_null),
+        "{env}"
+    );
+    assert!(!lease.cpu_fallback);
+    assert!(!bench.engine.gpu_failed());
+    let failure = runtime.failure().unwrap();
+    assert!(failure.contains("invalid device: CUDA0"), "{failure}");
+    // Le journal du premier essai (CUDA) est gardé.
+    let first = std::fs::read_to_string(bench.old_log_of(&id)).unwrap();
+    assert!(first.contains("ggml-cuda"), "{first}");
+    drop(lease);
+    bench.engine.shutdown().await;
 }

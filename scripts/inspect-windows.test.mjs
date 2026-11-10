@@ -17,25 +17,16 @@ import {
   isNsisInstaller,
   llamaHookPatterns,
   MAX_INSTALLER_BYTES,
+  oldOllamaHookErrors,
   parsePe,
   REQUIRED_FILES,
+  RETIRED_DIRS,
   SD_SERVER_EXE,
   versionString,
 } from "./inspect-windows.mjs";
+import { EXCLUDED_ENGINES } from "./inspect-packages.mjs";
+import { parseEnv, renderSdServerReadme } from "./package-notices.mjs";
 import {
-  OLLAMA_LICENSES,
-  parseEnv,
-  renderSdServerReadme,
-} from "./package-notices.mjs";
-import {
-  isOllamaLicenseFile,
-  OLLAMA_WINDOWS_EXTRA_TEXTS,
-  OLLAMA_WINDOWS_LICENSES,
-  OLLAMA_WINDOWS_REQUIRED,
-  ollamaWindowsArchive,
-  ollamaWindowsErrors,
-  ollamaWindowsLicenseFiles,
-  renderOllamaWindowsReadme,
   renderWindowsComponents,
   WINDOWS_COMPONENT_TEXTS,
   WINDOWS_TARGET,
@@ -236,15 +227,6 @@ function installation(overrides = {}) {
       ],
     },
   });
-  set("ollama/VERSION", { text: "0.40.0\n" });
-  set("ollama/lib/ollama/vulkan/ggml-vulkan.dll", {
-    pe: { imports: ["ggml-base.dll", "vulkan-1.dll", "msvcp140.dll"] },
-  });
-  set("ollama/lib/ollama/vulkan/msvcp140.dll", {});
-  set("ollama/lib/ollama/llama-server.exe", {
-    pe: { imports: ["libc++.dll"] },
-  });
-  set("ollama/lib/ollama/libc++.dll", {});
   set(SD_SERVER_EXE, {
     pe: { imports: ["kernel32.dll", "vulkan-1.dll", "advapi32.dll"] },
   });
@@ -306,23 +288,11 @@ function installation(overrides = {}) {
     text: "(target x86_64-pc-windows-msvc, without)\n  sonora 0.2.0 (BSD)\n  webview2-com-sys 0.39.1 (MIT)\n",
   });
   set("licenses/windows-components.txt", { text: renderWindowsComponents() });
-  set("licenses/ollama/README.txt", {
-    text: renderOllamaWindowsReadme({
-      env: { OLLAMA_VERSION: "0.40.0" },
-      licenseFiles: ["GO_LICENSE"],
-    }),
-  });
   for (const [file, value] of Object.entries(overrides)) {
     if (value === null) entries.delete(file);
     else set(file, value);
   }
   const content = (file) => entries.get(file)?.text ?? `contenu de ${file}`;
-  const reference = new Map(
-    [...entries.keys()]
-      .filter((f) => f.startsWith("ollama/"))
-      .map((f) => [f.slice("ollama/".length), `sum:contenu de ${f}`]),
-  );
-  reference.set("VERSION", "sum:0.40.0\n");
   const sdServer = new Map(
     [...entries.keys()]
       .filter((f) => f.startsWith("sd-server/"))
@@ -347,9 +317,7 @@ function installation(overrides = {}) {
       ...entries.get(file)?.pe,
     }),
     reference: {
-      ollama: reference,
       onnxruntime: "sum:contenu de onnxruntime.dll",
-      ollamaVersion: "0.40.0",
       sdServer,
       sdServerPinned: SD_PINNED,
       llamaServer,
@@ -395,14 +363,15 @@ describe("contenu de l'installateur", () => {
     ]);
   });
 
-  it("cherche les DLL d'un moteur d'Ollama dans son dossier puis dans lib/ollama", () => {
-    // ggml-base.dll est dans lib/ollama, msvcp140.dll dans vulkan/ : trouvés.
-    // Sans la copie de vulkan/, celle de la racine de l'app ne compte pas.
+  it("cherche les DLL du moteur de texte dans son dossier, pas à la racine de l'app", () => {
+    // msvcp140.dll est livré dans llama-server\ et à la racine : sans la
+    // copie du moteur, celle de la racine de l'app ne compte pas.
     const { errors } = contentProblems(
-      installation({ "ollama/lib/ollama/vulkan/msvcp140.dll": null }),
+      installation({ "llama-server/msvcp140.dll": null }),
     );
     expect(errors).toEqual([
-      "ollama/lib/ollama/vulkan/ggml-vulkan.dll : DLL demandée et non livrée à côté : msvcp140.dll",
+      "Fichier absent : llama-server/msvcp140.dll",
+      "llama-server/llama-server.exe : DLL demandée et non livrée à côté : msvcp140.dll",
     ]);
     expect(HOST_ONLY_DLLS.has("vulkan-1.dll")).toBe(true);
   });
@@ -434,46 +403,47 @@ describe("contenu de l'installateur", () => {
     ]);
   });
 
-  it("refuse un moteur CUDA, un fichier d'Ollama modifié ou en trop", () => {
-    const base = installation();
-    const cuda = installation({
-      "ollama/lib/ollama/cuda_v12/ggml-cuda.dll": {},
-    });
-    expect(contentProblems(cuda).errors).toContain(
-      "Moteur exclu de l'Ollama intégré (CUDA, ROCm, MLX) : ollama/lib/ollama/cuda_v12/ggml-cuda.dll",
+  it("refuse tout fichier CUDA, ROCm ou HIP, où qu'il soit, et l'ancien Ollama intégré", () => {
+    const { errors } = contentProblems(
+      installation({
+        "ggml-cuda.dll": {},
+        "cublas64_13.dll": {},
+        "cuda/cudart64_13.dll": {},
+        "rocm/amdhip64_6.dll": {},
+      }),
     );
-    // Un fichier de licence resté dans lib/ollama n'est pas un moteur.
-    const license = installation({ "ollama/lib/ollama/MLX_LICENSE": {} });
-    expect(contentProblems(license).errors).toEqual([]);
-
-    const changed = {
-      ...base,
-      hash: (file) =>
-        file === "ollama/ollama.exe" ? "autre" : base.hash(file),
-    };
-    expect(contentProblems(changed).errors).toEqual([
-      "Ollama intégré : fichier modifié : ollama/ollama.exe",
+    expect(errors).toEqual([
+      "Fichier CUDA, ROCm ou HIP livré (pack CUDA téléchargé à part) : cublas64_13.dll",
+      "Fichier CUDA, ROCm ou HIP livré (pack CUDA téléchargé à part) : cuda/cudart64_13.dll",
+      "Fichier CUDA, ROCm ou HIP livré (pack CUDA téléchargé à part) : ggml-cuda.dll",
+      "Fichier CUDA, ROCm ou HIP livré (pack CUDA téléchargé à part) : rocm/amdhip64_6.dll",
     ]);
-    const extra = {
-      ...base,
-      files: new Map([...base.files, ["ollama/lib/ollama/x.dll", 1]]),
-    };
-    expect(contentProblems(extra).errors).toEqual([
-      "Ollama intégré : fichier inattendu : ollama/lib/ollama/x.dll",
+    // Dans le dossier du moteur de texte aussi (et quelle que soit la casse).
+    const engine = contentProblems(
+      installation({ "llama-server/GGML-CUDA.DLL": {} }),
+    );
+    expect(engine.errors).toEqual([
+      "Fichier CUDA, ROCm ou HIP livré (pack CUDA téléchargé à part) : llama-server/GGML-CUDA.DLL",
     ]);
-    const missing = installation();
-    missing.reference.ollama.set("lib/ollama/ggml-cpu-x64.dll", "sum");
-    expect(contentProblems(missing).errors).toEqual([
-      "Ollama intégré : fichier absent de l'installateur : ollama/lib/ollama/ggml-cpu-x64.dll",
+    // L'ancien Ollama intégré et ses notices ne sont plus livrés.
+    expect(RETIRED_DIRS).toEqual(["ollama/", "licenses/ollama/"]);
+    const old = contentProblems(
+      installation({
+        "ollama/ollama.exe": {},
+        "Licenses/Ollama/README.txt": { text: "x" },
+      }),
+    );
+    expect(old.errors).toEqual([
+      "Fichier de l'ancien Ollama intégré livré : Licenses/Ollama/README.txt",
+      "Fichier de l'ancien Ollama intégré livré : ollama/ollama.exe",
     ]);
+    // Rien de l'installation ordinaire n'y ressemble.
+    for (const file of REQUIRED_FILES) {
+      expect(EXCLUDED_ENGINES.test(file), file).toBe(false);
+    }
   });
 
-  it("compare la version d'Ollama, ONNX Runtime et la version de l'exécutable", () => {
-    const version = installation({ "ollama/VERSION": { text: "0.39.0\n" } });
-    version.reference.ollama.set("VERSION", "sum:0.39.0\n");
-    expect(contentProblems(version).errors).toEqual([
-      "ollama/VERSION : « 0.39.0 » au lieu de 0.40.0 (packaging/ollama.env)",
-    ]);
+  it("compare ONNX Runtime et la version de l'exécutable", () => {
     const ort = installation();
     ort.reference.onnxruntime = "autre";
     expect(contentProblems(ort).errors).toEqual([
@@ -499,9 +469,7 @@ describe("contenu de l'installateur", () => {
     ]);
     const bare = installation();
     bare.reference = {
-      ollama: null,
       onnxruntime: null,
-      ollamaVersion: null,
       sdServer: null,
       sdServerPinned: null,
       llamaServer: null,
@@ -509,11 +477,14 @@ describe("contenu de l'installateur", () => {
     };
     const result = contentProblems(bare);
     expect(result.errors).toEqual([]);
-    expect(result.warnings).toHaveLength(4);
-    expect(result.warnings[2]).toMatch(
+    expect(result.warnings).toHaveLength(3);
+    expect(result.warnings[0]).toMatch(
+      /^Copie de référence d'ONNX Runtime absente/,
+    );
+    expect(result.warnings[1]).toMatch(
       /^Copie de référence du moteur d'images absente/,
     );
-    expect(result.warnings[3]).toMatch(
+    expect(result.warnings[2]).toMatch(
       /^Copie de référence du moteur de texte absente/,
     );
   });
@@ -688,8 +659,12 @@ describe("contenu de l'installateur", () => {
     expect(contentProblems(uncovered).errors).toEqual([
       "Moteur de texte : fichier que les crochets NSIS ne retirent pas avant une mise à jour : llama-server/libfoo.dll",
     ]);
+    // Crochets vides : les contrôles de l'ancien Ollama intégré échouent
+    // aussi (essai à part, « crochets NSIS »).
     expect(
-      contentProblems({ ...installation(), hooks: "; vide\n" }).errors,
+      contentProblems({ ...installation(), hooks: "; vide\n" }).errors.filter(
+        (error) => error.includes("CHATONLM_LLAMA_FILES"),
+      ),
     ).toEqual([
       "packaging/windows/hooks.nsh : motifs de CHATONLM_LLAMA_FILES illisibles",
     ]);
@@ -717,7 +692,6 @@ describe("contenu de l'installateur", () => {
   it("donne la taille du moteur d'images dans le rapport", () => {
     const files = new Map([
       ["chatonlm.exe", 10],
-      ["ollama/ollama.exe", 20],
       ["sd-server/sd-server.exe", 2048],
       ["sd-server/fallback/vulkan-1.dll", 1024],
       ["sd-server/VERSION", 41],
@@ -730,7 +704,10 @@ describe("contenu de l'installateur", () => {
       pes: [],
       problems: { errors: [], warnings: [] },
     });
-    expect(report).toContain("    ollama/ : 20 o\n    sd-server/ : 3.0 kio\n");
+    expect(report).toContain(
+      "    racine (exe, DLL) : 10 o\n    sd-server/ : 3.0 kio\n",
+    );
+    expect(report).not.toContain("ollama");
   });
 
   it("résout les imports sans tenir compte de la casse", () => {
@@ -747,118 +724,6 @@ describe("contenu de l'installateur", () => {
 });
 
 describe("notices Windows", () => {
-  const archive = [
-    "CPP_HTTPLIB_LICENSE",
-    "CUDNN_LICENSE.txt",
-    "CUTLASS_LICENSE.txt",
-    "DLFCN_WIN32_COPYING",
-    "DLPACK_LICENSE",
-    "FMT_LICENSE",
-    "GO_LICENSE",
-    "JSON_LICENSE.MIT",
-    "LLAMA_CPP_LICENSE",
-    "LLAMA_CPP_VENDORS_LICENSE",
-    "MLX_C_LICENSE",
-    "MLX_LICENSE",
-    "NVTX3_LICENSE.txt",
-    "PICOJSON_LICENSE",
-    "XGRAMMAR_LICENSE",
-    "XGRAMMAR_NOTICE",
-    "ggml-base.dll",
-    "llama-server.exe",
-  ];
-
-  it("garde les licences de l'archive, sans celles de CUDA ni les binaires", () => {
-    const kept = ollamaWindowsLicenseFiles(archive);
-    expect(kept).not.toContain("CUDNN_LICENSE.txt");
-    expect(kept).not.toContain("CUTLASS_LICENSE.txt");
-    expect(kept).not.toContain("NVTX3_LICENSE.txt");
-    expect(kept).not.toContain("ggml-base.dll");
-    for (const file of Object.keys(OLLAMA_WINDOWS_LICENSES)) {
-      expect(kept).toContain(file);
-    }
-    expect(isOllamaLicenseFile("libomp.dll")).toBe(false);
-    // Celles de Linux restent exigées, plus les deux propres à Windows.
-    expect(Object.keys(OLLAMA_WINDOWS_LICENSES)).toEqual([
-      ...Object.keys(OLLAMA_LICENSES),
-      "DLFCN_WIN32_COPYING",
-      "JSON_LICENSE.MIT",
-    ]);
-  });
-
-  it("exige la version épinglée et les licences du code livré", () => {
-    const env = "OLLAMA_VERSION=0.40.0\n";
-    const kept = ollamaWindowsLicenseFiles(archive);
-    expect(ollamaWindowsErrors(env, "0.40.0", kept)).toEqual([]);
-    expect(ollamaWindowsErrors(env, null, kept)).toEqual([
-      "Ollama absent dans .tools/runtimes/ollama au lieu de 0.40.0 : lancer scripts/fetch-ollama.sh.",
-    ]);
-    expect(
-      ollamaWindowsErrors(
-        env,
-        "0.40.0",
-        kept.filter((f) => f !== "LLAMA_CPP_LICENSE"),
-      ),
-    ).toEqual([
-      "Licence d'Ollama absente (archive Windows) : LLAMA_CPP_LICENSE",
-    ]);
-    // Archive 0.40.11 : plus les licences du moteur MLX (livré à part) ;
-    // celles du code livré suffisent.
-    const recent = [
-      "CPP_HTTPLIB_LICENSE",
-      "GO_LICENSE",
-      "LLAMA_CPP_LICENSE",
-      "LLAMA_CPP_VENDORS_LICENSE",
-    ];
-    expect(OLLAMA_WINDOWS_REQUIRED.slice().sort()).toEqual(recent);
-    expect(
-      ollamaWindowsErrors(env, "0.40.0", ollamaWindowsLicenseFiles(recent)),
-    ).toEqual([]);
-    expect(
-      ollamaWindowsErrors(
-        env,
-        "0.40.0",
-        recent.filter((f) => f !== "GO_LICENSE"),
-      ),
-    ).toEqual(["Licence d'Ollama absente (archive Windows) : GO_LICENSE"]);
-    expect(ollamaWindowsErrors("", "0.40.0", kept)).toEqual([
-      "OLLAMA_VERSION absent de packaging/ollama.env.",
-    ]);
-  });
-
-  it("décrit l'Ollama pour Windows et ses bibliothèques sans licence", () => {
-    const readme = renderOllamaWindowsReadme({
-      env: {
-        OLLAMA_VERSION: "0.40.0",
-        OLLAMA_URL: "https://example.invalid/ollama-linux-amd64.tar.zst",
-        OLLAMA_WINDOWS_URL: "https://example.invalid/ollama-windows-amd64.zip",
-        OLLAMA_WINDOWS_SHA256: "abc",
-      },
-      licenseFiles: ollamaWindowsLicenseFiles(archive),
-    });
-    expect(readme).toContain("Ollama 0.40.0, the official build for Windows");
-    expect(readme).toContain(
-      "Archive:      https://example.invalid/ollama-windows-amd64.zip\nSHA-256:      abc\n",
-    );
-    expect(readme).not.toContain("linux");
-    expect(readme).not.toContain("libgomp");
-    for (const word of [
-      "libc++.dll, libunwind.dll, libomp.dll",
-      "libwinpthread-1.dll",
-      "LLVM-LICENSE.txt",
-      "winpthreads-COPYING.txt",
-      "  DLFCN_WIN32_COPYING         dlfcn-win32 (MIT)",
-      "  MLX_LICENSE                 MLX (MIT), whose library is not shipped",
-    ]) {
-      expect(readme).toContain(word);
-    }
-    // Sans clés Windows dans ollama.env : adresse officielle de la version.
-    expect(ollamaWindowsArchive({ OLLAMA_VERSION: "1.2.3" })).toEqual({
-      url: "https://github.com/ollama/ollama/releases/download/v1.2.3/ollama-windows-amd64.zip",
-      sha256: null,
-    });
-  });
-
   it("dérive la configuration de cargo-about de celle de Linux", () => {
     const linux = text("packaging/about.toml");
     const windows = windowsAboutConfig(linux);
@@ -872,18 +737,9 @@ describe("notices Windows", () => {
   });
 
   it("livre le texte de chaque licence citée", () => {
-    for (const source of [
-      ...Object.values(OLLAMA_WINDOWS_EXTRA_TEXTS),
-      ...Object.values(WINDOWS_COMPONENT_TEXTS),
-    ]) {
+    for (const source of Object.values(WINDOWS_COMPONENT_TEXTS)) {
       expect(existsSync(path.join(ROOT, source)), source).toBe(true);
     }
-    expect(text("packaging/windows/licenses/LLVM-LICENSE.txt")).toContain(
-      "LLVM Exceptions to the Apache 2.0 License",
-    );
-    expect(
-      text("packaging/windows/licenses/winpthreads-COPYING.txt"),
-    ).toContain("mingw-w64 project");
     expect(
       text("packaging/windows/licenses/WebView2-SDK-LICENSE.txt"),
     ).toContain("Copyright (C) Microsoft Corporation");
@@ -895,21 +751,12 @@ describe("notices Windows", () => {
       expect(components).toContain(file);
     }
     expect(components).toContain("not open-source software");
+    expect(components).not.toMatch(/ollama/i);
   });
 
   it("décrit les composants Windows dans THIRD_PARTY_LICENSES", () => {
     const notices = text("THIRD_PARTY_LICENSES");
     expect(notices).toContain("  Part 9  Windows installer only\n");
-    const part5 = notices
-      .split("== Part 5. Built-in Ollama ==")[1]
-      .split("== Part 6.")[0];
-    for (const word of [
-      "ollama-windows-amd64.zip",
-      "libc++.dll, libunwind.dll, libomp.dll",
-      "libwinpthread-1.dll",
-    ]) {
-      expect(part5).toContain(word);
-    }
     const part9 = notices.split("== Part 9. Windows installer only ==")[1];
     for (const word of [
       "-- WebView2 loader --",
@@ -920,6 +767,7 @@ describe("notices Windows", () => {
     ]) {
       expect(part9).toContain(word);
     }
+    expect(part9.split("== Part 10.")[0]).not.toMatch(/ollama/i);
     expect(notices).toContain("onnxruntime.dll next to chatonlm.exe");
   });
 });
@@ -974,9 +822,6 @@ describe("configuration Windows du bundle", () => {
     expect(windows.bundle.resources).toBeUndefined();
     expect(resources.bundle.resources).toEqual({
       "../.tools/runtimes/onnxruntime/onnxruntime.dll": "onnxruntime.dll",
-      "../.tools/runtimes/ollama/ollama.exe": "ollama/ollama.exe",
-      "../.tools/runtimes/ollama/VERSION": "ollama/VERSION",
-      "../.tools/runtimes/ollama/lib/": "ollama/lib/",
       "../.tools/runtimes/sd-server/sd-server.exe": "sd-server/sd-server.exe",
       "../.tools/runtimes/sd-server/fallback/": "sd-server/fallback/",
       "../.tools/runtimes/sd-server/VERSION": "sd-server/VERSION",
@@ -998,11 +843,11 @@ describe("crochets NSIS", () => {
     .filter((line) => !line.trim().startsWith(";"))
     .join("\n");
 
-  it("arrête l'app puis l'Ollama intégré, par leur chemin exact, dans une installation de ChatonLM seulement", () => {
+  it("arrête l'app puis ses moteurs, par leur chemin exact, dans une installation de ChatonLM seulement", () => {
     for (const file of [
-      String.raw`"$INSTDIR\ollama\ollama.exe"`,
-      String.raw`"$INSTDIR\ollama\lib\ollama\llama-server.exe"`,
       String.raw`"$INSTDIR\${MAINBINARYNAME}.exe"`,
+      String.raw`"$INSTDIR\sd-server\sd-server.exe"`,
+      String.raw`"$INSTDIR\llama-server\llama-server.exe"`,
     ]) {
       expect(code).toContain(`!insertmacro CHATONLM_STOP_FILE ${file}`);
     }
@@ -1014,7 +859,7 @@ describe("crochets NSIS", () => {
         .map((line) => line.trim()),
     ).toEqual([
       String.raw`!insertmacro CHATONLM_STOP_FILE "$INSTDIR\${MAINBINARYNAME}.exe"`,
-      "!insertmacro CHATONLM_STOP_BUILTIN",
+      "!insertmacro CHATONLM_STOP_ENGINES",
     ]);
     // Rien n'est arrêté ni effacé si l'exécutable de ChatonLM n'est pas là :
     // le dossier choisi peut contenir un Ollama qui n'est pas le nôtre.
@@ -1032,9 +877,9 @@ describe("crochets NSIS", () => {
     }
   });
 
-  it("arrête aussi le moteur d'images par son chemin exact, avec l'intégré", () => {
+  it("arrête aussi le moteur d'images par son chemin exact", () => {
     const builtin = code
-      .split("!macro CHATONLM_STOP_BUILTIN")[1]
+      .split("!macro CHATONLM_STOP_ENGINES")[1]
       .split("!macroend")[0];
     expect(
       builtin
@@ -1067,7 +912,7 @@ describe("crochets NSIS", () => {
     expect(ours).toContain("StrCpy $R5 $R3 10 $R2");
     expect(ours).toContain("StrCpy $R1 1");
     // Arrêt par le chemin exact, sous la garde de la marque.
-    const builtin = macro("CHATONLM_STOP_BUILTIN");
+    const builtin = macro("CHATONLM_STOP_ENGINES");
     const stop = builtin.indexOf(
       String.raw`!insertmacro CHATONLM_STOP_FILE "$INSTDIR\llama-server\llama-server.exe"`,
     );
@@ -1185,10 +1030,13 @@ describe("crochets NSIS", () => {
     // Le dossier n'est retiré que vide.
     expect(lines.at(-1)).toBe('RMDir "$INSTDIR"');
     // Aucune autre suppression de fichier dans les crochets que celles du
-    // moteur de texte (motifs de CHATONLM_LLAMA_FILES et sa marque).
+    // moteur de texte (motifs de CHATONLM_LLAMA_FILES et sa marque) et de
+    // l'ancien Ollama intégré (son serveur et sa marque).
     expect(code.match(/^\s*Delete .*/gm)).toEqual([
       '  Delete "${pattern}"',
       String.raw`  Delete "$INSTDIR\llama-server\VERSION"`,
+      String.raw`    Delete "$INSTDIR\ollama\ollama.exe"`,
+      String.raw`    Delete "$INSTDIR\ollama\VERSION"`,
       '    Delete "${filePath}"',
     ]);
   });
@@ -1196,13 +1044,103 @@ describe("crochets NSIS", () => {
   it("n'arrête jamais un processus par son nom et ne touche pas aux données", () => {
     expect(code).not.toMatch(/taskkill|KillProcess|FindProcess/i);
     expect(code).not.toMatch(/\$(LOCAL)?APPDATA|\$PROFILE/);
-    // Une seule suppression récursive : les bibliothèques de l'intégré, de
-    // notre dossier seulement (le moteur de texte est retiré par motifs).
+    // Deux suppressions récursives seulement, de dossiers livrés par nous
+    // seuls : les bibliothèques de l'ancien Ollama intégré et ses notices
+    // (le moteur de texte est retiré par motifs).
     expect(code.match(/RMDir \/r .*/g)).toEqual([
       String.raw`RMDir /r "$INSTDIR\ollama\lib\ollama"`,
+      String.raw`RMDir /r "$INSTDIR\licenses\ollama"`,
     ]);
     // Aucune ligne ne finit par « \ » (suite de ligne de NSIS).
     expect(hooks.split("\n").filter((line) => line.endsWith("\\"))).toEqual([]);
+  });
+
+  it("retire l'ancien Ollama intégré d'une 0.9.x, après l'arrêt, et rien d'autre", () => {
+    expect(oldOllamaHookErrors(hooks)).toEqual([]);
+    const macro = (name) =>
+      code
+        .split(new RegExp(`!macro ${name}\\b`))[1]
+        .split("!macroend")[0]
+        .trim()
+        .split("\n")
+        .map((line) => line.trim());
+    // Reconnu par son serveur ET la marque VERSION (absente de l'officiel).
+    expect(macro("CHATONLM_OLD_OLLAMA")).toEqual([
+      "StrCpy $R1 0",
+      '${If} ${FileExists} "$INSTDIR\\ollama\\ollama.exe"',
+      '${AndIf} ${FileExists} "$INSTDIR\\ollama\\VERSION"',
+      "StrCpy $R1 1",
+      "${EndIf}",
+    ]);
+    // Arrêté avec les moteurs, sous la même garde.
+    const engines = macro("CHATONLM_STOP_ENGINES");
+    const stop = engines.indexOf("!insertmacro CHATONLM_STOP_OLD_OLLAMA");
+    expect(engines.slice(stop - 2, stop + 2)).toEqual([
+      "!insertmacro CHATONLM_OLD_OLLAMA",
+      "${If} $R1 = 1",
+      "!insertmacro CHATONLM_STOP_OLD_OLLAMA",
+      "${EndIf}",
+    ]);
+    // Retiré avant la copie et avant la désinstallation, après l'arrêt.
+    for (const hook of ["NSIS_HOOK_PREINSTALL", "NSIS_HOOK_PREUNINSTALL"]) {
+      const body = macro(hook);
+      expect(body.indexOf("!insertmacro CHATONLM_CLEAN_OLD_OLLAMA")).toBe(
+        body.indexOf("!insertmacro CHATONLM_STOP_ALL") + 1,
+      );
+    }
+    // La marque n'est retirée qu'avec le serveur : un reste encore tenu
+    // reste reconnu à la désinstallation.
+    expect(macro("CHATONLM_REMOVE_OLD_OLLAMA").slice(-6)).toEqual([
+      "${Next}",
+      '${IfNot} ${FileExists} "$INSTDIR\\ollama\\ollama.exe"',
+      String.raw`Delete "$INSTDIR\ollama\VERSION"`,
+      "${EndIf}",
+      String.raw`RMDir "$INSTDIR\ollama\lib"`,
+      String.raw`RMDir "$INSTDIR\ollama"`,
+    ]);
+
+    // Chaque écart est signalé, et refusé par l'inspection de l'installateur.
+    const without = (line) => hooks.replace(line, "");
+    const broken = [
+      [
+        without(
+          "    !insertmacro CHATONLM_CLEAN_OLD_OLLAMA\n    ; Moteur de texte",
+        ),
+        "NSIS_HOOK_PREINSTALL : CHATONLM_CLEAN_OLD_OLLAMA attendue après CHATONLM_STOP_ALL",
+      ],
+      [
+        without('  ${AndIf} ${FileExists} "$INSTDIR\\ollama\\VERSION"'),
+        "CHATONLM_OLD_OLLAMA : VERSION non vérifié",
+      ],
+      [
+        without(
+          String.raw`  !insertmacro CHATONLM_STOP_FILE "$INSTDIR\ollama\lib\ollama\llama-server.exe"`,
+        ),
+        String.raw`CHATONLM_STOP_OLD_OLLAMA : $INSTDIR\ollama\lib\ollama\llama-server.exe non arrêté`,
+      ],
+      [
+        hooks.replace(
+          String.raw`RMDir /r "$INSTDIR\ollama\lib\ollama"`,
+          String.raw`RMDir /r "$INSTDIR\ollama"`,
+        ),
+        String.raw`packaging/windows/hooks.nsh : RMDir /r sur tout un dossier : RMDir /r "$INSTDIR\ollama"`,
+      ],
+      [
+        `${hooks}!macro CHATONLM_X\n  ExecWait 'taskkill /im ollama.exe'\n!macroend\n`,
+        "packaging/windows/hooks.nsh : arrêt par nom (taskkill) : taskkill",
+      ],
+      [
+        `${hooks}!macro CHATONLM_X\n  RMDir /r "$PROFILE\\.ollama"\n!macroend\n`,
+        "packaging/windows/hooks.nsh : chemin hors du dossier d'installation : $PROFILE",
+      ],
+    ];
+    for (const [text, error] of broken) {
+      expect(text).not.toBe(hooks);
+      expect(oldOllamaHookErrors(text)).toContain(error);
+      expect(
+        contentProblems({ ...installation(), hooks: text }).errors,
+      ).toContain(error);
+    }
   });
 });
 
@@ -1225,16 +1163,24 @@ describe("workflow packages-windows.yml", () => {
     }
   });
 
-  it("tourne sur un seul job Windows, sans secret, avec un seul artefact de 2 jours", () => {
-    expect(workflow.match(/runs-on: .*/g)).toEqual(["runs-on: windows-2025"]);
+  it("tourne sur deux jobs Windows (installateur, pack CUDA), sans secret, artefacts de 2 jours", () => {
+    expect(workflow.match(/runs-on: .*/g)).toEqual([
+      "runs-on: windows-2025",
+      "runs-on: windows-2025",
+    ]);
     expect(workflow).toContain('- "winpkg/**"');
     expect(workflow).not.toMatch(/secrets\./);
     expect(workflow).toContain("permissions:\n  contents: read\n");
-    expect(workflow.match(/actions\/upload-artifact@/g)).toHaveLength(1);
-    expect(workflow).toContain("retention-days: 2");
+    expect(workflow.match(/actions\/upload-artifact@/g)).toHaveLength(2);
+    expect(workflow.match(/retention-days: \d+/g)).toEqual([
+      "retention-days: 2",
+      "retention-days: 2",
+    ]);
+    expect(workflow).not.toContain("fetch-ollama");
     for (const step of [
       "scripts/fetch-onnxruntime.sh",
-      "scripts/fetch-ollama.sh",
+      "node scripts/fetch-cuda-toolkit.mjs",
+      "scripts/build-llama-server.sh --cuda",
       "cargo test --manifest-path src-tauri/Cargo.toml --workspace --locked",
       "git diff --exit-code --stat -- src/bindings src/test/fixtures",
       "scripts/package-windows.sh",

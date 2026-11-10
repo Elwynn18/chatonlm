@@ -65,6 +65,7 @@ fn the_engine_line_says_what_runs_the_models() {
             machine,
             fallback,
             "/l".into(),
+            None,
         ))
     };
     assert_eq!(
@@ -80,7 +81,19 @@ fn the_engine_line_says_what_runs_the_models() {
         "llama.cpp v0.9.0+chatonlm.1b94fcb0b0db, processor (no graphics card)"
     );
     assert_eq!(line(false, Some(&card), false), "missing");
-    let unknown = status_of(true, None, None, true, "/l".into());
+    let unknown = status_of(true, None, None, true, "/l".into(), None);
+    let cuda = status_of(
+        true,
+        version(),
+        Some(&card),
+        false,
+        "/l".into(),
+        Some("RTX 3090".into()),
+    );
+    assert_eq!(
+        engine_line(&cuda),
+        "llama.cpp v0.9.0+chatonlm.1b94fcb0b0db, CUDA (RTX 3090)"
+    );
     assert_eq!(
         engine_line(&unknown),
         "llama.cpp unknown version, processor (graphics card failed this session)"

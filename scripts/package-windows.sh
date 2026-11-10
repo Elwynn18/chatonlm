@@ -11,10 +11,9 @@
 # Authenticode (voir « Emplacement de la signature Authenticode » plus bas).
 #
 # Étapes :
-# 1. ONNX Runtime et Ollama intégré pour Windows, épinglés et vérifiés
-#    (scripts/fetch-onnxruntime.sh, scripts/fetch-ollama.sh) :
-#    .tools/runtimes/onnxruntime/onnxruntime.dll et .tools/runtimes/ollama/
-#    (ollama.exe, lib/ollama/…, VERSION) ; moteur d'images construit depuis
+# 1. ONNX Runtime pour Windows, épinglé et vérifié
+#    (scripts/fetch-onnxruntime.sh) :
+#    .tools/runtimes/onnxruntime/onnxruntime.dll ; moteur d'images construit depuis
 #    ses sources (scripts/build-sd-server.sh, SDK Vulkan posé par le
 #    workflow) : .tools/runtimes/sd-server/ (sd-server.exe, fallback\,
 #    VERSION) ; moteur de texte construit de même
@@ -27,10 +26,9 @@
 #    dossier des notices doit donc exister avant elle. Le CLI refait ensuite
 #    les deux (beforeBuildCommand, beforeBundleCommand).
 # 3. `tauri build --bundles nsis` avec packaging/windows/bundle.conf.json
-#    (ressources : onnxruntime.dll, ollama\, sd-server\, llama-server\,
-#    licenses\). Ces ressources ne
-#    sont pas dans src-tauri/tauri.windows.conf.json : `cargo check` et
-#    `cargo test` n'ont pas à les télécharger.
+#    (ressources : onnxruntime.dll, sd-server\, llama-server\, licenses\).
+#    Ces ressources ne sont pas dans src-tauri/tauri.windows.conf.json :
+#    `cargo check` et `cargo test` n'ont pas à les télécharger.
 # 4. Copie de l'installateur dans out/ (inspection : scripts/inspect-windows.mjs).
 #
 # Les DLL du runtime Visual C++ sont copiées à côté de l'exécutable par le
@@ -82,20 +80,15 @@ installer="$target/release/bundle/nsis/${product}_${version}_x64-setup.exe"
 
 step "ONNX Runtime épinglé"
 scripts/fetch-onnxruntime.sh
-step "Ollama intégré épinglé"
-scripts/fetch-ollama.sh
 step "Moteur d'images épinglé"
 scripts/build-sd-server.sh
 step "Moteur de texte épinglé"
 scripts/build-llama-server.sh
 
-# Ce que packaging/windows/bundle.conf.json attend des quatre scripts.
-ollama="$root/.tools/runtimes/ollama"
+# Ce que packaging/windows/bundle.conf.json attend des trois scripts.
 missing=()
 for file in \
   ".tools/runtimes/onnxruntime/onnxruntime.dll" \
-  ".tools/runtimes/ollama/ollama.exe" \
-  ".tools/runtimes/ollama/lib/ollama/llama-server.exe" \
   ".tools/runtimes/sd-server/sd-server.exe" \
   ".tools/runtimes/sd-server/fallback/vulkan-1.dll" \
   ".tools/runtimes/sd-server/VERSION" \
@@ -107,13 +100,6 @@ done
 if [ "${#missing[@]}" -gt 0 ]; then
   echo "Fichiers attendus absents : ${missing[*]}" >&2
   exit 1
-fi
-if [ ! -f "$ollama/VERSION" ]; then
-  # Lu par l'app (version de l'Ollama intégré) : à défaut, la version épinglée.
-  # shellcheck source=../packaging/ollama.env
-  source "$root/packaging/ollama.env"
-  echo "Avertissement : $ollama/VERSION absent, écrit depuis packaging/ollama.env ($OLLAMA_VERSION)." >&2
-  printf '%s\n' "$OLLAMA_VERSION" >"$ollama/VERSION"
 fi
 
 if [ ! -f dist/.vite/license.json ]; then

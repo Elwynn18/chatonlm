@@ -8,20 +8,12 @@
 # 1. Installation silencieuse (/S), sans élévation : fichiers attendus dans
 #    %LOCALAPPDATA%\ChatonLM, clé de désinstallation sous HKCU, raccourci du
 #    menu Démarrer.
-# 2. Lancement, adresse d'Ollama fermée (OLLAMA_HOST, adresse explicite :
-#    jamais l'Ollama intégré) : l'app vit encore après -Wait secondes, un
-#    processus msedgewebview2.exe est son enfant, pas de « panicked ».
-# 3. Lancement sans OLLAMA_HOST sur une machine sans Ollama : l'app démarre
-#    elle-même l'Ollama intégré de son installation. <données>\logs\ollama.log
-#    annonce « Listening on 127.0.0.1:<port> », ce port répond à /api/version
-#    avec la version du fichier VERSION installé, le serveur est
-#    <installation>\ollama\ollama.exe lancé par l'app (« serve »), son dossier
-#    des modèles est sous les données de l'app. L'app est ensuite arrêtée DE
-#    FORCE (pas de SIGTERM sous Windows) : il ne doit rester aucun processus
-#    de l'installation 15 s plus tard.
-# 4. L'Ollama intégré lancé seul (« ollama serve » sur 127.0.0.1:18434) :
-#    version, moteur de calcul décrit (« inference compute »), arrêt.
-#    Puis le moteur d'images (sd-server) : version du fichier VERSION, et un
+# 2. Lancement, adresse d'Ollama fermée (OLLAMA_HOST, par prudence : jamais
+#    un serveur de la machine) : l'app vit encore après -Wait secondes, un
+#    processus msedgewebview2.exe est son enfant, pas de « panicked » ; l'app
+#    arrêtée DE FORCE (pas de SIGTERM sous Windows), il ne doit rester aucun
+#    processus de l'installation 15 s plus tard.
+# 3. Le moteur d'images (sd-server) : version du fichier VERSION, et un
 #    modèle placé dans un dossier accentué est bien OUVERT (page de code
 #    UTF-8, packaging/sdcpp/0002-…) : illisible, il est refusé avec le code 1
 #    après « using gguf format ».
@@ -30,13 +22,16 @@
 #    puis refusé (code 1, « failed to load model »), et un vrai petit modèle
 #    (stories260K, empreinte épinglée) sur le processeur : /health, 401 sans
 #    la clé d'API, complétion avec elle.
-# 5. Réinstallation silencieuse par-dessus une app, un Ollama intégré et un
-#    llama-server en marche : les crochets de packaging/windows/hooks.nsh
-#    doivent les arrêter (par leur chemin) et retirer nos fichiers du dossier
-#    llama-server (une variante ggml-cpu-*.dll d'une autre version n'y reste
-#    pas, un fichier de l'utilisateur si),
-#    l'installateur réussir, et rien ne rester en marche.
-# 6. Désinstallation silencieuse : programme, clé et raccourcis disparus,
+# 4. Réinstallation silencieuse par-dessus une app et un llama-server en
+#    marche, et par-dessus un ancien Ollama intégré (dossier ollama\ des
+#    versions 0.9.x, reconstitué, son runner en marche) : les crochets de
+#    packaging/windows/hooks.nsh doivent les arrêter (par leur chemin),
+#    retirer nos fichiers du dossier llama-server (une variante
+#    ggml-cpu-*.dll d'une autre version n'y reste pas, un fichier de
+#    l'utilisateur si), retirer l'ancien Ollama intégré et ses notices (un
+#    fichier de l'utilisateur posé dans ollama\ reste), l'installateur
+#    réussir, et rien ne rester en marche.
+# 5. Désinstallation silencieuse : programme, clé et raccourcis disparus,
 #    données de l'utilisateur GARDÉES, aucun processus restant.
 #
 # Dossiers de données temporaires dont le nom porte une espace et un accent,
@@ -45,7 +40,6 @@ param(
   [Parameter(Mandatory = $true)][string]$Installer,
   [string]$LogDir = "out/smoke",
   [int]$Wait = 20,
-  [int]$BuiltinWait = 180,
   [switch]$PlainPaths
 )
 
@@ -148,21 +142,6 @@ function Save-Log([string]$Path, [string]$Name) {
   }
 }
 
-# Attend le port annoncé par l'Ollama intégré dans son journal.
-function Wait-BuiltinPort([string]$Log, [System.Diagnostics.Process]$App, [int]$Seconds) {
-  for ($i = 0; $i -lt $Seconds * 2; $i++) {
-    if (Test-Path -LiteralPath $Log) {
-      $found = Select-String -LiteralPath $Log -Pattern 'Listening on 127\.0\.0\.1:(\d+)' -AllMatches -ErrorAction SilentlyContinue
-      if ($found) {
-        return [int]$found[-1].Matches[-1].Groups[1].Value
-      }
-    }
-    if ($App.HasExited) { break }
-    Start-Sleep -Milliseconds 500
-  }
-  return 0
-}
-
 # L'app installée ne doit rien devoir à l'environnement de la CI : ONNX
 # Runtime de .tools (posé pour cargo test), réglages d'Ollama.
 foreach ($name in @("ORT_DYLIB_PATH", "OLLAMA_HOST", "OLLAMA_MODELS", "CHATONLM_DATA_DIR")) {
@@ -196,22 +175,6 @@ Write-Host "Cartes son : $sound"
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 Write-Host "Compte administrateur : $admin (l'installation par utilisateur n'en a pas besoin)"
 
-# L'intégré ne démarre seul que si aucun Ollama n'est installé ni ne répond.
-$builtinPossible = $true
-if (Test-Port 11434) {
-  Fail "Un serveur répond déjà sur 127.0.0.1:11434 : essai de l'Ollama intégré impossible ici."
-  $builtinPossible = $false
-}
-$other = Get-Command ollama -ErrorAction SilentlyContinue
-if ($other) {
-  Fail "Commande ollama installée ($($other.Source)) : essai de l'Ollama intégré impossible ici."
-  $builtinPossible = $false
-}
-if (Test-Path "$env:LOCALAPPDATA\Programs\Ollama") {
-  Fail "Ollama est installé sur cette machine : essai de l'Ollama intégré impossible ici."
-  $builtinPossible = $false
-}
-
 # --- 1. Installation -------------------------------------------------------
 Section "Installation silencieuse"
 $code = Invoke-Silent $Installer @("/S") 900
@@ -235,13 +198,16 @@ Write-Host "Dossier d'installation : $install"
 $app = Join-Path $install $MainBinary
 foreach ($file in @(
     $MainBinary, "uninstall.exe", "onnxruntime.dll", "vcruntime140.dll", "msvcp140.dll",
-    "ollama\ollama.exe", "ollama\VERSION", "ollama\lib\ollama\llama-server.exe",
     "sd-server\sd-server.exe", "sd-server\VERSION", "sd-server\fallback\vulkan-1.dll",
     "llama-server\llama-server.exe", "llama-server\VERSION", "llama-server\SHA256SUMS",
     "llama-server\fallback\vulkan-1.dll",
-    "licenses\LICENSE.txt", "licenses\THIRD_PARTY_LICENSES.txt", "licenses\ollama\README.txt",
+    "licenses\LICENSE.txt", "licenses\THIRD_PARTY_LICENSES.txt",
     "licenses\sd-server\README.txt", "licenses\llama-server\README.txt")) {
   if (-not (Test-Path -LiteralPath (Join-Path $install $file))) { Fail "Fichier installé absent : $file" }
+}
+# Plus d'Ollama intégré depuis le moteur llama.cpp.
+foreach ($dir in @("ollama", "licenses\ollama")) {
+  if (Test-Path -LiteralPath (Join-Path $install $dir)) { Fail "Dossier de l'ancien Ollama intégré installé : $dir" }
 }
 if (Test-Path -LiteralPath $app) { Pass "Fichiers installés." }
 $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\$ProductName.lnk"
@@ -260,9 +226,6 @@ if (-not (Test-Path -LiteralPath $app)) {
   Write-Host "✗ $MainBinary n'est pas installé : essais de lancement impossibles."
   exit 1
 }
-$shippedVersion = ""
-$versionFile = Join-Path $install "ollama\VERSION"
-if (Test-Path -LiteralPath $versionFile) { $shippedVersion = (Get-Content -LiteralPath $versionFile -Raw).Trim() }
 
 # --- 2. Lancement, Ollama fermé --------------------------------------------
 Section "Lancement (adresse d'Ollama fermée)"
@@ -278,17 +241,21 @@ if ($process.HasExited) {
   Pass "ChatonLM vit encore après $Wait s."
   $views = @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($process.Id) AND Name='msedgewebview2.exe'")
   if ($views.Count -gt 0) { Pass "msedgewebview2.exe : $($views.Count) enfant(s) de l'app." } else { Fail "Aucun processus msedgewebview2.exe lancé par l'app." }
-  $builtins = @(Get-ProcessesUnder (Join-Path $install "ollama"))
-  if ($builtins.Count -gt 0) { Fail "Ollama intégré lancé malgré une adresse explicite : $(Format-Processes $builtins)" }
 }
 if (Test-Path -LiteralPath $data) {
   Write-Host "Données : $((Get-ChildItem -LiteralPath $data -Name) -join ' ')"
 } else {
   Fail "Dossier de données non créé ($data) : CHATONLM_DATA_DIR ignoré ?"
 }
+# Arrêt de force : rien de l'installation ne doit survivre à l'app.
 Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 $left = Wait-NoProcessUnder $install 15
-if ($left.Count -gt 0) { Fail "Processus restants après l'arrêt de l'app : $(Format-Processes $left)"; Stop-ProcessesUnder $install }
+if ($left.Count -gt 0) {
+  Fail "Processus encore actifs 15 s après l'arrêt forcé de l'app : $(Format-Processes $left)"
+  Stop-ProcessesUnder $install
+} else {
+  Pass "Aucun processus de l'installation après l'arrêt forcé de l'app."
+}
 foreach ($suffix in @("out", "err")) {
   $file = "$log.$suffix.log"
   if ((Test-Path -LiteralPath $file) -and (Select-String -LiteralPath $file -Pattern "panicked" -Quiet)) { Fail "Panique dans le journal ($suffix)." }
@@ -297,110 +264,7 @@ foreach ($suffix in @("out", "err")) {
 Show-Log "journal de ChatonLM (erreur standard)" "$log.err.log"
 Remove-Item Env:OLLAMA_HOST -ErrorAction SilentlyContinue
 
-# --- 3. Lancement avec l'Ollama intégré ------------------------------------
-Section "Lancement avec l'Ollama intégré"
-if ($builtinPossible) {
-  $data = Join-Path $work "$dataName 2"
-  $env:CHATONLM_DATA_DIR = $data
-  $log = Join-Path $work "chatonlm-2"
-  $ollamaLog = Join-Path $data "logs\ollama.log"
-  $process = Start-Logged $app @() $log
-  $port = Wait-BuiltinPort $ollamaLog $process $BuiltinWait
-  if ($port -eq 0) {
-    Fail "L'Ollama intégré n'écoute pas (rien dans $ollamaLog après $BuiltinWait s)."
-  } else {
-    Pass "Ollama intégré lancé par l'app : 127.0.0.1:$port."
-    $expected = Join-Path $install "ollama\ollama.exe"
-    $servers = @(Get-ProcessesUnder (Join-Path $install "ollama") | Where-Object {
-        $_.Name -eq "ollama.exe" -and $_.CommandLine -match '\bserve\b'
-      })
-    if ($servers.Count -eq 0) {
-      Fail "Aucun processus « ollama serve » de l'installation."
-    } else {
-      $server = $servers[0]
-      if ($server.ExecutablePath -ieq $expected) { Pass "Binaire de l'installation : $($server.ExecutablePath) (pid $($server.ProcessId))." } else { Fail "Binaire inattendu : $($server.ExecutablePath) (attendu : $expected)." }
-      if ($server.ParentProcessId -eq $process.Id) { Pass "Lancé par l'app (pid $($process.Id))." } else { Fail "Parent du serveur : $($server.ParentProcessId), et non l'app ($($process.Id))." }
-    }
-    try {
-      $answer = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/version" -TimeoutSec 10
-      if ($shippedVersion -and $answer.version -eq $shippedVersion) { Pass "/api/version : $shippedVersion." } else { Fail "/api/version : « $($answer.version) » au lieu de la version livrée « $shippedVersion »." }
-    } catch {
-      Fail "/api/version ne répond pas : $($_.Exception.Message)"
-    }
-    # Dossier des modèles : sous les données de l'app (ligne « server config »
-    # du journal d'Ollama ; le dossier de l'essai porte un jeton unique).
-    $token = Split-Path -Leaf $work
-    $config = Select-String -LiteralPath $ollamaLog -Pattern 'msg="server config"' -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $config) {
-      Write-Host "⚠ Ligne « server config » absente du journal : dossier des modèles non vérifié."
-    } elseif ($config.Line -match "OLLAMA_MODELS:[^\]]*$token") {
-      Pass "Dossier des modèles sous les données de l'app."
-    } else {
-      Fail "OLLAMA_MODELS hors des données de l'app : $($config.Line)"
-    }
-  }
-  if ($process.HasExited) { Fail "ChatonLM s'est arrêté pendant l'essai (code $($process.ExitCode))." }
-
-  # Arrêt de force : rien de l'installation ne doit survivre à l'app.
-  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-  $left = Wait-NoProcessUnder $install 15
-  if ($left.Count -gt 0) {
-    Fail "Processus encore actifs 15 s après l'arrêt forcé de l'app : $(Format-Processes $left)"
-    Stop-ProcessesUnder $install
-  } else {
-    Pass "Aucun processus de l'installation après l'arrêt forcé de l'app."
-  }
-  foreach ($suffix in @("out", "err")) {
-    $file = "$log.$suffix.log"
-    if ((Test-Path -LiteralPath $file) -and (Select-String -LiteralPath $file -Pattern "panicked" -Quiet)) { Fail "Panique dans le journal ($suffix)." }
-    Save-Log $file "chatonlm-integre.$suffix.log"
-  }
-  Save-Log $ollamaLog "ollama-integre.log"
-  Show-Log "journal de l'Ollama intégré" $ollamaLog
-  Show-Log "journal de ChatonLM (erreur standard)" "$log.err.log"
-} else {
-  Write-Host "(essai sauté : voir plus haut)"
-}
-
-# --- 4. L'Ollama intégré seul ----------------------------------------------
-Section "Ollama intégré seul"
-$bin = Join-Path $install "ollama\ollama.exe"
-$alone = Join-Path $work "ollama-seul"
-New-Item -ItemType Directory -Force -Path "$alone\home", "$alone\models" | Out-Null
-$saved = @{ USERPROFILE = $env:USERPROFILE; HOME = $env:HOME; OLLAMA_MODELS = $env:OLLAMA_MODELS; OLLAMA_HOST = $env:OLLAMA_HOST }
-$env:USERPROFILE = "$alone\home"
-$env:HOME = "$alone\home"
-$env:OLLAMA_MODELS = "$alone\models"
-$env:OLLAMA_HOST = "127.0.0.1:18434"
-$serve = Start-Logged $bin @("serve") (Join-Path $work "ollama-seul")
-foreach ($name in $saved.Keys) {
-  if ($null -eq $saved[$name]) { Remove-Item "Env:$name" -ErrorAction SilentlyContinue } else { Set-Item "Env:$name" $saved[$name] }
-}
-$version = ""
-for ($i = 0; $i -lt 60; $i++) {
-  try {
-    $version = (Invoke-RestMethod -Uri "http://127.0.0.1:18434/api/version" -TimeoutSec 2).version
-  } catch {
-    $version = ""
-  }
-  if ($version -or $serve.HasExited) { break }
-  Start-Sleep -Milliseconds 500
-}
-if ($shippedVersion -and $version -eq $shippedVersion) { Pass "Ollama intégré $shippedVersion : répond sur 127.0.0.1:18434." } else { Fail "Ollama intégré seul : réponse « $version » au lieu de la version $shippedVersion." }
-$serveLog = Join-Path $work "ollama-seul.err.log"
-$compute = $false
-for ($i = 0; $i -lt 20; $i++) {
-  if ((Test-Path -LiteralPath $serveLog) -and (Select-String -LiteralPath $serveLog -Pattern 'msg="inference compute"' -Quiet)) { $compute = $true; break }
-  Start-Sleep -Milliseconds 500
-}
-if ($compute) { Pass "Moteur de calcul décrit." } else { Fail "Aucun moteur de calcul décrit." }
-if (-not $serve.HasExited) { & taskkill.exe /F /T /PID $serve.Id | Out-Null }
-$left = Wait-NoProcessUnder $install 10
-if ($left.Count -gt 0) { Fail "Processus encore actifs après l'arrêt de l'Ollama intégré : $(Format-Processes $left)"; Stop-ProcessesUnder $install }
-Save-Log $serveLog "ollama-seul.err.log"
-Show-Log "journal de l'Ollama intégré seul" $serveLog
-
-# --- 4 bis. Le moteur d'images seul -----------------------------------------
+# --- 3. Le moteur d'images seul --------------------------------------------
 Section "Moteur d'images (sd-server)"
 $sd = Join-Path $install "sd-server\sd-server.exe"
 $sdVersionFile = Join-Path $install "sd-server\VERSION"
@@ -444,7 +308,7 @@ if ((Test-Path -LiteralPath $sd) -and (Test-Path -LiteralPath $sdVersionFile)) {
   Fail "sd-server non installé : essai du moteur d'images impossible."
 }
 
-# --- 4 ter. Le moteur de texte seul -----------------------------------------
+# --- 3 bis. Le moteur de texte seul ----------------------------------------
 Section "Moteur de texte (llama-server)"
 $llama = Join-Path $install "llama-server\llama-server.exe"
 $llamaDir = Join-Path $install "llama-server"
@@ -546,18 +410,13 @@ if ((Test-Path -LiteralPath $llama) -and (Test-Path -LiteralPath $llamaVersionFi
   Fail "llama-server non installé : essai du moteur de texte impossible."
 }
 
-# --- 5. Réinstallation par-dessus une app en marche ------------------------
+# --- 4. Réinstallation par-dessus une app en marche ------------------------
 Section "Réinstallation par-dessus une app en marche"
 $data = Join-Path $work "$dataName 3"
 $env:CHATONLM_DATA_DIR = $data
 $log = Join-Path $work "chatonlm-3"
 $process = Start-Logged $app @() $log
-if ($builtinPossible) {
-  $port = Wait-BuiltinPort (Join-Path $data "logs\ollama.log") $process $BuiltinWait
-  Write-Host "Avant la réinstallation : app pid $($process.Id), Ollama intégré $(if ($port) { "sur le port $port" } else { "non démarré" })."
-} else {
-  Start-Sleep -Seconds $Wait
-}
+Start-Sleep -Seconds $Wait
 # Un llama-server en marche (lancé comme par l'app) et une variante laissée
 # par une autre version : les crochets arrêtent l'un et retirent l'autre ; un
 # fichier qui n'est pas à nous (un modèle de l'utilisateur) reste.
@@ -570,6 +429,27 @@ if (Test-Path -LiteralPath $llama) {
   $foreignSet = $true
   if ($llamaModel) {
     $null = Start-Logged $llama @("--host", "127.0.0.1", "--port", "18439", "-m", "`"$llamaModel`"", "-c", "256", "-ngl", "0", "--no-webui", "--offline") (Join-Path $work "llama-server-reinstall")
+  }
+}
+# Ancien Ollama intégré d'une 0.9.x, reconstitué : ollama.exe (un fichier
+# quelconque : seul son chemin compte), VERSION, lib\ollama\ (copie de
+# llama-server, dont le serveur est lancé de là comme l'était son runner),
+# notices licenses\ollama\ ; plus un fichier de l'utilisateur, qui doit rester.
+$oldOllama = Join-Path $install "ollama"
+$oldRunnerDir = Join-Path $oldOllama "lib\ollama"
+$oldLicenses = Join-Path $install "licenses\ollama"
+$oldForeign = Join-Path $oldOllama "notes-utilisateur.txt"
+$oldSet = $false
+if (Test-Path -LiteralPath $llama) {
+  New-Item -ItemType Directory -Force -Path $oldRunnerDir, $oldLicenses | Out-Null
+  Copy-Item -Path (Join-Path $llamaDir "*") -Destination $oldRunnerDir -Recurse -Force
+  Copy-Item -LiteralPath $llama -Destination (Join-Path $oldOllama "ollama.exe") -Force
+  Set-Content -LiteralPath (Join-Path $oldOllama "VERSION") -Value "0.40.15"
+  Set-Content -LiteralPath (Join-Path $oldLicenses "README.txt") -Value "ancienne notice"
+  Set-Content -LiteralPath $oldForeign -Value "fichier de l'utilisateur"
+  $oldSet = $true
+  if ($llamaModel) {
+    $null = Start-Logged (Join-Path $oldRunnerDir "llama-server.exe") @("--host", "127.0.0.1", "--port", "18441", "-m", "`"$llamaModel`"", "-c", "256", "-ngl", "0", "--no-webui", "--offline") (Join-Path $work "ancien-runner")
   }
 }
 Write-Host "Processus de l'installation : $(Format-Processes (Get-ProcessesUnder $install))"
@@ -586,22 +466,35 @@ if ($left.Count -gt 0) {
   Fail "Processus de l'installation encore en marche après la réinstallation : $(Format-Processes $left)"
   Stop-ProcessesUnder $install
 } else {
-  Pass "App et Ollama intégré arrêtés par l'installateur."
+  Pass "App et moteurs arrêtés par l'installateur."
 }
-foreach ($file in @($MainBinary, "ollama\ollama.exe", "ollama\lib\ollama\llama-server.exe", "onnxruntime.dll", "llama-server\llama-server.exe", "llama-server\VERSION")) {
+foreach ($file in @($MainBinary, "onnxruntime.dll", "llama-server\llama-server.exe", "llama-server\VERSION")) {
   if (-not (Test-Path -LiteralPath (Join-Path $install $file))) { Fail "Fichier absent après la réinstallation : $file" }
 }
 if (Test-Path -LiteralPath $stale) { Fail "Variante d'une autre version restée dans llama-server après la réinstallation." } else { Pass "Nos fichiers de llama-server retirés avant la copie (aucune variante d'une autre version)." }
 if (Test-Path -LiteralPath $foreign) {
   Pass "Fichier de l'utilisateur gardé dans llama-server (seuls nos fichiers sont retirés)."
-  # Retiré ici : la désinstallation (§ 6) doit vider le dossier d'installation.
+  # Retiré ici : la désinstallation (§ 5) doit vider le dossier d'installation.
   Remove-Item -LiteralPath $foreign -Force -ErrorAction SilentlyContinue
 } elseif ($foreignSet) {
   Fail "Fichier de l'utilisateur effacé de llama-server par la réinstallation."
 }
+if ($oldSet) {
+  $oldLeft = @(@("ollama\ollama.exe", "ollama\VERSION", "ollama\lib", "licenses\ollama") | Where-Object { Test-Path -LiteralPath (Join-Path $install $_) })
+  if ($oldLeft.Count -eq 0) { Pass "Ancien Ollama intégré et ses notices retirés par la réinstallation." } else { Fail "Ancien Ollama intégré resté après la réinstallation : $($oldLeft -join ', ')" }
+  if (Test-Path -LiteralPath $oldForeign) {
+    Pass "Fichier de l'utilisateur gardé dans ollama\ (seuls nos fichiers sont retirés)."
+    # Retirés ici : la désinstallation (§ 5) doit vider le dossier d'installation.
+    Remove-Item -LiteralPath $oldForeign -Force -ErrorAction SilentlyContinue
+    # Dossier vide seulement (jamais de question de Remove-Item sur un dossier plein).
+    try { [System.IO.Directory]::Delete($oldOllama) } catch { Fail "Dossier ollama\ non vide après la réinstallation : $($_.Exception.Message)" }
+  } else {
+    Fail "Fichier de l'utilisateur effacé de ollama\ par la réinstallation."
+  }
+}
 Save-Log "$log.err.log" "chatonlm-reinstallation.err.log"
 
-# --- 6. Désinstallation ----------------------------------------------------
+# --- 5. Désinstallation ----------------------------------------------------
 Section "Désinstallation silencieuse"
 $uninstaller = Join-Path $install "uninstall.exe"
 # Données par défaut de l'app (créées si un essai n'a pas suivi

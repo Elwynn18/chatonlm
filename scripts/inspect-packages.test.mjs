@@ -3,16 +3,15 @@
 // (inspect-packages.mjs, sur un .deb et une AppDir fabriqués ici), notices
 // (package-notices.mjs), inventaire des bibliothèques de l'AppImage
 // (appimage-libs.sh : classement des licences, liste, comparaison),
-// configuration du bundle (src-tauri/tauri.conf.json), Ollama intégré
-// (fetch-ollama.sh sur une archive fabriquée ici, contrôles des paquets,
-// notices), moteur d'images (sd-server : contrôles des paquets, rangement
-// dans le bundle) et moteur de texte (llama-server : de même).
+// configuration du bundle (src-tauri/tauri.conf.json), moteur d'images
+// (sd-server : contrôles des paquets, rangement dans le bundle), moteur de
+// texte (llama-server : de même), aucun fichier CUDA, ROCm ni HIP ni de
+// l'ancien Ollama intégré dans les paquets.
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -26,6 +25,7 @@ import {
   APPIMAGE_FILES,
   APPIMAGE_SD_PREFIX,
   appImageErrors,
+  builtinErrors,
   appImageRuntime,
   COMMON_FILES,
   DEB_FILES,
@@ -35,9 +35,11 @@ import {
   desktopErrors,
   elfEnd,
   EXCLUDED_ENGINES,
+  excludedEngineErrors,
   inspectDeb,
   APPIMAGE_LLAMA_PREFIX,
   inspectLlamaServerElf,
+  LLAMA_COMPONENT,
   LLAMA_FILES,
   LLAMA_LINK,
   LLAMA_LINK_TARGET,
@@ -49,12 +51,6 @@ import {
   maxSymbolVersions,
   neededLibraries,
   noticeErrors,
-  APPIMAGE_OLLAMA_PREFIX,
-  OLLAMA_LINK,
-  OLLAMA_LINK_TARGET,
-  OLLAMA_PREFIX,
-  ollamaErrors,
-  ollamaLines,
   parseAr,
   parseControl,
   parseDesktop,
@@ -70,21 +66,11 @@ import {
 import {
   CSS_PACKAGES,
   debCopyright,
-  LIBGOMP_DEP5,
-  LIBGOMP_TEXTS,
-  OLLAMA_DIR,
-  OLLAMA_LICENSE_KINDS,
-  OLLAMA_LICENSE_SUMMARY,
-  OLLAMA_LICENSES,
-  ollamaErrors as ollamaNoticeErrors,
-  ollamaLicenseKindErrors,
-  ollamaLicenseKinds,
   ONNXRUNTIME_DIR,
   onnxRuntimeErrors,
   parseEnv,
   renderAppImageReadme,
   renderNpmPackages,
-  renderOllamaReadme,
   renderRustCrates,
   renderSdServerReadme,
   renderSpeechModels,
@@ -455,22 +441,73 @@ describe("debErrors", () => {
   it("refuses AppImage-only notices and a binary that cannot run", () => {
     const files = debFiles({
       "usr/share/doc/chatonlm/licenses/LGPL-2.1.txt": "x",
-      [`${APPIMAGE_OLLAMA_PREFIX}bin/ollama`]: { elf: true },
+      [`${APPIMAGE_LLAMA_PREFIX}llama-server`]: { elf: true },
       "usr/bin/chatonlm": "not executable",
     });
     expect(check(files)).toEqual([
       "fichier propre à l'AppImage dans le .deb : /usr/share/doc/chatonlm/licenses/LGPL-2.1.txt",
-      `fichier propre à l'AppImage dans le .deb : /${APPIMAGE_OLLAMA_PREFIX}bin/ollama`,
+      `fichier propre à l'AppImage dans le .deb : /${APPIMAGE_LLAMA_PREFIX}llama-server`,
       "/usr/bin/chatonlm n'est pas exécutable",
     ]);
   });
 
-  it("requires the built-in Ollama in resource_dir()/ollama", () => {
-    const files = debFiles();
-    delete files[`${OLLAMA_PREFIX}bin/ollama`];
+  it("refuses any CUDA, ROCm or HIP file, and the old built-in Ollama", () => {
+    const cuda = [
+      `${LLAMA_PREFIX}libggml-cuda.so`,
+      "usr/lib/chatonlm/cuda/libcudart.so.13",
+      "usr/lib/x86_64-linux-gnu/libcublasLt.so.13",
+      "usr/lib/chatonlm/libamdhip64.so.6",
+      `${LLAMA_PREFIX}libggml-hip.so`,
+    ];
+    const old = [
+      "usr/lib/chatonlm/ollama/bin/ollama",
+      "usr/share/doc/chatonlm/licenses/ollama/README.txt",
+    ];
+    const files = debFiles(
+      Object.fromEntries([...cuda, ...old].map((rel) => [rel, "x"])),
+    );
     expect(check(files)).toEqual([
-      `fichier absent : /${OLLAMA_PREFIX}bin/ollama`,
+      ...cuda.map(
+        (rel) =>
+          `fichier CUDA, ROCm ou HIP livré (pack CUDA téléchargé à part) : ${rel}`,
+      ),
+      ...old.map((rel) => `fichier de l'ancien Ollama intégré livré : ${rel}`),
     ]);
+    expect(excludedEngineErrors(filesView(debFiles()).files)).toEqual([]);
+    // Noms des fichiers du pack CUDA et des bibliothèques de NVIDIA (Linux
+    // et Windows), de ROCm/HIP ; aucun fichier livré n'y ressemble.
+    for (const name of [
+      "libggml-cuda.so",
+      "ggml-cuda.dll",
+      "libcudart.so.13",
+      "cudart64_13.dll",
+      "libcublas.so.13",
+      "libcublasLt.so.13",
+      "cublas64_13.dll",
+      "cublasLt64_13.dll",
+      "libggml-hip.so",
+      "libamdhip64.so.6",
+      "librocblas.so.4",
+    ]) {
+      expect(EXCLUDED_ENGINES.test(name), name).toBe(true);
+    }
+    for (const rel of [
+      ...COMMON_FILES,
+      ...DEB_FILES,
+      ...APPIMAGE_FILES,
+      ...LLAMA_FILES,
+      ...SD_FILES,
+      "libggml-cpu-haswell.so",
+      "libggml-vulkan.so",
+      "libmtmd.so.0",
+      "chatonlm.png",
+      // ICU de l'AppImage (« icudata » contient « cuda » : vu en CI).
+      "usr/lib/libicudata.so.70",
+      "usr/lib/libicuuc.so.70",
+      "usr/share/icons/hicolor/128x128/apps/chatonlm.png",
+    ]) {
+      expect(EXCLUDED_ENGINES.test(rel), rel).toBe(false);
+    }
   });
 
   it("checks the AppStream launchable and the DEP-5 copyright", () => {
@@ -541,7 +578,6 @@ describe("debErrors", () => {
 describe("appImageErrors", () => {
   const appFiles = (extra = {}) => {
     const files = packageFiles({
-      [OLLAMA_LINK]: { link: OLLAMA_LINK_TARGET },
       [SD_LINK]: { link: SD_LINK_TARGET },
       [LLAMA_LINK]: { link: LLAMA_LINK_TARGET },
       ...extra,
@@ -597,21 +633,18 @@ describe("appImageErrors", () => {
     ]);
   });
 
-  it("keeps the built-in Ollama out of usr/lib, behind a link", () => {
-    expect(
-      check(
-        appFiles({
-          [OLLAMA_LINK]: undefined,
-          [`${OLLAMA_PREFIX}bin/ollama`]: { elf: true },
-        }),
-      ),
-    ).toEqual([
-      `fichier propre au .deb dans l'AppImage : ${OLLAMA_PREFIX}bin/ollama`,
-      `${OLLAMA_LINK} : lien vers ${OLLAMA_LINK_TARGET} attendu (absent)`,
-      `Ollama intégré dans usr/lib (linuxdeploy le traiterait) : ${OLLAMA_PREFIX}bin/ollama`,
-    ]);
-    expect(check(appFiles({ [OLLAMA_LINK]: { link: "elsewhere" } }))).toEqual([
-      `${OLLAMA_LINK} : lien vers ${OLLAMA_LINK_TARGET} attendu (elsewhere)`,
+  it("refuses any CUDA, ROCm or HIP file, and the old built-in Ollama", () => {
+    const files = appFiles({
+      [`${APPIMAGE_LLAMA_PREFIX}libggml-cuda.so`]: "x",
+      "usr/lib/libcudart.so.13": "x",
+      "usr/libexec/chatonlm/ollama/bin/ollama": "x",
+      "usr/lib/chatonlm/ollama": { link: "../../libexec/chatonlm/ollama" },
+    });
+    expect(check(files)).toEqual([
+      `fichier CUDA, ROCm ou HIP livré (pack CUDA téléchargé à part) : ${APPIMAGE_LLAMA_PREFIX}libggml-cuda.so`,
+      "fichier CUDA, ROCm ou HIP livré (pack CUDA téléchargé à part) : usr/lib/libcudart.so.13",
+      "fichier de l'ancien Ollama intégré livré : usr/libexec/chatonlm/ollama/bin/ollama",
+      "fichier de l'ancien Ollama intégré livré : usr/lib/chatonlm/ollama",
     ]);
   });
 
@@ -1017,6 +1050,16 @@ describe("bundle configuration", () => {
       "../.tools/package/notices/appimage",
     );
     expect(linux.deb.depends).toContain("libasound2");
+    // Chargeur Vulkan du système, pour les moteurs.
+    expect(linux.deb.recommends).toContain("libvulkan1");
+  });
+
+  it("installs nothing of the old built-in Ollama", () => {
+    for (const files of [linux.deb.files, linux.appimage.files]) {
+      for (const [dest, source] of Object.entries(files)) {
+        expect(`${dest} ${source}`).not.toMatch(/ollama/i);
+      }
+    }
   });
 });
 
@@ -1103,12 +1146,13 @@ describe("appimage-libs.sh", () => {
       "usr/lib/libfoo.so": { link: "libfoo.so.1" },
       "usr/share/doc/notes.txt": "text",
       "usr/bin/chatonlm": { elf: true },
-      // Composants livrés par ChatonLM (ONNX Runtime, Ollama intégré, rangé
-      // hors de usr/lib dans l'AppImage).
+      // Composants livrés par ChatonLM (ONNX Runtime, moteurs rangés hors de
+      // usr/lib dans l'AppImage, derrière un lien).
       "usr/lib/chatonlm/libonnxruntime.so.1": { elf: true },
-      "usr/lib/chatonlm/ollama/bin/ollama": { elf: true },
-      "usr/libexec/chatonlm/ollama/bin/ollama": { elf: true },
-      "usr/libexec/chatonlm/ollama/lib/ollama/libggml-base.so.0": { elf: true },
+      "usr/lib/chatonlm/llama-server/llama-server": { elf: true },
+      "usr/libexec/chatonlm/llama-server/llama-server": { elf: true },
+      "usr/libexec/chatonlm/llama-server/libggml-base.so.0": { elf: true },
+      "usr/libexec/chatonlm/sd-server/sd-server": { elf: true },
       AppRun: { elf: true },
       "AppRun.wrapped": { elf: true },
     });
@@ -1243,477 +1287,15 @@ esac
   });
 });
 
-describe("built-in Ollama in the packages", () => {
-  const SUMS = new Map([
-    ["bin/ollama", "a".repeat(64)],
-    ["lib/ollama/libggml-base.so.0", "b".repeat(64)],
-    ["lib/ollama/llama-server", "c".repeat(64)],
-  ]);
-  const EXECUTABLE = new Set(["bin/ollama", "lib/ollama/llama-server"]);
-
-  /**
-   * Vue d'un paquet : l'Ollama de SUMS (contenu = empreinte attendue) et son
-   * VERSION, puis `changes` (chemin → {content, mode, link} ou null pour
-   * retirer le fichier).
-   */
-  function view(changes = {}) {
-    const entries = new Map();
-    for (const [rel, sum] of SUMS) {
-      entries.set(`${OLLAMA_PREFIX}${rel}`, {
-        content: sum,
-        mode: EXECUTABLE.has(rel) ? 0o100755 : 0o100644,
-      });
-    }
-    entries.set(`${OLLAMA_PREFIX}VERSION`, { content: "0.40.0\n" });
-    for (const [rel, change] of Object.entries(changes)) {
-      if (change === null) entries.delete(rel);
-      else entries.set(rel, { ...entries.get(rel), ...change });
-    }
-    const files = new Map(
-      [...entries].map(([rel, e]) => [
-        rel,
-        { size: 1, mode: e.mode ?? 0o100644, link: e.link ?? null },
-      ]),
-    );
-    const content = (rel) => entries.get(rel)?.content ?? "";
-    return { files, hash: content, read: content, version: "0.40.0" };
-  }
-  const check = (changes, sums = SUMS) =>
-    ollamaErrors({ ...view(changes), sums });
-
-  it("accepts the files of the fetched archive, unchanged", () => {
-    expect(check({})).toEqual([]);
-  });
-
-  it("refuses files changed by linuxdeploy, missing, linked or executable no more", () => {
-    const base = `${OLLAMA_PREFIX}lib/ollama/libggml-base.so.0`;
-    expect(
-      check({
-        [`${OLLAMA_PREFIX}bin/ollama`]: { content: "stripped" },
-        [base]: null,
-        [`${OLLAMA_PREFIX}lib/ollama/llama-server`]: { mode: 0o100644 },
-      }),
-    ).toEqual([
-      `Ollama intégré : fichier modifié (strip, patchelf ?) : ${OLLAMA_PREFIX}bin/ollama`,
-      `Ollama intégré : fichier absent : ${base}`,
-      `Ollama intégré : ${OLLAMA_PREFIX}lib/ollama/llama-server n'est pas exécutable`,
-    ]);
-    expect(check({ [base]: { link: "libggml-base.so.0.25.3" } })).toEqual([
-      `Ollama intégré : lien symbolique : ${base}`,
-    ]);
-  });
-
-  it("refuses the excluded engines and any other file", () => {
-    expect(
-      check({
-        [`${OLLAMA_PREFIX}lib/ollama/cuda_v12/libggml-cuda.so`]: {},
-        [`${OLLAMA_PREFIX}lib/ollama/rocm/libggml-hip.so`]: {},
-        [`${OLLAMA_PREFIX}lib/ollama/libggml-base.so`]: {
-          link: "libggml-base.so.0",
-        },
-      }),
-    ).toEqual([
-      `Ollama intégré : moteur exclu livré : ${OLLAMA_PREFIX}lib/ollama/cuda_v12/libggml-cuda.so`,
-      `Ollama intégré : moteur exclu livré : ${OLLAMA_PREFIX}lib/ollama/rocm/libggml-hip.so`,
-      `Ollama intégré : fichier inattendu : ${OLLAMA_PREFIX}lib/ollama/libggml-base.so -> libggml-base.so.0`,
-    ]);
-  });
-
-  it("refuses CUDA, ROCm or MLX libraries out of their directories, even in the checksums", () => {
-    const names = [
-      "libggml-cuda.so",
-      "libcudart.so.12",
-      "libcublasLt.so.12",
-      "libggml-hip.so",
-      "libamdhip64.so.6",
-      "librocblas.so.4",
-      "libmlx.so",
-    ];
-    // Extraits par une version de fetch-ollama.sh sans garde : présents dans
-    // SHA256SUMS comme dans le paquet.
-    const sums = new Map(SUMS);
-    const changes = {};
-    for (const name of names) {
-      sums.set(`lib/ollama/${name}`, "d".repeat(64));
-      changes[`${OLLAMA_PREFIX}lib/ollama/${name}`] = {
-        content: "d".repeat(64),
-      };
-    }
-    expect(check(changes, sums)).toEqual(
-      names.map(
-        (name) =>
-          `Ollama intégré : moteur exclu livré : ${OLLAMA_PREFIX}lib/ollama/${name}`,
-      ),
-    );
-    // Aucun fichier de la version épinglée n'y ressemble.
-    for (const rel of [
-      "bin/ollama",
-      "lib/ollama/libggml-base.so.0",
-      "lib/ollama/libggml-cpu-haswell.so",
-      "lib/ollama/libggml.so.0",
-      "lib/ollama/libllama-server-impl.so",
-      "lib/ollama/libmtmd.so.0",
-      "lib/ollama/libgomp.so.1",
-      "lib/ollama/llama-quantize",
-      "lib/ollama/vulkan/libggml-vulkan.so",
-    ]) {
-      expect(EXCLUDED_ENGINES.test(rel), rel).toBe(false);
-    }
-  });
-
-  it("checks VERSION, and libraries copied out of the Ollama directory", () => {
-    expect(
-      check({
-        [`${OLLAMA_PREFIX}VERSION`]: { content: "0.39.0\n" },
-        "usr/lib/libggml-base.so.0": {},
-        "usr/lib/libvulkan.so.1": {},
-        "usr/lib/libgtk-3.so.0": {},
-      }),
-    ).toEqual([
-      "Ollama intégré : VERSION 0.39.0 au lieu de 0.40.0",
-      "bibliothèque de l'Ollama intégré copiée hors de son dossier : usr/lib/libggml-base.so.0",
-      "bibliothèque de l'Ollama intégré copiée hors de son dossier : usr/lib/libvulkan.so.1",
-    ]);
-  });
-
-  it("checks the AppImage copy in usr/libexec, the link being no copy", () => {
-    const { files, hash, read } = view();
-    const moved = new Map();
-    for (const [rel, info] of files) {
-      moved.set(rel.replace(OLLAMA_PREFIX, APPIMAGE_OLLAMA_PREFIX), info);
-    }
-    moved.set(OLLAMA_LINK, {
-      size: 1,
-      mode: 0o120777,
-      link: OLLAMA_LINK_TARGET,
-    });
-    const back = (rel) => rel.replace(APPIMAGE_OLLAMA_PREFIX, OLLAMA_PREFIX);
-    expect(
-      ollamaErrors({
-        files: moved,
-        hash: (rel) => hash(back(rel)),
-        read: (rel) => read(back(rel)),
-        sums: SUMS,
-        version: "0.40.0",
-        prefix: APPIMAGE_OLLAMA_PREFIX,
-      }),
-    ).toEqual([]);
-  });
-
-  it("requires the checksums of the fetched archive", () => {
-    expect(check({}, new Map())).toEqual([
-      "empreintes de l'Ollama intégré absentes (lancer scripts/fetch-ollama.sh)",
-    ]);
-  });
-
+describe("parseSums", () => {
   it("reads sha256sum output", () => {
     const a = "0123456789abcdef".repeat(4);
     expect([
-      ...parseSums(`${a}  bin/ollama\n${a} *lib/ollama/a b.so\nnoise\n\n`),
+      ...parseSums(`${a}  bin/server\n${a} *lib/a b.so\nnoise\n\n`),
     ]).toEqual([
-      ["bin/ollama", a],
-      ["lib/ollama/a b.so", a],
+      ["bin/server", a],
+      ["lib/a b.so", a],
     ]);
-  });
-
-  it("reports the size and the newest glibc of the Ollama files", () => {
-    const { files } = view({
-      [`${OLLAMA_PREFIX}lib/ollama/libggml-base.so`]: {
-        link: "libggml-base.so.0",
-      },
-      "usr/bin/chatonlm": {},
-    });
-    const elf = { count: 3, versions: { GLIBC: "2.28", GLIBCXX: "3.4.25" } };
-    const ok = ollamaLines(files, elf, { maxGlibc: "2.35" });
-    expect(ok.errors).toEqual([]);
-    expect(ok.lines[0]).toMatch(
-      /^Ollama intégré : 4 fichiers, 4 o, 3 ELF ; .*GLIBC_2\.28, GLIBCXX_3\.4\.25$/,
-    );
-    expect(ollamaLines(files, elf, { maxGlibc: "2.27" }).errors).toEqual([
-      "l'Ollama intégré demande GLIBC_2.28 (maximum permis : 2.27)",
-    ]);
-    expect(ollamaLines(files, null, { maxGlibc: "2.27" })).toEqual({
-      lines: [],
-      errors: [],
-    });
-  });
-
-  it("requires the binary, the runner and the licenses in both packages", () => {
-    for (const rel of [
-      "bin/ollama",
-      "lib/ollama/llama-server",
-      "lib/ollama/vulkan/libggml-vulkan.so",
-    ]) {
-      expect(DEB_FILES).toContain(`${OLLAMA_PREFIX}${rel}`);
-      expect(APPIMAGE_FILES).toContain(`${APPIMAGE_OLLAMA_PREFIX}${rel}`);
-    }
-    for (const file of [
-      "usr/share/doc/chatonlm/licenses/ollama/README.txt",
-      "usr/share/doc/chatonlm/licenses/ollama/XGRAMMAR_NOTICE",
-      ...Object.keys(LIBGOMP_TEXTS).map(
-        (f) => `usr/share/doc/chatonlm/licenses/ollama/${f}`,
-      ),
-    ]) {
-      expect(COMMON_FILES).toContain(file);
-    }
-  });
-});
-
-describe("built-in Ollama notices", () => {
-  const ENV = readFileSync(path.join(ROOT, "packaging/ollama.env"), "utf8");
-  const env = parseEnv(ENV);
-  const licenseFiles = [...Object.keys(OLLAMA_LICENSES), "MLX_LICENSE"];
-
-  it("pins an official archive and the GCC of libgomp", () => {
-    expect(env.OLLAMA_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(env.OLLAMA_URL).toBe(
-      `https://github.com/ollama/ollama/releases/download/v${env.OLLAMA_VERSION}/ollama-linux-amd64.tar.zst`,
-    );
-    expect(env.OLLAMA_SHA256).toMatch(/^[0-9a-f]{64}$/);
-    expect(env.OLLAMA_LIBGOMP_GCC).toMatch(/^\d+\.\d+\.\d+$/);
-    // Construction exacte de libgomp et son paquet source.
-    expect(env.OLLAMA_LIBGOMP_BUILD).toMatch(
-      new RegExp(
-        `^${env.OLLAMA_LIBGOMP_GCC.replaceAll(".", "\\.")}-\\d+\\.el\\d`,
-      ),
-    );
-    expect(env.OLLAMA_LIBGOMP_SOURCE).toMatch(
-      new RegExp(
-        `^https://vault\\.almalinux\\.org/.*/Source/Packages/gcc-${env.OLLAMA_LIBGOMP_BUILD.replaceAll(".", "\\.")}\\.src\\.rpm$`,
-      ),
-    );
-    expect(OLLAMA_DIR).toBe(".tools/runtimes/ollama");
-  });
-
-  it("requires the pinned version and every license file of Ollama", () => {
-    const pinned = env.OLLAMA_VERSION;
-    expect(ollamaNoticeErrors(ENV, pinned, licenseFiles)).toEqual([]);
-    expect(ollamaNoticeErrors(ENV, "0.1.0", licenseFiles)[0]).toMatch(
-      /^Ollama 0\.1\.0 dans \.tools\/runtimes\/ollama au lieu de /,
-    );
-    expect(ollamaNoticeErrors(ENV, null, [])[0]).toMatch(/^Ollama absent /);
-    expect(
-      ollamaNoticeErrors(
-        ENV,
-        pinned,
-        licenseFiles.filter((f) => f !== "XGRAMMAR_NOTICE"),
-      ),
-    ).toEqual([
-      "Licence d'Ollama absente : .tools/runtimes/ollama/licenses/XGRAMMAR_NOTICE",
-    ]);
-    expect(ollamaNoticeErrors("X=1\n", pinned, licenseFiles)).toEqual([
-      "OLLAMA_VERSION absent de packaging/ollama.env.",
-    ]);
-    expect(
-      ollamaNoticeErrors(
-        ENV.replace(/^OLLAMA_LIBGOMP_SOURCE=.*$/m, ""),
-        pinned,
-        licenseFiles,
-      ),
-    ).toEqual(["OLLAMA_LIBGOMP_SOURCE absent de packaging/ollama.env."]);
-  });
-
-  it("describes the copy, its licenses and the source of libgomp", () => {
-    const text = renderOllamaReadme({ env, licenseFiles });
-    expect(text).toContain(`a copy of Ollama ${env.OLLAMA_VERSION},`);
-    expect(text).toContain(`SHA-256:      ${env.OLLAMA_SHA256}\n`);
-    expect(text).toContain(
-      `https://github.com/ollama/ollama/tree/v${env.OLLAMA_VERSION}`,
-    );
-    expect(text).toContain("The CUDA, ROCm and MLX libraries are left out");
-    for (const file of [...licenseFiles, ...Object.keys(LIBGOMP_TEXTS)]) {
-      expect(text).toMatch(
-        new RegExp(`^  ${file.replace(".", "\\.")}\\b`, "m"),
-      );
-    }
-    expect(text).toContain(
-      "  XGRAMMAR_NOTICE             NOTICE file of XGrammar\n",
-    );
-    expect(text).toContain(
-      `runtime library of GCC ${env.OLLAMA_LIBGOMP_GCC}, as`,
-    );
-    // Source correspondante : le paquet source de la construction livrée,
-    // puis l'archive d'origine de GCC.
-    expect(text).toContain(`(package libgomp ${env.OLLAMA_LIBGOMP_BUILD})`);
-    expect(text).toContain(
-      `Its corresponding source code is the AlmaLinux source package of GCC\n${env.OLLAMA_LIBGOMP_BUILD}, which builds libgomp:\n${env.OLLAMA_LIBGOMP_SOURCE}\n`,
-    );
-    expect(text).toContain(
-      `https://ftp.gnu.org/gnu/gcc/gcc-${env.OLLAMA_LIBGOMP_GCC}/gcc-${env.OLLAMA_LIBGOMP_GCC}.tar.xz\n`,
-    );
-    expect(text.replace(/\s+/g, " ")).toContain(OLLAMA_LICENSE_SUMMARY);
-    for (const line of text.split("\n")) {
-      if (!line.startsWith("Archive:") && !line.startsWith("https://"))
-        expect(line.length).toBeLessThanOrEqual(78);
-    }
-  });
-
-  it("ships the GPL and the GCC Runtime Library Exception for libgomp", () => {
-    const exception = readFileSync(
-      path.join(
-        ROOT,
-        LIBGOMP_TEXTS["LIBGOMP_GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt"],
-      ),
-      "utf8",
-    );
-    expect(exception).toMatch(
-      /^GCC RUNTIME LIBRARY EXCEPTION\n\nVersion 3\.1, 31 March 2009\n/,
-    );
-    expect(
-      readFileSync(
-        path.join(ROOT, LIBGOMP_TEXTS["LIBGOMP_GPL-3.0.txt"]),
-        "utf8",
-      ),
-    ).toContain(
-      "GNU GENERAL PUBLIC LICENSE\n                       Version 3, 29 June 2007",
-    );
-  });
-
-  const OLLAMA = {
-    version: "0.40.0",
-    gcc: "8.5.0",
-    build: "8.5.0-28.el8_10.alma.1",
-    source:
-      "https://vault.almalinux.org/8.10/BaseOS/Source/Packages/gcc-8.5.0-28.el8_10.alma.1.src.rpm",
-  };
-
-  it("adds the Ollama paragraphs to the DEP-5 copyright", () => {
-    const license = "MIT License\n\nText.\n";
-    const text = debCopyright({ license, ollama: OLLAMA });
-    expect(text).toContain(
-      "\nFiles: usr/lib/chatonlm/ollama/*\nCopyright: Ollama, the ggml and llama.cpp authors, and others\nLicense: Expat\nComment: Built-in Ollama 0.40.0,",
-    );
-    expect(text.replace(/\n /g, " ")).toContain(OLLAMA_LICENSE_SUMMARY);
-    expect(text).toContain(
-      "\nFiles: usr/lib/chatonlm/ollama/lib/ollama/libgomp.so.1\nCopyright: Free Software Foundation, Inc.\nLicense: GPL-3+ with GCC-3.1 exception\nComment: GNU OpenMP runtime library of GCC 8.5.0, built by AlmaLinux 8\n (package libgomp 8.5.0-28.el8_10.alma.1)",
-    );
-    expect(text).toContain(`\n ${OLLAMA.source}\n`);
-    // Chaque licence a son paragraphe autonome : celle de libgomp renvoie au
-    // texte de Debian dans le .deb.
-    expect(dep5Errors(text)).toEqual([]);
-    expect(text).toContain(
-      `\n\nLicense: ${LIBGOMP_DEP5}\n Libgomp is free software;`,
-    );
-    expect(text).toContain("/usr/share/common-licenses/GPL-3.");
-    // Paragraphe autonome de la licence Expat toujours à la fin.
-    expect(text.trimEnd().endsWith(" Text.")).toBe(true);
-    expect(debCopyright({ license })).not.toContain("usr/lib/chatonlm/ollama");
-    expect(debCopyright({ license })).not.toContain(LIBGOMP_DEP5);
-    const appimage = debCopyright({ license, appimage: true, ollama: OLLAMA });
-    expect(dep5Errors(appimage)).toEqual([]);
-    expect(appimage).not.toContain("/usr/share/common-licenses");
-    expect(appimage).toContain("\nFiles: usr/libexec/chatonlm/ollama/*\n");
-    expect(appimage).toContain(
-      "\nFiles: usr/libexec/chatonlm/ollama/lib/ollama/libgomp.so.1\n",
-    );
-  });
-
-  it("names the pinned Ollama in THIRD_PARTY_LICENSES", () => {
-    const notices = readFileSync(
-      path.join(ROOT, "THIRD_PARTY_LICENSES"),
-      "utf8",
-    );
-    expect(notices).toContain("  Part 5  Built-in Ollama\n");
-    const part5 = notices.split("== Part 5. Built-in Ollama ==")[1];
-    expect(part5).toContain(
-      `Ollama ${env.OLLAMA_VERSION}, https://github.com/ollama/ollama`,
-    );
-    expect(part5).toContain(
-      `(ollama-linux-amd64.tar.zst of the v${env.OLLAMA_VERSION} release)`,
-    );
-    expect(part5).toContain(`of GCC ${env.OLLAMA_LIBGOMP_GCC},`);
-    expect(part5).toContain(`(package libgomp ${env.OLLAMA_LIBGOMP_BUILD})`);
-    for (const kind of OLLAMA_LICENSE_KINDS) {
-      expect(part5.replace(/\s+/g, " ")).toContain(kind.replace(" ", "-"));
-    }
-  });
-
-  it("recognizes the licenses of the license files", () => {
-    const kinds = (text) => [...ollamaLicenseKinds(text)].sort();
-    const bsd =
-      "Redistribution and use in source and binary forms, with or without modification, are permitted.";
-    expect(
-      kinds("Permission is hereby granted, free of charge, to any"),
-    ).toEqual(["MIT"]);
-    expect(kinds(`${bsd}\n${bsd}\n3. Neither the name of x`)).toEqual([
-      "BSD-2-Clause",
-      "BSD-3-Clause",
-    ]);
-    expect(
-      kinds(
-        "Permission to use, copy, modify, and/or distribute this software for any\npurpose",
-      ),
-    ).toEqual(["ISC"]);
-    expect(kinds("Apache License\n   Version 2.0, January 2004")).toEqual([
-      "Apache-2.0",
-    ]);
-    expect(kinds("2010-06-11 : Igor Pavlov : Public domain")).toEqual([
-      "public domain",
-    ]);
-    expect(
-      ollamaLicenseKindErrors(
-        new Map([
-          ["GO_LICENSE", "Permission is hereby granted, free of charge"],
-          ["NEW_LICENSE", "GNU Lesser General Public License, version 2.1"],
-        ]),
-      ),
-    ).toEqual([
-      "Licence « GNU GPL » dans .tools/runtimes/ollama/licenses/NEW_LICENSE, absente des notices : l'examiner, puis compléter OLLAMA_LICENSE_KINDS et THIRD_PARTY_LICENSES (partie 5).",
-    ]);
-  });
-
-  const LICENSES = path.join(ROOT, OLLAMA_DIR, "licenses");
-  it.skipIf(!existsSync(LICENSES))(
-    "summarizes exactly the licenses of the fetched copy",
-    () => {
-      const texts = new Map(
-        Object.keys(OLLAMA_LICENSES).map((file) => [
-          file,
-          readFileSync(path.join(LICENSES, file), "utf8"),
-        ]),
-      );
-      expect(ollamaLicenseKindErrors(texts)).toEqual([]);
-      const found = new Set(
-        [...texts.values()].flatMap((text) => [...ollamaLicenseKinds(text)]),
-      );
-      expect([...found].sort()).toEqual([...OLLAMA_LICENSE_KINDS].sort());
-      for (const kind of OLLAMA_LICENSE_KINDS) {
-        expect(OLLAMA_LICENSE_SUMMARY).toContain(kind.replace(" ", "-"));
-      }
-    },
-  );
-});
-
-describe("built-in Ollama in the bundle configuration", () => {
-  it("installs bin, lib and VERSION of the fetched copy in both packages", () => {
-    const { deb, appimage } = CONFIG.bundle.linux;
-    for (const part of ["bin", "lib", "VERSION"]) {
-      expect(deb.files[`/${OLLAMA_PREFIX}${part}`]).toBe(
-        `../${OLLAMA_DIR}/${part}`,
-      );
-      // AppImage : hors de usr/lib (linuxdeploy), lien posé par package.sh.
-      expect(appimage.files[`/${APPIMAGE_OLLAMA_PREFIX}${part}`]).toBe(
-        `../${OLLAMA_DIR}/${part}`,
-      );
-      expect(appimage.files[`/${OLLAMA_PREFIX}${part}`]).toBeUndefined();
-    }
-    expect(appimage.files["/usr/lib/chatonlm"]).toBe(
-      "../.tools/package/appimage-lib",
-    );
-    expect(
-      readFileSync(path.join(ROOT, "scripts/package.sh"), "utf8"),
-    ).toContain(`ln -s ${OLLAMA_LINK_TARGET} "$dir/ollama"`);
-    expect(deb.recommends).toContain("libvulkan1");
-  });
-
-  it("describes the built-in Ollama in the package and AppStream texts", () => {
-    expect(CONFIG.bundle.longDescription).toContain(
-      "includes its own copy of Ollama",
-    );
-    expect(CONFIG.bundle.longDescription).not.toContain(
-      "must be installed separately",
-    );
-    expect(METAINFO).toContain("includes its own copy of Ollama");
   });
 });
 
@@ -1821,30 +1403,47 @@ describe("image engine (sd-server) in the packages", () => {
     ]);
   });
 
-  it("refuses its libraries copied out of its directory, the Ollama checks leaving its fallback alone", () => {
+  it("refuses its libraries copied out of its directory, the text engine checks leaving its fallback alone", () => {
     expect(
       check({
         "usr/lib/libvulkan.so.1": {},
         "usr/lib/x86_64-linux-gnu/sd-server": {},
-        "usr/lib/chatonlm/ollama/VERSION": {},
+        [`${LLAMA_PREFIX}VERSION`]: {},
       }),
     ).toEqual([
       "bibliothèque du moteur d'images copiée hors de son dossier : usr/lib/libvulkan.so.1",
       "bibliothèque du moteur d'images copiée hors de son dossier : usr/lib/x86_64-linux-gnu/sd-server",
     ]);
     // Le chargeur de secours, dans usr/lib/chatonlm/sd-server/fallback du
-    // .deb, n'est pas une copie du chargeur faite par linuxdeploy.
+    // .deb, n'est pas une copie du chargeur faite par linuxdeploy : le moteur
+    // de texte, qui livre le même, ne le prend pas pour une copie du sien.
     const { files } = view();
-    files.set(`${OLLAMA_PREFIX}VERSION`, { size: 1, mode: 0o100644 });
+    files.set(`${LLAMA_PREFIX}fallback/libvulkan.so.1`, {
+      size: 1,
+      mode: 0o100644,
+    });
     expect(
-      ollamaErrors({
+      builtinErrors(LLAMA_COMPONENT, {
         files,
         hash: () => "",
-        read: () => "0.40.0\n",
-        sums: new Map([["VERSION", ""]]),
-        version: "0.40.0",
+        read: () => "",
+        sums: new Map([["fallback/libvulkan.so.1", ""]]),
+        version: undefined,
       }),
     ).toEqual([]);
+    // Ailleurs dans usr/lib, c'en est une.
+    files.set("usr/lib/libvulkan.so.1", { size: 1, mode: 0o100644 });
+    expect(
+      builtinErrors(LLAMA_COMPONENT, {
+        files,
+        hash: () => "",
+        read: () => "",
+        sums: new Map([["fallback/libvulkan.so.1", ""]]),
+        version: undefined,
+      }),
+    ).toEqual([
+      "bibliothèque du moteur de texte copiée hors de son dossier : usr/lib/libvulkan.so.1",
+    ]);
   });
 
   it("checks the AppImage copy in usr/libexec", () => {
@@ -1899,7 +1498,6 @@ describe("image engine (sd-server) in the packages", () => {
       `fichier propre à l'AppImage dans le .deb : /${APPIMAGE_SD_PREFIX}sd-server`,
     ]);
     const appimage = packageFiles({
-      [OLLAMA_LINK]: { link: OLLAMA_LINK_TARGET },
       [LLAMA_LINK]: { link: LLAMA_LINK_TARGET },
       [`${SD_PREFIX}sd-server`]: { elf: true },
     });
@@ -1951,7 +1549,6 @@ describe("image engine (sd-server) in the packages", () => {
       "  sd-server : libvulkan.so.1, libstdc++.so.6, libc.so.6 ; versions de symboles les plus récentes : GLIBC_2.34, GLIBCXX_3.4.30",
       "  fallback/libvulkan.so.1 : libc.so.6 ; versions de symboles les plus récentes : GLIBC_2.17",
     ]);
-    expect(ollamaLines(files, null, {})).toEqual({ lines: [], errors: [] });
     expect(sdServerLines(files, null, { maxGlibc: "2.35" })).toEqual({
       lines: [],
       errors: [],
@@ -2046,10 +1643,12 @@ describe("image engine in the bundle configuration", () => {
     expect(script).toContain(
       `run "Moteur d'images épinglé" scripts/build-sd-server.sh`,
     );
-    // Le lien est posé dans la même fonction que celui de l'Ollama intégré.
+    // Le lien est posé dans la même fonction que celui du moteur de texte ;
+    // plus aucun vers l'ancien Ollama intégré.
     const lib = script.split("appimage_lib() {")[1].split("\n}")[0];
-    expect(lib).toContain(`ln -s ${OLLAMA_LINK_TARGET} "$dir/ollama"`);
     expect(lib).toContain(`ln -s ${SD_LINK_TARGET} "$dir/sd-server"`);
+    expect(lib).toContain(`ln -s ${LLAMA_LINK_TARGET} "$dir/llama-server"`);
+    expect(script).not.toMatch(/ollama/i);
     // Construit avant l'empaquetage.
     expect(script.indexOf("scripts/build-sd-server.sh")).toBeLessThan(
       script.indexOf('run "Construction ('),
@@ -2066,245 +1665,6 @@ describe("image engine in the bundle configuration", () => {
       true,
     );
   });
-});
-
-describe("fetch-ollama.sh", () => {
-  const FETCH = path.join(ROOT, "scripts/fetch-ollama.sh");
-  const HAS_TOOLS = ["cc", "zstd", "readelf"].every(
-    (tool) => spawnSync(tool, ["--version"]).status === 0,
-  );
-
-  /** Bibliothèque partagée compilée dans `dir`. */
-  function compile(dir, name, source, args = []) {
-    const file = path.join(dir, `${name}.c`);
-    writeFileSync(file, source);
-    execFileSync("cc", [
-      "-shared",
-      "-fPIC",
-      "-o",
-      path.join(dir, name),
-      file,
-      ...args,
-    ]);
-    rmSync(file);
-  }
-
-  /**
-   * Archive d'Ollama fabriquée, rangée comme la copie de .tools/ollama-dist,
-   * et son fichier de versions. Options : version annoncée par le faux
-   * binaire, GCC et construction de libgomp, dossier inconnu, fichier de
-   * plus au premier niveau de lib/ollama, libggml-base absente.
-   */
-  function fakeArchive({
-    version = "9.9.9",
-    gcc = "8.5.0",
-    build = "8.5.0-28.el8_10.alma.1",
-    extraDir = null,
-    extraFile = null,
-    withBase = true,
-    sha = null,
-  } = {}) {
-    const dir = tempDir("fetch-ollama-");
-    const src = path.join(dir, "src");
-    const lib = path.join(src, "lib/ollama");
-    mkdirSync(path.join(lib, "vulkan"), { recursive: true });
-    mkdirSync(path.join(lib, "cuda_v12"));
-    mkdirSync(path.join(src, "bin"));
-    writeFileSync(
-      path.join(src, "bin/ollama"),
-      `#!/bin/sh\necho "Warning: could not connect to a running Ollama instance"\necho "Warning: client version is ${version}"\n`,
-    );
-    chmodSync(path.join(src, "bin/ollama"), 0o755);
-    writeFileSync(path.join(src, "bin/other"), "not shipped");
-    const base = [
-      "-Wl,-rpath,$ORIGIN",
-      `-L${lib}`,
-      "-l:libggml-base.so.0.25.3",
-    ];
-    compile(lib, "libggml-base.so.0.25.3", "int base(void) { return 1; }\n", [
-      "-Wl,-soname,libggml-base.so.0",
-    ]);
-    symlinkSync("libggml-base.so.0.25.3", path.join(lib, "libggml-base.so.0"));
-    symlinkSync("libggml-base.so.0", path.join(lib, "libggml-base.so"));
-    const user = "int base(void);\nint use(void) { return base(); }\n";
-    compile(lib, "libggml-cpu-x64.so", user, base);
-    compile(path.join(lib, "vulkan"), "libggml-vulkan.so", user, base);
-    compile(
-      lib,
-      "libgomp.so.1",
-      `__attribute__((used)) static const char note[] = "running gcc ${gcc} 20210514";\n` +
-        `__attribute__((used)) static const char link[] = "libgomp.so.1.0.0-${build}.x86_64.debug";\n`,
-      ["-Wl,-soname,libgomp.so.1"],
-    );
-    writeFileSync(path.join(lib, "llama-server"), "#!/bin/sh\n");
-    chmodSync(path.join(lib, "llama-server"), 0o644);
-    writeFileSync(path.join(lib, "cuda_v12/libggml-cuda.so"), "cuda");
-    for (const name of Object.keys(OLLAMA_LICENSES)) {
-      writeFileSync(path.join(lib, name), `${name} text\n`);
-    }
-    if (extraDir) {
-      mkdirSync(path.join(lib, extraDir));
-      writeFileSync(path.join(lib, extraDir, "libggml-x.so"), "x");
-    }
-    if (extraFile) writeFileSync(path.join(lib, extraFile), "x");
-    if (!withBase) {
-      for (const name of [
-        "libggml-base.so.0.25.3",
-        "libggml-base.so.0",
-        "libggml-base.so",
-      ]) {
-        rmSync(path.join(lib, name));
-      }
-    }
-    const tools = path.join(dir, "tools");
-    const dist = path.join(tools, "ollama-dist/v9.9.9");
-    mkdirSync(dist, { recursive: true });
-    const archive = path.join(dist, "ollama-linux-amd64.tar.zst");
-    execFileSync("tar", ["--zstd", "-cf", archive, "-C", src, "bin", "lib"]);
-    const sum =
-      sha ?? createHash("sha256").update(readFileSync(archive)).digest("hex");
-    const env = path.join(dir, "ollama.env");
-    writeFileSync(
-      env,
-      `OLLAMA_VERSION=9.9.9\nOLLAMA_URL=http://127.0.0.1:1/ollama.tar.zst\nOLLAMA_SHA256=${sum}\nOLLAMA_LIBGOMP_GCC=8.5.0\nOLLAMA_LIBGOMP_BUILD=8.5.0-28.el8_10.alma.1\n`,
-    );
-    const run = () =>
-      spawnSync(FETCH, [], {
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          FETCH_OLLAMA_ENV: env,
-          FETCH_OLLAMA_TOOLS: tools,
-        },
-      });
-    return { run, archive, dest: path.join(tools, "runtimes/ollama") };
-  }
-
-  it.skipIf(!HAS_TOOLS)(
-    "keeps the server, the runner and the CPU and Vulkan libraries under their sonames",
-    () => {
-      const fake = fakeArchive();
-      const out = fake.run();
-      expect(out.stderr).toBe("");
-      expect(out.status).toBe(0);
-      expect(out.stdout).toBe(`${fake.dest}/bin/ollama\n`);
-      const files = walk(fake.dest);
-      expect([...files.keys()].sort()).toEqual(
-        [
-          "SHA256SUMS",
-          "VERSION",
-          "bin/ollama",
-          "lib/ollama/libggml-base.so.0",
-          "lib/ollama/libggml-cpu-x64.so",
-          "lib/ollama/libgomp.so.1",
-          "lib/ollama/llama-server",
-          "lib/ollama/vulkan/libggml-vulkan.so",
-          ...Object.keys(OLLAMA_LICENSES).map((f) => `licenses/${f}`),
-        ].sort(),
-      );
-      expect([...files.values()].every((info) => info.link === null)).toBe(
-        true,
-      );
-      expect(files.get("bin/ollama").mode & 0o777).toBe(0o755);
-      expect(files.get("lib/ollama/llama-server").mode & 0o777).toBe(0o755);
-      expect(files.get("lib/ollama/libggml-base.so.0").mode & 0o777).toBe(
-        0o644,
-      );
-      expect(readFileSync(path.join(fake.dest, "VERSION"), "utf8")).toBe(
-        "9.9.9\n",
-      );
-      const sums = parseSums(
-        readFileSync(path.join(fake.dest, "SHA256SUMS"), "utf8"),
-      );
-      expect([...sums.keys()]).toEqual(
-        [...files.keys()].filter((f) => /^(bin|lib)\//.test(f)).sort(),
-      );
-      for (const [rel, sum] of sums) {
-        expect(
-          createHash("sha256")
-            .update(readFileSync(path.join(fake.dest, rel)))
-            .digest("hex"),
-        ).toBe(sum);
-      }
-      // Déjà extraite : rien n'est refait, même sans l'archive.
-      rmSync(fake.archive);
-      const again = fake.run();
-      expect(again.status).toBe(0);
-      expect(again.stdout).toBe(`${fake.dest}/bin/ollama\n`);
-    },
-    30_000,
-  );
-
-  it.skipIf(!HAS_TOOLS)(
-    "refuses an unexpected checksum, an unknown directory and a missing library",
-    () => {
-      const sha = fakeArchive({ sha: "0".repeat(64) });
-      const badSum = sha.run();
-      expect(badSum.status).toBe(1);
-      expect(badSum.stderr).toMatch(/^Empreinte inattendue pour Ollama/);
-      expect(existsSync(sha.dest)).toBe(false);
-
-      const unknown = fakeArchive({ extraDir: "metal" }).run();
-      expect(unknown.status).toBe(1);
-      expect(unknown.stderr).toBe(
-        "Dossiers inattendus dans lib/ollama : metal\n",
-      );
-
-      const missing = fakeArchive({ withBase: false }).run();
-      expect(missing.status).toBe(1);
-      expect(missing.stderr).toBe(
-        "Bibliothèques introuvables :\n" +
-          "  lib/ollama/libggml-cpu-x64.so : libggml-base.so.0\n" +
-          "  lib/ollama/vulkan/libggml-vulkan.so : libggml-base.so.0\n",
-      );
-    },
-    30_000,
-  );
-
-  it.skipIf(!HAS_TOOLS)(
-    "refuses CUDA, ROCm or MLX files outside their directories",
-    () => {
-      for (const name of [
-        "libggml-cuda.so",
-        "libcudart.so.12",
-        "libcublasLt.so.12",
-        "libggml-hip.so",
-        "libamdhip64.so.6",
-        "librocblas.so.4",
-        "libmlx.so",
-      ]) {
-        const out = fakeArchive({ extraFile: name }).run();
-        expect(out.status, name).toBe(1);
-        expect(out.stderr).toBe(
-          `Fichiers CUDA, ROCm ou MLX dans l'archive : lib/ollama/${name}\n`,
-        );
-      }
-    },
-    60_000,
-  );
-
-  it.skipIf(!HAS_TOOLS)(
-    "refuses another libgomp or another version of the server",
-    () => {
-      const gomp = fakeArchive({ gcc: "9.1.0" }).run();
-      expect(gomp.status).toBe(1);
-      expect(gomp.stderr).toMatch(
-        /^libgomp\.so\.1 ne vient plus de GCC 8\.5\.0/,
-      );
-      // Même GCC, autre construction : sa source n'est plus celle citée.
-      const rebuilt = fakeArchive({ build: "8.5.0-30.el8_10.alma.1" }).run();
-      expect(rebuilt.status).toBe(1);
-      expect(rebuilt.stderr).toMatch(
-        /^libgomp\.so\.1 ne vient plus de GCC 8\.5\.0 \(construction 8\.5\.0-28\.el8_10\.alma\.1\)/,
-      );
-      const version = fakeArchive({ version: "9.9.8" }).run();
-      expect(version.status).toBe(1);
-      expect(version.stderr).toMatch(
-        /^ollama --version inattendu : .*client version is 9\.9\.8/s,
-      );
-    },
-    30_000,
-  );
 });
 
 describe("text engine (llama-server) in the packages", () => {
@@ -2410,7 +1770,6 @@ describe("text engine (llama-server) in the packages", () => {
       expect(APPIMAGE_FILES).toContain(`${APPIMAGE_LLAMA_PREFIX}${rel}`);
     }
     const appimage = packageFiles({
-      [OLLAMA_LINK]: { link: OLLAMA_LINK_TARGET },
       [SD_LINK]: { link: SD_LINK_TARGET },
       [`${LLAMA_PREFIX}llama-server`]: { elf: true },
     });

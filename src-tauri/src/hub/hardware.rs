@@ -137,7 +137,7 @@ async fn nvidia() -> Vec<HubGpu> {
 
 /// Programme `nvidia-smi` : celui du `PATH` ; sous Windows, d'abord celui du
 /// pilote dans `System32`, sans dépendre du `PATH`.
-fn nvidia_smi() -> PathBuf {
+pub(crate) fn nvidia_smi() -> PathBuf {
     if cfg!(windows)
         && let Some(root) = std::env::var_os("SystemRoot")
     {

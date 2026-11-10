@@ -194,6 +194,16 @@ pub fn run() {
                 }));
             app.state::<gpu::GpuChief>()
                 .attach_engine(text_engine.clone());
+            // Pack CUDA facultatif (écran du moteur) : état vers la page à
+            // chaque changement (événement `engine-cuda`).
+            let handle = app.handle().clone();
+            app.manage(engine::cuda::Cuda::new(
+                text_engine.cuda().clone(),
+                env!("CARGO_PKG_VERSION"),
+                move |status| {
+                    let _ = handle.emit(engine::cuda::STATUS_EVENT, status);
+                },
+            ));
             app.manage(text_engine);
             // Catalogue du ModelHub : cache disque sous le dossier des données.
             app.manage(hub::state::Catalog::new(data_dir.join("modelhub")));
@@ -498,6 +508,11 @@ pub fn run() {
             commands::image_models::image_repo,
             commands::image_models::image_search,
             commands::image_models::image_use_model,
+            commands::engine::cuda_cancel,
+            commands::engine::cuda_install,
+            commands::engine::cuda_remove,
+            commands::engine::cuda_set_enabled,
+            commands::engine::cuda_status,
             commands::engine::engine_status,
             commands::engine::open_engine_logs,
             commands::models::get_think_pref,
@@ -662,6 +677,7 @@ async fn stop_work(app: &AppHandle) {
     let speech_downloads = app.try_state::<SpeechDownloads>();
     let voice_downloads = app.try_state::<tts::VoiceDownloads>();
     let image_downloads = app.try_state::<image_models::ImageDownloads>();
+    let cuda = app.try_state::<engine::cuda::Cuda>();
     let dictation = app.state::<Dictation>();
     let downloads = async {
         if let Some(downloads) = downloads {
@@ -683,6 +699,11 @@ async fn stop_work(app: &AppHandle) {
             downloads.stop_all(EXIT_GRACE).await;
         }
     };
+    let cuda = async {
+        if let Some(cuda) = cuda {
+            cuda.stop_all(EXIT_GRACE).await;
+        }
+    };
     let images = app.try_state::<image_gen::ImageGen>();
     let images = async {
         if let Some(images) = images {
@@ -696,6 +717,7 @@ async fn stop_work(app: &AppHandle) {
         speech_downloads,
         voice_downloads,
         image_downloads,
+        cuda,
         dictation.shutdown(),
         images
     );

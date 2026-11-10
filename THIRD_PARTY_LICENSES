@@ -8,7 +8,7 @@ third-party material listed below, with the notices required by each license.
   Part 2  Other third-party material in ChatonLM source files
   Part 3  Libraries compiled into ChatonLM
   Part 4  System libraries bundled in the AppImage only
-  Part 5  Built-in Ollama
+  Part 5  Optional CUDA pack, downloaded on demand
   Part 6  Speech recognition models, downloaded on demand
   Part 7  Text-to-speech models, downloaded on demand
   Part 8  Voice activity detection model, built into ChatonLM
@@ -813,49 +813,41 @@ bundled, is published next to each AppImage, in the file
 chatonlm_<version>_amd64.AppImage-sources.tar.
 
 
-== Part 5. Built-in Ollama ==
+== Part 5. Optional CUDA pack ==
 
-Program:  Ollama 0.40.15, https://github.com/ollama/ollama, official build
-          for Linux (ollama-linux-amd64.tar.zst of the v0.40.15 release),
-          shipped unmodified in /usr/lib/chatonlm/ollama (in the AppImage:
-          usr/libexec/chatonlm/ollama) and run as a separate program,
-          without its CUDA, ROCm and MLX libraries
-License:  MIT, Copyright (c) Ollama
+The packages and the Windows installer contain no CUDA file. On computers
+with a recent NVIDIA graphics card, ChatonLM offers, in Settings, Engine, an
+optional CUDA pack for the text engine (part 11), downloaded on demand and
+stored in the app's data folder. It has two parts:
 
-The .deb and the AppImage include this copy of Ollama, used when no other
-Ollama server is available or when chosen in Settings. It contains Ollama
-itself, llama.cpp and ggml (MIT), and the code they include under other
-permissive licenses: Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC and MIT,
-and public-domain code. The license files that Ollama ships with it, and
-the NOTICE file of XGrammar, are in licenses/ollama/, with a README.txt that
-describes the copy.
+-- CUDA backend of ChatonLM --
 
-It also contains lib/ollama/libgomp.so.1, the GNU OpenMP runtime library
-of GCC 8.5.0, built by AlmaLinux 8 (package libgomp 8.5.0-28.el8_10.alma.1),
-under the GNU General Public License, version 3 or later, with the GCC
-Runtime Library Exception, version 3.1. Both texts are in licenses/ollama/
-(LIBGOMP_GPL-3.0.txt and LIBGOMP_GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt), and
-README.txt gives the address of its corresponding source code, the
-AlmaLinux source package of GCC 8.5.0-28.el8_10.alma.1.
+Program:  ggml-cuda, the CUDA backend of ggml from llama.cpp, at the same
+          commit as the text engine (part 11), built by ChatonLM with the
+          CUDA Toolkit (libggml-cuda.so, or ggml-cuda.dll under Windows)
+          and published as a file of the ChatonLM release
+          (chatonlm-cuda-<build>-linux-x64.tar.gz or -windows-x64.zip)
+License:  MIT, Copyright (c) 2023-2026 The ggml authors; it includes CCCL
+          of NVIDIA (CUDA C++ Core Libraries,
+          https://github.com/NVIDIA/cccl), under the Apache License 2.0
+          with LLVM Exceptions
 
-The Windows installer includes the official build of the same release for
-Windows instead (ollama-windows-amd64.zip), shipped unmodified in the ollama
-folder next to chatonlm.exe, without its CUDA libraries, and run as a separate
-program. It has no libgomp. Besides the code described above and its license
-files (in licenses\ollama, with dlfcn-win32 and JSON for Modern C++, both
-under the MIT License), it contains runtime libraries for which the archive
-carries no license file:
+The pack carries these license texts next to the backend.
 
-  libc++.dll, libunwind.dll, libomp.dll
-      C++, unwinding and OpenMP runtime libraries of the LLVM Project
-      (https://llvm.org), as built by llvm-mingw, under the Apache License
-      2.0 with LLVM Exceptions (licenses\ollama\LLVM-LICENSE.txt)
-  libwinpthread-1.dll
-      winpthreads of the mingw-w64 project (https://www.mingw-w64.org),
-      under the MIT License, with parts under a BSD 3-Clause License
-      (licenses\ollama\winpthreads-COPYING.txt)
-  vulkan\vcruntime140*.dll, msvcp140*.dll, concrt140.dll, vccorlib140.dll
-      Microsoft Visual C++ runtime libraries: see part 9
+-- NVIDIA libraries --
+
+Files:    cudart, cublas and cublasLt (CUDA Runtime and cuBLAS) of the NVIDIA
+          CUDA Toolkit, Copyright (c) NVIDIA Corporation
+License:  NVIDIA CUDA Toolkit End User License Agreement,
+          https://docs.nvidia.com/cuda/eula/index.html
+
+These libraries are not open-source software and are not part of ChatonLM:
+they are not shipped in the packages, and ChatonLM does not host them. Once
+the user has accepted the license, which ChatonLM shows first, the app
+downloads them from NVIDIA's server (the "redist" archives of the CUDA
+Toolkit, whose size and SHA-256 are checked), keeps only these three
+libraries unmodified, and stores them with the text of the license in its
+data folder.
 
 
 == Part 6. Speech recognition models ==
@@ -1004,17 +996,15 @@ License or the Apache License 2.0.
 -- Microsoft Visual C++ runtime --
 
 Files:    vcruntime140*.dll, msvcp140*.dll, concrt140.dll and
-          vccorlib140.dll, next to chatonlm.exe (and the copies that Ollama
-          ships in ollama\lib\ollama\vulkan, and those of the text engine
-          in llama-server\)
+          vccorlib140.dll, next to chatonlm.exe (and the copies of the text
+          engine in llama-server\)
 License:  Microsoft Software License Terms of Visual Studio (redistributable
           files), Copyright (c) Microsoft Corporation
 
-ChatonLM, ONNX Runtime, the Vulkan engine of the built-in Ollama and the text
-engine (part 11) need these libraries, and sd-server.exe of the image engine
-(part 10) contains their static version. They are not open-source software: they are shipped
-unmodified, as Microsoft allows for the redistributable files of Visual
-Studio.
+ChatonLM, ONNX Runtime and the text engine (part 11) need these libraries,
+and sd-server.exe of the image engine (part 10) contains their static
+version. They are not open-source software: they are shipped unmodified, as
+Microsoft allows for the redistributable files of Visual Studio.
 
 
 == Part 10. Built-in image engine (sd-server) ==

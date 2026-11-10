@@ -33,11 +33,18 @@
 # Windows), glslc et les en-têtes Vulkan et SPIR-V (CI : SDK de LunarG, voir
 # packaging/sdcpp.env ; Arch : vulkan-headers, spirv-headers, shaderc).
 # Variable : LLAMA_JOBS (parallélisme, 4 par défaut).
+# --cuda : pack CUDA facultatif (scripts/build-llama-cuda.sh, mêmes options).
 # Affiche le chemin du binaire. --check : code 0 si le dossier est à jour, 1
 # sinon, sans rien construire (la CI n'installe le SDK Vulkan qu'au besoin).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Pack CUDA (moteur ggml-cuda seul, même commit) : scripts/build-llama-cuda.sh,
+# à part pour que ses retouches ne changent pas l'empreinte de ce moteur-ci.
+if [ "${1:-}" = "--cuda" ]; then
+  shift
+  exec bash "$root/scripts/build-llama-cuda.sh" "$@"
+fi
 env_file="$root/packaging/llama.env"
 sd_env_file="$root/packaging/sdcpp.env"
 patches_dir="$root/packaging/llama"

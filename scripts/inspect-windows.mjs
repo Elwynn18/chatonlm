@@ -1,8 +1,9 @@
 // Inspection de l'installateur Windows de ChatonLM (NSIS) construit par
 // scripts/package-windows.sh : en-tête NSIS, manifeste sans élévation,
 // fichiers extraits par 7-Zip (`7z x`, dans .tools/package/inspect-windows),
-// fichiers attendus, notices, Ollama intégré identique à la copie vérifiée de
-// scripts/fetch-ollama.sh et sans moteur CUDA, ROCm ni MLX, ONNX Runtime
+// fichiers attendus, notices, aucun fichier CUDA, ROCm ni HIP (le pack CUDA
+// est un téléchargement facultatif de l'app) ni de l'ancien Ollama intégré,
+// crochets NSIS qui retirent celui-ci d'une installation 0.9.x, ONNX Runtime
 // identique à celui de scripts/fetch-onnxruntime.sh, moteur d'images
 // identique à celui de scripts/build-sd-server.sh (CRT statique : aucune DLL
 // de Visual C++ ni d'OpenMP importée), moteur de texte identique à celui de
@@ -19,7 +20,7 @@
 //
 // Usage : node scripts/inspect-windows.mjs [options] <ChatonLM_x.y.z_x64-setup.exe>
 //   --runtimes <dossier>   copies de référence (défaut : .tools/runtimes ;
-//                          ollama, onnxruntime, sd-server, llama-server)
+//                          onnxruntime, sd-server, llama-server)
 //   --report <fichier>     copie du rapport
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -40,7 +41,6 @@ import {
   testOnlyErrors,
 } from "./inspect-packages.mjs";
 import { parseEnv } from "./package-notices.mjs";
-import { isOllamaLicenseFile } from "./package-notices-windows.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 
@@ -62,12 +62,6 @@ export const REQUIRED_FILES = [
   "vcruntime140_1.dll",
   "msvcp140.dll",
   "msvcp140_1.dll",
-  // Ollama intégré, arborescence de l'archive officielle.
-  "ollama/ollama.exe",
-  "ollama/VERSION",
-  "ollama/lib/ollama/llama-server.exe",
-  "ollama/lib/ollama/ggml-base.dll",
-  "ollama/lib/ollama/vulkan/ggml-vulkan.dll",
   // Moteur d'images (scripts/build-sd-server.sh) : le serveur, à CRT
   // statique, et le chargeur Vulkan de secours, que l'app met en fin de PATH
   // du serveur (image_gen/windows.rs).
@@ -103,15 +97,93 @@ export const REQUIRED_FILES = [
   "licenses/windows-components.txt",
   "licenses/WebView2-SDK-LICENSE.txt",
   "licenses/NSIS-COPYING.txt",
-  "licenses/ollama/README.txt",
-  "licenses/ollama/GO_LICENSE",
-  "licenses/ollama/LLAMA_CPP_LICENSE",
-  "licenses/ollama/LLVM-LICENSE.txt",
-  "licenses/ollama/winpthreads-COPYING.txt",
   "licenses/sd-server/README.txt",
   "licenses/llama-server/README.txt",
   "licenses/llama-server/llama.cpp-LICENSE.txt",
 ];
+
+/**
+ * Dossiers de l'ancien Ollama intégré (versions 0.9.x) : plus rien n'y est
+ * livré ; les crochets NSIS les retirent d'une installation mise à jour.
+ */
+export const RETIRED_DIRS = ["ollama/", "licenses/ollama/"];
+
+/**
+ * Contrôles des crochets NSIS (`hooks` : texte de packaging/windows/hooks.nsh)
+ * pour l'ancien Ollama intégré : CHATONLM_CLEAN_OLD_OLLAMA appelée avant la
+ * copie (mise à jour) et avant la désinstallation, après l'arrêt de l'app ;
+ * l'ancien dossier reconnu par ollama.exe ET VERSION ; ses processus arrêtés
+ * par leur chemin exact sous $INSTDIR\ollama\ ; ses fichiers retirés
+ * (ollama.exe, VERSION, lib\ollama\) sans jamais « RMDir /r » sur
+ * $INSTDIR\ollama ni sur $INSTDIR lui-même (un fichier de l'utilisateur
+ * reste) ; jamais d'arrêt par nom (taskkill), jamais rien hors de $INSTDIR
+ * (dossier .ollama du profil, données de l'app). Rend des erreurs.
+ */
+export function oldOllamaHookErrors(hooks) {
+  const code = hooks
+    .split("\n")
+    .filter((line) => !line.trim().startsWith(";"))
+    .join("\n");
+  const macro = (name) =>
+    code.split(new RegExp(`!macro ${name}\\b`))[1]?.split("!macroend")[0] ??
+    null;
+  const errors = [];
+  for (const hook of ["NSIS_HOOK_PREINSTALL", "NSIS_HOOK_PREUNINSTALL"]) {
+    const body = macro(hook);
+    const stop = body?.indexOf("!insertmacro CHATONLM_STOP_ALL") ?? -1;
+    const clean = body?.indexOf("!insertmacro CHATONLM_CLEAN_OLD_OLLAMA") ?? -1;
+    if (clean < 0 || stop < 0 || clean < stop) {
+      errors.push(
+        `${hook} : CHATONLM_CLEAN_OLD_OLLAMA attendue après CHATONLM_STOP_ALL`,
+      );
+    }
+  }
+  const recognize = macro("CHATONLM_OLD_OLLAMA") ?? "";
+  for (const file of ["ollama.exe", "VERSION"]) {
+    if (!recognize.includes(`\${FileExists} "$INSTDIR\\ollama\\${file}"`)) {
+      errors.push(`CHATONLM_OLD_OLLAMA : ${file} non vérifié`);
+    }
+  }
+  const stopOld = macro("CHATONLM_STOP_OLD_OLLAMA") ?? "";
+  for (const exe of [
+    "ollama.exe",
+    "lib\\ollama\\llama-server.exe",
+    "lib\\ollama\\llama-quantize.exe",
+  ]) {
+    if (!stopOld.includes(`CHATONLM_STOP_FILE "$INSTDIR\\ollama\\${exe}"`)) {
+      errors.push(
+        `CHATONLM_STOP_OLD_OLLAMA : $INSTDIR\\ollama\\${exe} non arrêté`,
+      );
+    }
+  }
+  const remove = macro("CHATONLM_REMOVE_OLD_OLLAMA") ?? "";
+  for (const line of [
+    'Delete "$INSTDIR\\ollama\\ollama.exe"',
+    'RMDir /r "$INSTDIR\\ollama\\lib\\ollama"',
+    'Delete "$INSTDIR\\ollama\\VERSION"',
+    'RMDir "$INSTDIR\\ollama"',
+  ]) {
+    if (!remove.includes(line)) {
+      errors.push(`CHATONLM_REMOVE_OLD_OLLAMA : « ${line} » absent`);
+    }
+  }
+  for (const [pattern, why] of [
+    [
+      /RMDir\s+\/r\s+"\$INSTDIR(\\ollama)?\\?"/i,
+      "RMDir /r sur tout un dossier",
+    ],
+    [/taskkill/i, "arrêt par nom (taskkill)"],
+    [
+      /\$PROFILE|\$APPDATA|\$LOCALAPPDATA|\.ollama\b/i,
+      "chemin hors du dossier d'installation",
+    ],
+  ]) {
+    const match = pattern.exec(code);
+    if (match)
+      errors.push(`packaging/windows/hooks.nsh : ${why} : ${match[0]}`);
+  }
+  return errors;
+}
 
 /** Dossier du moteur de texte dans l'installation. */
 export const LLAMA_SERVER_DIR = "llama-server/";
@@ -180,7 +252,6 @@ export const NOTICE_MENTIONS = [
     ],
   ],
   ["licenses/windows-components.txt", [/WebView2/, /NSIS/, /Visual C\+\+/]],
-  ["licenses/ollama/README.txt", [/official build for Windows/, /libomp\.dll/]],
   [
     "licenses/sd-server/README.txt",
     [
@@ -226,9 +297,8 @@ export const SYSTEM_DLLS = new Set(
 
 /**
  * DLL que seul le système de l'utilisateur fournit, et qui peuvent manquer :
- * le chargeur Vulkan vient du pilote graphique (le moteur Vulkan d'Ollama
- * n'est chargé que s'il est là ; sd-server.exe prend sinon celui de
- * sd-server/fallback).
+ * le chargeur Vulkan vient du pilote graphique (sd-server.exe et
+ * llama-server.exe prennent sinon celui de leur dossier fallback).
  */
 export const HOST_ONLY_DLLS = new Set(["vulkan-1.dll"]);
 
@@ -378,9 +448,6 @@ export function executionLevel(buffer) {
 function searchDirs(file) {
   const dir = path.posix.dirname(file);
   const dirs = [dir === "." ? "" : dir];
-  // Bibliothèques des moteurs d'Ollama (vulkan/…) : le serveur ajoute
-  // lib/ollama à leur recherche.
-  if (file.startsWith("ollama/lib/ollama/")) dirs.push("ollama/lib/ollama");
   // Moteur d'images : dossier de sd-server.exe (celui du processus), puis
   // fallback, ajouté en fin de PATH par l'app.
   if (file.startsWith(SD_SERVER_DIR))
@@ -441,11 +508,10 @@ export function importProblems({ files, pe }) {
  * Contrôles du contenu de l'installateur. `files` : chemins relatifs au
  * dossier d'installation (« / ») → taille ; `read(chemin)` : texte ;
  * `hash(chemin)` : SHA-256 ; `pe(chemin)` : en-têtes PE ; `reference` :
- * { ollama: Map(chemin relatif → SHA-256), onnxruntime: SHA-256 | null,
- *   ollamaVersion, sdServer: Map(chemin relatif → SHA-256) | null,
- *   sdServerPinned, llamaServer: Map | null, llamaServerPinned } (copies
- * vérifiées de .tools/runtimes, versions de packaging/ollama.env,
- * packaging/sdcpp.env et packaging/llama.env) ; `version` de l'app ;
+ * { onnxruntime: SHA-256 | null, sdServer: Map(chemin relatif → SHA-256)
+ *   | null, sdServerPinned, llamaServer: Map | null, llamaServerPinned }
+ * (copies vérifiées de .tools/runtimes, versions de packaging/sdcpp.env et
+ * packaging/llama.env) ; `version` de l'app ;
  * `bytes(chemin)` : contenu brut (exécutable sans le code des essais). Rend
  * { errors, warnings }.
  */
@@ -466,53 +532,20 @@ export function contentProblems({
   for (const file of REQUIRED_FILES) {
     if (!lower.has(file.toLowerCase())) errors.push(`Fichier absent : ${file}`);
   }
-  for (const file of files.keys()) {
-    // Un fichier de licence resté dans lib/ollama (MLX_LICENSE…) n'est pas
-    // un moteur.
-    if (
-      file.startsWith("ollama/") &&
-      !isOllamaLicenseFile(path.posix.basename(file)) &&
-      EXCLUDED_ENGINES.test(file)
-    ) {
+  // Aucun fichier CUDA, ROCm ni HIP, où qu'il soit (pack CUDA téléchargé à
+  // part par l'app), ni de l'ancien Ollama intégré.
+  for (const file of [...files.keys()].sort()) {
+    if (EXCLUDED_ENGINES.test(file)) {
       errors.push(
-        `Moteur exclu de l'Ollama intégré (CUDA, ROCm, MLX) : ${file}`,
+        `Fichier CUDA, ROCm ou HIP livré (pack CUDA téléchargé à part) : ${file}`,
       );
     }
-  }
-
-  // Ollama intégré : exactement les fichiers de la copie vérifiée.
-  if (reference.ollama) {
-    for (const [rel, sum] of reference.ollama) {
-      const file = `ollama/${rel}`;
-      if (!files.has(file)) {
-        errors.push(
-          `Ollama intégré : fichier absent de l'installateur : ${file}`,
-        );
-      } else if (hash(file) !== sum) {
-        errors.push(`Ollama intégré : fichier modifié : ${file}`);
-      }
-    }
-    for (const file of files.keys()) {
-      if (
-        file.startsWith("ollama/") &&
-        !reference.ollama.has(file.slice("ollama/".length))
-      ) {
-        errors.push(`Ollama intégré : fichier inattendu : ${file}`);
-      }
-    }
-  } else {
-    warnings.push(
-      "Copie de référence de l'Ollama intégré absente (.tools/runtimes/ollama) : fichiers non comparés",
-    );
-  }
-  if (reference.ollamaVersion && files.has("ollama/VERSION")) {
-    const shipped = read("ollama/VERSION").trim();
-    if (shipped !== reference.ollamaVersion) {
-      errors.push(
-        `ollama/VERSION : « ${shipped} » au lieu de ${reference.ollamaVersion} (packaging/ollama.env)`,
-      );
+    const lowerFile = file.toLowerCase();
+    if (RETIRED_DIRS.some((dir) => lowerFile.startsWith(dir))) {
+      errors.push(`Fichier de l'ancien Ollama intégré livré : ${file}`);
     }
   }
+  errors.push(...oldOllamaHookErrors(hooks));
   if (reference.onnxruntime && files.has("onnxruntime.dll")) {
     if (hash("onnxruntime.dll") !== reference.onnxruntime) {
       errors.push("onnxruntime.dll : différent de la copie vérifiée");
@@ -740,20 +773,6 @@ export function installRoot(extracted) {
 
 /** Copies de référence de .tools/runtimes (ou null si absentes). */
 function readReference(runtimes) {
-  const ollamaDir = path.join(runtimes, "ollama");
-  let ollama = null;
-  if (existsSync(path.join(ollamaDir, "ollama.exe"))) {
-    ollama = new Map();
-    const shipped = ["ollama.exe", "VERSION"].filter((f) =>
-      existsSync(path.join(ollamaDir, f)),
-    );
-    const lib = existsSync(path.join(ollamaDir, "lib"))
-      ? walk(path.join(ollamaDir, "lib")).map((f) => `lib/${f}`)
-      : [];
-    for (const rel of [...shipped, ...lib]) {
-      ollama.set(rel, sha256(path.join(ollamaDir, rel)));
-    }
-  }
   const ort = path.join(runtimes, "onnxruntime", "onnxruntime.dll");
   // Moteur d'images : tous les fichiers du dossier construit, sauf
   // SHA256SUMS (non livré).
@@ -778,9 +797,7 @@ function readReference(runtimes) {
   const env = (file) =>
     parseEnv(readFileSync(path.join(root, "packaging", file), "utf8"));
   return {
-    ollama,
     onnxruntime: existsSync(ort) ? sha256(ort) : null,
-    ollamaVersion: env("ollama.env").OLLAMA_VERSION ?? null,
     sdServer,
     sdServerPinned: env("sdcpp.env").SDCPP_VERSION ?? null,
     llamaServer,
@@ -824,7 +841,6 @@ export function formatReport({
     `  signature Authenticode : ${signed ? "présente" : "absente (attendu : pas de signature aujourd'hui)"}`,
     `  installé : ${files.size} fichiers, ${formatSize(total)}`,
     `    racine (exe, DLL) : ${formatSize(group(""))}`,
-    `    ollama/ : ${formatSize(group("ollama/"))}`,
     `    sd-server/ : ${formatSize(group(SD_SERVER_DIR))}`,
     `    llama-server/ : ${formatSize(group(LLAMA_SERVER_DIR))}`,
     `    licenses/ : ${formatSize(group("licenses/"))}`,

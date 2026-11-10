@@ -12,6 +12,9 @@ import { formatBytes } from "@/i18n/format";
 /** État du moteur (`engine_status`). */
 export const engineStatusKey = ["engineStatus"] as const;
 
+/** Pack CUDA (`cuda_status`). */
+export const cudaStatusKey = ["cudaStatus"] as const;
+
 /** Dossier des modèles (`engine_models_dir`). */
 export const engineModelsDirKey = ["engineModelsDir"] as const;
 
@@ -45,9 +48,17 @@ export function engineVersionText(t: TFunction, status: EngineStatus): string {
     : t("settings.engine.versionUnknown");
 }
 
-/** Accélération : la carte graphique nommée, ou le processeur seul. */
+/**
+ * Accélération : la carte NVIDIA par CUDA, la carte graphique nommée, ou le
+ * processeur seul.
+ */
 export function accelerationText(t: TFunction, status: EngineStatus): string {
   if (status.backend === "cpu") return t("settings.engine.accelerationCpu");
+  if (status.backend === "cuda") {
+    return status.gpuName
+      ? t("settings.engine.accelerationCuda", { name: status.gpuName })
+      : t("settings.engine.accelerationCudaUnnamed");
+  }
   return status.gpuName
     ? t("settings.engine.accelerationGpu", { name: status.gpuName })
     : t("settings.engine.accelerationGpuUnnamed");
