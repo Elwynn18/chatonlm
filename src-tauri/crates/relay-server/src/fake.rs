@@ -1,14 +1,16 @@
-//! Faux fournisseurs (Brave et Mojeek sur un même serveur local, aux chemins
-//! de leurs vraies API) et relais d'essai lancé dans le processus. Essais
-//! seulement (fonctionnalité `fake`) : aucune vraie clé, aucun appel réseau.
+//! Faux fournisseurs (Brave et Mojeek, et pour le banc R0 Ceramic et Linkup,
+//! sur un même serveur local, aux chemins de leurs vraies API) et relais
+//! d'essai lancé dans le processus. Essais seulement (fonctionnalité `fake`) :
+//! aucune vraie clé, aucun appel réseau.
 
+use crate::bench::BenchProvider;
 use crate::config::{Config, Secret, Secrets, Tiers};
 use crate::log::{Clock, Log};
 use crate::server::{self, Relay};
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use relay_proto::api::Provider;
 use serde_json::{Value, json};
@@ -21,6 +23,8 @@ use std::time::Duration;
 /// Clés des essais : cherchées ensuite dans les journaux et la base.
 pub const BRAVE_TEST_KEY: &str = "BSA-test-secret-7f3a9c";
 pub const MOJEEK_TEST_KEY: &str = "mojeek-test-secret-41d2e8";
+pub const CERAMIC_TEST_KEY: &str = "ceramic-test-secret-0b9e51";
+pub const LINKUP_TEST_KEY: &str = "linkup-test-secret-c27d34";
 
 /// Comportement d'un faux fournisseur.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,6 +44,9 @@ pub enum Behavior {
     Slow(Duration),
     /// Titres et extraits où `&` précède du texte non ASCII (B1).
     Unicode,
+    /// Brave : 422 si `extra_snippets` est demandé (offre qui ne les
+    /// comprend pas), sinon comme `Ok`.
+    NoExtraSnippets,
 }
 
 /// Titres de [`Behavior::Unicode`].
@@ -52,11 +59,22 @@ pub struct FakeRequest {
     pub token: Option<String>,
 }
 
+/// Requête reçue par le faux Ceramic ou le faux Linkup (banc R0).
+#[derive(Clone, Debug)]
+pub struct FakeBenchRequest {
+    pub provider: BenchProvider,
+    pub body: Value,
+    pub token: Option<String>,
+}
+
 #[derive(Default)]
 struct FakeState {
     brave: Mutex<Option<Behavior>>,
     mojeek: Mutex<Option<Behavior>>,
+    ceramic: Mutex<Option<Behavior>>,
+    linkup: Mutex<Option<Behavior>>,
     requests: Mutex<Vec<FakeRequest>>,
+    bench_requests: Mutex<Vec<FakeBenchRequest>>,
 }
 
 pub struct FakeProviders {
@@ -76,7 +94,8 @@ impl FakeProviders {
         let state = Arc::new(FakeState::default());
         let app = Router::new()
             .route("/res/v1/web/search", get(brave))
-            .route("/search", get(mojeek))
+            .route("/search", get(mojeek).post(ceramic))
+            .route("/v1/search", post(linkup))
             .with_state(state.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -94,6 +113,21 @@ impl FakeProviders {
             Provider::Mojeek => &self.state.mojeek,
         };
         *slot.lock().expect("fake") = Some(behavior);
+    }
+
+    /// Les quatre fournisseurs du banc.
+    pub fn set_bench(&self, provider: BenchProvider, behavior: Behavior) {
+        let slot = match provider {
+            BenchProvider::Brave => &self.state.brave,
+            BenchProvider::Mojeek => &self.state.mojeek,
+            BenchProvider::Ceramic => &self.state.ceramic,
+            BenchProvider::Linkup => &self.state.linkup,
+        };
+        *slot.lock().expect("fake") = Some(behavior);
+    }
+
+    pub fn bench_requests(&self) -> Vec<FakeBenchRequest> {
+        self.state.bench_requests.lock().expect("fake").clone()
     }
 
     pub fn requests(&self) -> Vec<FakeRequest> {
@@ -161,7 +195,11 @@ async fn misbehave(behavior: Behavior, key: &str) -> Option<Response> {
             tokio::time::sleep(delay).await;
             None
         }
-        Behavior::Ok | Behavior::Empty | Behavior::DailyLimit | Behavior::Unicode => None,
+        Behavior::Ok
+        | Behavior::Empty
+        | Behavior::DailyLimit
+        | Behavior::Unicode
+        | Behavior::NoExtraSnippets => None,
     }
 }
 
@@ -186,6 +224,10 @@ async fn brave(
     if token.as_deref() != Some(BRAVE_TEST_KEY) {
         return (StatusCode::UNAUTHORIZED, "bad token").into_response();
     }
+    let extra = params.get("extra_snippets").is_some_and(|v| v == "true");
+    if extra && behavior == Behavior::NoExtraSnippets {
+        return (StatusCode::UNPROCESSABLE_ENTITY, "extra_snippets").into_response();
+    }
     let query = params.get("q").cloned().unwrap_or_default();
     let count: usize = params
         .get("count")
@@ -199,7 +241,13 @@ async fn brave(
     let web: Vec<Value> = items
         .into_iter()
         .take(count + 2)
-        .map(|(title, url, description)| json!({ "title": title, "url": url, "description": description }))
+        .map(|(title, url, description)| {
+            let mut item = json!({ "title": title, "url": url, "description": description });
+            if extra {
+                item["extra_snippets"] = json!(["Extrait supplémentaire", "Encore un"]);
+            }
+            item
+        })
         .collect();
     Json(json!({ "query": { "original": query }, "web": { "results": web } })).into_response()
 }
@@ -239,6 +287,123 @@ async fn mojeek(
         .into_response()
 }
 
+/// Corps JSON et jeton `Bearer` d'une requête du banc ; `Err` : réponse
+/// d'erreur déjà prête (comportement réglé, jeton refusé).
+async fn bench_request(
+    state: &FakeState,
+    provider: BenchProvider,
+    headers: &HeaderMap,
+    body: &str,
+    expected: &str,
+) -> Result<(Value, Behavior), Box<Response>> {
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::to_owned);
+    let body: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    state
+        .bench_requests
+        .lock()
+        .expect("fake")
+        .push(FakeBenchRequest {
+            provider,
+            body: body.clone(),
+            token: token.clone(),
+        });
+    let slot = match provider {
+        BenchProvider::Ceramic => &state.ceramic,
+        _ => &state.linkup,
+    };
+    let behavior = behavior(slot);
+    if let Some(response) = misbehave(behavior, token.as_deref().unwrap_or_default()).await {
+        return Err(Box::new(response));
+    }
+    if token.as_deref() != Some(expected) {
+        return Err(Box::new(
+            (StatusCode::UNAUTHORIZED, "bad token").into_response(),
+        ));
+    }
+    Ok((body, behavior))
+}
+
+fn bench_items(body: &Value, field: &str, behavior: Behavior) -> Vec<(String, String, String)> {
+    let query = body[field].as_str().unwrap_or_default();
+    let max = body["maxResults"].as_u64().unwrap_or(10) as usize;
+    match behavior {
+        Behavior::Empty => Vec::new(),
+        Behavior::Unicode => unicode_results(),
+        _ => results(query).into_iter().take(max).collect(),
+    }
+}
+
+async fn ceramic(
+    State(state): State<Arc<FakeState>>,
+    headers: HeaderMap,
+    body: String,
+) -> Response {
+    let (body, behavior) = match bench_request(
+        &state,
+        BenchProvider::Ceramic,
+        &headers,
+        &body,
+        CERAMIC_TEST_KEY,
+    )
+    .await
+    {
+        Ok(found) => found,
+        Err(response) => return *response,
+    };
+    // Comme le vrai : aucun autre champ que `query`, `maxResults`,
+    // `maxDescriptionLength`.
+    let allowed = ["query", "maxResults", "maxDescriptionLength"];
+    if body
+        .as_object()
+        .is_none_or(|fields| fields.keys().any(|k| !allowed.contains(&k.as_str())))
+    {
+        return (StatusCode::BAD_REQUEST, "additional properties").into_response();
+    }
+    let results: Vec<Value> = bench_items(&body, "query", behavior)
+        .into_iter()
+        .map(|(title, url, description)| json!({ "title": title, "url": url, "description": description }))
+        .collect();
+    let total = results.len();
+    Json(json!({
+        "requestId": "fake",
+        "result": { "results": results, "searchMetadata": { "executionTime": 0.01 }, "totalResults": total }
+    }))
+    .into_response()
+}
+
+async fn linkup(State(state): State<Arc<FakeState>>, headers: HeaderMap, body: String) -> Response {
+    let (body, behavior) = match bench_request(
+        &state,
+        BenchProvider::Linkup,
+        &headers,
+        &body,
+        LINKUP_TEST_KEY,
+    )
+    .await
+    {
+        Ok(found) => found,
+        Err(response) => return *response,
+    };
+    if body["depth"].as_str().is_none() || body["outputType"] != "searchResults" {
+        return (StatusCode::BAD_REQUEST, "depth and outputType are required").into_response();
+    }
+    let mut results: Vec<Value> = vec![json!({
+        "type": "image", "name": "Image", "url": "https://example.org/image.png"
+    })];
+    results.extend(
+        bench_items(&body, "q", behavior)
+            .into_iter()
+            .map(|(name, url, content)| {
+                json!({ "type": "text", "name": name, "url": url, "content": content, "favicon": "" })
+            }),
+    );
+    Json(json!({ "results": results })).into_response()
+}
+
 /// Configuration d'essai : preuve de travail minuscule, fournisseurs factices.
 pub fn test_config(database: &Path, providers_url: &str) -> Config {
     let mut config: Config =
@@ -265,7 +430,7 @@ pub fn test_secrets() -> Secrets {
     Secrets {
         brave_api_key: Secret::new(BRAVE_TEST_KEY),
         mojeek_api_key: Secret::new(MOJEEK_TEST_KEY),
-        challenge_key: Secret::default(),
+        ..Secrets::default()
     }
 }
 

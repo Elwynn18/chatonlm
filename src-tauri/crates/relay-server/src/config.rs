@@ -395,6 +395,12 @@ pub struct Secrets {
     pub brave_api_key: Secret,
     #[serde(default)]
     pub mojeek_api_key: Secret,
+    /// Ceramic et Linkup : banc R0 seulement (`chatonlm-relay bench`), le
+    /// relais ne les emploie pas.
+    #[serde(default)]
+    pub ceramic_api_key: Secret,
+    #[serde(default)]
+    pub linkup_api_key: Secret,
     /// Clé du sceau des défis (64 caractères hexadécimaux). Absente : tirée au
     /// démarrage (les défis en cours deviennent alors invalides à chaque
     /// redémarrage, sans autre effet).
@@ -552,5 +558,42 @@ mod tests {
                 && nginx.contains(r#"return 429 '{"error":{"code":"rate_limited"}}';"#),
             "{nginx}"
         );
+    }
+
+    /// Les lignes que le propriétaire du serveur colle (`DEPLOIEMENT.md` § 3)
+    /// écrivent un `secrets.toml` que le relais lit, avec les quatre clés
+    /// (banc R0 compris) : le format `printf` reste celui des champs.
+    #[test]
+    fn the_pasted_secrets_lines_produce_a_valid_file() {
+        let guide = include_str!("../../../../packaging/relay/DEPLOIEMENT.md");
+        let format = guide
+            .lines()
+            .find_map(|line| line.strip_prefix("printf '"))
+            .and_then(|rest| rest.split('\'').next())
+            .expect("ligne printf du § 3");
+        let values = [
+            "BSA-b",
+            "mojeek-m",
+            "ceramic-c",
+            "linkup-l",
+            &"ab".repeat(32),
+        ];
+        let mut text = format.replace("\\n", "\n");
+        for value in values {
+            text = text.replacen("%s", value, 1);
+        }
+        assert!(!text.contains("%s"), "{text}");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("secrets.toml");
+        std::fs::write(&path, &text).unwrap();
+        let secrets = Secrets::load(&path).unwrap();
+        assert_eq!(secrets.brave_api_key.expose(), "BSA-b");
+        assert_eq!(secrets.mojeek_api_key.expose(), "mojeek-m");
+        assert_eq!(secrets.ceramic_api_key.expose(), "ceramic-c");
+        assert_eq!(secrets.linkup_api_key.expose(), "linkup-l");
+        assert!(secrets.challenge_key_bytes().is_some());
+        // Autant de variables lues que de `%s` (moins la clé tirée sur place).
+        let reads = guide.matches("read -rsp '").count();
+        assert_eq!(reads + 1, values.len());
     }
 }

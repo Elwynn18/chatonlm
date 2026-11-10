@@ -43,6 +43,7 @@ Facts:
 - [VS Code extension]({{origin}}/en/{{path:vscode}}): local AI in VS Code and VSCodium, through the ChatonLM app
 - [Donate]({{origin}}/en/{{path:donate}}): ChatonLM stays free; donations (on Ko-fi) pay for its development and for servers of its own, such as the one behind web search
 - [Privacy]({{origin}}/en/privacy/): every connection the website and the app make
+- [Web search]({{origin}}/en/{{path:search}}): terms and privacy of the free search service behind the app's web search
 - [Contact]({{origin}}/en/contact/)
 
 ## Optional

@@ -11,6 +11,7 @@
 //! résultat, clé de fournisseur dans un journal. Déploiement :
 //! `packaging/relay/`.
 
+pub mod bench;
 pub mod budget;
 pub mod config;
 #[cfg(feature = "fake")]

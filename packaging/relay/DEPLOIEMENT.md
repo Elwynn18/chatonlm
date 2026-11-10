@@ -37,8 +37,14 @@ ls /etc/nginx/sites-enabled /etc/nginx/conf.d   # où sont déclarés les sites 
 sudo -n ss -ltnp | grep -E ':(80|443|8790)\b'   # 8790 doit être libre (le service du site écoute sur 8787)
 certbot --version
 ip -6 addr show scope global               # IPv6 présente : enregistrement AAAA et « listen [::]:80 »
-getent hosts api.search.brave.com api.mojeek.com   # le serveur résout les fournisseurs
+getent hosts api.search.brave.com api.mojeek.com api.ceramic.ai api.linkup.so   # fournisseurs (et banc R0)
 ```
+
+Relevé du 10 nov. 2026 sur le serveur de chatonlm.com (lecture seule) : x86_64, Ubuntu 26.04.1 LTS, systemd 259,
+cgroup2fs, 4 cœurs et 7,7 Gio, nginx 1.28.3, sites dans `sites-enabled/` (liens vers `sites-available/`),
+`limit_req_zone` `chatonlm_api` déjà prise par le site (celle du relais s'appelle `chatonlm_relay`), 8790 libre
+(8787 : service du site ; 3000 : autre site, fermé par ufw), ufw actif (22, 80, 443), certbot 4.0.0, IPv6
+présente, les quatre fournisseurs résolus, `relay.chatonlm.com` **pas encore dans le DNS**.
 
 Pourquoi un binaire **musl** : il est statique (ni glibc, ni OpenSSL, ni SQLite du système ; `ring` et SQLite y
 sont compilés) et tourne sur tout Linux x86_64, quelle que soit la version d'Ubuntu. Un binaire glibc construit
@@ -52,7 +58,18 @@ found ») ; si l'on tient à glibc, le construire sur une version d'Ubuntu au pl
   visible : `getent hosts relay.chatonlm.com` (depuis le serveur) doit rendre son adresse avant certbot.
 - Une clé Brave Search API (offre « Search ») et, pour le secours, une clé Mojeek. Elles ne transitent que par
   le terminal du propriétaire du serveur (§ 3), jamais par un message, un fichier du dépôt ou un journal.
-- Le binaire `chatonlm-relay` pour `x86_64-unknown-linux-musl` :
+- Le binaire `chatonlm-relay` pour `x86_64-unknown-linux-musl`. Il est construit par le workflow
+  `.github/workflows/relay.yml` (essais du relais sur la cible musl, contrôles « statique, sans faux
+  fournisseurs », démarrage et `/health`) : artefact `chatonlm-relay-x86_64-linux-musl` d'un passage
+  (binaire, `chatonlm-relay.sha256` et les fichiers de ce dossier), ou Release annexe `relay-v<version>`
+  (`--latest=false`) quand un tag `relay-v*` est poussé :
+
+  ```bash
+  gh release download relay-v0.1.0 --repo Elwynn18/chatonlm -D .tools/ci/relay   # ou : gh run download <id> -n chatonlm-relay-x86_64-linux-musl -D .tools/ci/relay
+  (cd .tools/ci/relay && sha256sum -c chatonlm-relay.sha256)                        # l'empreinte du § 3
+  ```
+
+  Ou construit ici :
 
   ```bash
   rustup target add x86_64-unknown-linux-musl   # une fois
@@ -63,8 +80,7 @@ found ») ; si l'on tient à glibc, le construire sur une version d'Ubuntu au pl
   ```
 
   `ring` et SQLite compilent du C : il faut `musl-gcc` (paquet `musl` sous Arch, `musl-tools` sous Ubuntu).
-  Sans la fonctionnalité `fake` (faux fournisseurs), jamais dans le binaire déployé. Une construction par un
-  workflow GitHub (Release annexe `relay-v*`, `--latest=false`) est prévue avec la mise en ligne.
+  Sans la fonctionnalité `fake` (faux fournisseurs), jamais dans le binaire déployé.
 
 ## 3. Fichiers sur le serveur
 
@@ -96,15 +112,17 @@ set +e
 **Secrets : le propriétaire du serveur colle lui-même** ces lignes dans sa propre session SSH (`ssh <serveur>`).
 Le fichier est d'abord créé vide, à root en 0600 (`tee` garde ce mode) ; les clés sont tapées sans écho et
 n'entrent ni dans l'historique du shell, ni dans la liste des processus (`printf` est interne à bash) ; la clé
-du sceau des défis est tirée sur place. Les mêmes lignes servent à changer de clé (puis
+du sceau des défis est tirée sur place. Une clé qu'on n'a pas : Entrée seule (fournisseur sauté). Ceramic et
+Linkup ne servent qu'au banc R0 (§ 4 bis). Les mêmes lignes servent à changer de clé (puis
 `sudo systemctl restart chatonlm-relay`).
 
 ```bash
 sudo install -m 600 -o root -g root /dev/null /etc/chatonlm-relay/secrets.toml
 read -rsp 'Clé Brave : ' BRAVE; echo; read -rsp 'Clé Mojeek : ' MOJEEK; echo
-printf 'brave_api_key = "%s"\nmojeek_api_key = "%s"\nchallenge_key = "%s"\n' \
-  "$BRAVE" "$MOJEEK" "$(openssl rand -hex 32)" | sudo tee /etc/chatonlm-relay/secrets.toml >/dev/null
-unset BRAVE MOJEEK
+read -rsp 'Clé Ceramic (banc) : ' CERAMIC; echo; read -rsp 'Clé Linkup (banc) : ' LINKUP; echo
+printf 'brave_api_key = "%s"\nmojeek_api_key = "%s"\nceramic_api_key = "%s"\nlinkup_api_key = "%s"\nchallenge_key = "%s"\n' \
+  "$BRAVE" "$MOJEEK" "$CERAMIC" "$LINKUP" "$(openssl rand -hex 32)" | sudo tee /etc/chatonlm-relay/secrets.toml >/dev/null
+unset BRAVE MOJEEK CERAMIC LINKUP
 sudo ls -l /etc/chatonlm-relay/secrets.toml   # -rw------- root root
 ```
 
@@ -127,6 +145,31 @@ curl -s http://127.0.0.1:8790/health                          # {"status":"ok"}
 sudo -n journalctl --namespace=chatonlm-relay -n 20 --no-pager  # journal à part, 14 jours au plus
 sudo -n systemd-analyze security chatonlm-relay --no-pager | tail -1   # viser « OK » ou mieux
 ```
+
+## 4 bis. Banc R0 des fournisseurs (sur le serveur)
+
+Compare Brave, Mojeek, Ceramic et Linkup sur un jeu fixe de 60 requêtes (20 en français, 20 en espagnol,
+20 en anglais ; actualité, pratique, technique, local) : latence (p50, p90, max), résultats par réponse,
+réponses vides, titres et extraits présents, extraits supplémentaires de Brave (`extra_snippets` : demandés,
+puis abandonnés si l'offre les refuse, ce que le résumé dit), domaines distincts et domaines du pays (`.fr`,
+`.es`) dans les 5 premiers, accord entre fournisseurs, coût estimé. Les clés ne sortent pas de
+`secrets.toml` : le banc tourne sur le serveur, sous un compte jetable de systemd qui reçoit le fichier comme
+le service (`LoadCredential=`), sans aucun droit d'écriture. Le résumé ne contient ni clé, ni résultat
+(conditions de Brave : pas de stockage), ni requête d'utilisateur : il peut être copié ici. Le service n'a pas
+besoin de tourner. Coût d'un passage complet : moins de 1 € (60 requêtes par fournisseur), 2 à 4 minutes.
+
+```bash
+R='sudo -n systemd-run --quiet --pipe --wait --collect -p DynamicUser=yes \
+  -p LoadCredential=secrets:/etc/chatonlm-relay/secrets.toml -p ProtectSystem=strict -p ProtectHome=yes \
+  -p PrivateTmp=yes -p NoNewPrivileges=yes -p MemoryMax=256M -p CPUQuota=100% \
+  /usr/local/lib/chatonlm-relay/chatonlm-relay bench --config /etc/chatonlm-relay/config.toml'
+ssh <serveur> "$R --queries 12"                                   # essai court (3 langues × 4 catégories)
+ssh <serveur> "$R" > .tools/research/103-banc-R0.txt                # passage complet, résumé gardé ici
+ssh <serveur> "$R --queries 12 --show"                             # 3 premiers titres et domaines, à l'écran seulement
+```
+
+`--show` sert à noter la pertinence à la main (affiché sur la sortie d'erreur, jamais écrit). Un fournisseur
+sans clé est sauté ; aucune clé : « no provider key in the secrets file », rien n'est envoyé.
 
 ## 5. nginx et certificat
 
@@ -187,6 +230,17 @@ Les clés inscrites, le budget du mois et la dépense du jour sont dans `/var/li
 un redémarrage ne les perd pas. Les quotas du jour par installation et par réseau (en mémoire) repartent de zéro.
 
 ## 7. Exploitation
+
+- Surveillance de l'extérieur : le workflow `relay.yml` interroge chaque jour `https://relay.chatonlm.com/health`
+  (réponse `{"status":"ok"}`) et vérifie que le certificat vaut encore 14 jours, dès que la variable du dépôt
+  `RELAY_HEALTH_URL` est posée (commande ci-dessous) ; un échec envoie le courriel de GitHub Actions au
+  propriétaire du dépôt. Lancement à la main : `gh workflow run relay.yml`. Aucun courriel n'est envoyé du
+  serveur (le service du formulaire du site n'est pas touché) : le seuil de 80 % du budget se lit au journal,
+  `sudo -n journalctl --namespace=chatonlm-relay -p warning --since -7d --no-pager`.
+
+  ```bash
+  gh variable set RELAY_HEALTH_URL --repo Elwynn18/chatonlm --body https://relay.chatonlm.com/health
+  ```
 
 - Dépense du mois et recherches par fournisseur (aucune donnée personnelle) :
   `sudo -n /usr/local/lib/chatonlm-relay/chatonlm-relay stats --config /etc/chatonlm-relay/config.toml`.

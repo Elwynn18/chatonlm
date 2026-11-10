@@ -134,35 +134,25 @@ impl ProviderClient {
     }
 
     pub async fn search(&self, search: &Search) -> Result<Vec<SearchResult>, ProviderError> {
+        Ok(shape(
+            self.search_raw(search).await?,
+            usize::from(search.max_results),
+        ))
+    }
+
+    /// Résultats tels que le fournisseur les donne (extraits séparés), avant
+    /// [`shape`] : le banc R0 compte les extraits supplémentaires de Brave.
+    pub async fn search_raw(&self, search: &Search) -> Result<Vec<RawResult>, ProviderError> {
         let request = match self.provider {
             Provider::Brave => self.brave_request(search),
             Provider::Mojeek => self.mojeek_request(search),
         }?;
-        // Seule une erreur de connexion dit que la requête n'est pas partie
-        // (rien n'est lu de l'erreur : elle contient l'adresse).
-        let response = request.send().await.map_err(|error| {
-            if error.is_connect() || error.is_builder() {
-                ProviderError::Unavailable
-            } else {
-                ProviderError::Lost
-            }
-        })?;
-        let status = response.status().as_u16();
-        let body = read_limited(response).await?;
-        match status {
-            200 => {}
-            401 | 403 => return Err(ProviderError::Auth),
-            402 => return Err(ProviderError::Exhausted),
-            429 => return Err(ProviderError::RateLimited),
-            400..=499 => return Err(ProviderError::Rejected),
-            _ => return Err(ProviderError::Unavailable),
-        }
+        let body = send(request).await?;
         let value: Value = serde_json::from_slice(&body).map_err(|_| ProviderError::Malformed)?;
-        let raw = match self.provider {
-            Provider::Brave => parse_brave(&value)?,
-            Provider::Mojeek => parse_mojeek(&value)?,
-        };
-        Ok(shape(raw, usize::from(search.max_results)))
+        match self.provider {
+            Provider::Brave => parse_brave(&value),
+            Provider::Mojeek => parse_mojeek(&value),
+        }
     }
 
     fn brave_request(&self, search: &Search) -> Result<reqwest::RequestBuilder, ProviderError> {
@@ -212,6 +202,29 @@ impl ProviderClient {
             }
         }
         Ok(self.http.get(url).header("Accept", "application/json"))
+    }
+}
+
+/// Envoie la requête et rend le corps d'une réponse 200, sinon la sorte
+/// d'échec (rien n'est lu de l'erreur de `reqwest` : elle contient l'adresse).
+pub(crate) async fn send(request: reqwest::RequestBuilder) -> Result<Vec<u8>, ProviderError> {
+    // Seule une erreur de connexion dit que la requête n'est pas partie.
+    let response = request.send().await.map_err(|error| {
+        if error.is_connect() || error.is_builder() {
+            ProviderError::Unavailable
+        } else {
+            ProviderError::Lost
+        }
+    })?;
+    let status = response.status().as_u16();
+    let body = read_limited(response).await?;
+    match status {
+        200 => Ok(body),
+        401 | 403 => Err(ProviderError::Auth),
+        402 => Err(ProviderError::Exhausted),
+        429 => Err(ProviderError::RateLimited),
+        400..=499 => Err(ProviderError::Rejected),
+        _ => Err(ProviderError::Unavailable),
     }
 }
 

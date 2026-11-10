@@ -4,7 +4,13 @@
 //! chatonlm-relay serve --config <config.toml> [--secrets <secrets.toml>]
 //! chatonlm-relay check --config <config.toml> [--secrets <secrets.toml>]
 //! chatonlm-relay stats --config <config.toml>
+//! chatonlm-relay bench [--config <config.toml>] [--secrets <secrets.toml>]
+//!                      [--queries <n>] [--out <résumé.json>] [--show]
 //! ```
+//!
+//! `bench` : banc R0 des fournisseurs de recherche (voir `bench.rs`), lancé
+//! sur le serveur ; `--config` reprend les réglages `[providers]` de Brave et
+//! Mojeek (sinon ceux par défaut).
 //!
 //! Sans `--secrets`, le fichier `secrets` du dossier des identifiants de
 //! systemd (`$CREDENTIALS_DIRECTORY`, `LoadCredential=`) est lu.
@@ -16,14 +22,19 @@ use std::process::ExitCode;
 
 struct Args {
     command: String,
-    config: PathBuf,
+    config: Option<PathBuf>,
     secrets: Option<PathBuf>,
+    queries: Option<usize>,
+    out: Option<PathBuf>,
+    show: bool,
 }
 
 fn usage() -> ExitCode {
     eprintln!(
         "usage: chatonlm-relay serve|check --config <config.toml> [--secrets <secrets.toml>]\n       \
-         chatonlm-relay stats --config <config.toml>"
+         chatonlm-relay stats --config <config.toml>\n       \
+         chatonlm-relay bench [--config <config.toml>] [--secrets <secrets.toml>] \
+         [--queries <n>] [--out <summary.json>] [--show]"
     );
     ExitCode::from(2)
 }
@@ -31,20 +42,32 @@ fn usage() -> ExitCode {
 fn parse_args() -> Option<Args> {
     let mut args = std::env::args().skip(1);
     let command = args.next()?;
-    let mut config = None;
-    let mut secrets = None;
+    let mut parsed = Args {
+        command,
+        config: None,
+        secrets: None,
+        queries: None,
+        out: None,
+        show: false,
+    };
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--config" => config = Some(PathBuf::from(args.next()?)),
-            "--secrets" => secrets = Some(PathBuf::from(args.next()?)),
+            "--config" => parsed.config = Some(PathBuf::from(args.next()?)),
+            "--secrets" => parsed.secrets = Some(PathBuf::from(args.next()?)),
+            "--queries" if parsed.command == "bench" => {
+                parsed.queries = Some(args.next()?.parse().ok().filter(|n| *n > 0)?)
+            }
+            "--out" if parsed.command == "bench" => parsed.out = Some(PathBuf::from(args.next()?)),
+            "--show" if parsed.command == "bench" => parsed.show = true,
             _ => return None,
         }
     }
-    Some(Args {
-        command,
-        config: config?,
-        secrets,
-    })
+    // Seul le banc se passe de configuration.
+    (parsed.config.is_some() || parsed.command == "bench").then_some(parsed)
+}
+
+fn config_path(args: &Args) -> &std::path::Path {
+    args.config.as_deref().unwrap_or(std::path::Path::new(""))
 }
 
 fn secrets_path(args: &Args) -> Option<PathBuf> {
@@ -54,7 +77,7 @@ fn secrets_path(args: &Args) -> Option<PathBuf> {
 }
 
 fn load(args: &Args) -> Result<(Config, Secrets), String> {
-    let config = Config::load(&args.config)?;
+    let config = Config::load(config_path(args))?;
     let path =
         secrets_path(args).ok_or("no secrets file (--secrets or LoadCredential=secrets:…)")?;
     let secrets = Secrets::load(&path)?;
@@ -80,6 +103,7 @@ fn main() -> ExitCode {
             }
         },
         "stats" => stats(&args),
+        "bench" => bench(&args),
         "serve" => {
             let (config, secrets) = match load(&args) {
                 Ok(loaded) => loaded,
@@ -154,7 +178,7 @@ fn runtime_threads(cores: usize) -> (usize, usize) {
 
 /// Compteurs agrégés du budget, mois par mois (aucune donnée personnelle).
 fn stats(args: &Args) -> ExitCode {
-    let config = match Config::load(&args.config) {
+    let config = match Config::load(config_path(args)) {
         Ok(config) => config,
         Err(error) => {
             eprintln!("{error}");
@@ -183,6 +207,79 @@ fn stats(args: &Args) -> ExitCode {
             record.mojeek,
             record.failures
         );
+    }
+    ExitCode::SUCCESS
+}
+
+/// Banc R0 : résumé sur la sortie standard (et en JSON avec `--out`), aucune
+/// clé, aucune requête d'utilisateur, aucun résultat.
+fn bench(args: &Args) -> ExitCode {
+    use relay_server::bench;
+    let providers = match &args.config {
+        Some(path) => match Config::load(path) {
+            Ok(config) => config.providers,
+            Err(error) => {
+                eprintln!("{error}");
+                return ExitCode::FAILURE;
+            }
+        },
+        None => Default::default(),
+    };
+    let secrets = match secrets_path(args)
+        .ok_or_else(|| "no secrets file (--secrets or LoadCredential=secrets:…)".to_owned())
+        .and_then(|path| Secrets::load(&path))
+    {
+        Ok(secrets) => secrets,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    relay_server::install_crypto_provider();
+    let targets = match bench::targets(&providers, &secrets, &bench::BenchDefaults::default()) {
+        Ok(targets) if targets.is_empty() => {
+            eprintln!("no provider key in the secrets file: nothing to measure");
+            return ExitCode::FAILURE;
+        }
+        Ok(targets) => targets,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let count = args
+        .queries
+        .unwrap_or(bench::QUERIES.len())
+        .min(bench::QUERIES.len());
+    let names: Vec<&str> = targets.iter().map(|t| t.provider.as_str()).collect();
+    eprintln!(
+        "bench: {count} queries × {} (about {} s)",
+        names.join(", "),
+        count * 3 / 2
+    );
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("runtime: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let options = bench::Options {
+        pace: bench::PACE,
+        show: args.show,
+    };
+    let report = runtime.block_on(bench::run(targets, &bench::QUERIES[..count], &options));
+    print!("{}", report.text());
+    if let Some(out) = &args.out {
+        let json = serde_json::to_string_pretty(&report).unwrap_or_default();
+        if let Err(error) = std::fs::write(out, json + "\n") {
+            eprintln!("{}: {error}", out.display());
+            return ExitCode::FAILURE;
+        }
     }
     ExitCode::SUCCESS
 }

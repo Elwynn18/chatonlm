@@ -48,6 +48,8 @@ export const PAGES = {
   "contact-error": "contact/error/",
   legal: "legal/",
   privacy: "privacy/",
+  // Conditions et confidentialité du service de recherche (relais).
+  search: "web-search/",
   // Même adresse dans les trois langues : chatonlm.com/donate (lien de l'app)
   // y renvoie d'après la langue du navigateur (nginx).
   donate: "donate/",
@@ -142,6 +144,7 @@ const CRUMBS = {
   contact: "nav.contact",
   legal: "footer.notice",
   privacy: "footer.privacy",
+  search: "footer.search",
   choose: "nav.why",
   donate: "nav.donate",
   vscode: "nav.vscode",

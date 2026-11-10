@@ -1,0 +1,255 @@
+# Relais de ChatonLM (crates relay-proto et relay-server) : binaire statique
+# x86_64-unknown-linux-musl de `chatonlm-relay`, prêt à poser sur le serveur
+# (packaging/relay/DEPLOIEMENT.md), et surveillance de /health.
+#
+# Lancement :
+# - à la main (workflow_dispatch) ou en poussant un instantané sur `ci/relay` :
+#   essais des deux crates (cibles musl), construction, contrôles, artefact
+#   `chatonlm-relay-x86_64-linux-musl` (binaire, empreinte, fichiers de
+#   packaging/relay) ;
+# - par un tag `relay-v<version du crate relay-server>` : la même chose, puis
+#   une Release annexe à ce nom, en `--latest=false` (l'app et le site lisent
+#   `releases/latest` : elle doit rester la version de l'app, vérifié après) ;
+# - chaque jour (schedule), et à la main : `GET <RELAY_HEALTH_URL>` et date d'expiration du
+#   certificat, seulement si la variable du dépôt `RELAY_HEALTH_URL` est posée
+#   (ex. https://relay.chatonlm.com/health). Un échec envoie le courriel
+#   habituel de GitHub Actions au propriétaire du dépôt.
+#
+# Aucun secret : le binaire ne contient aucune clé (elles restent dans
+# /etc/chatonlm-relay/secrets.toml, sur le serveur).
+name: Relais
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "ci/relay"
+    tags:
+      - "relay-v*"
+  schedule:
+    - cron: "17 6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: relay-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+  TARGET: x86_64-unknown-linux-musl
+  CARGO_TARGET_DIR: .tools/relay-target
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: chatonlm-relay (musl)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # ring et SQLite (bundled) compilent du C : musl-gcc.
+      - name: musl-tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+          musl-gcc --version | head -n 1
+
+      - name: Rust (rust-toolchain.toml) et cible musl
+        run: |
+          channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal --target "$TARGET"
+          rustc --version
+          cargo --version
+
+      - name: Cache Cargo (restauration)
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .tools/relay-target
+          key: relay-${{ hashFiles('rust-toolchain.toml', 'src-tauri/Cargo.lock') }}
+          restore-keys: |
+            relay-
+
+      # Essais sur la cible musl elle-même : SQLite, ring et le binaire
+      # (`CARGO_BIN_EXE_chatonlm-relay`) tels qu'ils seront déployés.
+      - name: Essais (relay-proto, relay-server)
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --target "$TARGET" \
+            -p relay-proto -p relay-server -- --test-threads=4
+
+      # Sans la fonctionnalité `fake` : dev-dependency seulement, jamais
+      # unifiée dans une construction (résolveur de l'édition 2024).
+      - name: Construction
+        run: |
+          cargo build --manifest-path src-tauri/Cargo.toml --locked --release --target "$TARGET" \
+            -p relay-server --bin chatonlm-relay
+
+      - name: Cache Cargo (sauvegarde)
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .tools/relay-target
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+
+      - name: Contrôles du binaire
+        run: |
+          set -euo pipefail
+          bin="$CARGO_TARGET_DIR/$TARGET/release/chatonlm-relay"
+          mkdir -p out
+          cp "$bin" out/chatonlm-relay
+          bin=out/chatonlm-relay
+          file "$bin"
+          # Statique : aucune bibliothèque du système (ni glibc, ni OpenSSL, ni SQLite).
+          file "$bin" | grep -Eq 'statically linked|static-pie linked'
+          if readelf -d "$bin" | grep -q '(NEEDED)'; then
+            echo "::error::bibliothèques dynamiques dans le binaire"; exit 1
+          fi
+          # Ni faux fournisseurs ni clés d'essai.
+          if grep -aqE 'BSA-test-secret|mojeek-test-secret|ceramic-test-secret|linkup-test-secret' "$bin"; then
+            echo "::error::fonctionnalité fake dans le binaire déployé"; exit 1
+          fi
+          # Configuration livrée acceptée, secrets vides permis.
+          work="$(mktemp -d)"
+          : > "$work/secrets.toml"
+          "$bin" check --config packaging/relay/config.example.toml --secrets "$work/secrets.toml" | grep -qx 'configuration OK'
+          # Démarrage réel : /health, puis arrêt propre (SIGTERM).
+          sed -e "s|^listen = .*|listen = \"127.0.0.1:18790\"|" \
+              -e "s|^database = .*|database = \"$work/relay.sqlite\"|" \
+              packaging/relay/config.example.toml > "$work/config.toml"
+          "$bin" serve --config "$work/config.toml" --secrets "$work/secrets.toml" 2> "$work/serve.log" &
+          pid=$!
+          for _ in $(seq 1 50); do
+            curl -fsS http://127.0.0.1:18790/health 2>/dev/null | grep -qx '{"status":"ok"}' && break
+            sleep 0.2
+          done
+          curl -fsS http://127.0.0.1:18790/health | grep -qx '{"status":"ok"}'
+          kill -TERM "$pid"
+          wait "$pid"
+          cat "$work/serve.log"
+          # Banc : sans clé, refus net (aucun appel réseau).
+          if "$bin" bench --secrets "$work/secrets.toml" 2> "$work/bench.log"; then
+            echo "::error::bench sans clé accepté"; exit 1
+          fi
+          grep -q 'no provider key' "$work/bench.log"
+          rm -rf "$work"
+
+      - name: Empreinte et fichiers de déploiement
+        run: |
+          set -euo pipefail
+          cp packaging/relay/chatonlm-relay.service packaging/relay/journald@chatonlm-relay.conf \
+             packaging/relay/nginx-relay.chatonlm.com.conf packaging/relay/config.example.toml \
+             packaging/relay/secrets.example.toml packaging/relay/DEPLOIEMENT.md out/
+          (cd out && sha256sum chatonlm-relay > chatonlm-relay.sha256)
+          cat out/chatonlm-relay.sha256
+          {
+            echo "### chatonlm-relay ($TARGET)"
+            echo
+            echo '```'
+            cat out/chatonlm-relay.sha256
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Artefact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chatonlm-relay-x86_64-linux-musl
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Release relay-v*
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/relay-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Artefact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chatonlm-relay-x86_64-linux-musl
+          path: out
+
+      - name: Release annexe (--latest=false)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/crates/relay-server/Cargo.toml | head -n 1)"
+          if [ "$TAG" != "relay-v$version" ]; then
+            echo "::error::tag $TAG, mais relay-server est en $version"; exit 1
+          fi
+          (cd out && sha256sum -c chatonlm-relay.sha256)
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::la Release $TAG existe déjà"; exit 1
+          fi
+          {
+            echo "Relais de recherche web de ChatonLM (\`chatonlm-relay\`), binaire statique $TARGET."
+            echo
+            echo "SHA-256 : \`$(cut -d' ' -f1 out/chatonlm-relay.sha256)\`"
+            echo
+            echo "Mise en place : packaging/relay/DEPLOIEMENT.md. Ce n'est pas une version de l'app."
+          } > notes.md
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --latest=false \
+            --title "ChatonLM relay $version" --notes-file notes.md \
+            out/chatonlm-relay out/chatonlm-relay.sha256
+
+      - name: releases/latest désigne toujours l'app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+          echo "releases/latest = $latest"
+          case "$latest" in
+            v[0-9]*) ;;
+            *) echo "::error::releases/latest désigne $latest, pas une version de l'app"; exit 1 ;;
+          esac
+
+  health:
+    name: /health du relais
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && vars.RELAY_HEALTH_URL != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Réponse et certificat
+        env:
+          URL: ${{ vars.RELAY_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+          body="$(curl -fsS --retry 3 --retry-delay 20 --retry-all-errors --max-time 20 "$URL")"
+          echo "$body"
+          if [ "$body" != '{"status":"ok"}' ]; then
+            echo "::error::$URL a répondu autre chose que {\"status\":\"ok\"}"; exit 1
+          fi
+          host="$(echo "$URL" | sed -E 's|^https://([^/:]+).*|\1|')"
+          # Certificat valable encore 14 jours au moins (renouvellement de certbot).
+          echo | openssl s_client -connect "$host:443" -servername "$host" 2>/dev/null \
+            | openssl x509 -noout -enddate -checkend 1209600

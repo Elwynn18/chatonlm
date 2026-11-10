@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="{{lang}}" class="sans-js">
+  <head>
+    {{>head.html}}
+    <title>{{t:meta.search.title}}</title>
+    <meta name="description" content="{{t:meta.search.description}}" />
+    <meta property="og:title" content="{{t:meta.search.title}}" />
+    <meta property="og:description" content="{{t:meta.search.description}}" />
+    {{>head-index.html}}
+  </head>
+  <body class="page-texte">
+    {{>header.html}}
+    <main id="contenu" class="cadre">
+      <article class="prose">
+        <h1>{{h:search.title}}</h1>
+        <p class="chapo">{{t:search.lead}}</p>
+        {{h:search.body}}
+        <p class="discret">{{t:search.updated}}</p>
+      </article>
+    </main>
+    {{>footer.html}}
+    {{>contact-dialog.html}}
+  </body>
+</html>
