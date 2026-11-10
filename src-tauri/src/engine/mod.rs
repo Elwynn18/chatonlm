@@ -227,6 +227,10 @@ pub struct Config {
     pub extra_env: Vec<(OsString, OsString)>,
     pub timing: Timing,
     pub max_loaded: usize,
+    /// Tout lancement sur le processeur, comme demandé (pas un repli) :
+    /// `CHATONLM_LLAMA_CPU_ONLY=1` des essais de l'app
+    /// ([`options::forced_cpu`]).
+    pub force_cpu: bool,
 }
 
 impl Config {
@@ -241,6 +245,7 @@ impl Config {
             extra_env: Vec::new(),
             timing: Timing::default(),
             max_loaded: MAX_LOADED,
+            force_cpu: options::forced_cpu(),
         }
     }
 }
@@ -286,6 +291,7 @@ impl Models for AppModels {
 
     fn machine(&self) -> BoxFuture<'_, Option<Machine>> {
         Box::pin(async move {
+            #[cfg(any(debug_assertions, feature = "e2e"))]
             if let Some(injected) = crate::hub::hardware::injected() {
                 return injected;
             }
@@ -295,6 +301,7 @@ impl Models for AppModels {
 
     fn machine_now(&self) -> BoxFuture<'_, Option<Machine>> {
         Box::pin(async move {
+            #[cfg(any(debug_assertions, feature = "e2e"))]
             if let Some(injected) = crate::hub::hardware::injected() {
                 return injected;
             }
@@ -406,6 +413,8 @@ struct Inner {
     stopping: Stopping,
     listener: parking_lot::Mutex<Option<Listener>>,
     closed: watch::Sender<bool>,
+    /// Gels en cours ([`Engine::freeze`]) : aucun lancement tant qu'il y en a.
+    frozen: watch::Sender<usize>,
     vram_total: parking_lot::Mutex<Option<u64>>,
     /// Soi-même, pour les tâches et les `Lease`.
     this: Weak<Inner>,
@@ -424,6 +433,9 @@ pub(crate) struct Hooks {
     pub before_attach: Option<Arc<dyn Fn(u32) + Send + Sync>>,
     /// La fin d'un processus n'est pas encore vue par le moteur.
     pub ignore_exits: bool,
+    /// Attendu par [`Engine::lease_if_ready`] juste avant de prêter (un
+    /// déchargement glissé entre la vérification et la prise).
+    pub before_lend: Option<Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>>,
 }
 
 #[derive(Default)]
@@ -551,6 +563,21 @@ impl Drop for Deleting {
     }
 }
 
+/// Gel du moteur ([`Engine::freeze`]) : levé quand il est lâché.
+pub struct Frozen {
+    inner: Weak<Inner>,
+}
+
+impl Drop for Frozen {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.upgrade() {
+            inner
+                .frozen
+                .send_modify(|count| *count = count.saturating_sub(1));
+        }
+    }
+}
+
 /// Prochaine étape de `ensure`, décidée sous le verrou.
 enum Next {
     Lease(Lease),
@@ -569,6 +596,30 @@ enum Next {
     WaitIdle(watch::Receiver<usize>),
     /// Le modèle chargé autrement, inactif : l'arrêter, puis relancer.
     Stop(Instance),
+    /// Dossier des modèles en déplacement : attendre, puis tout relire.
+    Frozen,
+}
+
+/// Contexte qu'une demande accepte d'une instance déjà là.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Fit {
+    /// Celui demandé, exactement (contexte imposé : FIM, Étude, visite).
+    Exact,
+    /// Au moins celui demandé ([`Engine::ensure_at_least`]).
+    AtLeast,
+}
+
+impl Fit {
+    /// `busy` : l'instance sert déjà quelqu'un (requêtes en cours, ou
+    /// chargement) ; sinon on l'attendrait. Libre, elle est relancée avec le
+    /// contexte demandé, comme avant : un contexte réglé plus petit reprend
+    /// effet (mémoire rendue).
+    fn accepts(self, running: u32, wanted: u32, busy: bool) -> bool {
+        match self {
+            Fit::Exact => running == wanted,
+            Fit::AtLeast => running == wanted || (busy && running > wanted),
+        }
+    }
 }
 
 impl Engine {
@@ -583,6 +634,7 @@ impl Engine {
                 stopping: Stopping::default(),
                 listener: parking_lot::Mutex::new(None),
                 closed: watch::channel(false).0,
+                frozen: watch::channel(0).0,
                 vram_total: parking_lot::Mutex::new(None),
                 this: this.clone(),
                 #[cfg(test)]
@@ -614,6 +666,32 @@ impl Engine {
     /// l'est pas, relancé si son contexte ou son processeur diffèrent (une fois
     /// ses requêtes finies). Le `keep_alive` de la dernière demande vaut.
     pub async fn ensure(&self, id: &str, options: LoadOptions) -> Result<Lease, EngineError> {
+        self.ensure_fit(id, options, Fit::Exact).await
+    }
+
+    /// Comme [`Engine::ensure`], pour un appelant qui n'impose pas son
+    /// contexte (chat, Correction, nettoyage de la dictée, bouton Load) : une
+    /// instance du même modèle en cours d'emploi (requêtes ou chargement),
+    /// sur le même processeur, avec un contexte plus grand que celui demandé,
+    /// est reprise telle quelle (le `Lease` porte son contexte) au lieu
+    /// d'attendre la fin de ses requêtes pour la relancer plus petite. Libre,
+    /// elle est relancée au contexte demandé comme par `ensure`. Sans cela, le chat
+    /// attendait tout un palier de l'Étude (contexte imposé ≥ 8 192) sans
+    /// borne, puis relançait le modèle (relecture L5a, B1).
+    pub async fn ensure_at_least(
+        &self,
+        id: &str,
+        options: LoadOptions,
+    ) -> Result<Lease, EngineError> {
+        self.ensure_fit(id, options, Fit::AtLeast).await
+    }
+
+    async fn ensure_fit(
+        &self,
+        id: &str,
+        options: LoadOptions,
+        fit: Fit,
+    ) -> Result<Lease, EngineError> {
         let inner = &self.inner;
         let mut closed = inner.closed.subscribe();
         if *closed.borrow_and_update() {
@@ -622,67 +700,77 @@ impl Engine {
         if inner.config.bin.is_none() {
             return Err(EngineError::Unavailable);
         }
-        let model = inner
-            .models
-            .local(id)
-            .await
-            .map_err(|error| EngineError::StartFailed(error.to_string()))?
-            .ok_or_else(|| EngineError::NotInstalled(id.to_owned()))?;
-        let vram_total = match options.ctx.filter(|ctx| *ctx > 0) {
-            // Contexte demandé : la machine ne sert pas ici.
-            Some(_) => 0,
-            None => inner.vram_total().await,
-        };
-        let ctx = options::context_for(
-            options.ctx,
-            vram_total,
-            model.context_max,
-            model.capabilities.vision,
-        );
-        // Place réservée dans le chargement attendu : rendue seulement après
-        // le tour suivant (le `Lease` pris, ou une autre attente notée).
-        let mut _waiting: Option<WaitGuard> = None;
-        loop {
-            if *closed.borrow() {
-                return Err(EngineError::Closed);
+        // Dossier des modèles en déplacement ([`Engine::freeze`]) : attendre
+        // sa fin, puis relire le modèle (son chemin a pu changer).
+        'resolve: loop {
+            let mut frozen = inner.frozen.subscribe();
+            tokio::select! {
+                _ = closed.wait_for(|closed| *closed) => return Err(EngineError::Closed),
+                _ = frozen.wait_for(|count| *count == 0) => {}
             }
-            let next = inner.next(&model, ctx, options);
-            match next {
-                Next::Lease(lease) => {
-                    inner.changed();
-                    return Ok(lease);
+            let model = inner
+                .models
+                .local(id)
+                .await
+                .map_err(|error| EngineError::StartFailed(error.to_string()))?
+                .ok_or_else(|| EngineError::NotInstalled(id.to_owned()))?;
+            let vram_total = match options.ctx.filter(|ctx| *ctx > 0) {
+                // Contexte demandé : la machine ne sert pas ici.
+                Some(_) => 0,
+                None => inner.vram_total().await,
+            };
+            let ctx = options::context_for(
+                options.ctx,
+                vram_total,
+                model.context_max,
+                model.capabilities.vision,
+            );
+            // Place réservée dans le chargement attendu : rendue seulement après
+            // le tour suivant (le `Lease` pris, ou une autre attente notée).
+            let mut _waiting: Option<WaitGuard> = None;
+            loop {
+                if *closed.borrow() {
+                    return Err(EngineError::Closed);
                 }
-                Next::Fail(error) => return Err(error),
-                Next::Wait {
-                    mut outcome,
-                    own,
-                    guard,
-                } => {
-                    _waiting = guard;
-                    let finished = tokio::select! {
-                        _ = closed.wait_for(|closed| *closed) => return Err(EngineError::Closed),
-                        outcome = outcome.wait_for(Option::is_some) => outcome.map(|o| o.clone()),
-                    };
-                    match finished {
-                        Ok(Some(Err(error))) if own => return Err(error),
-                        Err(_) if own => return Err(EngineError::Unloaded),
-                        // Prêt : le `Lease` est pris au tour suivant. Échec
-                        // d'un autre réglage : le sien est lancé au tour
-                        // suivant (l'erreur d'autrui n'est pas la sienne).
-                        Ok(_) | Err(_) => {}
+                let next = inner.next(&model, ctx, options, fit);
+                match next {
+                    Next::Lease(lease) => {
+                        inner.changed();
+                        return Ok(lease);
                     }
-                }
-                Next::WaitIdle(mut leases) => {
-                    _waiting = None;
-                    tokio::select! {
-                        _ = closed.wait_for(|closed| *closed) => return Err(EngineError::Closed),
-                        _ = leases.wait_for(|leases| *leases == 0) => {}
+                    Next::Fail(error) => return Err(error),
+                    Next::Frozen => continue 'resolve,
+                    Next::Wait {
+                        mut outcome,
+                        own,
+                        guard,
+                    } => {
+                        _waiting = guard;
+                        let finished = tokio::select! {
+                            _ = closed.wait_for(|closed| *closed) => return Err(EngineError::Closed),
+                            outcome = outcome.wait_for(Option::is_some) => outcome.map(|o| o.clone()),
+                        };
+                        match finished {
+                            Ok(Some(Err(error))) if own => return Err(error),
+                            Err(_) if own => return Err(EngineError::Unloaded),
+                            // Prêt : le `Lease` est pris au tour suivant. Échec
+                            // d'un autre réglage : le sien est lancé au tour
+                            // suivant (l'erreur d'autrui n'est pas la sienne).
+                            Ok(_) | Err(_) => {}
+                        }
                     }
-                }
-                Next::Stop(instance) => {
-                    _waiting = None;
-                    inner.changed();
-                    inner.stop(instance).await;
+                    Next::WaitIdle(mut leases) => {
+                        _waiting = None;
+                        tokio::select! {
+                            _ = closed.wait_for(|closed| *closed) => return Err(EngineError::Closed),
+                            _ = leases.wait_for(|leases| *leases == 0) => {}
+                        }
+                    }
+                    Next::Stop(instance) => {
+                        _waiting = None;
+                        inner.changed();
+                        inner.stop(instance).await;
+                    }
                 }
             }
         }
@@ -720,6 +808,36 @@ impl Engine {
         }
     }
 
+    /// Efface les journaux du modèle `id` (`llama-<id>.log` et `.1`), à sa
+    /// suppression : à appeler sous [`Engine::deleting`], une fois le modèle
+    /// déchargé (aucun processus n'y écrit). Sans cela, ils restaient sous
+    /// `<données>/logs`, jusqu'à 32 Mio par modèle essayé (relecture L5a, M3).
+    pub fn remove_logs(&self, id: &str) {
+        let log = self.inner.config.logs.join(journal::file_name(id));
+        let _ = std::fs::remove_file(&log);
+        let _ = std::fs::remove_file(log.with_extension("log.1"));
+    }
+
+    /// Gèle le moteur et arrête tous les modèles (attendus finis), pour un
+    /// déplacement du dossier des modèles : tant que le résultat vit, aucun
+    /// modèle n'est lancé ni prêté ; une demande attend la fin, puis relit le
+    /// modèle (nouveau chemin). À prendre seulement une fois le changement
+    /// accepté (relecture L5b, M4 : la page déchargeait tout AVANT les refus,
+    /// et rien n'empêchait une relance pendant la copie).
+    pub async fn freeze(&self) -> Frozen {
+        {
+            // Sous le verrou : un `next` d'après voit le gel ; ce qui a été
+            // lancé avant est arrêté ci-dessous.
+            let _state = self.inner.state.lock();
+            self.inner.frozen.send_modify(|count| *count += 1);
+        }
+        let frozen = Frozen {
+            inner: Arc::downgrade(&self.inner),
+        };
+        self.unload_all().await;
+        frozen
+    }
+
     /// Arrête tous les modèles.
     pub async fn unload_all(&self) {
         let taken = self.inner.take(|_| true);
@@ -731,6 +849,16 @@ impl Engine {
     /// processeur) et vivant : [`Engine::ensure`] rendrait un `Lease` sans
     /// attendre de chargement. Lecture seule (rien n'est lancé).
     pub async fn is_ready(&self, id: &str, options: LoadOptions) -> bool {
+        self.ready_fit(id, options, Fit::Exact).await
+    }
+
+    /// [`Engine::is_ready`] pour [`Engine::ensure_at_least`] : un contexte
+    /// plus grand convient.
+    pub async fn is_ready_at_least(&self, id: &str, options: LoadOptions) -> bool {
+        self.ready_fit(id, options, Fit::AtLeast).await
+    }
+
+    async fn ready_fit(&self, id: &str, options: LoadOptions, fit: Fit) -> bool {
         let inner = &self.inner;
         if inner.config.bin.is_none() || *inner.closed.borrow() {
             return false;
@@ -749,17 +877,55 @@ impl Engine {
             model.capabilities.vision,
         );
         let state = inner.state.lock();
-        let cpu = options.cpu_only || state.gpu_failed.contains(&model.id);
+        let cpu = inner.wants_cpu(options) || state.gpu_failed.contains(&model.id);
         state.instances.iter().any(|instance| {
             same_model(&instance.id, &model.id)
                 && matches!(instance.phase, Phase::Ready)
-                && instance.spec.ctx == ctx
+                && fit.accepts(
+                    instance.spec.ctx,
+                    ctx,
+                    instance.leases > 0 || instance.waiters > 0,
+                )
                 && instance.spec.cpu == cpu
                 && instance
                     .process
                     .as_ref()
                     .is_some_and(|process| process.exited().is_none())
         })
+    }
+
+    /// `Lease` du modèle `id` s'il est DÉJÀ prêt avec ces options (même
+    /// contexte calculé, même processeur), vivant ; sinon `None`, sans rien
+    /// lancer ni attendre. Pour l'autocomplétion, qui ne charge jamais : entre
+    /// [`Engine::is_ready`] et [`Engine::ensure`], un déchargement ou une
+    /// éviction faisait relancer le modèle (relecture L5a, M1).
+    pub async fn lease_if_ready(&self, id: &str, options: LoadOptions) -> Option<Lease> {
+        let inner = &self.inner;
+        if inner.config.bin.is_none() || *inner.closed.borrow() {
+            return None;
+        }
+        let model = inner.models.local(id).await.ok()??;
+        let vram_total = match options.ctx.filter(|ctx| *ctx > 0) {
+            Some(_) => 0,
+            None => inner.vram_total().await,
+        };
+        let ctx = options::context_for(
+            options.ctx,
+            vram_total,
+            model.context_max,
+            model.capabilities.vision,
+        );
+        #[cfg(test)]
+        let before = inner.hooks.lock().before_lend.clone();
+        #[cfg(test)]
+        if let Some(before) = before {
+            before().await;
+        }
+        let lease = inner.lend_if_ready(&model, ctx, options);
+        if lease.is_some() {
+            inner.changed();
+        }
+        lease
     }
 
     /// La carte graphique a échoué pendant cette session (un modèle au
@@ -870,12 +1036,15 @@ impl Inner {
     }
 
     /// Décide la suite de `ensure` sous le verrou.
-    fn next(&self, model: &LocalModel, ctx: u32, options: LoadOptions) -> Next {
+    fn next(&self, model: &LocalModel, ctx: u32, options: LoadOptions, fit: Fit) -> Next {
         let mut state = self.state.lock();
+        if *self.frozen.borrow() > 0 {
+            return Next::Frozen;
+        }
         if state.deleting.iter().any(|id| same_model(id, &model.id)) {
             return Next::Fail(EngineError::NotInstalled(model.id.clone()));
         }
-        let cpu = options.cpu_only || state.gpu_failed.contains(&model.id);
+        let cpu = self.wants_cpu(options) || state.gpu_failed.contains(&model.id);
         let spec = Spec {
             model: PathBuf::from(&model.path),
             mmproj: model.mmproj.as_deref().map(PathBuf::from),
@@ -914,7 +1083,18 @@ impl Inner {
                     }),
                 }
             };
-            if instance.spec == spec {
+            let fits = instance.spec == spec
+                || (instance.spec.model == spec.model
+                    && instance.spec.mmproj == spec.mmproj
+                    && instance.spec.cpu == spec.cpu
+                    && fit.accepts(
+                        instance.spec.ctx,
+                        spec.ctx,
+                        matches!(instance.phase, Phase::Loading)
+                            || instance.leases > 0
+                            || instance.waiters > 0,
+                    ));
+            if fits {
                 instance.keep_alive = options.keep_alive;
                 return match instance.phase {
                     Phase::Loading => own(instance),
@@ -922,22 +1102,7 @@ impl Inner {
                         let Some(process) = instance.process.clone() else {
                             return own(instance);
                         };
-                        instance.leases += 1;
-                        instance.idle.send_replace(instance.leases);
-                        instance.last_used = Instant::now();
-                        instance.expires_at = None;
-                        instance.timer += 1;
-                        Next::Lease(Lease {
-                            endpoint: process.endpoint.clone(),
-                            ctx: instance.spec.ctx,
-                            model: instance.id.clone(),
-                            cpu_fallback: instance.cpu_fallback,
-                            unloaded: instance.unloaded.clone(),
-                            _guard: LeaseGuard {
-                                inner: self.this.clone(),
-                                generation: instance.generation,
-                            },
-                        })
+                        Next::Lease(self.lend(instance, &process))
                     }
                 };
             }
@@ -955,7 +1120,7 @@ impl Inner {
         // Nouveau lancement, fait par une tâche du moteur.
         // Sur le processeur parce que la carte a échoué (pas demandé) : un
         // repli, annoncé comme tel.
-        let fallback = cpu && !options.cpu_only;
+        let fallback = cpu && !self.wants_cpu(options);
         let generation = state.next_generation;
         state.next_generation += 1;
         let slot = (0..)
@@ -1002,6 +1167,64 @@ impl Inner {
                 generation,
             }),
         }
+    }
+
+    /// Processeur demandé (par l'appelant, ou imposé par la configuration).
+    fn wants_cpu(&self, options: LoadOptions) -> bool {
+        options.cpu_only || self.config.force_cpu
+    }
+
+    /// Prête l'instance prête `instance` (sous le verrou de l'état) : un
+    /// `Lease` de plus, minuteur suspendu.
+    fn lend(&self, instance: &mut Instance, process: &launch::Process) -> Lease {
+        instance.leases += 1;
+        instance.idle.send_replace(instance.leases);
+        instance.last_used = Instant::now();
+        instance.expires_at = None;
+        instance.timer += 1;
+        Lease {
+            endpoint: process.endpoint.clone(),
+            ctx: instance.spec.ctx,
+            model: instance.id.clone(),
+            cpu_fallback: instance.cpu_fallback,
+            unloaded: instance.unloaded.clone(),
+            _guard: LeaseGuard {
+                inner: self.this.clone(),
+                generation: instance.generation,
+            },
+        }
+    }
+
+    /// `Lease` de `model` s'il est prêt, vivant, avec exactement ce `Spec`,
+    /// décidé sous le verrou : jamais de lancement ni d'attente.
+    fn lend_if_ready(&self, model: &LocalModel, ctx: u32, options: LoadOptions) -> Option<Lease> {
+        let mut state = self.state.lock();
+        if *self.frozen.borrow() > 0 {
+            return None;
+        }
+        if state.deleting.iter().any(|id| same_model(id, &model.id)) {
+            return None;
+        }
+        let cpu = self.wants_cpu(options) || state.gpu_failed.contains(&model.id);
+        let spec = Spec {
+            model: PathBuf::from(&model.path),
+            mmproj: model.mmproj.as_deref().map(PathBuf::from),
+            ctx,
+            cpu,
+        };
+        let instance = state
+            .instances
+            .iter_mut()
+            .find(|instance| same_model(&instance.id, &model.id))?;
+        if instance.spec != spec || !matches!(instance.phase, Phase::Ready) {
+            return None;
+        }
+        let process = instance.process.clone()?;
+        if process.exited().is_some() {
+            return None;
+        }
+        instance.keep_alive = options.keep_alive;
+        Some(self.lend(instance, &process))
     }
 
     fn alive(&self, generation: u64) -> bool {

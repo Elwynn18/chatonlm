@@ -93,7 +93,7 @@
       "cloudHint": "The chat model ({model}) runs outside this computer. To proofread with it, choose it on the Proofread page of ChatonLM.",
       "stopped": "Proofreading stopped",
       "stoppedHint": "Nothing was copied.",
-      "replaced": "The model {missing} is no longer installed: corrected with {model}, loaded in Ollama.",
+      "replaced": "The model {missing} is no longer installed: corrected with {model}, loaded in memory.",
       "keysHeld": "Release the shortcut keys, then use the shortcut again.",
       "copyBlocked": "Windows did not let ChatonLM copy the selected text."
     },
@@ -104,16 +104,15 @@
     "failed": "Proofreading failed: {detail}",
     "failedRephrase": "Rephrasing failed: {detail}",
     "timedOut": "the model took too long to answer",
-    "connectionLost": "the connection to Ollama was lost"
+    "connectionLost": "the connection to the model was lost"
   },
   "study": {
     "noModel": "Choose a model for your courses",
     "modelNotFound": "The model {model} is not installed",
     "failed": "Generation failed: {detail}",
     "timedOut": "the model took too long to answer",
-    "connectionLost": "the connection to Ollama was lost",
+    "connectionLost": "the connection to the model was lost",
     "invalid": "The model's answers could not be used. Try again, or choose a larger model.",
-    "signedOut": "Web search requires an Ollama account",
     "whichMeaning": "Which one do you mean?",
     "topicTooLong": "The topic is too long: 300 characters at most",
     "badDuration": "A course lasts 10, 20 or 30 minutes",
@@ -150,7 +149,7 @@
     "runtimeUnavailable": "Parakeet can't run: ONNX Runtime could not be loaded ({detail}). Reinstall ChatonLM, or choose a Whisper model in Settings.",
     "polish": {
       "skipped": "Polish skipped: the model's answer did not look like your text",
-      "cloud": "Polish skipped: cloud models are not used for dictation",
+      "cloud": "Polish skipped: remote models are not used for dictation",
       "failed": "Polish failed: {detail}",
       "tooLong": "the model took too long to answer"
     },
@@ -221,7 +220,6 @@
     "emptyMessage": "the message is empty",
     "noModel": "no model is selected",
     "busy": "this chat is already waiting for an answer",
-    "webSearchSignedOut": "Web search requires an Ollama account",
     "notFound": "chat not found: {id}",
     "emptyTitle": "the title cannot be empty",
     "loopStopped": "The model kept repeating the same text, so its reply was stopped.",
@@ -263,12 +261,10 @@
   },
   "ollama": {
     "unreachable": "can't connect to Ollama",
-    "unreachableAt": "can't connect to Ollama at {address}",
     "timeout": "Ollama didn't answer in time",
     "requestFailed": "request to Ollama failed: {error}",
     "http": "Ollama answered HTTP {status}: {message}",
     "httpStatus": "Ollama answered HTTP {status}",
-    "unexpectedAnswer": "unexpected answer from Ollama: {error}",
     "unexpectedModels": "unexpected model list from Ollama: {error}",
     "unexpectedDetails": "unexpected model details from Ollama: {error}",
     "unexpectedRecommendations": "unexpected model recommendations from Ollama: {error}",
@@ -280,9 +276,6 @@
   },
   "account": {
     "noConnectUrl": "Failed to fetch connect URL"
-  },
-  "models": {
-    "cloudNotLoaded": "{model} runs on ollama.com: cloud models are not loaded on this computer"
   },
   "cloud": {
     "signedOut": "Cloud models require an Ollama account",
@@ -419,8 +412,7 @@
       "busyBridge": "VS Code is already dictating"
     },
     "local": {
-      "remoteServer": "ChatonLM uses an Ollama on another computer, so nothing was sent.",
-      "cloudModel": "{model} runs outside this computer, so nothing was sent."
+      "remoteModel": "{model} runs outside this computer, so nothing was sent."
     }
   },
   "easyLink": {
@@ -456,31 +448,37 @@
       "busy": "I am still answering your previous message. Send {p}stop to interrupt it.",
       "missed": "ChatonLM was not running when you sent this message. Send it again if you still want an answer.",
       "noModels": "No model is installed. Install one in ChatonLM (ModelHub).",
-      "modelsTitle": "Installed models:",
+      "modelsTitle": "Models:",
       "modelCurrent": "chosen",
       "modelLoaded": "in memory",
+      "modelRemote": "remote",
       "modelsHint": "Choose one with {p}model followed by its number or name.",
       "model": "Model: {model}",
       "noModel": "No model is chosen. Send {p}models to see the installed ones.",
       "modelMissing": "{model} is not installed anymore. Choose another model with {p}models.",
+      "remoteMissing": "{model} isn't available from its provider right now. Choose another model with {p}models.",
       "modelChosen": "Model: {model}. Your next message uses it.",
       "modelUnknown": "No installed model matches “{name}”. Send {p}models to see them.",
       "modelAmbiguous": "Several models match “{name}”: {models}",
       "loading": "Loading {model}…",
       "loaded": "{model} is in memory.",
+      "remoteNoLoad": "{model} runs at its provider: there is nothing to load or unload.",
       "unloaded": "{model} is unloaded.",
       "unloadedAll": "Every model is unloaded.",
       "failed": "That did not work: {error}",
       "statusLoaded": "In memory: {models}",
       "statusNothingLoaded": "In memory: nothing",
-      "statusUnreachable": "Ollama is not answering: {error}",
-      "ollamaDown": "Ollama is not answering on the computer.",
+      "statusEngineOff": "The text engine isn't available on the computer.",
+      "engineDown": "The text engine isn't answering on the computer.",
       "statusWebOn": "Web search: on",
       "statusWebOff": "Web search: off",
       "webOn": "Web search is on.",
       "webOff": "Web search is off.",
       "webUsage": "Send {p}web on or {p}web off.",
-      "webSignedOut": "Web search needs an Ollama account connected in ChatonLM (Settings > Account). Send {p}web off to answer without it.",
+      "webUnavailable": "Web search isn't available right now. Send {p}web off to answer without it.",
+      "webLimit": "The web search limit is reached for now. Send {p}web off to answer without it.",
+      "webPaused": "Web search is paused for now. Send {p}web off to answer without it.",
+      "webOutdated": "Web search needs a newer version of ChatonLM on the computer. Send {p}web off to answer without it.",
       "statusEphemeralOn": "Ephemeral conversations: on",
       "statusEphemeralOff": "Ephemeral conversations: off",
       "ephemeralOn": "Ephemeral conversations are on: they are not kept in ChatonLM's history, and are erased by {p}new, by {p}ephemeral off or when ChatonLM closes. Send {p}keep to keep the current one.",
@@ -588,10 +586,10 @@
   },
   "llm": {
     "remoteOff": "Remote models are turned off. Turn them on in the settings to use this model.",
-    "remoteUnavailable": "This remote model isn't available: its provider isn't set up.",
+    "remoteUnavailable": "This remote model isn't available: its provider doesn't offer it, or is no longer set up. Choose another model.",
     "remoteKey": "{provider} refused the API key. Check it in the settings.",
     "remoteLimit": "{provider} says your usage limit is reached.",
-    "remoteUnreachable": "{provider} can't be reached. Check your Internet connection, then try again.",
+    "remoteUnreachable": "{provider} can't be reached right now. Check your Internet connection, or try again later.",
     "cancelled": "the request was stopped",
     "inference": {
       "loading": "the model is still loading",
@@ -605,6 +603,13 @@
       "interrupted": "the reply was interrupted",
       "malformed": "the text engine sent an unreadable reply"
     }
+  },
+  "remote": {
+    "invalidName": "This name is too long (60 characters at most).",
+    "invalidUrl": "Enter the address of a server compatible with the OpenAI API, starting with http:// or https://.",
+    "invalidKey": "This API key isn't valid: it can't contain spaces.",
+    "keyNotSaved": "ChatonLM couldn't save the API key. Check that there is free space on the disk, then try again.",
+    "notFound": "This provider no longer exists."
   },
   "modelImport": {
     "busy": "Models are already being imported or moved. Wait until it's done.",

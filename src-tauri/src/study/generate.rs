@@ -39,6 +39,7 @@ pub struct Next {
 /// Contexte d'un travail.
 pub struct Job<'a> {
     pub store: &'a Store,
+    pub access: &'a crate::llm::Access,
     pub course: &'a str,
     pub cancel: &'a Cancel,
     pub timeouts: Timeouts,
@@ -156,11 +157,12 @@ impl Job<'_> {
         if snapshot.row.status != CourseStatus::Planning {
             return Ok(Next::default());
         }
-        let ollama = match Gen::connect(self.store, self.cancel, self.timeouts).await {
-            Ok(ollama) => ollama,
+        let asker = match Gen::connect(self.access, self.cancel, self.timeouts).await {
+            Ok(asker) => asker,
             Err(stop) => return self.plan_stopped(stop).await,
         };
-        let mut sources = snapshot.sources.clone();
+        // Extraits web gardés en mémoire (jamais en base) : plan repris.
+        let mut sources = sources::recall(self.course, &snapshot.sources);
         let has_web = sources
             .iter()
             .any(|source| source.source.kind == super::SourceKind::Web);
@@ -168,7 +170,7 @@ impl Job<'_> {
             let query = web_query(&snapshot);
             // Arrêt par `self.cancel` (ce futur est alors abandonné).
             let (web, never) = (
-                ollama.server.web_tools(),
+                asker.server.web_tools(),
                 tokio_util::sync::CancellationToken::new(),
             );
             let outcome = tokio::select! {
@@ -186,7 +188,8 @@ impl Job<'_> {
                             if cancel.is_cancelled() || db::row(c, &course)?.is_none() {
                                 return Ok(false);
                             }
-                            db::add_sources(c, &course, &found)?;
+                            // Titres et liens en base, extraits en mémoire.
+                            sources::record(c, &course, &found)?;
                             Ok(true)
                         })
                         .await?;
@@ -196,8 +199,8 @@ impl Job<'_> {
                     (self.changed)();
                     sources.extend(rows);
                 }
-                WebOutcome::Stopped(_) => {
-                    let error = error(StudyErrorCode::WebSearch, t!("study.signedOut"));
+                WebOutcome::Stopped(message) => {
+                    let error = error(StudyErrorCode::WebSearch, message);
                     return self.plan_stopped(Stop::Failed(error)).await;
                 }
                 WebOutcome::Failed(reason) => {
@@ -220,7 +223,7 @@ impl Job<'_> {
         let which = t!("study.whichMeaning" in row.language);
         let mut verdict = PlanVerdict::Invalid("no answer");
         for _ in 0..2 {
-            let answer = match ollama
+            let answer = match asker
                 .ask_json(&system, &user, &prompts::plan_schema(count), TEMPERATURE)
                 .await
             {
@@ -237,7 +240,7 @@ impl Job<'_> {
                 break;
             }
         }
-        let model = ollama.model.clone();
+        let model = asker.model.clone();
         match verdict {
             PlanVerdict::Unclear(question) => {
                 self.write_row(move |row| {
@@ -351,8 +354,8 @@ impl Job<'_> {
         if !started {
             return Ok(Next::default());
         }
-        let ollama = match Gen::connect(self.store, self.cancel, self.timeouts).await {
-            Ok(ollama) => ollama,
+        let asker = match Gen::connect(self.access, self.cancel, self.timeouts).await {
+            Ok(asker) => asker,
             Err(stop) => return self.level_stopped(index, stop).await,
         };
         let lang = snapshot.row.language;
@@ -368,7 +371,8 @@ impl Job<'_> {
                         current.points.join(" ")
                     )
                 };
-                let extracts = sources::extracts(&snapshot.sources, &query, 0);
+                let known = sources::recall(self.course, &snapshot.sources);
+                let extracts = sources::extracts(&known, &query, 0);
                 let hooks: Vec<&str> = snapshot.levels[..index]
                     .iter()
                     .filter_map(|level| level.lesson.as_ref())
@@ -379,7 +383,7 @@ impl Job<'_> {
                     &extracts,
                 );
                 let user = prompts::lesson_user(&plan, index);
-                let lesson = match self.lesson(&ollama, &system, &user, lang, plan.kind).await {
+                let lesson = match self.lesson(&asker, &system, &user, lang, plan.kind).await {
                     Ok(Some(lesson)) => lesson,
                     Ok(None) => return self.level_stopped(index, Stop::Failed(invalid())).await,
                     Err(stop) => return self.level_stopped(index, stop).await,
@@ -391,7 +395,7 @@ impl Job<'_> {
                     level: snapshot.row.level,
                     kind: plan.kind,
                 };
-                let lesson = match self.reviewed(&ollama, &review, lesson).await {
+                let lesson = match self.reviewed(&asker, &review, lesson).await {
                     Ok(lesson) => lesson,
                     Err(stop) => return self.level_stopped(index, stop).await,
                 };
@@ -415,7 +419,7 @@ impl Job<'_> {
         let prefix = format!("L{index}");
         let generated = match self
             .questions(
-                &ollama,
+                &asker,
                 lang,
                 plan.kind,
                 &types,
@@ -482,7 +486,7 @@ impl Job<'_> {
     /// ailleurs est gardée au second essai. `None` : rien d'utilisable.
     async fn lesson(
         &self,
-        ollama: &Gen<'_>,
+        asker: &Gen<'_>,
         system: &str,
         user: &str,
         lang: Lang,
@@ -490,7 +494,7 @@ impl Job<'_> {
     ) -> Result<Option<Lesson>, Stop> {
         let mut fallback = None;
         for _ in 0..2 {
-            let answer = ollama
+            let answer = asker
                 .ask_json(system, user, &prompts::lesson_schema(), TEMPERATURE)
                 .await?;
             match answer.map(|value| checks::check_lesson(&value, lang, kind)) {
@@ -513,11 +517,11 @@ impl Job<'_> {
     /// illisible) : la leçon est gardée ; seul l'arrêt est rendu.
     async fn reviewed(
         &self,
-        ollama: &Gen<'_>,
+        asker: &Gen<'_>,
         review: &Review<'_>,
         lesson: Lesson,
     ) -> Result<Lesson, Stop> {
-        let answer = ollama
+        let answer = asker
             .ask_json(
                 &prompts::review_prompt(review.lang, review.level),
                 &prompts::review_user(&lesson),
@@ -534,7 +538,7 @@ impl Job<'_> {
             return Ok(lesson);
         }
         let system = format!("{}\n{}", review.system, prompts::review_notes(&errors));
-        let rewritten = ollama
+        let rewritten = asker
             .ask_json(&system, review.user, &prompts::lesson_schema(), TEMPERATURE)
             .await;
         match rewritten {
@@ -558,7 +562,7 @@ impl Job<'_> {
     #[allow(clippy::too_many_arguments)]
     async fn questions(
         &self,
-        ollama: &Gen<'_>,
+        asker: &Gen<'_>,
         lang: Lang,
         kind: StudyKind,
         types: &[QType],
@@ -573,7 +577,7 @@ impl Job<'_> {
             slots: vec![None; types.len()],
         };
         let request = Request {
-            ollama,
+            asker,
             lang,
             kind,
             prefix,
@@ -620,14 +624,14 @@ impl Job<'_> {
         round: usize,
     ) -> Result<(), Stop> {
         let Request {
-            ollama,
+            asker,
             lang,
             kind,
             prefix,
             ..
         } = *request;
         let schema = prompts::quiz_schema(asked, request.with_explanation);
-        let Some(value) = ollama
+        let Some(value) = asker
             .ask_json(&(request.prompt)(asked), request.user, &schema, TEMPERATURE)
             .await?
         else {
@@ -656,7 +660,7 @@ impl Job<'_> {
                 &provisional,
                 explanation.clone(),
             );
-            match self.verified(ollama, lang, kind, &candidate).await? {
+            match self.verified(asker, lang, kind, &candidate).await? {
                 Ok(()) => generated.slots[*slot] = Some((draft, explanation)),
                 Err(detail) => dropped(prefix, *qtype, &format!("check: {detail}"), item),
             }
@@ -669,13 +673,13 @@ impl Job<'_> {
     /// désaccord l'écarte (`Err` : ce qu'il a répondu, pour le journal).
     async fn verified(
         &self,
-        ollama: &Gen<'_>,
+        asker: &Gen<'_>,
         lang: Lang,
         kind: StudyKind,
         question: &StoredQuestion,
     ) -> Result<Result<(), String>, Stop> {
         let (text, schema) = prompts::check_request(question);
-        let reply = ollama
+        let reply = asker
             .ask_json(
                 &prompts::check_prompt(lang),
                 &text,
@@ -726,8 +730,8 @@ impl Job<'_> {
         if !started {
             return Ok(Next::default());
         }
-        let ollama = match Gen::connect(self.store, self.cancel, self.timeouts).await {
-            Ok(ollama) => ollama,
+        let asker = match Gen::connect(self.access, self.cancel, self.timeouts).await {
+            Ok(asker) => asker,
             Err(stop) => return self.remedy_stopped(index, stop).await,
         };
         let lang = snapshot.row.language;
@@ -751,7 +755,7 @@ impl Job<'_> {
         let prefix = format!("L{index}-A{attempt_index}");
         let generated = match self
             .questions(
-                &ollama,
+                &asker,
                 lang,
                 plan.kind,
                 &types,
@@ -828,8 +832,8 @@ impl Job<'_> {
         if !started {
             return Ok(Next::default());
         }
-        let ollama = match Gen::connect(self.store, self.cancel, self.timeouts).await {
-            Ok(ollama) => ollama,
+        let asker = match Gen::connect(self.access, self.cancel, self.timeouts).await {
+            Ok(asker) => asker,
             Err(stop) => return self.final_stopped(stop).await,
         };
         let lang = snapshot.row.language;
@@ -841,7 +845,7 @@ impl Job<'_> {
         let types = &prompts::FINAL_TYPES[..data::final_count(snapshot.row.minutes)];
         let generated = match self
             .questions(
-                &ollama,
+                &asker,
                 lang,
                 plan.kind,
                 types,
@@ -923,7 +927,7 @@ const MIN_QUESTIONS: usize = 2;
 
 /// Ce qu'une demande de questions envoie.
 struct Request<'a, 'b> {
-    ollama: &'a Gen<'b>,
+    asker: &'a Gen<'b>,
     lang: Lang,
     kind: StudyKind,
     prefix: &'a str,

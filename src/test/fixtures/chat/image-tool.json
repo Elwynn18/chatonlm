@@ -1,9 +1,9 @@
 {
-  "description": "A model with tools and an image model chosen in the ModelHub (chatonlm-image): thinking and a generate_image call (512 x 512), the image's progress (place kept, loading, two steps, the first with a preview), the image saved as an attachment of that answer (imageReady), the call's result, then a second answer.",
+  "description": "A model with tools and an image model chosen in the ModelHub: thinking and a generate_image call (512 x 512), the context, the image's progress (place kept, loading, two steps, the first with a preview), the image saved as an attachment of that answer (imageReady), the call's result, then a second answer.",
   "request": {
     "streamId": "stream-1",
     "content": "A red fox in the snow, watercolor",
-    "model": "chatonlm-image"
+    "model": "chat/Sketch-GGUF:Q4_K_M"
   },
   "events": [
     {
@@ -39,11 +39,36 @@
     },
     {
       "type": "thinking",
-      "text": "The user wants a"
+      "text": "The"
     },
     {
       "type": "thinking",
-      "text": " picture."
+      "text": " user"
+    },
+    {
+      "type": "thinking",
+      "text": " wants"
+    },
+    {
+      "type": "thinking",
+      "text": " something."
+    },
+    {
+      "type": "thinking",
+      "text": " Let"
+    },
+    {
+      "type": "thinking",
+      "text": " me"
+    },
+    {
+      "type": "thinking",
+      "text": " think."
+    },
+    {
+      "type": "context",
+      "used": 92,
+      "size": 32768
     },
     {
       "type": "toolCalls",
@@ -138,12 +163,53 @@
       "createdAt": 1700000000000
     },
     {
-      "type": "content",
-      "text": "Here is your ima"
+      "type": "thinking",
+      "text": "The"
+    },
+    {
+      "type": "thinking",
+      "text": " user"
+    },
+    {
+      "type": "thinking",
+      "text": " wants"
+    },
+    {
+      "type": "thinking",
+      "text": " something."
+    },
+    {
+      "type": "thinking",
+      "text": " Let"
+    },
+    {
+      "type": "thinking",
+      "text": " me"
+    },
+    {
+      "type": "thinking",
+      "text": " think."
     },
     {
       "type": "content",
-      "text": "ge."
+      "text": "Here"
+    },
+    {
+      "type": "content",
+      "text": " is"
+    },
+    {
+      "type": "content",
+      "text": " your"
+    },
+    {
+      "type": "content",
+      "text": " picture."
+    },
+    {
+      "type": "context",
+      "used": 113,
+      "size": 32768
     },
     {
       "type": "done",

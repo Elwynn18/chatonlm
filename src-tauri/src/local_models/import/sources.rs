@@ -78,6 +78,7 @@ pub fn shared_dir(dir: &Path, machine: &[PathBuf]) -> bool {
 }
 
 /// Dossier personnel de l'utilisateur (`HOME`, `USERPROFILE` sous Windows).
+#[cfg_attr(test, allow(dead_code))]
 pub fn user_home() -> Option<PathBuf> {
     let name = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
     std::env::var_os(name)
@@ -86,13 +87,65 @@ pub fn user_home() -> Option<PathBuf> {
 }
 
 /// Dossiers connus du système (paquets Linux ; aucun sous Windows).
+#[cfg_attr(test, allow(dead_code))]
 pub fn system_dirs() -> Vec<PathBuf> {
     super::os::system_dirs()
+}
+
+/// Variable qui remplace la recherche des dossiers de l'Ollama de la machine
+/// (e2e, recette) : posée, ses dossiers (séparés comme `PATH`) sont les seuls
+/// regardés, sans détection du service ni lecture de `~/.ollama` ; vide :
+/// aucun.
+#[cfg_attr(test, allow(dead_code))]
+pub const MACHINE_DIRS_VAR: &str = "CHATONLM_OLLAMA_MACHINE_DIRS";
+
+/// Dossiers imposés par la valeur `value` de [`MACHINE_DIRS_VAR`] : `None`
+/// sans variable (recherche normale).
+pub fn forced_dirs(value: Option<std::ffi::OsString>) -> Option<Vec<PathBuf>> {
+    value.map(|value| {
+        std::env::split_paths(&value)
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .collect()
+    })
+}
+
+/// Dossiers candidats : ceux imposés s'il y en a (`forced`), sinon ceux de
+/// la recherche `discover` (jamais appelée dans le premier cas).
+pub fn chosen(
+    forced: Option<Vec<PathBuf>>,
+    exclude: &[PathBuf],
+    discover: impl FnOnce() -> Vec<PathBuf>,
+) -> Vec<PathBuf> {
+    match forced {
+        Some(dirs) => candidates(None, None, None, dirs, exclude),
+        None => discover(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Variable posée : seuls ses dossiers, jamais la recherche (service,
+    /// `~/.ollama`) ; vide : aucun dossier ; absente : la recherche.
+    #[test]
+    fn forced_dirs_replace_the_search() {
+        let root = tempfile::tempdir().unwrap();
+        let given = ollama_dir(root.path(), "given");
+        let other = ollama_dir(root.path(), "other");
+        let value = std::env::join_paths([given.clone(), other.clone()]).unwrap();
+        let forced = forced_dirs(Some(value));
+        assert_eq!(forced, Some(vec![given.clone(), other.clone()]));
+        assert_eq!(
+            chosen(forced, &[other], || panic!("searched")),
+            vec![given.clone()]
+        );
+        let none = forced_dirs(Some(std::ffi::OsString::new()));
+        assert_eq!(none, Some(Vec::new()));
+        assert!(chosen(none, &[], || panic!("searched")).is_empty());
+        assert_eq!(forced_dirs(None), None);
+        assert_eq!(chosen(None, &[], || vec![given.clone()]), vec![given]);
+    }
 
     fn ollama_dir(root: &Path, name: &str) -> PathBuf {
         let dir = root.join(name);

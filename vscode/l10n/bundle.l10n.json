@@ -209,6 +209,6 @@
   "ChatonLM couldn't transcribe the dictation.": "ChatonLM couldn't transcribe the dictation.",
   "ChatonLM could not delete the access file for agents: {0}. Delete it yourself.": "ChatonLM could not delete the access file for agents: {0}. Delete it yourself.",
   "This version of ChatonLM can't give agents their own access. Update ChatonLM.": "This version of ChatonLM can't give agents their own access. Update ChatonLM.",
-  "ChatonLM uses an Ollama server on another computer: its models are not offered here.": "ChatonLM uses an Ollama server on another computer: its models are not offered here.",
+  "ChatonLM's models run on another computer: they are not offered here.": "ChatonLM's models run on another computer: they are not offered here.",
   "This conversation is too long to send to ChatonLM. Start a new one.": "This conversation is too long to send to ChatonLM. Start a new one."
 }

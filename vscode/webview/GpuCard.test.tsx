@@ -25,7 +25,7 @@ import { Panel } from "./Panel";
 const CONNECTED: PanelState = {
   connection: "connected",
   models: ["qwen3:0.6b"],
-  cloudModels: [],
+  remoteModels: [],
   model: "qwen3:0.6b",
   ephemeral: false,
   chatId: null,

@@ -3,8 +3,9 @@
 // (langue des agents), entrées vérifiées et bornées, exécution annulable.
 // Rien d'autre n'est joignable : ni l'historique, ni les réglages (l'accès
 // agents est en plus limité par l'app elle-même, contrat 97 § 1). Seulement
-// cette machine : un Ollama sur une autre machine (`app.state.local`) ou un
-// modèle du cloud est refusé ; la correction demande `localOnly`. Seuls
+// cette machine : un modèle distant (chez un fournisseur), ou, avec une app
+// 0.9.x, des modèles sur une autre machine (`app.state.local`), est refusé ;
+// la correction demande `localOnly`. Seuls
 // `chatonlm_models` et `chatonlm_proofread` sont marqués en lecture seule
 // (`readOnlyHint`) : VS Code demande confirmation pour les autres (voix à
 // haute voix, carte graphique occupée, modèle chargé). Sans dépendance à VS
@@ -17,6 +18,7 @@ import {
   RpcError,
   TooLargeError,
 } from "../bridge/rpc";
+import { listedModels, looksRemote } from "../../shared/models";
 import { BRIDGE_FORBIDDEN } from "../../shared/protocol";
 import { oneLine, type ToolName } from "./files";
 
@@ -80,7 +82,7 @@ export const TOOLS: readonly ToolSpec[] = [
   {
     name: "chatonlm_ask",
     description:
-      "Ask a question to a language model that runs on this computer through the ChatonLM app, and get its answer as text. Nothing is kept in ChatonLM's history. Cloud models are refused. Use chatonlm_models to list the models.",
+      "Ask a question to a language model that runs on this computer through the ChatonLM app, and get its answer as text. Nothing is kept in ChatonLM's history. Remote models (run by an online provider) are refused. Use chatonlm_models to list the models.",
     fields: {
       question: {
         type: "string",
@@ -297,9 +299,6 @@ const failure = (value: string): ToolResult => ({
   isError: true,
 });
 
-/** Modèle du cloud, d'après son nom (comme l'app). */
-export const looksCloud = (model: string) => /[:-]cloud$/i.test(model);
-
 const CANCELLED = -32800;
 
 /** Message d'un refus de l'app (déjà traduit par elle) ou d'un échec. */
@@ -354,25 +353,26 @@ type Details = { remote?: unknown; contextLength?: unknown };
 
 type AppState = { selectedModel?: unknown; local?: unknown };
 
-/** Refus d'un Ollama sur une autre machine (réglage du serveur de l'app). */
+/** Refus des modèles d'une autre machine (app 0.9.x réglée sur un serveur
+ * d'une autre machine ; jamais depuis l'app 0.10). */
 export const NOT_LOCAL_TEXT =
-  "ChatonLM uses an Ollama server on another computer. ChatonLM only lets agents use models that run on this computer.";
+  "ChatonLM's models run on another computer. ChatonLM only lets agents use models that run on this computer.";
 
 async function appState(bridge: BridgeLike): Promise<AppState> {
   return (await bridge.call<AppState>("app.state").result) ?? {};
 }
 
 /**
- * Le modèle tourne-t-il hors de cette machine (cloud, ou Ollama de l'app sur
- * une autre machine) ? `local` : `app.state.local` déjà lu, sinon demandé.
- * Absent : InputError.
+ * Le modèle tourne-t-il hors de cette machine (distant, ou modèles d'une
+ * autre machine avec une app 0.9.x) ? `local` : `app.state.local` déjà lu,
+ * sinon demandé. Absent : InputError.
  */
-export async function isCloud(
+export async function isRemote(
   bridge: BridgeLike,
   model: string,
   local?: boolean,
 ): Promise<boolean> {
-  if (looksCloud(model)) return true;
+  if (looksRemote(model)) return true;
   // Ce que l'app ne dit pas compte comme une autre machine.
   const here = local ?? (await appState(bridge)).local === true;
   if (!here) return true;
@@ -429,9 +429,9 @@ async function ask(
       "No model is chosen in ChatonLM. Pass a model from chatonlm_models.",
     );
   }
-  if (await isCloud(bridge, model, true)) {
+  if (await isRemote(bridge, model, true)) {
     return failure(
-      `${oneLine(model, 80)} runs in the cloud. ChatonLM only lets agents use models that run on this computer.`,
+      `${oneLine(model, 80)} runs outside this computer. ChatonLM only lets agents use models that run on this computer.`,
     );
   }
   if (signal.aborted) throw new StoppedError();
@@ -603,8 +603,8 @@ async function proofread(
 ): Promise<ToolResult> {
   const result = await awaitCall(
     bridge,
-    // `localOnly` : l'app refuse (`notLocal`) un modèle de correction du
-    // cloud, distant, ou un Ollama sur une autre machine (contrat 97, A2).
+    // `localOnly` : l'app refuse (`notLocal`) un modèle de correction
+    // distant (contrat 97, A2).
     bridge.call<{ text?: unknown }>("proofread.run", {
       text: args.text,
       mode: args.mode ?? "correct",
@@ -618,36 +618,27 @@ async function proofread(
   return text(result.text);
 }
 
-type ModelEntry = {
-  model?: unknown;
-  parameterSize?: unknown;
-  quantizationLevel?: unknown;
-  contextLength?: unknown;
-  capabilities?: unknown;
-};
-
-/** Modèles qui tournent sur cette machine (pas ceux du cloud). */
+/** Modèles qui tournent sur cette machine (jamais un modèle distant). */
 async function models(
   bridge: BridgeLike,
   signal: AbortSignal,
 ): Promise<ToolResult> {
   const app = await appState(bridge);
-  // Ollama sur une autre machine : aucun modèle ne tourne sur celle-ci.
+  // Modèles sur une autre machine (app 0.9.x) : aucun ne tourne sur celle-ci.
   if (app.local !== true) return failure(NOT_LOCAL_TEXT);
   const list = await awaitCall(
     bridge,
-    bridge.call<ModelEntry[]>("models.list"),
+    bridge.call<unknown>("models.list"),
     signal,
   );
-  const entries = (Array.isArray(list) ? list : [])
-    .filter(
-      (m): m is ModelEntry & { model: string } => typeof m?.model === "string",
-    )
+  const entries = listedModels(list)
+    .filter((m) => !m.remote)
     .slice(0, 100);
+  // L'app confirme chacun (ce qu'elle ne dit pas compte comme distant).
   const checked = await Promise.all(
     entries.map(async (m) => {
       try {
-        return (await isCloud(bridge, m.model, true)) ? null : m;
+        return (await isRemote(bridge, m.id, true)) ? null : m;
       } catch {
         return null;
       }
@@ -656,7 +647,7 @@ async function models(
   const local = checked.filter((m) => m !== null);
   const selected =
     typeof app.selectedModel === "string" &&
-    local.some((m) => m.model === app.selectedModel)
+    local.some((m) => m.id === app.selectedModel)
       ? app.selectedModel
       : null;
   return text(
@@ -664,18 +655,11 @@ async function models(
       {
         default: selected,
         models: local.map((m) => ({
-          name: m.model,
-          parameters:
-            typeof m.parameterSize === "string" ? m.parameterSize : null,
-          quantization:
-            typeof m.quantizationLevel === "string"
-              ? m.quantizationLevel
-              : null,
-          contextLength:
-            typeof m.contextLength === "number" ? m.contextLength : null,
-          capabilities: Array.isArray(m.capabilities)
-            ? m.capabilities.filter((c) => typeof c === "string")
-            : [],
+          name: m.id,
+          parameters: m.parameters,
+          quantization: m.quantization,
+          contextLength: m.contextMax,
+          capabilities: m.capabilities,
         })),
       },
       null,

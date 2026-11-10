@@ -11,7 +11,7 @@
   },
   "discover": {
     "title": "Découvrir des modèles",
-    "subtitle": "Des modèles ouverts de Hugging Face, prêts à fonctionner avec Ollama.",
+    "subtitle": "Des modèles ouverts de Hugging Face, prêts à fonctionner dans ChatonLM.",
     "loading": "Chargement des modèles",
     "seeAll": "Tout voir",
     "seeAllLabel": "Tout voir : {section}",
@@ -36,8 +36,8 @@
     "cpuOnly": "CPU seul",
     "vram": "{size} VRAM",
     "ram": "{size} RAM",
-    "remote": "Serveur distant — mémoire inconnue",
-    "remoteHint": "Le serveur Ollama tourne sur une autre machine : ChatonLM ne peut pas savoir quels modèles tiennent dans sa mémoire.",
+    "unknown": "Mémoire inconnue",
+    "unknownHint": "ChatonLM n'a pas pu lire la mémoire de cet ordinateur : il ne peut pas savoir quels modèles tiennent.",
     "hint": {
       "estimates": "Estimations pour un contexte de {context}.",
       "estimatesCpu": "Estimations pour un contexte de {context}, sans carte graphique.",
@@ -158,7 +158,7 @@
   },
   "versions": {
     "title": "Choisir une version",
-    "none": "Ce dépôt ne contient aucun fichier de modèle utilisable par Ollama.",
+    "none": "Ce dépôt ne contient aucun fichier de modèle utilisable par ChatonLM.",
     "recommended": "Recommandée",
     "installed": "Installée",
     "memory": "Demande environ {size} de mémoire.",
@@ -166,8 +166,8 @@
     "showAll": "Afficher les {count} versions",
     "showFewer": "Afficher moins de versions",
     "download": "Télécharger · {size}",
-    "ollamaName": "Identifiant du modèle",
-    "copyOllamaName": "Copier l'identifiant du modèle",
+    "modelId": "Identifiant du modèle",
+    "copyModelId": "Copier l'identifiant du modèle",
     "otherSources": "Autres sources"
   },
   "tiers": {
@@ -178,8 +178,8 @@
     "tiny": "La plus petite"
   },
   "issues": {
-    "sharded": "Découpée en plusieurs fichiers — pas encore prise en charge par Ollama",
-    "subfolder": "Rangée dans un sous-dossier — pas encore prise en charge par Ollama"
+    "sharded": "Découpée en plusieurs fichiers — non prise en charge",
+    "subfolder": "Rangée dans un sous-dossier — non prise en charge"
   },
   "progress": {
     "downloading": "Téléchargement de {name}",
@@ -234,13 +234,13 @@
     "empty": "Aucun modèle pour l'instant",
     "modified": "Modifié {time}",
     "embedding": "Embedding",
-    "deleteText": "Le modèle sera retiré d'Ollama. Vous pourrez le télécharger de nouveau plus tard.",
+    "deleteText": "Le modèle sera supprimé de cet ordinateur. Vous pourrez le télécharger de nouveau plus tard.",
     "updateAvailable": "Mise à jour disponible"
   },
   "speech": {
     "title": "Modèles de transcription",
     "loading": "Chargement des modèles de transcription",
-    "intro": "Les modèles de transcription fonctionnent dans ChatonLM, pas dans Ollama. La dictée utilise celui que vous choisissez.",
+    "intro": "Les modèles de transcription fonctionnent dans ChatonLM. La dictée utilise celui que vous choisissez.",
     "settingsLink": "Paramètres de la dictée",
     "catalog": {
       "parakeet_tdt_0_6b_v3": {
@@ -282,7 +282,7 @@
   "voices": {
     "title": "Voix",
     "loading": "Chargement des voix",
-    "intro": "Les voix lisent les réponses à voix haute. Elles fonctionnent dans ChatonLM, pas dans Ollama.",
+    "intro": "Les voix lisent les réponses à voix haute. Elles fonctionnent dans ChatonLM.",
     "settingsLink": "Paramètres de la lecture à voix haute",
     "cardTitle": "{language} · {voice}",
     "modelLicense": "Licence du modèle :",
@@ -298,7 +298,7 @@
   "images": {
     "title": "Modèles d'images",
     "loading": "Chargement des modèles d'images",
-    "intro": "Les modèles d'images créent des images à partir de vos descriptions dans une conversation. Ils fonctionnent dans ChatonLM, pas dans Ollama.",
+    "intro": "Les modèles d'images créent des images à partir de vos descriptions dans une conversation. Ils fonctionnent dans ChatonLM.",
     "howTo": {
       "title": "Comment ça marche",
       "download": "Téléchargez un modèle",
@@ -408,7 +408,7 @@
   },
   "polish": {
     "intro": "Un second modèle met au propre la transcription : ponctuation, hésitations, reprises. Si sa réponse ne ressemble pas à ce que vous avez dit, la transcription brute est copiée à la place.",
-    "unreachable": "Ollama est injoignable. Démarrez-le pour utiliser ces modèles pour la mise au propre.",
+    "unreachable": "Impossible de lire les modèles installés.",
     "label": "Modèles de mise au propre",
     "use": "Utiliser",
     "anyModel": "Tout modèle installé peut être choisi dans les paramètres."

@@ -2,12 +2,11 @@
 # Contrôles d'une étape, à passer avant chaque commit.
 # Par défaut : outils, scripts, format, types, lint, tests, build du frontend
 # et contenu du bundle, licences et attribution. « --full » ajoute le build de
-# l'app, les contrats avec l'Ollama de test (vrais modèles, port 11435) et le
-# registre ollama.com (accès au réseau), deux fois : avec l'Ollama de la
-# machine, puis avec l'Ollama intégré aux paquets (packaging/ollama.env),
-# l'essai de démarrage et les tests de l'app en session virtuelle, la mise à
-# jour N → N+1 sur deux AppImages d'essai, puis le contrôle d'isolation depuis
-# le dernier commit.
+# l'app, les contrats avec le vrai llama-server et les vrais modèles d'essai
+# (scripts/test-llama.sh, Hugging Face : accès au réseau), l'essai de
+# démarrage et les tests de l'app en session virtuelle, la mise à jour N → N+1
+# sur deux AppImages d'essai, puis le contrôle d'isolation depuis le dernier
+# commit.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,6 +25,8 @@ esac
 source "$root/activate.sh"
 # shellcheck source=lib/guard.sh
 source "$root/scripts/lib/guard.sh"
+# shellcheck source=lib/roots.sh
+source "$root/scripts/lib/roots.sh"
 cd "$root"
 
 manifest=src-tauri/Cargo.toml
@@ -102,70 +103,42 @@ vscode_extension() {
     bin vite build -c vscode/webview.vite.config.mts
 }
 
-# Conditions réelles : l'instance Ollama de test (port 11435, jamais le service
-# du système) sert aux contrats, à e2e/real-ollama.test.mjs et à
-# e2e/real-voice-mode.test.mjs (un tour du mode vocal avec qwen3:0.6b, latence
-# affichée sur la sortie d'erreur), lancés avec les autres essais de l'app
-# (real_app_checks). Démarrée ici si
-# elle ne tournait pas, elle est alors arrêtée à la fin, même en cas d'échec.
-# Lancée avec l'Ollama intégré (reste d'un essai), elle est relancée avec
-# celui de la machine.
-test_ollama_started=false
-start_test_ollama() {
-  if scripts/test-ollama.sh status >/dev/null 2>&1; then
-    [ "$(scripts/test-ollama.sh kind)" = system ] && return 0
-    scripts/test-ollama.sh stop >/dev/null || return 1
-  else
-    test_ollama_started=true
-    trap 'scripts/test-ollama.sh stop >/dev/null || true' EXIT
-  fi
-  scripts/test-ollama.sh start >/dev/null
-}
+# Conditions réelles : le vrai llama-server (.tools/runtimes/llama-server,
+# scripts/build-llama-server.sh) et les vrais modèles d'essai
+# (.tools/llama-test/models, scripts/test-llama.sh fetch : GGUF épinglés par
+# révision et sha256, models.json) servent aux contrats (RealBench :
+# CHATONLM_LLAMA_TEST_BIN, CHATONLM_LLAMA_TEST_MODELS) et aux e2e réels
+# (e2e/real-llama.test.mjs, e2e/real-voice-mode.test.mjs), lancés avec les
+# autres essais de l'app (real_app_checks). Aucun Ollama n'est lancé : les
+# contrats encore écrits contre Ollama (module ollama/, retiré avec L10) sont
+# sautés. Modèles d'essai et verrou : ceux de l'arbre PRINCIPAL
+# (scripts/lib/roots.sh), communs à tous les arbres de travail, là où
+# test-llama.sh fetch les range.
+export CHATONLM_LLAMA_TEST_BIN="$root/.tools/runtimes/llama-server/llama-server"
+CHATONLM_LLAMA_TEST_MODELS="$(chatonlm_llama_test_home "$root")/models"
+export CHATONLM_LLAMA_TEST_MODELS
 
-# Un contrat à la fois : en parallèle, un contrat qui recharge qwen3:0.6b
-# avec un autre contexte tue le runner du contrat d'annulation avant qu'il
-# n'écrive l'abandon dans le journal (Ollama 0.40.0 : 1 échec sur 3 avec le
-# binaire de la machine, 2 sur 4 avec l'intégré ; en série, ~100 s au lieu
-# de ~80 s, aucun).
+# Un contrat à la fois, et un seul vrai serveur à la fois sur la machine
+# (verrou .tools/locks/llama-real.lock de l'arbre principal, partagé avec les
+# autres arbres de travail et les essais lancés à la main) : en parallèle,
+# deux modèles sur la carte faussent les mesures de mémoire et les délais de
+# chargement. Sans modèle ou binaire, RealBench sauterait chaque contrat sans
+# le dire : l'étape échoue d'abord (test-llama.sh check).
 # Les contrats de la lecture à voix haute (tts_contract_*) prennent les voix
 # de .tools/voice-models (scripts/tts/README.md) ; sans elles, ils sont sautés.
 contracts() {
-  local voices="$root/.tools/voice-models"
+  local voices="$root/.tools/voice-models" lock
+  lock="$(chatonlm_real_lock "$root")"
+  scripts/test-llama.sh check || return 1
+  mkdir -p "$(dirname "$lock")"
   if [ -d "$voices" ]; then
-    CHATONLM_VOICE_MODELS_DIR="$voices" \
-      cargo test --manifest-path "$manifest" --locked --lib contract -- --ignored --test-threads=1
+    CHATONLM_VOICE_MODELS_DIR="$voices" flock "$lock" \
+      cargo test --manifest-path "$manifest" --locked --lib contract -- --ignored --test-threads=1 --skip ollama::
   else
     echo "  (voix absentes : contrats de la lecture à voix haute sautés)"
-    env -u CHATONLM_VOICE_MODELS_DIR \
-      cargo test --manifest-path "$manifest" --locked --lib contract -- --ignored --test-threads=1
+    env -u CHATONLM_VOICE_MODELS_DIR flock "$lock" \
+      cargo test --manifest-path "$manifest" --locked --lib contract -- --ignored --test-threads=1 --skip ollama::
   fi
-}
-
-# Mêmes contrats avec l'Ollama intégré aux paquets : l'instance de test est
-# relancée avec ce binaire (même port, mêmes modèles) ; il doit annoncer la
-# version épinglée et décrire ses moteurs de calcul dans son journal (Vulkan
-# ou processeur : noté dans la sortie). L'instance est ensuite rendue à
-# l'Ollama de la machine pour les essais de l'app, même en cas d'échec.
-builtin_contracts() {
-  local status=0 version log
-  scripts/test-ollama.sh stop >/dev/null || return 1
-  log="$(wc -l <.tools/ollama-test/serve.log 2>/dev/null || echo 0)"
-  if scripts/test-ollama.sh start --builtin; then
-    version="$(curl -sf http://127.0.0.1:11435/api/version)"
-    if [ "$version" != "{\"version\":\"$(cat .tools/runtimes/ollama/VERSION)\"}" ]; then
-      echo "Version annoncée par l'Ollama intégré : $version" >&2
-      status=1
-    fi
-    tail -n "+$((log + 1))" .tools/ollama-test/serve.log |
-      grep -m 3 'msg="inference compute"' | sed -E 's/.*(library=[^ ]+).*(description="[^"]*").*/  moteur : \1 \2/' ||
-      { echo "Aucun moteur de calcul décrit par l'Ollama intégré." >&2 && status=1; }
-    contracts || status=1
-  else
-    status=1
-  fi
-  scripts/test-ollama.sh stop >/dev/null || status=1
-  scripts/test-ollama.sh start >/dev/null || status=1
-  return "$status"
 }
 
 # Contrats avec le vrai moteur d'images (image_gen::tests::real) : le binaire
@@ -267,18 +240,16 @@ step "Fichiers d'empaquetage (desktop, AppStream)" packaging_files
 if $full; then
   step "Clippy (fonctionnalité e2e)" \
     cargo clippy --manifest-path "$manifest" --all-targets --locked --features e2e -- -D warnings
+  # Ollama intégré : encore livré dans les paquets jusqu'au retrait d'Ollama
+  # (L10), plus lancé par l'app.
   step "Ollama intégré épinglé" scripts/fetch-ollama.sh
+  step "Moteur de texte épinglé (llama-server)" scripts/build-llama-server.sh
   step "Moteur d'images épinglé (sd-server)" scripts/build-sd-server.sh
   step "Contrats avec le moteur d'images (processeur)" sd_contracts
-  step "Ollama de test démarré (port 11435)" start_test_ollama
-  step "Contrats avec l'Ollama de test et le registre" contracts
-  step "Contrats avec l'Ollama intégré" builtin_contracts
+  step "Modèles d'essai épinglés (.tools/llama-test)" scripts/test-llama.sh fetch
+  step "Contrats avec le vrai moteur et Hugging Face" contracts
   step "App réelle en session virtuelle" real_app_checks
   step "Mise à jour N → N+1 en session virtuelle" update_checks
-  if $test_ollama_started; then
-    step "Ollama de test arrêté" scripts/test-ollama.sh stop
-    trap - EXIT
-  fi
   step "Isolation depuis le dernier commit" \
     scripts/leak-check.sh report --since "$(git log -1 --format=%ct)"
 fi

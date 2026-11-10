@@ -4,7 +4,7 @@
     "chatId": "chat-1",
     "streamId": "stream-1",
     "content": "Say hello in one word.",
-    "model": "qwen3:0.6b",
+    "model": "Qwen/Qwen3-0.6B-GGUF:Q8_0",
     "think": false
   },
   "events": [
@@ -31,20 +31,40 @@
     },
     {
       "type": "content",
-      "text": "\""
+      "text": "Hello!"
     },
     {
       "type": "content",
-      "text": "Hi"
+      "text": " You"
     },
     {
       "type": "content",
-      "text": "!\""
+      "text": " said:"
+    },
+    {
+      "type": "content",
+      "text": " Say"
+    },
+    {
+      "type": "content",
+      "text": " hello"
+    },
+    {
+      "type": "content",
+      "text": " in"
+    },
+    {
+      "type": "content",
+      "text": " one"
+    },
+    {
+      "type": "content",
+      "text": " word."
     },
     {
       "type": "context",
-      "used": 26,
-      "size": 4096
+      "used": 41,
+      "size": 32768
     },
     {
       "type": "done",

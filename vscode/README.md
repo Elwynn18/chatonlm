@@ -3,7 +3,7 @@
 Use the AI models of [ChatonLM](https://chatonlm.com) from VS Code: chat about
 your code, talk it through out loud, dictate, get suggestions as you type. The
 models run on your own computer, through the ChatonLM desktop app (built on
-Ollama). No account, no subscription.
+llama.cpp). No account, no subscription.
 
 > This extension is a companion of the ChatonLM app, on Linux and Windows. It
 > does nothing on its own: install ChatonLM 0.9.4 or later first.
@@ -63,7 +63,7 @@ private socket on Linux, a named pipe on Windows): nothing goes through the
 network. The link only accepts editors you paired with a code, and you can
 unpair one at any time in ChatonLM. What reaches a model depends on the model
 you choose in ChatonLM: a model on this computer keeps everything on it, and the
-panel tells you when a model runs in the cloud or on another computer.
+panel tells you when a model runs at an online provider (a remote model).
 
 The extension is off in folders you have not marked as trusted.
 

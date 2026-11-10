@@ -315,6 +315,14 @@ impl ChatRequest {
         }
         Value::Object(body)
     }
+
+    /// Corps pour un serveur de cette langue (`llama-server` : [`ChatRequest::body`]
+    /// tel quel ; distant : champs de son API seulement, voir `dialect.rs`).
+    pub fn body_for(&self, dialect: super::Dialect, stream: bool) -> Value {
+        let mut body = self.body(stream);
+        super::dialect::adapt(dialect, &mut body);
+        body
+    }
 }
 
 /// Raison de la fin d'une réponse.

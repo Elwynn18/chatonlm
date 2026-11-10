@@ -4,7 +4,7 @@
 //! `complete.fim`, `completion.measure`, `completion.suggest` et
 //! `models.offerPull`. La logique est dans [`crate::gpu`] ; ici, ce que le
 //! pont en fait : lecture des réglages, refus en codes JSON-RPC, écoute du
-//! plan par connexion et sondage de `/api/ps` tant qu'un éditeur écoute.
+//! plan par connexion et sondage du moteur tant qu'un éditeur écoute.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,14 +12,14 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::connection::{Outbox, code, is_local};
+use super::connection::{Outbox, app_settings, code, editor_model};
 use super::{Host, Shared};
 use crate::chat::Server;
 use crate::error::AppResult;
 use crate::gpu::plan::Reason;
 use crate::gpu::{Inputs, Refusal, fim, suggest};
 
-/// Sondage de `/api/ps` tant qu'un éditeur écoute.
+/// Sondage du moteur tant qu'un éditeur écoute.
 const POLL: Duration = Duration::from_secs(1);
 /// Écart minimal entre deux `gpu.changed` d'une connexion (2 par seconde).
 const NOTIFY_GAP: Duration = Duration::from_millis(500);
@@ -31,37 +31,23 @@ const OFFER_GAP: Duration = Duration::from_secs(10);
 
 /// Ce que le chef lit de l'app ; `fresh` : mémoire de la machine relue.
 pub(super) async fn inputs<H: Host>(shared: &Arc<Shared<H>>, fresh: bool) -> AppResult<Inputs> {
-    let settings = crate::ollama::target::request_settings(&shared.store).await?;
-    let url = settings.effective_server_url.clone();
+    let settings = app_settings(&shared.store).await?;
     let keep = if fresh { Duration::ZERO } else { MACHINE_KEEP };
     let machine = shared
         .host
         .gpu()
-        .machine_within(keep, shared.host.machine(url.clone()))
+        .machine_within(keep, shared.host.machine())
         .await;
     let busy = Arc::clone(shared);
     Ok(Inputs {
-        server: Server::with_settings(shared.access.clone(), &settings),
+        server: Server::current(&shared.access).await?,
         chat_model: settings.selected_model.clone(),
-        local: on_this_computer(&url),
-        // Réponse de conversation, ou autre travail de l'app sur Ollama.
+        // Le moteur des modèles est celui de l'app, sur cette machine.
+        local: true,
+        // Réponse de conversation, ou autre travail de l'app sur un modèle.
         busy: Box::new(move || busy.host.engine().is_working()),
         machine,
     })
-}
-
-/// Serveur sur cette machine pour l'autocomplétion : `localhost`, boucle
-/// locale, adresse d'écoute ; pas un nom `*.localhost` (résolu en boucle
-/// locale par systemd-resolved, mais pas sous Windows ni par tout DNS).
-/// Un tunnel vers `localhost` passe pour local : limite connue.
-fn on_this_computer(url: &str) -> bool {
-    is_local(url)
-        && url::Url::parse(url).is_ok_and(|url| match url.host() {
-            Some(url::Host::Domain(domain)) => domain
-                .trim_end_matches('.')
-                .eq_ignore_ascii_case("localhost"),
-            _ => true,
-        })
 }
 
 /// -32007 : l'autocomplétion attend, avec sa raison.
@@ -100,18 +86,63 @@ struct ModelParams {
     model: Option<String>,
 }
 
-/// `model` non vide, ou paramètres invalides.
-fn model_of(params: Value, required: bool) -> Result<Option<String>, ()> {
+/// Modèle servi pour le nom `model` de l'éditeur : un ancien nom d'Ollama
+/// d'un modèle proposé (réglage d'une extension 0.1.x) devient le modèle
+/// repris d'Ollama s'il est installé, sinon son identifiant
+/// ([`suggest::current`]) ; la base n'est lue que pour un tel nom.
+async fn served<H: Host>(shared: &Arc<Shared<H>>, model: &str) -> String {
+    if !suggest::is_old_name(model) {
+        return model.trim().to_owned();
+    }
+    suggest::current(model, &local_models(shared).await)
+}
+
+/// `model` non vide (`(nom demandé, modèle servi)`, voir [`served`] ; un
+/// `@ollama/<nom>` sans étiquette reçoit `:latest`), ou paramètres
+/// invalides.
+async fn model_of<H: Host>(
+    shared: &Arc<Shared<H>>,
+    params: Value,
+    required: bool,
+) -> Result<Option<(String, String)>, ()> {
     let params = if params.is_null() { json!({}) } else { params };
     let params = serde_json::from_value::<ModelParams>(params).map_err(|_| ())?;
-    let model = params
+    let Some(asked) = params
         .model
-        .map(|model| model.trim().to_owned())
-        .filter(|model| !model.is_empty());
-    if required && model.is_none() {
-        return Err(());
+        .map(|model| editor_model(&model))
+        .filter(|model| !model.is_empty())
+    else {
+        return if required { Err(()) } else { Ok(None) };
+    };
+    let current = served(shared, &asked).await;
+    Ok(Some((asked, current)))
+}
+
+/// Retient le modèle d'autocomplétion demandé par la connexion : sous un
+/// ancien nom renommé, ce nom lui est rendu dans le plan ([`for_connection`]).
+fn remember<H: Host>(
+    shared: &Arc<Shared<H>>,
+    connection: u64,
+    (asked, current): &(String, String),
+) {
+    let alias = (asked != current).then(|| (asked.clone(), current.clone()));
+    shared.set_completion_alias(connection, alias);
+}
+
+/// Plan tel que la connexion le lit : le modèle d'autocomplétion qu'elle a
+/// demandé sous un ancien nom d'Ollama porte ce nom (une extension 0.1.x
+/// compare le plan à son réglage, qu'elle ne renomme pas : sans cela, elle
+/// attendrait sans fin un modèle « pas chargé »).
+fn for_connection<H: Host>(shared: &Shared<H>, connection: u64, plan: Value) -> Value {
+    let mut plan = plan;
+    if let Some((asked, current)) = shared.completion_alias(connection)
+        && plan["completion"]["model"]
+            .as_str()
+            .is_some_and(|model| suggest::same_id(model, &current))
+    {
+        plan["completion"]["model"] = json!(asked);
     }
-    Ok(model)
+    plan
 }
 
 /// `gpu.status { model? }` → plan ; la connexion reçoit ensuite
@@ -123,37 +154,43 @@ pub(super) async fn status<H: Host>(
     id: &Value,
     params: Value,
 ) {
-    let Ok(model) = model_of(params, false) else {
+    let Ok(model) = model_of(shared, params, false).await else {
         return invalid(out, id);
     };
     if let Some(model) = &model {
-        shared.host.gpu().set_completion(model);
+        remember(shared, connection, model);
+        shared.host.gpu().set_completion(&model.1);
     }
     let inputs = match inputs(shared, false).await {
         Ok(inputs) => inputs,
         Err(error) => return refused(out, id, &error),
     };
     let plan = shared.host.gpu().plan(&inputs).await;
-    out.result(id, json!(plan));
+    out.result(id, for_connection(shared, connection, json!(plan)));
     listen(shared, connection, out);
 }
 
 /// `completion.prepare { model }` → `{ plan }`, ou en pause.
 pub(super) async fn prepare<H: Host>(
     shared: &Arc<Shared<H>>,
+    connection: u64,
     out: &Outbox,
     id: &Value,
     params: Value,
 ) {
-    let Ok(Some(model)) = model_of(params, true) else {
+    let Ok(Some(model)) = model_of(shared, params, true).await else {
         return invalid(out, id);
     };
+    remember(shared, connection, &model);
     let inputs = match inputs(shared, true).await {
         Ok(inputs) => inputs,
         Err(error) => return refused(out, id, &error),
     };
-    match shared.host.gpu().prepare(&inputs, &model).await {
-        Ok(plan) => out.result(id, json!({ "plan": plan })),
+    match shared.host.gpu().prepare(&inputs, &model.1).await {
+        Ok(plan) => out.result(
+            id,
+            json!({ "plan": for_connection(shared, connection, json!(plan)) }),
+        ),
         Err(error) => refusal(out, id, error),
     }
 }
@@ -165,9 +202,10 @@ pub(super) async fn complete<H: Host>(
     id: &Value,
     params: Value,
 ) {
-    let Ok(params) = serde_json::from_value::<fim::FimParams>(params) else {
+    let Ok(mut params) = serde_json::from_value::<fim::FimParams>(params) else {
         return invalid(out, id);
     };
+    params.model = served(shared, &editor_model(&params.model)).await;
     if !params.valid() {
         return invalid(out, id);
     }
@@ -198,7 +236,7 @@ pub(super) async fn measure<H: Host>(
     id: &Value,
     params: Value,
 ) {
-    let Ok(Some(model)) = model_of(params, true) else {
+    let Ok(Some((_, model))) = model_of(shared, params, true).await else {
         return invalid(out, id);
     };
     let inputs = match inputs(shared, false).await {
@@ -238,35 +276,41 @@ pub(super) async fn suggest<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: 
 
 /// `models.offerPull { model }` → `{ installed }` : un modèle proposé par
 /// `completion.suggest` et absent est montré dans l'app, qui demande à
-/// l'utilisateur de le télécharger (rien n'est téléchargé par le pont).
+/// l'utilisateur de le télécharger (rien n'est téléchargé par le pont). Un
+/// modèle proposé déjà là (dépôt, ou modèle repris d'Ollama qui en tient
+/// lieu) : `installed`, rien n'est montré.
 pub(super) async fn offer_pull<H: Host>(
     shared: &Arc<Shared<H>>,
     out: &Outbox,
     id: &Value,
     params: Value,
 ) {
-    let Ok(Some(model)) = model_of(params, true) else {
-        return invalid(out, id);
-    };
-    let Some(known) = suggest::known(&model) else {
+    let Ok(Some((_, model))) = model_of(shared, params, true).await else {
         return invalid(out, id);
     };
     let inputs = match inputs(shared, false).await {
         Ok(inputs) => inputs,
         Err(error) => return refused(out, id, &error),
     };
+    let local = local_models(shared).await;
+    let suggested = shared.host.gpu().suggest(&inputs, &local).await;
+    let proposed = suggested
+        .options
+        .iter()
+        .find(|option| suggest::same_id(&option.model, &model));
+    let Some(known) = suggest::known(&model) else {
+        // Modèle repris d'Ollama proposé à la place du dépôt : déjà là.
+        return match proposed {
+            Some(option) if option.installed && inputs.local => {
+                out.result(id, json!({ "installed": true }));
+            }
+            _ => invalid(out, id),
+        };
+    };
     if !inputs.local {
         return paused(out, id, Reason::NotLocal);
     }
-    let local = local_models(shared).await;
-    let installed = shared
-        .host
-        .gpu()
-        .suggest(&inputs, &local)
-        .await
-        .options
-        .iter()
-        .any(|option| option.model == known.model && option.installed);
+    let installed = proposed.is_some_and(|option| option.installed);
     if !installed && shared.host.gpu().may_offer(OFFER_GAP) {
         shared.host.offer_pull(known.model, known.commercial_use);
     }
@@ -274,7 +318,7 @@ pub(super) async fn offer_pull<H: Host>(
 }
 
 /// Se termine quand une réponse de conversation s'écrit, ou qu'un autre
-/// travail de l'app tient Ollama (tout de suite si c'est déjà le cas).
+/// travail de l'app tient un modèle (tout de suite si c'est déjà le cas).
 pub(super) async fn chat_begins<H: Host>(shared: &Arc<Shared<H>>) {
     let engine = shared.host.engine();
     loop {
@@ -288,7 +332,7 @@ pub(super) async fn chat_begins<H: Host>(shared: &Arc<Shared<H>>) {
 }
 
 /// La connexion écoute le plan : ses changements lui sont envoyés, et
-/// `/api/ps` est sondé tant qu'un éditeur écoute.
+/// le moteur est sondé tant qu'un éditeur écoute.
 fn listen<H: Host>(shared: &Arc<Shared<H>>, connection: u64, out: &Outbox) {
     if !shared.listen_gpu(connection) {
         return;
@@ -311,6 +355,7 @@ fn listen<H: Host>(shared: &Arc<Shared<H>>, connection: u64, out: &Outbox) {
             if changed {
                 let plan = plans.borrow_and_update().clone();
                 if let Some(plan) = plan {
+                    let plan = for_connection(&forwarding, connection, json!(plan));
                     out.notify("gpu.changed", json!({ "plan": plan }));
                 }
                 tokio::time::sleep(NOTIFY_GAP).await;
@@ -322,7 +367,7 @@ fn listen<H: Host>(shared: &Arc<Shared<H>>, connection: u64, out: &Outbox) {
 
 /// Sondage du plan (un seul pour le pont), arrêté quand plus personne
 /// n'écoute ; réveillé aussi par un chargement et par un début ou une fin
-/// de réponse ou d'un autre travail de l'app sur Ollama.
+/// de réponse ou d'un autre travail de l'app sur un modèle.
 fn poll<H: Host>(shared: &Arc<Shared<H>>) {
     if shared
         .host
@@ -349,32 +394,4 @@ fn poll<H: Host>(shared: &Arc<Shared<H>>) {
             }
         }
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::on_this_computer;
-
-    /// Rapport 92, m7 : seulement ce qui désigne sûrement cette machine.
-    #[test]
-    fn completion_needs_a_server_on_this_computer() {
-        for url in [
-            "http://localhost:11434",
-            "http://LOCALHOST.:11434",
-            "http://127.0.0.1:11434",
-            "http://127.0.0.2:11434",
-            "http://[::1]:11434",
-            "http://0.0.0.0:11434",
-        ] {
-            assert!(on_this_computer(url), "{url}");
-        }
-        for url in [
-            "http://ollama.localhost:11434",
-            "http://192.168.1.20:11434",
-            "http://desktop.lan:11434",
-            "not a url",
-        ] {
-            assert!(!on_this_computer(url), "{url}");
-        }
-    }
 }

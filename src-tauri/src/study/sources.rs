@@ -4,19 +4,27 @@
 //! (aux paragraphes) ; pour une requête, les morceaux les plus proches (mots
 //! en commun, sans mots outils ni accents, pondérés par leur rareté) sont
 //! donnés au modèle jusqu'à [`SOURCE_CHARS`], entre balises `<source>`.
+//!
+//! Résultats de la recherche web : seuls leurs titres et leurs liens vont en
+//! base ([`record`]) ; leurs extraits (fournis par le moteur de recherche,
+//! dont les conditions n'en permettent pas la conservation) restent en
+//! mémoire le temps de la génération du cours ([`recall`]), jamais écrits.
+//! Les cours enregistrés avant cette règle ne sont pas réécrits.
 
 use std::collections::{HashMap, HashSet};
 
-use serde_json::json;
-use tokio::sync::watch;
+use parking_lot::Mutex;
+use relay_proto::api::SearchResult;
+use rusqlite::Connection;
 
 use super::data::SourceRow;
 use super::{SourceKind, StudySource};
 use tokio_util::sync::CancellationToken;
 
 use crate::chat::WebTools;
-use crate::chat::tools::{self, AllowedUrls, Executed};
+use crate::llm::errors::relay_kind;
 use crate::proofread::{guard, language};
+use crate::relay::RelayError;
 
 /// Taille visée d'un morceau.
 pub const CHUNK_CHARS: usize = 1_200;
@@ -31,7 +39,7 @@ pub const DOCUMENTS_CHARS: usize = 200_000;
 pub const WEB_RESULT_CHARS: usize = 8_000;
 
 /// Résultats demandés à la recherche web.
-pub const WEB_RESULTS: i64 = 5;
+pub const WEB_RESULTS: u8 = 5;
 
 /// Les `max` premiers caractères de `text`.
 pub fn truncate(text: &str, max: usize) -> String {
@@ -263,56 +271,115 @@ pub fn documents(files: &[(String, String)]) -> (Vec<SourceRow>, bool) {
 #[derive(Debug, PartialEq, Eq)]
 pub enum WebOutcome {
     Found(Vec<SourceRow>),
-    /// Recherche impossible (relais, quota, pause ; jusqu'au lot L7, 401
-    /// d'Ollama) : le cours s'arrête avec ce texte.
+    /// Recherche impossible (relais injoignable, quota, pause, budget,
+    /// version) : le cours s'arrête avec ce texte.
     Stopped(String),
-    /// Autre échec : le cours se prépare sans le web.
+    /// Autre échec (requête refusée, arrêt) : le cours se prépare sans le
+    /// web.
     Failed(String),
 }
 
-/// Une recherche par le serveur (`/api/experimental/web_search`, comme
-/// l'outil du chat) : [`WEB_RESULTS`] résultats, contenu de chacun coupé à
-/// [`WEB_RESULT_CHARS`].
-pub async fn web_search(web: &WebTools, query: &str, cancel: &CancellationToken) -> WebOutcome {
-    // L'arrêt passe par `cancel` (ou par l'abandon de ce futur).
-    let (_keep, mut stop) = watch::channel(false);
-    let arguments = json!({ "query": query, "max_results": WEB_RESULTS });
-    let mut allowed = AllowedUrls::default();
-    let executed = tokio::select! {
-        biased;
-        () = cancel.cancelled() => Executed::Cancelled,
-        executed = tools::execute(
-            web,
-            tools::WEB_SEARCH,
-            &arguments,
-            &mut allowed,
-            &mut stop,
-        ) => executed,
-    };
-    let text = match executed {
-        Executed::Result(text) => text,
-        Executed::Stop(_, message) => return WebOutcome::Stopped(message),
-        Executed::Error(error) => return WebOutcome::Failed(error),
-        Executed::Cancelled => return WebOutcome::Failed("cancelled".into()),
-    };
-    WebOutcome::Found(results(&text))
+/// Cours dont les extraits web sont gardés en mémoire, au plus (les plus
+/// récents ; un cours plus ancien encore à générer se passe de ses extraits).
+const REMEMBERED_COURSES: usize = 8;
+
+/// Extraits web d'un cours : `(adresse, texte)`.
+type WebTexts = Vec<(String, String)>;
+
+/// Extraits web des cours en préparation : `(cours, extraits)`, du plus
+/// ancien au plus récent. Jamais en base.
+static WEB_TEXTS: Mutex<Vec<(String, WebTexts)>> = Mutex::new(Vec::new());
+
+/// Enregistre les résultats web `rows` du cours `course` : titres et liens
+/// en base, extraits en mémoire seulement.
+pub fn record(
+    connection: &Connection,
+    course: &str,
+    rows: &[SourceRow],
+) -> crate::error::AppResult<()> {
+    let without_text: Vec<SourceRow> = rows
+        .iter()
+        .map(|row| SourceRow {
+            source: row.source.clone(),
+            text: match row.source.kind {
+                SourceKind::Web => String::new(),
+                SourceKind::Document => row.text.clone(),
+            },
+        })
+        .collect();
+    crate::store::study::add_sources(connection, course, &without_text)?;
+    let texts: WebTexts = rows
+        .iter()
+        .filter(|row| row.source.kind == SourceKind::Web)
+        .map(|row| (row.source.url.clone(), row.text.clone()))
+        .collect();
+    let mut remembered = WEB_TEXTS.lock();
+    remembered.retain(|(id, _)| id != course);
+    remembered.push((course.to_owned(), texts));
+    let excess = remembered.len().saturating_sub(REMEMBERED_COURSES);
+    remembered.drain(..excess);
+    Ok(())
 }
 
-/// Résultats d'une recherche (JSON du serveur) : ceux qui ont un contenu,
-/// coupé à [`WEB_RESULT_CHARS`] ; titre vide → adresse.
-fn results(text: &str) -> Vec<SourceRow> {
-    let value: serde_json::Value = serde_json::from_str(text).unwrap_or_default();
-    value["results"]
-        .as_array()
-        .into_iter()
-        .flatten()
+/// Sources du cours `course` pour le modèle : celles de la base, les
+/// résultats web retrouvant leurs extraits gardés en mémoire (aucun après
+/// un redémarrage de l'app : le cours continue avec titres seuls).
+pub fn recall(course: &str, rows: &[SourceRow]) -> Vec<SourceRow> {
+    let remembered = WEB_TEXTS.lock();
+    let texts = remembered
+        .iter()
+        .find(|(id, _)| id == course)
+        .map(|(_, texts)| texts.as_slice())
+        .unwrap_or_default();
+    rows.iter()
+        .map(|row| {
+            let mut row = row.clone();
+            if row.source.kind == SourceKind::Web
+                && row.text.is_empty()
+                && let Some((_, text)) = texts.iter().find(|(url, _)| *url == row.source.url)
+            {
+                row.text = text.clone();
+            }
+            row
+        })
+        .collect()
+}
+
+/// Une recherche par le relais de ChatonLM, comme l'outil du chat :
+/// [`WEB_RESULTS`] résultats, extrait de chacun coupé à
+/// [`WEB_RESULT_CHARS`]. Les extraits servent à préparer le cours (texte
+/// donné au modèle), jamais enregistrés ([`record`]).
+pub async fn web_search(web: &WebTools, query: &str, cancel: &CancellationToken) -> WebOutcome {
+    // L'arrêt passe par `cancel` (ou par l'abandon de ce futur).
+    let reply = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return WebOutcome::Failed("cancelled".into()),
+        reply = web.relay.search(query, Some(WEB_RESULTS), None, cancel) => reply,
+    };
+    match reply {
+        Ok(reply) => WebOutcome::Found(results(&reply.results)),
+        Err(error) => match relay_kind(&error) {
+            None => WebOutcome::Failed("cancelled".into()),
+            Some(_) if error == RelayError::InvalidQuery => {
+                WebOutcome::Failed(error.code().to_owned())
+            }
+            Some(_) => WebOutcome::Stopped(error.message()),
+        },
+    }
+}
+
+/// Résultats d'une recherche : ceux qui ont un extrait, coupé à
+/// [`WEB_RESULT_CHARS`] ; titre vide → adresse.
+fn results(found: &[SearchResult]) -> Vec<SourceRow> {
+    found
+        .iter()
         .filter_map(|result| {
-            let content = result["content"].as_str().unwrap_or_default().trim();
+            let content = result.content.trim();
             if content.is_empty() {
                 return None;
             }
-            let url = result["url"].as_str().unwrap_or_default().to_owned();
-            let title = match result["title"].as_str().unwrap_or_default().trim() {
+            let url = result.url.clone();
+            let title = match result.title.trim() {
                 "" => url.clone(),
                 title => title.to_owned(),
             };
@@ -330,8 +397,6 @@ fn results(text: &str) -> Vec<SourceRow> {
 
 #[cfg(test)]
 mod tests {
-    use fake_ollama::{FakeOllama, Mode, WEB_HUGE};
-
     use super::*;
 
     fn document(title: &str, text: &str) -> SourceRow {
@@ -434,18 +499,21 @@ mod tests {
 
     #[test]
     fn web_results_are_kept_with_bounded_content() {
-        let text = json!({"results": [
-            {"title": "", "url": "https://a.example", "content": "x".repeat(WEB_RESULT_CHARS + 50)},
-            {"title": "Empty", "url": "https://b.example", "content": "  "},
-            {"title": "T", "url": "https://c.example", "content": " C "},
-        ]})
-        .to_string();
-        let rows = results(&text);
+        let result = |title: &str, url: &str, content: String| SearchResult {
+            title: title.into(),
+            url: url.into(),
+            content,
+        };
+        let rows = results(&[
+            result("", "https://a.example", "x".repeat(WEB_RESULT_CHARS + 50)),
+            result("Empty", "https://b.example", "  ".into()),
+            result("T", "https://c.example", " C ".into()),
+        ]);
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].source.title, "https://a.example");
         assert_eq!(rows[0].text.chars().count(), WEB_RESULT_CHARS);
         assert_eq!(rows[1].text, "C");
-        assert!(results("not json").is_empty());
+        assert!(results(&[]).is_empty());
     }
 
     #[test]
@@ -473,37 +541,48 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn web_results_come_from_the_server() {
-        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-        let web = WebTools::on_ollama(&fake.url());
+    async fn web_results_come_from_the_relay() {
+        use relay_server::fake::{Behavior, TestRelay};
+        let dir = tempfile::tempdir().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let relay = TestRelay::start(&dir.path().join("relay.sqlite"), now, |_| {}).await;
+        let web = crate::chat::tools::web_tools_on(&relay.url, &dir.path().join("data"));
         let never = CancellationToken::new();
-        assert!(matches!(
-            web_search(&web, "photosynthesis", &never).await,
-            WebOutcome::Stopped(_)
-        ));
-        fake.set_signed_in(true);
         let WebOutcome::Found(rows) = web_search(&web, "photosynthesis", &never).await else {
             panic!()
         };
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 5);
         assert_eq!(rows[0].source.kind, SourceKind::Web);
-        assert_eq!(rows[0].source.title, "Result 1 for photosynthesis");
-        assert_eq!(rows[0].source.url, "https://example.com/1?q=photosynthesis");
-        assert_eq!(rows[0].text, "Content 1 about photosynthesis.");
-        let requests = fake.web_requests();
-        assert_eq!(
-            requests.last().unwrap()["body"],
-            json!({"query": "photosynthesis", "max_results": 5})
+        assert_eq!(rows[0].source.url, "https://example.org/1");
+        assert!(
+            rows[0].text.contains("photosynthesis"),
+            "{:?}",
+            rows[0].text
         );
-        // Réponse trop grande, cloud coupé : préparé sans le web.
-        const { assert!(WEB_HUGE > 4 * 1024 * 1024) };
+        assert_eq!(
+            relay.fake.requests()[0]
+                .params
+                .get("count")
+                .map(String::as_str),
+            Some("5")
+        );
+        // Aucun moteur ne répond : le cours s'arrête avec le texte du relais.
+        relay
+            .fake
+            .set(relay_proto::api::Provider::Brave, Behavior::Status(500));
+        relay
+            .fake
+            .set(relay_proto::api::Provider::Mojeek, Behavior::Status(500));
+        assert_eq!(
+            web_search(&web, "photosynthesis", &never).await,
+            WebOutcome::Stopped(RelayError::ProviderUnavailable.message())
+        );
+        // Requête refusée avant tout envoi : préparé sans le web.
         assert!(matches!(
-            web_search(&web, "huge", &never).await,
-            WebOutcome::Failed(_)
-        ));
-        fake.set_cloud_disabled(true);
-        assert!(matches!(
-            web_search(&web, "x", &never).await,
+            web_search(&web, " ", &never).await,
             WebOutcome::Failed(_)
         ));
         // Arrêt demandé : rien de trouvé.
@@ -513,5 +592,152 @@ mod tests {
             web_search(&web, "photosynthesis", &stopped).await,
             WebOutcome::Failed(_)
         ));
+        relay.stop().await;
+    }
+
+    /// Cours préparé avec le web (faux relais, faux moteur) : la base ne
+    /// garde que titres et liens des résultats, jamais leurs extraits ; le
+    /// modèle les a pourtant reçus pour le plan et pour le premier palier.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_course_keeps_no_excerpt_of_the_web() {
+        use std::sync::Arc;
+
+        use crate::attachments::Staging;
+        use crate::llm::Access;
+        use crate::llm::testing::FakeBench;
+        use crate::study::{Ctx, NewCourse, StudyEngine, StudyLevel};
+
+        const STUDY: &str = "test/Study-GGUF:Q4_K_M";
+        let web = crate::chat::tools::fake_web(|_| {}).await;
+        let fake = FakeBench::new(&[(STUDY, "study")]);
+        fake.set(crate::store::settings::SettingsPatch {
+            study_model: Some(STUDY.into()),
+            ..Default::default()
+        });
+        let access = Access::new(
+            fake.engine().clone(),
+            fake.store().clone(),
+            fake.access.data_dir().to_owned(),
+            Arc::new(crate::llm::remote::Unavailable),
+            web.web.relay.clone(),
+            fake.access.downloads().clone(),
+        );
+        let ctx = Ctx::with_access(access, |_| {});
+        let engine = StudyEngine::default();
+        let course = engine
+            .create(
+                &ctx,
+                &Staging::default(),
+                NewCourse {
+                    topic: "photosynthesis".into(),
+                    level: StudyLevel::Beginner,
+                    minutes: 10,
+                    web: true,
+                    document_ids: Vec::new(),
+                },
+            )
+            .await
+            .unwrap();
+        let store = fake.store().clone();
+        let load = |id: String| {
+            let store = store.clone();
+            async move {
+                store
+                    .call(move |c| crate::store::study::load_full(c, &id))
+                    .await
+                    .unwrap()
+                    .unwrap()
+            }
+        };
+        let started = std::time::Instant::now();
+        let snapshot = loop {
+            let snapshot = load(course.clone()).await;
+            let first_ready = snapshot
+                .levels
+                .first()
+                .is_some_and(|level| level.lesson.is_some());
+            if first_ready {
+                break snapshot;
+            }
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(30),
+                "{:?}",
+                (snapshot.row.status, &snapshot.row.error)
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        };
+        let found: Vec<&SourceRow> = snapshot
+            .sources
+            .iter()
+            .filter(|row| row.source.kind == SourceKind::Web)
+            .collect();
+        assert_eq!(found.len(), WEB_RESULTS as usize, "{:?}", snapshot.sources);
+        for row in &found {
+            assert!(row.source.url.starts_with("https://"), "{row:?}");
+            assert!(!row.source.title.is_empty(), "{row:?}");
+            assert_eq!(row.text, "", "{row:?}");
+        }
+        // Rien de l'extrait nulle part en base.
+        let excerpts: i64 = store
+            .call(|c| {
+                Ok(c.query_row(
+                    "SELECT COUNT(*) FROM course_sources WHERE text LIKE '%Extrait%'",
+                    [],
+                    |row| row.get(0),
+                )?)
+            })
+            .await
+            .unwrap();
+        assert_eq!(excerpts, 0);
+        // En mémoire pendant la génération : le modèle les a reçus.
+        let recalled = recall(&course, &snapshot.sources);
+        assert!(
+            recalled
+                .iter()
+                .filter(|row| row.source.kind == SourceKind::Web)
+                .all(|row| row.text.contains("Extrait")),
+            "{recalled:?}"
+        );
+        fake.shutdown().await;
+    }
+
+    /// Extraits gardés en mémoire pour quelques cours seulement, les plus
+    /// récents ; un document garde son texte en base.
+    #[test]
+    fn excerpts_are_remembered_for_recent_courses_only() {
+        let web = |url: &str, text: &str| SourceRow {
+            source: StudySource {
+                kind: SourceKind::Web,
+                title: "T".into(),
+                url: url.into(),
+            },
+            text: text.into(),
+        };
+        let store = crate::store::Store::open_in_memory().unwrap();
+        let rows = vec![
+            web("https://a.example/", "A text"),
+            document("d.md", "D text"),
+        ];
+        for n in 0..=REMEMBERED_COURSES {
+            let course = format!("memory-test-{n}");
+            store
+                .blocking({
+                    let (course, rows) = (course.clone(), rows.clone());
+                    move |c| {
+                        // Sources sans la ligne du cours (essai de la mémoire).
+                        c.execute_batch("PRAGMA foreign_keys = OFF")?;
+                        record(c, &course, &rows)
+                    }
+                })
+                .unwrap();
+        }
+        let stored = |text: &str| vec![web("https://a.example/", text), document("d.md", "D text")];
+        // Le plus ancien est oublié, le plus récent retrouve son extrait.
+        assert_eq!(recall("memory-test-0", &stored(""))[0].text, "");
+        let last = format!("memory-test-{REMEMBERED_COURSES}");
+        assert_eq!(recall(&last, &stored(""))[0].text, "A text");
+        // Un texte déjà en base (cours d'avant la règle) reste tel quel.
+        assert_eq!(recall(&last, &stored("old"))[0].text, "old");
+        assert_eq!(recall(&last, &stored(""))[1].text, "D text");
     }
 }

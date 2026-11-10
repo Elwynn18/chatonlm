@@ -113,7 +113,7 @@ describe("useDownloads", () => {
     const { simulator, client } = setup();
     await waitFor(() => expect(simulator.listening("hub-downloads")).toBe(1));
     client.setQueryData(modelsKey, []);
-    client.setQueryData([...hubInstalledKey, "x"], []);
+    client.setQueryData(hubInstalledKey, []);
     await simulator.emitEvent("hub-downloads", [download({ completed: 50 })]);
     await waitFor(() => expect(probe()).toBe("downloading:50"));
     expect(client.getQueryState(modelsKey)?.isInvalidated).toBe(false);
@@ -122,9 +122,7 @@ describe("useDownloads", () => {
     await simulator.emitEvent("hub-downloads", [done]);
     await waitFor(() => expect(probe()).toBe("done:100"));
     expect(client.getQueryState(modelsKey)?.isInvalidated).toBe(true);
-    expect(client.getQueryState([...hubInstalledKey, "x"])?.isInvalidated).toBe(
-      true,
-    );
+    expect(client.getQueryState(hubInstalledKey)?.isInvalidated).toBe(true);
 
     // Le même état reçu de nouveau : rien à relire.
     client.setQueryData(modelsKey, []);
@@ -135,16 +133,21 @@ describe("useDownloads", () => {
   it("a model downloaded again is no longer stale, at once and in every check kept", async () => {
     const { simulator, client } = setup();
     await waitFor(() => expect(simulator.listening("hub-downloads")).toBe(1));
-    const other = "qwen3:0.6b";
-    // Vérification de la conversation (nom du sélecteur) et de la liste des
-    // installés (nom de /api/tags).
+    const other = "unsloth/Qwen3-0.6B-GGUF:Q4_K_M";
+    const gemmaId = "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M";
+    // Vérification de la conversation et de la liste des installés.
     const chat = [...outdatedKey, "x", "chat"];
     const list = [...outdatedKey, "x", "installed"];
     const untouched = [other];
-    client.setQueryData(chat, ["gemma4"]);
-    client.setQueryData(list, [other, "gemma4:latest"]);
+    client.setQueryData(chat, [gemmaId]);
+    client.setQueryData(list, [other, gemmaId]);
     client.setQueryData([...outdatedKey, "x", "other"], untouched);
-    const gemma = { model: "Gemma4:latest", repo: null, label: null };
+    // Quantification sous une autre casse : le même modèle.
+    const gemma = {
+      model: gemmaId.replace("Q4_K_M", "q4_k_m"),
+      repo: null,
+      label: null,
+    };
 
     // En cours, en échec, arrêté : toujours périmé.
     for (const state of ["downloading", "failed", "cancelled"] as const) {
@@ -152,7 +155,7 @@ describe("useDownloads", () => {
         download({ ...gemma, state }),
       ]);
       await waitFor(() => expect(probe()).toBe(`${state}:0`));
-      expect(client.getQueryData(chat)).toEqual(["gemma4"]);
+      expect(client.getQueryData(chat)).toEqual([gemmaId]);
     }
 
     await simulator.emitEvent("hub-downloads", [

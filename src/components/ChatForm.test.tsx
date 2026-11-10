@@ -11,11 +11,10 @@ import userEvent from "@testing-library/user-event";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { createRef, type ReactNode } from "react";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import type { CloudStatus } from "@/bindings/CloudStatus";
 import type { ImageMachine } from "@/bindings/ImageMachine";
 import type { Message } from "@/bindings/Message";
 import type { ModelDetails } from "@/bindings/ModelDetails";
-import type { RunningModel } from "@/bindings/RunningModel";
+import type { EngineRunningModel } from "@/bindings/EngineRunningModel";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import type { Think } from "@/bindings/Think";
 import { modelInfo, runningModel, thinkingModel } from "@/test/backend";
@@ -28,17 +27,15 @@ afterEach(() => {
 
 interface State {
   isStreaming: boolean;
-  isDisabled: boolean;
 }
 
 /**
  * Zone de saisie de la conversation « c ». `aside` est rendu à côté, comme la
  * barre latérale ou une boîte de dialogue ; `update` change l'état de la
- * réponse ou du serveur.
+ * réponse.
  */
 function renderForm({
   isStreaming = false,
-  isDisabled = false,
   selectedModel = "qwen3:0.6b",
   aside = null as ReactNode,
   /** Modèles installés (sélecteur). */
@@ -51,8 +48,6 @@ function renderForm({
   heldDetails = {} as Record<string, Promise<void>>,
   /** Réglage persistant de la recherche web. */
   webSearchEnabled = false,
-  /** Réponse de cloud_status. */
-  cloud = { disabled: false, source: "none" } as CloudStatus | null,
   /**
    * Moteur d'images (image_machine, image_models) ; null : commandes
    * inconnues (pas de bouton Image).
@@ -68,12 +63,11 @@ function renderForm({
     /** image_use_model échoue avec ce message. */
     useError?: string;
   } | null,
-  /** Modèles en mémoire (running_models). */
-  running = [] as RunningModel[],
+  /** Modèles du moteur (running_models). */
+  running = [] as EngineRunningModel[],
 } = {}) {
   const settings = { selectedModel, serverUrl: "", webSearchEnabled };
   const saved: { model: string; think: Think }[] = [];
-  const server = { cloud };
   const handle = createRef<ChatFormHandle>();
   /** Commandes reçues, dans l'ordre. */
   const commands: string[] = [];
@@ -87,15 +81,13 @@ function renderForm({
       const model = (args as { model?: string } | undefined)?.model ?? "";
       commands.push(command);
       switch (command) {
-        case "cloud_status":
-          return server.cloud;
         case "get_settings":
           return { ...settings };
         case "update_settings":
           Object.assign(settings, (args as { patch: SettingsPatch }).patch);
           return { ...settings };
         case "list_models":
-          return models.map(modelInfo);
+          return models.map((id) => modelInfo(id));
         case "model_details": {
           const held = heldDetails[model];
           return held ? held.then(() => detailsOf(model)) : detailsOf(model);
@@ -166,7 +158,7 @@ function renderForm({
   const client = new QueryClient({
     defaultOptions: { queries: { networkMode: "always", retry: false } },
   });
-  let state: State = { isStreaming, isDisabled };
+  let state: State = { isStreaming };
   const ui = () => (
     <QueryClientProvider client={client}>
       {aside}
@@ -174,7 +166,6 @@ function renderForm({
         chatId="c"
         hasMessages
         isStreaming={state.isStreaming}
-        isDisabled={state.isDisabled}
         onSubmit={onSubmit}
         onCancel={onCancel}
         ref={handle}
@@ -189,8 +180,6 @@ function renderForm({
     saved,
     /** Réglages enregistrés (update_settings). */
     settings,
-    /** État du serveur, que le test peut changer. */
-    server,
     /** Méthodes de la zone de saisie (ChatFormHandle). */
     handle,
     commands,
@@ -220,24 +209,6 @@ function quietRouter() {
 
 /** Laisse passer les focus différés (setTimeout 0) de la zone de saisie. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
-
-/**
- * z-index de la couche d'un élément dans la zone de saisie : celui de son
- * ancêtre le plus haut qui en porte un sous la zone, car un z-index ne joue
- * qu'à l'intérieur du contexte d'empilement de ses ancêtres.
- */
-function layer(element: Element, composer: Element) {
-  let z = 0;
-  for (
-    let el: Element | null = element;
-    el && el !== composer;
-    el = el.parentElement
-  ) {
-    const match = /(?:^|\s)z-(\d+)(?:\s|$)/.exec(el.className);
-    if (match) z = Number(match[1]);
-  }
-  return z;
-}
 
 describe("ChatForm", () => {
   it("Enter sends with the selected model, Shift+Enter adds a line", async () => {
@@ -328,43 +299,6 @@ describe("ChatForm", () => {
     used.preventDefault();
     window.dispatchEvent(used);
     expect(onCancel).not.toHaveBeenCalled();
-  });
-
-  it("is inactive while Ollama is unreachable", async () => {
-    const { textarea, update } = renderForm();
-    // Modèles chargés d'abord : « Loading... » vient alors de isDisabled.
-    await waitFor(() =>
-      expect(screen.getByTitle("Select model").textContent).toBe("qwen3:0.6b"),
-    );
-    await userEvent.type(textarea, "Hello");
-    update({ isDisabled: true });
-    expect(textarea.disabled).toBe(true);
-    expect(screen.getByTitle("Select model").textContent).toBe("Loading...");
-    expect(
-      (screen.getByLabelText("Send message") as HTMLButtonElement).disabled,
-    ).toBe(true);
-    // Le sélecteur et le bouton restent sous le voile.
-    const veil = screen.getByTestId("composer-veil");
-    const composer = veil.parentElement as HTMLElement;
-    expect(layer(screen.getByTitle("Select model"), composer)).toBeLessThan(
-      layer(veil, composer),
-    );
-    expect(layer(screen.getByLabelText("Send message"), composer)).toBeLessThan(
-      layer(veil, composer),
-    );
-  });
-
-  it("Stop stays clickable above the veil while Ollama is unreachable", async () => {
-    const { onCancel } = renderForm({ isStreaming: true, isDisabled: true });
-    const veil = screen.getByTestId("composer-veil");
-    const composer = veil.parentElement as HTMLElement;
-    const stop = screen.getByLabelText("Stop");
-    expect(layer(stop, composer)).toBeGreaterThan(layer(veil, composer));
-    expect(layer(screen.getByTitle("Select model"), composer)).toBeLessThan(
-      layer(veil, composer),
-    );
-    await userEvent.click(stop);
-    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it("typing elsewhere moves the focus to the message field", () => {
@@ -794,15 +728,6 @@ describe("ChatForm: Think button", () => {
     );
   });
 
-  it("hidden while Ollama is unreachable, like the official tools", async () => {
-    const { update } = renderForm({ details: [ON_OFF] });
-    await thinkToggle();
-    update({ isDisabled: true });
-    expect(screen.queryByRole("button", { name: "Think" })).toBeNull();
-    update({ isDisabled: false });
-    expect(screen.getByRole("button", { name: "Think" })).toBeTruthy();
-  });
-
   it("Escape in the Think menu does not stop the reply", async () => {
     const { onCancel } = renderForm({
       isStreaming: true,
@@ -981,34 +906,12 @@ describe("ChatForm: web search", () => {
     // Le réglage reste, mais rien ne part avec la recherche web.
     await send(first.textarea);
     expect(first.onSubmit.mock.lastCall?.[5]).toBe(false);
-    // État du nuage demandé seulement pour un modèle qui sait chercher.
-    expect(first.commands).not.toContain("cloud_status");
     cleanup();
 
-    const { commands } = renderForm();
+    renderForm();
     await waitFor(() => expect(picker().textContent).toBe(QWEN));
     await settle();
     expect(globe()).toBeNull();
-    expect(commands).not.toContain("cloud_status");
-  });
-
-  it("the cloud turned off on the server hides the globe and turns web search off", async () => {
-    const { settings, onSubmit, textarea } = renderForm({
-      details: [TOOLS],
-      webSearchEnabled: true,
-      cloud: { disabled: true, source: "env" },
-    });
-    await waitFor(() => expect(settings.webSearchEnabled).toBe(false));
-    expect(globe()).toBeNull();
-    await send(textarea);
-    expect(onSubmit).toHaveBeenLastCalledWith(
-      "Hello",
-      QWEN,
-      undefined,
-      [],
-      [],
-      false,
-    );
   });
 
   it("sends webSearch only for a model with tools, the button on, never blocked by the account", async () => {
@@ -1171,7 +1074,7 @@ describe("ChatForm: retry of a message (web search error)", () => {
     );
   });
 
-  it("does nothing during a reply or while Ollama is unreachable", async () => {
+  it("does nothing during a reply", async () => {
     const { handle, onSubmit, update, settings } = renderForm({
       details: [TOOLS],
       webSearchEnabled: true,
@@ -1179,7 +1082,7 @@ describe("ChatForm: retry of a message (web search error)", () => {
     });
     await waitFor(() => expect(globe()).not.toBeNull());
     act(() => handle.current?.retry(sent, { webSearch: false }));
-    update({ isStreaming: false, isDisabled: true });
+    update({ isStreaming: true });
     act(() => handle.current?.retry(sent, { webSearch: false }));
     await settle();
     expect(onSubmit).not.toHaveBeenCalled();
@@ -1449,9 +1352,8 @@ describe("ChatForm: image mode", () => {
 });
 
 describe("ChatForm: slow model", () => {
-  const GB = 1024 ** 3;
   const split = (name: string) =>
-    runningModel(name, { size: 4 * GB, sizeVram: 3 * GB });
+    runningModel(name, { gpuLayers: 21, totalLayers: 28 });
 
   it("shows a snail while the chosen model runs partly on the processor", async () => {
     renderForm({ running: [split("qwen3:0.6b")] });
@@ -1466,10 +1368,27 @@ describe("ChatForm: slow model", () => {
     expect(snail.getAttribute("title")).toBe(snail.getAttribute("aria-label"));
   });
 
+  it("says when the graphics card failed and the model runs on the processor", async () => {
+    renderForm({
+      running: [
+        runningModel("qwen3:0.6b", {
+          cpuFallback: true,
+          cpuOnly: true,
+          gpuLayers: null,
+          notice: "the graphics card couldn't run this model",
+        }),
+      ],
+    });
+    const snail = await screen.findByRole("img", {
+      name: "Slower replies: qwen3:0.6b runs on the processor (the graphics card couldn't run it)",
+    });
+    expect(snail.getAttribute("title")).toBe(snail.getAttribute("aria-label"));
+  });
+
   it("shows none on the graphics card alone, for another model, or in image mode", async () => {
     for (const running of [
       [runningModel("qwen3:0.6b")],
-      [runningModel("qwen3:0.6b", { sizeVram: 0 })],
+      [runningModel("qwen3:0.6b", { cpuOnly: true, gpuLayers: null })],
       [split("gemma3:270m")],
     ]) {
       const { commands } = renderForm({ running });

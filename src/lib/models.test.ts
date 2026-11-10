@@ -1,26 +1,33 @@
 import { describe, expect, it } from "vitest";
+import type { ChatModel } from "@/bindings/ChatModel";
+import type { HubQuant } from "@/bindings/HubQuant";
+import type { HubRepo } from "@/bindings/HubRepo";
 import type { Message } from "@/bindings/Message";
-import type { ModelInfo } from "@/bindings/ModelInfo";
 import type { RecommendedModel } from "@/bindings/RecommendedModel";
 import {
   chatModel,
   defaultModel,
-  paidPlan,
   pickerEntries,
   recommendedNames,
+  restoredModel,
   selectedEntry,
-  upstreamCandidate,
+  typedRepo,
+  upstreamModel,
 } from "./models";
 
-function info(model: string): ModelInfo {
+function info(id: string, fields: Partial<ChatModel> = {}): ChatModel {
   return {
-    model,
-    digest: `digest-${model}`,
-    size: 1,
-    parameterSize: "1B",
-    quantizationLevel: "Q4_K_M",
-    contextLength: null,
+    id,
+    displayName: id,
+    origin: id.startsWith("@remote/") ? "remote" : "hf",
+    provider: null,
+    sizeBytes: 1,
+    paramsLabel: "1B",
+    quant: "Q4_K_M",
+    contextMax: null,
     capabilities: ["completion"],
+    installedAt: 0,
+    ...fields,
   };
 }
 
@@ -40,225 +47,249 @@ function message(model: string | null, role: "user" | "assistant"): Message {
   };
 }
 
-const installed = [info("qwen3.5:0.8b"), info("qwen3:0.6b"), info("llama3")];
+const QWEN35 = "unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M";
+const QWEN3 = "unsloth/Qwen3-0.6B-GGUF:Q4_K_M";
+const LLAMA = "@ollama/llama3:latest";
+const GEMMA = "ggml-org/gemma-4-E4B-it-GGUF:Q4_0";
+const installed = [
+  info(QWEN35, { displayName: "Qwen3.5-0.8B" }),
+  info(QWEN3, { displayName: "Qwen3-0.6B" }),
+  info(LLAMA, { displayName: "llama3", origin: "ollama" }),
+];
 
 describe("model selection", () => {
   it("finds the selected model, installed or not", () => {
-    expect(selectedEntry(installed, "qwen3:0.6b")?.info?.model).toBe(
-      "qwen3:0.6b",
-    );
-    expect(selectedEntry(installed, "gemma4")).toEqual({
-      model: "gemma4",
+    expect(selectedEntry(installed, QWEN3)?.info?.id).toBe(QWEN3);
+    expect(selectedEntry(installed, GEMMA)).toEqual({
+      model: GEMMA,
       info: null,
     });
     expect(selectedEntry(installed, "")).toBeNull();
   });
 
-  it("defaults to the most recently installed model", () => {
-    expect(defaultModel(installed)).toBe("qwen3.5:0.8b");
+  it("takes the id of the base for another case of the quantization", () => {
+    expect(selectedEntry(installed, QWEN3.replace("Q4_K_M", "q4_k_m"))).toEqual(
+      { model: QWEN3, info: installed[1] },
+    );
+  });
+
+  it("defaults to the most recently installed local model, never a remote one", () => {
+    expect(defaultModel(installed)).toBe(QWEN35);
     expect(defaultModel([])).toBeNull();
+    const remote = info("@remote/mistral/mistral-small-latest");
+    expect(defaultModel([remote, ...installed])).toBe(QWEN35);
+    expect(defaultModel([remote])).toBeNull();
   });
 
   it("restores the last model used in a chat", () => {
     expect(
       chatModel([
         message(null, "user"),
-        message("qwen3:0.6b", "assistant"),
+        message(QWEN3, "assistant"),
         message(null, "user"),
-        message("llama3", "assistant"),
+        message(LLAMA, "assistant"),
         message(null, "user"),
       ]),
-    ).toBe("llama3");
+    ).toBe(LLAMA);
     expect(chatModel([message(null, "user")])).toBeNull();
   });
 
-  it("filters by substring and lists a missing selected model last", () => {
-    const missing = selectedEntry(installed, "gemma4");
-    expect(pickerEntries(installed, missing, "").map((e) => e.model)).toEqual([
-      "qwen3.5:0.8b",
-      "qwen3:0.6b",
-      "llama3",
-      "gemma4",
+  it("filters by substring of the id or the shown name, the missing selected model last", () => {
+    const missing = selectedEntry(installed, GEMMA);
+    const ids = (search: string, selected = missing) =>
+      pickerEntries(installed, selected, search).map((e) => e.model);
+    expect(ids("")).toEqual([QWEN35, QWEN3, LLAMA, GEMMA]);
+    expect(ids("QWEN")).toEqual([QWEN35, QWEN3]);
+    expect(ids("gem")).toEqual([GEMMA]);
+    // Nom montré seulement (« Qwen3-0.6B » est aussi dans l'identifiant,
+    // « llama3 » aussi : on cherche un nom montré différent).
+    const renamed = [info("a/b-GGUF:Q8_0", { displayName: "Friendly" })];
+    expect(pickerEntries(renamed, null, "friend").map((e) => e.model)).toEqual([
+      "a/b-GGUF:Q8_0",
     ]);
-    expect(
-      pickerEntries(installed, missing, "QWEN").map((e) => e.model),
-    ).toEqual(["qwen3.5:0.8b", "qwen3:0.6b"]);
-    expect(
-      pickerEntries(installed, missing, "gem").map((e) => e.model),
-    ).toEqual(["gemma4"]);
     // Un modèle installé reste installé pendant une recherche.
-    const chosen = selectedEntry(installed, "llama3");
-    expect(
-      pickerEntries(installed, chosen, "qwen").map((e) => e.model),
-    ).toEqual(["qwen3.5:0.8b", "qwen3:0.6b"]);
-  });
-  it("lists the recommended models first, with their installed copy", () => {
-    const tags = [info("llama3"), info("qwen3.5"), info("qwen3:0.6b")];
-    const entries = pickerEntries(tags, null, "", ["gemma4", "qwen3.5"]);
-    expect(entries).toEqual([
-      { model: "gemma4", info: null },
-      { model: "qwen3.5", info: tags[1] },
-      { model: "llama3", info: tags[0] },
-      { model: "qwen3:0.6b", info: tags[2] },
-    ]);
-    // Une autre étiquette n'est pas la copie installée.
-    expect(
-      pickerEntries(installed, null, "", ["qwen3.5"]).map((e) => [
-        e.model,
-        e.info !== null,
-      ]),
-    ).toEqual([
-      ["qwen3.5", false],
-      ["qwen3.5:0.8b", true],
-      ["qwen3:0.6b", true],
-      ["llama3", true],
+    expect(ids("qwen", selectedEntry(installed, LLAMA))).toEqual([
+      QWEN35,
+      QWEN3,
     ]);
   });
 
-  it("lists each name once, the missing selected model last", () => {
-    const recommended = ["gemma4", "qwen3.5"];
+  it("lists the recommended models first, with their installed copy, each once", () => {
+    const entries = pickerEntries(installed, null, "", [GEMMA, QWEN3]);
+    expect(entries).toEqual([
+      { model: GEMMA, info: null },
+      { model: QWEN3, info: installed[1] },
+      { model: QWEN35, info: installed[0] },
+      { model: LLAMA, info: installed[2] },
+    ]);
     // Choisi et recommandé : à sa place de recommandé, sans doublon.
     expect(
-      pickerEntries(
-        installed,
-        selectedEntry(installed, "gemma4"),
-        "",
-        recommended,
-      ).map((e) => e.model),
-    ).toEqual(["gemma4", "qwen3.5", "qwen3.5:0.8b", "qwen3:0.6b", "llama3"]);
+      pickerEntries(installed, selectedEntry(installed, GEMMA), "", [
+        GEMMA,
+      ]).map((e) => e.model),
+    ).toEqual([GEMMA, QWEN35, QWEN3, LLAMA]);
+  });
+
+  it("lists the model found on Hugging Face last, never twice", () => {
+    const names = (search: string, upstream: string | null) =>
+      pickerEntries(installed, null, search, [], upstream).map((e) => e.model);
     expect(
-      pickerEntries(
-        installed,
-        selectedEntry(installed, "mistral"),
-        "",
-        recommended,
-      ).map((e) => e.model),
-    ).toEqual([
-      "gemma4",
-      "qwen3.5",
-      "qwen3.5:0.8b",
-      "qwen3:0.6b",
-      "llama3",
-      "mistral",
+      names("unsloth/Qwen3-8B-GGUF", "unsloth/Qwen3-8B-GGUF:Q4_K_M"),
+    ).toEqual(["unsloth/Qwen3-8B-GGUF:Q4_K_M"]);
+    expect(names("unsloth", "unsloth/Qwen3-8B-GGUF:Q4_K_M")).toEqual([
+      QWEN35,
+      QWEN3,
+      "unsloth/Qwen3-8B-GGUF:Q4_K_M",
     ]);
+    expect(names(QWEN3, QWEN3)).toEqual([QWEN3]);
+    // Tapé sous la forme d'une adresse : montré quand même.
+    expect(
+      names(
+        "https://huggingface.co/unsloth/Qwen3-8B-GGUF:q8_0",
+        "unsloth/Qwen3-8B-GGUF:Q8_0",
+      ),
+    ).toEqual(["unsloth/Qwen3-8B-GGUF:Q8_0"]);
   });
 
-  it("filters every entry by substring, the name found upstream last", () => {
-    const missing = selectedEntry(installed, "mistral");
-    const names = (search: string, upstream: string | null = null) =>
-      pickerEntries(installed, missing, search, ["gemma4"], upstream).map(
-        (e) => e.model,
-      );
-    expect(names("EMMA")).toEqual(["gemma4"]);
-    expect(names("3")).toEqual(["qwen3.5:0.8b", "qwen3:0.6b", "llama3"]);
-    expect(names("llama3.2", "llama3.2")).toEqual(["llama3.2"]);
-    expect(names("3", "llama3.2")).toEqual([
-      "qwen3.5:0.8b",
-      "qwen3:0.6b",
-      "llama3",
-      "llama3.2",
-    ]);
-    // Déjà listé : pas de doublon.
-    expect(names("llama3", "llama3")).toEqual(["llama3"]);
-  });
-
-  it("looks a typed name up only when no entry has exactly that name", () => {
-    const entries = pickerEntries(installed, null, "", ["gemma4"]);
-    expect(upstreamCandidate(entries, "")).toBeNull();
-    expect(upstreamCandidate(entries, "   ")).toBeNull();
-    expect(upstreamCandidate(entries, " llama3.2 ")).toBe("llama3.2");
-    expect(upstreamCandidate(entries, "llama")).toBe("llama");
-    // Correspondance exacte, rognée, sans casse : installé ou recommandé.
-    expect(upstreamCandidate(entries, "LLAMA3")).toBeNull();
-    expect(upstreamCandidate(entries, " qwen3:0.6b ")).toBeNull();
-    expect(upstreamCandidate(entries, "Gemma4")).toBeNull();
+  it("recommends the ids in the order received", () => {
+    const recommended: RecommendedModel[] = [
+      {
+        model: GEMMA,
+        displayName: "gemma-4-E4B-it",
+        sizeBytes: null,
+        vramBytes: null,
+        fit: null,
+      },
+      {
+        model: QWEN35,
+        displayName: "Qwen3.5-0.8B",
+        sizeBytes: null,
+        vramBytes: null,
+        fit: null,
+      },
+    ];
+    expect(recommendedNames(recommended)).toEqual([GEMMA, QWEN35]);
   });
 });
 
-describe("names without case (Ollama resolves them so)", () => {
-  const SMOL = "hf.co/bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M";
-  const smol = "hf.co/bartowski/smollm2-135m-instruct-gguf:q4_k_m";
+describe("a typed Hugging Face id", () => {
+  const entries = pickerEntries(installed, null, "");
 
-  it("the selected model is the installed one, with its spelling", () => {
-    const models = [info(SMOL), info("qwen3:0.6b")];
-    expect(selectedEntry(models, smol)).toEqual({
-      model: SMOL,
-      info: models[0],
+  it("is read with or without its quantization, from an address too", () => {
+    expect(typedRepo(entries, " unsloth/Qwen3-8B-GGUF ")).toEqual({
+      repo: "unsloth/Qwen3-8B-GGUF",
+      quant: null,
+    });
+    expect(typedRepo(entries, "unsloth/Qwen3-8B-GGUF:UD-Q4_K_XL")).toEqual({
+      repo: "unsloth/Qwen3-8B-GGUF",
+      quant: "UD-Q4_K_XL",
+    });
+    expect(
+      typedRepo(entries, "https://huggingface.co/unsloth/Qwen3-8B-GGUF/"),
+    ).toEqual({ repo: "unsloth/Qwen3-8B-GGUF", quant: null });
+    expect(typedRepo(entries, "hf.co/a/b:Q8_0")).toEqual({
+      repo: "a/b",
+      quant: "Q8_0",
     });
   });
 
-  it("lists a name once, the installed spelling first", () => {
-    const models = [info(SMOL)];
-    const selected = selectedEntry(models, smol);
-    expect(
-      pickerEntries(models, selected, "", [smol.toUpperCase()]).map((e) => [
-        e.model,
-        e.info !== null,
-      ]),
-    ).toEqual([[SMOL, true]]);
-    // Choisi sous une autre casse, non installé : une seule ligne.
-    const other = selectedEntry([], "Gemma4");
-    expect(
-      pickerEntries([], other, "", ["gemma4"]).map((e) => e.model),
-    ).toEqual(["gemma4"]);
+  it("is not looked up when it is not an id or is already listed", () => {
+    expect(typedRepo(entries, "")).toBeNull();
+    expect(typedRepo(entries, "qwen")).toBeNull();
+    expect(typedRepo(entries, "a/b/c")).toBeNull();
+    expect(typedRepo(entries, "@ollama/llama3:latest")).toBeNull();
+    expect(typedRepo(entries, QWEN3)).toBeNull();
+    expect(typedRepo(entries, "unsloth/Qwen3-0.6B-GGUF:q4_k_m")).toBeNull();
+  });
+
+  it("gives the version asked for, else the one advised for the machine", () => {
+    const quant = (
+      label: string,
+      fields: Partial<HubQuant> = {},
+    ): HubQuant => ({
+      label,
+      file: `${label}.gguf`,
+      model: `u/R-GGUF:${label}`,
+      issue: null,
+      size: 1,
+      downloadSize: 1,
+      tier: "balanced",
+      fit: null,
+      memory: null,
+      recommended: false,
+      ...fields,
+    });
+    const repo = {
+      quants: [
+        quant("Q8_0"),
+        quant("Q4_K_M", { recommended: true }),
+        quant("BF16", { model: null }),
+      ],
+    } as unknown as HubRepo;
+    expect(upstreamModel(repo, "q8_0")).toBe("u/R-GGUF:Q8_0");
+    expect(upstreamModel(repo, null)).toBe("u/R-GGUF:Q4_K_M");
+    // Absente, ou non téléchargeable (dépôt restreint).
+    expect(upstreamModel(repo, "Q2_K")).toBeNull();
+    expect(upstreamModel(repo, "BF16")).toBeNull();
+    expect(upstreamModel(null, null)).toBeNull();
   });
 });
 
-describe("cloud models", () => {
-  const RECOMMENDED: RecommendedModel[] = [
-    {
-      model: "kimi-k2.6:cloud",
-      requiredPlan: "pro",
-      vramBytes: null,
-      fit: null,
-    },
-    {
-      model: "gpt-oss:120b-cloud",
-      requiredPlan: "max",
-      vramBytes: null,
-      fit: null,
-    },
-    {
-      model: "qwen3.5:cloud",
-      requiredPlan: "free",
-      vramBytes: null,
-      fit: null,
-    },
-    { model: "glm-5.3:cloud", requiredPlan: null, vramBytes: null, fit: null },
-    { model: "gemma4", requiredPlan: "pro", vramBytes: null, fit: null },
-  ];
+describe("restoredModel", () => {
+  const OLLAMA = "@ollama/qwen3:0.6b";
+  const HF = "unsloth/Qwen3-0.6B-GGUF:Q4_K_M";
+  const models = [info(OLLAMA), info(HF), info("@ollama/llama3:latest")];
 
-  it("are recommended only once allowed", () => {
-    expect(recommendedNames(RECOMMENDED, false)).toEqual(["gemma4"]);
-    expect(recommendedNames(RECOMMENDED, true)).toEqual([
-      "kimi-k2.6:cloud",
-      "gpt-oss:120b-cloud",
-      "qwen3.5:cloud",
-      "glm-5.3:cloud",
-      "gemma4",
-    ]);
+  it("adopts an installed model under the id of the list", () => {
+    expect(
+      restoredModel(models, HF.replace("Q4_K_M", "q4_k_m"), false),
+    ).toEqual({ kind: "adopt", model: HF });
+    expect(restoredModel(models, OLLAMA, false)).toEqual({
+      kind: "adopt",
+      model: OLLAMA,
+    });
   });
 
-  it("show the paid plan they need, never for a local model", () => {
-    expect(paidPlan(RECOMMENDED, "kimi-k2.6:cloud")).toBe("pro");
-    expect(paidPlan(RECOMMENDED, "KIMI-K2.6:cloud")).toBe("pro");
-    expect(paidPlan(RECOMMENDED, "gpt-oss:120b-cloud")).toBe("max");
-    expect(paidPlan(RECOMMENDED, "qwen3.5:cloud")).toBeNull();
-    expect(paidPlan(RECOMMENDED, "glm-5.3:cloud")).toBeNull();
-    expect(paidPlan(RECOMMENDED, "unknown:cloud")).toBeNull();
-    expect(paidPlan(RECOMMENDED, "gemma4")).toBeNull();
+  it("finds an old Ollama name under its new id", () => {
+    expect(restoredModel(models, "qwen3:0.6b", false)).toEqual({
+      kind: "adopt",
+      model: OLLAMA,
+    });
+    // Sans étiquette : `latest`.
+    expect(restoredModel(models, "llama3", false)).toEqual({
+      kind: "adopt",
+      model: "@ollama/llama3:latest",
+    });
+    // Ancien nom de Hugging Face d'Ollama : son identifiant.
+    expect(
+      restoredModel(models, "hf.co/unsloth/Qwen3-0.6B-GGUF:Q4_K_M", false),
+    ).toEqual({ kind: "adopt", model: HF });
   });
 
-  it("are never the default model while not allowed", () => {
-    const models = [info("mine:my-cloud"), info("qwen3:0.6b")];
-    expect(defaultModel(models)).toBe("mine:my-cloud");
-    expect(defaultModel(models, false)).toBe("qwen3:0.6b");
-    expect(defaultModel([info("mine:my-cloud")], false)).toBeNull();
+  it("leaves to the engine an old name it does not find", () => {
+    expect(restoredModel(models, "phi4:14b", false)).toEqual({
+      kind: "legacy",
+      model: "phi4:14b",
+    });
+    expect(
+      restoredModel(models, "hf.co/bartowski/Phi-4-GGUF:Q8_0", false),
+    ).toEqual({ kind: "legacy", model: "hf.co/bartowski/Phi-4-GGUF:Q8_0" });
   });
 
-  it("are not looked up in the registry while not allowed", () => {
-    expect(upstreamCandidate([], " kimi-k3:cloud ", false)).toBeNull();
-    expect(upstreamCandidate([], " kimi-k3:cloud ")).toBe("kimi-k3:cloud");
-    expect(upstreamCandidate([], "llama3.2", false)).toBe("llama3.2");
+  it("adopts a Hugging Face id not installed (downloaded at the next send)", () => {
+    expect(restoredModel(models, "bartowski/Phi-4-GGUF:Q8_0", false)).toEqual({
+      kind: "adopt",
+      model: "bartowski/Phi-4-GGUF:Q8_0",
+    });
+  });
+
+  it("keeps the selection for a model taken from Ollama then deleted, or a remote model not allowed", () => {
+    expect(restoredModel(models, "@ollama/gemma3:4b", true)).toBeNull();
+    expect(restoredModel(models, "@remote/mistral/small", false)).toBeNull();
+    expect(restoredModel(models, "@remote/mistral/small", true)).toEqual({
+      kind: "adopt",
+      model: "@remote/mistral/small",
+    });
+    expect(restoredModel(models, "  ", true)).toBeNull();
   });
 });

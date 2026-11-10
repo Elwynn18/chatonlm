@@ -227,10 +227,10 @@ pub trait Host: Send + Sync + 'static {
     fn dictation(&self) -> &dyn dictation::Dictate;
     /// Chef de la carte graphique.
     fn gpu(&self) -> &crate::gpu::GpuChief;
-    /// Mémoire de la machine du serveur (`None` : distant ou illisible).
+    /// Mémoire de la machine, vue par le moteur des modèles (`None` :
+    /// illisible).
     fn machine(
         &self,
-        server_url: String,
     ) -> crate::dictation::clipboard::BoxFuture<Option<crate::hub::hardware::Machine>>;
     /// L'éditeur demande le téléchargement de ce modèle : l'app le propose
     /// à l'utilisateur (fenêtre montrée), avec la mention de sa licence si
@@ -321,6 +321,10 @@ struct Open {
     voice_turns: Arc<AtomicU32>,
     /// Écoute le plan de la carte graphique (`gpu.changed`).
     gpu: bool,
+    /// Modèle d'autocomplétion demandé sous un ancien nom d'Ollama (réglage
+    /// d'une extension 0.1.x) : `(nom demandé, identifiant servi)` ; le plan
+    /// de cette connexion lui rend le nom demandé.
+    completion_alias: Option<(String, String)>,
     /// Suit les changements des cours (`study.event`), depuis son premier
     /// `study.create` ou `study.list`.
     study: bool,
@@ -334,6 +338,7 @@ impl Open {
             close,
             voice_turns: Arc::default(),
             gpu: false,
+            completion_alias: None,
             study: false,
         }
     }
@@ -779,6 +784,22 @@ impl<H: Host> Shared<H> {
             .is_some_and(|open| !std::mem::replace(&mut open.gpu, true))
     }
 
+    /// Retient (ou oublie, `None`) le nom sous lequel la connexion a demandé
+    /// son modèle d'autocomplétion, quand le pont l'a renommé.
+    pub(crate) fn set_completion_alias(&self, connection: u64, alias: Option<(String, String)>) {
+        if let Some(open) = self.connections.lock().get_mut(&connection) {
+            open.completion_alias = alias;
+        }
+    }
+
+    /// `(nom demandé, identifiant servi)` de la connexion, s'il y en a un.
+    pub(crate) fn completion_alias(&self, connection: u64) -> Option<(String, String)> {
+        self.connections
+            .lock()
+            .get(&connection)
+            .and_then(|open| open.completion_alias.clone())
+    }
+
     /// La connexion se met à suivre les cours : sa fin à attendre, ou
     /// `None` si elle les suit déjà (ou si elle est finie).
     pub(crate) fn listen_study(&self, connection: u64) -> Option<watch::Receiver<bool>> {
@@ -1036,12 +1057,13 @@ impl Host for AppHost {
 
     fn machine(
         &self,
-        server_url: String,
     ) -> crate::dictation::clipboard::BoxFuture<Option<crate::hub::hardware::Machine>> {
         let app = self.app.clone();
         Box::pin(async move {
-            let catalog = app.try_state::<crate::hub::state::Catalog>()?;
-            catalog.memory(&server_url).await
+            // Machine vue par le moteur (celle de `CHATONLM_E2E_HARDWARE`
+            // dans les essais de bout en bout).
+            let engine = app.try_state::<crate::engine::Engine>()?;
+            engine.machine().await
         })
     }
 

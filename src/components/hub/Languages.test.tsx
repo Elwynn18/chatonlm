@@ -243,7 +243,7 @@ describe("ModelHub in the pseudo-language: no text left in English", () => {
     expect(
       leftovers([
         ...versionData,
-        screen.getByTestId("ollama-name").textContent!,
+        screen.getByTestId("model-id").textContent!,
         "Weights.",
         "Benchmarks",
         "example.com",

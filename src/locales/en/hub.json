@@ -11,7 +11,7 @@
   },
   "discover": {
     "title": "Discover models",
-    "subtitle": "Open models from Hugging Face, ready to run with Ollama.",
+    "subtitle": "Open models from Hugging Face, ready to run in ChatonLM.",
     "loading": "Loading models",
     "seeAll": "See all",
     "seeAllLabel": "See all {section}",
@@ -36,8 +36,8 @@
     "cpuOnly": "CPU only",
     "vram": "{size} VRAM",
     "ram": "{size} RAM",
-    "remote": "Remote server — memory fit unknown",
-    "remoteHint": "The Ollama server runs on another machine: ChatonLM can't tell which models fit in its memory.",
+    "unknown": "Memory unknown",
+    "unknownHint": "ChatonLM couldn't read this computer's memory: it can't tell which models fit.",
     "hint": {
       "estimates": "Estimates for a {context} context.",
       "estimatesCpu": "Estimates for a {context} context, without a graphics card.",
@@ -158,7 +158,7 @@
   },
   "versions": {
     "title": "Choose a version",
-    "none": "This repository has no model file Ollama can use.",
+    "none": "This repository has no model file ChatonLM can use.",
     "recommended": "Recommended",
     "installed": "Installed",
     "memory": "Needs about {size} of memory.",
@@ -166,8 +166,8 @@
     "showAll": "Show all {count} versions",
     "showFewer": "Show fewer versions",
     "download": "Download · {size}",
-    "ollamaName": "Model ID",
-    "copyOllamaName": "Copy model ID",
+    "modelId": "Model ID",
+    "copyModelId": "Copy model ID",
     "otherSources": "Other sources"
   },
   "tiers": {
@@ -178,8 +178,8 @@
     "tiny": "Smallest"
   },
   "issues": {
-    "sharded": "Split into several files — not supported by Ollama yet",
-    "subfolder": "Stored in a subfolder — not supported by Ollama yet"
+    "sharded": "Split into several files — not supported",
+    "subfolder": "Stored in a subfolder — not supported"
   },
   "progress": {
     "downloading": "Downloading {name}",
@@ -234,13 +234,13 @@
     "empty": "No models yet",
     "modified": "Modified {time}",
     "embedding": "Embedding",
-    "deleteText": "This removes the model from Ollama. You can download it again later.",
+    "deleteText": "This removes the model from this computer. You can download it again later.",
     "updateAvailable": "Update available"
   },
   "speech": {
     "title": "Speech models",
     "loading": "Loading speech models",
-    "intro": "Speech models run inside ChatonLM, not in Ollama. Dictation uses the one you choose.",
+    "intro": "Speech models run inside ChatonLM. Dictation uses the one you choose.",
     "settingsLink": "Dictation settings",
     "catalog": {
       "parakeet_tdt_0_6b_v3": {
@@ -282,7 +282,7 @@
   "voices": {
     "title": "Voices",
     "loading": "Loading voices",
-    "intro": "Voices read responses aloud. They run inside ChatonLM, not in Ollama.",
+    "intro": "Voices read responses aloud. They run inside ChatonLM.",
     "settingsLink": "Read aloud settings",
     "cardTitle": "{language} · {voice}",
     "modelLicense": "Model license:",
@@ -298,7 +298,7 @@
   "images": {
     "title": "Image models",
     "loading": "Loading image models",
-    "intro": "Image models create pictures from your descriptions in a chat. They run inside ChatonLM, not in Ollama.",
+    "intro": "Image models create pictures from your descriptions in a chat. They run inside ChatonLM.",
     "howTo": {
       "title": "How it works",
       "download": "Download a model",
@@ -408,7 +408,7 @@
   },
   "polish": {
     "intro": "A second model cleans up the transcript: punctuation, filler words, self-corrections. If its answer does not look like what you said, the raw transcript is copied instead.",
-    "unreachable": "Ollama is unreachable. Start it to use these models for polish.",
+    "unreachable": "The installed models couldn't be read.",
     "label": "Polish models",
     "use": "Use for polish",
     "anyModel": "Any installed model can be chosen in Settings."

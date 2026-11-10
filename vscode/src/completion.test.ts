@@ -1,7 +1,8 @@
 // @vitest-environment node
 // Autocomplétion locale (lot 3, X) : coupée par défaut, jamais de requête sans
-// modèle prêt, pause jusqu'au prochain plan (pas de boucle), serveur distant
-// ou modèle cloud → rien, fichier sensible → rien, annulation à la frappe,
+// modèle prêt, pause jusqu'au prochain plan (pas de boucle), serveur d'une
+// autre machine (app 0.9.x) ou modèle distant → rien, ancien nom d'Ollama du
+// réglage récrit, fichier sensible → rien, annulation à la frappe,
 // une seule requête en vol, anti-rebond, cache, autre complétion active,
 // barre d'état, carte du panneau, installation par l'app ; réglages changés
 // dans l'éditeur des réglages, retour d'inactivité, fichiers où rien n'est
@@ -15,6 +16,7 @@ import {
   PREFIX_CHARS,
   PREFIX_STEP_LINES,
   promptWindow,
+  renamedSetting,
   SLOW_AFTER,
   SLOW_DEBOUNCE_FACTOR,
   SUFFIX_CHARS,
@@ -24,6 +26,7 @@ import { deferred, until } from "./test/fakeBridge";
 import { cleanUp, ofType, openEditor, setupController } from "./test/setup";
 import {
   CancellationTokenSource,
+  ConfigurationTarget,
   env as vscodeEnv,
   InlineCompletionItem,
   Position,
@@ -304,13 +307,118 @@ describe("only on this computer", () => {
     expect(env.fake.calls("complete.fim")).toEqual([]);
   });
 
-  it("sends nothing to a cloud model", async () => {
+  it("sends nothing to a remote model", async () => {
     const env = await setupController();
     testState.config["chatonlm.completion.model"] = "qwen3-coder:480b-cloud";
     await enabled(env);
     expect(viewOf(env)?.status).toBe("notLocal");
     expect(texts(await ask(env))).toEqual([]);
     expect(env.fake.calls("complete.fim")).toEqual([]);
+  });
+});
+
+describe("a setting from before the llama.cpp engine", () => {
+  const SMALL = "ggml-org/Qwen2.5-Coder-0.5B-Q8_0-GGUF:Q8_0";
+
+  /** `completion.suggest` de l'app 0.10 : avec sa table `renamed`. */
+  function withRenamed(env: Env, renamed: Record<string, string>) {
+    const suggest = env.fake.handlers["completion.suggest"];
+    env.fake.handlers["completion.suggest"] = (params, context) => ({
+      ...(suggest(params, context) as object),
+      renamed,
+    });
+  }
+
+  it("renames an old Ollama name of a proposed model before reading the plan", async () => {
+    const env = await setupController();
+    withRenamed(env, { "qwen2.5-coder:0.5b-base": SMALL });
+    testState.config["chatonlm.completion.model"] = " Qwen2.5-Coder:0.5B-Base ";
+    await env.controller.completion.refresh();
+    expect(testState.config["chatonlm.completion.model"]).toBe(SMALL);
+    expect(env.fake.calls("gpu.status").at(-1)).toEqual({ model: SMALL });
+    // Une seule fois : rien à récrire ensuite.
+    await env.controller.completion.refresh();
+    expect(testState.config["chatonlm.completion.model"]).toBe(SMALL);
+  });
+
+  it("turns the recommended model back into auto, and leaves the rest alone", async () => {
+    const env = await setupController();
+    // Recommandé du faux : `qwen2.5-coder:1.5b-base`.
+    withRenamed(env, { "old-name:base": "qwen2.5-coder:1.5b-base" });
+    testState.config["chatonlm.completion.model"] = "old-name:base";
+    await env.controller.completion.refresh();
+    expect(testState.config["chatonlm.completion.model"]).toBe("auto");
+    testState.config["chatonlm.completion.model"] = "codellama:7b-code";
+    await env.controller.completion.refresh();
+    expect(testState.config["chatonlm.completion.model"]).toBe(
+      "codellama:7b-code",
+    );
+  });
+
+  it("rewrites a workspace setting where it is set, once, and leaves the user's alone", async () => {
+    const env = await setupController();
+    withRenamed(env, { "old-name:base": "qwen2.5-coder:0.5b-base" });
+    testState.workspaceConfig["chatonlm.completion.model"] = "old-name:base";
+    await enabled(env);
+    expect(testState.workspaceConfig["chatonlm.completion.model"]).toBe(
+      "qwen2.5-coder:0.5b-base",
+    );
+    expect(testState.config["chatonlm.completion.model"]).toBeUndefined();
+    expect(env.fake.calls("completion.prepare").at(-1)).toEqual({
+      model: "qwen2.5-coder:0.5b-base",
+    });
+    expect(viewOf(env)?.status).toBe("ready");
+    const writes = testState.configWrites.filter(
+      (write) => write.key === "chatonlm.completion.model",
+    );
+    expect(writes).toEqual([
+      {
+        key: "chatonlm.completion.model",
+        value: "qwen2.5-coder:0.5b-base",
+        target: ConfigurationTarget.Workspace,
+      },
+    ]);
+    // Relu : plus rien à récrire.
+    await env.controller.completion.refresh();
+    await env.controller.completion.refresh();
+    expect(
+      testState.configWrites.filter(
+        (write) => write.key === "chatonlm.completion.model",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("asks for the renamed model even when the setting cannot be rewritten", async () => {
+    const env = await setupController();
+    withRenamed(env, { "old-name:base": "qwen2.5-coder:0.5b-base" });
+    testState.workspaceConfig["chatonlm.completion.model"] = "old-name:base";
+    testState.readOnlyConfig = ["chatonlm.completion.model"];
+    await enabled(env);
+    expect(testState.workspaceConfig["chatonlm.completion.model"]).toBe(
+      "old-name:base",
+    );
+    expect(env.fake.calls("completion.prepare").at(-1)).toEqual({
+      model: "qwen2.5-coder:0.5b-base",
+    });
+    expect(env.fake.calls("gpu.status").at(-1)).toEqual({
+      model: "qwen2.5-coder:0.5b-base",
+    });
+    expect(viewOf(env)?.status).toBe("ready");
+    expect(texts(await ask(env))).toEqual(["return a + b;"]);
+    expect(env.fake.calls("complete.fim").at(-1)?.model).toBe(
+      "qwen2.5-coder:0.5b-base",
+    );
+  });
+
+  it("reads only a table of names", () => {
+    expect(renamedSetting("a", { a: "b" })).toBe("b");
+    expect(renamedSetting("A", { a: "b" })).toBe("b");
+    expect(renamedSetting("a", { A: "b" })).toBe("b");
+    expect(renamedSetting("auto", { a: "b" })).toBeNull();
+    expect(renamedSetting("a", undefined)).toBeNull();
+    expect(renamedSetting("a", ["b"])).toBeNull();
+    expect(renamedSetting("a", { a: 3 })).toBeNull();
+    expect(renamedSetting("a", { a: "" })).toBeNull();
   });
 });
 

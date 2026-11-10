@@ -1,10 +1,10 @@
-// Onglet Installed du ModelHub : tous les modèles du serveur, en
+// Onglet Installed du ModelHub : tous les modèles du moteur de l'app, en
 // lignes-cartes (nom lisible, étiquette, taille, paramètres, quantification,
 // date, capacités), Use in chat, suppression confirmée, lien vers la fiche
 // d'un modèle de Hugging Face. Chaque ligne a sa propre suppression : deux
 // suppressions rapprochées gardent chacune son état et son échec. Après
 // confirmation, le focus va au titre de la liste (la ligne va disparaître) ;
-// Cancel le rend à la corbeille. Un modèle dont le registre a une version plus
+// Cancel le rend à la corbeille. Un modèle dont Hugging Face a une version plus
 // récente (useOutdatedModels, demandé à l'ouverture de l'onglet) porte la
 // pastille « Update available » et un bouton Update, qui le met en file dans
 // les téléchargements : la ligne montre alors la progression, avec Cancel
@@ -43,10 +43,9 @@ import {
   displayTag,
   parseModelName,
   shortModelName as shortName,
-  withTag,
 } from "@/lib/modelNames";
 
-/** Capacités d'Ollama (/api/tags) en drapeaux des icônes. */
+/** Capacités du modèle installé en drapeaux des icônes. */
 function capabilitiesOf(model: HubInstalled): HubCapabilities {
   const has = (name: string) => model.capabilities.includes(name);
   return {
@@ -65,7 +64,7 @@ export function InstalledList() {
   const t = useT();
   const installed = useHubInstalled();
   const headingRef = useRef<HTMLHeadingElement>(null);
-  // Version : la date du manifeste, qui change à chaque téléchargement.
+  // Version : la date d'installation, qui change à chaque téléchargement.
   const outdated = useOutdatedModels(
     (installed.data ?? []).map((model) => ({
       model: model.model,
@@ -127,7 +126,7 @@ function InstalledRow({
   onDeleting,
 }: {
   model: HubInstalled;
-  /** Le registre a une version plus récente. */
+  /** Hugging Face a une version plus récente. */
   outdated: boolean;
   /** Suppression confirmée : le focus quitte la ligne, qui va disparaître. */
   onDeleting: () => void;
@@ -137,8 +136,7 @@ function InstalledRow({
   const remove = useDeleteModel();
   const { downloads } = useDownloads();
   const { start, cancel, resume } = useDownloadActions();
-  // Nom que la file des téléchargements garde : avec son étiquette.
-  const target = withTag(model.model);
+  const target = model.model;
   const download = findDownload(downloads, target);
   // Mise à jour en file, en cours, ou mise en pause (onglet Downloads).
   const updating = download !== null && isPendingDownload(download);

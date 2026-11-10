@@ -42,7 +42,7 @@ import type { NewCourse } from "@/bindings/NewCourse";
 import type { Plan } from "@/bindings/Plan";
 import type { Question } from "@/bindings/Question";
 import type { QuestionBody } from "@/bindings/QuestionBody";
-import type { RunningModel } from "@/bindings/RunningModel";
+import type { EngineRunningModel } from "@/bindings/EngineRunningModel";
 import type { Settings } from "@/bindings/Settings";
 import type { StagedFile } from "@/bindings/StagedFile";
 import type { StudyError } from "@/bindings/StudyError";
@@ -363,7 +363,7 @@ export function fakeStudy(
   backend: {
     settings: Settings;
     staged: Map<string, StagedFile>;
-    running: RunningModel[];
+    running: EngineRunningModel[];
   },
 ): FakeStudy {
   const solutions = new Map<string, Solution>();

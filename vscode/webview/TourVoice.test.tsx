@@ -25,7 +25,7 @@ import { Panel } from "./Panel";
 const CONNECTED: PanelState = {
   connection: "connected",
   models: ["qwen3:0.6b"],
-  cloudModels: [],
+  remoteModels: [],
   model: "qwen3:0.6b",
   ephemeral: false,
   chatId: null,
@@ -346,7 +346,7 @@ describe("Voice session", () => {
     for (const [destination, text] of [
       [
         "cloud",
-        "The model runs in the cloud: what you say is sent over the network.",
+        "The model runs at an online provider: what you say is sent over the network.",
       ],
       [
         "remote",

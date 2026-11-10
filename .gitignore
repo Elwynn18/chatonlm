@@ -14,4 +14,6 @@ blob-report/
 
 # Divers
 *.log
+# Vrais journaux de llama-server lus par les essais du moteur (chemins nettoyés).
+!src-tauri/src/engine/testdata/*.log
 .DS_Store

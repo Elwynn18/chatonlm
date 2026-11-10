@@ -127,7 +127,6 @@ function renderForm({
         chatId="c"
         hasMessages
         isStreaming={false}
-        isDisabled={false}
         onSubmit={onSubmit}
         onCancel={() => {}}
       />

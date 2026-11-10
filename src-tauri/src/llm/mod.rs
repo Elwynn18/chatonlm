@@ -8,12 +8,8 @@
 //!   [`models`] : façade du sélecteur et de l'onglet Models ; [`errors`] :
 //!   erreurs et leur code pour la page ; [`defaults`] : réglages repris
 //!   d'Ollama appliqués aux requêtes.
-//! - [`Access`] est un état Tauri (cloné à volonté). Les appelants qui n'en
-//!   ont pas encore (Étude, jusqu'au lot L5a) passent par [`access_for`].
-
-// Façade posée par le socle, branchée par les lots L5a, L7 et L9 : une
-// partie n'a pas encore d'appelant.
-#![allow(dead_code, reason = "branché par les lots L5a, L7 et L9")]
+//! - [`Access`] est un état Tauri (cloné à volonté). Un appelant qui n'a que
+//!   la base passe par [`access_for`].
 
 pub mod defaults;
 pub mod errors;
@@ -101,14 +97,27 @@ pub struct Session {
     /// Contexte du processus (`-c`) ; distant : contexte annoncé, sinon
     /// `None`.
     pub context: Option<u32>,
+    /// Capacités du modèle (le chat lit celles de [`models::details`]).
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "contrat 102 § 1.2, lu par les essais")
+    )]
     pub capabilities: ModelCapabilities,
     pub remote: bool,
-    /// Sur le processeur après l'échec de la carte.
+    /// Sur le processeur après l'échec de la carte (l'escargot de la page
+    /// lit l'état du moteur).
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "contrat 102 § 1.2, lu par les essais")
+    )]
     pub cpu_fallback: bool,
     /// Réglages repris d'Ollama (modèle local importé).
     defaults: Option<ModelDefaults>,
     /// Nom du modèle chez le fournisseur (distant), écrit dans les requêtes.
     model: Option<String>,
+    /// Nom du fournisseur choisi par l'utilisateur (distant), repris dans les
+    /// textes d'erreur.
+    provider_name: Option<String>,
     lease: Option<Lease>,
 }
 
@@ -126,10 +135,12 @@ impl std::fmt::Debug for Session {
 impl Session {
     /// Session d'un modèle distant (crochet [`remote::RemoteModels`]) :
     /// `id` = `@remote/<fournisseur>/<modèle>`, `model` = nom du
-    /// fournisseur, `context` = contexte annoncé.
+    /// fournisseur, `provider_name` = nom choisi par l'utilisateur,
+    /// `context` = contexte annoncé.
     pub fn remote(
         id: String,
         model: String,
+        provider_name: String,
         endpoint: Endpoint,
         context: Option<u32>,
         capabilities: ModelCapabilities,
@@ -143,6 +154,7 @@ impl Session {
             cpu_fallback: false,
             defaults: None,
             model: Some(model),
+            provider_name: Some(provider_name),
             lease: None,
         }
     }
@@ -175,7 +187,7 @@ impl Session {
 
     /// Classe une erreur d'une requête de cette session : coupure d'un
     /// modèle déchargé à la demande → [`LlmError::Cancelled`] ; distant :
-    /// 401/403 → clé, 402/429 → limite, connexion ou délai → injoignable.
+    /// table propre aux fournisseurs ([`remote::classify`]).
     pub fn error(&self, error: InferenceError) -> LlmError {
         if error == InferenceError::Cancelled {
             return LlmError::Cancelled;
@@ -191,23 +203,12 @@ impl Session {
                 LlmError::Inference(error)
             };
         }
-        let provider = match ids::parse(&self.id) {
-            Some(Target::Remote { provider, .. }) => provider,
-            _ => self.id.clone(),
+        let provider = match (&self.provider_name, ids::parse(&self.id)) {
+            (Some(name), _) => name.clone(),
+            (None, Some(Target::Remote { provider, .. })) => provider,
+            (None, _) => self.id.clone(),
         };
-        match error {
-            InferenceError::Unauthorized
-            | InferenceError::Http {
-                status: 401 | 403, ..
-            } => LlmError::RemoteKey { provider },
-            InferenceError::Http {
-                status: 402 | 429, ..
-            } => LlmError::RemoteLimit { provider },
-            InferenceError::Connect(_) | InferenceError::Timeout => {
-                LlmError::RemoteUnreachable { provider }
-            }
-            error => LlmError::Inference(error),
-        }
+        remote::classify(&provider, error)
     }
 }
 
@@ -269,7 +270,8 @@ impl Access {
     /// Point d'appel prêt pour `id`. Local : modèle chargé (ou relancé) par
     /// le moteur avec le contexte de `options`, sinon du réglage, sinon du
     /// modèle ; `on_loading` est appelé une fois, AVANT d'attendre, si le
-    /// modèle n'est pas déjà prêt avec ces options (jamais pour un distant).
+    /// modèle n'est pas déjà prêt avec ces options (jamais pour un distant,
+    /// ni sans moteur installé).
     /// Distant : refusé ([`LlmError::RemoteOff`]) sans rien appeler si le
     /// réglage est coupé. Annulation : [`LlmError::Cancelled`] (le
     /// chargement continue dans le moteur, comme `Engine::ensure`).
@@ -320,13 +322,33 @@ impl Access {
                 .unwrap_or_else(|| KeepAlive::from_setting(prefs.keep_alive)),
             cpu_only: options.cpu_only,
         };
-        if !self.engine().is_ready(&model.id, load).await {
+        // Contexte non imposé par l'appelant (chat, Correction, nettoyage,
+        // Load) : une instance déjà chargée avec un contexte au moins égal est
+        // reprise, au lieu d'attendre qu'un travail de l'Étude ou de la visite
+        // (contexte imposé, plus grand) la lâche (relecture L5a, B1).
+        let at_least = options.ctx.filter(|ctx| *ctx > 0).is_none();
+        let engine = self.engine();
+        let ready = if at_least {
+            engine.is_ready_at_least(&model.id, load).await
+        } else {
+            engine.is_ready(&model.id, load).await
+        };
+        // Sans moteur installé, rien ne se chargera : rien d'annoncé (l'erreur
+        // `engineUnavailable` suit).
+        if engine.available() && !ready {
             on_loading();
         }
+        let ensure = async {
+            if at_least {
+                engine.ensure_at_least(&model.id, load).await
+            } else {
+                engine.ensure(&model.id, load).await
+            }
+        };
         let lease = tokio::select! {
             biased;
             () = cancel.cancelled() => return Err(LlmError::Cancelled),
-            lease = self.engine().ensure(&model.id, load) => lease?,
+            lease = ensure => lease?,
         };
         Ok(Session {
             id: lease.model.clone(),
@@ -337,6 +359,7 @@ impl Access {
             cpu_fallback: lease.cpu_fallback,
             defaults,
             model: None,
+            provider_name: None,
             lease: Some(lease),
         })
     }
@@ -406,9 +429,9 @@ pub fn install(access: Access) {
     let _ = INSTALLED.set(access);
 }
 
-/// Transition (jusqu'au lot L5a) : accès de l'app pour un appelant qui n'a
-/// que la base (Étude) ; hors de l'app (essais), un accès de secours sur
-/// cette base ([`Access::detached`]).
+/// Accès de l'app pour un appelant qui n'a que la base (commandes de
+/// l'Étude quand l'état `Access` n'est pas encore posé) ; hors de l'app
+/// (essais), un accès de secours sur cette base ([`Access::detached`]).
 pub fn access_for(store: &Store) -> Access {
     INSTALLED
         .get()

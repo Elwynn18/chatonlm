@@ -1,5 +1,6 @@
 //! Catalogue du ModelHub (état Tauri) : requêtes à Hugging Face avec cache
-//! disque, une seule requête en vol par ressource, et machine du serveur.
+//! disque, une seule requête en vol par ressource, et machine de l'app (le
+//! moteur de texte tourne toujours sur cet ordinateur).
 //! Contrat : `.tools/research/37-step15a-contract.md` § 2-7.
 
 use std::future::Future;
@@ -10,7 +11,6 @@ use std::time::Duration;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use url::Url;
 
 use super::cache::{Cache, Entry, Kind, Limit};
 use super::catalog;
@@ -27,7 +27,6 @@ use super::types::{
     HubFilters, HubHardware, HubHome, HubList, HubModel, HubProblem, HubReadme, HubRepoResult,
     HubScope, HubSearch, HubSection, HubSectionId, HubStatus,
 };
-use crate::ollama::client::is_local;
 use crate::store::now_ms;
 
 /// Âge maximal de la mémoire montrée par la jauge de VRAM (relue toutes
@@ -116,12 +115,12 @@ impl List {
             List::Trending => ("trendingScore", 200),
             List::Uncensored(query) => {
                 return format!(
-                    "/api/models?apps=ollama&search={}&sort=downloads&limit={UNCENSORED_LIMIT}&{E_LIST}",
+                    "/api/models?apps=llama.cpp&search={}&sort=downloads&limit={UNCENSORED_LIMIT}&{E_LIST}",
                     utf8_percent_encode(query, NON_ALPHANUMERIC)
                 );
             }
         };
-        format!("/api/models?apps=ollama&sort={sort}&limit={limit}&{E_LIST}")
+        format!("/api/models?apps=llama.cpp&sort={sort}&limit={limit}&{E_LIST}")
     }
 }
 
@@ -578,7 +577,7 @@ impl Catalog {
         }
         let cursor = search.cursor.as_deref().filter(|cursor| !cursor.is_empty());
         let mut path = format!(
-            "/api/models?apps=ollama&search={}&sort=downloads&limit={SEARCH_PAGE}&{E_LIST}",
+            "/api/models?apps=llama.cpp&search={}&sort=downloads&limit={SEARCH_PAGE}&{E_LIST}",
             utf8_percent_encode(&text, NON_ALPHANUMERIC)
         );
         if let Some(cursor) = cursor {
@@ -827,36 +826,25 @@ impl Catalog {
         }
     }
 
-    /// Machine du serveur : `None` pour un serveur distant. `context` : réglage
-    /// de ChatonLM (0 : celui d'Ollama d'après la VRAM).
-    pub async fn hardware(&self, server_url: &str, context: u32) -> Option<HubHardware> {
-        let machine = self
-            .machine(&self.detector, server_url, super::hardware::KEEP)
-            .await?;
+    /// Machine de l'app : `None` si elle ne se lit pas. `context` : réglage
+    /// de ChatonLM (0 : celui que la VRAM donne).
+    pub async fn hardware(&self, context: u32) -> Option<HubHardware> {
+        let machine = self.machine(&self.detector, super::hardware::KEEP).await?;
         Some(machine.with_context(context))
     }
 
-    /// Mémoire de la machine du serveur pour la jauge de VRAM : détection
-    /// d'au plus une seconde ; `None` pour un serveur distant.
-    pub async fn memory(&self, server_url: &str) -> Option<Machine> {
-        self.machine(&self.memory_detector, server_url, MEMORY_KEEP)
-            .await
+    /// Mémoire de la machine pour la jauge de VRAM : détection d'au plus une
+    /// seconde ; `None` si elle ne se lit pas.
+    pub async fn memory(&self) -> Option<Machine> {
+        self.machine(&self.memory_detector, MEMORY_KEEP).await
     }
 
-    /// Machine du serveur local détectée par `detector` depuis au plus `keep`
-    /// (celle injectée par `CHATONLM_E2E_HARDWARE` dans les essais).
-    async fn machine(
-        &self,
-        detector: &Detector,
-        server_url: &str,
-        keep: Duration,
-    ) -> Option<Machine> {
+    /// Machine détectée par `detector` depuis au plus `keep` (celle injectée
+    /// par `CHATONLM_E2E_HARDWARE` dans les essais).
+    async fn machine(&self, detector: &Detector, keep: Duration) -> Option<Machine> {
         #[cfg(any(debug_assertions, feature = "e2e"))]
         if let Some(injected) = super::hardware::injected() {
             return injected;
-        }
-        if !Url::parse(server_url).is_ok_and(|url| is_local(&url)) {
-            return None;
         }
         detector.machine_within(keep).await
     }

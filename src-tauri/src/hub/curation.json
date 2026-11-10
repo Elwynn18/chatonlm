@@ -379,5 +379,40 @@
     "isc",
     "cc-by-4.0",
     "unlicense"
+  ],
+  "recommendedAbout": "Modèles recommandés en tête du sélecteur (commande recommended_models, lot L5b) : équivalents GGUF des recommandations locales d'Ollama (qwen3.5, gemma), puis plus léger ; dépôts publics vérifiés le 8 nov. 2026 (rapports 35 et 101-L6). sizeBytes : poids et projecteur quand ils sont connus, sinon estimés d'après parameters ; parameters et arch servent à estimer le cache de contexte (hub::fit).",
+  "recommended": [
+    {
+      "id": "unsloth/Qwen3.5-9B-GGUF:Q4_K_M",
+      "displayName": "Qwen3.5-9B",
+      "sizeBytes": 6598688544,
+      "parameters": 8950000000,
+      "arch": "qwen35",
+      "vision": true
+    },
+    {
+      "id": "ggml-org/gemma-3-12b-it-GGUF:Q4_K_M",
+      "displayName": "gemma-3-12b-it",
+      "sizeBytes": 8154775200,
+      "parameters": 12200000000,
+      "arch": "gemma3",
+      "vision": true
+    },
+    {
+      "id": "ggml-org/gpt-oss-20b-GGUF:MXFP4",
+      "displayName": "gpt-oss-20b",
+      "sizeBytes": 12109566624,
+      "parameters": 20900000000,
+      "arch": "gpt-oss",
+      "vision": false
+    },
+    {
+      "id": "unsloth/Qwen3.5-4B-GGUF:Q4_K_M",
+      "displayName": "Qwen3.5-4B",
+      "sizeBytes": 3413361504,
+      "parameters": 4200000000,
+      "arch": "qwen35",
+      "vision": true
+    }
   ]
 }

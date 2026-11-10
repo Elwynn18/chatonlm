@@ -38,5 +38,5 @@
   "command.dictate": "Dicter",
   "command.dictateStop": "Arrêter la dictée",
   "config.mcp.enabled": "Laisse les agents de cet éditeur (mode agent du chat, Cline, Cursor…) se servir de ChatonLM par MCP : interroger un modèle de cet ordinateur, générer une image, lire un texte à voix haute, corriger un texte, lister les modèles. Ils reçoivent un accès à part, que ChatonLM limite à ces outils : ni vos conversations, ni vos réglages. Coupé par défaut ; le couper retire cet accès. Chaque appel est montré dans le panneau ChatonLM, où vous pouvez l'arrêter ou couper ceci. VS Code doit être appairé avec ChatonLM.",
-  "config.nativeChat.enabled": "Propose les modèles de ChatonLM dans le sélecteur de modèles du chat de VS Code. Seulement ceux de cet ordinateur, jamais ceux du cloud ; chaque demande est une conversation temporaire que ChatonLM efface aussitôt après. Coupé par défaut."
+  "config.nativeChat.enabled": "Propose les modèles de ChatonLM dans le sélecteur de modèles du chat de VS Code. Seulement ceux de cet ordinateur, jamais les modèles distants ; chaque demande est une conversation temporaire que ChatonLM efface aussitôt après. Coupé par défaut."
 }

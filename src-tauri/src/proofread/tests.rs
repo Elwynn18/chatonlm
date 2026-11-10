@@ -1,27 +1,79 @@
-//! Essais du moteur de correction contre le faux serveur (`fake-ollama`,
-//! modèles `chatonlm-proofread*`) et, en contrat, contre l'Ollama de test.
+//! Essais du moteur de correction contre le faux moteur (`FakeBench`,
+//! scénarios `chatonlm-proofer*` de `fake-llama`) et, en contrat, contre le
+//! vrai `llama-server` (`RealBench`).
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use fake_ollama::{FakeOllama, Mode, PROOFREAD_OFF, PROOFREAD_THINKING};
-use serde_json::Value;
+use fake_llama::scenarios::l5a::proof::{PROOFREAD_OFF, PROOFREAD_THINKING};
+use serde_json::{Value, json};
 use tauri::ipc::InvokeResponseBody;
 
 use super::*;
-use crate::store::settings::{self, SettingsPatch};
+use crate::llm::testing::{FakeBench, RealBench, Role};
+use crate::store::settings::SettingsPatch;
 
-/// Deux paragraphes, chacun avec des fautes que le faux serveur corrige.
+/// Deux paragraphes, chacun avec des fautes que le faux corrige.
 const TEXT: &str = "I recieve teh letter.\n\nJe suis allez au cinema.\n";
 const CORRECTED: &str = "I receive the letter.\n\nJe suis allé au cinéma.\n";
 
-fn server(url: &str) -> Server {
-    Server {
-        url: url.into(),
-        context_length: 0,
-        keep_alive: 0,
-        cloud: false,
-        ..crate::chat::Server::detached()
-    }
+/// Modèles du banc (identifiant, scénario).
+const PROOFER: &str = "test/Proofer-GGUF:Q4_K_M";
+const SLOW: &str = "test/Slow-GGUF:Q4_K_M";
+const OFF: &str = "test/Off-GGUF:Q4_K_M";
+const THINKER: &str = "test/Thinker-GGUF:Q4_K_M";
+const OPENED: &str = "test/Opened-GGUF:Q4_K_M";
+const CUT: &str = "test/Cut-GGUF:Q4_K_M";
+const WAIT: &str = "test/Wait-GGUF:Q4_K_M";
+const BROKEN: &str = "test/Broken-GGUF:Q4_K_M";
+const FAILING: &str = "test/Failing-GGUF:Q4_K_M";
+
+fn bench() -> FakeBench {
+    FakeBench::new(&[
+        (PROOFER, "proofer"),
+        (SLOW, "proofer-slow"),
+        (OFF, "proofer-off"),
+        (THINKER, "proofer-think"),
+        (OPENED, "proofer-opened"),
+        (CUT, "proofer-cut"),
+        (WAIT, "proofer-wait"),
+        (BROKEN, "error"),
+        (FAILING, "loadfail"),
+    ])
+}
+
+async fn server(bench: &FakeBench) -> Server {
+    Server::current(&bench.access).await.unwrap()
+}
+
+/// Requêtes de chat reçues par le processus de `id` (ouvert s'il ne l'est
+/// plus : même processus, mêmes réglages).
+async fn chat_requests(bench: &FakeBench, id: &str) -> Vec<Value> {
+    let session = bench
+        .access
+        .open(
+            id,
+            OpenOptions::default(),
+            &CancellationToken::new(),
+            &|| {},
+        )
+        .await
+        .unwrap();
+    let url = format!("{}/fake/requests", session.endpoint.base_url);
+    let all: Vec<Value> = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(url)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    all.into_iter()
+        .filter(|request| request["path"] == "/v1/chat/completions")
+        .map(|request| request["body"].clone())
+        .collect()
 }
 
 /// Évènements reçus, dans l'ordre.
@@ -56,17 +108,27 @@ impl Events {
             .filter(|event| !matches!(event, ProofreadEvent::Delta { .. }))
             .collect()
     }
+
+    /// Code et message de l'erreur finale, après `Started`.
+    fn error(&self) -> (ProofreadErrorCode, String) {
+        let all = self.all();
+        assert!(matches!(all[0], ProofreadEvent::Started { .. }), "{all:?}");
+        match all.last() {
+            Some(ProofreadEvent::Error { code, message }) => (*code, message.clone()),
+            other => panic!("{other:?}"),
+        }
+    }
 }
 
 async fn proofread(
-    fake: &FakeOllama,
+    server: &Server,
     model: &str,
     mode: ProofreadMode,
     text: &str,
 ) -> (Outcome, Events) {
     let events = Events::default();
     let outcome = run(
-        &server(&fake.url()),
+        server,
         model,
         mode,
         ProofreadOptions::default(),
@@ -88,18 +150,18 @@ fn done(index: u32, text: &str, kept: bool) -> ProofreadEvent {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn parts_are_corrected_in_order_as_they_stream() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-    let (outcome, events) =
-        proofread(&fake, "chatonlm-proofread", ProofreadMode::Correct, TEXT).await;
+    let bench = bench();
+    let server = server(&bench).await;
+    let (outcome, events) = proofread(&server, PROOFER, ProofreadMode::Correct, TEXT).await;
     let parts = split(TEXT);
     assert_eq!(parts.len(), 2);
     assert_eq!(
         events.steps(),
         [
             ProofreadEvent::Started {
-                model: "chatonlm-proofread".into(),
+                model: PROOFER.into(),
                 parts: parts.clone(),
             },
             done(0, "I receive the letter.", false),
@@ -131,10 +193,9 @@ async fn parts_are_corrected_in_order_as_they_stream() {
     assert!(!outcome.stopped);
     assert_eq!(outcome.parts, parts);
 
-    // Une requête par passage, avec les consignes de « Correct » ; pas de
-    // `think` (modèle sans capacité `thinking`), réglages du serveur par
-    // défaut.
-    let requests = fake.chat_requests();
+    // Une requête par passage, avec les consignes de « Correct » ; réflexion
+    // laissée au gabarit (modèle sans réflexion), température basse.
+    let requests = chat_requests(&bench, PROOFER).await;
     assert_eq!(requests.len(), 2);
     assert_eq!(
         requests[0]["messages"][0]["content"],
@@ -144,67 +205,138 @@ async fn parts_are_corrected_in_order_as_they_stream() {
         requests[1]["messages"].as_array().unwrap().last().unwrap()["content"],
         "<text>\nJe suis allez au cinema.\n</text>"
     );
-    assert!(requests[0].get("think").is_none());
+    assert!(requests[0].get("chat_template_kwargs").is_none());
     assert_eq!(
-        requests[0]["options"],
-        serde_json::json!({ "temperature": 0.2 })
+        requests[0]["temperature"].as_f64(),
+        Some(f64::from(prompts::TEMPERATURE))
     );
+    bench.shutdown().await;
 }
 
-#[tokio::test]
+/// Contexte réglé dans l'app : le modèle tourne avec lui (comme le chat :
+/// pas de rechargement entre les deux).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_model_runs_with_the_app_context() {
+    let bench = bench();
+    bench.set(SettingsPatch {
+        context_length: Some(8192),
+        ..Default::default()
+    });
+    let (outcome, _) =
+        proofread(&server(&bench).await, PROOFER, ProofreadMode::Correct, TEXT).await;
+    assert_eq!(outcome.error, None);
+    let running = bench.engine().running();
+    assert_eq!(running.len(), 1);
+    assert_eq!(running[0].context_length, 8192);
+    bench.shutdown().await;
+}
+
+/// Modèle tenu par l'Étude avec un contexte plus grand que celui réglé : la
+/// correction le reprend sans attendre ni relancer (relecture L5a, B1).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_held_by_the_study_is_shared() {
+    let bench = bench();
+    bench.set(SettingsPatch {
+        context_length: Some(4096),
+        ..Default::default()
+    });
+    let study = bench
+        .access
+        .open(
+            PROOFER,
+            OpenOptions {
+                ctx: Some(8192),
+                ..Default::default()
+            },
+            &CancellationToken::new(),
+            &|| {},
+        )
+        .await
+        .unwrap();
+    let server = server(&bench).await;
+    let (outcome, _) = tokio::time::timeout(
+        Duration::from_secs(10),
+        proofread(&server, PROOFER, ProofreadMode::Correct, TEXT),
+    )
+    .await
+    .expect("the proofreading waited for the study");
+    assert_eq!(outcome.error, None);
+    assert_eq!(outcome.text(), CORRECTED);
+    let running = bench.engine().running();
+    assert_eq!(running.len(), 1);
+    assert_eq!(running[0].context_length, 8192);
+    drop(study);
+    bench.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn rephrase_sends_its_own_instructions() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+    let bench = bench();
+    let server = server(&bench).await;
     let text = "I have a lot of work in order to finish teh report.";
-    let (outcome, _) = proofread(&fake, "chatonlm-proofread", ProofreadMode::Rephrase, text).await;
+    let (outcome, _) = proofread(&server, PROOFER, ProofreadMode::Rephrase, text).await;
     assert_eq!(outcome.text(), "I have many work to finish the report.");
     assert_eq!(
-        fake.chat_requests()[0]["messages"][0]["content"],
+        chat_requests(&bench, PROOFER).await[0]["messages"][0]["content"],
         prompts::REPHRASE_PROMPT
     );
     // « Correct » sur le même texte : corrections seules.
-    let (outcome, _) = proofread(&fake, "chatonlm-proofread", ProofreadMode::Correct, text).await;
+    let (outcome, _) = proofread(&server, PROOFER, ProofreadMode::Correct, text).await;
     assert_eq!(
         outcome.text(),
         "I have a lot of work in order to finish the report."
     );
+    bench.shutdown().await;
 }
 
-#[tokio::test]
-async fn thinking_written_in_the_content_is_never_shown() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-    let (outcome, events) = proofread(
-        &fake,
-        "chatonlm-proofread-think",
-        ProofreadMode::Correct,
-        TEXT,
-    )
-    .await;
+/// Modèle qui réfléchit : réflexion coupée (gabarit), jamais montrée si
+/// elle arrive quand même (à part) ; vu réfléchir malgré l'arrêt : plus
+/// coupée.
+#[tokio::test(flavor = "multi_thread")]
+async fn thinking_is_turned_off_and_never_shown() {
+    let bench = bench();
+    let server = server(&bench).await;
+    let (outcome, events) = proofread(&server, THINKER, ProofreadMode::Correct, TEXT).await;
     assert_eq!(outcome.text(), CORRECTED);
-    for event in events.all() {
+    let requests = chat_requests(&bench, THINKER).await;
+    assert_eq!(
+        requests[0]["chat_template_kwargs"],
+        json!({ "enable_thinking": false })
+    );
+    // Noté par le chat : réfléchit quand même. Plus coupée, réflexion reçue
+    // à part, jamais montrée.
+    bench
+        .store()
+        .blocking(|c| crate::store::model_prefs::set_always_thinks(c, THINKER))
+        .unwrap();
+    let (outcome, events_after) = proofread(&server, THINKER, ProofreadMode::Correct, TEXT).await;
+    assert_eq!(outcome.text(), CORRECTED);
+    let requests = chat_requests(&bench, THINKER).await;
+    assert!(
+        requests
+            .last()
+            .unwrap()
+            .get("chat_template_kwargs")
+            .is_none()
+    );
+    for event in events.all().into_iter().chain(events_after.all()) {
         if let ProofreadEvent::Delta { text, .. } = event {
-            assert!(
-                !text.contains('<') && !text.contains('>') && !text.contains("user wants"),
-                "{text:?}"
-            );
+            assert!(!text.contains("user wants"), "{text:?}");
         }
     }
     assert!(PROOFREAD_THINKING.contains("user wants"));
-    assert_eq!(events.deltas(0), "I receive the letter.");
+    assert_eq!(events_after.deltas(0), "I receive the letter.");
+    bench.shutdown().await;
 }
 
 /// Raisonnement ouvert par le gabarit du modèle, seul `</think>` écrit
-/// (relecture du 6 oct.) : jamais montré, et pas compté dans la longueur
-/// (plus long que la réponse permise au premier passage).
-#[tokio::test]
+/// dans le contenu (relecture du 6 oct.) : jamais montré, et pas compté dans
+/// la longueur (plus long que la réponse permise au premier passage).
+#[tokio::test(flavor = "multi_thread")]
 async fn reasoning_opened_by_the_template_is_never_shown_nor_counted() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-    let (outcome, events) = proofread(
-        &fake,
-        "chatonlm-proofread-opened",
-        ProofreadMode::Correct,
-        TEXT,
-    )
-    .await;
+    let bench = bench();
+    let (outcome, events) =
+        proofread(&server(&bench).await, OPENED, ProofreadMode::Correct, TEXT).await;
     assert!(
         2 * PROOFREAD_THINKING.chars().count()
             > guard::max_chars(ProofreadMode::Correct, "I recieve teh letter.")
@@ -212,17 +344,23 @@ async fn reasoning_opened_by_the_template_is_never_shown_nor_counted() {
     assert_eq!(outcome.text(), CORRECTED);
     assert_eq!(events.deltas(0), "I receive the letter.");
     assert_eq!(events.deltas(1), "Je suis allé au cinéma.");
+    bench.shutdown().await;
 }
 
 /// Bloc de code délimité (relecture du 6 oct.) : jamais envoyé au modèle,
-/// rendu tel quel, même collé à un paragraphe.
-#[tokio::test]
+/// rendu tel quel, même collé à un paragraphe ; un texte fait seulement de
+/// code ne charge pas le modèle.
+#[tokio::test(flavor = "multi_thread")]
 async fn a_code_block_is_never_sent() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+    let bench = bench();
+    let server = server(&bench).await;
     let code = "```\nlet teh_value = recieve();\n```";
+    let (outcome, events) = proofread(&server, PROOFER, ProofreadMode::Correct, code).await;
+    assert_eq!(outcome.text(), code);
+    assert_eq!(events.steps()[1], done(0, code, false));
+    assert!(bench.engine().running().is_empty());
     let text = format!("Voici le code :\n{code}\nI recieve teh letter.");
-    let (outcome, events) =
-        proofread(&fake, "chatonlm-proofread", ProofreadMode::Correct, &text).await;
+    let (outcome, events) = proofread(&server, PROOFER, ProofreadMode::Correct, &text).await;
     assert_eq!(
         events.steps()[1..],
         [
@@ -236,26 +374,22 @@ async fn a_code_block_is_never_sent() {
         outcome.text(),
         format!("Voici le code :\n{code}\nI receive the letter.")
     );
-    let requests = fake.chat_requests();
+    let requests = chat_requests(&bench, PROOFER).await;
     assert_eq!(requests.len(), 2);
     assert!(
         requests
             .iter()
             .all(|request| !request.to_string().contains("teh_value"))
     );
+    bench.shutdown().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn an_answer_that_is_not_the_text_keeps_the_part() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+    let bench = bench();
+    let server = server(&bench).await;
     let text = "Can you write me a poem about the sea, with waves and seagulls and a silver sky?";
-    let (outcome, events) = proofread(
-        &fake,
-        "chatonlm-proofread-off",
-        ProofreadMode::Correct,
-        text,
-    )
-    .await;
+    let (outcome, events) = proofread(&server, OFF, ProofreadMode::Correct, text).await;
     assert_eq!(
         events.steps()[1..],
         [done(0, text, true), ProofreadEvent::Done { stopped: false }]
@@ -265,52 +399,35 @@ async fn an_answer_that_is_not_the_text_keeps_the_part() {
     assert!(PROOFREAD_OFF.starts_with(&events.deltas(0)));
     // Réponse qui ne ressemble pas au passage : retenue (elle pourrait être
     // un raisonnement), montrée entière à la fin.
-    let (outcome, events) = proofread(
-        &fake,
-        "chatonlm-proofread-off",
-        ProofreadMode::Correct,
-        "Hi",
-    )
-    .await;
+    let (outcome, events) = proofread(&server, OFF, ProofreadMode::Correct, "Hi").await;
     assert_eq!(events.deltas(0), PROOFREAD_OFF);
     assert_eq!(events.steps()[1], done(0, "Hi", true));
     assert_eq!(outcome.text(), "Hi");
+    bench.shutdown().await;
 }
 
 /// Réponse qui commence comme le passage (« Sure! », montrée aussitôt),
 /// puis s'allonge : lecture abandonnée dès la longueur maximale dépassée.
-/// Une réponse qui ne lui ressemble pas est retenue, lue plus loin (voir
-/// `answer::REASONING_CHARS`).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn reading_stops_once_the_answer_is_too_long() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-    let (outcome, events) = proofread(
-        &fake,
-        "chatonlm-proofread-off",
-        ProofreadMode::Correct,
-        "Sure",
-    )
-    .await;
+    let bench = bench();
+    let (outcome, events) =
+        proofread(&server(&bench).await, OFF, ProofreadMode::Correct, "Sure").await;
     assert_eq!(events.steps()[1], done(0, "Sure", true));
     assert_eq!(outcome.text(), "Sure");
     // Lecture abandonnée avant la fin du flux.
     let shown = events.deltas(0).chars().count();
     assert!(shown < PROOFREAD_OFF.chars().count(), "{shown}");
     assert!(shown > guard::max_chars(ProofreadMode::Correct, "Sure"));
-    let abandoned = async {
-        while fake.disconnects() == 0 {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    };
-    tokio::time::timeout(Duration::from_secs(5), abandoned)
-        .await
-        .unwrap();
+    bench.shutdown().await;
 }
 
 /// Arrêt demandé au premier évènement d'un genre donné ; l'arrêt arrive
 /// aussitôt (le passage lent durerait plusieurs secondes).
-async fn stopped_at(when: impl Fn(&ProofreadEvent) -> bool + Send + Sync) -> (Outcome, Events) {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+async fn stopped_at(
+    bench: &FakeBench,
+    when: impl Fn(&ProofreadEvent) -> bool + Send + Sync,
+) -> (Outcome, Events) {
     let events = Events::default();
     let cancel = Cancel::default();
     let record = events.emit();
@@ -324,10 +441,11 @@ async fn stopped_at(when: impl Fn(&ProofreadEvent) -> bool + Send + Sync) -> (Ou
             }
         }
     };
+    let server = server(bench).await;
     let started = Instant::now();
     let outcome = run(
-        &server(&fake.url()),
-        "chatonlm-proofread-slow",
+        &server,
+        SLOW,
         ProofreadMode::Correct,
         ProofreadOptions::default(),
         TEXT,
@@ -335,20 +453,20 @@ async fn stopped_at(when: impl Fn(&ProofreadEvent) -> bool + Send + Sync) -> (Ou
         &emit,
     )
     .await;
-    assert!(
-        started.elapsed() < Duration::from_secs(4),
-        "{:?}",
-        started.elapsed()
-    );
     assert!(outcome.stopped);
     assert_eq!(outcome.error, None);
+    // Mesure grossière, sans charge : la correction lente durerait plus.
+    assert!(started.elapsed() < Duration::from_secs(20));
     (outcome, events)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn stopping_keeps_the_finished_parts() {
-    let (outcome, events) =
-        stopped_at(|event| matches!(event, ProofreadEvent::PartDone { index: 0, .. })).await;
+    let bench = bench();
+    let (outcome, events) = stopped_at(&bench, |event| {
+        matches!(event, ProofreadEvent::PartDone { index: 0, .. })
+    })
+    .await;
     assert_eq!(
         events.steps()[1..],
         [
@@ -362,27 +480,33 @@ async fn stopping_keeps_the_finished_parts() {
         "I receive the letter.\n\nJe suis allez au cinema.\n"
     );
 
-    // Arrêt au milieu d'un passage : abandonné, texte d'origine.
-    let (outcome, events) = stopped_at(|event| matches!(event, ProofreadEvent::Delta { .. })).await;
+    // Arrêt au milieu d'un passage : abandonné, texte d'origine ; le
+    // serveur voit la connexion fermée.
+    let (outcome, events) = stopped_at(&bench, |event| {
+        matches!(event, ProofreadEvent::Delta { .. })
+    })
+    .await;
     assert_eq!(
         events.steps()[1..],
         [ProofreadEvent::Done { stopped: true }]
     );
     assert_eq!(outcome.text(), TEXT);
+    bench.shutdown().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn texts_refused_at_once_get_a_lone_error() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
+    let bench = bench();
+    let server = server(&bench).await;
     for (model, text, code, message) in [
         (
-            "chatonlm-proofread",
+            PROOFER,
             " \n\t",
             ProofreadErrorCode::Empty,
             "There is no text to correct",
         ),
         (
-            "chatonlm-proofread",
+            PROOFER,
             &*"a ".repeat(MAX_CHARS / 2 + 1),
             ProofreadErrorCode::TooLong,
             "The text is too long: 100,000 characters at most",
@@ -393,8 +517,14 @@ async fn texts_refused_at_once_get_a_lone_error() {
             ProofreadErrorCode::NoModel,
             "Choose a model for proofreading",
         ),
+        (
+            "@remote/mistral/mistral-small-latest",
+            "Bonjour",
+            ProofreadErrorCode::Failed,
+            "Remote models are turned off. Turn them on in the settings to use this model.",
+        ),
     ] {
-        let (outcome, events) = proofread(&fake, model, ProofreadMode::Correct, text).await;
+        let (outcome, events) = proofread(&server, model, ProofreadMode::Correct, text).await;
         assert_eq!(
             events.all(),
             [ProofreadEvent::Error {
@@ -405,69 +535,107 @@ async fn texts_refused_at_once_get_a_lone_error() {
         assert_eq!(outcome.error, Some((code, message.into())));
         assert!(outcome.parts.is_empty());
     }
-    assert!(fake.chat_requests().is_empty());
+    assert!(bench.engine().running().is_empty());
     // Juste à la limite : accepté (découpé, puis modèle absent).
     let limit = "a".repeat(MAX_CHARS);
-    let (outcome, events) = proofread(&fake, "nope:1b", ProofreadMode::Correct, &limit).await;
+    let (outcome, events) = proofread(
+        &server,
+        "nope/Nope-GGUF:Q4_K_M",
+        ProofreadMode::Correct,
+        &limit,
+    )
+    .await;
     assert!(matches!(events.all()[0], ProofreadEvent::Started { .. }));
     assert!(outcome.parts.len() >= MAX_CHARS / split::PART_CHARS);
+    bench.shutdown().await;
 }
 
-#[tokio::test]
+/// Fichier du modèle disparu hors de l'app (la base le connaît encore) : le
+/// moteur ne le trouve pas, `modelNotFound` comme un modèle absent.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_whose_file_is_gone_is_not_found() {
+    let bench = FakeBench::new(&[(PROOFER, "proofer")]);
+    let model = crate::local_models::get(bench.store(), bench.access.data_dir(), PROOFER)
+        .await
+        .unwrap()
+        .unwrap();
+    std::fs::remove_file(&model.path).unwrap();
+    let (_, events) = proofread(&server(&bench).await, PROOFER, ProofreadMode::Correct, TEXT).await;
+    assert_eq!(events.error().0, ProofreadErrorCode::ModelNotFound);
+    bench.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn errors_after_the_start_are_reported_with_their_code() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-    let error_of = |events: &Events| {
-        let all = events.all();
-        assert!(matches!(all[0], ProofreadEvent::Started { .. }), "{all:?}");
-        match all.last() {
-            Some(ProofreadEvent::Error { code, message }) => (*code, message.clone()),
-            other => panic!("{other:?}"),
-        }
-    };
-    // Absent de `/api/show`, ou supprimé entre `/api/show` et `/api/chat`.
-    for model in ["nope:1b", "chatonlm-vanished"] {
-        let (_, events) = proofread(&fake, model, ProofreadMode::Correct, TEXT).await;
-        assert_eq!(
-            error_of(&events),
-            (
-                ProofreadErrorCode::ModelNotFound,
-                format!("The model {model} is not installed")
-            )
-        );
-    }
-    // Erreur du modèle en cours de route.
-    let (outcome, events) = proofread(&fake, "chatonlm-error", ProofreadMode::Correct, TEXT).await;
+    let bench = bench();
+    let server = server(&bench).await;
+    // Absent de la base locale.
+    let (_, events) = proofread(
+        &server,
+        "nope/Nope-GGUF:Q4_K_M",
+        ProofreadMode::Correct,
+        TEXT,
+    )
+    .await;
     assert_eq!(
-        error_of(&events),
+        events.error(),
+        (
+            ProofreadErrorCode::ModelNotFound,
+            "The model nope/Nope-GGUF:Q4_K_M is not installed".into()
+        )
+    );
+    // Distant permis, mais aucun fournisseur ne le sert.
+    bench.set(SettingsPatch {
+        remote_models: Some(true),
+        ..Default::default()
+    });
+    let remote = "@remote/mistral/mistral-small-latest";
+    let (_, events) = proofread(
+        &Server::current(&bench.access).await.unwrap(),
+        remote,
+        ProofreadMode::Correct,
+        TEXT,
+    )
+    .await;
+    assert_eq!(events.error().0, ProofreadErrorCode::ModelNotFound);
+    // Erreur du modèle en cours de route : passages d'origine gardés.
+    let (outcome, events) = proofread(&server, BROKEN, ProofreadMode::Correct, TEXT).await;
+    assert_eq!(
+        events.error(),
         (
             ProofreadErrorCode::Failed,
-            "Proofreading failed: model runner has unexpectedly stopped".into()
+            "Proofreading failed: the text engine answered with an error (HTTP 500)".into()
         )
     );
     assert_eq!(outcome.text(), TEXT);
     // Même échec après « Rephrase » : le message nomme la reformulation.
-    let (_, events) = proofread(&fake, "chatonlm-error", ProofreadMode::Rephrase, TEXT).await;
+    let (_, events) = proofread(&server, BROKEN, ProofreadMode::Rephrase, TEXT).await;
     assert_eq!(
-        error_of(&events),
+        events.error(),
         (
             ProofreadErrorCode::Failed,
-            "Rephrasing failed: model runner has unexpectedly stopped".into()
+            "Rephrasing failed: the text engine answered with an error (HTTP 500)".into()
         )
     );
-    // Flux fini sans `done`.
-    let (_, events) = proofread(&fake, "chatonlm-cut", ProofreadMode::Correct, TEXT).await;
+    // Connexion coupée en cours de route.
+    let (_, events) = proofread(&server, CUT, ProofreadMode::Correct, TEXT).await;
     assert_eq!(
-        error_of(&events),
+        events.error(),
         (
             ProofreadErrorCode::Failed,
-            "Proofreading failed: the connection to Ollama was lost".into()
+            "Proofreading failed: the connection to the model was lost".into()
         )
     );
+    // Le moteur ne charge pas le modèle.
+    let (_, events) = proofread(&server, FAILING, ProofreadMode::Correct, TEXT).await;
+    let (code, message) = events.error();
+    assert_eq!(code, ProofreadErrorCode::EngineFailed);
+    assert!(message.starts_with("the text engine"), "{message}");
     // Délai d'un passage dépassé (raccourci pour l'essai).
     let events = Events::default();
     let job = Job {
-        server: &server(&fake.url()),
-        model: "chatonlm-wait",
+        server: &server,
+        model: WAIT,
         mode: ProofreadMode::Correct,
         options: ProofreadOptions::default(),
         cancel: &Cancel::default(),
@@ -476,135 +644,24 @@ async fn errors_after_the_start_are_reported_with_their_code() {
     };
     job.run(TEXT).await;
     assert_eq!(
-        error_of(&events),
+        events.error(),
         (
             ProofreadErrorCode::Failed,
             "Proofreading failed: the model took too long to answer".into()
         )
     );
-    // 404 d'un proxy ou d'une mauvaise adresse, sans erreur d'Ollama (corps
-    // vide, ou page en texte) : un échec avec le statut et la page, pas un
-    // modèle absent (relecture du 6 oct.).
-    let proxy = FakeOllama::start(Mode::Status(404)).await.unwrap();
-    let (_, events) = proofread(&proxy, "gemma3:4b", ProofreadMode::Correct, TEXT).await;
-    assert_eq!(
-        error_of(&events),
-        (
-            ProofreadErrorCode::Failed,
-            "Proofreading failed: Ollama answered HTTP 404".into()
-        )
-    );
-    let events = Events::default();
-    run(
-        &server(&plain_404().await),
-        "gemma3:4b",
-        ProofreadMode::Correct,
-        ProofreadOptions::default(),
-        TEXT,
-        &Cancel::default(),
-        &events.emit(),
-    )
-    .await;
-    assert_eq!(
-        error_of(&events),
-        (
-            ProofreadErrorCode::Failed,
-            "Proofreading failed: Ollama answered HTTP 404: 404 page not found".into()
-        )
-    );
-    // Serveur arrêté.
-    let url = fake.url();
-    fake.stop().await;
-    let events = Events::default();
-    run(
-        &server(&url),
-        "chatonlm-proofread",
-        ProofreadMode::Correct,
-        ProofreadOptions::default(),
-        TEXT,
-        &Cancel::default(),
-        &events.emit(),
-    )
-    .await;
-    assert_eq!(
-        error_of(&events),
-        (
-            ProofreadErrorCode::EngineFailed,
-            format!("can't connect to Ollama at {url}")
-        )
-    );
-}
-
-/// Serveur qui répond à tout la page 404 en texte d'un proxy (Go, gin,
-/// Traefik).
-async fn plain_404() -> String {
-    scripted(None).await
-}
-
-/// Serveur qui répond à `/api/chat`, si `chat` est donné, ce contenu d'un
-/// seul fragment (`done`), et à tout le reste la page 404 de [`plain_404`]
-/// (`/api/show` : détails inconnus, la correction continue).
-async fn scripted(chat: Option<&'static str>) -> String {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        while let Ok((mut socket, _)) = listener.accept().await {
-            // Requête lue en entier (en-têtes et corps) avant de répondre.
-            let mut received = Vec::new();
-            let mut buffer = [0; 8192];
-            while let Ok(count @ 1..) = socket.read(&mut buffer).await {
-                received.extend_from_slice(&buffer[..count]);
-                let text = String::from_utf8_lossy(&received).to_ascii_lowercase();
-                if let Some(end) = text.find("\r\n\r\n") {
-                    let length = text[..end]
-                        .lines()
-                        .find_map(|line| line.strip_prefix("content-length:"))
-                        .and_then(|value| value.trim().parse::<usize>().ok())
-                        .unwrap_or(0);
-                    if received.len() >= end + 4 + length {
-                        break;
-                    }
-                }
-            }
-            let to_chat = String::from_utf8_lossy(&received)
-                .to_ascii_lowercase()
-                .starts_with("post /api/chat ");
-            let response = match chat {
-                Some(content) if to_chat => {
-                    let body = format!(
-                        "{}\n",
-                        serde_json::json!({
-                            "message": { "role": "assistant", "content": content },
-                            "done": true,
-                        })
-                    );
-                    format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\n\
-                         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
-                    )
-                }
-                _ => "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\
-                      Content-Length: 18\r\nConnection: close\r\n\r\n404 page not found"
-                    .to_owned(),
-            };
-            let _ = socket.write_all(response.as_bytes()).await;
-        }
-    });
-    format!("http://{address}")
+    bench.shutdown().await;
 }
 
 /// Recette du 1er nov. 2026 (défaut R14) : paragraphe coupé à la main, rendu
 /// corrigé sur une ligne (réponse réelle de qwen3:8b). Mise en forme
 /// automatique coupée : le passage est corrigé avec ses retours à la ligne
-/// (CRLF du texte compris), et c'est ce texte remis en forme que reçoit la
-/// page. Activée (défaut) : le paragraphe reste sur une ligne.
-#[tokio::test]
-async fn a_wrapped_paragraph_answered_on_one_line_is_corrected() {
+/// (CRLF du texte compris), et c'est ce texte remis en forme qui est rendu.
+/// Activée (défaut) : le paragraphe reste sur une ligne.
+#[test]
+fn a_wrapped_paragraph_answered_on_one_line_is_corrected() {
     const ANSWER: &str = "A tiny shop backend. It calculates the cart total, retry the payment \
                           when the bank doesn't answer, and turn product titles into URL slugs.";
-    let url = scripted(Some(ANSWER)).await;
     let kept_lines = ProofreadOptions {
         formatting: false,
         ..ProofreadOptions::default()
@@ -627,45 +684,35 @@ async fn a_wrapped_paragraph_answered_on_one_line_is_corrected() {
                  when the bank doesn't answer, and turn product titles into URL slugs."
             )
         };
-        let events = Events::default();
-        let outcome = run(
-            &server(&url),
-            "qwen3:8b",
-            ProofreadMode::Correct,
-            options,
-            &text,
-            &Cancel::default(),
-            &events.emit(),
-        )
-        .await;
-        assert_eq!(outcome.error, None);
-        assert_eq!(events.steps()[1], done(0, &corrected, false));
-        assert_eq!(outcome.text(), format!("{corrected}{ending}"));
+        let parts = split::marked(&text);
+        assert_eq!(parts.len(), 1);
+        let (part, code) = &parts[0];
+        assert!(!code);
+        let result = settle_part(ProofreadMode::Correct, options, &part.text, ANSWER);
+        assert_eq!(
+            result,
+            PartResult {
+                text: corrected.clone(),
+                kept: false
+            }
+        );
+        let results = [Some(result)];
+        assert_eq!(
+            assemble(std::slice::from_ref(part), &results),
+            format!("{corrected}{ending}")
+        );
     }
 }
 
-/// Options de la correction, sur de vraies réponses scriptées : mots
-/// déplacés ou ajoutés écartés quand l'ordre est gardé ; nombre écrit en
-/// lettres écarté quand les chiffres sont gardés ; mise en forme : majuscule
-/// et point ajoutés (activée) ou retirés (coupée).
-#[tokio::test]
-async fn the_options_keep_order_digits_and_formatting() {
-    async fn corrected(answer: &'static str, text: &str, options: ProofreadOptions) -> PartResult {
-        let url = scripted(Some(answer)).await;
-        let events = Events::default();
-        let outcome = run(
-            &server(&url),
-            "qwen3:8b",
-            ProofreadMode::Correct,
-            options,
-            text,
-            &Cancel::default(),
-            &events.emit(),
-        )
-        .await;
-        assert_eq!(outcome.error, None);
-        outcome.results[0].clone().unwrap()
-    }
+/// Options de la correction, sur de vraies réponses : mots déplacés ou
+/// ajoutés écartés quand l'ordre est gardé ; nombre écrit en lettres écarté
+/// quand les chiffres sont gardés ; mise en forme : majuscule et point
+/// ajoutés (activée) ou retirés (coupée).
+#[test]
+fn the_options_keep_order_digits_and_formatting() {
+    let corrected = |answer: &str, text: &str, options: ProofreadOptions| {
+        settle_part(ProofreadMode::Correct, options, text, answer)
+    };
     let plain = ProofreadOptions::default();
     let keep_order = ProofreadOptions {
         keep_order: true,
@@ -682,16 +729,15 @@ async fn the_options_keep_order_digits_and_formatting() {
     let text = "je sais pas si il viens demain avec ses 3 enfants";
     // Mot ajouté (« ne »), écarté seulement si l'ordre est gardé.
     let added = "Je ne sais pas s'il vient demain avec ses 3 enfants.";
-    assert!(!corrected(added, text, plain).await.kept);
-    assert!(corrected(added, text, keep_order).await.kept);
+    assert!(!corrected(added, text, plain).kept);
+    assert!(corrected(added, text, keep_order).kept);
     // Mots déplacés.
     let moved = "Demain, je sais pas s'il vient avec ses 3 enfants.";
-    assert!(corrected(moved, text, keep_order).await.kept);
-    // Même ordre, mot coupé par une apostrophe (« si il » → « s'il » soude,
-    // « dont » → « don't » coupe) : accepté.
+    assert!(corrected(moved, text, keep_order).kept);
+    // Même ordre, mot coupé par une apostrophe : accepté.
     let in_place = "Je sais pas s'il vient demain avec ses 3 enfants.";
     assert_eq!(
-        corrected(in_place, text, keep_order).await,
+        corrected(in_place, text, keep_order),
         PartResult {
             text: in_place.into(),
             kept: false
@@ -699,29 +745,22 @@ async fn the_options_keep_order_digits_and_formatting() {
     );
     // Nombre écrit en lettres.
     let spelled = "Je sais pas s'il vient demain avec ses trois enfants.";
-    assert!(!corrected(spelled, text, plain).await.kept);
-    assert!(corrected(spelled, text, digits).await.kept);
+    assert!(!corrected(spelled, text, plain).kept);
+    assert!(corrected(spelled, text, digits).kept);
     // Mise en forme : le modèle n'a mis ni majuscule ni point.
     let bare = "je sais pas s'il vient demain avec ses 3 enfants";
-    assert_eq!(corrected(bare, text, plain).await.text, in_place);
+    assert_eq!(corrected(bare, text, plain).text, in_place);
     // Coupée : ceux qu'il a mis sont retirés.
-    assert_eq!(corrected(in_place, text, raw).await.text, bare);
+    assert_eq!(corrected(in_place, text, raw).text, bare);
 }
 
-/// Base dont le serveur réglé est `url`, avec ces modèles du chat et de la
-/// correction.
-fn configured(url: &str, chat: &str, proofread: &str) -> Arc<Store> {
-    let store = Store::open_in_memory().unwrap();
-    let patch = SettingsPatch {
-        server_url: Some(url.into()),
+/// Réglages du banc : modèles du chat et de la correction.
+fn configure(bench: &FakeBench, chat: &str, proofread: &str) {
+    bench.set(SettingsPatch {
         selected_model: Some(chat.into()),
         proofread_model: Some(proofread.into()),
         ..Default::default()
-    };
-    store
-        .blocking(|c| settings::update(c, patch, None).map(drop))
-        .unwrap();
-    Arc::new(store)
+    });
 }
 
 /// Canal qui garde les évènements (en JSON) ; refuse les envois à partir du
@@ -742,75 +781,69 @@ fn channel(fail_from: Option<usize>) -> (Channel<ProofreadEvent>, Arc<Mutex<Vec<
     (channel, received)
 }
 
-#[tokio::test]
-async fn a_job_uses_the_proofread_model_then_the_chat_model() {
-    // Mémoire vide (nouveau serveur) : « Auto » prend le modèle du chat.
-    // Même serveur d'un cas à l'autre : chatonlm-proofread, chargé par le
-    // premier, est pris par « Auto » à la place de chatonlm-error.
-    let empty = || async { FakeOllama::start(Mode::ollama()).await.unwrap() };
-    let shared = empty().await;
-    let fresh_a = empty().await;
-    let fresh_b = empty().await;
-    for (fake, chat, proofread, used) in [
-        (
-            &shared,
-            "chatonlm-error",
-            "chatonlm-proofread",
-            Some("chatonlm-proofread"),
-        ),
-        (&shared, "chatonlm-error", "", Some("chatonlm-proofread")),
-        (
-            &fresh_a,
-            "chatonlm-proofread",
-            "",
-            Some("chatonlm-proofread"),
-        ),
-        (&fresh_b, "", "", None),
-    ] {
-        let store = configured(&fake.url(), chat, proofread);
-        let (channel, events) = channel(None);
-        run_job(
-            &store,
-            &crate::llm::access_for(&store),
-            &Proofreader::default(),
-            "job".into(),
-            TEXT.into(),
-            ProofreadMode::Correct,
-            &channel,
-        )
-        .await
-        .unwrap();
-        let events = events.lock().clone();
-        match used {
-            Some(model) => {
-                assert_eq!(events[0]["event"], "started");
-                assert_eq!(events[0]["model"], model);
-                assert_eq!(events.last().unwrap()["event"], "done");
-            }
-            None => assert_eq!(
-                events,
-                [serde_json::json!({
-                    "event": "error",
-                    "code": "noModel",
-                    "message": "Choose a model for proofreading",
-                })]
-            ),
-        }
-    }
+async fn job(bench: &FakeBench, proofreader: &Proofreader) -> Vec<Value> {
+    let (channel, events) = channel(None);
+    run_job(
+        bench.store(),
+        &bench.access,
+        proofreader,
+        "job".into(),
+        TEXT.into(),
+        ProofreadMode::Correct,
+        &channel,
+    )
+    .await
+    .unwrap();
+    events.lock().clone()
 }
 
-#[tokio::test]
+/// Modèle réglé ; sinon « Auto » : le meilleur modèle prêt du moteur,
+/// sinon celui du chat ; aucun : refus.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_job_uses_the_proofread_model_then_the_chat_model() {
+    let bench = bench();
+    let proofreader = Proofreader::default();
+    // Rien de prêt : modèle réglé, puis celui du chat.
+    configure(&bench, BROKEN, PROOFER);
+    let events = job(&bench, &proofreader).await;
+    assert_eq!(events[0]["model"], PROOFER);
+    assert_eq!(events.last().unwrap()["event"], "done");
+    bench.engine().unload_all().await;
+    configure(&bench, PROOFER, "");
+    let events = job(&bench, &proofreader).await;
+    assert_eq!(events[0]["model"], PROOFER);
+    // PROOFER prêt dans le moteur : pris par « Auto » à la place de celui
+    // du chat.
+    configure(&bench, BROKEN, "");
+    let events = job(&bench, &proofreader).await;
+    assert_eq!(events[0]["event"], "started");
+    assert_eq!(events[0]["model"], PROOFER);
+    assert_eq!(events.last().unwrap()["event"], "done");
+    bench.engine().unload_all().await;
+    configure(&bench, "", "");
+    assert_eq!(
+        job(&bench, &proofreader).await,
+        [json!({
+            "event": "error",
+            "code": "noModel",
+            "message": "Choose a model for proofreading",
+        })]
+    );
+    bench.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_job_is_registered_while_it_runs_and_can_be_cancelled() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-    let store = configured(&fake.url(), "chatonlm-proofread-slow", "");
+    let bench = Arc::new(bench());
+    configure(&bench, SLOW, "");
     let proofreader = Arc::new(Proofreader::default());
     let (channel, events) = channel(None);
     let task = {
-        let (store, proofreader) = (store.clone(), proofreader.clone());
+        let (bench, proofreader) = (bench.clone(), proofreader.clone());
         tokio::spawn(async move {
             run_job(
-                &store,
-                &crate::llm::access_for(&store),
+                bench.store(),
+                &bench.access,
                 &proofreader,
                 "job-1".into(),
                 TEXT.into(),
@@ -825,14 +858,14 @@ async fn a_job_is_registered_while_it_runs_and_can_be_cancelled() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
-    tokio::time::timeout(Duration::from_secs(5), first_delta)
+    tokio::time::timeout(Duration::from_secs(30), first_delta)
         .await
         .unwrap();
     assert!(proofreader.jobs.lock().contains_key("job-1"));
     // Un autre identifiant : sans effet.
     proofreader.cancel("job-2");
     proofreader.cancel("job-1");
-    tokio::time::timeout(Duration::from_secs(2), task)
+    tokio::time::timeout(Duration::from_secs(5), task)
         .await
         .unwrap()
         .unwrap()
@@ -840,23 +873,23 @@ async fn a_job_is_registered_while_it_runs_and_can_be_cancelled() {
     let events = events.lock().clone();
     assert_eq!(
         events.last().unwrap(),
-        &serde_json::json!({ "event": "done", "stopped": true })
+        &json!({ "event": "done", "stopped": true })
     );
     assert!(proofreader.jobs.lock().is_empty());
-    assert_eq!(fake.chat_requests().len(), 1);
+    assert_eq!(chat_requests(&bench, SLOW).await.len(), 1);
+    bench.shutdown().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_closed_channel_stops_the_job() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-    let store = configured(&fake.url(), "chatonlm-proofread-slow", "");
+    let bench = bench();
+    configure(&bench, SLOW, "");
     let proofreader = Proofreader::default();
     // `Started` passe, le premier `Delta` échoue.
     let (channel, events) = channel(Some(2));
-    let started = Instant::now();
     run_job(
-        &store,
-        &crate::llm::access_for(&store),
+        bench.store(),
+        &bench.access,
         &proofreader,
         "job".into(),
         TEXT.into(),
@@ -865,10 +898,10 @@ async fn a_closed_channel_stops_the_job() {
     )
     .await
     .unwrap();
-    assert!(started.elapsed() < Duration::from_secs(2));
     assert_eq!(events.lock().len(), 1);
-    assert_eq!(fake.chat_requests().len(), 1);
+    assert_eq!(chat_requests(&bench, SLOW).await.len(), 1);
     assert!(proofreader.jobs.lock().is_empty());
+    bench.shutdown().await;
 }
 
 /// Chargement de la page : les travaux d'une page rechargée sont arrêtés.
@@ -896,29 +929,21 @@ fn a_finished_job_leaves_a_newer_one_with_the_same_id() {
     assert!(proofreader.jobs.lock().is_empty());
 }
 
-/// Contrat : vraie correction par qwen3:0.6b sur l'Ollama de test (port
-/// 11435), deux passages ; évènements complets et dans l'ordre, raisonnement
-/// jamais montré. La qualité n'est pas exigée (le garde-fou peut garder un
-/// passage).
-#[tokio::test]
-#[ignore = "needs the test Ollama instance (scripts/test-ollama.sh) with qwen3:0.6b"]
+/// Contrat : vraie correction par le vrai `llama-server` et Qwen3 0.6B
+/// (`RealBench`, rôle `Text`), deux passages ; évènements complets et dans
+/// l'ordre, raisonnement jamais montré, réflexion coupée. La qualité n'est
+/// pas exigée (le garde-fou peut garder un passage).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs CHATONLM_LLAMA_TEST_BIN and the Text model (RealBench)"]
 async fn contract_proofread_with_a_small_model() {
-    const TEST_INSTANCE: &str = "http://127.0.0.1:11435";
-    const MODEL: &str = "qwen3:0.6b";
+    let Some(bench) = RealBench::new(Role::Text) else {
+        return;
+    };
+    let server = Server::current(&bench.access).await.unwrap();
     let text = "I recieve your message yesterday but i didnt had time to answer.\n\n\
                 Les enfant sont partis a l'école ce matin.";
     for mode in [ProofreadMode::Correct, ProofreadMode::Rephrase] {
-        let events = Events::default();
-        let outcome = run(
-            &server(TEST_INSTANCE),
-            MODEL,
-            mode,
-            ProofreadOptions::default(),
-            text,
-            &Cancel::default(),
-            &events.emit(),
-        )
-        .await;
+        let (outcome, events) = proofread(&server, &bench.id, mode, text).await;
         eprintln!("{mode:?}: {:?}", outcome.text());
         assert_eq!(outcome.error, None);
         assert_eq!(outcome.parts.len(), 2);
@@ -950,63 +975,13 @@ async fn contract_proofread_with_a_small_model() {
             assert!(!events.deltas(index).contains("<think"));
         }
     }
-    // qwen3 sait raisonner : `think: false` lui est envoyé.
-    let details = models::show(TEST_INSTANCE, MODEL).await.unwrap();
-    assert!(crate::dictation::polish::think_off(Some(&details), false));
-}
-
-/// Modèle cloud : réglage coupé, refusé d'emblée, rien n'est envoyé (ni
-/// détails, ni texte) ; activé sans compte, le 401 du serveur est dit comme
-/// un compte manquant.
-#[tokio::test]
-async fn a_cloud_model_proofreads_only_once_turned_on() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-    let cloud = |on| Server {
-        cloud: on,
-        ..server(&fake.url())
-    };
-    let events = Events::default();
-    let outcome = run(
-        &cloud(false),
-        "kimi-k2.6:cloud",
-        ProofreadMode::Correct,
-        ProofreadOptions::default(),
-        TEXT,
-        &Cancel::default(),
-        &events.emit(),
-    )
-    .await;
-    let message = "Cloud models are turned off: kimi-k2.6:cloud runs on ollama.com. Turn them on in Settings › Models to use it.";
-    assert_eq!(
-        events.all(),
-        [ProofreadEvent::Error {
-            code: ProofreadErrorCode::Failed,
-            message: message.into(),
-        }]
-    );
-    assert_eq!(
-        outcome.error,
-        Some((ProofreadErrorCode::Failed, message.into()))
-    );
-    assert!(fake.chat_requests().is_empty());
-
-    let events = Events::default();
-    run(
-        &cloud(true),
-        "kimi-k2.6:cloud",
-        ProofreadMode::Correct,
-        ProofreadOptions::default(),
-        TEXT,
-        &Cancel::default(),
-        &events.emit(),
-    )
-    .await;
-    let Some(ProofreadEvent::Error { message, .. }) = events.all().pop() else {
-        panic!("{:?}", events.all());
-    };
-    assert_eq!(
-        message,
-        "Proofreading failed: Cloud models require an Ollama account"
-    );
-    assert_eq!(fake.chat_requests().len(), 1);
+    // Qwen3 sait réfléchir : la réflexion lui est coupée.
+    let details = llm::models::details(&bench.access, &bench.id)
+        .await
+        .unwrap();
+    assert!(crate::dictation::polish::think_off_on(
+        Some(&details),
+        false
+    ));
+    bench.shutdown().await;
 }

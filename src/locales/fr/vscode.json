@@ -7,7 +7,7 @@
     "ephemeralOn": "Commencer une conversation éphémère",
     "ephemeralOff": "Désactiver la conversation éphémère",
     "chooseModel": "Choisir un modèle",
-    "cloudModel": "{model} (cloud)",
+    "remoteModel": "{model} (distant)",
     "keepThis": "Garder cette conversation"
   },
   "status": {
@@ -76,12 +76,12 @@
       "other": "~{count} tokens"
     },
     "local": "reste sur cet ordinateur",
-    "cloud": "part dans le cloud",
+    "cloud": "part chez le fournisseur du modèle",
     "remote": "part vers un autre ordinateur",
     "unknown": "peut quitter cet ordinateur",
     "localDetail": "Le modèle tourne sur cet ordinateur : rien n'en sort.",
-    "cloudDetail": "Le modèle tourne dans le cloud : ce texte est envoyé par le réseau.",
-    "remoteDetail": "Le modèle tourne sur un autre ordinateur (emplacement réglé dans ChatonLM) : ce texte est envoyé par le réseau.",
+    "cloudDetail": "Le modèle tourne chez un fournisseur en ligne : ce texte est envoyé par le réseau.",
+    "remoteDetail": "Le modèle tourne sur un autre ordinateur : ce texte est envoyé par le réseau.",
     "unknownDetail": "ChatonLM n'a pas pu dire où tourne le modèle : ce texte est traité comme s'il quittait cet ordinateur.",
     "bestEffort": "Les secrets sont retirés au mieux, d'après des motifs connus : vérifiez ce que vous envoyez.",
     "historyDetail": {
@@ -155,7 +155,7 @@
     "noTerminalError": "Aucune erreur du terminal disponible",
     "where": {
       "local": "Le modèle tourne sur cet ordinateur : ce que vous dites y reste.",
-      "cloud": "Le modèle tourne dans le cloud : ce que vous dites est envoyé par le réseau.",
+      "cloud": "Le modèle tourne chez un fournisseur en ligne : ce que vous dites est envoyé par le réseau.",
       "remote": "Le modèle tourne sur un autre ordinateur : ce que vous dites est envoyé par le réseau.",
       "unknown": "ChatonLM n'a pas pu savoir où tourne le modèle : ce que vous dites est traité comme s'il quittait cet ordinateur."
     }

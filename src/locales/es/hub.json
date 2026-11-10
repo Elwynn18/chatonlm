@@ -11,7 +11,7 @@
   },
   "discover": {
     "title": "Descubrir modelos",
-    "subtitle": "Modelos abiertos de Hugging Face, listos para ejecutarse con Ollama.",
+    "subtitle": "Modelos abiertos de Hugging Face, listos para ejecutarse en ChatonLM.",
     "loading": "Cargando modelos",
     "seeAll": "Ver todos",
     "seeAllLabel": "Ver todo: {section}",
@@ -36,8 +36,8 @@
     "cpuOnly": "Solo CPU",
     "vram": "{size} VRAM",
     "ram": "{size} RAM",
-    "remote": "Servidor remoto — memoria desconocida",
-    "remoteHint": "El servidor de Ollama se ejecuta en otro equipo: ChatonLM no puede saber qué modelos caben en su memoria.",
+    "unknown": "Memoria desconocida",
+    "unknownHint": "ChatonLM no pudo leer la memoria de este equipo: no puede saber qué modelos caben.",
     "hint": {
       "estimates": "Estimaciones para un contexto de {context}.",
       "estimatesCpu": "Estimaciones para un contexto de {context}, sin tarjeta gráfica.",
@@ -158,7 +158,7 @@
   },
   "versions": {
     "title": "Elige una versión",
-    "none": "Este repositorio no tiene ningún archivo de modelo que Ollama pueda usar.",
+    "none": "Este repositorio no tiene ningún archivo de modelo que ChatonLM pueda usar.",
     "recommended": "Recomendada",
     "installed": "Instalada",
     "memory": "Necesita unos {size} de memoria.",
@@ -166,8 +166,8 @@
     "showAll": "Mostrar las {count} versiones",
     "showFewer": "Mostrar menos versiones",
     "download": "Descargar · {size}",
-    "ollamaName": "Identificador del modelo",
-    "copyOllamaName": "Copiar el identificador del modelo",
+    "modelId": "Identificador del modelo",
+    "copyModelId": "Copiar el identificador del modelo",
     "otherSources": "Otras fuentes"
   },
   "tiers": {
@@ -178,8 +178,8 @@
     "tiny": "La más pequeña"
   },
   "issues": {
-    "sharded": "Dividida en varios archivos — Ollama aún no la admite",
-    "subfolder": "Guardada en una subcarpeta — Ollama aún no la admite"
+    "sharded": "Dividida en varios archivos — no compatible",
+    "subfolder": "Guardada en una subcarpeta — no compatible"
   },
   "progress": {
     "downloading": "Descargando {name}",
@@ -234,13 +234,13 @@
     "empty": "Aún no hay modelos",
     "modified": "Modificado {time}",
     "embedding": "Embedding",
-    "deleteText": "Esto elimina el modelo de Ollama. Puedes volver a descargarlo más tarde.",
+    "deleteText": "Esto elimina el modelo de este equipo. Puedes volver a descargarlo más tarde.",
     "updateAvailable": "Actualización disponible"
   },
   "speech": {
     "title": "Modelos de transcripción",
     "loading": "Cargando modelos de transcripción",
-    "intro": "Los modelos de transcripción se ejecutan dentro de ChatonLM, no en Ollama. El dictado usa el que elijas.",
+    "intro": "Los modelos de transcripción se ejecutan dentro de ChatonLM. El dictado usa el que elijas.",
     "settingsLink": "Configuración del dictado",
     "catalog": {
       "parakeet_tdt_0_6b_v3": {
@@ -282,7 +282,7 @@
   "voices": {
     "title": "Voces",
     "loading": "Cargando voces",
-    "intro": "Las voces leen las respuestas en voz alta. Se ejecutan dentro de ChatonLM, no en Ollama.",
+    "intro": "Las voces leen las respuestas en voz alta. Se ejecutan dentro de ChatonLM.",
     "settingsLink": "Configuración de la lectura en voz alta",
     "cardTitle": "{language} · {voice}",
     "modelLicense": "Licencia del modelo:",
@@ -298,7 +298,7 @@
   "images": {
     "title": "Modelos de imágenes",
     "loading": "Cargando modelos de imágenes",
-    "intro": "Los modelos de imágenes crean imágenes a partir de tus descripciones en un chat. Se ejecutan dentro de ChatonLM, no en Ollama.",
+    "intro": "Los modelos de imágenes crean imágenes a partir de tus descripciones en un chat. Se ejecutan dentro de ChatonLM.",
     "howTo": {
       "title": "Cómo funciona",
       "download": "Descarga un modelo",
@@ -408,7 +408,7 @@
   },
   "polish": {
     "intro": "Un segundo modelo pule la transcripción: puntuación, muletillas, rectificaciones. Si su respuesta no se parece a lo que dijiste, se copia la transcripción sin procesar.",
-    "unreachable": "No se puede conectar con Ollama. Inícialo para usar estos modelos de pulido.",
+    "unreachable": "No se pudieron leer los modelos instalados.",
     "label": "Modelos de pulido",
     "use": "Usar para pulir",
     "anyModel": "Cualquier modelo instalado se puede elegir en Configuración."

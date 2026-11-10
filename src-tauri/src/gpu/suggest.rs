@@ -7,18 +7,24 @@
 //! Depuis le passage à llama-server (lot L2), ce sont des identifiants de
 //! Hugging Face (`<auteur>/<dépôt>:<QUANT>`) que le ModelHub télécharge
 //! lui-même : les GGUF de ggml-org (l'organisation de llama.cpp, ceux que
-//! llama.vscode propose), en Q8_0, seule précision publiée. Écart : le 7B
-//! en Q8_0 pèse 8,1 Go (4,7 Go en Q4_K_M chez Ollama) : il n'est recommandé
-//! qu'à partir de 16 Gio de mémoire graphique (plus de 8 Gio avant).
-//! L'autocomplétion passe encore par Ollama jusqu'au lot L5 : un modèle
-//! installé seulement dans la base locale n'y répond pas encore.
+//! llama.vscode propose), en Q8_0, seule précision publiée (dépôts, tailles,
+//! licences et jetons FIM `<|fim_prefix|>`… vérifiés sur Hugging Face le
+//! 10 nov. 2026). Écart : le 7B en Q8_0 pèse 8,1 Go (4,7 Go en Q4_K_M chez
+//! Ollama) : il n'est recommandé qu'à partir de 16 Gio de mémoire graphique
+//! (plus de 8 Gio avant). Les anciens noms d'Ollama de ces modèles (réglage
+//! `chatonlm.completion.model` d'une extension 0.1.x) sont renommés par
+//! [`current`] : vers le modèle repris d'Ollama (`@ollama/<ancien nom>`) s'il
+//! est installé, sinon vers le dépôt de Hugging Face. De même, une
+//! proposition dont le modèle repris est installé (et pas le dépôt) est
+//! proposée sous l'identifiant repris : rien n'invite à télécharger un modèle
+//! qu'on a déjà.
 
 use serde::Serialize;
 
 use crate::hub::fit;
 use crate::hub::hardware::Machine;
 use crate::hub::types::HubFit;
-use crate::local_models::id::ModelId;
+use crate::local_models::id::{ModelId, OLLAMA_PREFIX};
 
 const MB: u64 = 1_000_000;
 const GIB: u64 = 1024 * 1024 * 1024;
@@ -51,7 +57,7 @@ pub const KNOWN: [Known; 4] = [
         parameters: 1_540_000_000,
     },
     Known {
-        model: "ggml-org/Qwen2.5-Coder-3B-Q8_0-GGUF:Q8_0",
+        model: THREE,
         license: "qwen-research",
         commercial_use: false,
         weights: 3_285 * MB,
@@ -69,8 +75,62 @@ pub const KNOWN: [Known; 4] = [
 /// Petit modèle (processeur seul, moins de 4 Gio de VRAM).
 const SMALL: &str = "ggml-org/Qwen2.5-Coder-0.5B-Q8_0-GGUF:Q8_0";
 const DEFAULT: &str = "ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF:Q8_0";
+const THREE: &str = "ggml-org/Qwen2.5-Coder-3B-Q8_0-GGUF:Q8_0";
 /// 16 Gio de VRAM et plus.
 const LARGE: &str = "ggml-org/Qwen2.5-Coder-7B-Q8_0-GGUF:Q8_0";
+
+/// Noms d'Ollama des modèles proposés jusqu'à la 0.9.x (extension 0.1.x) et
+/// leur identifiant d'aujourd'hui.
+pub const RENAMED: [(&str, &str); 4] = [
+    ("qwen2.5-coder:0.5b-base", SMALL),
+    ("qwen2.5-coder:1.5b-base", DEFAULT),
+    ("qwen2.5-coder:3b-base", THREE),
+    ("qwen2.5-coder:7b-base", LARGE),
+];
+
+/// Modèle repris d'Ollama installé sous l'ancien nom `old` d'un modèle
+/// proposé (`@ollama/<old>`, étiquette sans la casse), s'il y en a un.
+fn imported<'a>(old: &str, installed: &'a [String]) -> Option<&'a String> {
+    let wanted = format!("{OLLAMA_PREFIX}{old}");
+    installed
+        .iter()
+        .find(|id| crate::local_models::id::same_model(id.trim(), &wanted))
+}
+
+/// Identifiant sous lequel le dépôt proposé `model` est servi : lui-même
+/// s'il est installé ou si rien n'en tient lieu, sinon le modèle repris
+/// d'Ollama sous son ancien nom ([`RENAMED`]), installé.
+fn proposed(model: &str, installed: &[String]) -> String {
+    if installed.iter().any(|name| same_id(name, model)) {
+        return model.to_owned();
+    }
+    RENAMED
+        .iter()
+        .find(|(_, new)| *new == model)
+        .and_then(|(old, _)| imported(old, installed))
+        .map_or_else(|| model.to_owned(), |id| id.trim().to_owned())
+}
+
+/// Modèle d'une demande de l'éditeur : un ancien nom d'Ollama d'un modèle
+/// proposé (sans la casse, `:latest` absent de ces noms) devient le modèle
+/// repris d'Ollama s'il est installé et pas le dépôt (`installed` : base
+/// locale), sinon son identifiant de Hugging Face ; tout autre texte reste
+/// tel quel.
+pub fn current(model: &str, installed: &[String]) -> String {
+    let trimmed = model.trim();
+    RENAMED
+        .iter()
+        .find(|(old, _)| old.eq_ignore_ascii_case(trimmed))
+        .map_or_else(|| trimmed.to_owned(), |(_, new)| proposed(new, installed))
+}
+
+/// Ancien nom d'Ollama d'un modèle proposé ([`RENAMED`], sans la casse).
+pub fn is_old_name(model: &str) -> bool {
+    let model = model.trim();
+    RENAMED
+        .iter()
+        .any(|(old, _)| old.eq_ignore_ascii_case(model))
+}
 
 /// Même modèle : identifiants de Hugging Face comparés comme la base locale
 /// (forme `hf.co/…` d'Ollama acceptée, quantification sans la casse) ;
@@ -107,6 +167,9 @@ pub struct Suggested {
 pub struct Suggestions {
     pub recommended: String,
     pub options: Vec<Suggested>,
+    /// Anciens noms d'Ollama → identifiants ([`RENAMED`]) : l'extension
+    /// récrit son réglage `chatonlm.completion.model` s'il en porte un.
+    pub renamed: std::collections::BTreeMap<String, String>,
 }
 
 /// Mémoire d'un modèle chargé avec ce contexte (poids, cache, marge).
@@ -133,18 +196,21 @@ pub fn recommended(machine: Option<&Machine>) -> &'static str {
     }
 }
 
-/// Propositions ; `installed` : modèles installés (base locale, et noms du
-/// serveur Ollama pendant la transition : un `hf.co/…` tiré par Ollama
-/// compte).
+/// Propositions ; `installed` : modèles installés (base locale). Un dépôt
+/// proposé absent dont le modèle repris d'Ollama de même taille est installé
+/// est remplacé par celui-ci (recommandation comprise) ; `renamed` désigne de
+/// même le modèle repris installé.
 pub fn suggest(machine: Option<&Machine>, installed: &[String], context: u32) -> Suggestions {
     let hardware = machine.map(|machine| machine.clone().with_context(context));
+    let in_base = |model: &str| installed.iter().any(|name| same_id(name, model));
     let options = KNOWN
         .iter()
         .map(|known| {
             let need = estimate(known.weights, Some(known.parameters), context);
+            let model = proposed(known.model, installed);
             Suggested {
-                model: known.model.to_owned(),
-                installed: installed.iter().any(|name| same_id(name, known.model)),
+                installed: in_base(&model),
+                model,
                 license: known.license.to_owned(),
                 commercial_use: known.commercial_use,
                 fits: hardware
@@ -155,8 +221,12 @@ pub fn suggest(machine: Option<&Machine>, installed: &[String], context: u32) ->
         })
         .collect();
     Suggestions {
-        recommended: recommended(machine).to_owned(),
+        recommended: proposed(recommended(machine), installed),
         options,
+        renamed: RENAMED
+            .iter()
+            .map(|(old, _)| ((*old).to_owned(), current(old, installed)))
+            .collect(),
     }
 }
 
@@ -164,8 +234,6 @@ pub fn suggest(machine: Option<&Machine>, installed: &[String], context: u32) ->
 mod tests {
     use super::*;
     use crate::hub::types::HubGpu;
-
-    const THREE: &str = "ggml-org/Qwen2.5-Coder-3B-Q8_0-GGUF:Q8_0";
 
     fn machine(vram_gib: &[u64], ram_gib: u64) -> Machine {
         Machine {
@@ -228,6 +296,75 @@ mod tests {
                 .all(|option| option.commercial_use && option.license == "Apache-2.0")
         );
         assert_eq!(three.fits, None, "unknown machine");
+    }
+
+    /// Réglage d'une extension 0.1.x : les anciens noms des modèles proposés
+    /// deviennent leurs identifiants, chacun vers le modèle de même taille ;
+    /// le reste passe tel quel.
+    #[test]
+    fn old_ollama_names_of_the_proposed_models_are_renamed() {
+        assert_eq!(current("qwen2.5-coder:0.5b-base", &[]), SMALL);
+        assert_eq!(current(" Qwen2.5-Coder:1.5B-Base ", &[]), DEFAULT);
+        assert_eq!(current("qwen2.5-coder:3b-base", &[]), THREE);
+        assert_eq!(current("qwen2.5-coder:7b-base", &[]), LARGE);
+        assert_eq!(current(DEFAULT, &[]), DEFAULT);
+        assert_eq!(current("codellama:7b-code", &[]), "codellama:7b-code");
+        assert_eq!(current("auto", &[]), "auto");
+        assert!(is_old_name(" Qwen2.5-Coder:7B-base"));
+        assert!(!is_old_name(LARGE));
+        assert!(!is_old_name("@ollama/qwen2.5-coder:7b-base"));
+        for (old, new) in RENAMED {
+            assert!(known(new).is_some(), "{old} → {new}");
+        }
+        let suggested = suggest(None, &[], 4096);
+        assert_eq!(
+            suggested
+                .renamed
+                .get("qwen2.5-coder:1.5b-base")
+                .map(String::as_str),
+            Some(DEFAULT)
+        );
+        assert_eq!(suggested.renamed.len(), 4);
+    }
+
+    /// Ancien nom d'un modèle déjà repris d'Ollama et installé : ce modèle
+    /// est gardé (jamais un téléchargement de 1,6 à 8 Go pour rien) ; la
+    /// proposition de même taille le désigne, recommandation comprise ; le
+    /// dépôt n'est proposé que si le modèle repris n'est pas là.
+    #[test]
+    fn an_old_name_already_imported_from_ollama_keeps_that_model() {
+        let one_five = "@ollama/qwen2.5-coder:1.5b-base".to_owned();
+        let installed = vec![one_five.clone(), "@ollama/qwen3:latest".into()];
+        assert_eq!(current("qwen2.5-coder:1.5b-base", &installed), one_five);
+        assert_eq!(current("Qwen2.5-Coder:1.5B-BASE", &installed), one_five);
+        // Autre taille, non reprise : le dépôt.
+        assert_eq!(current("qwen2.5-coder:7b-base", &installed), LARGE);
+        let suggested = suggest(Some(&machine(&[8], 16)), &installed, 4096);
+        assert_eq!(suggested.recommended, one_five);
+        assert_eq!(
+            suggested.renamed.get("qwen2.5-coder:1.5b-base"),
+            Some(&one_five)
+        );
+        assert_eq!(
+            suggested
+                .renamed
+                .get("qwen2.5-coder:0.5b-base")
+                .map(String::as_str),
+            Some(SMALL)
+        );
+        let option = &suggested.options[1];
+        assert_eq!(option.model, one_five);
+        assert!(option.installed);
+        assert_eq!(option.license, "Apache-2.0");
+        assert!(!suggested.options[0].installed);
+        assert_eq!(suggested.options[0].model, SMALL);
+        // Le dépôt installé aussi : c'est lui qui est proposé.
+        let both = vec![one_five.clone(), DEFAULT.to_owned()];
+        assert_eq!(current("qwen2.5-coder:1.5b-base", &both), DEFAULT);
+        let suggested = suggest(Some(&machine(&[8], 16)), &both, 4096);
+        assert_eq!(suggested.recommended, DEFAULT);
+        assert_eq!(suggested.options[1].model, DEFAULT);
+        assert!(suggested.options[1].installed);
     }
 
     #[test]

@@ -506,13 +506,16 @@ async fn a_silent_server_or_stream_times_out() {
 #[tokio::test]
 async fn a_queued_request_waits_longer_than_the_idle_timeout() {
     // `-np 1` : la deuxième requête attend la fin de la première, sans
-    // en-têtes (comme b12110), plus longtemps que le délai de silence.
+    // en-têtes (comme b12110), plus longtemps que le délai de silence. Marge
+    // sous la charge : 400 ms de silence permis pour des morceaux espacés de
+    // 150 ms ; la première réponse (une douzaine de morceaux, ~1,8 s) dure
+    // bien plus que deux délais.
     let (fake, endpoint) = start(Config::new("chatonlm-slow.gguf")).await;
-    let idle = Duration::from_millis(200);
+    let idle = Duration::from_millis(400);
     let endpoint = endpoint.with_idle_timeout(idle);
     let first = chat_stream(
         &endpoint,
-        &ask("one two three four"),
+        &ask("one two three four five six seven"),
         CancellationToken::new(),
     )
     .await

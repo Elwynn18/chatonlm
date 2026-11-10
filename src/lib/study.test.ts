@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { Answered } from "@/bindings/Answered";
 import type { Course } from "@/bindings/Course";
-import type { ModelInfo } from "@/bindings/ModelInfo";
+import type { ChatModel } from "@/bindings/ChatModel";
 import type { Question } from "@/bindings/Question";
 import { standaloneStudy } from "@/test/study";
 import {
@@ -438,17 +438,20 @@ describe("plainInline", () => {
 });
 
 describe("model size", () => {
-  const model = (parameterSize: string): ModelInfo => ({
-    model: "m",
-    digest: "",
-    size: 0,
-    parameterSize,
-    quantizationLevel: "",
-    contextLength: null,
+  const model = (paramsLabel: string | null): ChatModel => ({
+    id: "a/m-GGUF:Q4_K_M",
+    displayName: "m",
+    origin: "hf",
+    provider: null,
+    sizeBytes: 0,
+    paramsLabel,
+    quant: "Q4_K_M",
+    contextMax: null,
     capabilities: [],
+    installedAt: 0,
   });
 
-  it("reads Ollama's parameter sizes", () => {
+  it("reads the announced parameter sizes", () => {
     expect(parameterBillions("751.63M")).toBeCloseTo(0.75163);
     expect(parameterBillions("8.0B")).toBe(8);
     expect(parameterBillions("1.5T")).toBe(1500);
@@ -462,6 +465,7 @@ describe("model size", () => {
     expect(isSmallModel(model("3.5B"))).toBe(false);
     expect(isSmallModel(model("3.8B"))).toBe(false);
     expect(isSmallModel(model(""))).toBe(false);
+    expect(isSmallModel(model(null))).toBe(false);
     expect(isSmallModel(undefined)).toBe(false);
   });
 });

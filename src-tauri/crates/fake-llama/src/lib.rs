@@ -940,6 +940,13 @@ async fn chat(shared: Arc<Shared>, path: &str, body: &[u8]) -> Response {
         shared.log('W', &format!("  operator(): got exception: {message}"));
         return error(500, "server_error", message);
     }
+    // WebP : b12110 ne le lit qu'avec un `ffmpeg` du PATH (`mtmd-helper`) ;
+    // sans lui, la requête est refusée (cas de Windows).
+    if vision && scenario::webp_images(messages) > 0 {
+        let message = "Failed to load image or audio file";
+        shared.log('W', &format!("  operator(): got exception: {message}"));
+        return error(500, "server_error", message);
+    }
     // En file jusqu'à un emplacement libre (le contexte se vérifie dans
     // l'emplacement, chez le vrai).
     let slot = shared.slot().await;
@@ -962,10 +969,14 @@ async fn chat(shared: Arc<Shared>, path: &str, body: &[u8]) -> Response {
     }
     if let Some(custom) = shared.custom {
         let model = shared.model_name();
-        let script = (custom.chat)(&scenarios::ChatCall {
-            body: &request,
-            model: &model,
-        });
+        let script = scenarios::limit(
+            (custom.chat)(&scenarios::ChatCall {
+                body: &request,
+                model: &model,
+            }),
+            &request,
+            ctx - prompt.len(),
+        );
         let (cache_n, prompt_n) = shared.cached(&prompt, request["cache_prompt"] != false);
         let stats = Stats {
             prompt: prompt.len(),

@@ -531,15 +531,11 @@ pub enum StudyStreamEvent {
     },
 }
 
-/// Modèle des cours : celui réglé, sinon « Auto » (le meilleur modèle en
-/// mémoire, sinon celui du chat, voir `ollama::auto`) ; `None` si aucun.
-pub async fn model_of(settings: &Settings) -> Option<String> {
-    crate::ollama::auto::model_of(
-        &settings.effective_server_url,
-        &settings.study_model,
-        &settings.selected_model,
-    )
-    .await
+/// Modèle des cours : celui réglé, sinon « Auto » (le meilleur modèle prêt
+/// dans le moteur, sinon celui du chat, voir `engine::auto`) ; `None` si
+/// aucun.
+pub async fn model_of(access: &crate::llm::Access, settings: &Settings) -> Option<String> {
+    crate::engine::auto::model_for(access, &settings.study_model, &settings.selected_model).await
 }
 
 #[cfg(test)]

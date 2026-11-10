@@ -28,9 +28,13 @@
 // pour une app plus ancienne).
 import { createHmac, randomBytes } from "node:crypto";
 import { type Duplex, duplexPair } from "node:stream";
+import { looksRemote } from "../../shared/models";
 import type { GpuPlan, GpuSlot } from "../../shared/protocol";
 import type { Discovery } from "../bridge/discovery";
 import { encode, FrameReader } from "../bridge/frame";
+
+/** Modèle distant de la liste (chez un fournisseur). */
+export const REMOTE_MODEL = "@remote/ollama-cloud/gpt-oss:120b";
 
 type Session = {
   socket: Duplex;
@@ -99,7 +103,8 @@ export class FakeBridge {
   readonly sessions: Session[] = [];
   readonly requests: { method: string; params: unknown }[] = [];
   readonly cancelled: number[] = [];
-  /** Le serveur Ollama visé est sur cette machine (`app.state.local`). */
+  /** Les modèles de l'app sont sur cette machine (`app.state.local` :
+   * toujours vrai depuis l'app 0.10 ; faux possible avec une app 0.9.x). */
   local = true;
   /** Conversations effacées par `chat.forget`, gardées par `chat.keep`. */
   readonly forgotten: string[] = [];
@@ -160,7 +165,7 @@ export class FakeBridge {
   /** Raison du plan, dans l'ordre de l'app (absente : prête). */
   #planReason(): GpuPlan["reason"] {
     const model = this.gpu.watched ?? this.gpu.completion;
-    if (!this.local || (model && /[:-]cloud$/.test(model))) return "notLocal";
+    if (!this.local || (model && looksRemote(model))) return "notLocal";
     if (this.gpu.chatBusy) return "chatBusy";
     if (model && this.gpu.completion === model) return undefined;
     if (this.gpu.mode === "doesNotFit") return "doesNotFit";
@@ -177,7 +182,7 @@ export class FakeBridge {
 
   /** Raison d'un refus pour ce modèle, ou null : il est prêt. */
   #notReady(model: string): string | null {
-    if (!this.local || /[:-]cloud$/.test(model)) return "notLocal";
+    if (!this.local || looksRemote(model)) return "notLocal";
     if (!this.gpu.installed.has(model)) return "notInstalled";
     if (this.gpu.chatBusy) return "chatBusy";
     if (this.gpu.completion !== model) return "notLoaded";
@@ -186,19 +191,34 @@ export class FakeBridge {
   readonly handlers: Record<string, Handler> = {
     ping: () => ({}),
     "app.state": () => ({
-      version: "0.9.4",
+      version: "0.10.0",
       platform: "linux",
       selectedModel: "qwen3:0.6b",
       language: "en",
       local: this.local,
       contextLength: 0,
     }),
+    // `ChatModel` de l'app 0.10 (identifiants opaques pour l'extension).
     "models.list": () => [
-      { model: "qwen3:0.6b", contextLength: 40960 },
-      { model: "gpt-oss:120b-cloud", contextLength: 131072 },
+      {
+        id: "qwen3:0.6b",
+        displayName: "Qwen3 0.6B",
+        origin: "hf",
+        provider: null,
+        contextMax: 40960,
+        capabilities: ["completion", "tools", "thinking"],
+      },
+      {
+        id: REMOTE_MODEL,
+        displayName: "gpt-oss 120b",
+        origin: "remote",
+        provider: "ollama-cloud",
+        contextMax: 131072,
+        capabilities: ["completion", "tools"],
+      },
     ],
     "models.details": (params) => {
-      const remote = String(params.model).endsWith("-cloud");
+      const remote = looksRemote(String(params.model));
       return {
         model: params.model,
         remote,

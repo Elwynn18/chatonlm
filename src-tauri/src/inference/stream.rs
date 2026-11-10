@@ -279,7 +279,7 @@ pub async fn chat_stream(
     let send = endpoint
         .post("/v1/chat/completions")
         .header(reqwest::header::ACCEPT, "text/event-stream")
-        .json(&request.body(true))
+        .json(&request.body_for(endpoint.dialect, true))
         .send();
     let headers = async {
         match endpoint.header_timeout {

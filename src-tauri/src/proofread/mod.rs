@@ -1,5 +1,5 @@
-//! Correction et reformulation d'un texte par un modèle Ollama (propres à
-//! ChatonLM) : page Proofread (« Correct », « Rephrase ») et raccourci global
+//! Correction et reformulation d'un texte par un modèle du moteur de l'app
+//! (propres à ChatonLM) : page Proofread (« Correct », « Rephrase ») et raccourci global
 //! « Correct selected text » (`selection.rs`).
 //!
 //! Le texte est découpé en passages (un par paragraphe, voir [`split`])
@@ -27,17 +27,19 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 
-use crate::chat::Server;
-use crate::chat::stream::{Line, LineBuffer, parse_line};
+use crate::chat::{ChatErrorKind, Server};
+use crate::error::AppError;
 use crate::i18n::t;
-use crate::ollama::client;
-use crate::ollama::models::{self, ShowError};
+use crate::inference::Event;
+use crate::llm::{self, Access, LlmError, OpenOptions, Session};
 use crate::store::Store;
 use crate::store::settings::Settings;
 
@@ -127,8 +129,7 @@ pub enum ProofreadErrorCode {
     NoModel,
     /// Modèle absent du serveur.
     ModelNotFound,
-    /// Le moteur n'a pas pu servir le modèle (jusqu'au lot L5a : Ollama
-    /// injoignable).
+    /// Le moteur n'a pas pu servir le modèle (démarrage, plantage, délai).
     EngineFailed,
     /// Texte vide (seulement des espaces).
     Empty,
@@ -245,18 +246,24 @@ pub fn assemble(parts: &[ProofreadPart], results: &[Option<PartResult>]) -> Stri
 }
 
 /// Modèle de la correction : celui réglé, sinon « Auto » (le meilleur
-/// modèle en mémoire, sinon celui du chat, voir `ollama::auto`) ; `None` si
-/// aucun.
-pub async fn model_of(settings: &Settings) -> Option<String> {
-    crate::ollama::auto::model_of(
-        &settings.effective_server_url,
-        &settings.proofread_model,
-        &settings.selected_model,
-    )
-    .await
+/// modèle prêt dans le moteur, sinon celui du chat, voir
+/// [`crate::engine::auto`]) ; `None` si aucun.
+pub async fn model_for(access: &Access, settings: &Settings) -> Option<String> {
+    crate::engine::auto::model_for(access, &settings.proofread_model, &settings.selected_model)
+        .await
 }
 
-/// Délai d'un passage, réponse comprise (connexion : 2 s, voir `client`).
+/// Réglages de l'app lus dans la base.
+async fn settings_of(store: &Store) -> crate::error::AppResult<Settings> {
+    store
+        .call(|connection| crate::store::settings::get(connection, None))
+        .await
+}
+
+/// Délai d'un passage, réponse comprise, une fois le modèle prêt. Son
+/// lancement n'est pas compté (le moteur borne l'attente de « prêt ») ; un
+/// modèle tenu par l'Étude avec un plus grand contexte est repris sans
+/// attendre (`Engine::ensure_at_least`) ; l'arrêt reste possible.
 const PART_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Corrige ou reformule `text` avec `model` sur `server` : évènements
@@ -297,18 +304,46 @@ fn failure(mode: ProofreadMode, detail: &dyn std::fmt::Display) -> String {
     }
 }
 
-/// Réponse d'erreur d'Ollama : première ligne du corps, objet JSON avec un
-/// message `error` (la page d'un proxy n'en a pas).
-fn ollama_error(body: &str) -> bool {
-    let line = body.lines().next().unwrap_or_default();
-    serde_json::from_str::<serde_json::Value>(line)
-        .ok()
-        .and_then(|value| {
-            value["error"]
-                .as_str()
-                .map(|error| !error.trim().is_empty())
-        })
-        .unwrap_or(false)
+/// Erreur du moteur pour la page : code et message ; `None` : un arrêt
+/// (annulation, modèle déchargé à la demande).
+fn engine_failure(
+    mode: ProofreadMode,
+    model: &str,
+    error: &LlmError,
+) -> Option<(ProofreadErrorCode, String)> {
+    Some(match error.chat_kind()? {
+        ChatErrorKind::ModelMissing => (
+            ProofreadErrorCode::ModelNotFound,
+            t!("proofread.modelNotFound", model = model),
+        ),
+        ChatErrorKind::EngineUnavailable | ChatErrorKind::EngineFailed => {
+            (ProofreadErrorCode::EngineFailed, error.message())
+        }
+        ChatErrorKind::ConnectionLost => (
+            ProofreadErrorCode::Failed,
+            failure(mode, &t!("proofread.connectionLost")),
+        ),
+        _ => (ProofreadErrorCode::Failed, failure(mode, &error.message())),
+    })
+}
+
+/// Texte retenu pour un passage d'après la réponse du modèle : nettoyée,
+/// puis remise en forme et acceptée par le garde-fou ; sinon le passage
+/// garde son texte (`kept`).
+fn settle_part(
+    mode: ProofreadMode,
+    options: ProofreadOptions,
+    original: &str,
+    answer: &str,
+) -> PartResult {
+    let cleaned = answer::clean(original, answer);
+    match guard::settle_with(mode, options, original, cleaned) {
+        Some(text) => PartResult { text, kept: false },
+        None => PartResult {
+            text: original.to_owned(),
+            kept: true,
+        },
+    }
 }
 
 /// Un travail en cours.
@@ -350,11 +385,11 @@ impl Job<'_> {
             Some((ProofreadErrorCode::TooLong, t!("proofread.tooLong")))
         } else if self.model.trim().is_empty() {
             Some((ProofreadErrorCode::NoModel, t!("proofread.noModel")))
+        } else if llm::ids::is_remote(self.model) && !self.server.prefs.remote_models {
+            // Modèle distant, réglage coupé : rien ne part.
+            Some((ProofreadErrorCode::Failed, LlmError::RemoteOff.message()))
         } else {
-            // Modèle cloud, réglage coupé : rien ne part.
-            self.server
-                .refuses(self.model, models::is_cloud_name(self.model))
-                .map(|message| (ProofreadErrorCode::Failed, message))
+            None
         };
         if let Some((code, message)) = refused {
             return self.fail(outcome, code, message);
@@ -368,31 +403,28 @@ impl Job<'_> {
             parts: outcome.parts.clone(),
         });
 
-        let shown = tokio::select! {
+        let access = &self.server.access;
+        let details = tokio::select! {
             biased;
             () = self.cancel.cancelled() => return self.stop(outcome),
-            shown = models::show(&self.server.url, self.model) => shown,
+            details = llm::models::details(access, self.model) => details,
         };
-        let details = match shown {
-            Ok(details) => Some(details),
-            Err(ShowError::Unreachable(_)) => {
-                let message = t!("ollama.unreachableAt", address = self.server.url);
-                return self.fail(outcome, ProofreadErrorCode::EngineFailed, message);
-            }
-            Err(ShowError::NotFound(message)) if message.contains("not found") => {
+        let details = match details {
+            Ok(details) => details,
+            Err(AppError::NotFound(_)) => {
                 let message = t!("proofread.modelNotFound", model = self.model);
                 return self.fail(outcome, ProofreadErrorCode::ModelNotFound, message);
             }
-            // Détails inconnus : la requête dira ce qui ne va pas.
-            Err(_) => None,
+            Err(error) => {
+                let message = failure(self.mode, &error);
+                return self.fail(outcome, ProofreadErrorCode::Failed, message);
+            }
         };
-        let think_off = crate::dictation::polish::think_off(details.as_ref(), false);
-        // Modèle d'ollama.com sous un nom local : coupé, rien ne part.
-        let remote =
-            models::is_cloud_name(self.model) || details.as_ref().is_some_and(|d| d.remote);
-        if let Some(message) = self.server.refuses(self.model, remote) {
-            return self.fail(outcome, ProofreadErrorCode::Failed, message);
-        }
+        let think_off = crate::dictation::polish::think_off_on(Some(&details), false);
+        // Modèle ouvert au premier passage envoyé (un texte fait seulement de
+        // code ne le charge pas), tenu jusqu'à la fin : il n'est pas
+        // déchargé entre deux passages.
+        let mut session: Option<Session> = None;
 
         for index in 0..outcome.parts.len() {
             let original = outcome.parts[index].text.clone();
@@ -401,25 +433,26 @@ impl Job<'_> {
             let asked = if code[index] {
                 Asked::Code
             } else {
-                self.ask(index, &original, think_off, remote).await
+                if session.is_none() {
+                    session = match self.open().await {
+                        Ok(opened) => Some(opened),
+                        Err(Asked::Failed(code, message)) => {
+                            return self.fail(outcome, code, message);
+                        }
+                        Err(_) => return self.stop(outcome),
+                    };
+                }
+                let opened = session.as_ref().expect("opened above");
+                self.ask(opened, index, &original, think_off).await
             };
             let result = match asked {
                 Asked::Code => PartResult {
                     text: original,
                     kept: false,
                 },
-                Asked::Answer(answer) => {
-                    // Texte remis en forme par le garde-fou (retours à la
-                    // ligne souples rendus) : c'est lui qui est rendu.
-                    let cleaned = answer::clean(&original, &answer);
-                    match guard::settle_with(self.mode, self.options, &original, cleaned) {
-                        Some(text) => PartResult { text, kept: false },
-                        None => PartResult {
-                            text: original,
-                            kept: true,
-                        },
-                    }
-                }
+                // Texte remis en forme par le garde-fou (retours à la ligne
+                // souples rendus) : c'est lui qui est rendu.
+                Asked::Answer(answer) => settle_part(self.mode, self.options, &original, &answer),
                 Asked::TooLong => PartResult {
                     text: original,
                     kept: true,
@@ -455,134 +488,97 @@ impl Job<'_> {
         outcome
     }
 
-    /// Requête d'un passage, lue jusqu'à `done` ; fragments visibles envoyés
-    /// en `Delta`.
-    async fn ask(&self, index: usize, original: &str, think_off: bool, remote: bool) -> Asked {
-        let base = self.server.url.as_str();
-        let mode = self.mode;
-        let failed = |detail: &dyn std::fmt::Display| {
-            Asked::Failed(ProofreadErrorCode::Failed, failure(mode, detail))
+    /// Modèle prêt dans le moteur (chargé s'il le faut, avec le contexte et
+    /// la durée en mémoire de l'app) ; erreur : `Failed` ou `Cancelled`.
+    async fn open(&self) -> Result<Session, Asked> {
+        let never = CancellationToken::new();
+        let opened = tokio::select! {
+            biased;
+            () = self.cancel.cancelled() => return Err(Asked::Cancelled),
+            opened = self.server.access.open(self.model, OpenOptions::default(), &never, &|| {}) => opened,
         };
-        let unreachable = || {
+        opened.map_err(|error| self.asked(&error))
+    }
+
+    /// Fin d'un passage pour une erreur du moteur.
+    fn asked(&self, error: &LlmError) -> Asked {
+        match engine_failure(self.mode, self.model, error) {
+            Some((code, message)) => Asked::Failed(code, message),
+            None => Asked::Cancelled,
+        }
+    }
+
+    /// Requête d'un passage, lue jusqu'à la fin de la réponse ; fragments
+    /// visibles envoyés en `Delta` (la réflexion, à part, jamais).
+    async fn ask(&self, session: &Session, index: usize, original: &str, think_off: bool) -> Asked {
+        let mut request = session.request(prompts::messages(self.mode, self.options, original));
+        prompts::tune(&mut request, think_off);
+        let deadline = tokio::time::sleep(self.timeout);
+        tokio::pin!(deadline);
+        let timed_out = || {
             Asked::Failed(
-                ProofreadErrorCode::EngineFailed,
-                t!("ollama.unreachableAt", address = base),
+                ProofreadErrorCode::Failed,
+                failure(self.mode, &t!("proofread.timedOut")),
             )
         };
-        let request_error = |error: reqwest::Error| {
-            if error.is_connect() {
-                unreachable()
-            } else if error.is_timeout() {
-                failed(&t!("proofread.timedOut"))
-            } else {
-                failed(&error.without_url())
-            }
-        };
-        let Ok(url) = client::server_url(base) else {
-            return unreachable();
-        };
-        let client = match client::client(&url, Some(self.timeout)) {
-            Ok(client) => client,
-            Err(error) => return failed(&error),
-        };
-        let body = prompts::request_body(
-            self.server,
-            self.model,
-            self.mode,
-            self.options,
-            original,
-            think_off,
-        );
-        let request = client.post(format!("{base}/api/chat")).json(&body).send();
-        let response = tokio::select! {
+        let opened = tokio::select! {
             biased;
             () = self.cancel.cancelled() => return Asked::Cancelled,
-            response = request => response,
+            () = &mut deadline => return timed_out(),
+            opened = llm::chat_stream(session, &request, CancellationToken::new()) => opened,
         };
-        let mut response = match response {
-            Ok(response) => response,
-            Err(error) => return request_error(error),
+        let mut stream = match opened {
+            Ok(stream) => stream,
+            Err(error) => return self.asked(&error),
         };
-        let status = response.status();
-        if !status.is_success() {
-            let body = tokio::select! {
-                biased;
-                () = self.cancel.cancelled() => return Asked::Cancelled,
-                body = response.text() => body.unwrap_or_default(),
-            };
-            // Seule une erreur d'Ollama (JSON) dit un modèle absent : la page
-            // 404 d'un proxy ou d'une mauvaise adresse est un échec, montré
-            // avec son statut et sa première ligne (serveur absent ≠ modèle
-            // absent, plan.md § D).
-            let message = crate::chat::error_line(&body);
-            let from_ollama = ollama_error(&body);
-            if status == reqwest::StatusCode::NOT_FOUND && from_ollama {
-                return Asked::Failed(
-                    ProofreadErrorCode::ModelNotFound,
-                    t!("proofread.modelNotFound", model = self.model),
-                );
-            }
-            let status = status.as_u16();
-            if let Some(refusal) = models::CloudRefusal::of(status, remote) {
-                return failed(&refusal.message());
-            }
-            return if message.trim().is_empty() {
-                failed(&t!("ollama.httpStatus", status = status))
-            } else if from_ollama {
-                failed(&message)
-            } else {
-                failed(&t!("ollama.http", status = status, message = message))
-            };
-        }
         // Au-delà, la réponse ne peut plus passer le garde-fou.
         let limit = guard::max_chars(self.mode, original);
-        let mut buffer = LineBuffer::default();
         let mut visible = answer::Visible::new(original);
         let mut answer = String::new();
         loop {
-            let chunk = tokio::select! {
+            // Flux lâché (arrêt, délai, trop long) : la connexion se ferme,
+            // le serveur arrête la génération.
+            let next = tokio::select! {
                 biased;
                 () = self.cancel.cancelled() => return Asked::Cancelled,
-                chunk = response.chunk() => chunk,
+                () = &mut deadline => return timed_out(),
+                next = stream.next() => next,
             };
-            let chunk = match chunk {
-                Ok(chunk) => chunk,
-                Err(error) => return request_error(error),
-            };
-            let ended = chunk.is_none();
-            let lines = match chunk {
-                Some(bytes) => buffer.push(&bytes),
-                None => buffer.finish().into_iter().collect(),
-            };
-            for line in lines {
-                match parse_line(&line) {
-                    Ok(Line::Fragment { content, done, .. }) => {
-                        answer.push_str(&content);
-                        let mut shown = visible.push(&content);
-                        if done {
-                            // Début encore retenu (voir `answer::Visible`).
-                            shown.push_str(&visible.finish());
-                        }
-                        if !shown.is_empty() {
-                            (self.emit)(ProofreadEvent::Delta {
-                                index: index as u32,
-                                text: shown,
-                            });
-                        }
-                        if done {
-                            return Asked::Answer(answer);
-                        }
+            match next {
+                Some(Ok(Event::Content(content))) => {
+                    answer.push_str(&content);
+                    let shown = visible.push(&content);
+                    if !shown.is_empty() {
+                        (self.emit)(ProofreadEvent::Delta {
+                            index: index as u32,
+                            text: shown,
+                        });
                     }
-                    Ok(Line::Error(message)) => return failed(&message),
-                    Err(message) => return failed(&message),
+                }
+                Some(Ok(Event::Done { .. })) => {
+                    // Début encore retenu (voir `answer::Visible`).
+                    let shown = visible.finish();
+                    if !shown.is_empty() {
+                        (self.emit)(ProofreadEvent::Delta {
+                            index: index as u32,
+                            text: shown,
+                        });
+                    }
+                    return Asked::Answer(answer);
+                }
+                // Réflexion à part, appels d'outils (aucun offert) : ignorés.
+                Some(Ok(_)) => {}
+                Some(Err(error)) => return self.asked(&session.error(error)),
+                // Fin du flux sans fin de réponse : coupé.
+                None => {
+                    return Asked::Failed(
+                        ProofreadErrorCode::Failed,
+                        failure(self.mode, &t!("proofread.connectionLost")),
+                    );
                 }
             }
             if visible.over(limit) {
                 return Asked::TooLong;
-            }
-            if ended {
-                // Fin du flux sans « done » : serveur arrêté ou proxy coupé.
-                return failed(&t!("proofread.connectionLost"));
             }
         }
     }
@@ -643,7 +639,7 @@ pub async fn run_job(
             cancel.cancel();
         }
     };
-    let settings = match crate::commands::models::app_settings(store).await {
+    let settings = match settings_of(store).await {
         Ok(settings) => settings,
         Err(error) => {
             emit(ProofreadEvent::Error {
@@ -653,7 +649,7 @@ pub async fn run_job(
             return Ok(());
         }
     };
-    let model = model_of(&settings).await.unwrap_or_default();
+    let model = model_for(access, &settings).await.unwrap_or_default();
     run(
         &Server::with_settings(access.clone(), &settings),
         &model,

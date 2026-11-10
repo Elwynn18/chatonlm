@@ -14,7 +14,7 @@
 import type { Answered } from "@/bindings/Answered";
 import type { Course } from "@/bindings/Course";
 import type { Level } from "@/bindings/Level";
-import type { ModelInfo } from "@/bindings/ModelInfo";
+import type { ChatModel } from "@/bindings/ChatModel";
 import type { Question } from "@/bindings/Question";
 import type { StudyLevel } from "@/bindings/StudyLevel";
 
@@ -548,8 +548,8 @@ export function missedQuestions(course: Course): MissedQuestion[] {
 }
 
 /**
- * Nombre de paramètres en milliards d'une taille d'Ollama (« 751.63M »,
- * « 8.0B », « 1.5T ») ; null si illisible.
+ * Nombre de paramètres en milliards d'une taille annoncée (« 751.63M »,
+ * « 0.6B », « 1.5T ») ; null si illisible.
  */
 export function parameterBillions(size: string): number | null {
   const match = /^\s*([\d.]+)\s*([KMBT])\s*$/i.exec(size);
@@ -563,9 +563,9 @@ export function parameterBillions(size: string): number | null {
 }
 
 /** Le modèle est-il petit (avertissement) ? Faux si sa taille est inconnue. */
-export function isSmallModel(model: ModelInfo | undefined): boolean {
-  if (!model) return false;
-  const billions = parameterBillions(model.parameterSize);
+export function isSmallModel(model: ChatModel | undefined): boolean {
+  if (!model?.paramsLabel) return false;
+  const billions = parameterBillions(model.paramsLabel);
   return billions !== null && billions < SMALL_MODEL_BILLIONS;
 }
 

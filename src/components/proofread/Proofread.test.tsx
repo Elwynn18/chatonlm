@@ -845,6 +845,29 @@ describe("Proofread page", () => {
     );
   });
 
+  it("model picker: short names of the models, their ids as values", async () => {
+    setup((backend) => {
+      backend.models = ["@ollama/qwen3:0.6b", "unsloth/Qwen3.5-9B-GGUF:Q4_K_M"];
+      backend.settings.proofreadModel = "@ollama/mistral:7b";
+    });
+    await screen.findByTestId("proofread");
+    const select = screen.getByLabelText<HTMLSelectElement>("Model");
+    await waitFor(() =>
+      expect([...select.options].map((option) => option.text)).toEqual([
+        "Auto",
+        "mistral:7b (not installed)",
+        "qwen3:0.6b",
+        "Qwen3.5-9B:Q4_K_M",
+      ]),
+    );
+    expect([...select.options].map((option) => option.value)).toEqual([
+      "",
+      "@ollama/mistral:7b",
+      "@ollama/qwen3:0.6b",
+      "unsloth/Qwen3.5-9B-GGUF:Q4_K_M",
+    ]);
+  });
+
   it("a correction goes on while another page is shown, its result waits", async () => {
     const user = userEvent.setup();
     const { fake, app } = setup();

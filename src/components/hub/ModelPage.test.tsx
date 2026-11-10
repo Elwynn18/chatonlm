@@ -15,7 +15,6 @@ import type { Settings } from "@/bindings/Settings";
 import { hubInstalledKey } from "@/hooks/useHub";
 import { modelsKey } from "@/hooks/useModels";
 import { settingsKey } from "@/hooks/useSettings";
-import { SERVER_URL } from "@/test/backend";
 import { GIB } from "@/test/hub";
 import { renderHub } from "@/test/renderHub";
 
@@ -32,7 +31,7 @@ async function page() {
 
 const radios = () => screen.getAllByRole("radio") as HTMLInputElement[];
 const checked = () => radios().find((radio) => radio.checked)?.value;
-const ollamaName = () => screen.getByTestId("ollama-name").textContent;
+const modelId = () => screen.getByTestId("model-id").textContent;
 const downloadButton = () =>
   screen.getByRole("button", { name: /^Download · / });
 
@@ -84,7 +83,7 @@ describe("Model page", () => {
     const bf16 = radios().find((radio) => radio.value === "BF16")!;
     expect(bf16.disabled).toBe(true);
     expect(bf16.closest("label")?.textContent).toContain(
-      "Stored in a subfolder — not supported by Ollama yet",
+      "Stored in a subfolder — not supported",
     );
     const q8 = radios().find((radio) => radio.value === "Q8_0")!;
     expect(q8.closest("label")?.textContent).toContain("Recommended");
@@ -106,7 +105,7 @@ describe("Model page", () => {
     // Version indisponible : sa taille seule.
     expect(weights(bf16).textContent).toMatch(/^Download \d+ GB$/);
     expect(downloadButton().textContent).toBe("Download · 10 GB");
-    expect(ollamaName()).toBe(Q8);
+    expect(modelId()).toBe(Q8);
 
     await userEvent.click(
       screen.getByRole("button", { name: "Show all 9 versions" }),
@@ -125,7 +124,7 @@ describe("Model page", () => {
     await userEvent.click(radios().find((radio) => radio.value === "Q4_K_M")!);
     expect(checked()).toBe("Q4_K_M");
     expect(downloadButton().textContent).toBe("Download · 6.3 GB");
-    expect(ollamaName()).toBe(Q4);
+    expect(modelId()).toBe(Q4);
     // Une version choisie hors de la fenêtre reste visible une fois repliée.
     await userEvent.click(radios().find((radio) => radio.value === "Q2_K")!);
     await userEvent.click(
@@ -148,7 +147,7 @@ describe("Model page", () => {
       const radio = radios().find((r) => r.value === value)!;
       expect(radio.disabled).toBe(true);
       expect(radio.closest("label")?.textContent).toContain(
-        "Split into several files — not supported by Ollama yet",
+        "Split into several files — not supported",
       );
     }
     await screen.findAllByText("Too large");
@@ -243,10 +242,9 @@ describe("Model page", () => {
     simulator.handle("hub_installed", () => new Promise(() => {}));
     void app.queryClient.invalidateQueries({ queryKey: hubInstalledKey });
     await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
-    expect(
-      app.queryClient.getQueryState([...hubInstalledKey, SERVER_URL])
-        ?.fetchStatus,
-    ).toBe("fetching");
+    expect(app.queryClient.getQueryState(hubInstalledKey)?.fetchStatus).toBe(
+      "fetching",
+    );
     expect(downloadButton()).toBeTruthy();
     expect(screen.queryByText("Installed", { selector: "p" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Use in chat" })).toBeNull();
@@ -452,7 +450,7 @@ describe("Model page", () => {
         "Qwen3-8B",
       ),
     );
-    expect(ollamaName()).toBe("hf.co/Qwen/Qwen3-8B-GGUF:Q8_0");
+    expect(modelId()).toBe("hf.co/Qwen/Qwen3-8B-GGUF:Q8_0");
   });
 });
 

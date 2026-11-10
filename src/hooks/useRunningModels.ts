@@ -1,10 +1,12 @@
-// Modèles en mémoire (/api/ps) pour l'onglet Models des réglages (propre à
-// ChatonLM) : relus toutes les 2 s tant que l'onglet est affiché, et après
-// chaque chargement ou déchargement (invalidation de runningModelsKey).
+// Modèles du moteur pour l'onglet Models des réglages (propre à ChatonLM) :
+// relus toutes les 2 s tant que l'onglet est affiché (échéances), mis à jour
+// à chaque changement annoncé par le moteur (événement `engine-models`,
+// useEngineModelEvents) et après chaque chargement ou déchargement
+// (invalidation de runningModelsKey).
 
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { runningModels } from "@/lib/ipc";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { listenEngineModels, runningModels } from "@/lib/ipc";
 
 export const runningModelsKey = ["runningModels"] as const;
 
@@ -16,8 +18,8 @@ export function useRunningModels() {
     queryKey: runningModelsKey,
     queryFn: runningModels,
     refetchInterval: RUNNING_INTERVAL_MS,
-    // Onglet quitté : rien de gardé, la liste d'un autre moment (ou d'un
-    // autre serveur) n'est jamais remontrée en revenant.
+    // Onglet quitté : rien de gardé, la liste d'un autre moment n'est jamais
+    // remontrée en revenant.
     gcTime: 0,
     retry: false,
   });
@@ -35,4 +37,32 @@ export function useRunningModels() {
     failure: query.isError ? query.error : failure,
     refetch: query.refetch,
   };
+}
+
+/**
+ * Liste du moteur suivie de toute page (route racine) : chaque changement
+ * (chargement commencé ou fini, déchargement, repli sur le processeur)
+ * remplace aussitôt les listes lues (onglet Models, escargot), sans
+ * attendre la relecture suivante.
+ */
+export function useEngineModelEvents() {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    let active = true;
+    let stop: (() => void) | null = null;
+    listenEngineModels((models) =>
+      queryClient.setQueriesData({ queryKey: runningModelsKey }, models),
+    ).then(
+      (unlisten) => {
+        if (active) stop = unlisten;
+        else unlisten();
+      },
+      (error: unknown) =>
+        console.error("Failed to listen for the engine models:", error),
+    );
+    return () => {
+      active = false;
+      stop?.();
+    };
+  }, [queryClient]);
 }

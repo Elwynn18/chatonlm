@@ -16,6 +16,7 @@ pub mod image_models;
 pub mod local_models;
 pub mod model_import;
 pub mod model_prefs;
+pub mod remote;
 pub mod settings;
 pub mod study;
 pub mod updates;
@@ -74,6 +75,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0039_local_models.sql"),
     include_str!("../../migrations/0040_model_import.sql"),
     include_str!("../../migrations/0041_remote_models.sql"),
+    include_str!("../../migrations/0042_remote_providers.sql"),
+    include_str!("../../migrations/0043_remote_retired_ids.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.

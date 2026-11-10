@@ -1,58 +1,55 @@
-// Recherche web de bout en bout côté frontend : l'app face au simulateur, qui
-// rejoue les séquences web-search*.json enregistrées par les tests du moteur
-// Rust contre le faux serveur (modèle chatonlm-search).
+// Recherche web côté frontend : de bout en bout, l'app face au simulateur,
+// qui rejoue les séquences web-search*.json enregistrées par les tests du
+// moteur Rust ; puis les éléments propres à la recherche par le relais de
+// ChatonLM (actions sous ses erreurs, recherches restantes dans la bulle du
+// bouton, mention « Powered by Brave Search »), et leurs textes dans les
+// trois langues.
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
+  cleanup,
   configure,
+  render,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
-import type { ServerStatus } from "@/bindings/ServerStatus";
-import { healthKey } from "@/hooks/useServerHealth";
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ChatErrorKind } from "@/bindings/ChatErrorKind";
+import type { ToolCall } from "@/bindings/ToolCall";
+import { ToolResult } from "@/components/ToolCalls";
+import { WebSearchAttribution } from "@/components/WebSearchAttribution";
+import { WebSearchButton } from "@/components/WebSearchButton";
+import { WebSearchErrorActions } from "@/components/WebSearchErrorActions";
+import { setLanguage } from "@/i18n";
 import * as streams from "@/lib/streams";
-import { fakeBackend } from "@/test/backend";
-import { renderApp, texts } from "@/test/renderApp";
 import {
-  installSimulator,
-  SEQUENCE_TIME,
-  type Sequence,
-  sequence,
-} from "@/test/simulator";
+  isWebSearchError,
+  searchProvider,
+  type WebSearchErrorKind,
+} from "@/lib/webSearch";
+import { fakeBackend } from "@/test/backend";
+import { untranslatedTexts, usePseudoLanguage } from "@/test/i18n";
+import { renderApp, texts } from "@/test/renderApp";
+import { installSimulator, sequence } from "@/test/simulator";
+import { installWebSearch, okStatus } from "@/test/webSearch";
 
 configure({ asyncUtilTimeout: 5000 });
 
 afterEach(() => {
   streams.resetStreams();
+  cleanup();
 });
 
-const MODEL = "chatonlm-search";
+/** Modèle et question des séquences enregistrées (recherche par le relais). */
+const MODEL = sequence("web-search").request.model;
 
-/** Ollama ne répond plus (vérification de santé de la session). */
-const UNREACHABLE: ServerStatus = {
-  url: "http://127.0.0.1:11434",
-  state: "notResponding",
-  version: null,
-  alternativeUrl: null,
-  hostEnv: null,
-  httpStatus: null,
-  detail: null,
-  service: null,
-  builtin: false,
-  builtinAvailable: false,
-  explicitAddress: false,
-  logPath: null,
-};
-const LATEST = "What is the latest Ollama release?";
+const LATEST = sequence("web-search").request.content;
 
-function setup({
-  signedIn = true,
-  path = "/c/new",
-  recorded = [] as string[],
-} = {}) {
+function setup({ path = "/c/new", recorded = [] as string[] } = {}) {
   const simulator = installSimulator({ latencyMs: 20 });
   const backend = fakeBackend(simulator, {
     selectedModel: MODEL,
@@ -66,15 +63,6 @@ function setup({
     ],
   });
   backend.settings.webSearchEnabled = true;
-  if (signedIn) {
-    backend.account = {
-      state: "signedIn",
-      name: "ada",
-      email: "ada@example.com",
-      plan: "free",
-      avatar: null,
-    };
-  }
   for (const name of recorded) backend.record(sequence(name));
   const app = renderApp(path);
   return { simulator, backend, app };
@@ -119,8 +107,6 @@ describe("web search", () => {
     await waitFor(() =>
       expect(callLines()).toEqual([`Searching for ${LATEST}…`]),
     );
-    // Raisonnement du premier tour clos avec ses appels.
-    expect(screen.getByText("Thought for a moment")).toBeTruthy();
     expect(resultBlocks()).toEqual([]);
 
     await replay.until("toolResult");
@@ -143,15 +129,18 @@ describe("web search", () => {
     expect(copyButtons()).toHaveLength(1);
 
     await userEvent.click(within(resultBlocks()[0]).getByRole("button"));
-    expect(resultBlocks()[0].querySelector("pre")?.textContent).toContain(
-      `"title": "Result 1 for ${LATEST}"`,
-    );
+    // Résultat montré : titres et liens, sans les extraits (donnés au seul
+    // modèle).
+    const shown = resultBlocks()[0].querySelector("pre")?.textContent ?? "";
+    expect(shown).toContain(`"title": "Résultat 1 pour ${LATEST}"`);
+    expect(shown).toContain('"url": "https://example.org/1"');
+    expect(shown).not.toContain("Extrait");
   });
 
   it("Stop during the tool keeps the call, without result nor dots", async () => {
     const { simulator } = setup();
     const replay = simulator.queue("web-search-cancelled", { stepwise: true });
-    const text = "Search slowly for the latest Ollama release.";
+    const text = sequence("web-search-cancelled").request.content;
     await send(text);
     await replay.started;
     await replay.until("toolCalls");
@@ -170,266 +159,265 @@ describe("web search", () => {
   });
 });
 
-const SIGNED_OUT_ERROR = "Web search requires an Ollama account";
 const GENERATE = "Generate without web search";
 
-/** Bloc d'erreur de la conversation. */
-const errorBlock = () => screen.getByRole("alert");
+describe("actions under a web search error", () => {
+  const kinds: WebSearchErrorKind[] = [
+    "webSearchUnavailable",
+    "webSearchLimit",
+    "webSearchPaused",
+    "webSearchOutdated",
+  ];
 
-/**
- * Relance du message 1 de « chat-1 » sans recherche web, telle que le moteur
- * l'enregistrerait : message réécrit (même id), puis une nouvelle réponse.
- */
-function retrySequence(replyId: number, webSearch = false): Sequence {
-  return {
-    description: "Retry of the message (built by the test).",
-    request: {
-      chatId: "chat-1",
-      streamId: "stream-1",
-      content: LATEST,
-      model: MODEL,
-      editMessageId: 1,
-      ...(webSearch && { webSearch }),
-    },
-    events: [
-      {
-        type: "userMessage",
-        message: {
-          id: 1,
-          role: "user",
-          content: LATEST,
-          thinking: "",
-          model: null,
-          createdAt: SEQUENCE_TIME,
-          updatedAt: SEQUENCE_TIME,
-          thinkingStartedAt: null,
-          thinkingEndedAt: null,
-          attachments: [],
-          toolCalls: [],
-        },
-      },
-      { type: "replyStarted", messageId: replyId, createdAt: SEQUENCE_TIME },
-      { type: "content", text: "Ollama 0.35 is the latest release." },
-      { type: "done", messageId: replyId },
-    ],
-    error: null,
-  };
+  it("knows its kinds", () => {
+    for (const kind of kinds) expect(isWebSearchError(kind)).toBe(true);
+    for (const kind of ["remoteKey", "model", undefined] as (
+      ChatErrorKind | undefined
+    )[]) {
+      expect(isWebSearchError(kind)).toBe(false);
+    }
+  });
+
+  it("relay unreachable: Retry with the search, or without it", async () => {
+    const onRetry = vi.fn();
+    render(
+      <WebSearchErrorActions kind="webSearchUnavailable" onRetry={onRetry} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await userEvent.click(screen.getByRole("button", { name: GENERATE }));
+    expect(onRetry.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it("quota or pause: only without web search", async () => {
+    for (const kind of ["webSearchLimit", "webSearchPaused"] as const) {
+      const onRetry = vi.fn();
+      render(<WebSearchErrorActions kind={kind} onRetry={onRetry} />);
+      expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+      await userEvent.click(screen.getByRole("button", { name: GENERATE }));
+      expect(onRetry).toHaveBeenCalledExactlyOnceWith(false);
+      cleanup();
+    }
+  });
+
+  it("outdated app: Check for updates, then without web search", async () => {
+    const onRetry = vi.fn();
+    const onCheckUpdates = vi.fn();
+    render(
+      <WebSearchErrorActions
+        kind="webSearchOutdated"
+        onRetry={onRetry}
+        onCheckUpdates={onCheckUpdates}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Check for updates" }),
+    );
+    expect(onCheckUpdates).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: GENERATE }));
+    expect(onRetry).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
+  it("nothing to send again (new chat): no button, none disabled forgotten", async () => {
+    const { container } = render(
+      <WebSearchErrorActions kind="webSearchUnavailable" />,
+    );
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+    cleanup();
+    const onRetry = vi.fn();
+    render(
+      <WebSearchErrorActions
+        kind="webSearchUnavailable"
+        onRetry={onRetry}
+        retryDisabled
+      />,
+    );
+    for (const button of screen.getAllByRole("button")) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+});
+
+/** Bouton seul, dans un client de requêtes neuf, face au simulateur. */
+function renderButton(node: ReactNode) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{node}</QueryClientProvider>,
+  );
 }
 
-describe("web search without an account", () => {
-  it("stops with the error, Sign In and Generate without web search", async () => {
-    const { simulator, backend } = setup({ signedIn: false });
-    simulator.queue("web-search-signed-out");
-    await send(LATEST);
-    await replyEnded();
-    const alert = errorBlock();
-    expect(within(alert).getByText("Error")).toBeTruthy();
-    expect(within(alert).getByText(SIGNED_OUT_ERROR)).toBeTruthy();
-    expect(within(alert).getByRole("button", { name: "Sign In" })).toBeTruthy();
-    expect(within(alert).getByRole("button", { name: GENERATE })).toBeTruthy();
-    // Aucune réponse de l'assistant ; le message envoyé reste.
-    expect(texts("assistant")).toEqual([]);
-    expect(texts("user")).toEqual([LATEST]);
-    // Rien d'ouvert dans le navigateur.
-    expect(simulator.callsTo("account_sign_in")).toEqual([]);
-    expect(backend.settings.webSearchEnabled).toBe(true);
-  });
-
-  it("Sign In opens the account card of the settings, its Sign In focused", async () => {
-    const { simulator, app } = setup({ signedIn: false });
-    simulator.queue("web-search-signed-out");
-    await send(LATEST);
-    await replyEnded();
-    await userEvent.click(
-      within(errorBlock()).getByRole("button", { name: "Sign In" }),
+describe("the web search button", () => {
+  it("says the searches left today while on, and reads nothing while off", async () => {
+    const simulator = installSimulator();
+    const fake = installWebSearch(simulator);
+    fake.status = okStatus(12);
+    const { rerender } = renderButton(
+      <WebSearchButton isVisible isActive={false} onToggle={() => {}} />,
     );
-    await waitFor(() => expect(app.path()).toBe("/settings"));
-    expect(app.router.state.location.search).toEqual({ section: "account" });
-    const card = await screen.findByRole("region", { name: "Ollama account" });
-    const signIn = await within(card).findByRole("button", { name: "Sign In" });
-    await waitFor(() => expect(document.activeElement).toBe(signIn));
-    // Rien ne s'ouvre tout seul.
-    expect(simulator.callsTo("account_sign_in")).toEqual([]);
-  });
-
-  it("signed in meanwhile: the card itself takes the focus", async () => {
-    const { simulator, backend } = setup({ signedIn: false });
-    simulator.queue("web-search-signed-out");
-    await send(LATEST);
-    await replyEnded();
-    // Relié au terminal entre-temps ; l'erreur a fait relire le compte.
-    backend.account = {
-      state: "signedIn",
-      name: "ada",
-      email: "ada@example.com",
-      plan: "free",
-      avatar: null,
-    };
-    await userEvent.click(
-      within(errorBlock()).getByRole("button", { name: "Sign In" }),
+    const button = screen.getByRole("button", { name: "Web search" });
+    expect(button.title).toBe("Enable web search");
+    expect(fake.reads).toBe(0);
+    rerender(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <WebSearchButton isVisible isActive onToggle={() => {}} />
+      </QueryClientProvider>,
     );
-    const card = await screen.findByRole("region", { name: "Ollama account" });
-    await within(card).findByText("ada");
-    await waitFor(() => expect(document.activeElement).toBe(card));
-  });
-
-  it("Generate without web search turns it off and sends the message again", async () => {
-    const { simulator, backend } = setup({ signedIn: false });
-    simulator.queue("web-search-signed-out");
-    await send(LATEST);
-    await replyEnded();
-    const textarea = screen.getByLabelText<HTMLTextAreaElement>("Message");
-    await userEvent.type(textarea, "Draft");
-
-    simulator.queue(retrySequence(2));
-    await userEvent.click(
-      within(errorBlock()).getByRole("button", { name: GENERATE }),
-    );
-    await replyEnded();
     await waitFor(() =>
-      expect(texts("assistant")).toEqual([
-        "Ollama 0.35 is the latest release.",
-      ]),
+      expect(screen.getByRole("button", { name: "Web search" }).title).toBe(
+        "Disable web search (12 searches left today)",
+      ),
     );
-    // Rien de dupliqué ; erreur partie ; recherche web coupée ; brouillon
-    // gardé.
-    expect(texts("user")).toEqual([LATEST]);
-    expect(screen.queryByRole("alert")).toBeNull();
-    expect(backend.settings.webSearchEnabled).toBe(false);
-    await screen.findByRole("button", { name: "Web search", pressed: false });
-    expect(textarea.value).toBe("Draft");
-    // Le bouton cliqué est parti : le focus est revenu à la zone de saisie.
-    expect(document.activeElement).toBe(textarea);
-    const [request] = simulator.callsTo("send_message").slice(-1);
-    expect(request.request).not.toHaveProperty("webSearch");
+    expect(fake.reads).toBe(1);
   });
 
-  it("signed in from the settings: back in the chat, Retry searches again", async () => {
-    const { simulator, backend, app } = setup({ signedIn: false });
-    simulator.queue("web-search-signed-out");
-    await send(LATEST);
-    await replyEnded();
-    await userEvent.click(
-      within(errorBlock()).getByRole("button", { name: "Sign In" }),
-    );
-    await waitFor(() => expect(app.path()).toBe("/settings"));
-    // Connexion faite dans le navigateur, relue par la carte.
-    backend.account = {
-      state: "signedIn",
-      name: "ada",
-      email: "ada@example.com",
-      plan: "free",
-      avatar: null,
-    };
-    const card = await screen.findByRole("region", { name: "Ollama account" });
-    await userEvent.click(
-      await within(card).findByRole("button", { name: "Sign In" }),
-    );
-    await within(card).findByText("ada");
-
-    await act(() =>
-      app.router.navigate({ to: "/c/$chatId", params: { chatId: "chat-1" } }),
-    );
-    const alert = await screen.findByRole("alert");
-    // Même texte ; Retry à la place de Sign In.
-    expect(within(alert).getByText(SIGNED_OUT_ERROR)).toBeTruthy();
-    expect(within(alert).queryByRole("button", { name: "Sign In" })).toBeNull();
-    expect(within(alert).getByRole("button", { name: GENERATE })).toBeTruthy();
-
-    simulator.queue(retrySequence(2, true));
-    await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
-    await replyEnded();
-    await waitFor(() =>
-      expect(texts("assistant")).toEqual([
-        "Ollama 0.35 is the latest release.",
-      ]),
-    );
-    expect(texts("user")).toEqual([LATEST]);
-    expect(backend.settings.webSearchEnabled).toBe(true);
-    expect(document.activeElement).toBe(screen.getByLabelText("Message"));
-  });
-
-  it("a chat without that error never reads the account", async () => {
-    const { simulator } = setup({
-      signedIn: false,
-      path: "/c/chat-1",
-      recorded: ["web-search"],
-    });
-    await screen.findByRole("button", { name: "Web search", pressed: true });
-    await waitFor(() =>
-      expect(callLines()).toEqual([`Searching for ${LATEST}…`]),
-    );
-    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
-    expect(simulator.callsTo("account_status")).toEqual([]);
-  });
-
-  it("refused late (by the tool): the call stays alone, the retry replaces the reply", async () => {
-    const { simulator } = setup();
-    simulator.queue("web-search-signed-out-late");
-    await send(LATEST);
-    await replyEnded();
-    expect(callLines()).toEqual([`Searching for ${LATEST}…`]);
-    expect(resultBlocks()).toEqual([]);
-    expect(within(errorBlock()).getByText(SIGNED_OUT_ERROR)).toBeTruthy();
-
-    simulator.queue(retrySequence(3));
-    await userEvent.click(
-      within(errorBlock()).getByRole("button", { name: GENERATE }),
-    );
-    await replyEnded();
-    await waitFor(() =>
-      expect(texts("assistant")).toEqual([
-        "Ollama 0.35 is the latest release.",
-      ]),
-    );
-    // La réponse interrompue (appel sans résultat) a été remplacée.
-    expect(callLines()).toEqual([]);
-    expect(texts("user")).toEqual([LATEST]);
-  });
-
-  it("Generate without web search waits for Ollama to answer again", async () => {
-    const { simulator, app } = setup({ signedIn: false });
-    simulator.queue("web-search-signed-out");
-    await send(LATEST);
-    await replyEnded();
-    const generate = within(errorBlock()).getByRole<HTMLButtonElement>(
-      "button",
-      { name: GENERATE },
-    );
-    expect(generate.disabled).toBe(false);
-    act(() =>
-      app.queryClient.setQueryData(healthKey, {
-        ...UNREACHABLE,
-      }),
-    );
-    await waitFor(() => expect(generate.disabled).toBe(true));
-  });
-
-  it("on the new chat page (no chat created), only Sign In is offered", async () => {
-    const { simulator } = setup({ signedIn: false });
-    simulator.queue({
-      description: "Refused before the chat is created (built by the test).",
-      request: {
-        streamId: "stream-1",
-        content: LATEST,
-        model: MODEL,
-        webSearch: true,
-      },
-      events: [
-        {
-          type: "error",
-          kind: "webSearchUnavailable",
-          message: SIGNED_OUT_ERROR,
-        },
+  it("says why searching stopped", async () => {
+    for (const [status, title] of [
+      [okStatus(1), "Disable web search (1 search left today)"],
+      [okStatus(0), "Disable web search (today's searches are used up)"],
+      [
+        { ...okStatus(5), state: "paused" },
+        "Disable web search (web search is paused for now)",
       ],
-      error: null,
-    });
-    await send(LATEST);
-    await waitFor(() => expect(streams.pendingNewStream()).toBeNull());
-    const alert = await screen.findByRole("alert");
-    expect(within(alert).getByText(SIGNED_OUT_ERROR)).toBeTruthy();
-    expect(within(alert).getByRole("button", { name: "Sign In" })).toBeTruthy();
-    expect(within(alert).queryByRole("button", { name: GENERATE })).toBeNull();
-    expect(screen.getByTestId("new-chat")).toBeTruthy();
+      [
+        { ...okStatus(5), state: "budgetExhausted" },
+        "Disable web search (web search is paused for now)",
+      ],
+      [
+        { ...okStatus(5), state: "outdated" },
+        "Disable web search (update ChatonLM to search again)",
+      ],
+      [
+        { ...okStatus(5), state: "unavailable" },
+        "Disable web search (the search service can't be reached)",
+      ],
+    ] as const) {
+      const simulator = installSimulator();
+      installWebSearch(simulator).status = { ...status };
+      renderButton(<WebSearchButton isVisible isActive onToggle={() => {}} />);
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Web search" }).title).toBe(
+          title,
+        ),
+      );
+      cleanup();
+    }
+  });
+
+  it("a model without tools never asks the relay", () => {
+    const simulator = installSimulator();
+    const fake = installWebSearch(simulator);
+    renderButton(
+      <WebSearchButton isVisible isUnavailable isActive onToggle={() => {}} />,
+    );
+    expect(fake.reads).toBe(0);
+  });
+});
+
+/** Appel `web_search` terminé avec ce résultat enregistré. */
+function searchCall(result: string | null, name = "web_search"): ToolCall {
+  return {
+    name,
+    arguments: '{"query":"chaton"}',
+    result,
+    error: null,
+  } as ToolCall;
+}
+
+describe("Powered by Brave Search", () => {
+  it("is said under Brave's results only", () => {
+    const brave = searchCall(
+      '{"results":[{"title":"T","url":"https://example.org/1"}],"provider":"brave"}',
+    );
+    expect(searchProvider(brave)).toBe("brave");
+    render(<WebSearchAttribution call={brave} />);
+    expect(screen.getByTestId("web-search-attribution").textContent).toBe(
+      "Powered by Brave Search",
+    );
+    cleanup();
+    for (const call of [
+      searchCall('{"results":[],"provider":"mojeek"}'),
+      searchCall('{"results":[]}'),
+      searchCall("not json"),
+      searchCall(null),
+      searchCall('{"provider":"brave"}', "web_fetch"),
+    ]) {
+      const { container } = render(<WebSearchAttribution call={call} />);
+      expect(container.textContent).toBe("");
+      cleanup();
+    }
+  });
+
+  it("sits under the block of the results, folded or not", async () => {
+    render(
+      <ToolResult
+        call={searchCall(
+          '{"results":[{"title":"T","url":"https://example.org/1"}],"provider":"brave"}',
+        )}
+      />,
+    );
+    const mention = screen.getByTestId("web-search-attribution");
+    const header = screen.getByRole("button");
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    // Visible même replié : hors du corps du bloc, après lui.
+    expect(mention.closest("[data-folded]")).toBeNull();
+    expect(
+      header.compareDocumentPosition(mention) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await userEvent.click(header);
+    expect(screen.getByTestId("web-search-attribution")).toBe(mention);
+    cleanup();
+    render(
+      <ToolResult call={searchCall('{"results":[],"provider":"mojeek"}')} />,
+    );
+    expect(screen.queryByTestId("web-search-attribution")).toBeNull();
+  });
+});
+
+describe("texts of the web search by the relay", () => {
+  it("are translated", async () => {
+    usePseudoLanguage();
+    const simulator = installSimulator();
+    installWebSearch(simulator).status = okStatus(3);
+    renderButton(
+      <>
+        <WebSearchButton isVisible isActive onToggle={() => {}} />
+        <WebSearchErrorActions
+          kind="webSearchOutdated"
+          onRetry={() => {}}
+          onCheckUpdates={() => {}}
+        />
+        <WebSearchAttribution
+          call={searchCall('{"results":[],"provider":"brave"}')}
+        />
+      </>,
+    );
+    await waitFor(() =>
+      expect(simulator.callsTo("web_search_status")).toHaveLength(1),
+    );
+    expect(untranslatedTexts(document.body)).toEqual([]);
+  });
+
+  it("in French", () => {
+    act(() => setLanguage("fr"));
+    render(
+      <WebSearchErrorActions
+        kind="webSearchOutdated"
+        onRetry={() => {}}
+        onCheckUpdates={() => {}}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Rechercher des mises à jour" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Générer sans recherche web" }),
+    ).toBeTruthy();
   });
 });

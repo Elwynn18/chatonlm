@@ -48,7 +48,7 @@ function MemoryBar({ plan }: { plan: GpuPlan }) {
   const t = useT();
   const memory = plan.memory;
   if (!memory || memory.total <= 0) return null;
-  // Sans carte reconnue, Ollama ne met rien en VRAM : la part d'un modèle
+  // Sans carte reconnue, le moteur ne met rien en VRAM : la part d'un modèle
   // est sa taille en mémoire vive.
   const bytes = (slot: GpuSlot | null) =>
     slot?.loaded ? (memory.gpu ? slot.vramBytes : slot.sizeBytes) : 0;

@@ -2,15 +2,11 @@ import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  accountSignIn,
-  accountSignOut,
-  accountStatus,
   bridgeCancelPairing,
   bridgePair,
   bridgeSetEnabled,
   bridgeState,
   bridgeUnlink,
-  cloudStatus,
   dictationBindShortcut,
   dictationCancel,
   dictationStopEditor,
@@ -50,7 +46,6 @@ import {
   listenChatsUpdated,
   listenEasyLink,
   modelDetails,
-  modelExistsUpstream,
   outdatedModels,
   quitApp,
   recommendedModels,
@@ -106,28 +101,6 @@ describe("settings commands", () => {
   });
 });
 
-describe("account commands", () => {
-  it("names the four commands of commands/account.rs, without arguments", async () => {
-    const calls: [string, unknown][] = [];
-    mockIPC((command, args) => {
-      calls.push([command, args]);
-      if (command === "account_status") return { state: "signedOut" };
-      if (command === "cloud_status") return null;
-      return null;
-    });
-    await expect(accountStatus()).resolves.toEqual({ state: "signedOut" });
-    await accountSignIn();
-    await accountSignOut();
-    await expect(cloudStatus()).resolves.toBeNull();
-    expect(calls).toEqual([
-      ["account_status", {}],
-      ["account_sign_in", {}],
-      ["account_sign_out", {}],
-      ["cloud_status", {}],
-    ]);
-  });
-});
-
 describe("model commands", () => {
   it("names the commands and arguments of the backend", async () => {
     const calls: [string, unknown][] = [];
@@ -140,11 +113,7 @@ describe("model commands", () => {
     await expect(recommendedModels()).resolves.toEqual([
       { model: "gemma4", requiredPlan: null },
     ]);
-    await expect(modelExistsUpstream("llama3.2")).resolves.toBe(true);
-    expect(calls).toEqual([
-      ["recommended_models", {}],
-      ["model_exists_upstream", { model: "llama3.2" }],
-    ]);
+    expect(calls).toEqual([["recommended_models", {}]]);
   });
 
   it("asks which installed models have a newer version in the registry", async () => {

@@ -19,3 +19,13 @@ export const PENDING_CALLS = `
   }
   const pending = [...window.__TAURI_INTERNALS__.callbacks.keys()]
     .filter((id) => !listening.has(id));`;
+
+/**
+ * Identifiant du modèle montré par le sélecteur de la zone de saisie
+ * (`data-model-id` du bouton ; « » sans modèle, null sans sélecteur). Le
+ * texte du bouton n'est que le titre et l'étiquette du modèle.
+ */
+export const shownModel = (driver) =>
+  driver.execute(
+    "return document.querySelector('[title=\"Select model\"]')?.dataset.modelId ?? null",
+  );

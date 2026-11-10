@@ -1,19 +1,36 @@
 # Lance ChatonLM tel qu'il est dans un commit (par défaut le dernier).
-#   scripts/demo.sh [--build-only] [--onboarding] [--real [--reset] [--vscode]] [commit]
+#   scripts/demo.sh [--build-only] [--onboarding] [--real [--reset] [--vscode] [--import-ollama <dossier>] [--machine-ollama]] [commit]
 # Le code du commit est extrait dans .tools/demo-src : les modifications en
 # cours dans le dépôt ne changent pas l'app pendant un essai. Fermer la fenêtre
 # arrête tout.
 #
 # Par défaut, démonstration : build de débogage (identifiant de développement)
-# dans .tools/demo-target, historique de démonstration et faux serveur Ollama
-# local, sans modèle ; données (.tools/demo-data) recréées à chaque lancement.
+# dans .tools/demo-target, historique de démonstration et faux moteur
+# (fake-llama, un modèle de démonstration inscrit au démarrage) ; données
+# (.tools/demo-data) recréées à chaque lancement.
 #
 # --real, conditions réelles : build de production (vrai identifiant, aucune
 # fonctionnalité d'essai) dans .tools/real-target, sans historique de
-# démonstration ni faux serveur ; l'app joint l'Ollama de la machine (à lancer
-# soi-même, avec ses modèles) et contacte ollama.com comme l'app installée.
-# Seules ses données restent dans le projet : .tools/real-data (ignoré par
-# git), gardé d'un lancement à l'autre ; --reset le vide avant de lancer.
+# démonstration ni faux serveur ; l'app lance le vrai llama-server
+# (.tools/runtimes/llama-server, scripts/build-llama-server.sh) sur les modèles
+# de son dossier et contacte Hugging Face comme l'app installée. Aucun Ollama
+# n'est nécessaire. Seules ses données restent dans le projet :
+# .tools/real-data (ignoré par git), gardé d'un lancement à l'autre ; --reset
+# le vide avant de lancer.
+# --import-ollama <dossier> (avec --real) : pour essayer la reprise des modèles
+# d'un Ollama de ChatonLM 0.9.x, COPIE le dossier de modèles d'Ollama donné
+# (manifests/ et blobs/, par exemple celui de l'Ollama intégré d'une 0.9.x ou
+# ~/.ollama/models) dans .tools/real-data/ollama/models, l'emplacement de
+# l'Ollama intégré d'une 0.9.x, après avoir affiché sa taille et demandé
+# confirmation. La reprise déplace les fichiers de l'intégré : elle travaille
+# sur la copie, le dossier donné n'est jamais modifié. Les liens symboliques
+# (un blobs/ lié vers un autre disque) sont suivis : la copie n'en contient
+# aucun, sinon elle est refusée (scripts/lib/ollama-copy.sh). Refusé si la
+# copie existe déjà (--reset pour repartir de zéro).
+# --machine-ollama (avec --real) : laisse la reprise des modèles regarder
+# l'Ollama de la machine (service, ~/.ollama/models, dossiers des paquets),
+# en lecture seule, comme l'app installée ; sans elle, aucun dossier de
+# l'Ollama de la machine n'est regardé (CHATONLM_OLLAMA_MACHINE_DIRS vide).
 # --onboarding : montre le premier démarrage (choix de la langue, présentation
 # de l'app), même avec des données qui ont déjà servi ; sans lui, --real le
 # montre seulement à des données neuves, et la démonstration jamais.
@@ -33,6 +50,8 @@ cd "$root"
 source ./activate.sh
 # shellcheck source=lib/guard.sh
 source scripts/lib/guard.sh
+# shellcheck source=lib/ollama-copy.sh
+source scripts/lib/ollama-copy.sh
 chatonlm_guard "$root"
 
 build_only=false
@@ -40,6 +59,9 @@ real=false
 reset=false
 onboarding=false
 vscode=false
+import_ollama=""
+machine_ollama=false
+usage="Usage : $0 [--build-only] [--onboarding] [--real [--reset] [--vscode] [--import-ollama <dossier>] [--machine-ollama]] [commit]"
 while [ $# -gt 0 ]; do
   case "$1" in
     --build-only) build_only=true ;;
@@ -47,8 +69,17 @@ while [ $# -gt 0 ]; do
     --reset) reset=true ;;
     --onboarding) onboarding=true ;;
     --vscode) vscode=true ;;
+    --machine-ollama) machine_ollama=true ;;
+    --import-ollama)
+      import_ollama="${2:-}"
+      if [ -z "$import_ollama" ]; then
+        echo "$usage" >&2
+        exit 2
+      fi
+      shift
+      ;;
     -*)
-      echo "Usage : $0 [--build-only] [--onboarding] [--real [--reset] [--vscode]] [commit]" >&2
+      echo "$usage" >&2
       exit 2
       ;;
     *) break ;;
@@ -62,6 +93,21 @@ fi
 if $vscode && ! $real; then
   echo "--vscode ne va qu'avec --real." >&2
   exit 2
+fi
+if $machine_ollama && ! $real; then
+  echo "--machine-ollama ne va qu'avec --real." >&2
+  exit 2
+fi
+if [ -n "$import_ollama" ]; then
+  if ! $real; then
+    echo "--import-ollama ne va qu'avec --real." >&2
+    exit 2
+  fi
+  if [ ! -d "$import_ollama/manifests" ] && [ ! -d "$import_ollama/manifests-v2" ]; then
+    echo "$import_ollama n'est pas un dossier de modèles d'Ollama (ni manifests/ ni manifests-v2/)." >&2
+    exit 2
+  fi
+  import_ollama="$(cd "$import_ollama" && pwd)"
 fi
 commit="$(git rev-parse --verify "${1:-HEAD}^{commit}")"
 src="$root/.tools/demo-src"
@@ -89,7 +135,7 @@ fi
 echo "Compilation de ${commit:0:7} (journal : $log)…"
 # Un binaire d'un autre commit ne doit jamais être lancé si la compilation
 # échoue. Dans « if ! ( … ) », set -e est ignoré : les étapes sont chaînées.
-rm -f "$binary" "$target/debug/fake-ollama"
+rm -f "$binary" "$target/debug/fake-llama"
 if $real; then
   build() {
     node_modules/.bin/tauri build --no-bundle
@@ -98,7 +144,7 @@ else
   build() {
     node_modules/.bin/tauri build --debug --no-bundle \
       --config src-tauri/tauri.dev.conf.json &&
-      cargo build --locked --manifest-path src-tauri/Cargo.toml -p fake-ollama
+      cargo build --locked --manifest-path src-tauri/Cargo.toml -p fake-llama
   }
 fi
 if ! (
@@ -109,19 +155,26 @@ if ! (
   echo "Échec de la compilation : voir $log" >&2
   exit 1
 fi
-# Moteur d'images (génération dans la conversation) : sous Linux, Tauri ne
-# prend le dossier du binaire pour celui des ressources que si son parent
-# s'appelle « target » (ici « real-target ») ; sinon <binaire>/../lib/chatonlm
-# s'il existe, puis /usr/lib/chatonlm (tauri-utils, resource_dir_from). Le
-# sd-server construit par scripts/build-sd-server.sh est lié dans le premier ;
-# rien d'autre n'y est lu ici (ONNX Runtime : ORT_DYLIB_PATH ; pas d'Ollama
-# intégré dans la recette).
+# Moteurs livrés (texte : llama-server ; images : sd-server) : sous Linux,
+# Tauri ne prend le dossier du binaire pour celui des ressources que si son
+# parent s'appelle « target » (ici « real-target ») ; sinon
+# <binaire>/../lib/chatonlm s'il existe, puis /usr/lib/chatonlm (tauri-utils,
+# resource_dir_from). Les constructions locales (scripts/build-llama-server.sh,
+# scripts/build-sd-server.sh) sont liées dans le premier ; rien d'autre n'y est
+# lu ici (ONNX Runtime : ORT_DYLIB_PATH ; pas d'Ollama intégré).
 if $real; then
   rm -f "$target/release/sd-server"
+  mkdir -p "$target/lib/chatonlm"
+  if [ -x "$root/.tools/runtimes/llama-server/llama-server" ]; then
+    ln -sfn "$root/.tools/runtimes/llama-server" "$target/lib/chatonlm/llama-server"
+  else
+    rm -f "$target/lib/chatonlm/llama-server"
+    echo "Moteur de texte absent (scripts/build-llama-server.sh) : aucun modèle ne se chargera." >&2
+  fi
   if [ -x "$root/.tools/runtimes/sd-server/sd-server" ]; then
-    mkdir -p "$target/lib/chatonlm"
     ln -sfn "$root/.tools/runtimes/sd-server" "$target/lib/chatonlm/sd-server"
   else
+    rm -f "$target/lib/chatonlm/sd-server"
     echo "Moteur d'images absent (scripts/build-sd-server.sh) : génération d'images indisponible." >&2
   fi
 fi
@@ -168,7 +221,27 @@ if $real; then
       [ -e "$link" ] || ln -sfn "$file" "$link"
     done
   done
-  echo "Ollama : celui de la machine (${OLLAMA_HOST:-127.0.0.1:11434}), à lancer soi-même."
+  if [ -n "$import_ollama" ]; then
+    copy="$data/ollama/models"
+    if [ -e "$copy" ]; then
+      echo "$copy existe déjà : --reset pour repartir d'une copie neuve." >&2
+      exit 1
+    fi
+    size="$(chatonlm_ollama_size "$import_ollama")"
+    echo "Copie de $import_ollama ($size) vers $copy, pour la reprise des modèles."
+    echo "Le dossier d'origine n'est pas modifié."
+    read -r -p "Copier ? [o/N] " answer
+    case "$answer" in
+      o | O | oui | y | yes) ;;
+      *)
+        echo "Copie annulée."
+        exit 1
+        ;;
+    esac
+    chatonlm_copy_ollama_models "$import_ollama" "$copy" || exit 1
+    echo "Copie faite : la reprise des modèles de l'intégré démarre au lancement."
+  fi
+  echo "Moteur : llama-server intégré ; aucun Ollama nécessaire."
   # Mode conversation vocale : une ligne « chatonlm-voice-timing » par tour
   # dans ce terminal (millisecondes depuis la fin de parole détectée :
   # transcription, envoi, premier son).
@@ -192,8 +265,17 @@ if $real; then
         >"$root/.tools/logs/real-vscode.log" 2>&1 &
     fi
   fi
+  # Dossiers de l'Ollama de la machine fermés à la reprise, sauf
+  # --machine-ollama (variable retirée : recherche normale).
+  if $machine_ollama; then
+    machine_dirs=(-u CHATONLM_OLLAMA_MACHINE_DIRS)
+  else
+    machine_dirs=(CHATONLM_OLLAMA_MACHINE_DIRS=)
+  fi
   exec env -u CHATONLM_SEED_DEMO -u CHATONLM_REGISTRY_URL -u CHATONLM_OLLAMA_COM_URL \
-    -u CHATONLM_TELEGRAM_URL -u CHATONLM_DISCORD_URL \
+    -u CHATONLM_TELEGRAM_URL -u CHATONLM_DISCORD_URL -u CHATONLM_HF_URL -u CHATONLM_HF_STATUS_URL \
+    -u CHATONLM_LLAMA_SERVER_BIN -u CHATONLM_E2E_MODELS -u OLLAMA_HOST \
+    "${machine_dirs[@]}" \
     CHATONLM_ONBOARDING="$($onboarding && echo show || true)" \
     CHATONLM_DATA_DIR="$data" TMPDIR="$root/.tools/tmp" \
     CHATONLM_NO_GLOBAL_SHORTCUTS=1 CHATONLM_VOICE_TIMINGS=1 "$binary"
@@ -201,24 +283,17 @@ fi
 
 rm -rf "$data"
 mkdir -p "$data"
-fake_log="$root/.tools/logs/demo-fake-ollama.log"
-"$target/debug/fake-ollama" ollama >"$fake_log" 2>&1 &
-fake_pid=$!
-trap 'kill "$fake_pid" 2>/dev/null || true; wait "$fake_pid" 2>/dev/null || true' EXIT
-
-url=""
-for _ in $(seq 50); do
-  url="$(head -n 1 "$fake_log" 2>/dev/null || true)"
-  [[ "$url" == http://* ]] && break
-  sleep 0.1
-done
-if [[ "$url" != http://* ]]; then
-  echo "Le faux serveur Ollama n'a pas démarré (voir $fake_log)." >&2
-  exit 1
-fi
-
+# Faux moteur : le binaire fake-llama tient lieu de llama-server, sur un
+# modèle de démonstration (en-tête GGUF lisible, réponses du faux) inscrit
+# au démarrage par CHATONLM_E2E_MODELS (builds de débogage).
+demo_model="chatonlm-demo/Demo-chatonlm-think-GGUF:Q4_K_M"
+demo_file="chatonlm-demo/Demo-chatonlm-think-GGUF/Demo-Q4_K_M.gguf"
+"$target/debug/fake-llama" gguf "$data/models/$demo_file" --tools --think --name Demo
 echo "Données de démonstration : $data"
-echo "Faux serveur Ollama : $url"
+echo "Faux moteur : $target/debug/fake-llama ($demo_model)"
 CHATONLM_ONBOARDING="$($onboarding && echo show || echo skip)" \
-  CHATONLM_DATA_DIR="$data" OLLAMA_HOST="$url" CHATONLM_SEED_DEMO=1 \
+  CHATONLM_DATA_DIR="$data" CHATONLM_SEED_DEMO=1 \
+  CHATONLM_LLAMA_SERVER_BIN="$target/debug/fake-llama" \
+  CHATONLM_E2E_MODELS="[{\"id\": \"$demo_model\", \"files\": [\"$demo_file\"]}]" \
+  CHATONLM_OLLAMA_MACHINE_DIRS= \
   TMPDIR="$root/.tools/tmp" "$binary"

@@ -4,7 +4,7 @@
     "chatId": "chat-1",
     "streamId": "stream-1",
     "content": "Describe this file instead.",
-    "model": "qwen3.5:0.8b",
+    "model": "Qwen/Qwen3.5-0.8B-GGUF:Q4_K_M",
     "think": false,
     "attachmentIds": [
       "staged-1"
@@ -53,20 +53,140 @@
     },
     {
       "type": "content",
-      "text": "\""
+      "text": "Hello!"
     },
     {
       "type": "content",
-      "text": "Hi"
+      "text": " You"
     },
     {
       "type": "content",
-      "text": "!\""
+      "text": " said:"
+    },
+    {
+      "type": "content",
+      "text": " Describe"
+    },
+    {
+      "type": "content",
+      "text": " this"
+    },
+    {
+      "type": "content",
+      "text": " file"
+    },
+    {
+      "type": "content",
+      "text": " instead."
+    },
+    {
+      "type": "content",
+      "text": "\n---"
+    },
+    {
+      "type": "content",
+      "text": " File:"
+    },
+    {
+      "type": "content",
+      "text": " notes.txt"
+    },
+    {
+      "type": "content",
+      "text": " ---"
+    },
+    {
+      "type": "content",
+      "text": "\nLine"
+    },
+    {
+      "type": "content",
+      "text": " 1"
+    },
+    {
+      "type": "content",
+      "text": "\nLine"
+    },
+    {
+      "type": "content",
+      "text": " 2"
+    },
+    {
+      "type": "content",
+      "text": "\n---"
+    },
+    {
+      "type": "content",
+      "text": " End"
+    },
+    {
+      "type": "content",
+      "text": " of"
+    },
+    {
+      "type": "content",
+      "text": " notes.txt"
+    },
+    {
+      "type": "content",
+      "text": " ---"
+    },
+    {
+      "type": "content",
+      "text": "\n---"
+    },
+    {
+      "type": "content",
+      "text": " File:"
+    },
+    {
+      "type": "content",
+      "text": " extra.md"
+    },
+    {
+      "type": "content",
+      "text": " ---"
+    },
+    {
+      "type": "content",
+      "text": "\n#"
+    },
+    {
+      "type": "content",
+      "text": " Extra"
+    },
+    {
+      "type": "content",
+      "text": "\nMore"
+    },
+    {
+      "type": "content",
+      "text": " notes"
+    },
+    {
+      "type": "content",
+      "text": "\n---"
+    },
+    {
+      "type": "content",
+      "text": " End"
+    },
+    {
+      "type": "content",
+      "text": " of"
+    },
+    {
+      "type": "content",
+      "text": " extra.md"
+    },
+    {
+      "type": "content",
+      "text": " ---"
     },
     {
       "type": "context",
-      "used": 26,
-      "size": 4096
+      "used": 70,
+      "size": 32768
     },
     {
       "type": "done",

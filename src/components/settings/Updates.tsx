@@ -1,7 +1,7 @@
 // Carte « Updates » de Settings › General (étape 18c). Le réglage
 // « Auto-download updates » reprend l'officiel (Settings.tsx, textes
 // identiques) ; le reste est propre à ChatonLM, demandé par l'utilisateur :
-// versions installées (ChatonLM, et l'Ollama intégré s'il est livré), état
+// versions installées (ChatonLM, et son moteur llama.cpp s'il est livré), état
 // des mises à jour (à jour avec l'heure de la dernière vérification,
 // disponible avec ses nouveautés et « Download » quand Auto-download est
 // coupé, téléchargement avec sa progression, prête avec « Restart to
@@ -50,6 +50,7 @@ import {
 } from "@/hooks/useUpdates";
 import { type Lang, localized, type TFunction, type TKey, useT } from "@/i18n";
 import { formatBytes, formatDateTime, formatPercent } from "@/i18n/format";
+import { shortEngineVersion } from "@/lib/engine";
 import {
   checkForUpdates,
   downloadUpdate,
@@ -481,6 +482,7 @@ export function Updates({
     </h2>
   );
 
+  const engineVersion = shortEngineVersion(versions.data?.llamaCpp ?? null);
   const versionsRow = (
     <Row
       icon={TagIcon}
@@ -494,11 +496,9 @@ export function Updates({
       }
       descriptionId={ids.versions}
     >
-      {versions.data?.ollama && (
-        <p data-testid="ollama-version" className={HINT}>
-          {t("settings.updates.versions.ollama", {
-            version: versions.data.ollama,
-          })}
+      {engineVersion && (
+        <p data-testid="engine-version" className={HINT}>
+          {t("settings.updates.versions.llamaCpp", { version: engineVersion })}
         </p>
       )}
     </Row>

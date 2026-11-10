@@ -1,8 +1,8 @@
 // Requêtes du ModelHub (propre à ChatonLM). Le moteur garde les réponses de
 // Hugging Face en cache disque : relire une liste ne coûte qu'un appel local.
-// Les estimations de mémoire (pastilles) dépendent du serveur (local ou non)
-// et de la longueur de contexte réglée : elles font partie des clés, pour que
-// tout soit relu quand l'une change.
+// Les estimations de mémoire (pastilles) dépendent de la longueur de contexte
+// réglée : elle fait partie des clés, pour que tout soit relu quand elle
+// change (la machine est toujours celle de l'app).
 
 import {
   keepPreviousData,
@@ -37,16 +37,13 @@ export const hubInstalledKey = ["hub", "installed"] as const;
 const LIST_STALE_MS = 60 * 1000;
 
 /**
- * Ce dont dépendent les estimations : adresse effective du serveur et
- * longueur de contexte réglée ; null tant que les réglages ne sont pas lus.
+ * Ce dont dépendent les estimations : la longueur de contexte réglée ; null
+ * tant que les réglages ne sont pas lus.
  */
-function useMachine(): { server: string; context: number } | null {
+function useMachine(): { context: number } | null {
   const { settings } = useSettings();
   if (!settings) return null;
-  return {
-    server: settings.effectiveServerUrl,
-    context: settings.contextLength,
-  };
+  return { context: settings.contextLength };
 }
 
 /**
@@ -57,7 +54,7 @@ function useShowUncensored(): boolean {
   return useSettings().settings?.showUncensored ?? false;
 }
 
-/** Mémoire de la machine du serveur ; null : serveur distant. */
+/** Mémoire de la machine ; null : elle ne se lit pas. */
 export function useHubHardware() {
   const machine = useMachine();
   return useQuery({
@@ -138,13 +135,11 @@ export function useHubReadme(id: string, revision: string | null) {
   });
 }
 
-/** Modèles installés sur le serveur (onglet Installed, badges). */
+/** Modèles installés (onglet Installed, badges). */
 export function useHubInstalled() {
-  const machine = useMachine();
   return useQuery({
-    queryKey: [...hubInstalledKey, machine?.server ?? null],
+    queryKey: hubInstalledKey,
     queryFn: hubInstalled,
-    enabled: machine !== null,
   });
 }
 

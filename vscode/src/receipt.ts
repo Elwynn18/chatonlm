@@ -1,6 +1,6 @@
 // Reçu de ce qui part au modèle, et ce qu'on retire avant un envoi hors de
-// cette machine (modèle cloud, Ollama d'une autre machine, destination
-// inconnue) : fichiers sensibles exclus, lignes à secret masquées, au mieux
+// cette machine (modèle distant, modèles d'une autre machine avec une app
+// 0.9.x, destination inconnue) : fichiers sensibles exclus, lignes à secret masquées, au mieux
 // (motifs connus). En local, rien n'est retiré (tout reste sur la machine). Contrat :
 // .tools/research/87-lot1b-contract.md (B, « Reçu »).
 import path from "node:path";
@@ -204,7 +204,7 @@ export type Labels = {
 };
 
 /**
- * Ce qui part vraiment : en cloud, fichiers sensibles retirés et secrets
+ * Ce qui part vraiment : hors machine, fichiers sensibles retirés et secrets
  * masqués ; en local, les morceaux tels quels.
  */
 export function filterPieces(
@@ -317,7 +317,6 @@ export function buildReceipt(
   };
 }
 
-/** Modèle cloud d'après son nom, quand l'app n'a pas pu le dire. */
-export function looksRemote(model: string): boolean {
-  return /[:-]cloud$/i.test(model);
-}
+/** Modèle hors de cette machine d'après son identifiant (voir
+ * `shared/models.ts`). */
+export { looksRemote } from "../shared/models";

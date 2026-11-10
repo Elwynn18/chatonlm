@@ -41,6 +41,10 @@ hound = "3.5.1"
 # (essais rapides, sans Tauri).
 easy-link = { path = "crates/easy-link" }
 futures-util = "0.3.34"
+# Images jointes envoyées au moteur : WebP, GIF, BMP… convertis en PNG
+# (llama-server ne lit WebP qu'avec un `ffmpeg` du PATH). Déjà dans l'arbre
+# par Tauri ; décodeurs en Rust pur (MIT/Apache-2.0).
+image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "png", "webp"] }
 # Relais de ChatonLM (recherche web sans Ollama) : protocole partagé avec le
 # serveur (signatures Ed25519 par ring, preuve de travail Argon2id).
 relay-proto = { path = "crates/relay-proto" }

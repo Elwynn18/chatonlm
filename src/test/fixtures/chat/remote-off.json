@@ -1,0 +1,36 @@
+{
+  "description": "Remote model while remote models are turned off in the settings: the send stops with a remoteOff error, nothing is asked.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "Say hello in one word.",
+    "model": "@remote/openrouter/qwen/qwen3-32b"
+  },
+  "events": [
+    {
+      "type": "chatCreated",
+      "chatId": "chat-1"
+    },
+    {
+      "type": "userMessage",
+      "message": {
+        "id": 1,
+        "role": "user",
+        "content": "Say hello in one word.",
+        "thinking": "",
+        "model": null,
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000000,
+        "thinkingStartedAt": null,
+        "thinkingEndedAt": null,
+        "attachments": [],
+        "toolCalls": []
+      }
+    },
+    {
+      "type": "error",
+      "kind": "remoteOff",
+      "message": "Remote models are turned off. Turn them on in the settings to use this model."
+    }
+  ],
+  "error": null
+}

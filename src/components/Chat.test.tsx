@@ -84,8 +84,6 @@ function renderChat(
           return [];
         case "list_chats":
           return [];
-        case "server_status":
-          return { state: "running" };
         case "send_message":
           return send(request, onEvent);
         case "cancel_message":

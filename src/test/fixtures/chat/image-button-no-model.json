@@ -3,7 +3,7 @@
   "request": {
     "streamId": "stream-1",
     "content": "A red fox in the snow, watercolor",
-    "model": "qwen3:0.6b",
+    "model": "Qwen/Qwen3-0.6B-GGUF:Q8_0",
     "image": true
   },
   "events": [],

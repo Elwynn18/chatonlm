@@ -305,12 +305,14 @@ enum Flow {
 }
 
 /// `GET /<id>/resolve/<révision>/<fichier>` d'un dépôt synthétisé ; `gone`
-/// est appelé quand le client ferme avant la fin.
+/// est appelé quand le client ferme avant la fin ; `held` : fichier `slow`
+/// retenu passé sa moitié (`FakeHf::hold`), relu à chaque morceau.
 pub fn resolve(
     synth: &Synth,
     file: &str,
     headers: &HeaderMap,
     gone: impl FnOnce() + Send + 'static,
+    held: impl Fn() -> bool + Send + Sync + 'static,
 ) -> Response {
     if synth.has("gated") || synth.has("missing") {
         return unauthorized(&format!("Access to model {} is restricted.", synth.id));
@@ -353,58 +355,71 @@ pub fn resolve(
     let part = body[from..].to_vec();
     let length = part.len();
     let half = (total / 2).saturating_sub(from);
+    let held = std::sync::Arc::new(held);
     let stream = futures_util::stream::unfold(
         (part, 0usize, Guard(Some(Box::new(gone)))),
-        move |(part, sent, mut guard)| async move {
-            let limit = match flow {
-                Flow::StallHalf | Flow::MuteHalf | Flow::CutHalf => half.max(1).min(part.len()),
-                Flow::Whole | Flow::Slow => part.len(),
-            };
-            if sent >= limit && sent < part.len() {
-                match flow {
-                    Flow::MuteHalf => {
-                        std::future::pending::<()>().await;
-                        return None;
-                    }
-                    Flow::StallHalf => {
-                        // Un octet de temps en temps : jamais fini, mais une
-                        // connexion fermée par le client se voit.
-                        tokio::time::sleep(Duration::from_millis(200)).await;
-                        let chunk = part[sent..=sent].to_vec();
-                        return Some((Ok(chunk), (part, sent + 1, guard)));
-                    }
-                    Flow::CutHalf => {
-                        // Ce qui a été écrit part d'abord ; la coupure vient
-                        // du serveur, pas d'un abandon du client.
-                        tokio::time::sleep(Duration::from_millis(50)).await;
+        move |(part, sent, mut guard)| {
+            let held = held.clone();
+            async move {
+                if flow == Flow::Slow && sent >= half && sent < part.len() && held() {
+                    // Retenu : un octet de temps en temps (un abandon se voit).
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    let chunk = part[sent..=sent].to_vec();
+                    if sent + 1 >= part.len() {
                         guard.0.take();
-                        return Some((
-                            Err(std::io::Error::new(
-                                std::io::ErrorKind::ConnectionReset,
-                                "cut by the fake server",
-                            )),
-                            (part, usize::MAX, guard),
-                        ));
                     }
-                    Flow::Whole | Flow::Slow => {}
+                    return Some((Ok(chunk), (part, sent + 1, guard)));
                 }
+                let limit = match flow {
+                    Flow::StallHalf | Flow::MuteHalf | Flow::CutHalf => half.max(1).min(part.len()),
+                    Flow::Whole | Flow::Slow => part.len(),
+                };
+                if sent >= limit && sent < part.len() {
+                    match flow {
+                        Flow::MuteHalf => {
+                            std::future::pending::<()>().await;
+                            return None;
+                        }
+                        Flow::StallHalf => {
+                            // Un octet de temps en temps : jamais fini, mais une
+                            // connexion fermée par le client se voit.
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                            let chunk = part[sent..=sent].to_vec();
+                            return Some((Ok(chunk), (part, sent + 1, guard)));
+                        }
+                        Flow::CutHalf => {
+                            // Ce qui a été écrit part d'abord ; la coupure vient
+                            // du serveur, pas d'un abandon du client.
+                            tokio::time::sleep(Duration::from_millis(50)).await;
+                            guard.0.take();
+                            return Some((
+                                Err(std::io::Error::new(
+                                    std::io::ErrorKind::ConnectionReset,
+                                    "cut by the fake server",
+                                )),
+                                (part, usize::MAX, guard),
+                            ));
+                        }
+                        Flow::Whole | Flow::Slow => {}
+                    }
+                }
+                if sent >= part.len() {
+                    guard.0.take();
+                    return None;
+                }
+                let step = if flow == Flow::Slow { 4096 } else { 64 * 1024 };
+                if flow == Flow::Slow && sent > 0 {
+                    tokio::time::sleep(Duration::from_millis(15)).await;
+                }
+                let end = (sent + step).min(limit.max(sent + 1)).min(part.len());
+                let chunk = part[sent..end].to_vec();
+                // Dernier morceau : le serveur n'en demandera pas d'autre (longueur
+                // annoncée atteinte), ce n'est pas un abandon.
+                if end >= part.len() {
+                    guard.0.take();
+                }
+                Some((Ok::<_, std::io::Error>(chunk), (part, end, guard)))
             }
-            if sent >= part.len() {
-                guard.0.take();
-                return None;
-            }
-            let step = if flow == Flow::Slow { 4096 } else { 64 * 1024 };
-            if flow == Flow::Slow && sent > 0 {
-                tokio::time::sleep(Duration::from_millis(15)).await;
-            }
-            let end = (sent + step).min(limit.max(sent + 1)).min(part.len());
-            let chunk = part[sent..end].to_vec();
-            // Dernier morceau : le serveur n'en demandera pas d'autre (longueur
-            // annoncée atteinte), ce n'est pas un abandon.
-            if end >= part.len() {
-                guard.0.take();
-            }
-            Some((Ok::<_, std::io::Error>(chunk), (part, end, guard)))
         },
     );
     let status = if start.is_some() {

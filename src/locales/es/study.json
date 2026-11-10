@@ -113,7 +113,6 @@
   },
   "error": {
     "withoutWeb": "Continuar sin búsqueda web",
-    "signedIn": "Sesión iniciada.",
     "openHub": "Abrir ModelHub",
     "retry": "Reintentar"
   },

@@ -1,23 +1,21 @@
 // Reste du backend pour le simulateur : réglages (validés comme le moteur,
-// échecs forcés par settingsErrors), modèles (détails, réglage
-// Think mémorisé, recommandations et registre compris) et état d'Ollama en
-// mémoire, et une base de conversations tenue à jour par les événements
+// échecs forcés par settingsErrors), modèles du moteur (liste du sélecteur,
+// détails, réglage Think mémorisé, recommandations compris) en mémoire, et
+// une base de conversations tenue à jour par les événements
 // rejoués, comme celle du moteur (message enregistré avant la requête, réponse
 // créée au premier fragment et superposée à get_chat pendant le flux, réponse
 // partielle gardée, modèle installé à la fin de son téléchargement). Pièces
 // jointes : sélecteur natif, disque simulé et zone de préparation (validation
 // de stage_bytes comme le moteur, fichiers envoyés retirés au message
 // enregistré). ModelHub : faux moteur de src/test/hub.ts (backend.hub), qui
-// partage la liste des modèles installés. Dossier des modèles : emplacement,
-// sélecteur et vérification simulés (change_models_location reste au test) ;
-// dossier .ollama caché au service (get_ollama_home, fix_ollama_home reste
-// au test).
-// Compte ollama.com et état du nuage du serveur (recherche web) : en mémoire,
-// échecs forcés par accountErrors. Dictée et modèles de transcription : faux
+// partage la liste des modèles installés. Moteur llama.cpp (état, journaux,
+// dossier des modèles et son changement) : faux moteur de src/test/engine.ts
+// (backend.engine) ; reprise des modèles d'Ollama : src/test/modelImport.ts
+// (backend.modelImport). Dictée et modèles de transcription : faux
 // moteur de src/test/dictation.ts (backend.dictation). quit_app répond sans
 // rien faire (appels relus par simulator.callsTo). Modèles en mémoire
-// (onglet Models, préchargement) : liste tenue par load_model,
-// unload_model et unload_all_models, comme le faux serveur, échecs forcés
+// (onglet Models, préchargement) : liste du moteur tenue par load_model,
+// unload_model et unload_all_models, échecs forcés
 // par runningErrors. Favoris des conversations : set_chat_favorite, sans
 // toucher à la date d'activité, comme le moteur. Correction (page Proofread)
 // et raccourcis du système : faux moteur de src/test/proofread.ts
@@ -27,13 +25,7 @@
 // menu des applications (AppImage) : menu_entry_status et set_menu_entry sur
 // menuEntry, échec forcé par menuEntryError (choix enregistré quand même,
 // comme le moteur). Croix de la fenêtre : close_button_status et
-// set_close_to_tray sur closeButton. Ollama qui sert (runtime : celui de la machine ou
-// l'intégré) : ollama_runtime, set_ollama_source (qui change l'adresse
-// effective et l'état du serveur), start_ollama_service (issue
-// serviceStart, service démarré), restart_builtin_ollama (l'intégré prend
-// builtinState), open_builtin_folder et open_builtin_log, échecs forcés par
-// runtimeErrors ; get_models_location donne le dossier de l'intégré quand il
-// sert ; change_builtin_models_dir reste au test.
+// set_close_to_tray sur closeButton.
 // Lecture à voix haute et voix : faux moteur de src/test/tts.ts
 // (backend.tts), réglage autoRead coupé par défaut. Mode conversation
 // vocale : faux moteur de src/test/voiceMode.ts (backend.voiceMode), qui lit
@@ -62,31 +54,23 @@
 // (vrai : écrite, faux : annulé, ou l'erreur renvoyée).
 // Pour les tests seulement.
 
-import type { AccountStatus } from "@/bindings/AccountStatus";
 import type { AppVersions } from "@/bindings/AppVersions";
 import type { AppError } from "@/bindings/AppError";
 import type { AttachmentKind } from "@/bindings/AttachmentKind";
 import type { Chat } from "@/bindings/Chat";
 import type { CloseButtonStatus } from "@/bindings/CloseButtonStatus";
-import type { CloudStatus } from "@/bindings/CloudStatus";
 import type { Compaction } from "@/bindings/Compaction";
 import type { ContextUsage } from "@/bindings/ContextUsage";
-import type { FolderCheck } from "@/bindings/FolderCheck";
-import type { HiddenHome } from "@/bindings/HiddenHome";
 import type { MenuEntryStatus } from "@/bindings/MenuEntryStatus";
 import type { ChatEvent } from "@/bindings/ChatEvent";
 import type { ChatInfo } from "@/bindings/ChatInfo";
+import type { ChatModel } from "@/bindings/ChatModel";
 import type { ChatSource } from "@/bindings/ChatSource";
 import type { Message } from "@/bindings/Message";
 import type { ModelDetails } from "@/bindings/ModelDetails";
-import type { ModelInfo } from "@/bindings/ModelInfo";
+import type { EngineRunningModel } from "@/bindings/EngineRunningModel";
 import type { MachineMemory } from "@/bindings/MachineMemory";
-import type { ModelsLocation } from "@/bindings/ModelsLocation";
 import type { RecommendedModel } from "@/bindings/RecommendedModel";
-import type { RunningModel } from "@/bindings/RunningModel";
-import type { ServerState } from "@/bindings/ServerState";
-import type { ServerStatus } from "@/bindings/ServerStatus";
-import type { ServiceInfo } from "@/bindings/ServiceInfo";
 import type { Settings } from "@/bindings/Settings";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import type { StagedFile } from "@/bindings/StagedFile";
@@ -94,17 +78,19 @@ import type { StageResult } from "@/bindings/StageResult";
 import type { Theme } from "@/bindings/Theme";
 import type { Think } from "@/bindings/Think";
 import type { ThinkingOptions } from "@/bindings/ThinkingOptions";
-import type { OllamaRuntime } from "@/bindings/OllamaRuntime";
-import type { ServiceStart } from "@/bindings/ServiceStart";
 import type { UpdateStatus } from "@/bindings/UpdateStatus";
+import { isRemoteModel, sameModel } from "@/lib/modelNames";
 import type { Platform } from "@/lib/platform";
 import { autoModelOf } from "@/test/autoModel";
 import { type FakeBridge, fakeBridge } from "@/test/bridge";
 import { type FakeDictation, fakeDictation } from "@/test/dictation";
 import { type FakeEasyLink, fakeEasyLink } from "@/test/easyLink";
+import { type FakeEngine, fakeEngine } from "@/test/engine";
 import { canonicalModel, type FakeHub, fakeHub } from "@/test/hub";
 import { type FakeImages, fakeImages } from "@/test/images";
+import { type FakeModelImport, fakeModelImport } from "@/test/modelImport";
 import { type FakeProofread, fakeProofread } from "@/test/proofread";
+import { installRemote } from "@/test/remote";
 import {
   type Args,
   type RawBody,
@@ -115,65 +101,10 @@ import {
 import { type FakeStudy, fakeStudy } from "@/test/study";
 import { type FakeTts, fakeTts } from "@/test/tts";
 import { type FakeVoiceMode, fakeVoiceMode } from "@/test/voiceMode";
+import { installWebSearch } from "@/test/webSearch";
 
 /** Adresse des séquences (normalisée par les tests Rust). */
 export const SERVER_URL = "http://127.0.0.1:11434";
-
-/** Adresse privée de l'Ollama intégré (port libre choisi par le moteur). */
-export const BUILTIN_URL = "http://127.0.0.1:47811";
-
-/** Dossier des modèles de l'Ollama intégré, par défaut. */
-export const BUILTIN_MODELS_DIR =
-  "/home/user/.local/share/chatonlm/ollama/models";
-
-/** Journal de l'Ollama intégré. */
-export const OLLAMA_LOG = "/home/user/.local/share/chatonlm/logs/ollama.log";
-
-/** Version de l'Ollama de la machine (séquences) et de l'intégré. */
-export const MACHINE_VERSION = "0.35.1";
-export const BUILTIN_VERSION = "0.40.0";
-
-/**
- * Celui de la machine sert, l'intégré est disponible (paquets) et arrêté ;
- * adresse, version servie et état de l'intégré relus par ollama_runtime
- * (voir FakeBackend.runtime).
- */
-export function machineRuntime(
-  fields: Partial<OllamaRuntime> = {},
-): OllamaRuntime {
-  return {
-    source: "auto",
-    kind: "machine",
-    url: SERVER_URL,
-    local: true,
-    machineUrl: SERVER_URL,
-    machineLocal: true,
-    explicitAddress: false,
-    servedVersion: MACHINE_VERSION,
-    builtinAvailable: true,
-    builtinState: "stopped",
-    builtinVersion: BUILTIN_VERSION,
-    builtinModelsDir: BUILTIN_MODELS_DIR,
-    builtinModelsDirIsDefault: true,
-    builtinModelsDirMissing: false,
-    builtinModels: null,
-    logPath: OLLAMA_LOG,
-    builtinFailure: null,
-    ...fields,
-  };
-}
-
-/** État de l'intégré qui sert, d'après celui du serveur. */
-const BUILTIN_STATES: Partial<
-  Record<ServerState, OllamaRuntime["builtinState"]>
-> = {
-  running: "running",
-  builtinStarting: "starting",
-  builtinFailed: "failed",
-};
-
-/** Adresse de cette machine (bouclage). */
-const LOOPBACK = /^https?:\/\/(localhost|127\.[\d.]+|\[::1\])(:\d+)?\/?$/;
 
 /** Crans de la longueur de contexte (CONTEXT_LENGTHS du moteur) ; 0 = défaut. */
 const CONTEXT_LENGTHS = [0, 4096, 8192, 16384, 32768, 65536, 131072, 262144];
@@ -185,26 +116,32 @@ const KEEP_ALIVES = [0, 60, 300, 900, 1800, 3600, 14400, -1];
 /** `MAX_SYSTEM_PROMPT_CHARS` du moteur (store/settings.rs). */
 const MAX_SYSTEM_PROMPT_CHARS = 10_000;
 
-/** Taille d'un modèle en mémoire, comme le faux serveur : 1 Gio. */
+/** Taille d'un modèle du moteur : 1 Gio. */
 export const RUNNING_SIZE = 1024 ** 3;
 
 /**
- * Modèle en mémoire comme le faux serveur le donne : 1 Gio, tout en VRAM,
- * contexte 4096, déchargé dans 5 min (à partir de maintenant).
+ * Modèle prêt dans le moteur : 1 Gio, tout sur la carte (28 couches sur
+ * 28), contexte 4096, déchargé dans 5 min (à partir de maintenant).
  */
 export function runningModel(
-  name: string,
-  fields: Partial<RunningModel> = {},
-): RunningModel {
+  id: string,
+  fields: Partial<EngineRunningModel> = {},
+): EngineRunningModel {
   return {
-    name,
-    size: RUNNING_SIZE,
-    sizeVram: RUNNING_SIZE,
+    id,
+    state: "ready",
+    sizeBytes: RUNNING_SIZE,
+    vramBytes: RUNNING_SIZE,
     contextLength: 4096,
     expiresAt: Date.now() + 300_000,
     kept: false,
-    parameterSize: "1B",
-    quantizationLevel: "Q4_K_M",
+    inUse: false,
+    gpuLayers: 28,
+    totalLayers: 28,
+    cpuFallback: false,
+    notice: null,
+    cpuOnly: false,
+    paramsLabel: "1B",
     ...fields,
   };
 }
@@ -263,15 +200,37 @@ export type StoredChat = Omit<
   source?: ChatSource | null;
 };
 
-export function modelInfo(model: string): ModelInfo {
+/**
+ * Clé d'un ancien nom d'Ollama (`ollama_key` du moteur, sans les hôtes) :
+ * sans la casse, `:latest` ajouté s'il n'a pas d'étiquette.
+ */
+function ollamaKey(name: string): string {
+  const key = name.trim().toLowerCase();
+  return key.split("/").at(-1)?.includes(":") ? key : `${key}:latest`;
+}
+
+/**
+ * Modèle du sélecteur (list_models) : installé (origine Hugging Face), ou
+ * distant pour un identifiant `@remote/…` ; `installedAt` donne sa
+ * version (bandeau des mises à jour).
+ */
+export function modelInfo(
+  id: string,
+  fields: Partial<ChatModel> = {},
+): ChatModel {
+  const remote = isRemoteModel(id);
   return {
-    model,
-    digest: `digest-${model}`,
-    size: 1,
-    parameterSize: "1B",
-    quantizationLevel: "Q4_K_M",
-    contextLength: null,
+    id,
+    displayName: id,
+    origin: remote ? "remote" : id.startsWith("@ollama/") ? "ollama" : "hf",
+    provider: remote ? (id.split("/")[1] ?? null) : null,
+    sizeBytes: remote ? null : 1,
+    paramsLabel: "1B",
+    quant: "Q4_K_M",
+    contextMax: null,
     capabilities: ["completion"],
+    installedAt: remote ? null : 1_700_000_000_000,
+    ...fields,
   };
 }
 
@@ -312,17 +271,22 @@ export interface FakeBackend {
    * téléchargement terminé (download done) y ajoute le modèle en tête.
    */
   models: string[];
+  /**
+   * Table des noms repris d'Ollama (ancien nom → identifiant) : comme le
+   * moteur (`store::model_import::renamed`), update_settings y traduit
+   * selectedModel, proofreadModel et studyModel (sans la casse, `latest`
+   * pour un nom sans étiquette) ; vide par défaut.
+   */
+  renamed: Map<string, string>;
   /** Réponse de recommended_models. */
   recommended: RecommendedModel[];
-  /** Modèles présents au registre (model_exists_upstream). */
-  upstream: Set<string>;
   /**
-   * Modèles installés dont le registre a une version plus récente
-   * (outdated_models, comparés sans la casse, `:latest` implicite) ; un
-   * modèle téléchargé de nouveau par hub.finish() en sort.
+   * Modèles installés dont Hugging Face a une version plus récente
+   * (outdated_models, comparés sans la casse) ; un modèle téléchargé de
+   * nouveau par hub.finish() en sort.
    */
   outdated: Set<string>;
-  /** outdated_models rejette cette erreur (Ollama injoignable). */
+  /** outdated_models rejette cette erreur. */
   outdatedError: AppError | null;
   /** Conversations enregistrées, par identifiant. */
   chats: Map<string, StoredChat>;
@@ -331,39 +295,6 @@ export interface FakeBackend {
    * ensuite (taille gardée, si elle est connue) ; `error` : refus renvoyé.
    */
   compaction: { summary: string; used: number; error: AppError | null };
-  /** État renvoyé par server_status (celui de la cible). */
-  serverState: ServerState;
-  /** Service systemd d'Ollama renvoyé par server_status (null : aucun). */
-  service: ServiceInfo | null;
-  /**
-   * Ollama qui sert (ollama_runtime). Déduits à chaque lecture : `url`
-   * (l'intégré : BUILTIN_URL ; sinon l'adresse effective des réglages),
-   * `local`, `explicitAddress` (adresse réglée), `machineUrl` (l'adresse
-   * réglée, sinon celle de runtime.machineUrl : OLLAMA_HOST simulé) et
-   * `machineLocal`, `servedVersion` (rendue seulement si serverState vaut
-   * running ; l'intégré : builtinVersion) et, quand l'intégré sert,
-   * `builtinState` (d'après serverState).
-   */
-  runtime: OllamaRuntime;
-  /**
-   * État que prend le serveur quand l'intégré est choisi (set_ollama_source)
-   * ou relancé (restart_builtin_ollama) : running par défaut.
-   */
-  builtinState: ServerState;
-  /** Issue de start_ollama_service (started : serverState passe à running). */
-  serviceStart: ServiceStart;
-  /**
-   * Échecs forcés de set_ollama_source, start_ollama_service,
-   * restart_builtin_ollama, open_builtin_folder et open_builtin_log (null :
-   * réponse normale).
-   */
-  runtimeErrors: {
-    setSource: AppError | null;
-    start: AppError | null;
-    restart: AppError | null;
-    openFolder: AppError | null;
-    openLog: AppError | null;
-  };
   /**
    * Disque lu par stage_paths, par chemin : un chemin absent d'ici est
    * illisible (« Error reading file »).
@@ -381,44 +312,16 @@ export interface FakeBackend {
    * nom image.png, taille limitée comme stage_bytes) ; null : aucune.
    */
   clipboardImage: { size: number } | null;
-  /** Réponse de get_models_location (service système par défaut). */
-  modelsLocation: ModelsLocation;
-  /** Réponses des prochains pick_models_folder ; plus rien : annulé (null). */
-  folderPicks: (string | null)[];
   /**
-   * Réponses de check_models_folder par chemin, sur une vérification sans
-   * problème (DEFAULT_FOLDER_CHECK).
-   */
-  folderChecks: Map<string, Partial<FolderCheck>>;
-  /** Réponse de get_ollama_home : dossier .ollama caché au service, ou null. */
-  ollamaHome: HiddenHome | null;
-  /**
-   * Compte du serveur (account_status) ; délié par account_sign_out.
-   * account_sign_in n'y touche pas (la connexion se fait dans le
-   * navigateur) : le test le relie lui-même.
-   */
-  account: AccountStatus;
-  /**
-   * Échecs forcés de account_status, account_sign_in et account_sign_out
-   * (null : réponse normale).
-   */
-  accountErrors: {
-    status: AppError | null;
-    signIn: AppError | null;
-    signOut: AppError | null;
-  };
-  /** Réponse de cloud_status (null : le serveur n'en dit rien). */
-  cloud: CloudStatus | null;
-  /**
-   * Modèles en mémoire (running_models) ; load_model y ajoute un modèle
+   * Modèles du moteur (running_models) ; load_model y ajoute un modèle
    * installé (contexte et durée des réglages), unload_model et
    * unload_all_models l'en retirent.
    */
-  running: RunningModel[];
+  running: EngineRunningModel[];
   /**
-   * Mémoire de la machine du serveur (machine_memory, jauge de la VRAM) ;
-   * null : serveur distant. Par défaut, une carte de 24 Go dont la mémoire
-   * libre est inconnue (pas d'autres usages).
+   * Mémoire de la machine (machine_memory, jauge de la VRAM) ; null :
+   * illisible. Par défaut, une carte de 24 Go dont la mémoire libre est
+   * inconnue (pas d'autres usages).
    */
   machine: MachineMemory | null;
   /**
@@ -452,7 +355,7 @@ export interface FakeBackend {
    * échec gardé.
    */
   updates: UpdateStatus;
-  /** Réponse de app_versions : ChatonLM 0.9.0, sans Ollama intégré. */
+  /** Réponse de app_versions : ChatonLM 0.9.0, sans moteur livré. */
   versions: AppVersions;
   /**
    * Échecs forcés de check_for_updates, download_update, restart_to_update
@@ -468,6 +371,10 @@ export interface FakeBackend {
   record(sequence: Sequence): void;
   /** Faux moteur du ModelHub (commandes hub_*). */
   hub: FakeHub;
+  /** Faux moteur llama.cpp (engine_*, pick_models_folder, change_engine_models_dir). */
+  engine: FakeEngine;
+  /** Faux moteur de la reprise des modèles d'Ollama (model_import_*). */
+  modelImport: FakeModelImport;
   /** Faux moteur de la dictée (commandes de la dictée et speech_*). */
   dictation: FakeDictation;
   /** Faux moteur de la correction (proofread_*) et des raccourcis (shortcuts_*). */
@@ -490,47 +397,17 @@ export interface FakeBackend {
   imageSave: boolean | AppError;
 }
 
-/** Service système de la plupart des machines, pkexec présent. */
-export const SYSTEM_SERVICE: Extract<
-  ModelsLocation,
-  { kind: "systemService" }
-> = {
-  kind: "systemService",
-  dir: "/var/lib/ollama",
-  user: "ollama",
-  group: "ollama",
-  running: true,
-  managed: false,
-  canElevate: true,
-  envFile: null,
-};
-
-/** Vérification d'un dossier vide admis, sur le même disque. */
-export function defaultFolderCheck(path: string): FolderCheck {
-  return {
-    path,
-    problem: null,
-    old: "/var/lib/ollama",
-    hasModels: false,
-    sameDrive: true,
-    models: { count: 2, bytes: 2 * 1024 ** 3 },
-    freeBytes: 100 * 1024 ** 3,
-    commands: `sudo mkdir -p '${path}'`,
-    repliesRunning: false,
-    downloadsRunning: false,
-  };
-}
-
 /**
- * Gestionnaires de account_status, account_sign_in, account_sign_out,
- * cloud_status, get_settings, update_settings, list_models,
- * recommended_models, model_exists_upstream, model_details, get_think_pref,
- * set_think_pref, server_status, get_chat, list_chats, set_chat_favorite,
+ * Gestionnaires de get_settings, update_settings, list_models,
+ * recommended_models, outdated_models, model_details, get_think_pref,
+ * set_think_pref, get_chat, list_chats, set_chat_favorite,
  * compact_chat (backend.compaction),
  * pick_files,
  * stage_paths, stage_bytes, stage_clipboard_image, unstage, les commandes
- * hub_* (src/test/hub.ts), get_models_location, pick_models_folder,
- * check_models_folder, get_ollama_home, get_dictation_settings, update_dictation_settings,
+ * hub_* (src/test/hub.ts), engine_status, open_engine_logs,
+ * engine_models_dir, pick_models_folder, change_engine_models_dir
+ * (src/test/engine.ts), model_import_* (src/test/modelImport.ts),
+ * get_dictation_settings, update_dictation_settings,
  * dictation_info, dictation_status, dictation_toggle, dictation_cancel,
  * dictation_copy_last,
  * dictation_bind_shortcut, dictation_configure_shortcut, speech_models,
@@ -544,10 +421,7 @@ export function defaultFolderCheck(path: string): FolderCheck {
  * voice_mode_*, get_voice_mode_settings et update_voice_mode_settings
  * (src/test/voiceMode.ts), easy_link_* (src/test/easyLink.ts), bridge_*
  * (src/test/bridge.ts), image_*
- * (src/test/images.ts), save_image (backend.imageSave),
- * ollama_runtime,
- * set_ollama_source, start_ollama_service, restart_builtin_ollama,
- * open_builtin_folder, open_builtin_log, menu_entry_status,
+ * (src/test/images.ts), save_image (backend.imageSave), menu_entry_status,
  * set_menu_entry, update_status, app_versions, check_for_updates,
  * download_update, restart_to_update et set_auto_download,
  * branchés sur le simulateur ; un send_message qui joint un
@@ -561,23 +435,19 @@ export function fakeBackend(
     details = [],
     thinkPrefs = {},
     recommended = [],
-    upstream = [],
     files = {},
   }: {
     selectedModel?: string;
     models?: string[];
     details?: (ModelDetails | [string, AppError])[];
     thinkPrefs?: Record<string, Think>;
-    /** Modèles recommandés par le serveur (un nom : sans forfait). */
-    /** Un nom seul, ou une entrée dont la mémoire et la pastille sont
-     * absentes par défaut. */
+    /**
+     * Modèles recommandés : un identifiant seul, ou une entrée dont la
+     * mémoire et la pastille sont absentes par défaut.
+     */
     recommended?: (
-      | string
-      | (Pick<RecommendedModel, "model" | "requiredPlan"> &
-          Partial<RecommendedModel>)
+      string | (Pick<RecommendedModel, "model"> & Partial<RecommendedModel>)
     )[];
-    /** Modèles présents au registre. */
-    upstream?: string[];
     /** Disque lu par stage_paths, par chemin. */
     files?: Record<string, FakeEntry>;
   } = {},
@@ -585,6 +455,8 @@ export function fakeBackend(
   const backend: Omit<
     FakeBackend,
     | "hub"
+    | "engine"
+    | "modelImport"
     | "dictation"
     | "proofread"
     | "study"
@@ -595,6 +467,8 @@ export function fakeBackend(
     | "images"
   > & {
     hub?: FakeHub;
+    engine?: FakeEngine;
+    modelImport?: FakeModelImport;
     dictation?: FakeDictation;
     proofread?: FakeProofread;
     study?: FakeStudy;
@@ -640,12 +514,24 @@ export function fakeBackend(
     ),
     thinkPrefs: new Map(Object.entries(thinkPrefs)),
     models: [...models],
+    renamed: new Map(),
     recommended: recommended.map((entry) =>
       typeof entry === "string"
-        ? { model: entry, requiredPlan: null, vramBytes: null, fit: null }
-        : { vramBytes: null, fit: null, ...entry },
+        ? {
+            model: entry,
+            displayName: entry,
+            sizeBytes: null,
+            vramBytes: null,
+            fit: null,
+          }
+        : {
+            displayName: entry.model,
+            sizeBytes: null,
+            vramBytes: null,
+            fit: null,
+            ...entry,
+          },
     ),
-    upstream: new Set(upstream),
     outdated: new Set(),
     outdatedError: null,
     chats: new Map(),
@@ -654,29 +540,10 @@ export function fakeBackend(
       used: 200,
       error: null,
     },
-    serverState: "running",
-    service: null,
-    runtime: machineRuntime(),
-    builtinState: "running",
-    serviceStart: { kind: "started" },
-    runtimeErrors: {
-      setSource: null,
-      start: null,
-      restart: null,
-      openFolder: null,
-      openLog: null,
-    },
     files: new Map(Object.entries(files)),
     staged: new Map(),
     picks: [],
     clipboardImage: null,
-    modelsLocation: { ...SYSTEM_SERVICE },
-    folderPicks: [],
-    folderChecks: new Map(),
-    ollamaHome: null,
-    account: { state: "signedOut" },
-    accountErrors: { status: null, signIn: null, signOut: null },
-    cloud: { disabled: false, source: "none" },
     running: [],
     machine: {
       gpus: [
@@ -701,7 +568,7 @@ export function fakeBackend(
       installer: "appImage",
       lastError: null,
     },
-    versions: { chatonlm: "0.9.0", ollama: null },
+    versions: { chatonlm: "0.9.0", llamaCpp: null },
     imageSaves: [],
     imageSave: true,
     updateErrors: {
@@ -724,6 +591,12 @@ export function fakeBackend(
   };
 
   backend.hub = fakeHub(simulator, backend);
+  backend.engine = fakeEngine(simulator);
+  // Changement de dossier accepté : le moteur décharge les modèles.
+  backend.engine.onAccepted = () => {
+    backend.running = [];
+  };
+  backend.modelImport = fakeModelImport(simulator);
   backend.dictation = fakeDictation(simulator);
   backend.proofread = fakeProofread(simulator, backend);
   backend.study = fakeStudy(simulator, backend);
@@ -735,6 +608,8 @@ export function fakeBackend(
   backend.easyLink = fakeEasyLink(simulator);
   backend.bridge = fakeBridge(simulator);
   backend.images = fakeImages(simulator, () => backend.settings.showUncensored);
+  installRemote(simulator);
+  installWebSearch(simulator);
   simulator.handle("quit_app", () => null);
   simulator.handle("save_image", (args: Args) => {
     backend.imageSaves.push(args.attachmentId as number);
@@ -988,40 +863,6 @@ export function fakeBackend(
     return null;
   });
 
-  simulator.handle("get_models_location", (): ModelsLocation =>
-    backend.runtime.kind === "builtin"
-      ? {
-          kind: "builtin",
-          dir: backend.runtime.builtinModelsDir,
-          isDefault: backend.runtime.builtinModelsDirIsDefault,
-        }
-      : backend.modelsLocation,
-  );
-  simulator.handle(
-    "pick_models_folder",
-    () => backend.folderPicks.shift() ?? null,
-  );
-  simulator.handle("get_ollama_home", () => backend.ollamaHome);
-  simulator.handle("check_models_folder", (args: Args) => {
-    const path = args.path as string;
-    return { ...defaultFolderCheck(path), ...backend.folderChecks.get(path) };
-  });
-
-  simulator.handle("account_status", () => {
-    if (backend.accountErrors.status) throw backend.accountErrors.status;
-    return backend.account;
-  });
-  simulator.handle("account_sign_in", () => {
-    if (backend.accountErrors.signIn) throw backend.accountErrors.signIn;
-    return null;
-  });
-  simulator.handle("account_sign_out", () => {
-    if (backend.accountErrors.signOut) throw backend.accountErrors.signOut;
-    backend.account = { state: "signedOut" };
-    return null;
-  });
-  simulator.handle("cloud_status", () => backend.cloud);
-
   simulator.handle("ui_language", () => backend.settings.effectiveLanguage);
   simulator.handle("get_settings", () => {
     if (backend.settingsErrors.get) throw backend.settingsErrors.get;
@@ -1032,8 +873,6 @@ export function fakeBackend(
   simulator.handle("update_settings", (args: Args) => {
     if (backend.settingsErrors.update) throw backend.settingsErrors.update;
     const patch = args.patch as SettingsPatch;
-    const serverUrl =
-      patch.serverUrl === undefined ? undefined : checkAddress(patch.serverUrl);
     if (
       patch.contextLength !== undefined &&
       !CONTEXT_LENGTHS.includes(patch.contextLength)
@@ -1063,12 +902,20 @@ export function fakeBackend(
         `the system prompt holds at most ${MAX_SYSTEM_PROMPT_CHARS} characters`,
       );
     }
-    const settings: Settings = {
-      ...backend.settings,
-      ...patch,
-      ...(serverUrl !== undefined && { serverUrl }),
-    };
-    settings.effectiveServerUrl = settings.serverUrl || SERVER_URL;
+    const settings: Settings = { ...backend.settings, ...patch };
+    // Ancien nom d'un modèle repris : son nouvel identifiant.
+    for (const key of [
+      "selectedModel",
+      "proofreadModel",
+      "studyModel",
+    ] as const) {
+      const value = patch[key];
+      if (value === undefined || value === null) continue;
+      const renamed = [...backend.renamed].find(
+        ([name]) => ollamaKey(name) === ollamaKey(value),
+      );
+      if (renamed) settings[key] = renamed[1];
+    }
     // Langue du bureau des essais : l'anglais.
     settings.effectiveLanguage =
       settings.language === "system" ? "en" : settings.language;
@@ -1090,7 +937,13 @@ export function fakeBackend(
     backend.settings = settings;
     return settings;
   });
-  simulator.handle("list_models", () => backend.models.map(modelInfo));
+  // Comme le moteur : les modèles distants seulement si le réglage les
+  // permet.
+  simulator.handle("list_models", () =>
+    backend.models
+      .filter((id) => backend.settings.remoteModels || !isRemoteModel(id))
+      .map((id) => modelInfo(id)),
+  );
   simulator.handle("machine_memory", () => backend.machine);
   simulator.handle("auto_model", () => {
     if (backend.runningErrors.list)
@@ -1103,34 +956,37 @@ export function fakeBackend(
     if (backend.runningErrors.list) throw backend.runningErrors.list;
     return backend.running;
   });
-  // Comme le moteur et Ollama : modèle inconnu → 404 « not found » ; déjà
-  // en mémoire, il y reste (même contexte), sa durée repart.
+  // Comme le moteur : modèle inconnu → « not found » ; distant : rien à
+  // charger ; déjà chargé, il y reste (même contexte), sa durée repart.
   simulator.handle("load_model", (args: Args) => {
     const model = args.model as string;
     const error = backend.runningErrors.load.get(model);
     if (error) throw error;
-    if (!backend.models.some((name) => sameRunningName(name, model))) {
-      throw { kind: "notFound", message: `model '${model}' not found` };
+    const installed = backend.models.find((id) => sameModel(id, model));
+    if (installed === undefined) {
+      throw {
+        kind: "notFound",
+        message: `the model ${model} isn't installed`,
+      };
     }
+    if (isRemoteModel(installed)) return null;
     const { contextLength, keepAlive } = backend.settings;
     const seconds = keepAlive === 0 ? 300 : keepAlive;
-    const loaded = runningModel(withLatest(model), {
+    const loaded = runningModel(installed, {
       contextLength: contextLength || 4096,
       expiresAt: seconds < 0 ? null : Date.now() + seconds * 1000,
       kept: seconds < 0,
     });
     backend.running = [
-      ...backend.running.filter((m) => !sameRunningName(m.name, model)),
       loaded,
+      ...backend.running.filter((m) => !sameModel(m.id, model)),
     ];
     return null;
   });
   simulator.handle("unload_model", (args: Args) => {
     if (backend.runningErrors.unload) throw backend.runningErrors.unload;
     const model = args.model as string;
-    backend.running = backend.running.filter(
-      (m) => !sameRunningName(m.name, model),
-    );
+    backend.running = backend.running.filter((m) => !sameModel(m.id, model));
     return null;
   });
   simulator.handle("unload_all_models", () => {
@@ -1139,9 +995,6 @@ export function fakeBackend(
     return null;
   });
   simulator.handle("recommended_models", () => backend.recommended);
-  simulator.handle("model_exists_upstream", (args: Args) =>
-    backend.upstream.has(args.model as string),
-  );
   simulator.handle("outdated_models", (args: Args) => {
     if (backend.outdatedError) throw backend.outdatedError;
     const stale = [...backend.outdated].map(canonicalModel);
@@ -1170,95 +1023,6 @@ export function fakeBackend(
   );
   simulator.handle("set_think_pref", (args: Args) => {
     backend.thinkPrefs.set(args.model as string, args.think as Think);
-    return null;
-  });
-  simulator.handle("server_status", (): ServerStatus => {
-    const builtin = backend.runtime.kind === "builtin";
-    return {
-      url: builtin ? BUILTIN_URL : SERVER_URL,
-      state: backend.serverState,
-      version:
-        backend.serverState === "running"
-          ? builtin
-            ? backend.runtime.builtinVersion
-            : MACHINE_VERSION
-          : null,
-      alternativeUrl: null,
-      hostEnv: null,
-      httpStatus: null,
-      detail: null,
-      service: builtin ? null : backend.service,
-      builtin,
-      builtinAvailable: backend.runtime.builtinAvailable,
-      explicitAddress: !builtin && backend.settings.serverUrl !== "",
-      logPath: builtin ? OLLAMA_LOG : null,
-    };
-  });
-  const runtime = (): OllamaRuntime => {
-    const current = backend.runtime;
-    const builtin = current.kind === "builtin";
-    const url = builtin ? BUILTIN_URL : backend.settings.effectiveServerUrl;
-    const running = backend.serverState === "running";
-    // Adresse que reprend le choix automatique : celle des réglages, sinon
-    // runtime.machineUrl (OLLAMA_HOST ou l'adresse par défaut).
-    const machineUrl = backend.settings.serverUrl || current.machineUrl;
-    return {
-      ...current,
-      url,
-      local: builtin || LOOPBACK.test(url),
-      machineUrl,
-      machineLocal: LOOPBACK.test(machineUrl),
-      explicitAddress: backend.settings.serverUrl !== "",
-      servedVersion: !running
-        ? null
-        : builtin
-          ? current.builtinVersion
-          : current.servedVersion,
-      builtinState: builtin
-        ? (BUILTIN_STATES[backend.serverState] ?? "stopped")
-        : current.builtinState,
-    };
-  };
-  simulator.handle("ollama_runtime", runtime);
-  // État de la machine, retrouvé en quittant l'intégré.
-  let machineState: ServerState = "running";
-  simulator.handle("set_ollama_source", (args: Args) => {
-    if (backend.runtimeErrors.setSource) throw backend.runtimeErrors.setSource;
-    const source = args.source as OllamaRuntime["source"];
-    const wasBuiltin = backend.runtime.kind === "builtin";
-    backend.runtime.source = source;
-    if (source === "builtin") {
-      if (!wasBuiltin) machineState = backend.serverState;
-      backend.runtime.kind = "builtin";
-      backend.serverState = backend.builtinState;
-      backend.settings.effectiveServerUrl = BUILTIN_URL;
-    } else {
-      backend.runtime.kind = "machine";
-      if (wasBuiltin) backend.serverState = machineState;
-      backend.settings.effectiveServerUrl =
-        backend.settings.serverUrl || SERVER_URL;
-    }
-    return runtime();
-  });
-  simulator.handle("start_ollama_service", (): ServiceStart => {
-    if (backend.runtimeErrors.start) throw backend.runtimeErrors.start;
-    if (backend.serviceStart.kind === "started")
-      backend.serverState = "running";
-    return backend.serviceStart;
-  });
-  simulator.handle("restart_builtin_ollama", () => {
-    if (backend.runtimeErrors.restart) throw backend.runtimeErrors.restart;
-    backend.serverState = backend.builtinState;
-    return null;
-  });
-  simulator.handle("open_builtin_folder", () => {
-    if (backend.runtimeErrors.openFolder) {
-      throw backend.runtimeErrors.openFolder;
-    }
-    return null;
-  });
-  simulator.handle("open_builtin_log", () => {
-    if (backend.runtimeErrors.openLog) throw backend.runtimeErrors.openLog;
     return null;
   });
   simulator.handle("get_chat", (args: Args): Chat => {
@@ -1349,15 +1113,6 @@ export function fakeBackend(
 }
 
 /** Nom avec « :latest » s'il n'a pas d'étiquette, comme /api/ps. */
-function withLatest(name: string): string {
-  const last = name.slice(name.lastIndexOf("/") + 1);
-  return last.includes(":") ? name : `${name}:latest`;
-}
-
-function sameRunningName(a: string, b: string): boolean {
-  return withLatest(a).toLowerCase() === withLatest(b).toLowerCase();
-}
-
 function emptyReply(id: number, at: number, model: string): Message {
   return {
     id,
@@ -1412,44 +1167,6 @@ function mimeOf(extension: string) {
 function rejected(filename: string, error: string): StageResult {
   return { status: "rejected", filename, error };
 }
-
-/**
- * Adresse réglée, version simplifiée d'address::normalize du moteur : rognée,
- * vide = automatique ; avec « :// », URL lisible, schéma http ou https, sans
- * identifiants, requête ni fragment ; sinon, hôte simple (nom ou IPv4, ou
- * IPv6 entre crochets), port et chemin facultatifs. Pas d'autre
- * normalisation (schéma ajouté, port par défaut, /api retiré...).
- */
-function checkAddress(input: string): string {
-  const value = input.trim();
-  if (value === "") return "";
-  if (!value.includes("://")) {
-    if (!SIMPLE_HOST.test(value)) {
-      throw invalid(`invalid server address: ${value}`);
-    }
-    return value;
-  }
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw invalid(`invalid server address: ${value}`);
-  }
-  const scheme = url.protocol.slice(0, -1);
-  if (scheme !== "http" && scheme !== "https") {
-    throw invalid(`invalid server address: unsupported scheme ${scheme}`);
-  }
-  if (url.username || url.password) {
-    throw invalid("invalid server address: credentials are not supported");
-  }
-  if (url.search || url.hash || value.includes("?") || value.includes("#")) {
-    throw invalid("invalid server address: query strings are not supported");
-  }
-  return value;
-}
-
-/** Hôte simple, port et chemin facultatifs (adresse sans schéma). */
-const SIMPLE_HOST = /^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+)(:\d{1,5})?(\/\S*)?$/;
 
 function invalid(message: string): AppError {
   return { kind: "invalid", message };

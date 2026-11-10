@@ -2,13 +2,16 @@
 // `proofreadModel` ; Study : `studyModel`) : « Auto » (réglage vide : le
 // meilleur modèle en mémoire, sinon celui du chat, choisi par le moteur à
 // chaque travail), puis les modèles installés ; un modèle réglé absent de la
-// liste reste montré. Les textes viennent de la page (son espace de langue).
+// liste reste montré. Chaque option montre le nom court du modèle (titre et
+// étiquette, `shortModelName`), jamais l'identifiant brut (`@ollama/…`,
+// `<auteur>/<dépôt>-GGUF:<QUANT>`), qui reste sa valeur. Les textes viennent
+// de la page (son espace de langue).
 
 import { type Ref, useState } from "react";
 import { useModels } from "@/hooks/useModels";
 import { useSettings } from "@/hooks/useSettings";
 import { errorMessage } from "@/lib/ipc";
-import { sameModel } from "@/lib/modelNames";
+import { sameModel, shortModelName } from "@/lib/modelNames";
 
 const SELECT =
   "h-8 max-w-64 min-w-0 rounded-lg border border-neutral-300 bg-white pr-7 pl-2 text-sm text-neutral-900 outline-none focus-visible:border-accent-fg focus-visible:ring-2 focus-visible:ring-accent-fg/40 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100";
@@ -36,9 +39,9 @@ export function ModelSettingSelect({
   const models = useModels();
   const [saveError, setSaveError] = useState<string | null>(null);
   const read = models.data !== undefined;
-  const names = (models.data ?? []).map((model) => model.model);
+  const names = (models.data ?? []).map((model) => model.id);
   const value = settings?.[setting] ?? "";
-  // Même modèle à la casse près : l'option de la liste.
+  // Même modèle (quantification sans la casse) : l'option de la liste.
   const listedName =
     value === "" ? "" : names.find((name) => sameModel(name, value));
   const save = (model: string) => {
@@ -67,12 +70,14 @@ export function ModelSettingSelect({
           <option value="">{texts.auto}</option>
           {listedName === undefined && (
             <option value={value}>
-              {read ? texts.notInstalled(value) : value}
+              {read
+                ? texts.notInstalled(shortModelName(value))
+                : shortModelName(value)}
             </option>
           )}
           {names.map((name) => (
             <option key={name} value={name}>
-              {name}
+              {shortModelName(name)}
             </option>
           ))}
         </select>

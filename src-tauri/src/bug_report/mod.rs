@@ -4,7 +4,8 @@
 //! formulaire de contact du site.
 //!
 //! Rien ne part sans un clic sur « Send ». Le diagnostic (versions, système,
-//! Ollama utilisé, fin du journal de l'app) n'est joint que si l'utilisateur
+//! état du moteur de texte, fin du journal de l'app ; jamais le journal du
+//! moteur, qui peut citer des messages) n'est joint que si l'utilisateur
 //! le laisse coché, après l'avoir vu ([`diagnostic`] donne le même texte à la
 //! page) ; son dossier personnel et son nom de compte y sont masqués.
 
@@ -22,6 +23,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::commands::engine::{EngineBackend, EngineStatus};
 use crate::commands::platform::Platform;
 
 /// Adresse du service, sauf essais (`CHATONLM_REPORT_URL`).
@@ -81,8 +83,8 @@ pub struct Facts {
     /// AppImage, Deb, Nsis, ou autre.
     pub install: String,
     pub language: String,
-    pub ollama: String,
-    pub builtin_ollama: Option<String>,
+    /// Moteur de texte (`llama-server`), voir [`engine_line`].
+    pub engine: String,
     /// Fin du journal de l'app.
     pub log: String,
 }
@@ -138,6 +140,28 @@ pub fn desktop() -> Option<String> {
     os::desktop()
 }
 
+/// Ligne « Engine » du diagnostic : « llama.cpp <version>, Vulkan (<carte>) »,
+/// « …, processor (no graphics card) », « …, processor (graphics card failed
+/// this session: <carte>) », ou « missing » sans moteur livré.
+pub fn engine_line(status: &EngineStatus) -> String {
+    if !status.available {
+        return "missing".to_owned();
+    }
+    let version = status.version.as_deref().unwrap_or("unknown version");
+    let backend = match (status.backend, status.cpu_fallback, &status.gpu_name) {
+        (EngineBackend::Vulkan, _, Some(gpu)) => format!("Vulkan ({gpu})"),
+        (EngineBackend::Vulkan, _, None) => "Vulkan".to_owned(),
+        (EngineBackend::Cpu, true, Some(gpu)) => {
+            format!("processor (graphics card failed this session: {gpu})")
+        }
+        (EngineBackend::Cpu, true, None) => {
+            "processor (graphics card failed this session)".to_owned()
+        }
+        (EngineBackend::Cpu, false, _) => "processor (no graphics card)".to_owned(),
+    };
+    format!("llama.cpp {version}, {backend}")
+}
+
 /// Texte du diagnostic, tel qu'il est montré puis envoyé.
 pub fn diagnostic(facts: &Facts) -> String {
     let mut text = String::new();
@@ -155,10 +179,7 @@ pub fn diagnostic(facts: &Facts) -> String {
     }
     line("Installed as", &facts.install);
     line("Language", &facts.language);
-    line("Ollama", &facts.ollama);
-    if let Some(builtin) = &facts.builtin_ollama {
-        line("Built-in Ollama", builtin);
-    }
+    line("Engine", &facts.engine);
     let log = facts.log.trim_end();
     if !log.is_empty() {
         text.push_str("\n--- chatonlm.log (end) ---\n");

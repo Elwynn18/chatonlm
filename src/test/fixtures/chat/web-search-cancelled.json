@@ -2,8 +2,8 @@
   "description": "Web search stopped by the user while the tool runs: the call stays without result or error.",
   "request": {
     "streamId": "stream-1",
-    "content": "Search slowly for the latest Ollama release.",
-    "model": "chatonlm-search",
+    "content": "What is new in llama.cpp?",
+    "model": "chat/Websearch-GGUF:Q4_K_M",
     "webSearch": true
   },
   "events": [
@@ -16,7 +16,7 @@
       "message": {
         "id": 1,
         "role": "user",
-        "content": "Search slowly for the latest Ollama release.",
+        "content": "What is new in llama.cpp?",
         "thinking": "",
         "model": null,
         "createdAt": 1700000000000,
@@ -34,17 +34,14 @@
       "type": "loaded"
     },
     {
+      "type": "context",
+      "used": 42,
+      "size": 32768
+    },
+    {
       "type": "replyStarted",
       "messageId": 2,
       "createdAt": 1700000000000
-    },
-    {
-      "type": "thinking",
-      "text": "The user wants a"
-    },
-    {
-      "type": "thinking",
-      "text": " web search."
     },
     {
       "type": "toolCalls",
@@ -52,7 +49,7 @@
       "toolCalls": [
         {
           "name": "web_search",
-          "arguments": "{\"query\":\"Search slowly for the latest Ollama release.\"}",
+          "arguments": "{\"query\":\"What is new in llama.cpp?\"}",
           "result": null,
           "error": null
         }

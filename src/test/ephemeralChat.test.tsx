@@ -14,8 +14,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { newChatIsEphemeral, resetEphemeral } from "@/lib/ephemeral";
 import * as streams from "@/lib/streams";
 import { fakeBackend } from "@/test/backend";
-import { renderApp, texts } from "@/test/renderApp";
-import { installSimulator, sequence } from "@/test/simulator";
+import { renderApp, shownModel, texts } from "@/test/renderApp";
+import { installSimulator, replyText, sequence } from "@/test/simulator";
 
 configure({ asyncUtilTimeout: 5000 });
 // Parcours complets (rendu, simulateur, plusieurs pages).
@@ -27,10 +27,15 @@ afterEach(() => {
 });
 
 const HELLO = "Say hello in one word.";
+/** Modèle des séquences (le même pour new-chat-ephemeral et new-chat-thinking). */
+const MODEL = sequence("new-chat-ephemeral").request.model;
 
 function setup(path: string, recorded: string[] = []) {
   const simulator = installSimulator({ latencyMs: 20 });
-  const backend = fakeBackend(simulator, { selectedModel: "qwen3:0.6b" });
+  const backend = fakeBackend(simulator, {
+    selectedModel: MODEL,
+    models: [MODEL],
+  });
   for (const name of recorded) backend.record(sequence(name));
   const app = renderApp(path);
   return { simulator, backend, app };
@@ -38,9 +43,7 @@ function setup(path: string, recorded: string[] = []) {
 
 async function send(text: string) {
   const textarea = await screen.findByLabelText("Message");
-  await waitFor(() =>
-    expect(screen.getByTitle("Select model").textContent).toBe("qwen3:0.6b"),
-  );
+  await waitFor(() => expect(shownModel()).toBe(MODEL));
   await userEvent.type(textarea, `${text}{Enter}`);
 }
 
@@ -90,7 +93,7 @@ async function startEphemeral(
   await replyEnded();
   await waitFor(() => expect(app.path()).toBe("/c/chat-1"));
   expect(replay.request?.ephemeral).toBe(true);
-  expect(texts("assistant")).toEqual(['"Hello"']);
+  expect(texts("assistant")).toEqual([replyText("new-chat-ephemeral")]);
 }
 
 async function open(app: ReturnType<typeof renderApp>, chatId: string) {
@@ -175,7 +178,9 @@ describe("ephemeral chats", () => {
     ]);
     expect(backend.chats.get("chat-1")?.ephemeral).toBe(true);
     await screen.findByTestId("ephemeral-banner");
-    await waitFor(() => expect(texts("assistant")).toEqual(['"Hello"']));
+    await waitFor(() =>
+      expect(texts("assistant")).toEqual([replyText("new-chat-ephemeral")]),
+    );
 
     await open(app, "new");
     await waitFor(() =>
@@ -186,7 +191,9 @@ describe("ephemeral chats", () => {
 
   it("in an ordinary chat, the ghost kitten opens a new ephemeral chat", async () => {
     const { simulator, app } = setup("/c/chat-1", ["new-chat-thinking"]);
-    await waitFor(() => expect(texts("assistant")).toEqual(['"Hello"']));
+    await waitFor(() =>
+      expect(texts("assistant")).toEqual([replyText("new-chat-ephemeral")]),
+    );
     expect(screen.queryByTestId("ephemeral-banner")).toBeNull();
 
     await userEvent.click(
@@ -201,7 +208,9 @@ describe("ephemeral chats", () => {
 
   it("Ctrl+Shift+N opens a new ephemeral chat", async () => {
     const { app } = setup("/c/chat-1", ["new-chat-thinking"]);
-    await waitFor(() => expect(texts("assistant")).toEqual(['"Hello"']));
+    await waitFor(() =>
+      expect(texts("assistant")).toEqual([replyText("new-chat-ephemeral")]),
+    );
 
     await userEvent.keyboard("{Control>}{Shift>}N{/Shift}{/Control}");
     await waitFor(() => expect(app.path()).toBe("/c/new"));

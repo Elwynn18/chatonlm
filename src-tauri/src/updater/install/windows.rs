@@ -5,7 +5,7 @@
 //! Un programme en cours ne se remplace pas sous Windows : l'installateur
 //! NSIS vérifié est copié dans un dossier à soi, lancé détaché, puis ChatonLM
 //! se ferme ; l'installateur écrit les fichiers et relance ChatonLM. Ses
-//! services (dont l'Ollama intégré, qui verrouille ses fichiers) sont arrêtés
+//! services (dont les `llama-server` du moteur, qui verrouillent leurs fichiers) sont arrêtés
 //! avant, par `stop_services` ; l'installateur arrête aussi ce qui resterait
 //! (crochet `packaging/windows/hooks.nsh`).
 

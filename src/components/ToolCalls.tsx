@@ -25,7 +25,9 @@
  * without progress, while an Easy Link bot's reply runs in the chat); once
  * the reply has ended without a result, "Image stopped"; its error with a link to the
  * Images tab of the ModelHub; once done, "Created an image", unfolding its
- * prompt like the web results (the image itself: GeneratedImage.tsx).
+ * prompt like the web results (the image itself: GeneratedImage.tsx); the
+ * web search goes through ChatonLM's relay, and a result found by Brave says
+ * "Powered by Brave Search" under its block (WebSearchAttribution.tsx).
  */
 
 import {
@@ -39,6 +41,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useState } from "react";
 import type { ImageProgress } from "@/bindings/ImageProgress";
 import type { ToolCall } from "@/bindings/ToolCall";
+import { WebSearchAttribution } from "@/components/WebSearchAttribution";
 import { useImageProgress } from "@/hooks/useSendMessage";
 import { type TFunction, useT } from "@/i18n";
 import { Trans } from "@/i18n/Trans";
@@ -482,6 +485,7 @@ export function ToolResult({ call }: { call: ToolCall }) {
           </pre>
         </div>
       </div>
+      <WebSearchAttribution call={call} />
     </div>
   );
 }

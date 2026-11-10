@@ -345,6 +345,17 @@ async fn the_errors_are_those_of_the_real_server() {
         body["choices"][0]["message"]["content"],
         "I see 1 image(s). You said: What?"
     );
+    // WebP (même sous un autre type annoncé) : refusé comme b12110 sans
+    // `ffmpeg`.
+    let webp = json!({ "messages": [{ "role": "user", "content": [
+        { "type": "image_url", "image_url": { "url": "data:image/png;base64,UklGRkwAAABXRUJQ" } } ] }] });
+    let (status, body) =
+        read(call(&vision, Method::POST, "/v1/chat/completions", None, webp).await).await;
+    assert_eq!(status, 500);
+    assert_eq!(
+        body["error"]["message"],
+        "Failed to load image or audio file"
+    );
 
     let (status, body) = read(
         call(

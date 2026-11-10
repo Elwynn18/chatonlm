@@ -1,8 +1,10 @@
 // Travaux de l'app demandés par le lien VS Code (lot 4a, contrat
 // .tools/research/93-lot4a-contract.md), dans l'app réelle (build e2e), avec
-// le faux Ollama, les faux Telegram et Discord (fake-messengers), le faux
-// Hugging Face et le faux moteur d'images (fake-sd-server), et le client Node
-// du pont (e2e/lib/bridge.mjs) :
+// le faux moteur de texte (fake-llama : `startEngine`, scénarios
+// `chatonlm-simple`, `chatonlm-study-slow`, `chatonlm-proofer`), les faux
+// Telegram et Discord (fake-messengers), le faux Hugging Face et le faux
+// moteur d'images (fake-sd-server), et le client Node du pont
+// (e2e/lib/bridge.mjs) :
 // - Easy Link prévient : coupé par défaut (-32035) ; la bascule de l'onglet
 //   Easy Link l'active ; un message part au compte Telegram lié (à son
 //   identifiant, sans message reçu avant), borné à un toutes les 30 s par
@@ -13,8 +15,8 @@
 //   jusqu'au plan prêt pour chacun, cours visibles par la page
 //   (`study_list`) ; `app.show` mène la page au cours, refuse une page hors
 //   de sa liste ;
-// - correction : « Auto » ne retombe jamais sur le modèle cloud du chat
-//   (refus, rien ne part) ; passages en `proofread.event`, texte corrigé
+// - correction : « Auto » ne retombe jamais sur le modèle distant du chat
+//   (`@remote/…` : refus, rien ne part) ; passages en `proofread.event`, texte corrigé
 //   rendu ;
 // - image : aucun modèle d'images → -32036 ; modèle installé → PNG rendu en
 //   base64, avancement en `image.event` ;
@@ -23,11 +25,16 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { BridgeClient, readDiscovery } from "./lib/bridge.mjs";
-import { startFake, startFakeHf } from "./lib/fake.mjs";
+import { fakeModel, startEngine, startFakeHf } from "./lib/fake.mjs";
 import { FAKE_TOKENS, startFakeMessenger } from "./lib/messenger.mjs";
 
 const binary = process.argv[2];
-const fake = await startFake("ollama");
+const SIMPLE = fakeModel("simple");
+const STUDY = fakeModel("study-slow");
+const PROOFER = fakeModel("proofer");
+/** Modèle distant (fournisseur jamais contacté : refusé avant). */
+const REMOTE = "@remote/custom/chatonlm-remote-openai";
+const engine = startEngine([SIMPLE, STUDY, PROOFER]);
 const hf = await startFakeHf("hf");
 const telegram = await startFakeMessenger("telegram");
 const discord = await startFakeMessenger("discord");
@@ -36,7 +43,7 @@ const FAMILIES = `${ROOT}src-tauri/crates/fake-ollama/fixtures/hf/image-families
 const SD_SERVER = `${ROOT}.tools/e2e-target/debug/fake-sd-server`;
 assert.ok(existsSync(SD_SERVER), `faux moteur d'images absent : ${SD_SERVER}`);
 const env = {
-  OLLAMA_HOST: fake.url,
+  ...engine.env,
   CHATONLM_TELEGRAM_URL: telegram.url,
   CHATONLM_DISCORD_URL: discord.url,
   CHATONLM_HF_URL: hf.url,
@@ -149,7 +156,7 @@ try {
     await driver.waitFor("[data-testid=new-chat]");
     await driver.execute(WATCH_PAGE);
     await driver.invoke("update_settings", {
-      patch: { selectedModel: "qwen3:0.6b" },
+      patch: { selectedModel: SIMPLE },
     });
     await driver.invoke("bridge_set_enabled", { enabled: true });
     const paired = await driver.invoke("bridge_pair");
@@ -165,18 +172,12 @@ try {
     await client.initialize();
     assert.ok((await client.auth(clientId, secret)).result);
 
-    // --- Correction : « Auto » et le modèle cloud du chat -----------------
+    // --- Correction : « Auto » et le modèle distant du chat ---------------
     // Aucun modèle en mémoire (« Auto » prendrait celui-là).
     await driver.invoke("update_settings", {
-      patch: { selectedModel: "gpt-oss:20b-cloud", cloudModels: true },
+      patch: { selectedModel: REMOTE, remoteModels: true },
     });
-    const ps = await (await fetch(new URL("/api/ps", fake.url))).json();
-    for (const { name } of ps.models ?? []) {
-      await fetch(new URL("/api/generate", fake.url), {
-        method: "POST",
-        body: JSON.stringify({ model: name, keep_alive: 0 }),
-      });
-    }
+    await driver.invoke("unload_all_models");
     const elsewhere = await client.request("proofread.run", {
       text: "My notes, with a secret.",
       mode: "correct",
@@ -184,16 +185,18 @@ try {
     assert.equal(code(elsewhere), -32020);
     assert.equal(elsewhere.error.data.code, "noModel");
     assert.match(elsewhere.error.data.message, /runs outside this computer/);
-    // Rien n'est parti au faux serveur (journal des /api/chat).
-    const chats = await (
-      await fetch(new URL("/fake/requests", fake.url))
-    ).json();
+    // Rien n'est parti au moteur : aucun modèle chargé pour cette demande,
+    // aucune requête reçue par une instance du faux.
+    assert.deepEqual(await driver.invoke("running_models"), []);
+    const received = await Promise.all(
+      engine.ids.map((id) => engine.requests(id)),
+    );
     assert.ok(
-      !JSON.stringify(chats).includes("a secret"),
-      JSON.stringify(chats),
+      !JSON.stringify(received).includes("a secret"),
+      JSON.stringify(received),
     );
     await driver.invoke("update_settings", {
-      patch: { selectedModel: "qwen3:0.6b", cloudModels: false },
+      patch: { selectedModel: SIMPLE, remoteModels: false },
     });
 
     // --- Easy Link prévient ---------------------------------------------
@@ -289,7 +292,7 @@ try {
     // Modèle lent : le second cours arrive pendant que la file, lancée par
     // le premier, travaille encore.
     await driver.invoke("update_settings", {
-      patch: { selectedModel: "chatonlm-study-slow" },
+      patch: { selectedModel: STUDY },
     });
     let from = client.notifications.length;
     const courseIds = [];
@@ -349,7 +352,7 @@ try {
     // Modèle de la Correction réglé (« Auto » prendrait le modèle des cours,
     // encore en mémoire).
     await driver.invoke("update_settings", {
-      patch: { proofreadModel: "chatonlm-proofread" },
+      patch: { proofreadModel: PROOFER },
     });
     from = client.notifications.length;
     const proofread = await client.request("proofread.run", {
@@ -401,5 +404,5 @@ try {
   });
   console.log("vscode-tasks : OK");
 } finally {
-  await Promise.all([fake.stop(), hf.stop(), telegram.stop(), discord.stop()]);
+  await Promise.all([hf.stop(), telegram.stop(), discord.stop()]);
 }

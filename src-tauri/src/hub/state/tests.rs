@@ -86,8 +86,8 @@ async fn the_home_comes_from_two_exact_requests_then_from_the_cache() {
     assert_eq!(
         requested,
         [
-            format!("/api/models?apps=ollama&sort=downloads&limit=500&{E_LIST}"),
-            format!("/api/models?apps=ollama&sort=trendingScore&limit=200&{E_LIST}"),
+            format!("/api/models?apps=llama.cpp&sort=downloads&limit=500&{E_LIST}"),
+            format!("/api/models?apps=llama.cpp&sort=trendingScore&limit=200&{E_LIST}"),
         ]
     );
     assert!(E_LIST.contains("expand[]=siblings") && !E_LIST.contains("cardData"));
@@ -241,7 +241,7 @@ async fn the_uncensored_section_comes_only_when_shown() {
     assert_eq!(
         searches,
         ["abliterated", "heretic", "uncensored"].map(|query| format!(
-            "/api/models?apps=ollama&search={query}&sort=downloads&limit=100&{E_LIST}"
+            "/api/models?apps=llama.cpp&search={query}&sort=downloads&limit=100&{E_LIST}"
         ))
     );
     let last = shown.sections.last().unwrap();
@@ -608,7 +608,7 @@ async fn search_keeps_unverified_publishers_and_excluded_words() {
     let request = &fake.requests()[0].path;
     assert_eq!(
         request,
-        &format!("/api/models?apps=ollama&search=Qwen&sort=downloads&limit=30&{E_LIST}")
+        &format!("/api/models?apps=llama.cpp&search=Qwen&sort=downloads&limit=30&{E_LIST}")
     );
 
     let ornith = catalog
@@ -1007,15 +1007,6 @@ async fn readmes() {
         .await;
     assert_eq!(offline.text.as_deref(), Some(tiny_text.as_str()));
     assert_eq!(offline.problem, Some(HubProblem::Offline));
-}
-
-#[tokio::test]
-async fn a_remote_server_has_no_machine() {
-    let (catalog, _dir) = open_catalog("http://127.0.0.1:1");
-    assert_eq!(catalog.hardware("http://192.168.1.20:11434", 0).await, None);
-    assert_eq!(catalog.hardware("not an address", 0).await, None);
-    assert_eq!(catalog.memory("http://192.168.1.20:11434").await, None);
-    assert_eq!(catalog.memory("not an address").await, None);
 }
 
 fn real_catalog() -> (Catalog, TempDir) {

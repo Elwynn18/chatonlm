@@ -37,7 +37,7 @@ afterEach(() => {
 });
 
 const KEEP_DESCRIPTION =
-  "How long a model stays in memory after its last use. Default follows the Ollama server (5 minutes unless OLLAMA_KEEP_ALIVE is set).";
+  "How long a model stays in memory after its last use. Default: 5 minutes.";
 const PRELOAD_DESCRIPTION =
   "Load the model selected in the chat as soon as you choose it and when ChatonLM starts, so your first message doesn't wait.";
 
@@ -80,18 +80,10 @@ const preloadSwitch = () =>
   screen.getByRole<HTMLButtonElement>("switch", {
     name: "Preload the chosen model",
   });
-const unloadOnQuitSwitch = () =>
-  screen.getByRole<HTMLButtonElement>("switch", {
-    name: "Unload models when quitting",
-  });
 const uncensoredSwitch = () =>
   screen.getByRole<HTMLButtonElement>("switch", {
     name: "Show uncensored models",
   });
-const cloudSwitch = () =>
-  screen.getByRole<HTMLButtonElement>("switch", { name: "Use cloud models" });
-const SERVER_CLOUD_OFF =
-  "This Ollama server has its cloud turned off: cloud models stay hidden.";
 
 /** Carte « Loaded models », liste lue. */
 async function loadedCard() {
@@ -268,71 +260,16 @@ describe("Settings: Models", () => {
       ]);
     });
 
-    it("unloads the models when quitting unless turned off, on by default", async () => {
-      const { simulator, backend } = setup();
-      await screen.findByTestId("models-settings");
-      expect(unloadOnQuitSwitch().getAttribute("aria-checked")).toBe("true");
+    it("has no switch for unloading when quitting nor for remote models", async () => {
+      setup();
+      const card = await screen.findByTestId("models-settings");
+      // Le moteur s'arrête avec l'app ; les modèles distants se règlent dans
+      // leur propre carte (RemoteModels.tsx), pas dans celle-ci.
       expect(
-        document.getElementById(
-          unloadOnQuitSwitch().getAttribute("aria-describedby")!,
-        )?.textContent,
-      ).toBe(
-        "When you quit ChatonLM, the models Ollama still holds in memory are unloaded, freeing system memory and VRAM. Closing the window while ChatonLM keeps running in the system tray leaves them loaded.",
-      );
-      await userEvent.click(unloadOnQuitSwitch());
-      await screen.findByText("Saved");
-      await waitFor(() =>
-        expect(unloadOnQuitSwitch().getAttribute("aria-checked")).toBe("false"),
-      );
-      expect(backend.settings.unloadOnQuit).toBe(false);
-      await userEvent.click(unloadOnQuitSwitch());
-      await waitFor(() =>
-        expect(unloadOnQuitSwitch().getAttribute("aria-checked")).toBe("true"),
-      );
-      expect(patches(simulator)).toEqual([
-        { unloadOnQuit: false },
-        { unloadOnQuit: true },
-      ]);
-    });
-
-    it("uses the cloud models only once turned on, off by default", async () => {
-      const { simulator, backend } = setup();
-      await screen.findByTestId("models-settings");
-      expect(cloudSwitch().getAttribute("aria-checked")).toBe("false");
-      expect(
-        document.getElementById(cloudSwitch().getAttribute("aria-describedby")!)
-          ?.textContent,
-      ).toBe(
-        "Adds Ollama's cloud models to the model picker. They run on ollama.com, not on this computer: the messages you send them leave this computer. They need an Ollama account (Account tab) and count against its plan.",
-      );
-      // Coupé : l'état du cloud du serveur n'est pas demandé.
-      expect(simulator.callsTo("cloud_status")).toEqual([]);
-      await userEvent.click(cloudSwitch());
-      await screen.findByText("Saved");
-      await waitFor(() =>
-        expect(cloudSwitch().getAttribute("aria-checked")).toBe("true"),
-      );
-      expect(backend.settings.remoteModels).toBe(true);
-      expect(screen.queryByText(SERVER_CLOUD_OFF)).toBeNull();
-      await userEvent.click(cloudSwitch());
-      await waitFor(() =>
-        expect(cloudSwitch().getAttribute("aria-checked")).toBe("false"),
-      );
-      expect(patches(simulator)).toEqual([
-        { remoteModels: true },
-        { remoteModels: false },
-      ]);
-    });
-
-    it("says when the server has its cloud turned off", async () => {
-      setup(
-        (backend) => {
-          backend.cloud = { disabled: true, source: "env" };
-        },
-        { remoteModels: true },
-      );
-      await screen.findByTestId("models-settings");
-      expect(await screen.findByText(SERVER_CLOUD_OFF)).toBeTruthy();
+        within(card)
+          .getAllByRole("switch")
+          .map((s) => s.ariaLabel ?? s.getAttribute("aria-label")),
+      ).toEqual(["Preload the chosen model", "Show uncensored models"]);
     });
 
     it("shows why the switch was not saved", async () => {
@@ -369,18 +306,32 @@ describe("Settings: Models", () => {
             expiresAt: now + 4 * MINUTE + 30_000,
           }),
           runningModel("big-split:8b", {
-            size: 4 * RUNNING_SIZE,
-            sizeVram: 3 * RUNNING_SIZE,
+            sizeBytes: 4 * RUNNING_SIZE,
+            vramBytes: 3 * RUNNING_SIZE,
+            gpuLayers: 21,
+            totalLayers: 28,
             contextLength: 32768,
             expiresAt: null,
             kept: true,
           }),
           runningModel("cpu-only:1b", {
-            sizeVram: 0,
+            vramBytes: 0,
+            cpuOnly: true,
+            gpuLayers: null,
             contextLength: 8000,
             expiresAt: now - MINUTE,
           }),
-          runningModel("odd:1b", { contextLength: null, expiresAt: null }),
+          runningModel("odd:1b", {
+            gpuLayers: null,
+            totalLayers: null,
+            contextLength: 0,
+            expiresAt: null,
+          }),
+          runningModel("starting:1b", {
+            state: "loading",
+            vramBytes: 0,
+            expiresAt: null,
+          }),
         ];
       });
       await loadedCard();
@@ -391,10 +342,11 @@ describe("Settings: Models", () => {
           "4.0 GB · 25%/75% CPU/GPU · 32k context · Stays loaded",
         ],
         ["cpu-only:1b", "1.0 GB · 100% CPU · 8000 context · Unloads soon"],
-        ["odd:1b", "1.0 GB · 100% GPU"],
+        ["odd:1b", "1.0 GB"],
+        ["starting:1b", "Loading into memory…"],
       ]);
       expect(screen.getByTestId("loaded-models-summary").textContent).toBe(
-        "4 models loaded · 7.0 GB in memory",
+        "5 models loaded · 8.0 GB in memory",
       );
       // Escargot : le seul modèle partagé avec le processeur.
       const snails = screen.getAllByTestId("slow-model");
@@ -411,7 +363,7 @@ describe("Settings: Models", () => {
     it("says 1 model loaded, and shows a Hugging Face name like the picker", async () => {
       setup((backend) => {
         backend.running = [
-          runningModel("hf.co/bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M", {
+          runningModel("bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M", {
             expiresAt: Date.now() + 90_000,
           }),
         ];
@@ -440,9 +392,7 @@ describe("Settings: Models", () => {
       const held = deferred();
       simulator.handle("unload_model", (args) =>
         held.promise.then(() => {
-          backend.running = backend.running.filter(
-            (m) => m.name !== args.model,
-          );
+          backend.running = backend.running.filter((m) => m.id !== args.model);
           return null;
         }),
       );
@@ -494,13 +444,13 @@ describe("Settings: Models", () => {
         backend.running = [runningModel("qwen3:0.6b")];
         backend.runningErrors.unload = {
           kind: "engine",
-          message: "Ollama returned HTTP 500",
+          message: "the text engine is shutting down",
         };
       });
       await loadedCard();
       await userEvent.click(screen.getByRole("button", { name: "Unload" }));
       expect((await screen.findByRole("alert")).textContent).toBe(
-        "Couldn't unload qwen3:0.6b: Ollama returned HTTP 500",
+        "Couldn't unload qwen3:0.6b: the text engine is shutting down",
       );
       expect(rows().map(([name]) => name)).toEqual(["qwen3:0.6b"]);
       expect(screen.getByRole("button", { name: "Unload" })).toBeTruthy();
@@ -542,10 +492,15 @@ describe("Settings: Models", () => {
     it("loads an installed model that is not in memory", async () => {
       const { simulator, backend } = setup(
         (backend) => {
-          backend.models.push("gpt-oss:20b-cloud");
+          backend.models.push("@remote/mistral/mistral-small-latest");
           backend.running = [runningModel("qwen3:0.6b")];
         },
-        { selectedModel: "gemma3:270m", contextLength: 8192, keepAlive: -1 },
+        {
+          selectedModel: "gemma3:270m",
+          contextLength: 8192,
+          keepAlive: -1,
+          remoteModels: true,
+        },
       );
       const held = deferred();
       simulator.handle("load_model", async (args) => {
@@ -560,7 +515,7 @@ describe("Settings: Models", () => {
         return null;
       });
       await loadedCard();
-      // Ni ceux déjà en mémoire, ni ceux du nuage ; le modèle choisi d'abord.
+      // Ni ceux déjà en mémoire, ni les distants ; le modèle choisi d'abord.
       await waitFor(() =>
         expect(optionTexts(loadSelect())).toEqual([
           "qwen3.5:0.8b",
@@ -612,11 +567,54 @@ describe("Settings: Models", () => {
       );
     });
 
+    it("names the models by their short name, never by their raw id", async () => {
+      const OLLAMA = "@ollama/qwen3:0.6b";
+      const HF = "unsloth/Qwen3.5-9B-GGUF:Q4_K_M";
+      const { simulator } = setup(
+        (backend) => {
+          backend.models = [OLLAMA, HF, "@ollama/gemma3:270m"];
+          backend.running = [runningModel("@ollama/gemma3:270m")];
+          backend.runningErrors.load.set(OLLAMA, {
+            kind: "engine",
+            message: "out of memory",
+          });
+          backend.runningErrors.unload = {
+            kind: "engine",
+            message: "the text engine is shutting down",
+          };
+        },
+        { selectedModel: OLLAMA },
+      );
+      await loadedCard();
+      await waitFor(() =>
+        expect(optionTexts(loadSelect())).toEqual([
+          "qwen3:0.6b",
+          "Qwen3.5-9B:Q4_K_M",
+        ]),
+      );
+      expect([...loadSelect().options].map((option) => option.value)).toEqual([
+        OLLAMA,
+        HF,
+      ]);
+      await userEvent.click(screen.getByRole("button", { name: "Load" }));
+      expect(simulator.callsTo("load_model")).toEqual([{ model: OLLAMA }]);
+      expect((await screen.findByRole("alert")).textContent).toBe(
+        "Couldn't load qwen3:0.6b: out of memory",
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Unload" }));
+      await waitFor(() =>
+        expect(screen.getByTestId("unload-error").textContent).toBe(
+          "Couldn't unload gemma3:270m: the text engine is shutting down",
+        ),
+      );
+    });
+
     it("has nothing to load once every model is in memory", async () => {
       const { simulator } = setup((backend) => {
-        backend.models = ["qwen3"];
-        // /api/ps nomme « qwen3:latest » le modèle installé « qwen3 ».
-        backend.running = [runningModel("qwen3:latest")];
+        backend.models = ["unsloth/Qwen3-0.6B-GGUF:Q4_K_M"];
+        // Même modèle, quantification sous une autre casse (comme le
+        // moteur compare les identifiants).
+        backend.running = [runningModel("unsloth/Qwen3-0.6B-GGUF:q4_k_m")];
       });
       await loadedCard();
       await waitFor(() =>
@@ -629,16 +627,16 @@ describe("Settings: Models", () => {
       expect(simulator.callsTo("load_model")).toEqual([]);
     });
 
-    it("says when Ollama can't be reached, and tries again", async () => {
+    it("says when the engine's models can't be read, and tries again", async () => {
       const { backend } = setup((backend) => {
         backend.runningErrors.list = {
-          kind: "engine",
-          message: "Could not connect to Ollama at http://127.0.0.1:11434",
+          kind: "internal",
+          message: "the engine is gone",
         };
       });
       const card = await screen.findByTestId("loaded-models");
       expect((await within(card).findByRole("alert")).textContent).toBe(
-        "Couldn't reach Ollama: Could not connect to Ollama at http://127.0.0.1:11434",
+        "Couldn't read the engine's models: the engine is gone",
       );
       expect(within(card).queryByLabelText("Load a model")).toBeNull();
       backend.runningErrors.list = null;
@@ -670,7 +668,7 @@ describe("Settings: Models", () => {
       await waitFor(() => expect(rows()).toHaveLength(2), { timeout: 4000 });
 
       await userEvent.click(screen.getByTestId("settings-tab-general"));
-      await screen.findByText("Server address");
+      await screen.findByText("Model location");
       const reads = simulator.callsTo("running_models").length;
       await act(() => new Promise((resolve) => setTimeout(resolve, 2500)));
       expect(simulator.callsTo("running_models")).toHaveLength(reads);
@@ -829,8 +827,8 @@ describe("Settings: Models", () => {
       await userEvent.click(screen.getByRole("button", { name: "Load" }));
       await waitFor(() =>
         expect(rows().map(([name]) => name)).toEqual([
-          "gemma3:270m",
           "qwen3:0.6b",
+          "gemma3:270m",
         ]),
       );
       expect(screen.queryByTestId("unload-error")).toBeNull();
@@ -875,7 +873,7 @@ describe("Settings: Models", () => {
       // Déchargement raté, puis le modèle quitte la mémoire de lui-même.
       await userEvent.click(unloadButton("gemma3:270m"));
       await screen.findByTestId("unload-error");
-      backend.running = backend.running.filter((m) => m.name !== "gemma3:270m");
+      backend.running = backend.running.filter((m) => m.id !== "gemma3:270m");
       await reread();
       await waitFor(() => expect(rows()).toHaveLength(1));
       expect(screen.queryByTestId("unload-error")).toBeNull();
@@ -980,8 +978,13 @@ describe("Settings: Models, VRAM gauge", () => {
   it("shows each loaded model, the other uses and the free VRAM", async () => {
     setup((backend) => {
       backend.running = [
-        runningModel("qwen3:0.6b", { size: 2 * GIB, sizeVram: 2 * GIB }),
-        runningModel("gemma3:270m", { size: GIB, sizeVram: GIB / 2 }),
+        runningModel("qwen3:0.6b", { sizeBytes: 2 * GIB, vramBytes: 2 * GIB }),
+        runningModel("gemma3:270m", {
+          sizeBytes: GIB,
+          vramBytes: GIB / 2,
+          gpuLayers: 9,
+          totalLayers: 18,
+        }),
       ];
       backend.machine = {
         gpus: [
@@ -1047,12 +1050,12 @@ describe("Settings: Models, VRAM gauge", () => {
     expect(within(gauge).queryByTestId("vram-spilled")).toBeNull();
   });
 
-  it("says so for a remote server and for a computer without a graphics card", async () => {
+  it("says so for an unreadable memory and for a computer without a graphics card", async () => {
     const { app, backend } = setup((backend) => {
       backend.machine = null;
     });
     expect((await screen.findByTestId("vram-unknown")).textContent).toBe(
-      "VRAM usage can't be read for this Ollama server.",
+      "VRAM usage can't be read on this computer.",
     );
     expect(screen.queryByRole("meter")).toBeNull();
     backend.machine = { gpus: [], ramTotal: 16 * GIB, ramAvailable: 8 * GIB };
@@ -1123,12 +1126,19 @@ describe("Settings: Models in other languages", () => {
       backend.running = [
         runningModel("qwen3:0.6b", { expiresAt: now + 4.5 * MINUTE }),
         runningModel("big-split:8b", {
-          size: 4 * RUNNING_SIZE,
-          sizeVram: 3 * RUNNING_SIZE,
+          sizeBytes: 4 * RUNNING_SIZE,
+          vramBytes: 3 * RUNNING_SIZE,
+          gpuLayers: 21,
+          totalLayers: 28,
           contextLength: 32768,
           kept: true,
         }),
-        runningModel("gemma3:270m", { sizeVram: 0, expiresAt: now - MINUTE }),
+        runningModel("gemma3:270m", {
+          vramBytes: 0,
+          cpuOnly: true,
+          gpuLayers: null,
+          expiresAt: now - MINUTE,
+        }),
       ];
       backend.runningErrors.load.set("qwen3.5:0.8b", {
         kind: "engine",
@@ -1170,7 +1180,7 @@ describe("Settings: Models in other languages", () => {
     await screen.findByTestId("vram-gauge");
     expect(untranslatedTexts(tab(), NAMES)).toEqual([]);
 
-    const message = "Could not connect to Ollama at http://127.0.0.1:11434";
+    const message = "the engine is gone";
     backend.runningErrors.list = { kind: "engine", message };
     await within(card).findByRole("alert", undefined, { timeout: 4000 });
     expect(untranslatedTexts(tab(), [message])).toEqual([]);

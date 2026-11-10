@@ -146,6 +146,15 @@ impl FakeBench {
     /// scénario dont le nom contient `vision` reçoit un projecteur.
     /// Installés dans l'ordre donné (le dernier est le plus récent).
     pub fn new(models: &[(&str, &str)]) -> FakeBench {
+        Self::with_config(models, |_| {})
+    }
+
+    /// Comme [`FakeBench::new`], configuration du moteur retouchée par
+    /// `adjust` (binaire absent, délais…).
+    pub fn with_config(
+        models: &[(&str, &str)],
+        adjust: impl FnOnce(&mut engine::Config),
+    ) -> FakeBench {
         let dir = engine::tests::temp_dir();
         let data_dir = dir.path().join("data");
         let models_dir = crate::local_models::default_models_dir(&data_dir);
@@ -191,8 +200,10 @@ impl FakeBench {
                 .blocking(move |c| crate::store::local_models::save(c, &row))
                 .unwrap();
         }
+        let mut config = engine::tests::fake_config(&data_dir);
+        adjust(&mut config);
         let engine = Engine::new(
-            engine::tests::fake_config(&data_dir),
+            config,
             Arc::new(BenchModels {
                 store: store.clone(),
                 data_dir: data_dir.clone(),
@@ -240,6 +251,10 @@ pub(crate) enum Role {
     Text,
     Vision,
     /// Sans réflexion (gemma3 270m).
+    #[allow(
+        dead_code,
+        reason = "rôle de models.json (contrat 102 § 1.5), sans essai qui le prenne encore"
+    )]
     Tiny,
     /// Qwen2.5-Coder 0.5B de base (`/infill`).
     Fim,

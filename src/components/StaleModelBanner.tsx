@@ -11,12 +11,13 @@
  * queues the model in the ModelHub downloads (the official app pulls it
  * through an empty chat message), so the banner then says "Updating..." with
  * the progress, and leaves when the download has ended; a failed update says
- * why, Update trying again; the installed models are compared with their
- * registry by the Rust backend (src/hooks/useOutdatedModels.ts).
+ * why, Update trying again; the installed models of Hugging Face are compared
+ * with their repository by the Rust backend (src/hooks/useOutdatedModels.ts),
+ * never a model taken from Ollama nor a remote model.
  */
 
 import { XMarkIcon } from "@heroicons/react/20/solid";
-import type { ModelInfo } from "@/bindings/ModelInfo";
+import type { ChatModel } from "@/bindings/ChatModel";
 import {
   BANNER_BOX,
   BANNER_ERROR,
@@ -38,12 +39,12 @@ import { useT } from "@/i18n";
 import { formatPercent } from "@/i18n/format";
 import { downloadPercent, isActiveDownload } from "@/lib/hub";
 import { errorMessage } from "@/lib/ipc";
-import { shortModelName, withTag } from "@/lib/modelNames";
+import { shortModelName } from "@/lib/modelNames";
 
 const NOTHING: readonly InstalledVersion[] = [];
 
 /**
- * Bandeau au-dessus de la zone de saisie quand le registre a une version plus
+ * Bandeau au-dessus de la zone de saisie quand Hugging Face a une version plus
  * récente du modèle choisi (installé) : Update le met en file dans les
  * téléchargements du ModelHub, la croix le ferme pour ce modèle jusqu'à la fin
  * de la session. Update attend la fin de la réponse en cours, comme dans
@@ -54,22 +55,26 @@ export function StaleModelBanner({
   isStreaming,
 }: {
   /** Modèle choisi, s'il est installé. */
-  model: ModelInfo | null;
+  model: ChatModel | null;
   isStreaming: boolean;
 }) {
   const t = useT();
+  // Seuls les modèles de Hugging Face ont une version à comparer.
+  const checked =
+    model?.origin === "hf" && model.installedAt !== null ? model : null;
   const outdated = useOutdatedModels(
-    model?.digest ? [{ model: model.model, version: model.digest }] : NOTHING,
+    checked
+      ? [{ model: checked.id, version: String(checked.installedAt) }]
+      : NOTHING,
   );
   const { dismissed, dismiss } = useDismissedOutdated();
   const { downloads } = useDownloads();
   const { start } = useDownloadActions();
-  if (!model || !listsModel(outdated, model.model)) return null;
-  if (listsModel(dismissed, model.model)) return null;
+  if (!checked || !listsModel(outdated, checked.id)) return null;
+  if (listsModel(dismissed, checked.id)) return null;
 
-  // Nom que la file des téléchargements garde : avec son étiquette.
-  const target = withTag(model.model);
-  const name = shortModelName(model.model);
+  const target = checked.id;
+  const name = shortModelName(target);
   const download = findDownload(downloads, target);
 
   if (download && isActiveDownload(download)) {
@@ -120,7 +125,7 @@ export function StaleModelBanner({
               className={BANNER_ICON_BUTTON}
               aria-label={t("chat.staleModel.dismiss")}
               title={t("chat.staleModel.dismiss")}
-              onClick={() => dismiss(model.model)}
+              onClick={() => dismiss(target)}
             >
               <XMarkIcon aria-hidden="true" className="h-4 w-4" />
             </button>

@@ -41,9 +41,6 @@ Files (ChatonLM path <- Ollama path : copied | adapted | translated to Rust):
   src/components/Chat.tsx <- app/ui/app/src/components/Chat.tsx : adapted
   src/components/ChatForm.tsx <- app/ui/app/src/components/ChatForm.tsx : adapted
   src/components/ChatSidebar.tsx <- app/ui/app/src/components/ChatSidebar.tsx : adapted
-  src/components/CloudErrorActions.tsx <- app/ui/app/src/components/DisplayLogin.tsx : adapted
-  src/components/CloudErrorActions.tsx <- app/ui/app/src/components/DisplayUpgrade.tsx : adapted
-  src/components/CloudErrorActions.tsx <- app/ui/app/src/components/Chat.tsx : adapted
   src/components/ComposerFiles.tsx <- app/ui/app/src/components/ChatForm.tsx : adapted
   src/components/CopyButton.tsx <- app/ui/app/src/components/CopyButton.tsx : adapted
   src/components/Downloading.tsx <- app/ui/app/src/components/Downloading.tsx : adapted
@@ -55,8 +52,6 @@ Files (ChatonLM path <- Ollama path : copied | adapted | translated to Rust):
   src/components/MessageList.tsx <- app/ui/app/src/components/Message.tsx : adapted
   src/components/ModelPicker.tsx <- app/ui/app/src/components/ModelPicker.tsx : adapted
   src/components/Settings.tsx <- app/ui/app/src/components/Settings.tsx : adapted
-  src/components/settings/ModelLocation.tsx <- app/ui/app/src/components/Settings.tsx : adapted
-  src/components/settings/OllamaAccount.tsx <- app/ui/app/src/components/Settings.tsx : adapted
   src/components/settings/Slider.tsx <- app/ui/app/src/components/ui/slider.tsx : adapted
   src/components/StaleModelBanner.tsx <- app/ui/app/src/components/DisplayStale.tsx : adapted
   src/components/StreamingMarkdownContent.tsx <- app/ui/app/src/components/StreamingMarkdownContent.tsx : adapted
@@ -65,9 +60,6 @@ Files (ChatonLM path <- Ollama path : copied | adapted | translated to Rust):
   src/components/Thinking.tsx <- app/ui/app/src/components/Thinking.tsx : adapted
   src/components/ToolCalls.tsx <- app/ui/app/src/components/Message.tsx : adapted
   src/components/WebSearchButton.tsx <- app/ui/app/src/components/WebSearchButton.tsx : adapted
-  src/hooks/useAccount.ts <- app/ui/app/src/hooks/useUser.ts : adapted
-  src/hooks/useAccount.ts <- app/ui/app/src/components/Settings.tsx : adapted
-  src/hooks/useCloudStatus.ts <- app/ui/app/src/hooks/useCloudStatus.ts : adapted
   src/hooks/useDeleteChat.ts <- app/ui/app/src/hooks/useDeleteChat.ts : adapted
   src/hooks/useMessageAutoscroll.ts <- app/ui/app/src/hooks/useMessageAutoscroll.ts : adapted
   src/hooks/useModels.ts <- app/ui/app/src/hooks/useModels.ts : adapted

@@ -207,7 +207,9 @@ fn writable(dir: &Path) -> bool {
 /// nouveau dossier : à n'employer que pour un dossier qui les a déjà).
 /// `idle` est appelé une fois le verrou pris : refus si un téléchargement
 /// ou une reprise est en cours (l'un des deux voit toujours l'autre).
-/// `on_event` reçoit l'avancement des copies.
+/// `on_event` reçoit l'avancement des copies. Essais : l'app passe par
+/// [`change_with`] (moteur déchargé une fois le changement accepté).
+#[cfg(test)]
 pub async fn change(
     store: &Store,
     data_dir: &Path,
@@ -215,6 +217,34 @@ pub async fn change(
     move_models: bool,
     cancel: Arc<AtomicBool>,
     idle: impl FnOnce() -> AppResult<()>,
+    on_event: impl Fn(FolderEvent) + Send + Sync,
+) -> AppResult<FolderMoved> {
+    change_with(
+        store,
+        data_dir,
+        new,
+        move_models,
+        cancel,
+        idle,
+        async {},
+        on_event,
+    )
+    .await
+}
+
+/// [`change`], avec `before_move` attendu une fois le changement accepté
+/// (tous les refus passés, dossier différent), juste avant de toucher aux
+/// fichiers ; son résultat est gardé jusqu'à la fin (le moteur gelé et ses
+/// modèles déchargés : `Engine::freeze`). Refus : jamais attendu.
+#[allow(clippy::too_many_arguments)]
+pub async fn change_with<G>(
+    store: &Store,
+    data_dir: &Path,
+    new: PathBuf,
+    move_models: bool,
+    cancel: Arc<AtomicBool>,
+    idle: impl FnOnce() -> AppResult<()>,
+    before_move: impl std::future::Future<Output = G>,
     on_event: impl Fn(FolderEvent) + Send + Sync,
 ) -> AppResult<FolderMoved> {
     if !new.is_absolute() {
@@ -295,6 +325,9 @@ pub async fn change(
             free = crate::image_models::downloads::size_text(free)
         )));
     }
+    // Accepté : les modèles déchargés (fichiers libres, sous Windows aussi),
+    // aucun relancé jusqu'à la fin.
+    let _released = before_move.await;
     on_event(FolderEvent::Total { bytes: total });
     let steps: Vec<Step> = files
         .iter()

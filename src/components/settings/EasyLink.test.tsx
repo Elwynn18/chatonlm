@@ -103,7 +103,6 @@ describe("Easy Link settings", () => {
     ).toEqual([
       "General",
       "Models",
-      "Account",
       "Dictation",
       "Read aloud",
       "Voice mode",

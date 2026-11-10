@@ -12,11 +12,16 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { ChatEvent } from "@/bindings/ChatEvent";
-import { healthKey } from "@/hooks/useServerHealth";
+import { engineStatusKey } from "@/lib/engine";
 import * as streams from "@/lib/streams";
 import { fakeBackend, thinkingModel } from "@/test/backend";
-import { composer, renderApp, texts } from "@/test/renderApp";
-import { installSimulator, type Sequence, sequence } from "@/test/simulator";
+import { composer, renderApp, shownModel, texts } from "@/test/renderApp";
+import {
+  installSimulator,
+  replyText,
+  type Sequence,
+  sequence,
+} from "@/test/simulator";
 
 // Parcours complets de l'app (rendu, simulateur, plusieurs requêtes) : sous la
 // charge de toute la suite, une étape peut dépasser l'attente par défaut d'1 s.
@@ -28,19 +33,41 @@ afterEach(() => {
 
 const HELLO = "Say hello in one word.";
 
+/** Texte de la réponse enregistrée d'une séquence. */
+const answer = replyText;
+
+/** Message de l'erreur finale d'une séquence. */
+function errorOf(name: string) {
+  const last = sequence(name).events.at(-1);
+  return last?.type === "error" ? last.message : "";
+}
+
+/** Option du sélecteur pour `model` (son identifiant : `data-model-id`). */
+async function option(model: string) {
+  const options = await screen.findAllByRole("option");
+  const found = options.find((element) => element.dataset.modelId === model);
+  if (!found) throw new Error(`no option for ${model}`);
+  return found;
+}
+
+/** Modèle qui raisonne des séquences (identifiant Hugging Face). */
+const THINKER = sequence("new-chat-thinking").request.model;
+/** Modèle qui voit les images des séquences. */
+const SEER = sequence("attachments").request.model;
+
 /** Délai des réponses du backend (IPC, SQLite), comme dans l'app réelle. */
 const LATENCY_MS = 20;
 
 /**
  * App à `path`, face au simulateur ; `recorded` : séquences déjà en base ;
- * `thinkOff` : qwen3:0.6b sait raisonner (comme dans Ollama 0.35.1) et son
+ * `thinkOff` : le modèle qui raisonne accepte l'arrêt de la réflexion et son
  * bouton Think est mémorisé sur arrêt, comme à l'enregistrement de la
  * séquence existing-chat (think: false).
  */
 function setup(
   path: string,
   {
-    model = "qwen3:0.6b",
+    model = THINKER,
     recorded = [],
     thinkOff = false,
   }: { model?: string; recorded?: string[]; thinkOff?: boolean } = {},
@@ -48,11 +75,12 @@ function setup(
   const simulator = installSimulator({ latencyMs: LATENCY_MS });
   const backend = fakeBackend(simulator, {
     selectedModel: model,
+    models: [THINKER, SEER],
     ...(thinkOff && {
       details: [
-        thinkingModel("qwen3:0.6b", { values: [false, true], default: true }),
+        thinkingModel(THINKER, { values: [false, true], default: true }),
       ],
-      thinkPrefs: { "qwen3:0.6b": false },
+      thinkPrefs: { [THINKER]: false },
     }),
   });
   for (const name of recorded) backend.record(sequence(name));
@@ -63,9 +91,7 @@ function setup(
 /** Tape un message et l'envoie (Entrée), une fois le modèle choisi affiché. */
 async function send(text: string, model: string) {
   const textarea = await screen.findByLabelText("Message");
-  await waitFor(() =>
-    expect(screen.getByTitle("Select model").textContent).toBe(model),
-  );
+  await waitFor(() => expect(shownModel()).toBe(model));
   await userEvent.type(textarea, `${text}{Enter}`);
 }
 
@@ -117,7 +143,7 @@ describe("sending a message", () => {
     await showHistory();
     const replay = simulator.queue("new-chat-thinking", { stepwise: true });
 
-    await send(HELLO, "qwen3:0.6b");
+    await send(HELLO, THINKER);
     await replay.started;
     expect(screen.getByLabelText("Stop")).toBeTruthy();
 
@@ -144,14 +170,21 @@ describe("sending a message", () => {
     });
     expect(thinking.getAttribute("aria-expanded")).toBe("false");
     await replay.until("content");
-    await waitFor(() => expect(texts("assistant")).toEqual(['"']));
+    const first = sequence("new-chat-thinking").events.find(
+      (event) => event.type === "content",
+    );
+    await waitFor(() =>
+      expect(texts("assistant")).toEqual([
+        first?.type === "content" ? first.text.trim() : "",
+      ]),
+    );
     expect(thinking.textContent).toMatch(/^Thought for /);
     expect(simulator.callsTo("get_chat")).toEqual([]);
 
     await replay.finish();
     await replyEnded();
     expect(texts("user")).toEqual([HELLO]);
-    expect(texts("assistant")).toEqual(['"Hello"']);
+    expect(texts("assistant")).toEqual([answer("new-chat-thinking")]);
     // À la fin : conversation relue en base, puis le flux retiré.
     expect(simulator.callsTo("get_chat")).toEqual([{ id: "chat-1" }]);
     expect(loading()).toBe(false);
@@ -168,11 +201,11 @@ describe("sending a message", () => {
     });
 
     await thinkIsOff();
-    await send(HELLO, "qwen3:0.6b");
+    await send(HELLO, THINKER);
 
     await replyEnded();
     expect(replay.request?.think).toBe(false);
-    expect(texts("assistant")).toEqual(['"Hello"']);
+    expect(texts("assistant")).toEqual([answer("new-chat-thinking")]);
   });
 
   it("a message in an existing chat is answered on its page", async () => {
@@ -181,19 +214,24 @@ describe("sending a message", () => {
       thinkOff: true,
     });
     await showHistory();
-    await waitFor(() => expect(texts("assistant")).toEqual(['"Hello"']));
+    await waitFor(() =>
+      expect(texts("assistant")).toEqual([answer("new-chat-thinking")]),
+    );
     const reads = simulator.callsTo("get_chat").length;
     const historyReads = simulator.callsTo("list_chats").length;
     // Requête comparée à la séquence enregistrée, think: false compris.
     const replay = simulator.queue("existing-chat");
 
     await thinkIsOff();
-    await send(HELLO, "qwen3:0.6b");
+    await send(HELLO, THINKER);
 
     await replyEnded();
     expect(replay.request?.chatId).toBe("chat-1");
     expect(texts("user")).toEqual([HELLO, HELLO]);
-    expect(texts("assistant")).toEqual(['"Hello"', '"Hi!"']);
+    expect(texts("assistant")).toEqual([
+      answer("new-chat-thinking"),
+      answer("existing-chat"),
+    ]);
     expect(app.path()).toBe("/c/chat-1");
     expect(simulator.callsTo("get_chat").length).toBeGreaterThan(reads);
     expect(simulator.callsTo("list_chats").length).toBeGreaterThan(
@@ -202,11 +240,14 @@ describe("sending a message", () => {
   });
 
   it("stopping a reply keeps the partial answer", async () => {
-    const { simulator, app } = setup("/c/new", { model: "chatonlm-stall" });
+    const { model } = sequence("cancelled").request;
+    const { simulator, app } = setup("/c/new", { model });
     const replay = simulator.queue("cancelled");
 
-    await send(HELLO, "chatonlm-stall");
-    await waitFor(() => expect(texts("assistant")).toEqual(['"Hi']));
+    await send(HELLO, model);
+    await waitFor(() =>
+      expect(texts("assistant")).toEqual([answer("cancelled")]),
+    );
     expect(app.path()).toBe("/c/chat-1");
     await userEvent.click(screen.getByLabelText("Stop"));
 
@@ -215,94 +256,131 @@ describe("sending a message", () => {
       { streamId: replay.streamId },
     ]);
     // Réponse partielle relue en base, sans erreur.
-    expect(texts("assistant")).toEqual(['"Hi']);
+    expect(texts("assistant")).toEqual([answer("cancelled")]);
     expect(alertText()).toBeNull();
   });
 
   it("a model error is shown, then cleared by the next message", async () => {
-    const { simulator } = setup("/c/new", {
-      model: "chatonlm-error",
-      thinkOff: true,
-    });
+    const { model } = sequence("model-error").request;
+    const { simulator } = setup("/c/new", { model, thinkOff: true });
     simulator.queue("model-error");
 
-    await send(HELLO, "chatonlm-error");
+    await send(HELLO, model);
     await replyEnded();
-    expect(texts("assistant")).toEqual(['"Hi']);
-    expect(alertText()).toContain("model runner has unexpectedly stopped");
+    expect(texts("assistant")).toEqual([answer("model-error")]);
+    expect(alertText()).toBe(`Error${errorOf("model-error")}`);
 
     // Autre modèle, puis un autre message : l'erreur part dès l'envoi.
     await userEvent.click(screen.getByTitle("Select model"));
-    await userEvent.click(screen.getByRole("option", { name: "qwen3:0.6b" }));
+    await userEvent.click(await option(THINKER));
     const replay = simulator.queue("existing-chat", { stepwise: true });
     await thinkIsOff();
-    await send(HELLO, "qwen3:0.6b");
+    await send(HELLO, THINKER);
     await replay.started;
     expect(alertText()).toBeNull();
 
     await replay.finish();
     await replyEnded();
-    expect(texts("assistant")).toEqual(['"Hi', '"Hi!"']);
+    expect(texts("assistant")).toEqual([
+      answer("model-error"),
+      answer("existing-chat"),
+    ]);
     expect(alertText()).toBeNull();
   });
 
   it.each([
-    ["http-error", "502 Bad Gateway", []],
-    ["model-missing", "404 Not Found: model 'chatonlm-vanished' not found", []],
-    ["unreachable", "can't connect to Ollama at http://127.0.0.1:11434", []],
+    [
+      "engine-unavailable",
+      "this build of ChatonLM doesn't include the text engine",
+      [],
+      "Open logsEngine settings",
+    ],
+    [
+      "model-missing",
+      "the model @ollama/llama3.2:latest isn't installed",
+      [],
+      "",
+    ],
+    [
+      "engine-failed",
+      errorOf("engine-failed"),
+      [],
+      "RetryOpen logsEngine settings",
+    ],
     [
       "connection-lost",
-      "Connection lost: error decoding response body",
-      ['"Hi'],
+      "the reply was interrupted",
+      [answer("connection-lost")],
+      "",
     ],
-  ])("%s: the error is shown under the messages", async (name, text, kept) => {
-    const { model } = sequence(name).request;
-    const { simulator, app } = setup("/c/new", { model });
-    simulator.queue(name);
+  ])(
+    "%s: the error is shown under the messages",
+    async (name, text, kept, actions) => {
+      const { model } = sequence(name).request;
+      const { simulator, app } = setup("/c/new", { model });
+      simulator.queue(name);
 
-    await send(HELLO, model);
+      await send(HELLO, model);
 
-    await replyEnded();
-    expect(app.path()).toBe("/c/chat-1");
-    expect(texts("user")).toEqual([HELLO]);
-    expect(texts("assistant")).toEqual(kept);
-    const alert = within(screen.getByTestId("chat")).getByRole("alert");
-    expect(alert.textContent).toBe(`Error${text}`);
-  });
+      await replyEnded();
+      expect(app.path()).toBe("/c/chat-1");
+      expect(texts("user")).toEqual([HELLO]);
+      expect(texts("assistant")).toEqual(kept);
+      const alert = within(screen.getByTestId("chat")).getByRole("alert");
+      expect(alert.textContent).toBe(`Error${text}${actions}`);
+    },
+  );
 
-  it.each(["unreachable", "connection-lost"])(
-    "%s: Ollama is checked again at once",
+  it.each([
+    ["engine-failed", ["Retry", "Open logs", "Engine settings"]],
+    ["engine-unavailable", ["Open logs", "Engine settings"]],
+  ])(
+    "%s: the error leads to the engine's logs and to its screen",
+    async (name, buttons) => {
+      const { model } = sequence(name).request;
+      const { simulator, app } = setup("/c/new", { model });
+      simulator.queue(name);
+      await send(HELLO, model);
+      await replyEnded();
+      const chat = screen.getByTestId("chat");
+      const actions = within(chat).getByRole("alert");
+      expect(
+        within(actions)
+          .getAllByRole("button")
+          .map((button) => button.textContent),
+      ).toEqual(buttons);
+      await userEvent.click(
+        within(actions).getByRole("button", { name: "Open logs" }),
+      );
+      expect(simulator.callsTo("open_engine_logs")).toHaveLength(1);
+      await userEvent.click(
+        within(actions).getByRole("button", { name: "Engine settings" }),
+      );
+      await waitFor(() => expect(app.path()).toBe("/settings"));
+      expect(app.router.state.location.search).toEqual({
+        section: "general",
+      });
+    },
+  );
+
+  it.each(["engine-failed", "connection-lost"])(
+    "%s: the state of the engine is read again at once",
     async (name) => {
       const { model } = sequence(name).request;
-      const { simulator, backend, app } = setup("/c/new", { model });
+      const { simulator, app } = setup("/c/new", { model });
       const invalidate = vi.spyOn(app.queryClient, "invalidateQueries");
-      const replay = simulator.queue(name, { stepwise: true });
+      simulator.queue(name);
       await send(HELLO, model);
-      await replay.started;
-      await replay.step(replay.remaining - 1);
-      await waitFor(() => expect(app.path()).toBe("/c/chat-1"));
-      const checks = () => simulator.callsTo("server_status").length;
-      const before = checks();
-      backend.serverState = "connectionFailed";
-
-      const sentAt = Date.now();
-      await replay.finish();
-
-      expect(invalidate).toHaveBeenCalledWith({ queryKey: healthKey });
-      await screen.findByText("Ollama isn't responding.");
-      expect(checks()).toBeGreaterThan(before);
-      const check = simulator.calls.filter(
-        (c) => c.command === "server_status",
-      )[before];
-      // Bien avant la vérification suivante, prévue 3 s après la précédente.
-      expect(check.at - sentAt).toBeLessThan(1000);
+      await replyEnded();
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: engineStatusKey });
     },
   );
 
   it("three dots wait for the reply, then give way to the error", async () => {
-    const { simulator } = setup("/c/new");
-    const replay = simulator.queue("http-error", { stepwise: true });
-    await send(HELLO, "qwen3:0.6b");
+    const { model } = sequence("model-missing").request;
+    const { simulator } = setup("/c/new", { model });
+    const replay = simulator.queue("model-missing", { stepwise: true });
+    await send(HELLO, model);
     await replay.started;
 
     await replay.until("userMessage");
@@ -314,18 +392,21 @@ describe("sending a message", () => {
     await replay.finish();
     await replyEnded();
     expect(screen.queryByTestId("waiting")).toBeNull();
-    expect(alertText()).toBe("Error502 Bad Gateway");
+    expect(alertText()).toBe(`Error${errorOf("model-missing")}`);
   });
 
-  it("a model error does not check Ollama again", async () => {
-    const { simulator, app } = setup("/c/new", { model: "chatonlm-error" });
+  it("a model error does not read the state of the engine again", async () => {
+    const { model } = sequence("model-error").request;
+    const { simulator, app } = setup("/c/new", { model });
     const invalidate = vi.spyOn(app.queryClient, "invalidateQueries");
     simulator.queue("model-error");
 
-    await send(HELLO, "chatonlm-error");
+    await send(HELLO, model);
     await replyEnded();
 
-    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: healthKey });
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: engineStatusKey,
+    });
   });
 
   it("a new chat refused before its creation shows the error on the new chat page", async () => {
@@ -336,7 +417,7 @@ describe("sending a message", () => {
     simulator.queue("refused-empty");
 
     await act(() =>
-      app.send({ chatId: "new", content: "   ", model: "qwen3:0.6b" }),
+      app.send({ chatId: "new", content: "   ", model: THINKER }),
     );
 
     const page = screen.getByTestId("new-chat");
@@ -356,7 +437,7 @@ describe("sending a message", () => {
     };
     refusal.request.content = "Hello";
     const replay = simulator.queue(refusal, { stepwise: true });
-    await send("Hello", "qwen3:0.6b");
+    await send("Hello", THINKER);
     await replay.started;
     expect(alertText()).toBeNull();
 
@@ -381,14 +462,19 @@ describe("sending a message", () => {
       timeline.push("get_chat");
       return backend.chats.get(args.id as string);
     });
-    await waitFor(() => expect(texts("assistant")).toEqual(['"Hello"']));
+    await waitFor(() =>
+      expect(texts("assistant")).toEqual([answer("new-chat-thinking")]),
+    );
     simulator.queue("existing-chat", { lateFinalEvent: true });
 
     await thinkIsOff();
-    await send(HELLO, "qwen3:0.6b");
+    await send(HELLO, THINKER);
 
     await replyEnded();
-    expect(texts("assistant")).toEqual(['"Hello"', '"Hi!"']);
+    expect(texts("assistant")).toEqual([
+      answer("new-chat-thinking"),
+      answer("existing-chat"),
+    ]);
     // Relu en base après l'événement final, pas dès la réponse.
     const sending = timeline.slice(timeline.indexOf("userMessage"));
     expect(sending.indexOf("get_chat")).toBeGreaterThan(
@@ -418,7 +504,7 @@ function pullSequence(tail: ChatEvent[], existing = false): Sequence {
   const base = sequence("cancelled");
   const [created, user] = base.events;
   const request = existing
-    ? { ...base.request, chatId: "chat-1", model: "qwen3:0.6b" }
+    ? { ...base.request, chatId: "chat-1", model: THINKER }
     : { ...base.request, model: PULL };
   if (existing && user.type === "userMessage") user.message.id = 3;
   return {
@@ -450,8 +536,8 @@ const downloadBlock = () =>
 /** Le modèle porte-t-il l'icône « non téléchargé » dans le sélecteur ? */
 async function notDownloaded(model: string) {
   await userEvent.click(screen.getByTitle("Select model"));
-  const option = await screen.findByRole("option", { name: model });
-  const missing = within(option).queryByLabelText("Not downloaded") !== null;
+  const found = await option(model);
+  const missing = within(found).queryByLabelText("Not downloaded") !== null;
   await userEvent.keyboard("{Escape}");
   return missing;
 }
@@ -462,9 +548,7 @@ describe("downloading a missing model", () => {
   it("shows the download without dots, fades it out, then the reply comes", async () => {
     const { simulator, app } = setup("/c/new", { model: PULL });
     const replay = simulator.queue(pullSequence(REPLY), { stepwise: true });
-    await waitFor(() =>
-      expect(screen.getByTitle("Select model").textContent).toBe(PULL),
-    );
+    await waitFor(() => expect(shownModel()).toBe(PULL));
     expect(await notDownloaded(PULL)).toBe(true);
 
     await send(HELLO, PULL);
@@ -544,12 +628,14 @@ describe("downloading a missing model", () => {
     const { simulator } = setup("/c/chat-1", {
       recorded: ["new-chat-thinking"],
     });
-    await waitFor(() => expect(texts("assistant")).toEqual(['"Hello"']));
+    await waitFor(() =>
+      expect(texts("assistant")).toEqual([answer("new-chat-thinking")]),
+    );
     const replay = simulator.queue(
       pullSequence([{ type: "cancelled" }], true),
       { stepwise: true, ignore: ["think"] },
     );
-    await send(HELLO, "qwen3:0.6b");
+    await send(HELLO, THINKER);
     await replay.started;
     await replay.until("download");
     await waitFor(() => expect(downloadBlock()).not.toBeNull());
@@ -562,17 +648,17 @@ describe("downloading a missing model", () => {
     await replyEnded();
     expect(downloadBlock()).toBeNull();
     expect(texts("user")).toEqual([HELLO, HELLO]);
-    expect(texts("assistant")).toEqual(['"Hello"']);
+    expect(texts("assistant")).toEqual([answer("new-chat-thinking")]);
   }, 30_000);
 
   // Séquences enregistrées par le moteur sur le faux serveur (cargo test).
   it.each([
-    ["download", '"Hi!"', null],
+    ["download", answer("download"), null],
     ["download-cancelled", null, null],
-    ["download-offline", null, `Error${OFFLINE}`],
+    ["download-offline", null, `Error${errorOf("download-offline")}`],
   ])(
     "the engine's %s sequence plays through the app",
-    async (name, answer, error) => {
+    async (name, reply, error) => {
       const recorded = sequence(name);
       const { simulator } = setup("/c/new", { model: recorded.request.model });
       const seen = watchFor("Downloading model");
@@ -588,7 +674,7 @@ describe("downloading a missing model", () => {
       expect(seen()).toBe(name !== "download-offline");
       expect(downloadBlock()).toBeNull();
       expect(texts("user")).toEqual([HELLO]);
-      expect(texts("assistant")).toEqual(answer === null ? [] : [answer]);
+      expect(texts("assistant")).toEqual(reply === null ? [] : [reply]);
       expect(alertText()).toBe(error);
     },
     30_000,
@@ -607,7 +693,9 @@ describe("downloading a missing model", () => {
     expect(downloadBlock()).toBeNull();
     expect(texts("assistant")).toEqual([]);
     expect(alertText()).toBe(`Error${OFFLINE}`);
-    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: healthKey });
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: engineStatusKey,
+    });
   }, 30_000);
 });
 
@@ -621,7 +709,7 @@ function loadSequence(tail: ChatEvent[]): Sequence {
   const [created, user] = base.events;
   return {
     description: "The model is loaded into memory before the reply.",
-    request: { ...base.request, model: "qwen3:0.6b" },
+    request: { ...base.request, model: THINKER },
     events: [created, user, { type: "loading" }, ...tail],
     error: null,
   };
@@ -642,7 +730,7 @@ describe("loading the model into memory", () => {
     const replay = simulator.queue(loadSequence(LOADED_REPLY), {
       stepwise: true,
     });
-    await send(HELLO, "qwen3:0.6b");
+    await send(HELLO, THINKER);
     await replay.started;
     await replay.until("loading");
     // Après 750 ms, à la place des trois points.
@@ -676,7 +764,7 @@ describe("loading the model into memory", () => {
     const replay = simulator.queue(loadSequence(LOADED_REPLY), {
       stepwise: true,
     });
-    await send(HELLO, "qwen3:0.6b");
+    await send(HELLO, THINKER);
     await replay.started;
     await replay.until("loading");
     await screen.findByTestId("loading-model", undefined, { timeout: 2000 });
@@ -703,7 +791,7 @@ describe("loading the model into memory", () => {
     const replay = simulator.queue(loadSequence([{ type: "cancelled" }]), {
       stepwise: true,
     });
-    await send(HELLO, "qwen3:0.6b");
+    await send(HELLO, THINKER);
     await replay.started;
     await replay.until("loading");
     await screen.findByTestId("loading-model", undefined, { timeout: 2000 });
@@ -738,7 +826,7 @@ describe("loading the model into memory", () => {
     await replay.finish();
     await replyEnded();
     expect(seen()).toBe(true);
-    expect(texts("assistant")).toEqual(['"Hello"']);
+    expect(texts("assistant")).toEqual([answer("new-chat-thinking")]);
     expect(loadingLine()).toBeNull();
     expect(alertText()).toBeNull();
   }, 30_000);
@@ -754,7 +842,7 @@ describe("loading the model into memory", () => {
       ]),
       { stepwise: true },
     );
-    await send(HELLO, "qwen3:0.6b");
+    await send(HELLO, THINKER);
     await replay.started;
     await replay.until("loading");
     await screen.findByTestId("loading-model", undefined, { timeout: 2000 });
@@ -767,7 +855,7 @@ describe("loading the model into memory", () => {
 });
 
 describe("sending attached files", () => {
-  const VISION = "qwen3.5:0.8b";
+  const VISION = SEER;
   const NOTES = "/home/u/notes.txt";
   const RED = "/home/u/red.png";
 
@@ -797,9 +885,7 @@ describe("sending attached files", () => {
 
   /** Clique sur « + » et attend les pastilles de `names`. */
   async function attach(names: string[]) {
-    await waitFor(() =>
-      expect(screen.getByTitle("Select model").textContent).toBe(VISION),
-    );
+    await waitFor(() => expect(shownModel()).toBe(VISION));
     await userEvent.click(
       screen.getByRole("button", { name: "Upload multiple files" }),
     );
@@ -870,7 +956,7 @@ describe("sending attached files", () => {
 });
 
 describe("editing a message", () => {
-  const VISION = "qwen3.5:0.8b";
+  const VISION = SEER;
   const EXTRA = "/home/u/extra.md";
 
   /** chat-1 enregistrée par la séquence attachments (message 1, réponse 2). */
@@ -897,10 +983,10 @@ describe("editing a message", () => {
 
   /** Commence l'édition du premier message, change ses pièces jointes et son texte, et l'envoie. */
   async function editFirstMessage() {
-    await waitFor(() => expect(texts("assistant")).toEqual(['"Hi!"']));
     await waitFor(() =>
-      expect(screen.getByTitle("Select model").textContent).toBe(VISION),
+      expect(texts("assistant")).toEqual([answer("attachments")]),
     );
+    await waitFor(() => expect(shownModel()).toBe(VISION));
     await userEvent.click(screen.getByRole("button", { name: "edit" }));
     expect(composer().value).toBe("Describe these files.");
     const chips = () =>
@@ -938,7 +1024,11 @@ describe("editing a message", () => {
     expect(texts("user")).toEqual([
       "notes.txtextra.mdDescribe this file instead.",
     ]);
-    expect(texts("assistant")).toEqual(['"Hi!"']);
+    // Réponse rendue en Markdown (le titre du fichier ajouté perd son `#`).
+    const [edited] = texts("assistant");
+    expect(edited).toMatch(/^Hello! You said: Describe this file instead\./);
+    expect(edited).toContain("More notes");
+    expect(texts("assistant")).toHaveLength(1);
     expect(screen.queryByRole("img", { name: "red.png" })).toBeNull();
     // Base simulée : le message modifié et la nouvelle réponse seulement.
     expect(backend.chats.get("chat-1")?.messages.map((m) => m.id)).toEqual([
@@ -955,7 +1045,7 @@ describe("editing a message", () => {
     await editFirstMessage();
     await waitFor(() => expect(alertText()).toBe("Errorunknown message: 99"));
     expect(texts("user")).toEqual(["notes.txtDescribe these files."]);
-    expect(texts("assistant")).toEqual(['"Hi!"']);
+    expect(texts("assistant")).toEqual([answer("attachments")]);
     await waitFor(() =>
       expect(simulator.callsTo("unstage")).toEqual([{ ids: ["staged-1"] }]),
     );

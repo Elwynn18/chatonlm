@@ -3,7 +3,7 @@
   "request": {
     "streamId": "stream-1",
     "content": "   ",
-    "model": "qwen3:0.6b"
+    "model": "Qwen/Qwen3-0.6B-GGUF:Q8_0"
   },
   "events": [],
   "error": {

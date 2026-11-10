@@ -29,6 +29,7 @@ pub fn same_file(a: &Path, b: &Path) -> bool {
 /// `~/.ollama/models` (communs aux deux systèmes) : service du script
 /// officiel (`/usr/share/ollama/.ollama/models`) et paquet d'Arch Linux
 /// (`OLLAMA_MODELS=/var/lib/ollama`).
+#[cfg_attr(test, allow(dead_code))]
 pub fn system_dirs() -> Vec<PathBuf> {
     vec![
         PathBuf::from("/usr/share/ollama/.ollama/models"),

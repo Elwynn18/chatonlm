@@ -4,8 +4,10 @@
 // Coupée par défaut. Aucune requête de complétion tant que le modèle n'est pas
 // en mémoire selon le plan de l'app ; un refus « en pause » (-32007) arrête les
 // requêtes jusqu'au prochain plan (`gpu.changed`), jamais de boucle. Rien ne
-// part vers un serveur d'une autre machine ni vers un modèle cloud, ni depuis
-// un fichier sensible. L'extension ne télécharge rien : « Install in
+// part vers un modèle distant (ni, avec une app 0.9.x, vers un serveur d'une
+// autre machine), ni depuis un fichier sensible. Un ancien nom d'Ollama d'un
+// modèle proposé dans le réglage est récrit d'après `completion.suggest`
+// (`renamed`). L'extension ne télécharge rien : « Install in
 // ChatonLM » demande à l'app de montrer sa proposition (`models.offerPull`).
 // Contrat : .tools/research/91-lot3-gpu-completion-contract.md (Principes, X).
 // Retour d'inactivité (principe 1) : modèle évincé après 10 min, l'extension
@@ -34,7 +36,7 @@ export const PREFIX_CHARS = 4000;
 /** Suffixe envoyé au plus (caractères). */
 export const SUFFIX_CHARS = 1000;
 /** Début du préfixe aligné sur un multiple de ces lignes : il ne bouge pas à
- * chaque frappe (cache de préfixe d'Ollama, `cachedTokens`). */
+ * chaque frappe (cache de préfixe du moteur, `cachedTokens`). */
 export const PREFIX_STEP_LINES = 8;
 /** Propositions gardées (préfixe, suffixe). */
 export const CACHE_SIZE = 32;
@@ -54,7 +56,7 @@ export const SLOW_DEBOUNCE_FACTOR = 4;
 export const WAKE_INTERVAL_MS = 30_000;
 
 /** Codes du pont pour l'autocomplétion (contrat 1a, lot 3) : en pause,
- * refus du moteur (modèle sans FIM, erreur d'Ollama), remplacée ou annulée. */
+ * refus du moteur (modèle sans FIM, erreur du moteur), remplacée ou annulée. */
 export const CompletionCodes = {
   paused: -32007,
   refused: -32020,
@@ -389,7 +391,33 @@ export type CompletionDeps = {
   fimTimeoutMs?: number;
 };
 
-type Suggest = { recommended?: unknown; options?: unknown };
+type Suggest = { recommended?: unknown; options?: unknown; renamed?: unknown };
+
+/**
+ * Nouveau nom du réglage `chatonlm.completion.model` s'il porte un ancien nom
+ * d'Ollama d'un modèle proposé (`renamed` de `completion.suggest` : ancien →
+ * identifiant de Hugging Face ; sans la casse), sinon null (`auto`, autre
+ * modèle, app 0.9.x sans cette table).
+ */
+export function renamedSetting(
+  setting: string,
+  renamed: unknown,
+): string | null {
+  if (!renamed || typeof renamed !== "object" || Array.isArray(renamed)) {
+    return null;
+  }
+  const wanted = setting.trim().toLowerCase();
+  for (const [old, current] of Object.entries(renamed)) {
+    if (
+      old.toLowerCase() === wanted &&
+      typeof current === "string" &&
+      current
+    ) {
+      return current;
+    }
+  }
+  return null;
+}
 
 const config = () => vscode.workspace.getConfiguration("chatonlm");
 
@@ -524,6 +552,9 @@ export class Completion implements vscode.InlineCompletionItemProvider {
   readonly #deps: CompletionDeps;
   #plan: GpuPlan | null = null;
   #recommended: string | null = null;
+  /** Table `renamed` du dernier `completion.suggest` (ancien nom d'Ollama →
+   * identifiant). */
+  #renamed: unknown = null;
   #options: CompletionOption[] = [];
   /** Refus « en pause » de l'app, jusqu'au prochain plan. */
   #paused: CompletionPause | null = null;
@@ -607,8 +638,13 @@ export class Completion implements vscode.InlineCompletionItemProvider {
     return typeof value === "string" && value.trim() ? value.trim() : "auto";
   }
 
+  /** Modèle demandé à l'app : le recommandé pour `auto` ; un ancien nom
+   * d'Ollama d'un modèle proposé, lu renommé (même si le réglage n'a pas pu
+   * être récrit : réglage d'un dossier). */
   get model(): string | null {
-    return this.setting === "auto" ? this.#recommended : this.setting;
+    const setting = this.setting;
+    if (setting === "auto") return this.#recommended;
+    return renamedSetting(setting, this.#renamed) ?? setting;
   }
 
   get #multiline(): boolean {
@@ -780,6 +816,45 @@ export class Completion implements vscode.InlineCompletionItemProvider {
     this.#update();
   }
 
+  /**
+   * Réglage d'une version d'avant le moteur llama.cpp : récrit une fois, dans
+   * la portée où il est posé (espace de travail, utilisateur ; le recommandé
+   * redevient `auto`), avant de lire le plan. Rien d'écrit quand aucune
+   * portée ne porte d'ancien nom ; une portée qu'on ne peut pas écrire
+   * (dossier d'un espace multiracine) garde son ancien nom, que `model` lit
+   * renommé.
+   */
+  async #rewriteOldSetting(): Promise<void> {
+    const inspected = config().inspect<string>("completion.model");
+    const scopes = [
+      [inspected?.workspaceValue, vscode.ConfigurationTarget.Workspace],
+      [inspected?.globalValue, vscode.ConfigurationTarget.Global],
+    ] as const;
+    for (const [value, target] of scopes) {
+      if (typeof value !== "string") continue;
+      const current = renamedSetting(value, this.#renamed);
+      if (!current) continue;
+      const next =
+        this.#recommended && sameModel(current, this.#recommended)
+          ? "auto"
+          : current;
+      // Pas un changement de modèle : le même, renommé (s'il est le réglage
+      // en vigueur).
+      if (
+        target === vscode.ConfigurationTarget.Workspace ||
+        inspected?.workspaceValue === undefined
+      ) {
+        this.#knownSetting = next;
+      }
+      try {
+        await config().update("completion.model", next, target);
+      } catch {
+        // Portée non inscriptible : `model` le lit renommé.
+      }
+    }
+    this.#knownSetting = this.setting;
+  }
+
   /** Plan, propositions et serveur relus (connexion, activation, carte). */
   async refresh(): Promise<void> {
     if (!this.#deps.link.connected) {
@@ -792,13 +867,15 @@ export class Completion implements vscode.InlineCompletionItemProvider {
       this.#readLocal(),
     ]);
     if (suggest.status === "fulfilled" && suggest.value) {
-      const { recommended, options } = suggest.value;
+      const { recommended, options, renamed } = suggest.value;
       this.#recommended = typeof recommended === "string" ? recommended : null;
       this.#options = Array.isArray(options)
         ? (options as CompletionOption[]).filter(
             (o) => typeof o?.model === "string",
           )
         : [];
+      this.#renamed = renamed;
+      await this.#rewriteOldSetting();
     }
     // Plan calculé pour le modèle de cet éditeur (l'app le retient).
     const chosen = this.model;

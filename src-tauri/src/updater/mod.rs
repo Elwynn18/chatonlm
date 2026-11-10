@@ -507,7 +507,7 @@ pub async fn set_auto_download(app: &AppHandle, enabled: bool) -> AppResult<Upda
 
 /// « Restart to update » : mise à jour prête relue (signature, nom signé,
 /// format ; sans réseau), état `Installing`, services arrêtés proprement
-/// (réponses, téléchargements, dictée, Ollama intégré), installation, puis
+/// (réponses, téléchargements, dictée, modèles du moteur), installation, puis
 /// relance. Un refus avant l'arrêt des services laisse l'état et remplit
 /// `lastError`. Si l'installation échoue une fois les services arrêtés
 /// (boîte de mot de passe fermée...), ChatonLM est relancé quand même (la

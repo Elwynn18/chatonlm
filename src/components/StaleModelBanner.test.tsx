@@ -22,8 +22,12 @@ import { StaleModelBanner } from "./StaleModelBanner";
 configure({ asyncUtilTimeout: 5000 });
 vi.setConfig({ testTimeout: 30_000 });
 
-const QWEN = "qwen3:0.6b";
-const AVAILABLE = `A newer version of ${QWEN} is available`;
+const QWEN = "unsloth/Qwen3-0.6B-GGUF:Q4_K_M";
+const QWEN_NAME = "Qwen3-0.6B:Q4_K_M";
+const OTHER = "unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M";
+const AVAILABLE = `A newer version of ${QWEN_NAME} is available`;
+/** Modèles installés de ces essais (faux moteur). */
+const INSTALLED = { selectedModel: QWEN, models: [QWEN, OTHER] };
 
 /** Écoute les téléchargements, comme la route racine de l'app. */
 function DownloadEvents() {
@@ -41,7 +45,7 @@ function renderBanner({
   prepare = (backend: FakeBackend) => void backend.outdated.add(QWEN),
 } = {}) {
   const simulator = installSimulator();
-  const backend = fakeBackend(simulator);
+  const backend = fakeBackend(simulator, INSTALLED);
   prepare(backend);
   const queryClient = createQueryClient();
   const show = (shown: string | null, streaming = isStreaming) => (
@@ -72,19 +76,19 @@ const banner = () => screen.queryByTestId("stale-model");
 const update = () => screen.getByRole("button", { name: "Update" });
 
 describe("StaleModelBanner", () => {
-  it("says that the registry has a newer version of the selected model", async () => {
+  it("says that Hugging Face has a newer version of the selected model", async () => {
     const { simulator } = renderBanner();
     expect(await screen.findByText(AVAILABLE)).toBeTruthy();
     expect(banner()?.getAttribute("role")).toBe("status");
     expect(update()).toHaveProperty("disabled", false);
     expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
-    // Seul le modèle choisi est demandé au registre.
+    // Seul le modèle choisi est demandé.
     expect(simulator.callsTo("outdated_models")).toEqual([{ models: [QWEN] }]);
   });
 
   it("shows nothing for an up-to-date model, nor without a model", async () => {
     const { simulator, rerender } = renderBanner({
-      prepare: (backend) => void backend.outdated.add("qwen3.5:0.8b"),
+      prepare: (backend) => void backend.outdated.add(OTHER),
     });
     await waitFor(() =>
       expect(simulator.callsTo("outdated_models")).toHaveLength(1),
@@ -96,11 +100,11 @@ describe("StaleModelBanner", () => {
     expect(simulator.callsTo("outdated_models")).toHaveLength(1);
   });
 
-  it("shows nothing when Ollama or the registry can't tell", async () => {
+  it("shows nothing when Hugging Face can't tell", async () => {
     const { simulator } = renderBanner({
       prepare: (backend) => {
         backend.outdated.add(QWEN);
-        backend.outdatedError = { kind: "engine", message: "unreachable" };
+        backend.outdatedError = { kind: "internal", message: "offline" };
       },
     });
     await waitFor(() =>
@@ -109,8 +113,8 @@ describe("StaleModelBanner", () => {
     expect(banner()).toBeNull();
   });
 
-  it("names a Hugging Face model by its readable name", async () => {
-    const model = "hf.co/unsloth/Qwen3.5-9B-GGUF:Q4_K_M";
+  it("names the model by its readable name", async () => {
+    const model = "unsloth/Qwen3.5-9B-GGUF:Q4_K_M";
     renderBanner({
       model,
       prepare: (backend) => void backend.outdated.add(model),
@@ -122,33 +126,45 @@ describe("StaleModelBanner", () => {
     ).toBeTruthy();
   });
 
-  it("Update queues the download under the tagged name, shows the progress, then leaves", async () => {
-    // Le sélecteur montre « gemma4 », /api/tags « gemma4:latest ».
+  it("is never shown for a model taken from Ollama nor a remote model", async () => {
+    for (const model of [
+      "@ollama/qwen3:0.6b",
+      "@remote/mistral/mistral-small-latest",
+    ]) {
+      const { simulator } = renderBanner({
+        model,
+        prepare: (backend) => void backend.outdated.add(model),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(banner()).toBeNull();
+      // Rien à comparer : rien n'est demandé.
+      expect(simulator.callsTo("outdated_models")).toEqual([]);
+      cleanup();
+    }
+  });
+
+  it("Update queues the download under the installed id, shows the progress, then leaves", async () => {
+    // La réponse peut écrire la quantification autrement que l'identifiant
+    // installé : le téléchargement suit l'identifiant installé.
     const { simulator, backend, hub } = renderBanner({
-      model: "gemma4",
-      prepare: (backend) => {
-        backend.models.unshift("gemma4");
-        backend.outdated.add("gemma4:latest");
-      },
+      prepare: (backend) => void backend.outdated.add(QWEN.toLowerCase()),
     });
-    await screen.findByText("A newer version of gemma4 is available");
+    await screen.findByText(AVAILABLE);
     await userEvent.click(update());
-    expect(await screen.findByText("Updating gemma4…")).toBeTruthy();
+    expect(await screen.findByText(`Updating ${QWEN_NAME}…`)).toBeTruthy();
     expect(simulator.callsTo("hub_download")).toEqual([
-      { request: { model: "gemma4:latest", repo: null, label: null } },
+      { request: { model: QWEN, repo: null, label: null } },
     ]);
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
 
-    await hub.progress("gemma4:latest", 250, { total: 1000 });
-    expect(await screen.findByText("Updating gemma4… 25%")).toBeTruthy();
+    await hub.progress(QWEN, 250, { total: 1000 });
+    expect(await screen.findByText(`Updating ${QWEN_NAME}… 25%`)).toBeTruthy();
 
-    await hub.finish("gemma4:latest");
+    await hub.finish(QWEN);
     await waitFor(() => expect(banner()).toBeNull());
     // Le modèle installé est remplacé, pas doublé.
-    expect(backend.models.filter((name) => name.startsWith("gemma4"))).toEqual([
-      "gemma4",
-    ]);
+    expect(backend.models.filter((name) => name === QWEN)).toEqual([QWEN]);
   });
 
   it("Update waits for the end of the reply being written", async () => {
@@ -162,7 +178,7 @@ describe("StaleModelBanner", () => {
   });
 
   it("Dismiss hides it for that model only, until the end of the session", async () => {
-    const other = "qwen3.5:0.8b";
+    const other = OTHER;
     const { rerender } = renderBanner({
       prepare: (backend) => {
         backend.outdated.add(QWEN);
@@ -175,12 +191,15 @@ describe("StaleModelBanner", () => {
     // Un autre modèle périmé garde son bandeau.
     rerender(other);
     expect(
-      await screen.findByText(`A newer version of ${other} is available`),
+      await screen.findByText(
+        "A newer version of Qwen3.5-0.8B:Q4_K_M is available",
+      ),
     ).toBeTruthy();
-    // De retour au premier : toujours fermé, sous l'autre écriture aussi.
+    // De retour au premier : toujours fermé, quantification écrite
+    // autrement aussi.
     rerender(QWEN);
     await waitFor(() => expect(banner()).toBeNull());
-    rerender("QWEN3:0.6B");
+    rerender(QWEN.replace("Q4_K_M", "q4_k_m"));
     expect(banner()).toBeNull();
   });
 
@@ -188,14 +207,14 @@ describe("StaleModelBanner", () => {
     const { simulator, hub } = renderBanner();
     await screen.findByText(AVAILABLE);
     await userEvent.click(update());
-    await screen.findByText(`Updating ${QWEN}…`);
-    await hub.fail(QWEN, "pull model manifest: file does not exist");
+    await screen.findByText(`Updating ${QWEN_NAME}…`);
+    await hub.fail(QWEN, "the file is gone from the repository");
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "Couldn't update the model: pull model manifest: file does not exist",
+      "Couldn't update the model: the file is gone from the repository",
     );
     expect(screen.getByText(AVAILABLE)).toBeTruthy();
     await userEvent.click(update());
-    await screen.findByText(`Updating ${QWEN}…`);
+    await screen.findByText(`Updating ${QWEN_NAME}…`);
     expect(simulator.callsTo("hub_download")).toHaveLength(2);
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -217,9 +236,11 @@ describe("StaleModelBanner", () => {
 
 describe("the banner in the app", () => {
   it("is shown above the composer of a new chat, for the selected model", async () => {
-    const { simulator } = renderHub("/c/new", ({ backend }) => {
-      backend.outdated.add(QWEN);
-    });
+    const { simulator } = renderHub(
+      "/c/new",
+      ({ backend }) => void backend.outdated.add(QWEN),
+      INSTALLED,
+    );
     const shown = await screen.findByTestId("stale-model");
     expect(shown.textContent).toContain(AVAILABLE);
     // Au-dessus de la zone de saisie.
@@ -231,10 +252,11 @@ describe("the banner in the app", () => {
   });
 
   it("is not shown for a selected model that is not installed", async () => {
+    const missing = "unsloth/gemma-3-4b-it-GGUF:Q4_K_M";
     const { simulator } = renderHub(
       "/c/new",
-      ({ backend }) => void backend.outdated.add("gemma4"),
-      { selectedModel: "gemma4" },
+      ({ backend }) => void backend.outdated.add(missing),
+      { ...INSTALLED, selectedModel: missing },
     );
     await screen.findByRole("textbox");
     await waitFor(() =>

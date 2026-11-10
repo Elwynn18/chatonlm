@@ -51,7 +51,7 @@ describe("Voices tab", () => {
     await screen.findAllByTestId("voice-model");
     expect(
       screen.getByText(
-        "Voices read responses aloud. They run inside ChatonLM, not in Ollama.",
+        "Voices read responses aloud. They run inside ChatonLM.",
         { exact: false },
       ),
     ).toBeTruthy();

@@ -150,6 +150,9 @@ pub async fn change_engine_models_dir(
     let data_dir = data_dir(&app)?;
     let store = store.inner().clone();
     let import = import.inner().clone();
+    let engine = app
+        .try_state::<crate::engine::Engine>()
+        .map(|e| e.inner().clone());
     // Tâche à part : une page rechargée n'arrête pas le déplacement.
     tauri::async_runtime::spawn(async move {
         // Vérifié verrou pris : un téléchargement qui commence voit le
@@ -165,12 +168,12 @@ pub async fn change_engine_models_dir(
             }
             Ok(())
         };
-        folder::change(
+        change_dir(
+            engine.as_ref(),
             &store,
             &data_dir,
             PathBuf::from(path),
             move_models,
-            Arc::new(AtomicBool::new(false)),
             idle,
             |event| {
                 let _ = on_event.send(event);
@@ -180,4 +183,100 @@ pub async fn change_engine_models_dir(
     })
     .await
     .map_err(|error| AppError::Internal(error.to_string()))?
+}
+
+/// Changement du dossier des modèles : les modèles du moteur ne sont
+/// déchargés (et le moteur gelé jusqu'à la fin) qu'une fois le changement
+/// accepté ; un refus (téléchargement, reprise, dossier inclus…) laisse tout
+/// en place (relecture L5b, M4 : la page déchargeait tout avant de demander).
+async fn change_dir(
+    engine: Option<&crate::engine::Engine>,
+    store: &Store,
+    data_dir: &std::path::Path,
+    path: PathBuf,
+    move_models: bool,
+    idle: impl FnOnce() -> AppResult<()>,
+    on_event: impl Fn(FolderEvent) + Send + Sync,
+) -> AppResult<FolderMoved> {
+    let release = async {
+        match engine {
+            Some(engine) => Some(engine.freeze().await),
+            None => None,
+        }
+    };
+    folder::change_with(
+        store,
+        data_dir,
+        path,
+        move_models,
+        Arc::new(AtomicBool::new(false)),
+        idle,
+        release,
+        on_event,
+    )
+    .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::LoadOptions;
+    use crate::llm::testing::FakeBench;
+
+    const MODEL: &str = "test/Folder-GGUF:Q4_K_M";
+
+    /// Relecture L5b, M4 : un changement refusé (téléchargement en cours)
+    /// ne décharge rien ; accepté, les modèles sont déchargés, rien n'est
+    /// relancé pendant le déplacement, puis la demande repart du nouveau
+    /// dossier.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn models_are_unloaded_only_once_the_move_is_accepted() {
+        let bench = FakeBench::new(&[(MODEL, "simple")]);
+        let engine = bench.engine().clone();
+        engine.preload(MODEL, LoadOptions::default()).await.unwrap();
+        let data_dir = bench.dir().join("data");
+        let moved = bench.dir().join("moved");
+        let refused = change_dir(
+            Some(&engine),
+            bench.store(),
+            &data_dir,
+            moved.clone(),
+            true,
+            || Err(AppError::Invalid(t!("modelImport.downloadsRunning"))),
+            |_| {},
+        )
+        .await;
+        assert!(refused.is_err());
+        assert_eq!(engine.running().len(), 1, "still loaded after a refusal");
+
+        // Une demande pendant le déplacement attend sa fin.
+        let waiting = std::sync::Arc::new(tokio::sync::Notify::new());
+        let (during, notify) = (engine.clone(), waiting.clone());
+        let relaunch = tokio::spawn(async move {
+            notify.notified().await;
+            during.preload(MODEL, LoadOptions::default()).await
+        });
+        let moved_done = change_dir(
+            Some(&engine),
+            bench.store(),
+            &data_dir,
+            moved.clone(),
+            true,
+            || Ok(()),
+            |event| {
+                if matches!(event, FolderEvent::Total { .. }) {
+                    // Gel posé, modèles déchargés : la demande part ici.
+                    assert!(engine.running().is_empty());
+                    waiting.notify_one();
+                }
+            },
+        )
+        .await
+        .unwrap();
+        assert!(moved_done.renamed + moved_done.copied > 0, "{moved_done:?}");
+        relaunch.await.unwrap().unwrap();
+        let running = engine.running();
+        assert_eq!(running.len(), 1);
+        bench.shutdown().await;
+    }
 }

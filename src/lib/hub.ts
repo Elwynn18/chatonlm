@@ -462,7 +462,7 @@ const FAMILY_GRADIENTS: Record<string, number> = {
 };
 
 /**
- * Familles reconnues dans un nom (modèle, dépôt, `details.family` d'Ollama),
+ * Familles reconnues dans un nom (modèle, dépôt, famille d'un modèle installé),
  * dans l'ordre de curation.json : DeepSeek avant Qwen pour les distillations
  * R1 (« DeepSeek-R1-Distill-Qwen »).
  */
@@ -565,8 +565,8 @@ export function huggingFaceUrl(id: string): string {
 
 /**
  * Même modèle installé : l'identifiant de la base locale (`auteur/dépôt:QUANT`)
- * et le nom `hf.co/…` qu'Ollama donne au même modèle se valent (comme
- * `ModelId::from_request` du moteur) ; sans la casse, comme `sameModel`.
+ * et l'ancien nom `hf.co/…` d'Ollama (réglages gardés d'une version 0.9.x)
+ * se valent (comme `ModelId::from_request` du moteur), sans la casse.
  */
 export function sameInstalledModel(a: string, b: string): boolean {
   const bare = (name: string) =>

@@ -306,7 +306,7 @@ impl<H: Host> EditorLink for Talk<H> {
 
 /// Réflexion d'un envoi vocal, comme la page : coupée si le modèle le
 /// permet, sauf réglage « garder la réflexion » (préférence du modèle).
-async fn voice_think<H: Host>(shared: &Shared<H>, server: &Server, model: &str) -> Option<Think> {
+async fn voice_think<H: Host>(shared: &Shared<H>, model: &str) -> Option<Think> {
     let keep = shared
         .store
         .call(|c| crate::store::voice_mode::get(c))
@@ -321,8 +321,26 @@ async fn voice_think<H: Host>(shared: &Shared<H>, server: &Server, model: &str) 
             .ok()
             .flatten();
     }
-    let details = crate::ollama::models::show(&server.url, model).await.ok();
-    crate::dictation::polish::think_off(details.as_ref(), false).then_some(Think::Enabled(false))
+    let details = crate::llm::models::details(&shared.access, model)
+        .await
+        .ok();
+    details
+        .as_ref()
+        .is_some_and(think_off)
+        .then_some(Think::Enabled(false))
+}
+
+/// Réflexion à couper pour un envoi vocal : modèle qui réfléchit, qui
+/// accepte l'arrêt (`false` parmi ses réglages : pas gpt-oss, qui n'a que
+/// des niveaux) et dont on n'a pas vu qu'il réfléchit quand même.
+fn think_off(details: &crate::llm::models::ModelDetails) -> bool {
+    let off = Think::Enabled(false);
+    details.capabilities.iter().any(|word| word == "thinking")
+        && !details.always_thinks
+        && details
+            .thinking
+            .as_ref()
+            .is_some_and(|thinking| thinking.values.contains(&off))
 }
 
 /// Envoie la phrase d'un tour au chat (envoi vocal, observé : la séance suit
@@ -336,19 +354,22 @@ async fn send_turn<H: Host>(
     let turn = utterance.turn;
     let connection = talk.connection;
     let failed = |message: String| shared.host.voice().reply_failed(connection, turn, message);
-    let settings = match crate::ollama::target::request_settings(&shared.store).await {
+    let settings = match super::connection::app_settings(&shared.store).await {
         Ok(settings) => settings,
         Err(error) => return failed(error.to_string()),
     };
-    let server = Server::with_settings(shared.access.clone(), &settings);
+    let server = match Server::current(&shared.access).await {
+        Ok(server) => server,
+        Err(error) => return failed(error.to_string()),
+    };
     let model = talk
         .model
         .clone()
         .filter(|model| !model.trim().is_empty())
         .unwrap_or_else(|| settings.selected_model.clone());
-    // Modèle du cloud, réglage coupé : rien ne part, même pas `/api/show`
-    // (comme `tour.plan`) ; le refus de `send_to` viendrait trop tard.
-    if let Some(message) = server.refuses(&model, crate::ollama::models::is_cloud_name(&model)) {
+    // Modèle distant, réglage coupé : rien ne part (comme `tour.plan`) ; le
+    // refus de `send_to` viendrait trop tard.
+    if let Some(message) = server.refuses(&model, crate::llm::ids::is_remote(&model)) {
         return failed(message);
     }
     let number = shared.next_stream.fetch_add(1, Ordering::SeqCst);
@@ -359,7 +380,7 @@ async fn send_turn<H: Host>(
         talk,
         stream: &stream,
     };
-    let think = voice_think(shared, &server, &model).await;
+    let think = voice_think(shared, &model).await;
     // Séance finie pendant la préparation : le tour ne part pas.
     if talk.ended.load(Ordering::SeqCst) {
         return;
@@ -646,7 +667,8 @@ pub(super) fn voice_register<H: Host>(
         out: out.clone(),
         profile: params.profile,
         ephemeral: params.ephemeral == Some(true) && params.chat_id.is_none(),
-        model: params.model,
+        // Panneau d'une extension 0.1.x : `@ollama/<nom>` sans `:latest`.
+        model: params.model.as_deref().map(super::connection::editor_model),
         chat: Mutex::new(params.chat_id),
         context: Mutex::new(None),
         level_sent: Mutex::new(None),

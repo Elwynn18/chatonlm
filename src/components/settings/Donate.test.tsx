@@ -27,7 +27,7 @@ vi.setConfig({ testTimeout: 30_000 });
 afterEach(() => resetLinks());
 
 const DESCRIPTION =
-  "Donations keep ChatonLM growing. In particular, they will pay for servers of its own, so that web search no longer depends on Ollama.";
+  "Donations keep ChatonLM growing. In particular, they pay for its own servers, such as the one behind web search.";
 
 function setup(path = "/settings") {
   const simulator = installSimulator();

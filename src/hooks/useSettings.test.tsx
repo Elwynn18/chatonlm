@@ -4,10 +4,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Settings } from "@/bindings/Settings";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
-import { accountKey } from "@/hooks/useAccount";
-import { cloudStatusKey } from "@/hooks/useCloudStatus";
 import { modelsKey, recommendedKey, upstreamKey } from "@/hooks/useModels";
-import { healthKey } from "@/hooks/useServerHealth";
 import { getLanguage } from "@/i18n";
 import { modelDetailsKey, thinkPrefKey } from "@/hooks/useThink";
 import { fakeBackend, SERVER_URL } from "@/test/backend";
@@ -202,55 +199,40 @@ describe("useSettings", () => {
     expect(result.current.settings?.theme).toBe("dark");
   });
 
-  describe("server-dependent queries", () => {
-    const dependent = [
-      modelsKey,
-      recommendedKey,
-      upstreamKey("llama3"),
-      modelDetailsKey("qwen3:0.6b"),
-      healthKey,
-    ];
-    // Propres au serveur : oubliés (remis à zéro), pas seulement relus.
-    const identity = [accountKey, cloudStatusKey];
+  describe("queries that depend on the remote models setting", () => {
+    const dependent = [modelsKey, modelDetailsKey("qwen3:0.6b")];
     const independent = [
-      ["serverStatus"],
+      recommendedKey,
+      upstreamKey("unsloth/Qwen3-8B-GGUF"),
       ["chats"],
       thinkPrefKey("qwen3:0.6b"),
     ];
 
     /** Requêtes en cache, sans observateur (rien n'est relu). */
     function seed(client: QueryClient) {
-      for (const key of [...dependent, ...independent, ...identity]) {
+      for (const key of [...dependent, ...independent]) {
         client.setQueryData(key, "data");
       }
     }
-
-    /** Requêtes propres au serveur dont les données ont été oubliées. */
-    const forgotten = (client: QueryClient) =>
-      identity.filter((key) => client.getQueryData(key) === undefined);
 
     const invalidated = (client: QueryClient) =>
       [...dependent, ...independent].filter(
         (key) => client.getQueryState(key)?.isInvalidated,
       );
 
-    it("are invalidated when the effective server address changes", async () => {
+    it("are read again when remote models are turned on or off", async () => {
       const simulator = installSimulator();
       fakeBackend(simulator);
       const client = newClient();
       seed(client);
       const { result } = mount(client);
 
-      await act(() =>
-        result.current.setSettings({ serverUrl: "http://10.0.0.2:11434" }),
-      );
+      await act(() => result.current.setSettings({ remoteModels: true }));
 
       expect(invalidated(client)).toEqual(dependent);
-      // Une relecture en échec ne garderait pas le compte de l'ancien.
-      expect(forgotten(client)).toEqual(identity);
     });
 
-    it("are kept when the effective address stays the same", async () => {
+    it("are kept when another setting changes", async () => {
       const simulator = installSimulator();
       fakeBackend(simulator);
       const client = newClient();
@@ -259,15 +241,13 @@ describe("useSettings", () => {
 
       await act(() => result.current.setSettings({ theme: "dark" }));
       await act(() => result.current.setSettings({ contextLength: 8192 }));
-      // Adresse réglée, mais identique à l'adresse automatique.
-      await act(() => result.current.setSettings({ serverUrl: SERVER_URL }));
+      await act(() => result.current.setSettings({ remoteModels: false }));
 
       expect(client.getQueryData(settingsKey)).toMatchObject({
-        serverUrl: SERVER_URL,
         theme: "dark",
+        remoteModels: false,
       });
       expect(invalidated(client)).toEqual([]);
-      expect(forgotten(client)).toEqual([]);
     });
   });
 });

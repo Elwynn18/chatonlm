@@ -4,10 +4,10 @@
 // reprise par la pastille de sa ligne), les autres usages (bureau, autres
 // programmes), le libre ; sous elle, la légende chiffrée, et la part des
 // modèles qui déborde en mémoire vive. Relue avec la liste des modèles
-// (toutes les 2 s). Serveur distant, mémoire illisible ou machine sans carte
+// (toutes les 2 s). Mémoire illisible ou machine sans carte
 // graphique : une phrase à la place de la barre.
 
-import type { RunningModel } from "@/bindings/RunningModel";
+import type { EngineRunningModel } from "@/bindings/EngineRunningModel";
 import { useMachineMemory } from "@/hooks/useMachineMemory";
 import { useT } from "@/i18n";
 import { formatBytes } from "@/i18n/format";
@@ -19,7 +19,11 @@ const OTHER = "bg-neutral-500 dark:bg-neutral-400";
 /** Fond de la barre : le libre. */
 const FREE = "bg-neutral-200 dark:bg-neutral-700";
 
-export function VramGauge({ models }: { models: readonly RunningModel[] }) {
+export function VramGauge({
+  models,
+}: {
+  models: readonly EngineRunningModel[];
+}) {
   const t = useT();
   const memory = useMachineMemory();
   // Lecture en cours (premier affichage) : rien, la liste suit aussitôt.

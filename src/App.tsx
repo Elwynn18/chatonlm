@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import type { DatabaseProblem } from "@/bindings/DatabaseProblem";
 import { DatabaseProblemScreen } from "@/components/DatabaseProblemScreen";
 import { LanguageStep } from "@/components/onboarding/LanguageStep";
-import { ServerGate } from "@/components/ServerGate";
 import { useSettings } from "@/hooks/useSettings";
 import { useTheme } from "@/hooks/useTheme";
 import { useT } from "@/i18n";
@@ -90,17 +89,14 @@ function MainApp() {
     );
   }
   if (!settings) return null;
-  // Premier démarrage : la langue avant tout le reste (même l'écran d'un
-  // Ollama absent, qui s'écrit dans la langue choisie) ; la visite guidée
+  // Premier démarrage : la langue avant tout le reste ; la visite guidée
   // suit dans l'app (route racine). Redemandée à chaque lancement tant que
   // la visite n'est ni finie ni passée.
   if (settings.onboardingDone === false && !languageChosen) {
     return <LanguageStep onDone={() => setLanguageChosen(true)} />;
   }
 
-  return (
-    <ServerGate>
-      <RouterProvider router={router} />
-    </ServerGate>
-  );
+  // Le moteur est livré avec l'app : rien à attendre avant de l'afficher
+  // (un moteur en panne se dit à l'envoi et dans Settings › General).
+  return <RouterProvider router={router} />;
 }

@@ -1,9 +1,9 @@
 {
-  "description": "The connection to Ollama breaks in the middle of the answer.",
+  "description": "The engine stops in the middle of the answer (the llama-server process crashed).",
   "request": {
     "streamId": "stream-1",
     "content": "Say hello in one word.",
-    "model": "chatonlm-reset"
+    "model": "chat/Crash-GGUF:Q4_K_M"
   },
   "events": [
     {
@@ -39,16 +39,20 @@
     },
     {
       "type": "content",
-      "text": "\""
+      "text": "One"
     },
     {
       "type": "content",
-      "text": "Hi"
+      "text": " two"
+    },
+    {
+      "type": "content",
+      "text": " three"
     },
     {
       "type": "error",
       "kind": "connectionLost",
-      "message": "Connection lost: error decoding response body"
+      "message": "the reply was interrupted"
     }
   ],
   "error": null

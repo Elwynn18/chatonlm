@@ -1,52 +1,89 @@
 import { describe, expect, it } from "vitest";
 import {
   displayTag,
-  isHuggingFaceName,
+  isRemoteModel,
   parseModelName,
   sameModel,
   shortModelName,
   withoutGgufSuffix,
-  withTag,
 } from "./modelNames";
 
 describe("model names", () => {
-  it("splits a Hugging Face name into title, tag, publisher and repository", () => {
+  it("splits a Hugging Face id into title, tag, publisher and repository", () => {
     expect(
-      parseModelName("hf.co/bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M"),
+      parseModelName("bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M"),
     ).toEqual({
       title: "SmolLM2-135M-Instruct",
       tag: "Q4_K_M",
       publisher: "bartowski",
       repo: "bartowski/SmolLM2-135M-Instruct-GGUF",
+      kind: "hf",
     });
-    // Hôte sans tenir compte de la casse, huggingface.co aussi, sans étiquette.
+    expect(parseModelName("unsloth/Qwen3.5-9B-GGUF:UD-Q4_K_XL")).toMatchObject({
+      title: "Qwen3.5-9B",
+      tag: "UD-Q4_K_XL",
+      kind: "hf",
+    });
+  });
+
+  it("still reads the Hugging Face names of Ollama kept in the history", () => {
     expect(parseModelName("HF.CO/Qwen/Qwen3-8B-GGUF")).toEqual({
       title: "Qwen3-8B",
       tag: "",
       publisher: "Qwen",
       repo: "Qwen/Qwen3-8B-GGUF",
+      kind: "hf",
     });
     expect(
       parseModelName("huggingface.co/unsloth/Qwen3.5-9B-GGUF:UD-Q4_K_XL").repo,
     ).toBe("unsloth/Qwen3.5-9B-GGUF");
   });
 
-  it("splits an Ollama name into title and tag", () => {
+  it("splits a model taken from Ollama, its fallback id included", () => {
+    expect(parseModelName("@ollama/qwen3:0.6b")).toEqual({
+      title: "qwen3",
+      tag: "0.6b",
+      publisher: null,
+      repo: null,
+      kind: "ollama",
+    });
+    expect(
+      parseModelName("@ollama/ollama.com/someone/mybot:latest"),
+    ).toMatchObject({ title: "mybot", tag: "latest", kind: "ollama" });
+  });
+
+  it("keeps the name of a remote model whole, its provider apart", () => {
+    expect(
+      parseModelName("@remote/openrouter/meta-llama/llama-3.3-70b:free"),
+    ).toEqual({
+      title: "meta-llama/llama-3.3-70b:free",
+      tag: "",
+      publisher: "openrouter",
+      repo: null,
+      kind: "remote",
+    });
+    expect(parseModelName("@remote/broken")).toMatchObject({
+      title: "broken",
+      publisher: null,
+      kind: "remote",
+    });
+    expect(isRemoteModel(" @remote/mistral/mistral-small-latest")).toBe(true);
+    expect(isRemoteModel("@ollama/qwen3:0.6b")).toBe(false);
+  });
+
+  it("splits an old Ollama name into title and tag", () => {
     expect(parseModelName("qwen3:0.6b")).toEqual({
       title: "qwen3",
       tag: "0.6b",
       publisher: null,
       repo: null,
+      kind: "other",
     });
     expect(parseModelName("library/gemma3")).toMatchObject({
       title: "gemma3",
       tag: "",
       publisher: null,
-    });
-    expect(parseModelName("someone/custom:latest")).toMatchObject({
-      title: "custom",
-      tag: "latest",
-      publisher: "someone",
+      kind: "other",
     });
     // Le port d'un hôte n'est pas une étiquette.
     expect(parseModelName("localhost:5000/team/model")).toMatchObject({
@@ -65,40 +102,37 @@ describe("model names", () => {
     expect(displayTag("Q4_K_M")).toBe("Q4_K_M");
   });
 
-  it("compares names without case, as Ollama resolves them", () => {
+  it("compares ids like the engine: the quantization without case", () => {
     expect(
       sameModel(
-        "hf.co/bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M",
-        "hf.co/bartowski/smollm2-135m-instruct-gguf:q4_k_m",
+        "bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M",
+        " bartowski/SmolLM2-135M-Instruct-GGUF:q4_k_m",
       ),
     ).toBe(true);
-    expect(sameModel("qwen3:0.6b", "qwen3:1.7b")).toBe(false);
-    expect(isHuggingFaceName("hf.co/a/b:c")).toBe(true);
-    expect(isHuggingFaceName("qwen3:0.6b")).toBe(false);
-  });
-
-  it("adds the latest tag Ollama implies, after the last slash only", () => {
-    expect(withTag("gemma4")).toBe("gemma4:latest");
-    expect(withTag(" someone/model \n")).toBe("someone/model:latest");
-    expect(withTag("hf.co/a/b-GGUF")).toBe("hf.co/a/b-GGUF:latest");
-    // Le port d'un hôte n'est pas une étiquette.
-    expect(withTag("localhost:5000/team/model")).toBe(
-      "localhost:5000/team/model:latest",
-    );
-    for (const tagged of [
-      "qwen3:0.6b",
-      "gemma4:latest",
-      "hf.co/a/b-GGUF:Q4_K_M",
-      "localhost:5000/team/model:v2",
-    ]) {
-      expect(withTag(tagged)).toBe(tagged);
-    }
-  });
-
-  it("shortens a Hugging Face name to quote it, and keeps the others", () => {
+    // Le dépôt, lui, se compare exactement.
     expect(
-      shortModelName("hf.co/bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M"),
-    ).toBe("SmolLM2-135M-Instruct:Q4_K_M");
+      sameModel(
+        "bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M",
+        "bartowski/smollm2-135m-instruct-gguf:Q4_K_M",
+      ),
+    ).toBe(false);
+    expect(sameModel("@ollama/qwen3:0.6b", "@ollama/qwen3:1.7b")).toBe(false);
+    expect(sameModel("a/B-GGUF:Q8_0", "a/B-GGUF")).toBe(false);
+    // Distant : exactement.
+    expect(sameModel("@remote/p/Model:Free", "@remote/p/Model:free")).toBe(
+      false,
+    );
+    expect(sameModel("@remote/p/m", "@remote/p/m")).toBe(true);
+  });
+
+  it("shortens a name to quote it", () => {
+    expect(shortModelName("bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M")).toBe(
+      "SmolLM2-135M-Instruct:Q4_K_M",
+    );
+    expect(shortModelName("@ollama/qwen3:0.6b")).toBe("qwen3:0.6b");
+    expect(shortModelName("@remote/mistral/mistral-small-latest")).toBe(
+      "mistral-small-latest",
+    );
     expect(shortModelName("hf.co/a/Model-GGUF")).toBe("Model");
     expect(shortModelName(" qwen3:0.6b ")).toBe("qwen3:0.6b");
     expect(shortModelName("someone/model")).toBe("someone/model");

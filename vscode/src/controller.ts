@@ -9,7 +9,6 @@
 import * as vscode from "vscode";
 import type { Chat } from "../../src/bindings/Chat";
 import type { ChatEvent } from "../../src/bindings/ChatEvent";
-import type { ModelInfo } from "../../src/bindings/ModelInfo";
 import type {
   HostMessage,
   Locale,
@@ -38,6 +37,7 @@ import {
   RpcError,
   TooLargeError,
 } from "./bridge/rpc";
+import { listedModels, type ListedModel, shortName } from "../shared/models";
 import { Completion } from "./completion";
 import { Dictation } from "./dictation";
 import { ImageMaker } from "./image";
@@ -162,9 +162,6 @@ const TOO_LARGE = "too large";
 
 const ENDS = new Set<ChatEvent["type"]>(["done", "error", "cancelled"]);
 
-/** Nom affiché d'un modèle (sans `:latest`, comme l'app). */
-const shortName = (model: string) => model.replace(/:latest$/, "");
-
 export function problemText(problem: LinkProblem | undefined): string {
   switch (problem) {
     case "noRuntimeDir":
@@ -188,7 +185,7 @@ function selectionKey(editor: vscode.TextEditor): string {
 
 export class Controller {
   readonly #deps: ControllerDeps;
-  #models: ModelInfo[] = [];
+  #models: ListedModel[] = [];
   #appModel: string | null = null;
   #model: string | null;
   #chatId: string | null = null;
@@ -478,11 +475,10 @@ export class Controller {
     const starting =
       this.#launching &&
       (link.connection === "appClosed" || link.connection === "bridgeOff");
-    const models = this.#models.map((m) => shortName(m.model));
     const state: PanelState = {
       connection: starting ? "connecting" : link.connection,
-      models,
-      cloudModels: models.filter(looksRemote),
+      models: this.#models.map((m) => m.id),
+      remoteModels: this.#models.filter((m) => m.remote).map((m) => m.id),
       model: this.#model ?? this.#appModel,
       ephemeral: this.#ephemeral,
       chatId: this.#chatId,
@@ -771,12 +767,12 @@ export class Controller {
   async refresh(): Promise<void> {
     try {
       const [models, app] = await Promise.all([
-        this.#deps.link.request<ModelInfo[]>("models.list"),
+        this.#deps.link.request<unknown>("models.list"),
         this.#deps.link.request<{ selectedModel?: string }>("app.state"),
       ]);
-      this.#models = Array.isArray(models) ? models : [];
+      this.#models = listedModels(models);
       this.#appModel = app?.selectedModel ? shortName(app.selectedModel) : null;
-      const names = this.#models.map((m) => shortName(m.model));
+      const names = this.#models.map((m) => m.id);
       if (this.#model && !names.includes(this.#model)) this.#model = null;
       // Chat de VS Code : sa liste de modèles est relue s'ils ont changé.
       const known = names.join("\n");
@@ -785,7 +781,7 @@ export class Controller {
         this.#nativeChat.refresh();
       }
     } catch (error) {
-      // Ollama injoignable (refus de l'app) : liste vide. Liaison perdue
+      // Liste refusée par l'app : liste vide. Liaison perdue
       // entre-temps : la liste reste (l'écran de connexion s'affiche).
       if (error instanceof RpcError) this.#models = [];
     }
@@ -883,9 +879,10 @@ export class Controller {
   }
 
   /**
-   * Où part un envoi (modèle cloud : `models.details.remote` ; Ollama d'une
-   * autre machine : `app.state.local`), et le contexte que le moteur emploie
-   * pour ce modèle. Ce que l'app ne dit pas est traité comme hors machine.
+   * Où part un envoi (modèle distant : `models.details.remote` ; modèles
+   * d'une autre machine, app 0.9.x seulement : `app.state.local`), et le
+   * contexte que le moteur emploie pour ce modèle. Ce que l'app ne dit pas
+   * est traité comme hors machine.
    */
   async #destination(
     model: string | null,

@@ -209,6 +209,6 @@
   "ChatonLM couldn't transcribe the dictation.": "ChatonLM no pudo transcribir el dictado.",
   "ChatonLM could not delete the access file for agents: {0}. Delete it yourself.": "ChatonLM no pudo borrar el archivo de acceso de los agentes: {0}. Bórralo tú.",
   "This version of ChatonLM can't give agents their own access. Update ChatonLM.": "Esta versión de ChatonLM no puede dar a los agentes su propio acceso. Actualiza ChatonLM.",
-  "ChatonLM uses an Ollama server on another computer: its models are not offered here.": "ChatonLM usa un servidor Ollama en otro equipo: sus modelos no se ofrecen aquí.",
+  "ChatonLM's models run on another computer: they are not offered here.": "Los modelos de ChatonLM se ejecutan en otro equipo: no se ofrecen aquí.",
   "This conversation is too long to send to ChatonLM. Start a new one.": "Esta conversación es demasiado larga para enviarla a ChatonLM. Empieza una nueva."
 }

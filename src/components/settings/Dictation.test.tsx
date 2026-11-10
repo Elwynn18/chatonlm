@@ -27,7 +27,7 @@ import {
 } from "@/test/dictation";
 import { renderApp } from "@/test/renderApp";
 import { installSimulator, type Simulator } from "@/test/simulator";
-import type { ModelInfo } from "@/bindings/ModelInfo";
+import type { ChatModel } from "@/bindings/ChatModel";
 import { setLanguage } from "@/i18n";
 import { modelInfo } from "@/test/backend";
 import { untranslatedTexts, usePseudoLanguage } from "@/test/i18n";
@@ -232,7 +232,7 @@ describe("Dictation settings", () => {
 
   it("Reset to defaults (General tab) leaves dictation alone", async () => {
     const { simulator } = setup(ready(), "/settings");
-    await screen.findByText("Server address");
+    await screen.findByText("Model location");
     expect(screen.queryByTestId("dictation")).toBeNull();
     await userEvent.click(
       screen.getByRole("button", { name: "Reset to defaults" }),
@@ -596,7 +596,7 @@ describe("Dictation choices", () => {
     expect(describedBy()).not.toContain("Parakeet");
   });
 
-  it("polish model: Off and the models of Ollama, saved on change", async () => {
+  it("polish model: Off and the installed models, saved on change", async () => {
     const { simulator } = setup(ready({ polishModel: "gemma3:4b" }));
     const element = await card();
     const select =
@@ -958,7 +958,7 @@ describe("Dictation without the lists (review 43, F2)", () => {
     await card();
   });
 
-  it("Ollama not answering yet: Loading models…, the polish model never not installed", async () => {
+  it("models not read yet: Loading models…, the polish model never not installed", async () => {
     const { simulator } = setup(ready({ polishModel: "gemma3:4b" }));
     simulator.handle("list_models", () => new Promise(() => {}));
     const element = await card();
@@ -967,14 +967,14 @@ describe("Dictation without the lists (review 43, F2)", () => {
     expect(within(element).getByText("Loading models…")).toBeTruthy();
   });
 
-  it("Ollama unreachable: said so, the polish model never not installed", async () => {
+  it("models unreadable: said so, the polish model never not installed", async () => {
     const { simulator } = setup(ready({ polishModel: "gemma3:4b" }));
     simulator.handle("list_models", () => {
       throw { kind: "engine", message: "connection refused" };
     });
     const element = await card();
     await within(element).findByText(
-      "Ollama is unreachable. Its models will be listed once it answers.",
+      "The installed models couldn't be read. They will be listed as soon as they are.",
     );
     expect(optionTexts(within(element).getByLabelText("Polish model"))).toEqual(
       ["Off", "gemma3:4b"],
@@ -984,36 +984,23 @@ describe("Dictation without the lists (review 43, F2)", () => {
 });
 
 describe("Dictation and privacy (review 43, D3)", () => {
-  it("cloud models are never offered for polish", async () => {
-    const { simulator } = setup(ready({ polishModel: "gpt-oss:120b-cloud" }));
-    simulator.handle("list_models", (): ModelInfo[] =>
-      ["qwen3:0.6b", "gpt-oss:120b-cloud", "kimi-k2:cloud"].map(modelInfo),
+  it("remote models are never offered for polish", async () => {
+    const REMOTE = "@remote/mistral/mistral-small-latest";
+    const { simulator } = setup(ready({ polishModel: REMOTE }));
+    simulator.handle("list_models", (): ChatModel[] =>
+      ["qwen3:0.6b", REMOTE, "@remote/openrouter/kimi-k2"].map((id) =>
+        modelInfo(id),
+      ),
     );
     const element = await card();
     const select = within(element).getByLabelText("Polish model");
     await waitFor(() =>
       expect(optionTexts(select)).toEqual([
         "Off",
-        "gpt-oss:120b-cloud (cloud models are not used)",
+        `${REMOTE} (remote models are not used)`,
         "qwen3:0.6b",
       ]),
     );
-  });
-
-  it("a remote Ollama server: the card says the transcript goes there", async () => {
-    setup(({ backend, dictation }) => {
-      ready()({ dictation });
-      backend.settings.serverUrl = "http://192.168.1.20:11434";
-      backend.settings.effectiveServerUrl = "http://192.168.1.20:11434";
-    });
-    const element = await card();
-    const description = document.getElementById(
-      enableSwitch().getAttribute("aria-describedby")!,
-    );
-    expect(description?.textContent).toBe(
-      "Press a shortcut anywhere to dictate. Your speech is transcribed on this computer, cleaned up, and copied to the clipboard. The transcript is sent to your Ollama server at http://192.168.1.20:11434 for clean-up.",
-    );
-    expect(element.textContent).not.toContain("local model");
   });
 });
 
@@ -1047,17 +1034,19 @@ describe("Dictation shown on each request (review 43, F4)", () => {
     const element = await card();
     const title = within(element).getByRole("heading", { name: "Dictation" });
     await waitFor(() => expect(document.activeElement).toBe(title));
-    const elsewhere = screen.getByTestId("settings-tab-account");
+    const elsewhere = screen.getByTestId("settings-tab-models");
     act(() => elsewhere.focus());
     await waitFor(() => expect(simulator.listening("navigate")).toBe(1));
     await simulator.emitEvent("navigate", "/settings?section=dictation");
     await waitFor(() => expect(document.activeElement).toBe(title));
   });
 
-  it("asked from the General tab, typing an address: the Dictation tab, its card focused", async () => {
+  it("asked from the General tab, a control focused: the Dictation tab, its card focused", async () => {
     const { simulator, app } = setup(ready(), "/settings");
-    const address = await screen.findByLabelText("Server address");
-    act(() => address.focus());
+    const slider = await screen.findByRole("slider", {
+      name: "Context length",
+    });
+    act(() => slider.focus());
     await waitFor(() => expect(simulator.listening("navigate")).toBe(1));
     await simulator.emitEvent("navigate", "/settings?section=dictation");
     const element = await card();
@@ -1322,18 +1311,15 @@ describe("Dictation texts translated (pseudo-language)", () => {
     expect(untranslated(element)).toEqual([]);
   });
 
-  it("ready: shortcut bound, polish model not installed, remote server, dictionary", async () => {
+  it("ready: shortcut bound, polish model not installed, dictionary", async () => {
     usePseudoLanguage();
-    setup(({ backend, dictation }) => {
+    setup(({ dictation }) => {
       ready({ polishModel: "gemma3:4b", dictionary: ["ChatonLM", "Ollama"] })({
         dictation,
       });
-      backend.settings.serverUrl = "http://192.168.1.20:11434";
-      backend.settings.effectiveServerUrl = "http://192.168.1.20:11434";
     });
     const element = await pseudoCard();
     await within(element).findByRole("button", { name: /Change…/ });
-    await within(element).findByText(/192\.168\.1\.20/);
     await waitFor(() =>
       expect(
         optionTexts(within(element).getByLabelText(/Polish model/)).join(" "),
@@ -1388,7 +1374,7 @@ describe("Dictation texts translated (pseudo-language)", () => {
     expect(untranslated(element)).toEqual([]);
   });
 
-  it("speech models that cannot be read, Ollama unreachable", async () => {
+  it("speech models that cannot be read, models unreadable", async () => {
     usePseudoLanguage();
     const { simulator } = setup((setup) => {
       ready({ polishModel: "gemma3:4b" })(setup);
@@ -1401,7 +1387,7 @@ describe("Dictation texts translated (pseudo-language)", () => {
       throw { kind: "engine", message: "connection refused" };
     });
     const element = await screen.findByTestId("dictation");
-    await within(element).findByText(/Ollama is unreachable/);
+    await within(element).findByText(/installed models couldn't be read/);
     await within(element).findByText(/Couldn't read the speech models/);
     // Modèles pas lus : les valeurs enregistrées, telles quelles.
     expect(
@@ -1409,17 +1395,18 @@ describe("Dictation texts translated (pseudo-language)", () => {
     ).toEqual([]);
   });
 
-  it("a cloud model chosen before: said not used", async () => {
+  it("a remote model chosen before: said not used", async () => {
     usePseudoLanguage();
-    const { simulator } = setup(ready({ polishModel: "gpt-oss:120b-cloud" }));
-    simulator.handle("list_models", (): ModelInfo[] =>
-      ["qwen3:0.6b", "gpt-oss:120b-cloud"].map(modelInfo),
+    const REMOTE = "@remote/mistral/mistral-small-latest";
+    const { simulator } = setup(ready({ polishModel: REMOTE }));
+    simulator.handle("list_models", (): ChatModel[] =>
+      ["qwen3:0.6b", REMOTE].map((id) => modelInfo(id)),
     );
     const element = await pseudoCard();
     await waitFor(() =>
       expect(
         optionTexts(within(element).getByLabelText(/Polish model/)).join(" "),
-      ).toMatch(/cloud models are not used/),
+      ).toMatch(/remote models are not used/),
     );
     expect(untranslated(element)).toEqual([]);
   });

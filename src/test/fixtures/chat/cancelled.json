@@ -3,7 +3,7 @@
   "request": {
     "streamId": "stream-1",
     "content": "Say hello in one word.",
-    "model": "chatonlm-stall"
+    "model": "chat/Slow-GGUF:Q4_K_M"
   },
   "events": [
     {
@@ -39,11 +39,11 @@
     },
     {
       "type": "content",
-      "text": "\""
+      "text": "Hello!"
     },
     {
       "type": "content",
-      "text": "Hi"
+      "text": " You"
     },
     {
       "type": "cancelled"

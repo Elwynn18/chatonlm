@@ -482,6 +482,15 @@ export const testState = {
   /** Réglages d'un dossier ouvert (`inspect().workspaceValue`), qui
    * l'emportent dans `get` comme dans VS Code. */
   workspaceConfig: {} as Record<string, unknown>,
+  /** Écritures de réglages (`update`), dans l'ordre : clé, valeur, portée. */
+  configWrites: [] as {
+    key: string;
+    value: unknown;
+    target: ConfigurationTarget | boolean | undefined;
+  }[],
+  /** Réglages dont l'écriture (`update`) est refusée (portée qu'on ne peut
+   * pas écrire). */
+  readOnlyConfig: [] as string[],
   /** Modifications faites par `TextEditor.edit`. */
   editorEdits: [] as { range: Range; text: string }[][],
   /** `TextEditor.edit` refusé (document en lecture seule). */
@@ -554,6 +563,8 @@ export function resetTestState(): void {
   testState.edits = [];
   testState.workspaceName = "work";
   testState.workspaceConfig = {};
+  testState.configWrites = [];
+  testState.readOnlyConfig = [];
   testState.editorEdits = [];
   testState.editFails = false;
   testState.tabs = [];
@@ -743,9 +754,23 @@ export const workspace = {
           workspaceValue: testState.workspaceConfig[full(key)],
         };
       },
-      async update(key: string, value: unknown) {
+      async update(
+        key: string,
+        value: unknown,
+        target?: ConfigurationTarget | boolean,
+      ) {
         const name = full(key);
-        testState.config[name] = value;
+        testState.configWrites.push({ key: name, value, target });
+        if (testState.readOnlyConfig.includes(name)) {
+          throw new Error("not writable");
+        }
+        // Portée de l'espace de travail : ses réglages ; sinon (globale,
+        // comme VS Code sans dossier ouvert) : ceux de l'utilisateur.
+        if (target === ConfigurationTarget.Workspace) {
+          testState.workspaceConfig[name] = value;
+        } else {
+          testState.config[name] = value;
+        }
         testState.events.configuration.fire({
           affectsConfiguration: (prefix: string) =>
             name === prefix || name.startsWith(`${prefix}.`),

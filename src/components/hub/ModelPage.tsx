@@ -1,6 +1,6 @@
 // Fiche d'un dépôt (ModelHub, propre à ChatonLM) : en-tête, faits, capacités,
 // README, et la colonne « Choose a version » (versions, téléchargement,
-// progression, Use in chat, nom Ollama, autres sources). Un README en échec
+// progression, Use in chat, identifiant du modèle, autres sources). Un README en échec
 // a son Retry ; celui du bandeau le relit aussi.
 
 import {

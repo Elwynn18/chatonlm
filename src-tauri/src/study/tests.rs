@@ -1,10 +1,10 @@
-//! Essais du moteur des cours contre le faux serveur (`fake-ollama`,
-//! modèles `chatonlm-study*`) et, en contrat, contre l'Ollama de test.
+//! Essais du moteur des cours contre le faux moteur (`FakeBench`, modèles
+//! aux scénarios `chatonlm-study*` de `fake-llama`) et, en contrat, contre
+//! le vrai `llama-server` (`RealBench`).
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use fake_ollama::{FakeOllama, Mode};
 use parking_lot::Mutex;
 use serde_json::Value;
 use tauri::ipc::{Channel, InvokeResponseBody};
@@ -12,33 +12,50 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use super::data::{self as stored};
 use super::*;
 use crate::attachments::{StageResult, Staging};
+use crate::engine::{KeepAlive, LoadOptions};
 use crate::error::AppError;
+use crate::llm::Access;
+use crate::llm::testing::FakeBench;
+use crate::local_models::id::same_model;
 use crate::store::settings::{self, SettingsPatch};
 use crate::store::{Store, study as db};
 
 /// Attente maximale d'un état du cours.
 const WAIT: Duration = Duration::from_secs(20);
 
-/// Base dont le serveur réglé est `url`, avec ces modèles du chat et des
-/// cours.
-fn configured(url: &str, chat: &str, study: &str) -> Store {
-    let store = Store::open_in_memory().unwrap();
-    set_models(&store, Some(url), chat, study);
-    store
-}
+/// Modèles du banc (scénarios `chatonlm-study*` du faux moteur).
+const STUDY: &str = "test/Study-GGUF:Q4_K_M";
+const SLOW: &str = "test/StudySlow-GGUF:Q4_K_M";
+const UNCLEAR: &str = "test/StudyUnclear-GGUF:Q4_K_M";
+const INVALID: &str = "test/StudyInvalid-GGUF:Q4_K_M";
+const STALL: &str = "test/StudyStall-GGUF:Q4_K_M";
+/// Chargement raté (le moteur ne peut pas le servir).
+const LOADFAIL: &str = "test/LoadFail-GGUF:Q4_K_M";
+/// Comme `STUDY`, mais sait couper son raisonnement (capacité `thinking`).
+const THINKER: &str = "test/StudyThinker-GGUF:Q4_K_M";
+/// Fichier effacé après l'installation.
+const VANISHED: &str = "test/Vanished-GGUF:Q4_K_M";
+/// Chargement de 1,5 s.
+const SLOWLOAD: &str = "test/SlowLoad-GGUF:Q4_K_M";
+/// Jamais installé.
+const MISSING: &str = "test/Nope-GGUF:Q4_K_M";
 
-/// Décharge tous les modèles en mémoire sur `url` (« Auto » n'en trouve plus).
-async fn unload_all(url: &str) {
-    for model in crate::ollama::running::list(url).await.unwrap() {
-        crate::ollama::running::unload(url, &model.name)
-            .await
-            .unwrap();
-    }
-}
+const MODELS: &[(&str, &str)] = &[
+    (STUDY, "study"),
+    (SLOW, "study-slow"),
+    (UNCLEAR, "study-unclear"),
+    (INVALID, "study-invalid"),
+    (STALL, "study-stall"),
+    (LOADFAIL, "loadfail"),
+    (VANISHED, "study"),
+    (THINKER, "study-thinker"),
+];
 
-fn set_models(store: &Store, url: Option<&str>, chat: &str, study: &str) {
+/// Modèles du chat et des cours ; adresse d'Ollama fermée (port 9 : jamais
+/// celui de la machine, encore lu par la recherche web jusqu'au lot L7).
+fn set_models(store: &Store, chat: &str, study: &str) {
     let patch = SettingsPatch {
-        server_url: url.map(str::to_owned),
+        server_url: Some("http://127.0.0.1:9".into()),
         selected_model: Some(chat.into()),
         study_model: Some(study.into()),
         ..Default::default()
@@ -53,9 +70,9 @@ fn set_models(store: &Store, url: Option<&str>, chat: &str, study: &str) {
 struct Events(Arc<Mutex<Vec<StudyUpdated>>>);
 
 impl Events {
-    fn ctx(&self, store: &Store) -> Ctx {
+    fn ctx(&self, access: &Access) -> Ctx {
         let events = self.0.clone();
-        Ctx::new(store.clone(), move |updated| events.lock().push(updated))
+        Ctx::with_access(access.clone(), move |updated| events.lock().push(updated))
     }
 
     fn count(&self, course: &str) -> usize {
@@ -74,9 +91,9 @@ impl Events {
     }
 }
 
-/// Banc : faux serveur, base réglée, moteur, évènements.
+/// Banc : faux moteur et base, moteur des cours, évènements.
 struct Bench {
-    fake: FakeOllama,
+    fake: FakeBench,
     store: Store,
     engine: StudyEngine,
     events: Events,
@@ -85,14 +102,19 @@ struct Bench {
 
 impl Bench {
     async fn new(study_model: &str) -> Self {
-        let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-        let store = configured(&fake.url(), "", study_model);
+        Self::with_engine(study_model, StudyEngine::default())
+    }
+
+    fn with_engine(study_model: &str, engine: StudyEngine) -> Self {
+        let fake = FakeBench::new(MODELS);
+        let store = fake.store().clone();
+        set_models(&store, "", study_model);
         let events = Events::default();
-        let ctx = events.ctx(&store);
+        let ctx = events.ctx(&fake.access);
         Self {
             fake,
             store,
-            engine: StudyEngine::default(),
+            engine,
             events,
             ctx,
         }
@@ -107,14 +129,7 @@ impl Bench {
 
     /// Cours tel qu'en base (sans relancer la génération).
     async fn course(&self, id: &str) -> Course {
-        let id = id.to_owned();
-        let snapshot = self
-            .store
-            .call(move |c| db::load(c, &id))
-            .await
-            .unwrap()
-            .unwrap();
-        stored::assemble(snapshot)
+        stored::assemble(db_load(&self.store, id).await)
     }
 
     /// Attend que le cours remplisse `ready`.
@@ -166,10 +181,61 @@ impl Bench {
         self.engine.answer(&self.ctx, id, &question.id, value).await
     }
 
+    /// Adresse du faux serveur de `model`, s'il tourne (rejoint avec son
+    /// contexte : jamais relancé).
+    async fn address(&self, model: &str) -> Option<String> {
+        let engine = self.fake.engine();
+        let running = engine
+            .running()
+            .into_iter()
+            .find(|running| same_model(&running.id, model))?;
+        let options = LoadOptions {
+            ctx: Some(running.context_length),
+            keep_alive: KeepAlive::Default,
+            cpu_only: running.cpu_only,
+        };
+        let lease = engine.ensure(model, options).await.ok()?;
+        Some(lease.endpoint.base_url.clone())
+    }
+
+    /// Réponse d'une route de pilotage du faux serveur de `model`.
+    async fn pilot(&self, model: &str, route: &str) -> Option<Value> {
+        let address = self.address(model).await?;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let response = client
+            .get(format!("{address}/fake/{route}"))
+            .send()
+            .await
+            .ok()?;
+        response.json().await.ok()
+    }
+
+    /// Requêtes de chat reçues par le serveur de `model` (depuis son
+    /// lancement), dans l'ordre.
+    async fn requests_of(&self, model: &str) -> Vec<Value> {
+        let Some(Value::Array(requests)) = self.pilot(model, "requests").await else {
+            return Vec::new();
+        };
+        requests
+            .into_iter()
+            .filter(|request| request["path"] == "/v1/chat/completions")
+            .map(|request| request["body"].clone())
+            .collect()
+    }
+
+    /// Requêtes de chat reçues par tous les modèles qui tournent.
+    async fn chat_requests(&self) -> Vec<Value> {
+        let mut all = Vec::new();
+        for (model, _) in MODELS {
+            all.extend(self.requests_of(model).await);
+        }
+        all
+    }
+
     /// Requêtes de chat reçues dont les consignes contiennent `marker`.
-    fn requests_with(&self, marker: &str) -> Vec<Value> {
-        self.fake
-            .chat_requests()
+    async fn requests_with(&self, marker: &str) -> Vec<Value> {
+        self.chat_requests()
+            .await
             .into_iter()
             .filter(|request| {
                 request["messages"][0]["content"]
@@ -177,6 +243,19 @@ impl Bench {
                     .is_some_and(|system| system.contains(marker))
             })
             .collect()
+    }
+
+    /// Réponses lâchées par le client avant leur fin, tous modèles.
+    async fn disconnects(&self) -> u64 {
+        let mut total = 0;
+        for (model, _) in MODELS {
+            total += self
+                .pilot(model, "disconnects")
+                .await
+                .and_then(|count| count.as_u64())
+                .unwrap_or(0);
+        }
+        total
     }
 }
 
@@ -266,9 +345,27 @@ fn invalid(result: Result<impl std::fmt::Debug, AppError>) {
     assert!(matches!(result, Err(AppError::Invalid(_))), "{result:?}");
 }
 
-#[tokio::test]
+/// Schéma envoyé d'une requête en JSON contraint.
+fn schema_of(request: &Value) -> &Value {
+    &request["response_format"]["json_schema"]["schema"]
+}
+
+/// Attend la fin en échec d'un cours ; son erreur.
+async fn failed_course(store: &Store, id: &str) -> StudyError {
+    let started = std::time::Instant::now();
+    loop {
+        let snapshot = db_load(store, id).await;
+        if snapshot.row.status == CourseStatus::Failed {
+            return snapshot.row.error.unwrap();
+        }
+        assert!(started.elapsed() < WAIT, "{:?}", snapshot.row.status);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_course_goes_from_its_plan_to_the_end() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     let course = bench
         .until(&id, |course| {
@@ -277,7 +374,7 @@ async fn a_course_goes_from_its_plan_to_the_end() {
         .await;
     assert_eq!(course.topic, "Photosynthesis");
     assert_eq!(course.language, crate::i18n::Lang::En);
-    assert_eq!(course.model, "chatonlm-study");
+    assert_eq!(course.model, STUDY);
     let plan = course.plan.as_ref().unwrap();
     // Titres sans Markdown (le faux serveur écrit `**sujet**`).
     assert_eq!(plan.title, "Photosynthesis");
@@ -286,7 +383,7 @@ async fn a_course_goes_from_its_plan_to_the_end() {
     assert_eq!(plan.kind, StudyKind::Concept);
     // Seul le palier 0 est préparé avant « Start ».
     assert_eq!(course.levels[1].state, GenState::Pending);
-    assert_eq!(bench.requests_with("Write level 2").len(), 0);
+    assert_eq!(bench.requests_with("Write level 2").await.len(), 0);
     let lesson = course.levels[0].lesson.as_ref().unwrap();
     assert_eq!(lesson.sections.len(), 3);
     assert_eq!(lesson.sections[0].heading, "Part one");
@@ -320,19 +417,20 @@ async fn a_course_goes_from_its_plan_to_the_end() {
     assert_eq!(course.levels[0].status, LevelStatus::Current);
     assert_eq!(course.levels[1].status, LevelStatus::Locked);
 
-    // Requêtes : JSON contraint, contexte des cours, raisonnement non
-    // demandé (modèle sans `thinking`).
-    let plan_request = &bench.requests_with("Design the plan")[0];
+    // Requêtes : JSON contraint, longueur bornée, raisonnement non demandé
+    // (modèle sans `thinking`) ; modèle lancé avec le contexte des cours.
+    let plan_request = &bench.requests_with("Design the plan").await[0];
     assert_eq!(plan_request["stream"], false);
     assert_eq!(
-        plan_request["format"]["properties"]["levels"]["minItems"],
+        schema_of(plan_request)["properties"]["levels"]["minItems"],
         2
     );
-    assert_eq!(
-        plan_request["options"],
-        serde_json::json!({"temperature": 0.3, "num_ctx": 8192, "num_predict": 4096})
-    );
-    assert!(plan_request.get("think").is_none());
+    assert_eq!(plan_request["max_tokens"], 4096);
+    assert!((plan_request["temperature"].as_f64().unwrap() - 0.3).abs() < 1e-6);
+    assert!(plan_request.get("chat_template_kwargs").is_none());
+    let running = bench.fake.engine().running();
+    assert_eq!(running.len(), 1);
+    assert_eq!(running[0].context_length, prompts::STUDY_CONTEXT);
     assert_eq!(
         plan_request["messages"][1]["content"],
         "Topic: Photosynthesis"
@@ -340,7 +438,7 @@ async fn a_course_goes_from_its_plan_to_the_end() {
     // Auto-vérification des quatre questions ; l'association, paire par
     // paire dans l'ordre de la solution (le faux serveur ne juge vraies que
     // ses paires : mélangées, elles seraient écartées).
-    let checks = bench.requests_with("You are a careful student");
+    let checks = bench.requests_with("You are a careful student").await;
     assert_eq!(checks.len(), 4);
     let pairs = checks.last().unwrap()["messages"][1]["content"]
         .as_str()
@@ -351,11 +449,7 @@ async fn a_course_goes_from_its_plan_to_the_end() {
         ),
         "{pairs}"
     );
-    assert!(
-        checks
-            .iter()
-            .all(|check| check["options"]["temperature"] == 0.0)
-    );
+    assert!(checks.iter().all(|check| check["temperature"] == 0.0));
 
     // Réponse à un palier verrouillé, au bilan, ou avant « Start » : refusées.
     invalid(bench.answer(&id, &attempt.questions[0], true).await);
@@ -364,14 +458,14 @@ async fn a_course_goes_from_its_plan_to_the_end() {
     let course = bench.until(&id, final_ready).await;
     assert_eq!(course.status, CourseStatus::Active);
     // La leçon du palier 2 connaît l'accroche du palier 1 ; pas celle du 1.
-    let first = &bench.requests_with("Write level 1")[0];
+    let first = &bench.requests_with("Write level 1").await[0];
     assert!(
         !first["messages"][0]["content"]
             .as_str()
             .unwrap()
             .contains("hooks of the earlier levels")
     );
-    let second = &bench.requests_with("Write level 2")[0];
+    let second = &bench.requests_with("Write level 2").await[0];
     assert!(
         second["messages"][0]["content"]
             .as_str()
@@ -466,9 +560,9 @@ async fn a_course_goes_from_its_plan_to_the_end() {
     bench.idle().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn failed_attempts_lead_to_a_new_explanation_then_to_continue_anyway() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     bench.until(&id, level_ready(0)).await;
     bench.engine.start(&bench.ctx, &id).await.unwrap();
@@ -507,7 +601,7 @@ async fn failed_attempts_lead_to_a_new_explanation_then_to_continue_anyway() {
     assert!(second.explanation.as_ref().unwrap().ends_with(" \\(x^2\\)"));
     let ids: Vec<&str> = second.questions.iter().map(|q| q.id.as_str()).collect();
     assert_eq!(ids, ["L0-A1-Q0", "L0-A1-Q1", "L0-A1-Q2"]);
-    let remedy = &bench.requests_with("has just failed the questions")[0];
+    let remedy = &bench.requests_with("has just failed the questions").await[0];
     let system = remedy["messages"][0]["content"].as_str().unwrap();
     assert!(
         system.contains("The learner's mistakes:\n- Question: "),
@@ -518,7 +612,10 @@ async fn failed_attempts_lead_to_a_new_explanation_then_to_continue_anyway() {
         "{system}"
     );
     assert!(system.contains("Correct answer: Right answer"), "{system}");
-    assert_eq!(remedy["format"]["required"][0], "explanation");
+    assert_eq!(
+        remedy["response_format"]["json_schema"]["schema"]["required"][0],
+        "explanation"
+    );
     for question in &second.questions {
         bench.answer(&id, question, false).await.unwrap();
     }
@@ -537,9 +634,9 @@ async fn failed_attempts_lead_to_a_new_explanation_then_to_continue_anyway() {
     bench.idle().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn an_ambiguous_topic_is_asked_once() {
-    let bench = Bench::new("chatonlm-study-unclear").await;
+    let bench = Bench::new(UNCLEAR).await;
     let id = bench.create("Java", 20).await;
     let course = bench
         .until(&id, |c| c.status == CourseStatus::Unclear)
@@ -566,7 +663,7 @@ async fn an_ambiguous_topic_is_asked_once() {
         "Java (The programming language)"
     );
     assert_eq!(course.clarify, None);
-    let last = bench.requests_with("Design the plan").pop().unwrap();
+    let last = bench.requests_with("Design the plan").await.pop().unwrap();
     assert_eq!(
         last["messages"][1]["content"],
         "Topic: Java\nMeaning: The programming language"
@@ -590,66 +687,9 @@ async fn an_ambiguous_topic_is_asked_once() {
     bench.idle().await;
 }
 
-#[tokio::test]
-async fn web_search_needs_an_account_and_feeds_the_plan() {
-    let bench = Bench::new("chatonlm-study").await;
-    let mut request = new_course("Photosynthesis", 10);
-    request.web = true;
-    let id = bench
-        .engine
-        .create(&bench.ctx, &Staging::default(), request.clone())
-        .await
-        .unwrap();
-    let course = bench.until(&id, |c| c.status == CourseStatus::Failed).await;
-    assert_eq!(
-        course.error,
-        Some(StudyError {
-            code: StudyErrorCode::WebSearch,
-            message: "Web search requires an Ollama account".into(),
-        })
-    );
-    assert!(bench.requests_with("Design the plan").is_empty());
-    // Sans la recherche web.
-    bench.engine.retry(&bench.ctx, &id, true).await.unwrap();
-    let course = bench
-        .until(&id, |c| c.status == CourseStatus::Planned)
-        .await;
-    assert!(!course.web);
-    assert!(course.sources.is_empty());
-    assert_eq!(bench.fake.web_requests().len(), 1);
-
-    // Compte relié : les résultats deviennent des sources du plan.
-    bench.fake.set_signed_in(true);
-    let id = bench
-        .engine
-        .create(&bench.ctx, &Staging::default(), request)
-        .await
-        .unwrap();
-    let course = bench
-        .until(&id, |c| c.status == CourseStatus::Planned)
-        .await;
-    assert_eq!(course.sources.len(), 2);
-    assert_eq!(course.sources[0].kind, SourceKind::Web);
-    assert_eq!(course.sources[0].title, "Result 1 for Photosynthesis");
-    assert_eq!(
-        course.sources[0].url,
-        "https://example.com/1?q=Photosynthesis"
-    );
-    let web = bench.fake.web_requests();
-    assert_eq!(web.last().unwrap()["body"]["query"], "Photosynthesis");
-    let system = bench.requests_with("Design the plan").pop().unwrap()["messages"][0]["content"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    assert!(
-        system.contains(
-            "<source title=\"Result 1 for Photosynthesis\">\nContent 1 about Photosynthesis."
-        ),
-        "{system}"
-    );
-    assert!(system.ends_with(prompts::SOURCE_RULE));
-    bench.idle().await;
-}
+// Recherche web d'un plan (arrêt avec le texte du relais, sources, sens
+// précisé cherché de nouveau) : essais refaits par le lot L7 avec le faux
+// relais (`study/sources.rs`).
 
 async fn stage(staging: &Staging, name: &str, data: &[u8]) -> String {
     match staging.stage_bytes(name.into(), data.to_vec()).await {
@@ -658,9 +698,9 @@ async fn stage(staging: &Staging, name: &str, data: &[u8]) -> String {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn documents_become_sources_and_requests_are_checked() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let staging = Staging::default();
     let notes = stage(
         &staging,
@@ -689,7 +729,7 @@ async fn documents_become_sources_and_requests_are_checked() {
             url: String::new()
         }]
     );
-    let plan = bench.requests_with("Design the plan").pop().unwrap();
+    let plan = bench.requests_with("Design the plan").await.pop().unwrap();
     let system = plan["messages"][0]["content"].as_str().unwrap();
     assert!(
         system.contains("<source title=\"notes.md\">\nThe chloroplast holds the chlorophyll."),
@@ -755,14 +795,14 @@ async fn documents_become_sources_and_requests_are_checked() {
     );
     // Aucun modèle, ni des cours ni du chat : « Auto » prend le modèle en
     // mémoire, puis refuse une fois la mémoire vide.
-    set_models(&bench.store, None, "", "");
+    set_models(&bench.store, "", "");
     bench
         .engine
         .create(&bench.ctx, &staging, new_course("Plants", 10))
         .await
         .unwrap();
     bench.idle().await;
-    unload_all(&bench.fake.url()).await;
+    bench.fake.engine().unload_all().await;
     let refused = bench
         .engine
         .create(&bench.ctx, &staging, new_course("Plants", 10))
@@ -771,7 +811,7 @@ async fn documents_become_sources_and_requests_are_checked() {
         matches!(&refused, Err(AppError::Invalid(m)) if m == "Choose a model for your courses")
     );
     // Modèle du chat, à défaut de celui des cours.
-    set_models(&bench.store, None, "chatonlm-study", "");
+    set_models(&bench.store, STUDY, "");
     bench
         .engine
         .create(&bench.ctx, &staging, new_course("Plants", 10))
@@ -780,9 +820,9 @@ async fn documents_become_sources_and_requests_are_checked() {
     bench.idle().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn unusable_questions_fail_the_level_until_retried() {
-    let bench = Bench::new("chatonlm-study-invalid").await;
+    let bench = Bench::new(INVALID).await;
     let id = bench.create("Photosynthesis", 10).await;
     let course = bench
         .until(&id, |c| {
@@ -802,26 +842,29 @@ async fn unusable_questions_fail_the_level_until_retried() {
     // de vérification (tout écarté par le garde-fou).
     assert!(level.lesson.is_some());
     // Deux demandes, puis la dernière chance (choix seulement).
-    assert_eq!(bench.requests_with("You write the questions").len(), 3);
-    assert!(bench.requests_with("careful student").is_empty());
+    assert_eq!(
+        bench.requests_with("You write the questions").await.len(),
+        3
+    );
+    assert!(bench.requests_with("careful student").await.is_empty());
     // Nouvel essai avec un modèle qui écrit de bonnes questions : la leçon
     // n'est pas redemandée.
-    set_models(&bench.store, None, "", "chatonlm-study");
+    set_models(&bench.store, "", STUDY);
     bench.engine.retry(&bench.ctx, &id, false).await.unwrap();
     let course = bench.until(&id, level_ready(0)).await;
-    assert_eq!(bench.requests_with("Write level 1").len(), 1);
+    assert_eq!(bench.requests_with("Write level 1").await.len(), 1);
     assert_eq!(course.levels[0].attempts[0].questions.len(), 3);
     bench.idle().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_missing_model_fails_a_part_until_retried() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     bench.until(&id, level_ready(0)).await;
     bench.idle().await;
-    set_models(&bench.store, None, "", "");
-    unload_all(&bench.fake.url()).await;
+    set_models(&bench.store, "", "");
+    bench.fake.engine().unload_all().await;
     bench.engine.start(&bench.ctx, &id).await.unwrap();
     let course = bench
         .until(&id, |c| c.levels[1].state == GenState::Failed)
@@ -833,7 +876,7 @@ async fn a_missing_model_fails_a_part_until_retried() {
             message: "Choose a model for your courses".into(),
         })
     );
-    set_models(&bench.store, None, "", "nope:1b");
+    set_models(&bench.store, "", MISSING);
     bench.engine.retry(&bench.ctx, &id, false).await.unwrap();
     let course = bench
         .until(&id, |c| {
@@ -843,40 +886,22 @@ async fn a_missing_model_fails_a_part_until_retried() {
         .await;
     assert_eq!(
         course.levels[1].error.as_ref().unwrap().message,
-        "The model nope:1b is not installed"
+        "The model test/Nope-GGUF:Q4_K_M is not installed"
     );
     // Le modèle réglé est lu à chaque génération ; celui du plan reste.
-    set_models(&bench.store, None, "chatonlm-study", "");
+    set_models(&bench.store, STUDY, "");
     bench.engine.retry(&bench.ctx, &id, false).await.unwrap();
     let course = bench.until(&id, final_ready).await;
-    assert_eq!(course.model, "chatonlm-study");
+    assert_eq!(course.model, STUDY);
     bench.idle().await;
-    // Serveur arrêté : injoignable.
-    let url = bench.fake.url();
-    let Bench {
-        fake,
-        engine,
-        ctx,
-        store,
-        ..
-    } = bench;
-    fake.stop().await;
-    let id = engine
-        .create(&ctx, &Staging::default(), new_course("Plants", 10))
-        .await
-        .unwrap();
-    let started = std::time::Instant::now();
-    loop {
-        let snapshot = db_load(&store, &id).await;
-        if snapshot.row.status == CourseStatus::Failed {
-            let error = snapshot.row.error.unwrap();
-            assert_eq!(error.code, StudyErrorCode::EngineFailed);
-            assert_eq!(error.message, format!("can't connect to Ollama at {url}"));
-            break;
-        }
-        assert!(started.elapsed() < WAIT);
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    // Moteur qui ne peut pas servir le modèle : son erreur, code
+    // `engineFailed`.
+    set_models(&bench.store, "", LOADFAIL);
+    let id = bench.create("Plants", 10).await;
+    let error = failed_course(&bench.store, &id).await;
+    assert_eq!(error.code, StudyErrorCode::EngineFailed);
+    assert!(error.message.starts_with("the text engine"), "{error:?}");
+    bench.idle().await;
 }
 
 async fn db_load(store: &Store, id: &str) -> stored::Snapshot {
@@ -888,9 +913,9 @@ async fn db_load(store: &Store, id: &str) -> stored::Snapshot {
         .unwrap()
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn deleting_a_course_stops_its_generation() {
-    let bench = Bench::new("chatonlm-study-slow").await;
+    let bench = Bench::new(SLOW).await;
     let id = bench.create("Photosynthesis", 10).await;
     let started = std::time::Instant::now();
     while bench.engine.running().is_none() {
@@ -898,15 +923,15 @@ async fn deleting_a_course_stops_its_generation() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     // Requête du plan partie.
-    while bench.fake.chat_requests().is_empty() {
+    while bench.chat_requests().await.is_empty() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     bench.engine.delete(&bench.ctx, &id).await.unwrap();
     assert!(bench.events.deleted(&id));
     bench.idle().await;
-    assert!(started.elapsed() < fake_ollama::STUDY_SLOW * 3);
+    assert!(started.elapsed() < fake_llama::scenarios::l5a::study::STUDY_SLOW * 3);
     let abandoned = async {
-        while bench.fake.disconnects() == 0 {
+        while bench.disconnects().await == 0 {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
@@ -924,7 +949,7 @@ async fn deleting_a_course_stops_its_generation() {
             .unwrap()
             .is_none()
     );
-    assert_eq!(bench.fake.chat_requests().len(), 1);
+    assert_eq!(bench.chat_requests().await.len(), 1);
     assert!(matches!(
         bench.engine.get(&bench.ctx, &id).await,
         Err(AppError::NotFound(_))
@@ -933,112 +958,97 @@ async fn deleting_a_course_stops_its_generation() {
     bench.engine.delete(&bench.ctx, &id).await.unwrap();
 }
 
-/// rust-1 : Ollama s'arrête pendant la génération d'un palier (fermeture,
-/// retour à l'Ollama de la machine, changement du dossier de l'intégré) :
-/// les travaux sont arrêtés d'abord ; le palier n'est pas noté en échec et
-/// reprend à la lecture suivante du cours, auprès du serveur qui sert alors.
-#[tokio::test]
-async fn a_part_stopped_with_ollama_is_not_failed_and_resumes() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-    let store = configured(&fake.url(), "", "chatonlm-study");
-    let events = Events::default();
-    let ctx = events.ctx(&store);
-    let engine = StudyEngine::with_timeouts(super::request::Timeouts {
-        retry_delay: Duration::from_millis(100),
-        ..super::request::TIMEOUTS
-    });
-    let id = engine
-        .create(&ctx, &Staging::default(), new_course("Photosynthesis", 10))
-        .await
-        .unwrap();
-    let bench_until = |ready: fn(&Course) -> bool| {
-        let (store, id) = (store.clone(), id.clone());
-        async move {
-            let started = std::time::Instant::now();
-            loop {
-                let course = stored::assemble(db_load(&store, &id).await);
-                if ready(&course) {
-                    return course;
-                }
-                assert!(started.elapsed() < WAIT, "{:?}", course.levels);
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        }
-    };
-    bench_until(|c| c.levels.first().is_some_and(|l| l.state == GenState::Ready)).await;
-    set_models(&store, None, "", "chatonlm-study-slow");
-    engine.start(&ctx, &id).await.unwrap();
+/// Attend que la partie `part` du cours `id` soit en cours d'écriture et
+/// sa requête partie vers `model`.
+async fn writing(bench: &Bench, id: &str, part: generate::Part, model: &str, asked: usize) {
     let started = std::time::Instant::now();
-    while engine.running() != Some((id.clone(), generate::Part::Level(1))) {
+    while bench.engine.running() != Some((id.to_owned(), part.clone()))
+        || bench.requests_of(model).await.len() == asked
+    {
         assert!(started.elapsed() < WAIT);
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    let asked = fake.chat_requests().len();
-    while fake.chat_requests().len() == asked {
-        assert!(started.elapsed() < WAIT);
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    // Travaux arrêtés, puis Ollama s'arrête.
-    engine.cancel_all();
-    assert!(engine.queued().is_empty());
-    fake.stop().await;
-    let started = std::time::Instant::now();
-    while !engine.idle() {
-        assert!(started.elapsed() < WAIT);
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+}
+
+/// rust-1 : le moteur s'arrête pendant la génération d'un palier
+/// (fermeture, changement du dossier des modèles) : les travaux sont arrêtés
+/// d'abord ; le palier n'est pas noté en échec et reprend à la lecture
+/// suivante du cours.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_part_stopped_with_the_engine_is_not_failed_and_resumes() {
+    let bench = Bench::new(STUDY).await;
+    let id = bench.create("Photosynthesis", 10).await;
+    bench.until(&id, level_ready(0)).await;
+    bench.idle().await;
+    set_models(&bench.store, "", SLOW);
+    bench.engine.start(&bench.ctx, &id).await.unwrap();
+    writing(&bench, &id, generate::Part::Level(1), SLOW, 0).await;
+    // Travaux arrêtés, puis le moteur décharge tout.
+    bench.engine.cancel_all();
+    assert!(bench.engine.queued().is_empty());
+    bench.fake.engine().unload_all().await;
+    bench.idle().await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let course = stored::assemble(db_load(&store, &id).await);
+    let course = bench.course(&id).await;
     for level in &course.levels[1..] {
         assert_ne!(level.state, GenState::Failed, "{:?}", level.error);
         assert_eq!(level.error, None);
     }
     assert_eq!(course.levels[1].state, GenState::Generating);
+    // Le cours relu reprend où il en était.
+    set_models(&bench.store, "", STUDY);
+    bench.engine.get(&bench.ctx, &id).await.unwrap();
+    bench
+        .until(&id, |c| c.levels.iter().all(|l| l.state == GenState::Ready))
+        .await;
+    bench.idle().await;
+}
 
-    // Un autre Ollama sert : le cours relu reprend où il en était.
-    let back = FakeOllama::start(Mode::ollama()).await.unwrap();
-    set_models(&store, Some(&back.url()), "", "chatonlm-study");
-    engine.get(&ctx, &id).await.unwrap();
-    bench_until(|c| c.levels.iter().all(|l| l.state == GenState::Ready)).await;
+/// M10 : le modèle des cours déchargé à la demande (bouton Unload de
+/// l'onglet Models) pendant qu'il écrit un palier : un arrêt, pas une
+/// erreur ; le palier reste à écrire et reprend à la lecture du cours.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_unloaded_while_writing_is_a_stop_not_a_failure() {
+    let bench = Bench::new(STUDY).await;
+    let id = bench.create("Photosynthesis", 10).await;
+    bench.until(&id, level_ready(0)).await;
+    bench.idle().await;
+    set_models(&bench.store, "", SLOW);
+    bench.engine.start(&bench.ctx, &id).await.unwrap();
+    writing(&bench, &id, generate::Part::Level(1), SLOW, 0).await;
+    bench.fake.engine().unload(SLOW).await;
+    bench.idle().await;
+    let course = bench.course(&id).await;
+    assert_eq!(course.levels[1].state, GenState::Generating);
+    assert_eq!(course.levels[1].error, None);
+    assert_eq!(course.status, CourseStatus::Active);
+    set_models(&bench.store, "", STUDY);
+    bench.engine.get(&bench.ctx, &id).await.unwrap();
+    bench.until(&id, level_ready(1)).await;
+    bench.idle().await;
 }
 
 /// rust-8 : créer un cours ne lit que les réglages (modèle des cours), sans
-/// attendre l'Ollama intégré qui démarre.
+/// attendre que le moteur charge le modèle.
 #[tokio::test(flavor = "multi_thread")]
-async fn creating_a_course_does_not_wait_for_the_builtin_ollama() {
-    use crate::ollama::builtin::Builtin;
-    use crate::ollama::builtin::tests::{fake_config, temp_dir};
-    use crate::ollama::target::{TEST_TARGETING, Targeting};
-    use crate::store::builtin_ollama::{self, OllamaSource};
-
-    let dir = temp_dir();
-    let builtin = Builtin::new(fake_config(dir.path(), &[("FAKE_OLLAMA_DELAY_MS", "4000")]));
-    let targeting = Arc::new(Targeting::new(builtin.clone(), |_| {}).without_ollama_host());
-    // Serveur réglé (adresse explicite) : le plan, généré hors de cette
-    // tâche, va au faux serveur.
-    let bench = Bench::new("chatonlm-study").await;
-    bench
-        .store
-        .blocking(|c| builtin_ollama::set_source(c, OllamaSource::Builtin))
+async fn creating_a_course_does_not_wait_for_the_model_to_load() {
+    let fake = FakeBench::new(&[(SLOWLOAD, "slowload")]);
+    set_models(fake.store(), "", SLOWLOAD);
+    let ctx = Events::default().ctx(&fake.access);
+    let engine = StudyEngine::default();
+    let started = std::time::Instant::now();
+    let id = engine
+        .create(&ctx, &Staging::default(), new_course("Photosynthesis", 10))
+        .await
         .unwrap();
-    let created = TEST_TARGETING.scope(targeting.clone(), async {
-        let started = std::time::Instant::now();
-        let id = bench.create("Photosynthesis", 10).await;
-        (id, started.elapsed())
-    });
-    let (id, elapsed) = created.await;
-    assert!(elapsed < Duration::from_millis(1500), "{elapsed:?}");
-    assert_eq!(
-        builtin.snapshot().state,
-        crate::ollama::builtin::BuiltinState::Starting
-    );
-    bench.engine.delete(&bench.ctx, &id).await.unwrap();
-    builtin.stop().await;
+    assert!(started.elapsed() < Duration::from_millis(1000));
+    engine.delete(&ctx, &id).await.unwrap();
+    fake.shutdown().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_level_reported_as_wrong_is_written_again() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     let course = bench.until(&id, level_ready(0)).await;
     bench.engine.start(&bench.ctx, &id).await.unwrap();
@@ -1050,13 +1060,13 @@ async fn a_level_reported_as_wrong_is_written_again() {
         .answer(&id, &course.levels[0].attempts[0].questions[0], true)
         .await
         .unwrap();
-    let lessons_before = bench.requests_with("Write level 1").len();
+    let lessons_before = bench.requests_with("Write level 1").await.len();
     bench.engine.regenerate(&bench.ctx, &id, 0).await.unwrap();
     let course = bench
         .until(&id, |c| level_ready(0)(c) && bench_answers_cleared(c))
         .await;
     assert_eq!(
-        bench.requests_with("Write level 1").len(),
+        bench.requests_with("Write level 1").await.len(),
         lessons_before + 1
     );
     // Mêmes identifiants, réponses effacées.
@@ -1066,12 +1076,12 @@ async fn a_level_reported_as_wrong_is_written_again() {
 
     // Palier refait pendant sa génération (modèle lent) : requête abandonnée,
     // palier refait par le modèle réglé au moment de la génération.
-    set_models(&bench.store, None, "", "chatonlm-study-slow");
-    let lessons = bench.requests_with("Write level 2").len();
+    set_models(&bench.store, "", SLOW);
+    let lessons = bench.requests_with("Write level 2").await.len();
     bench.engine.regenerate(&bench.ctx, &id, 1).await.unwrap();
     let started = std::time::Instant::now();
     // Leçon demandée (réponse lente en cours).
-    while bench.requests_with("Write level 2").len() == lessons {
+    while bench.requests_with("Write level 2").await.len() == lessons {
         assert!(started.elapsed() < WAIT);
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
@@ -1079,15 +1089,24 @@ async fn a_level_reported_as_wrong_is_written_again() {
         bench.engine.running(),
         Some((id.clone(), generate::Part::Level(1)))
     );
-    let disconnects = bench.fake.disconnects();
+    let disconnects = bench.disconnects().await;
     bench.engine.regenerate(&bench.ctx, &id, 1).await.unwrap();
     let course = bench.until(&id, level_ready(1)).await;
-    assert!(bench.fake.disconnects() > disconnects);
+    assert!(bench.disconnects().await > disconnects);
     // La leçon abandonnée n'a rien écrit : une seconde leçon demandée.
-    assert_eq!(bench.requests_with("Write level 2").len(), lessons + 2);
-    assert_eq!(course.model, "chatonlm-study");
-    let last = bench.fake.chat_requests().pop().unwrap();
-    assert_eq!(last["model"], "chatonlm-study-slow");
+    assert_eq!(
+        bench.requests_with("Write level 2").await.len(),
+        lessons + 2
+    );
+    assert_eq!(course.model, STUDY);
+    // Les deux leçons (abandonnée, puis refaite) par le modèle réglé.
+    let slow_lessons = bench.requests_of(SLOW).await;
+    let slow_lessons = slow_lessons.iter().filter(|request| {
+        request["messages"][0]["content"]
+            .as_str()
+            .is_some_and(|system| system.contains("Write level 2"))
+    });
+    assert_eq!(slow_lessons.count(), 2);
     bench.idle().await;
 }
 
@@ -1095,26 +1114,26 @@ async fn a_level_reported_as_wrong_is_written_again() {
 /// (requête abandonnée), ses parties quittent la file et n'y reviennent ni
 /// à la lecture du cours ni dans une nouvelle session ; l'autre cours est
 /// écrit jusqu'au bout ; la reprise refait la partie arrêtée.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_paused_course_is_not_written_until_resumed() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let paused = bench.create("Photosynthesis", 10).await;
     let other = bench.create("Fractions", 10).await;
     bench.until(&paused, level_ready(0)).await;
     bench.until(&other, level_ready(0)).await;
     bench.idle().await;
     // Modèle lent, le temps de lancer le palier 1 du premier cours.
-    set_models(&bench.store, None, "", "chatonlm-study-slow");
-    let lessons = bench.requests_with("Write level 2").len();
+    set_models(&bench.store, "", SLOW);
+    let lessons = bench.requests_with("Write level 2").await.len();
     bench.engine.start(&bench.ctx, &paused).await.unwrap();
     let started = std::time::Instant::now();
     while bench.engine.running() != Some((paused.clone(), generate::Part::Level(1)))
-        || bench.requests_with("Write level 2").len() == lessons
+        || bench.requests_with("Write level 2").await.len() == lessons
     {
         assert!(started.elapsed() < WAIT);
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    set_models(&bench.store, None, "", "chatonlm-study");
+    set_models(&bench.store, "", STUDY);
     bench.engine.start(&bench.ctx, &other).await.unwrap();
     assert_eq!(
         bench.course(&paused).await.levels[1].state,
@@ -1137,7 +1156,7 @@ async fn a_paused_course_is_not_written_until_resumed() {
             .unwrap()
             .queue_busy
     );
-    let (disconnects, events) = (bench.fake.disconnects(), bench.events.count(&paused));
+    let (disconnects, events) = (bench.disconnects().await, bench.events.count(&paused));
 
     bench
         .engine
@@ -1156,7 +1175,7 @@ async fn a_paused_course_is_not_written_until_resumed() {
         Some(paused.clone())
     );
     let abandoned = async {
-        while bench.fake.disconnects() == disconnects {
+        while bench.disconnects().await == disconnects {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
@@ -1186,12 +1205,15 @@ async fn a_paused_course_is_not_written_until_resumed() {
     assert_eq!((row.paused, row.pending, row.levels_ready), (true, true, 1));
 
     // Reprise : le palier arrêté est refait, puis le bilan.
-    let lessons = bench.requests_with("Write level 2").len();
+    let lessons = bench.requests_with("Write level 2").await.len();
     engine.set_paused(&bench.ctx, &paused, false).await.unwrap();
     let course = bench.until(&paused, final_ready).await;
     assert!(!course.paused);
     assert!(level_ready(1)(&course));
-    assert_eq!(bench.requests_with("Write level 2").len(), lessons + 1);
+    assert_eq!(
+        bench.requests_with("Write level 2").await.len(),
+        lessons + 1
+    );
     let started = std::time::Instant::now();
     while !engine.idle() {
         assert!(started.elapsed() < WAIT);
@@ -1217,9 +1239,9 @@ async fn a_paused_course_is_not_written_until_resumed() {
 /// Partie mise en file au moment même de la pause (demande lue juste avant,
 /// arrivée juste après) : le travail qui démarre voit la pause et n'écrit
 /// rien, ni ne demande rien au modèle.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_part_queued_as_the_course_is_paused_is_not_written() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     bench.until(&id, level_ready(0)).await;
     bench.idle().await;
@@ -1229,17 +1251,17 @@ async fn a_part_queued_as_the_course_is_paused_is_not_written() {
         .await
         .unwrap();
     bench.engine.start(&bench.ctx, &id).await.unwrap();
-    let requests = bench.fake.chat_requests().len();
+    let requests = bench.chat_requests().await.len();
     for part in [generate::Part::Level(1), generate::Part::Final] {
         bench.engine.enqueue_unchecked(&bench.ctx, &id, part);
     }
     bench.idle().await;
     let course = bench.course(&id).await;
     assert_eq!(course.levels[1].state, GenState::Pending);
-    assert_eq!(bench.fake.chat_requests().len(), requests);
+    assert_eq!(bench.chat_requests().await.len(), requests);
     // Plan d'un cours en pause (modèle lent : arrêté avant d'être écrit) :
     // pas écrit non plus.
-    set_models(&bench.store, None, "", "chatonlm-study-slow");
+    set_models(&bench.store, "", SLOW);
     let planning = bench.create("Fractions", 10).await;
     bench
         .engine
@@ -1247,14 +1269,14 @@ async fn a_part_queued_as_the_course_is_paused_is_not_written() {
         .await
         .unwrap();
     bench.idle().await;
-    set_models(&bench.store, None, "", "chatonlm-study");
-    let requests = bench.fake.chat_requests().len();
+    set_models(&bench.store, "", STUDY);
+    let requests = bench.chat_requests().await.len();
     bench
         .engine
         .enqueue_unchecked(&bench.ctx, &planning, generate::Part::Plan);
     bench.idle().await;
     assert_eq!(bench.course(&planning).await.status, CourseStatus::Planning);
-    assert_eq!(bench.fake.chat_requests().len(), requests);
+    assert_eq!(bench.chat_requests().await.len(), requests);
     bench
         .engine
         .set_paused(&bench.ctx, &planning, false)
@@ -1268,9 +1290,9 @@ async fn a_part_queued_as_the_course_is_paused_is_not_written() {
 /// pause (il ne reste jamais bloqué en silence) : nouveau plan, palier
 /// refait, nouvel essai, « Retry », précision du sujet. « Start » ne demande
 /// rien à écrire tout de suite : la pause tient.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_request_that_needs_writing_resumes_a_paused_course() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     bench.until(&id, level_ready(0)).await;
     bench.idle().await;
@@ -1285,7 +1307,7 @@ async fn a_request_that_needs_writing_resumes_a_paused_course() {
 
     // Nouveau plan.
     pause().await;
-    let plans = bench.requests_with("Design the plan").len();
+    let plans = bench.requests_with("Design the plan").await.len();
     bench.engine.replan(&bench.ctx, &id).await.unwrap();
     let course = bench
         .until(&id, |c| {
@@ -1293,7 +1315,10 @@ async fn a_request_that_needs_writing_resumes_a_paused_course() {
         })
         .await;
     assert!(!course.paused);
-    assert_eq!(bench.requests_with("Design the plan").len(), plans + 1);
+    assert_eq!(
+        bench.requests_with("Design the plan").await.len(),
+        plans + 1
+    );
     bench.idle().await;
 
     // « Start » : la pause tient, rien n'est écrit.
@@ -1348,7 +1373,7 @@ async fn a_request_that_needs_writing_resumes_a_paused_course() {
     bench.idle().await;
 
     // Précision d'un sujet ambigu.
-    set_models(&bench.store, None, "", "chatonlm-study-unclear");
+    set_models(&bench.store, "", UNCLEAR);
     let unclear = bench.create("Java", 10).await;
     bench
         .until(&unclear, |c| c.status == CourseStatus::Unclear)
@@ -1374,9 +1399,9 @@ fn bench_answers_cleared(course: &Course) -> bool {
     course.answers.keys().all(|key| !key.starts_with("L0-"))
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn parts_interrupted_by_a_previous_session_are_generated_again() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     bench.until(&id, level_ready(0)).await;
     bench.idle().await;
@@ -1408,13 +1433,13 @@ async fn parts_interrupted_by_a_previous_session_are_generated_again() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_new_plan_throws_the_levels_away() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     bench.until(&id, level_ready(0)).await;
     bench.idle().await;
-    let plans = bench.requests_with("Design the plan").len();
+    let plans = bench.requests_with("Design the plan").await.len();
     bench.engine.replan(&bench.ctx, &id).await.unwrap();
     let course = bench.course(&id).await;
     assert!(matches!(
@@ -1422,16 +1447,19 @@ async fn a_new_plan_throws_the_levels_away() {
         CourseStatus::Planning | CourseStatus::Planned
     ));
     let course = bench.until(&id, level_ready(0)).await;
-    assert_eq!(bench.requests_with("Design the plan").len(), plans + 1);
+    assert_eq!(
+        bench.requests_with("Design the plan").await.len(),
+        plans + 1
+    );
     assert_eq!(course.levels.len(), 2);
     bench.engine.start(&bench.ctx, &id).await.unwrap();
     invalid(bench.engine.replan(&bench.ctx, &id).await);
     bench.idle().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn progress_is_saved_without_an_event() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     bench.until(&id, level_ready(0)).await;
     bench.idle().await;
@@ -1474,9 +1502,9 @@ fn channel(fail_from: Option<usize>) -> (Channel<StudyStreamEvent>, Arc<Mutex<Ve
     (channel, received)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn explanations_and_answers_stream_then_are_kept() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     bench.until(&id, level_ready(0)).await;
     bench.idle().await;
@@ -1511,10 +1539,11 @@ async fn explanations_and_answers_stream_then_are_kept() {
     );
     let request = bench
         .requests_with("Explain this section again")
+        .await
         .pop()
         .unwrap();
     assert_eq!(request["stream"], true);
-    assert!(request.get("format").is_none());
+    assert!(request.get("response_format").is_none());
     assert!(
         request["messages"][0]["content"]
             .as_str()
@@ -1556,6 +1585,7 @@ async fn explanations_and_answers_stream_then_are_kept() {
     assert!(course.levels[0].asks[3].answer.starts_with("**Answer:**"));
     let last = bench
         .requests_with("Answer the learner's question")
+        .await
         .pop()
         .unwrap();
     let messages = last["messages"].as_array().unwrap();
@@ -1578,13 +1608,13 @@ async fn explanations_and_answers_stream_then_are_kept() {
     assert_eq!(bench.engine.streams(), 0);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_stopped_stream_keeps_nothing() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     bench.until(&id, level_ready(0)).await;
     bench.idle().await;
-    set_models(&bench.store, None, "", "chatonlm-study-slow");
+    set_models(&bench.store, "", SLOW);
     let engine = Arc::new(bench.engine);
     let (events, received) = channel(None);
     let task = {
@@ -1633,7 +1663,7 @@ async fn a_stopped_stream_keeps_nothing() {
     );
 
     // Modèle absent : erreur du flux.
-    set_models(&bench.store, None, "", "nope:1b");
+    set_models(&bench.store, "", MISSING);
     let (events, received) = channel(None);
     engine
         .explain(&bench.ctx, &id, 0, 0, "s".into(), &events)
@@ -1642,16 +1672,16 @@ async fn a_stopped_stream_keeps_nothing() {
     assert_eq!(
         received.lock().clone(),
         [
-            serde_json::json!({"event": "error", "code": "modelNotFound", "message": "The model nope:1b is not installed"})
+            serde_json::json!({"event": "error", "code": "modelNotFound", "message": "The model test/Nope-GGUF:Q4_K_M is not installed"})
         ]
     );
 }
 
 /// Cours créé dans une autre langue de l'interface (ligne écrite
 /// directement : la langue du moteur est commune à tous les essais).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_course_in_french_is_written_and_checked_in_french() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let mut row = stored::tests::row(10);
     row.id = "fr-course".into();
     row.topic = "La photosynthèse".into();
@@ -1670,14 +1700,14 @@ async fn a_course_in_french_is_written_and_checked_in_french() {
             .body
             .starts_with("La feuille")
     );
-    let plan = &bench.requests_with("Design the plan")[0];
+    let plan = &bench.requests_with("Design the plan").await[0];
     assert!(
         plan["messages"][0]["content"]
             .as_str()
             .unwrap()
             .contains("Write everything in French.")
     );
-    let lesson = &bench.requests_with("Write level 1")[0];
+    let lesson = &bench.requests_with("Write level 1").await[0];
     assert!(
         lesson["messages"][0]["content"]
             .as_str()
@@ -1690,20 +1720,27 @@ async fn a_course_in_french_is_written_and_checked_in_french() {
     bench.idle().await;
 }
 
-const TEST_INSTANCE: &str = "http://127.0.0.1:11435";
-const TEST_MODEL: &str = "qwen3:0.6b";
+/// Banc réel : vrai `llama-server`, vrai modèle `Text` (Qwen3 0.6B, qui
+/// sait raisonner), modèle des cours réglé ; `None` (dit) s'il manque.
+fn real_bench() -> Option<(crate::llm::testing::RealBench, Ctx)> {
+    let real = crate::llm::testing::RealBench::new(crate::llm::testing::Role::Text)?;
+    set_models(real.access.store(), "", &real.id);
+    let ctx = Events::default().ctx(&real.access);
+    Some((real, ctx))
+}
 
-/// Contrat : vrai cours par qwen3:0.6b sur l'Ollama de test (port 11435) :
-/// plan JSON lisible au bon nombre de paliers, premier palier écrit (leçon
-/// réparée et validée ; questions gardées, ou rejetées en bloc par les
-/// garde-fous pour un si petit modèle), raisonnement coupé, explication en
-/// flux. La qualité n'est pas exigée.
-#[tokio::test]
-#[ignore = "needs the test Ollama instance (scripts/test-ollama.sh) with qwen3:0.6b"]
+/// Contrat : vrai cours par Qwen3 0.6B sur le vrai moteur : plan JSON
+/// lisible au bon nombre de paliers, premier palier écrit (leçon réparée et
+/// validée ; questions gardées, ou rejetées en bloc par les garde-fous pour
+/// un si petit modèle), raisonnement coupé (le modèle sait le couper),
+/// explication en flux. La qualité n'est pas exigée.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs the real llama-server (CHATONLM_LLAMA_TEST_BIN) and the Text test model"]
 async fn contract_study_course_with_a_small_model() {
-    let store = configured(TEST_INSTANCE, "", TEST_MODEL);
-    let events = Events::default();
-    let ctx = events.ctx(&store);
+    let Some((real, ctx)) = real_bench() else {
+        return;
+    };
+    let store = real.access.store().clone();
     let engine = StudyEngine::default();
     let id = engine
         .create(&ctx, &Staging::default(), new_course("Photosynthesis", 10))
@@ -1733,6 +1770,9 @@ async fn contract_study_course_with_a_small_model() {
         GenState::Ready => assert!(level.attempts[0].questions.len() >= 2),
         _ => assert_eq!(level.error.as_ref().unwrap().code, StudyErrorCode::Invalid),
     }
+    // Contexte des cours au moins.
+    let running = real.access.engine().running();
+    assert!(running[0].context_length >= prompts::STUDY_CONTEXT);
     // Explication en flux, sans raisonnement.
     let (channel, received) = channel(None);
     engine
@@ -1746,11 +1786,7 @@ async fn contract_study_course_with_a_small_model() {
         !text.trim().is_empty() && !text.contains("<think"),
         "{text}"
     );
-    // qwen3 sait raisonner : `think: false` lui est envoyé.
-    let details = crate::ollama::models::show(TEST_INSTANCE, TEST_MODEL)
-        .await
-        .unwrap();
-    assert!(crate::dictation::polish::think_off(Some(&details), false));
+    real.shutdown().await;
 }
 
 /// Chaque chaîne d'une réponse ne dépasse pas son `maxLength`.
@@ -1773,31 +1809,29 @@ fn within_limits(value: &Value, schema: &Value) -> bool {
     }
 }
 
-/// Contrat : ce que garantit le schéma `format`, même à un très petit
-/// modèle, à température 0 (reproductible) : pour 2, 4 et 6 paliers, la
-/// réponse brute est un JSON complet (done_reason « stop »), avec exactement
-/// le bon nombre de paliers et chaque texte dans sa limite `maxLength`. Pas
-/// davantage : mesuré le 7 oct., qwen3:0.6b boucle dans `scope` (« …des
-/// images, des photographies,等 » : il prend la photosynthèse pour la
-/// photographie), à 4 et 6 paliers, et parfois à 2 sous charge (Ollama n'est
-/// pas tout à fait reproductible à température 0 quand d'autres requêtes
-/// tournent) ; `maxLength` coupe le texte, la détection d'emballement
-/// (`checks::runaway`, testée par ailleurs) refuse la réponse : c'est la
-/// capacité du modèle, pas le schéma. Un plan utilisable de bout en bout :
-/// moteur contre le faux serveur, et e2e réel (refus propre accepté).
-#[tokio::test]
-#[ignore = "needs the test Ollama instance (scripts/test-ollama.sh) with qwen3:0.6b"]
+/// Contrat : ce que garantit le schéma (`response_format`, grammaire du
+/// serveur), même à un très petit modèle, à température 0 : pour 2, 4 et 6
+/// paliers, la réponse brute est un JSON complet (fin « stop »), avec
+/// exactement le bon nombre de paliers et chaque texte dans sa limite
+/// `maxLength` ; raisonnement coupé (Qwen3 sait le couper). Pas davantage :
+/// un petit modèle peut boucler dans `scope` ; `maxLength` coupe le texte,
+/// la détection d'emballement (`checks::runaway`, essayée par ailleurs)
+/// refuse la réponse : c'est la capacité du modèle, pas le schéma.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs the real llama-server (CHATONLM_LLAMA_TEST_BIN) and the Text test model"]
 async fn contract_study_plan_schema_is_followed() {
-    let store = configured(TEST_INSTANCE, "", TEST_MODEL);
+    let Some((real, _ctx)) = real_bench() else {
+        return;
+    };
     let cancel = crate::proofread::Cancel::default();
-    let ollama = super::request::Gen::connect(&store, &cancel, super::request::TIMEOUTS)
+    let asker = super::request::Gen::connect(&real.access, &cancel, super::request::TIMEOUTS)
         .await
         .unwrap();
-    assert!(ollama.think_off);
+    assert_eq!(asker.think, crate::inference::Think::Off);
     for count in [2, 4, 6] {
         let system = prompts::plan_prompt(crate::i18n::Lang::Fr, StudyLevel::Beginner, 20, count);
         let schema = prompts::plan_schema(count);
-        let answer = ollama
+        let answer = asker
             .ask_raw(
                 &system,
                 "Topic: La photosynthèse",
@@ -1805,36 +1839,41 @@ async fn contract_study_plan_schema_is_followed() {
                 prompts::CHECK_TEMPERATURE,
             )
             .await
-            .unwrap()
-            .expect("an answer");
-        assert_eq!(answer["done_reason"], "stop", "{count}: {answer}");
-        let content = answer["message"]["content"].as_str().unwrap();
-        let value: Value = serde_json::from_str(content).expect("complete JSON");
+            .unwrap();
+        assert_eq!(
+            answer.finish_reason,
+            crate::inference::FinishReason::Stop,
+            "{count}: {answer:?}"
+        );
+        let value: Value = serde_json::from_str(&answer.content).expect("complete JSON");
         eprintln!("{count}: {value:#}");
         assert_eq!(value["levels"].as_array().unwrap().len(), count);
         assert!(within_limits(&value, &schema.value()), "{count}: {value:#}");
+        assert!(!answer.content.contains("<think"));
     }
+    drop(asker);
+    real.shutdown().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_lesson_of_the_wrong_length_is_asked_again_then_kept() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Short lessons", 10).await;
     let course = bench.until(&id, level_ready(0)).await;
-    assert_eq!(bench.requests_with("Write level 1").len(), 2);
+    assert_eq!(bench.requests_with("Write level 1").await.len(), 2);
     let lesson = course.levels[0].lesson.as_ref().unwrap();
     assert!(!checks::length_ok(lesson));
     assert_eq!(lesson.sections.len(), 3);
     // Une leçon de bonne longueur n'est demandée qu'une fois.
     let other = bench.create("Photosynthesis", 10).await;
     bench.until(&other, level_ready(0)).await;
-    assert_eq!(bench.requests_with("Write level 1").len(), 3);
+    assert_eq!(bench.requests_with("Write level 1").await.len(), 3);
     bench.idle().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn questions_the_checker_disputes_are_dropped() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Disputed facts", 10).await;
     let course = bench.until(&id, level_ready(0)).await;
     let level = &course.levels[0];
@@ -1855,55 +1894,43 @@ async fn questions_the_checker_disputes_are_dropped() {
         (attempt.questions[1].id.as_str(), attempt.pass_mark),
         ("L0-A0-Q1", 2)
     );
-    assert_eq!(bench.requests_with("You write the questions").len(), 2);
-    // Premier tour : les quatre questions ; second : les deux choix.
-    assert_eq!(bench.requests_with("careful student").len(), 6);
-    let second = &bench.requests_with("You write the questions")[1];
     assert_eq!(
-        second["format"]["required"],
+        bench.requests_with("You write the questions").await.len(),
+        2
+    );
+    // Premier tour : les quatre questions ; second : les deux choix.
+    assert_eq!(bench.requests_with("careful student").await.len(), 6);
+    let second = &bench.requests_with("You write the questions").await[1];
+    assert_eq!(
+        second["response_format"]["json_schema"]["schema"]["required"],
         serde_json::json!(["q1", "q2"])
     );
     bench.idle().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn slow_answers_and_model_errors_fail_with_their_reason() {
-    let fake = FakeOllama::start(Mode::ollama()).await.unwrap();
-    let store = configured(&fake.url(), "", "chatonlm-wait");
-    let ctx = Events::default().ctx(&store);
-    let engine = StudyEngine::with_timeouts(super::request::Timeouts {
-        json: Duration::from_millis(300),
-        stream_idle: Duration::from_millis(300),
-        retry_delay: Duration::from_millis(100),
-        stream_bytes: super::request::TIMEOUTS.stream_bytes,
-    });
-    let requests_of = |model: &str| {
-        fake.chat_requests()
-            .iter()
-            .filter(|request| request["model"] == model)
-            .count()
-    };
-    let failure = |model: &'static str| {
-        let (engine, ctx, store) = (&engine, ctx.clone(), store.clone());
+    let bench = Bench::with_engine(
+        STALL,
+        StudyEngine::with_timeouts(super::request::Timeouts {
+            json: Duration::from_millis(300),
+            stream_idle: Duration::from_millis(300),
+            retry_delay: Duration::from_millis(100),
+            stream_bytes: super::request::TIMEOUTS.stream_bytes,
+        }),
+    );
+    let failure = |model: &'static str, topic: &'static str| {
+        let bench = &bench;
         async move {
-            set_models(&store, None, "", model);
-            let id = engine
-                .create(&ctx, &Staging::default(), new_course("Plants", 10))
-                .await
-                .unwrap();
-            let started = std::time::Instant::now();
-            loop {
-                let snapshot = db_load(&store, &id).await;
-                if snapshot.row.status == CourseStatus::Failed {
-                    return snapshot.row.error.unwrap();
-                }
-                assert!(started.elapsed() < WAIT, "{model}");
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
+            set_models(&bench.store, "", model);
+            let id = bench.create(topic, 10).await;
+            let error = failed_course(&bench.store, &id).await;
+            bench.idle().await;
+            error
         }
     };
     assert_eq!(
-        failure("chatonlm-wait").await,
+        failure(STALL, "Plants").await,
         StudyError {
             code: StudyErrorCode::Failed,
             message: "Generation failed: the model took too long to answer".into(),
@@ -1911,71 +1938,41 @@ async fn slow_answers_and_model_errors_fail_with_their_reason() {
     );
     // Délai dépassé : passager, la requête est retentée une fois, puis
     // l'erreur arrête le plan.
-    assert_eq!(requests_of("chatonlm-wait"), 2);
-    // Modèle supprimé entre `/api/show` et `/api/chat`.
+    assert_eq!(bench.requests_of(STALL).await.len(), 2);
+    // Fichier du modèle effacé après l'installation : modèle absent, jamais
+    // retenté.
+    let vanished = bench
+        .fake
+        .dir()
+        .join("data/models/test/Vanished-GGUF/chatonlm-study.gguf");
+    std::fs::remove_file(&vanished).unwrap();
     assert_eq!(
-        failure("chatonlm-vanished").await,
+        failure(VANISHED, "Plants").await,
         StudyError {
             code: StudyErrorCode::ModelNotFound,
-            message: "The model chatonlm-vanished is not installed".into(),
+            message: format!("The model {VANISHED} is not installed"),
         }
     );
+    // Erreur du modèle (500 à chaque fois) : retentée une fois, puis dite.
     assert_eq!(
-        failure("chatonlm-error").await,
+        failure(STUDY, "Broken plan").await,
         StudyError {
             code: StudyErrorCode::Failed,
-            message: "Generation failed: model runner has unexpectedly stopped".into(),
+            message: "Generation failed: the text engine answered with an error (HTTP 500)".into(),
         }
     );
-    // Modèle absent, erreur du modèle : jamais retentés.
-    assert_eq!(requests_of("chatonlm-vanished"), 1);
-    assert_eq!(requests_of("chatonlm-error"), 1);
-    // 404 d'un proxy : un échec, pas un modèle absent.
-    let proxy = FakeOllama::start(Mode::Status(404)).await.unwrap();
-    let store = configured(&proxy.url(), "", "gemma3:4b");
-    let ctx = Events::default().ctx(&store);
-    let id = engine
-        .create(&ctx, &Staging::default(), new_course("Plants", 10))
-        .await
-        .unwrap();
-    let started = std::time::Instant::now();
-    let error = loop {
-        let snapshot = db_load(&store, &id).await;
-        if let Some(error) = snapshot.row.error {
-            break error;
-        }
-        assert!(started.elapsed() < WAIT);
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    };
-    assert_eq!(
-        error,
-        StudyError {
-            code: StudyErrorCode::Failed,
-            message: "Generation failed: Ollama answered HTTP 404".into(),
-        }
-    );
+    assert_eq!(bench.requests_with("Design the plan").await.len(), 2 + 2);
 
     // Flux qui ne répond pas.
-    let store = configured(&fake.url(), "", "chatonlm-study");
-    let ctx = Events::default().ctx(&store);
-    let id = engine
-        .create(&ctx, &Staging::default(), new_course("Plants", 10))
-        .await
-        .unwrap();
-    let started = std::time::Instant::now();
-    while db_load(&store, &id)
-        .await
-        .levels
-        .first()
-        .is_none_or(|l| l.state != GenState::Ready)
-    {
-        assert!(started.elapsed() < WAIT);
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    set_models(&store, None, "", "chatonlm-wait");
+    set_models(&bench.store, "", STUDY);
+    let id = bench.create("Plants", 10).await;
+    bench.until(&id, level_ready(0)).await;
+    bench.idle().await;
+    set_models(&bench.store, "", STALL);
     let (events, received) = channel(None);
-    engine
-        .explain(&ctx, &id, 0, 0, "s".into(), &events)
+    bench
+        .engine
+        .explain(&bench.ctx, &id, 0, 0, "s".into(), &events)
         .await
         .unwrap();
     assert_eq!(
@@ -1986,50 +1983,9 @@ async fn slow_answers_and_model_errors_fail_with_their_reason() {
     );
 }
 
-#[tokio::test]
-async fn a_clarified_topic_is_searched_again_with_its_meaning() {
-    let bench = Bench::new("chatonlm-study-unclear").await;
-    bench.fake.set_signed_in(true);
-    let mut request = new_course("Java", 10);
-    request.web = true;
-    let id = bench
-        .engine
-        .create(&bench.ctx, &Staging::default(), request)
-        .await
-        .unwrap();
-    let course = bench
-        .until(&id, |c| c.status == CourseStatus::Unclear)
-        .await;
-    assert_eq!(course.sources[0].title, "Result 1 for Java");
-    bench
-        .engine
-        .clarify(&bench.ctx, &id, Some("The island".into()))
-        .await
-        .unwrap();
-    let course = bench
-        .until(&id, |c| c.status == CourseStatus::Planned)
-        .await;
-    let titles: Vec<&str> = course.sources.iter().map(|s| s.title.as_str()).collect();
-    assert_eq!(
-        titles,
-        [
-            "Result 1 for Java The island",
-            "Result 2 for Java The island"
-        ]
-    );
-    let queries: Vec<Value> = bench
-        .fake
-        .web_requests()
-        .iter()
-        .map(|request| request["body"]["query"].clone())
-        .collect();
-    assert_eq!(queries, ["Java", "Java The island"]);
-    bench.idle().await;
-}
-
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_lesson_with_real_errors_is_written_again_once() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Wrong facts", 10).await;
     let course = bench.until(&id, level_ready(0)).await;
     let lesson = course.levels[0].lesson.as_ref().unwrap();
@@ -2040,14 +1996,14 @@ async fn a_lesson_with_real_errors_is_written_again_once() {
     );
     // Une relecture (température 0, sans l'accroche), une réécriture, pas de
     // seconde relecture.
-    let reviews = bench.requests_with("You are a careful fact-checker");
+    let reviews = bench.requests_with("You are a careful fact-checker").await;
     assert_eq!(reviews.len(), 1);
-    assert_eq!(reviews[0]["options"]["temperature"], 0.0);
+    assert_eq!(reviews[0]["temperature"], 0.0);
     let reviewed = reviews[0]["messages"][1]["content"].as_str().unwrap();
     assert!(
         reviewed.starts_with("<lesson>\n## Part one\n") && !reviewed.contains("Wrong level 1?")
     );
-    let lessons = bench.requests_with("Write level 1");
+    let lessons = bench.requests_with("Write level 1").await;
     assert_eq!(lessons.len(), 2);
     let system = lessons[1]["messages"][0]["content"].as_str().unwrap();
     // Seule la vraie erreur, en fin de consigne.
@@ -2077,38 +2033,44 @@ async fn a_lesson_with_real_errors_is_written_again_once() {
             .contains("corrected")
     );
     assert_eq!(
-        bench.requests_with("You are a careful fact-checker").len(),
+        bench
+            .requests_with("You are a careful fact-checker")
+            .await
+            .len(),
         2
     );
-    assert_eq!(bench.requests_with("Write level 1").len(), 3);
+    assert_eq!(bench.requests_with("Write level 1").await.len(), 3);
     bench.idle().await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_failed_review_keeps_the_lesson() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Unreviewed facts", 10).await;
     let course = bench.until(&id, level_ready(0)).await;
     assert!(course.levels[0].error.is_none());
     assert_eq!(course.levels[0].attempts[0].questions.len(), 3);
     // Erreur 500 : passagère, retentée une fois, puis relecture ignorée.
     assert_eq!(
-        bench.requests_with("You are a careful fact-checker").len(),
+        bench
+            .requests_with("You are a careful fact-checker")
+            .await
+            .len(),
         2
     );
-    assert_eq!(bench.requests_with("Write level 1").len(), 1);
+    assert_eq!(bench.requests_with("Write level 1").await.len(), 1);
     bench.idle().await;
 }
 
 /// rust-7 : une réponse en flux trop longue s'arrête là (requête lâchée),
 /// et sa requête borne la longueur écrite.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_streamed_answer_is_bounded() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     bench.until(&id, level_ready(0)).await;
     bench.idle().await;
-    set_models(&bench.store, None, "", "chatonlm-study-slow");
+    set_models(&bench.store, "", SLOW);
     let engine = StudyEngine::with_timeouts(super::request::Timeouts {
         stream_bytes: 30,
         ..super::request::TIMEOUTS
@@ -2136,9 +2098,10 @@ async fn a_streamed_answer_is_bounded() {
     assert_eq!(saved, text);
     let request = bench
         .requests_with("Explain this section again")
+        .await
         .pop()
         .unwrap();
-    assert_eq!(request["options"]["num_predict"], 1024);
+    assert_eq!(request["max_tokens"], 1024);
 }
 
 /// Flux lent lancé en tâche ; renvoie la tâche et ses évènements dès le
@@ -2172,13 +2135,13 @@ async fn slow_explain(
 /// rust-10 : « Report a mistake » arrête les flux du palier ; une
 /// explication de l'ancienne leçon n'est jamais enregistrée dans la
 /// nouvelle.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_regenerated_level_drops_the_streams_of_its_old_lesson() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     bench.until(&id, level_ready(0)).await;
     bench.idle().await;
-    set_models(&bench.store, None, "", "chatonlm-study-slow");
+    set_models(&bench.store, "", SLOW);
     let engine = Arc::new(StudyEngine::default());
     let (task, received) = slow_explain(&engine, &bench.ctx, &id).await;
     let started = std::time::Instant::now();
@@ -2194,12 +2157,12 @@ async fn a_regenerated_level_drops_the_streams_of_its_old_lesson() {
         (last["event"].clone(), last["stopped"].clone()),
         ("done".into(), true.into())
     );
-    set_models(&bench.store, None, "", "chatonlm-study");
+    set_models(&bench.store, "", STUDY);
     let course = bench.until(&id, level_ready(0)).await;
     assert!(course.levels[0].explains.is_empty());
 
     // Leçon changée sans arrêt du flux : réponse jetée quand même.
-    set_models(&bench.store, None, "", "chatonlm-study-slow");
+    set_models(&bench.store, "", SLOW);
     let (task, received) = slow_explain(&engine, &bench.ctx, &id).await;
     let course = id.clone();
     bench
@@ -2231,9 +2194,9 @@ async fn a_regenerated_level_drops_the_streams_of_its_old_lesson() {
 
 /// rust-14 : une partie restée « en cours » sans travail (travail fini sur
 /// une erreur) est relancée à la lecture du cours, sans redémarrage.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_part_left_generating_is_generated_again_when_read() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     bench.until(&id, level_ready(0)).await;
     bench.engine.start(&bench.ctx, &id).await.unwrap();
@@ -2283,9 +2246,9 @@ async fn refuse(store: &Store, trigger: &'static str) {
 
 /// rust-13 : réponse et fin du cours, palier remis à zéro et réponses
 /// effacées, nouveau plan : chacun en une transaction.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn related_writes_are_all_or_nothing() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Photosynthesis", 10).await;
     bench.until(&id, level_ready(0)).await;
     bench.engine.start(&bench.ctx, &id).await.unwrap();
@@ -2351,9 +2314,9 @@ async fn related_writes_are_all_or_nothing() {
 /// rust-3 : dans un cours de langue (sorte du plan), une faute de frappe
 /// dans un trou est fausse (mais proche) ; ailleurs, la variante proche est
 /// acceptée.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_language_course_grades_blanks_strictly() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     for (topic, kind, expected) in [
         ("language basics", StudyKind::Language, (false, true)),
         ("math basics", StudyKind::Math, (true, false)),
@@ -2395,24 +2358,27 @@ async fn a_language_course_grades_blanks_strictly() {
 /// Emballement (qwen3:0.6b au contrat) : un texte qui atteint sa limite
 /// rend la partie inutilisable, comme un JSON illisible : un nouvel essai,
 /// puis `invalid` ; chaque chaîne du schéma envoyé est bornée.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_runaway_answer_is_unusable() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Runaway topic", 10).await;
     let course = bench.until(&id, |c| c.status == CourseStatus::Failed).await;
     assert_eq!(course.error.unwrap().code, StudyErrorCode::Invalid);
-    let plans = bench.requests_with("Design the plan");
+    let plans = bench.requests_with("Design the plan").await;
     assert_eq!(plans.len(), 2);
-    assert_eq!(plans[0]["format"]["properties"]["scope"]["maxLength"], 500);
+    assert_eq!(
+        plans[0]["response_format"]["json_schema"]["schema"]["properties"]["scope"]["maxLength"],
+        500
+    );
     bench.idle().await;
 }
 
 /// Erreur passagère d'Ollama (500 au milieu d'une génération) : la même
 /// requête est retentée une fois, après une courte pause ; deux 500 de
 /// suite : l'erreur, comme avant.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_transient_server_error_is_retried_once() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let engine = StudyEngine::with_timeouts(super::request::Timeouts {
         retry_delay: Duration::from_millis(300),
         ..super::request::TIMEOUTS
@@ -2431,33 +2397,36 @@ async fn a_transient_server_error_is_retried_once() {
         .await;
     assert!(started.elapsed() >= Duration::from_millis(300));
     assert_eq!(course.plan.unwrap().title, "Hiccup topic");
-    let plans = bench.requests_with("Design the plan");
+    let plans = bench.requests_with("Design the plan").await;
     assert_eq!(plans.len(), 2);
     assert_eq!(plans[0], plans[1]);
 
-    // Toujours 500 : deux tentatives, puis l'erreur (un moteur sert une
-    // seule base : file vidée avant d'en changer).
+    // Toujours 500 : deux tentatives, puis l'erreur.
     while !engine.idle() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    let broken = FakeOllama::start(Mode::Status(500)).await.unwrap();
-    let store = configured(&broken.url(), "", "gemma3:4b");
-    let ctx = Events::default().ctx(&store);
     let started = std::time::Instant::now();
     let id = engine
-        .create(&ctx, &Staging::default(), new_course("Plants", 10))
+        .create(
+            &bench.ctx,
+            &Staging::default(),
+            new_course("Broken topic", 10),
+        )
         .await
         .unwrap();
-    let error = loop {
-        let snapshot = db_load(&store, &id).await;
-        if let Some(error) = snapshot.row.error {
-            break error;
-        }
-        assert!(started.elapsed() < WAIT);
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    };
-    assert_eq!(error.message, "Generation failed: Ollama answered HTTP 500");
+    let error = failed_course(&bench.store, &id).await;
+    assert_eq!(
+        error.message,
+        "Generation failed: the text engine answered with an error (HTTP 500)"
+    );
     assert!(started.elapsed() >= Duration::from_millis(300));
+    let broken: Vec<Value> = bench
+        .requests_with("Design the plan")
+        .await
+        .into_iter()
+        .filter(|request| request["messages"][1]["content"] == "Topic: Broken topic")
+        .collect();
+    assert_eq!(broken.len(), 2);
     while !engine.idle() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
@@ -2466,9 +2435,9 @@ async fn a_transient_server_error_is_retried_once() {
 /// Questions écartées partout : une dernière demande de questions à choix
 /// seulement sauve le palier, le nouvel essai et le bilan ; l'entraînement,
 /// facultatif, n'a pas de demande de plus.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn questions_get_a_last_chance_with_multiple_choice() {
-    let bench = Bench::new("chatonlm-study").await;
+    let bench = Bench::new(STUDY).await;
     let id = bench.create("Fragile facts", 10).await;
     let course = bench.until(&id, level_ready(0)).await;
     let level = &course.levels[0];
@@ -2480,9 +2449,9 @@ async fn questions_get_a_last_chance_with_multiple_choice() {
             .iter()
             .all(|q| matches!(q.body, QuestionBody::Choice { .. }))
     );
-    let quizzes = bench.requests_with("You write the questions");
+    let quizzes = bench.requests_with("You write the questions").await;
     assert_eq!(quizzes.len(), 3);
-    let last = &quizzes[2]["format"]["properties"];
+    let last = &quizzes[2]["response_format"]["json_schema"]["schema"]["properties"];
     assert_eq!(last.as_object().unwrap().len(), 3);
     assert!(last["q1"]["properties"]["options"].is_object());
     // Bilan et nouvel essai : même dernière chance.
@@ -2504,56 +2473,78 @@ async fn questions_get_a_last_chance_with_multiple_choice() {
     bench.idle().await;
 }
 
-/// Modèle cloud pour les cours : réglage coupé, refusé sans rien envoyer ;
-/// activé sans compte, le 401 du serveur est dit comme un compte manquant.
-#[tokio::test]
-async fn a_cloud_model_writes_courses_only_once_turned_on() {
-    let bench = Bench::new("kimi-k2.6:cloud").await;
+/// Modèle distant pour les cours : réglage coupé, refusé sans rien
+/// demander ni charger ; permis mais sans fournisseur : modèle absent.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_remote_model_writes_courses_only_once_turned_on() {
+    let remote = "@remote/mistral/mistral-small-latest";
+    let bench = Bench::new(remote).await;
     let id = bench.create("Photosynthesis", 10).await;
-    let failed = |store: Store, id: String| async move {
-        let started = std::time::Instant::now();
-        loop {
-            let snapshot = db_load(&store, &id).await;
-            if snapshot.row.status == CourseStatus::Failed {
-                return snapshot.row.error.unwrap();
-            }
-            assert!(started.elapsed() < WAIT);
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    };
-    let error = failed(bench.store.clone(), id.clone()).await;
+    let error = failed_course(&bench.store, &id).await;
     assert_eq!(
         error,
         StudyError {
             code: StudyErrorCode::Failed,
-            message: "Cloud models are turned off: kimi-k2.6:cloud runs on ollama.com. Turn them on in Settings › Models to use it.".into(),
+            message:
+                "Remote models are turned off. Turn them on in the settings to use this model."
+                    .into(),
         }
     );
-    assert!(bench.fake.chat_requests().is_empty());
-    assert!(bench.fake.show_requests().is_empty());
+    assert!(bench.fake.engine().running().is_empty());
     bench.idle().await;
-    let on = SettingsPatch {
+    bench.fake.set(SettingsPatch {
         remote_models: Some(true),
         ..Default::default()
-    };
-    bench
-        .store
-        .blocking(|c| settings::update(c, on, None).map(drop))
-        .unwrap();
+    });
     bench.engine.retry(&bench.ctx, &id, false).await.unwrap();
     let started = std::time::Instant::now();
     let error = loop {
         let snapshot = db_load(&bench.store, &id).await;
         if snapshot.row.status == CourseStatus::Failed
             && let Some(error) = snapshot.row.error
-            && error.message.contains("account")
+            && error.code == StudyErrorCode::ModelNotFound
         {
             break error;
         }
         assert!(started.elapsed() < WAIT);
         tokio::time::sleep(Duration::from_millis(20)).await;
     };
-    assert_eq!(error.code, StudyErrorCode::Failed);
-    assert_eq!(error.message, "Cloud models require an Ollama account");
-    assert!(!bench.fake.chat_requests().is_empty());
+    assert_eq!(
+        error.message,
+        format!("The model {remote} is not installed")
+    );
+    assert!(bench.fake.engine().running().is_empty());
+    bench.idle().await;
+}
+
+/// Raisonnement coupé (`enable_thinking: false`) pour un modèle qui sait le
+/// couper, sauf s'il a déjà raisonné malgré tout (vu par ChatonLM) ; jamais
+/// demandé à un modèle qui ne raisonne pas.
+#[tokio::test(flavor = "multi_thread")]
+async fn thinking_is_turned_off_when_the_model_can() {
+    let bench = Bench::new(THINKER).await;
+    let id = bench.create("Photosynthesis", 10).await;
+    bench.until(&id, level_ready(0)).await;
+    bench.idle().await;
+    let asked = bench.requests_of(THINKER).await;
+    assert!(!asked.is_empty());
+    for request in &asked {
+        assert_eq!(
+            request["chat_template_kwargs"],
+            serde_json::json!({"enable_thinking": false})
+        );
+    }
+    bench
+        .store
+        .call(|c| crate::store::model_prefs::set_always_thinks(c, THINKER))
+        .await
+        .unwrap();
+    let other = bench.create("Fractions", 10).await;
+    bench.until(&other, level_ready(0)).await;
+    bench.idle().await;
+    let later = bench.requests_of(THINKER).await;
+    assert!(later.len() > asked.len());
+    for request in &later[asked.len()..] {
+        assert!(request.get("chat_template_kwargs").is_none(), "{request}");
+    }
 }

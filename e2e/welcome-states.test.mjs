@@ -1,21 +1,30 @@
-// Écran d'accueil selon l'installation d'Ollama, imposée par
-// CHATONLM_E2E_HOST_FACTS (build de test) pour ne pas dépendre de la machine :
-// non installé (commande d'installation, lien de téléchargement ouvert par un
-// faux xdg-open, Retry), service arrêté et désactivé, service qui redémarre
-// en boucle.
+// États du moteur au démarrage (moteur intégré, plus d'écran d'installation
+// d'Ollama) : l'app s'ouvre toujours sur le chat.
+// - Moteur absent de l'installation (`CHATONLM_LLAMA_SERVER_BIN` vide : aucun
+//   binaire) : un envoi finit par une erreur lisible (la zone de saisie ne
+//   reste pas bloquée), et Settings › Engine dit de réinstaller.
+// - Moteur présent, aucun modèle : rien d'inscrit, l'écran du moteur dit
+//   l'accélération, sans alerte.
+// - Moteur présent et un modèle : la réponse arrive du faux llama-server
+//   (chaîne complète app → moteur → processus → flux → page).
 import assert from "node:assert/strict";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { join } from "node:path";
-import { ROOT, freePort, withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { withApp } from "./lib/app.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
+import { pressKeys } from "./lib/keyboard.mjs";
 
 const binary = process.argv[2];
+const MODEL = fakeModel("simple");
+const engine = startEngine([MODEL]);
+
+async function waitUntil(check, what, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await check();
+    if (value) return value;
+    if (Date.now() > deadline) throw new Error(`Délai dépassé : ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
 
 const texts = (driver, css) =>
   driver.execute(
@@ -23,121 +32,113 @@ const texts = (driver, css) =>
     [css],
   );
 
-// Faux xdg-open : note le lien, sort avec le code écrit dans « exit ».
-const fakeBin = mkdtempSync(join(ROOT, ".tools/tmp/xdg-open-"));
-process.on("exit", () => rmSync(fakeBin, { recursive: true, force: true }));
-writeFileSync(
-  join(fakeBin, "xdg-open"),
-  `#!/bin/sh\necho "$1" >> "${fakeBin}/opened"\nexit "$(cat "${fakeBin}/exit")"\n`,
-  { mode: 0o755 },
-);
-const opened = () =>
-  existsSync(join(fakeBin, "opened"))
-    ? readFileSync(join(fakeBin, "opened"), "utf8").trim().split("\n")
-    : [];
-const clickText = (driver, css, text) =>
-  driver.execute(
-    "[...document.querySelectorAll(arguments[0])].find((e) => e.textContent === arguments[1]).click()",
-    [css, text],
+/** Tape un message et l'envoie avec Entrée. */
+async function send(driver, text) {
+  const textarea = await driver.waitFor("textarea[aria-label='Message']");
+  await driver.type(textarea, text);
+  await driver.execute(
+    `document.querySelector("textarea[aria-label='Message']").dispatchEvent(
+       new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));`,
   );
+}
 
-// Non installé : adresse locale fermée, ni binaire ni service.
-const port = await freePort();
+/**
+ * Ouvre les réglages (Ctrl+,) et rend le texte de la ligne Engine (Row de
+ * settings/Engine.tsx, autour de son bouton « Open logs »).
+ */
+async function engineRow(driver) {
+  await pressKeys("ctrl+comma");
+  await driver.waitFor("[data-testid=settings]");
+  return waitUntil(
+    () =>
+      driver.execute(
+        `const button = [...document.querySelectorAll("[data-testid=settings] button")]
+           .find((b) => b.textContent === "Open logs");
+         return button?.closest("div.w-full")?.textContent ?? null;`,
+      ),
+    "ligne Engine des réglages",
+  );
+}
+
+// Moteur absent : un modèle est inscrit, mais aucun binaire.
 await withApp(
   binary,
   {
-    name: "welcome-not-installed",
-    env: {
-      OLLAMA_HOST: `127.0.0.1:${port}`,
-      CHATONLM_E2E_HOST_FACTS: "binary=no;unit=none",
-      PATH: `${fakeBin}:${process.env.PATH}`,
-    },
+    name: "welcome-engine-missing",
+    env: { ...engine.env, CHATONLM_LLAMA_SERVER_BIN: "" },
   },
   async (driver) => {
-    assert.equal(
-      await driver.text(await driver.waitFor("h1")),
-      "Ollama is not installed",
+    await driver.waitFor("[data-testid=new-chat]");
+    const status = await driver.invoke("engine_status");
+    assert.equal(status.available, false);
+    await driver.invoke("update_settings", { patch: { selectedModel: MODEL } });
+    await send(driver, "hi");
+    await waitUntil(
+      async () =>
+        (await texts(driver, "[role=alert]")).some((text) => text.trim()),
+      "erreur du moteur absent",
     );
-    assert.deepEqual(await texts(driver, "code"), [
-      "curl -fsSL https://ollama.com/install.sh | sh",
-    ]);
-    const href = await driver.execute(
-      "return [...document.querySelectorAll('a')].find((a) => a.textContent === 'Download from ollama.com')?.href",
+    await waitUntil(
+      () =>
+        driver.execute(
+          "return document.querySelector(\"textarea[aria-label='Message']\")?.disabled === false",
+        ),
+      "zone de saisie de nouveau active",
     );
-    assert.equal(href, "https://ollama.com/download");
-    await driver.screenshot(".tools/shots/welcome-not-installed.png");
-
-    // Lien ouvert par xdg-open ; puis échec de xdg-open (code 3) : message et
-    // adresse à recopier.
-    writeFileSync(join(fakeBin, "exit"), "0");
-    await clickText(driver, "a", "Download from ollama.com");
-    for (let i = 0; i < 50 && opened().length === 0; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    assert.deepEqual(opened(), ["https://ollama.com/download"]);
-    writeFileSync(join(fakeBin, "exit"), "3");
-    await clickText(driver, "a", "Download from ollama.com");
-    assert.equal(
-      await driver.text(await driver.waitFor("[role=alert]")),
-      "Couldn't open the browser (no application is set to open web links (xdg-open exited with 3)). Go to https://ollama.com/download",
+    const row = await engineRow(driver);
+    assert.match(
+      row,
+      /The engine is missing from this installation\. Reinstall ChatonLM\./,
     );
-
-    // Ollama installé et démarré entre-temps : Retry ouvre l'app.
-    const fake = await startFake("ollama", port);
-    try {
-      await driver.execute(
-        "[...document.querySelectorAll('button')].find((b) => b.textContent === 'Retry').click()",
-      );
-      await driver.waitFor("[data-testid=new-chat]", { timeoutMs: 5000 });
-    } finally {
-      await fake.stop();
-    }
+    await driver.screenshot(".tools/shots/welcome-engine-missing.png");
   },
 );
+console.log(
+  "moteur absent : erreur à l'envoi, réglages qui disent de réinstaller",
+);
 
-// Service système arrêté et désactivé, à l'adresse standard (127.0.0.2 : un
-// Ollama de la machine, lié à 127.0.0.1, n'y répond pas).
+// Moteur présent, aucun modèle inscrit.
+await withApp(binary, { name: "welcome-no-model" }, async (driver) => {
+  await driver.waitFor("[data-testid=new-chat]");
+  const status = await driver.invoke("engine_status");
+  assert.equal(status.available, true);
+  assert.deepEqual(await driver.invoke("list_models"), []);
+  await engineRow(driver);
+  assert.ok(await driver.find("[data-testid=engine-acceleration]"));
+  assert.deepEqual(
+    (await texts(driver, "[data-testid=settings] [role=alert]")).filter(
+      Boolean,
+    ),
+    [],
+  );
+  await driver.screenshot(".tools/shots/welcome-no-model.png");
+});
+console.log("moteur présent, aucun modèle : accélération dite, pas d'alerte");
+
+// Moteur présent et un modèle : réponse du faux llama-server.
 await withApp(
   binary,
-  {
-    name: "welcome-service-stopped",
-    env: {
-      OLLAMA_HOST: "127.0.0.2:11434",
-      CHATONLM_E2E_HOST_FACTS: "binary=yes;unit=system:inactive:dead:disabled",
-    },
-  },
+  { name: "welcome-model", env: engine.env },
   async (driver) => {
-    assert.equal(
-      await driver.text(await driver.waitFor("h1")),
-      "Ollama is not running",
+    await driver.waitFor("[data-testid=new-chat]");
+    const models = await driver.invoke("list_models");
+    assert.deepEqual(
+      models.map((model) => [model.id, model.origin]),
+      [[MODEL, "hf"]],
     );
-    assert.deepEqual(await texts(driver, "code"), [
-      "sudo systemctl start ollama",
-      "sudo systemctl enable ollama",
-    ]);
-    await driver.screenshot(".tools/shots/welcome-service-stopped.png");
+    await driver.invoke("update_settings", { patch: { selectedModel: MODEL } });
+    await send(driver, "hi");
+    await waitUntil(
+      async () =>
+        (await texts(driver, "[data-role=assistant]")).some((text) =>
+          text.includes("Hello! You said: hi"),
+        ),
+      "réponse du faux moteur",
+    );
+    const requests = await engine.chatRequests(MODEL);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].stream, true);
   },
 );
-
-// Service utilisateur qui redémarre en boucle (Restart=always).
-await withApp(
-  binary,
-  {
-    name: "welcome-crash-loop",
-    env: {
-      OLLAMA_HOST: "127.0.0.2:11434",
-      CHATONLM_E2E_HOST_FACTS:
-        "binary=yes;unit=user:activating:auto-restart:enabled",
-    },
-  },
-  async (driver) => {
-    assert.equal(
-      await driver.text(await driver.waitFor("h1")),
-      "Ollama failed to start",
-    );
-    assert.deepEqual(await texts(driver, "code"), [
-      "systemctl --user status ollama",
-      "journalctl --user -e -u ollama",
-    ]);
-  },
-);
+console.log("moteur présent et un modèle : réponse reçue");
+console.log("welcome-states : OK");

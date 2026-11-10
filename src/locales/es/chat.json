@@ -3,9 +3,7 @@
     "settingsUnreadable": "ChatonLM no pudo leer su configuración: {error}"
   },
   "actions": {
-    "checking": "Comprobando…",
-    "saving": "Guardando…",
-    "save": "Guardar"
+    "checking": "Comprobando…"
   },
   "layout": {
     "showSidebar": "Mostrar barra lateral",
@@ -60,6 +58,7 @@
     "loadingModel": "Cargando modelo…"
   },
   "slowModel": "Respuestas más lentas: el {percent} de {model} se ejecuta en el procesador (memoria gráfica insuficiente)",
+  "slowModelFallback": "Respuestas más lentas: {model} se ejecuta en el procesador (la tarjeta gráfica no pudo ejecutarlo)",
   "context": {
     "gauge": "Contexto: {percent} usado",
     "title": "Contexto",
@@ -144,7 +143,6 @@
   "picker": {
     "button": "Seleccionar modelo",
     "loading": "Cargando…",
-    "unavailable": "No disponible",
     "none": "Selecciona un modelo",
     "search": "Buscar modelo…",
     "searchLabel": "Buscar modelo",
@@ -152,12 +150,7 @@
     "empty": "No se encontraron modelos",
     "notDownloaded": "No descargado",
     "memory": "Necesita {size} de memoria para funcionar",
-    "cloud": "Modelo en la nube: se ejecuta en ollama.com",
-    "plans": {
-      "pro": "Pro",
-      "max": "Max"
-    },
-    "planRequired": "Requiere el plan {plan} de Ollama"
+    "remote": "Modelo remoto: se ejecuta en {provider}"
   },
   "think": {
     "label": "Pensar",
@@ -180,13 +173,28 @@
     "enable": "Activar la búsqueda web",
     "disable": "Desactivar la búsqueda web",
     "unavailable": "La búsqueda web no está disponible: este modelo no sabe usar herramientas.",
-    "signIn": "Iniciar sesión",
-    "withoutWebSearch": "Generar sin búsqueda web"
+    "withoutWebSearch": "Generar sin búsqueda web",
+    "checkUpdates": "Buscar actualizaciones",
+    "poweredByBrave": "Resultados de Brave Search",
+    "status": {
+      "remaining": {
+        "one": "Desactivar la búsqueda web (queda {count} búsqueda hoy)",
+        "other": "Desactivar la búsqueda web (quedan {count} búsquedas hoy)"
+      },
+      "limit": "Desactivar la búsqueda web (se agotaron las búsquedas de hoy)",
+      "paused": "Desactivar la búsqueda web (la búsqueda web está en pausa por ahora)",
+      "outdated": "Desactivar la búsqueda web (actualiza ChatonLM para volver a buscar)",
+      "unavailable": "Desactivar la búsqueda web (no se puede contactar con el servicio de búsqueda)"
+    }
   },
-  "cloud": {
-    "signIn": "Iniciar sesión",
-    "upgrade": "Mejorar plan",
-    "openSettings": "Abrir configuración"
+  "remote": {
+    "openSettings": "Abrir configuración",
+    "checkKey": "Comprobar la clave"
+  },
+  "engine": {
+    "openLogs": "Abrir los registros",
+    "openSettings": "Configuración del motor",
+    "openLogsError": "No se pudieron abrir los registros: {message}"
   },
   "copy": {
     "failed": "Error al copiar",
@@ -228,23 +236,6 @@
   "dialog": {
     "ok": "Aceptar"
   },
-  "server": {
-    "connecting": "Conectando con Ollama…",
-    "checkFailed": "No se puede comprobar el servidor de Ollama",
-    "lost": "Ollama no responde.",
-    "builtinFailed": "El Ollama integrado no pudo iniciarse.",
-    "download": "Descargar desde ollama.com",
-    "runningAt": "Ollama se está ejecutando en {url}.",
-    "useAddress": "Usar esta dirección",
-    "start": "Iniciar Ollama",
-    "starting": "Iniciando…",
-    "startFailed": "No se pudo iniciar Ollama: {message}",
-    "notAuthorized": "La autenticación falló. Ollama no se inició.",
-    "noService": "No se encontró ningún servicio de Ollama. Inicia Ollama en una terminal con ollama serve.",
-    "noApp": "No se encontró la aplicación de Ollama. Inicia Ollama en una terminal con ollama serve.",
-    "address": "Dirección del servidor",
-    "addressHint": "Déjalo vacío para usar la variable de entorno OLLAMA_HOST, o http://localhost:11434 si no está definida."
-  },
   "staleModel": {
     "available": "Hay una versión más reciente de {model}",
     "update": "Actualizar",
@@ -252,63 +243,6 @@
     "updatingProgress": "Actualizando {model}… {percent}",
     "dismiss": "Cerrar",
     "failed": "No se pudo actualizar el modelo: {message}"
-  },
-  "advice": {
-    "notInstalled": {
-      "title": "Ollama no está instalado",
-      "description": "ChatonLM chatea con los modelos que Ollama ejecuta en este equipo. Instala Ollama y haz clic en Reintentar. Si Ollama se ejecuta en un contenedor o en otro equipo, escribe su dirección abajo."
-    },
-    "notRunning": "Ollama no se está ejecutando",
-    "serviceStopped": "Ollama está instalado, pero su servicio está detenido. Inícialo en una terminal:",
-    "serviceStoppedStart": "Ollama está instalado, pero su servicio está detenido. Haz clic en Iniciar Ollama o inícialo en una terminal:",
-    "enableAtLogin": "Para que arranque automáticamente al iniciar sesión:",
-    "enableAtBoot": "Para iniciarlo automáticamente al arrancar el equipo:",
-    "notRunningHere": "Ollama no se está ejecutando en esta dirección",
-    "serveHost": "En una terminal, inicia el servidor de Ollama en esta dirección y mantenla abierta:",
-    "serve": "Inicia el servidor de Ollama en una terminal y mantenla abierta:",
-    "nothingListening": "No hay nada escuchando en {url}. Comprueba la dirección del servidor abajo.",
-    "serviceFailed": {
-      "title": "Ollama no pudo iniciarse",
-      "description": "El servicio de Ollama se detuvo con un error o se reinicia continuamente. Consulta su estado y sus registros para saber por qué:"
-    },
-    "serviceStarting": {
-      "title": "Ollama se está iniciando",
-      "description": "El servicio de Ollama se está iniciando. Si tarda más de unos segundos, consulta sus registros:"
-    },
-    "notResponding": "Ollama no responde",
-    "behindProxy": "{url} respondió con HTTP {status}: el servidor de Ollama que hay detrás no responde.",
-    "noResponseLogs": "No hay respuesta de {url}. Consulta los registros de Ollama:",
-    "noResponseAddress": "No hay respuesta de {url}. Comprueba la dirección del servidor abajo.",
-    "remoteUnreachable": {
-      "title": "No se puede contactar con el servidor de Ollama",
-      "description": "No hay respuesta de {url}. Comprueba que Ollama se está ejecutando en ese equipo y acepta conexiones de la red (OLLAMA_HOST=0.0.0.0)."
-    },
-    "connectionFailed": {
-      "title": "No se puede conectar con Ollama",
-      "https": "Hay algo escuchando en {url}, pero la conexión falló. Ollama solo admite HTTP sin cifrar: usa una dirección que empiece por http://.",
-      "address": "Hay algo escuchando en {url}, pero la conexión falló. Comprueba la dirección del servidor abajo."
-    },
-    "notOllama": {
-      "title": "No es un servidor de Ollama",
-      "withStatus": "{url} respondió con HTTP {status}, pero no es un servidor de Ollama. Comprueba la dirección del servidor abajo.",
-      "description": "{url} respondió, pero no es un servidor de Ollama. Comprueba la dirección del servidor abajo."
-    },
-    "accessDenied": {
-      "title": "Acceso denegado",
-      "description": "{url} denegó el acceso (HTTP {status}). Comprueba la dirección del servidor abajo."
-    },
-    "builtinStarting": {
-      "title": "Iniciando Ollama…",
-      "description": "ChatonLM está iniciando su Ollama integrado. Tarda unos segundos."
-    },
-    "builtinFailed": {
-      "title": "El Ollama integrado no pudo iniciarse",
-      "description": "Se detuvo con un error varias veces. Su registro puede indicar por qué:"
-    },
-    "running": {
-      "title": "Ollama se está ejecutando",
-      "description": "Conectado a Ollama {version} en {url}."
-    }
   },
   "database": {
     "newer": {
@@ -332,10 +266,6 @@
     "restore": "Restaurar la copia de seguridad del {date}",
     "restoring": "Restaurando…",
     "restoreNote": "La base de datos actual se conserva al lado, con otro nombre: los chats creados después de esta copia de seguridad se quedan en ese archivo."
-  },
-  "adviceWindows": {
-    "appStopped": "Ollama está instalado, pero no se está ejecutando. Haz clic en Iniciar Ollama o abre Ollama desde el menú Inicio.",
-    "appStarting": "La aplicación de Ollama se está iniciando. Si tarda más de unos segundos, consulta su registro:"
   },
   "ephemeral": {
     "toggle": "Chat efímero",

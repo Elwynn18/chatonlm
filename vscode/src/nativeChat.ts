@@ -2,14 +2,15 @@
 // `lm.registerLanguageModelChatProvider` (VS Code ≥ 1.104 ; absent sous
 // Cursor, sans effet). Réglage `chatonlm.nativeChat.enabled` COUPÉ par défaut
 // (pour ne pas encombrer le sélecteur), lu seulement dans les réglages de
-// l'utilisateur. Seulement les modèles de cette machine (jamais ceux du
-// cloud, ni ceux d'un Ollama réglé sur une autre machine : `app.state.local`) ;
+// l'utilisateur. Seulement les modèles de cette machine (jamais un modèle
+// distant, ni, avec une app 0.9.x, ceux d'un serveur réglé sur une autre
+// machine : `app.state.local`) ;
 // chaque demande part dans une conversation éphémère de l'app,
 // effacée aussitôt après (rien dans l'historique) ; réponse relayée en flux ;
 // texte seulement (pas d'outils, pas d'images). Contrat :
 // .tools/research/95-lot4b-contract.md (3).
 import * as vscode from "vscode";
-import type { ModelInfo } from "../../src/bindings/ModelInfo";
+import { type ListedModel, listedModels } from "../shared/models";
 import type { LinkLike } from "./controller";
 import { RpcError, TooLargeError } from "./bridge/rpc";
 import { settingOn } from "./agents";
@@ -22,6 +23,16 @@ export const MAX_OUTPUT_TOKENS = 4096;
 export const DEFAULT_CONTEXT = 4096;
 
 export const nativeChatEnabled = () => settingOn("nativeChat.enabled");
+
+/**
+ * Famille d'un modèle pour le sélecteur de VS Code : l'identifiant sans sa
+ * quantification ni son étiquette (`Qwen/Qwen3-0.6B-GGUF:Q8_0` →
+ * `Qwen/Qwen3-0.6B-GGUF`, `qwen3:0.6b` → `qwen3`).
+ */
+export function family(id: string): string {
+  const colon = id.lastIndexOf(":");
+  return colon > id.lastIndexOf("/") && colon > 0 ? id.slice(0, colon) : id;
+}
 
 type SendResult = {
   chatId: string | null;
@@ -114,8 +125,9 @@ export class NativeChat implements vscode.LanguageModelChatProvider {
     for (const disposable of this.#disposables) disposable.dispose();
   }
 
-  /** L'Ollama de l'app est-il sur cette machine ? Ce qu'elle ne dit pas :
-   * non. */
+  /** Les modèles de l'app sont-ils sur cette machine ? Toujours, depuis
+   * l'app 0.10 ; une app 0.9.x pouvait viser un serveur d'une autre machine.
+   * Ce qu'elle ne dit pas : non. */
   async #local(): Promise<boolean> {
     try {
       const app = await this.#deps.link.request<{ local?: unknown }>(
@@ -146,32 +158,34 @@ export class NativeChat implements vscode.LanguageModelChatProvider {
     vscode.LanguageModelChatInformation[]
   > {
     if (!nativeChatEnabled() || !this.#deps.link.connected) return [];
-    let models: ModelInfo[];
+    let models: ListedModel[];
     try {
-      models = await this.#deps.link.request<ModelInfo[]>("models.list");
+      models = listedModels(
+        await this.#deps.link.request<unknown>("models.list"),
+      );
     } catch {
       return [];
     }
-    if (!Array.isArray(models)) return [];
-    // Ollama sur une autre machine : aucun modèle n'est proposé.
+    // Modèles sur une autre machine (app 0.9.x) : aucun n'est proposé.
     if (!(await this.#local())) return [];
     const infos = await Promise.all(
       models.slice(0, 100).map(async (m) => {
-        if (typeof m?.model !== "string") return null;
-        const details = await this.#details(m.model, true);
+        // Distant : écarté sans le demander à l'app.
+        if (m.remote) return null;
+        const details = await this.#details(m.id, true);
         if (!details) return null;
         const context =
           typeof details.contextLength === "number" && details.contextLength > 0
             ? details.contextLength
-            : typeof m.contextLength === "number" && m.contextLength > 0
-              ? m.contextLength
-              : DEFAULT_CONTEXT;
-        const name = m.model.replace(/:latest$/, "");
+            : (m.contextMax ?? DEFAULT_CONTEXT);
+        const name = m.name;
         const info: vscode.LanguageModelChatInformation = {
-          id: m.model,
+          id: m.id,
           name,
-          family: name.split(":")[0],
-          version: typeof m.digest === "string" ? m.digest.slice(0, 12) : "1",
+          family: family(m.id),
+          // L'identifiant porte la quantification : un autre fichier est
+          // une autre version.
+          version: m.id,
           detail: vscode.l10n.t("ChatonLM, on this computer"),
           tooltip: vscode.l10n.t(
             "{0} runs on this computer through ChatonLM. Nothing is kept in ChatonLM's history.",
@@ -205,12 +219,12 @@ export class NativeChat implements vscode.LanguageModelChatProvider {
     if (!link.connected) {
       throw new Error(vscode.l10n.t("ChatonLM is not connected."));
     }
-    // Vérifié à chaque demande : jamais un modèle du cloud, ni un Ollama
-    // sur une autre machine.
+    // Vérifié à chaque demande : jamais un modèle distant, ni des modèles
+    // sur une autre machine (app 0.9.x).
     if (!(await this.#local())) {
       throw new Error(
         vscode.l10n.t(
-          "ChatonLM uses an Ollama server on another computer: its models are not offered here.",
+          "ChatonLM's models run on another computer: they are not offered here.",
         ),
       );
     }

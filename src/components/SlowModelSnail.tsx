@@ -1,12 +1,14 @@
 // Escargot (propre à ChatonLM) : le modèle tourne en partie sur le
-// processeur, faute de mémoire graphique, et ses réponses en sont plus
-// lentes. Montré près du sélecteur de modèle de la zone de saisie et dans la
-// liste des modèles chargés de l'onglet Models. La raison est dans
-// l'étiquette (lue, et en infobulle).
+// processeur, faute de mémoire graphique, ou tout entier après l'échec de la
+// carte graphique, et ses réponses en sont plus lentes. Montré près du
+// sélecteur de modèle de la zone de saisie et dans la liste des modèles
+// chargés de l'onglet Models. La raison est dans l'étiquette (lue, et en
+// infobulle).
 
 import { useT } from "@/i18n";
 import { formatPercent } from "@/i18n/format";
 import { shortModelName } from "@/lib/modelNames";
+import type { SlowRun } from "@/lib/runningModels";
 
 /** Escargot au trait, à la façon des icônes Heroicons (20 × 20). */
 function SnailIcon({ className }: { className: string }) {
@@ -33,20 +35,23 @@ function SnailIcon({ className }: { className: string }) {
 
 export function SlowModelSnail({
   model,
-  cpu,
+  run,
   className = "",
 }: {
   model: string;
-  /** Part (%) sur le processeur. */
-  cpu: number;
+  /** Part sur le processeur, ou repli après l'échec de la carte. */
+  run: SlowRun;
   className?: string;
 }) {
   const t = useT();
-  const label = t("chat.slowModel", {
-    percent: formatPercent(t.lang, cpu),
-    // Nom tel que le sélecteur le montre (sans « :latest » de /api/ps).
-    model: shortModelName(model).replace(/:latest$/i, ""),
-  });
+  const name = shortModelName(model);
+  const label =
+    run.kind === "fallback"
+      ? t("chat.slowModelFallback", { model: name })
+      : t("chat.slowModel", {
+          percent: formatPercent(t.lang, run.cpu),
+          model: name,
+        });
   return (
     <span
       role="img"

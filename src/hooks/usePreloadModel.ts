@@ -3,10 +3,10 @@
 // du sélecteur : modèle choisi, ou celui de la conversation ouverte, que le
 // sélecteur reprend dans les réglages) est chargé en mémoire dès qu'il est
 // choisi et au démarrage, pour que le premier message n'attende pas.
-// Seulement Ollama joignable et le modèle installé (pas dans le nuage),
-// une fois le choix stable depuis une seconde (crans du contexte parcourus
+// Seulement un modèle installé dans le moteur de l'app (pas distant), une
+// fois le choix stable depuis une seconde (crans du contexte parcourus
 // au clavier, modèles essayés dans le sélecteur : un seul chargement) ; une
-// fois par adresse, modèle et contexte pendant la session (pas la durée
+// fois par modèle et contexte pendant la session (pas la durée
 // avant déchargement : la changer ne recharge pas un modèle déchargé
 // exprès) ; un échec est ignoré (l'envoi chargera le modèle et dira
 // l'erreur).
@@ -16,12 +16,10 @@ import { useEffect } from "react";
 import type { Settings } from "@/bindings/Settings";
 import { useModels } from "@/hooks/useModels";
 import { runningModelsKey } from "@/hooks/useRunningModels";
-import { useServerHealth } from "@/hooks/useServerHealth";
-import { isCloudModel } from "@/lib/dictation";
 import { loadModel } from "@/lib/ipc";
 import { selectedEntry } from "@/lib/models";
 
-/** Préchargements demandés pendant la session : `adresse|modèle|contexte`. */
+/** Préchargements demandés pendant la session : `modèle|contexte`. */
 const preloaded = new Set<string>();
 
 /** Choix stable depuis ce délai avant de charger. */
@@ -39,17 +37,13 @@ export function forgetPreloads() {
 export function usePreloadModel(settings: Settings) {
   const queryClient = useQueryClient();
   const models = useModels();
-  const { healthy } = useServerHealth();
   const entry = models.isSuccess
     ? selectedEntry(models.data, settings.selectedModel)
     : null;
-  // Installé (orthographe de /api/tags) ; sinon rien à charger.
+  // Installé (identifiant de la base), pas distant ; sinon rien à charger.
   const model =
-    entry?.info && healthy && !isCloudModel(entry.model) ? entry.model : null;
-  const key =
-    model === null
-      ? null
-      : [settings.effectiveServerUrl, model, settings.contextLength].join("|");
+    entry?.info && entry.info.origin !== "remote" ? entry.model : null;
+  const key = model === null ? null : [model, settings.contextLength].join("|");
 
   useEffect(() => {
     if (key === null || model === null || preloaded.has(key)) return;

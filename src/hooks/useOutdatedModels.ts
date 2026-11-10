@@ -9,8 +9,8 @@
  * and app/ui/app/src/components/ModelPicker.tsx (checkModelStaleness),
  * commit 42e911bc3d05.
  * Modified for ChatonLM: a Tauri command instead of an HTTP call, which
- * compares the installed models with their registry in the Rust backend
- * (src-tauri/src/ollama/outdated.rs: Hugging Face models included); several
+ * compares the installed models with their Hugging Face repository in the
+ * Rust backend (src-tauri/src/local_models/mod.rs, check_outdated); several
  * models in one request (the Installed tab of the ModelHub); the answer is
  * kept by React Query for 5 minutes per installed version (the official
  * cache: 5 minutes per model name), so a model downloaded again outside of
@@ -25,9 +25,8 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useCallback } from "react";
-import { useSettings } from "@/hooks/useSettings";
 import { outdatedModels } from "@/lib/ipc";
-import { withTag } from "@/lib/modelNames";
+import { sameModel } from "@/lib/modelNames";
 
 /** Préfixe des vérifications (une par ensemble de versions installées). */
 export const outdatedKey = ["outdatedModels"] as const;
@@ -40,44 +39,37 @@ const CHECK_STALE_MS = 5 * 60 * 1000;
 const NONE: readonly string[] = [];
 
 /**
- * Version installée d'un modèle : son nom, et ce qui change quand elle est
- * remplacée (empreinte du sélecteur, date de la liste des installés).
+ * Version installée d'un modèle : son identifiant, et ce qui change quand
+ * elle est remplacée (date d'installation).
  */
 export interface InstalledVersion {
   model: string;
   version: string;
 }
 
-/** Même modèle, à la casse et à `:latest` près. */
-function same(a: string, b: string): boolean {
-  return withTag(a).toLowerCase() === withTag(b).toLowerCase();
-}
-
-/** `model` est-il dans cette liste de noms (à la casse et à `:latest` près) ? */
+/** `model` est-il dans cette liste (quantification sans la casse) ? */
 export function listsModel(names: readonly string[], model: string): boolean {
-  return names.some((name) => same(name, model));
+  return names.some((name) => sameModel(name, model));
 }
 
 /**
- * Parmi ces modèles installés, ceux dont le registre a une version plus
- * récente ; aucun tant que rien n'est su, ou si le registre ou Ollama ne
- * répondent pas. Rien n'est demandé pour une liste vide.
+ * Parmi ces modèles installés, ceux dont Hugging Face a une version plus
+ * récente ; aucun tant que rien n'est su, ou si Hugging Face ne répond pas.
+ * Rien n'est demandé pour une liste vide.
  */
 export function useOutdatedModels(
   installed: readonly InstalledVersion[],
 ): readonly string[] {
-  const { settings } = useSettings();
-  const server = settings?.effectiveServerUrl ?? null;
   const models = installed.map((entry) => entry.model);
-  // Clé : le serveur et les versions installées, dans un ordre stable.
+  // Clé : les versions installées, dans un ordre stable.
   const versions = installed
     .map((entry) => `${entry.model}@${entry.version}`)
     .sort()
     .join("\n");
   const { data } = useQuery({
-    queryKey: [...outdatedKey, server, versions],
+    queryKey: [...outdatedKey, versions],
     queryFn: () => outdatedModels(models),
-    enabled: server !== null && models.length > 0,
+    enabled: models.length > 0,
     staleTime: CHECK_STALE_MS,
     retry: false,
     // Une liste qui change (modèle mis à jour, autre modèle choisi) garde la
@@ -97,7 +89,7 @@ export function forgetOutdated(queryClient: QueryClient, model: string) {
     { queryKey: outdatedKey },
     (names) =>
       names && listsModel(names, model)
-        ? names.filter((name) => !same(name, model))
+        ? names.filter((name) => !sameModel(name, model))
         : names,
   );
 }

@@ -6,8 +6,6 @@
   "card": {
     "title": "Dictée",
     "description": "Appuyez sur un raccourci depuis n'importe quelle application pour dicter. Ce que vous dites est transcrit sur cet ordinateur, mis au propre par un modèle local, puis copié dans le presse-papiers.",
-    "remoteDescription": "Appuyez sur un raccourci depuis n'importe quelle application pour dicter. Ce que vous dites est transcrit sur cet ordinateur, mis au propre, puis copié dans le presse-papiers.",
-    "remoteNote": "La transcription est envoyée à votre serveur Ollama ({server}) pour être mise au propre.",
     "loadFailed": "Impossible de charger les paramètres de la dictée.",
     "downloadModel": "Télécharger un modèle de transcription",
     "enable": "Activer la dictée"
@@ -76,11 +74,11 @@
     "title": "Mise au propre",
     "model": {
       "label": "Modèle de mise au propre",
-      "description": "Un modèle d'Ollama met la transcription au propre : ponctuation, hésitations, reprises.",
+      "description": "Un modèle de cet ordinateur met la transcription au propre : ponctuation, hésitations, reprises.",
       "off": "Aucun",
-      "cloud": "{name} (les modèles cloud ne sont pas utilisés)",
+      "remote": "{name} (les modèles distants ne sont pas utilisés)",
       "recommended": "Modèles recommandés",
-      "unreachable": "Ollama est injoignable. Ses modèles seront listés dès qu'il répondra.",
+      "unreachable": "Impossible de lire les modèles installés. Ils seront listés dès qu'ils pourront l'être.",
       "loading": "Chargement des modèles…"
     },
     "instructions": {

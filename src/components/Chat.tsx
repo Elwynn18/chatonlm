@@ -6,20 +6,14 @@
  * Adapted from Ollama (https://github.com/ollama/ollama),
  * file app/ui/app/src/components/Chat.tsx, commit 42e911bc3d05.
  * Modified for ChatonLM: ChatonLM logo; replies stream from the Rust backend
- * (src/lib/streams.ts); "Ollama isn't responding" banner with Retry above the
- * disabled composer, also on the new chat page ("Starting Ollama..." while
- * the built-in Ollama starts; once it has failed: its log, and Retry
- * restarts it); a new chat refused before its
+ * (src/lib/streams.ts); the engine is built into the app, so the composer is
+ * never disabled waiting for a server (an engine that fails says so as the
+ * error of the reply); a new chat refused before its
  * creation shows the error above the composer; one view per chat (key), so
  * that switching chats starts from a clean state (the edit mode included);
- * editing a message keeps its attachments by id; a web search without an
- * Ollama account ends with an error offering Sign In (the account card of
- * the settings) and Generate without web search (the last message sent
- * again, as an edit, without web search); once the account is signed in
- * (read while that error is shown), Retry replaces Sign In and sends the
- * message again with web search; an error due to Ollama's own folder hidden
- * from its systemd service (a model download or the account refused: key
- * id_ed25519 unreadable) links to the fix in Settings > General; the reply
+ * editing a message keeps its attachments by id; a failed web search offers
+ * Retry and Generate without web search (the last message sent again, as an
+ * edit, with or without web search); the reply
  * being written says when its model is loaded into memory ("Loading
  * model...", see MessageList.tsx); the replies of a conversation have
  * ChatonLM's own "Read aloud" button (the list gets the conversation id);
@@ -43,11 +37,14 @@
  * (straight to the image model), its refusal at once shown by the composer
  * (its notice, the text given back) instead of an error; an image created
  * by an Easy Link bot's reply still running in the chat shows as in
- * progress (MessageList.tsx); the errors of a cloud model are under the
- * message, not in banners above the composer (CloudErrorActions.tsx): without
- * an account, Sign In (the account card), then Retry once signed in; usage
- * limit reached, Upgrade; cloud models turned off in the settings (ChatonLM's
- * own setting), Open settings (Settings > Models); ChatonLM's own ephemeral
+ * progress (MessageList.tsx); the errors of a remote model (ChatonLM's own,
+ * a provider with the user's key) are under the message, not in banners
+ * above the composer (RemoteErrorActions.tsx): remote models turned off or
+ * key refused, Open settings or Check the key (Settings > Models), Retry;
+ * the errors of the web search by ChatonLM's relay are under the message too
+ * (WebSearchErrorActions.tsx); so are the failures of ChatonLM's own engine
+ * (EngineErrorActions.tsx: Retry, Open logs, Engine settings); ChatonLM's own
+ * ephemeral
  * chats: while the ghost kitten button is on, the new chat page says so above
  * the composer and its first message creates an ephemeral chat; an
  * ephemeral chat shows the same notice, with Keep (EphemeralBanner.tsx).
@@ -70,14 +67,11 @@ import { compactStreamId, useManualCompacting } from "@/hooks/useCompactChat";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { LoopErrorActions } from "@/components/LoopErrorActions";
 import { MessageList } from "@/components/MessageList";
-import { OllamaHomeLink } from "@/components/settings/OllamaHome";
 import { RuminationBanner } from "@/components/RuminationBanner";
-import { ServerLostBanner } from "@/components/ServerLostBanner";
-import { useAccount } from "@/hooks/useAccount";
-import { CloudErrorActions } from "@/components/CloudErrorActions";
+import { EngineErrorActions } from "@/components/EngineErrorActions";
+import { RemoteErrorActions } from "@/components/RemoteErrorActions";
 import { WebSearchErrorActions } from "@/components/WebSearchErrorActions";
 import { useChat } from "@/hooks/useChats";
-import { isHomeError } from "@/hooks/useOllamaHome";
 import { useMessageAutoscroll } from "@/hooks/useMessageAutoscroll";
 import {
   useChatError,
@@ -85,14 +79,15 @@ import {
   useNewChatStream,
   useSendMessage,
 } from "@/hooks/useSendMessage";
-import { useServerHealth } from "@/hooks/useServerHealth";
 import {
   adoptVoiceModeChat,
   useVoiceModeFor,
   voiceModeSnapshot,
 } from "@/hooks/useVoiceMode";
-import { isCloudError } from "@/lib/cloud";
+import { isEngineError } from "@/lib/engine";
 import { useNewChatEphemeral } from "@/lib/ephemeral";
+import { isRemoteError } from "@/lib/remoteModels";
+import { isWebSearchError } from "@/lib/webSearch";
 import { cancelMessage, voiceModeReplyFailed } from "@/lib/ipc";
 import { isRuminating } from "@/lib/rumination";
 import {
@@ -103,7 +98,6 @@ import {
   mergeMessages,
   NEW_CHAT,
   pendingNewStream,
-  type StreamError,
   streamsFor,
   whenIdle,
 } from "@/lib/streams";
@@ -113,15 +107,23 @@ export function Chat({ chatId }: { chatId: string }) {
   return <ChatView key={chatId} chatId={chatId} />;
 }
 
-/** Ouvre la carte du compte dans les réglages (rien ne s'ouvre ailleurs). */
-function useOpenAccountSettings() {
+/** Ouvre la carte des mises à jour (Settings › General). */
+function useOpenUpdates() {
   const navigate = useNavigate();
   return useCallback(() => {
-    void navigate({ to: "/settings", search: { section: "account" } });
+    void navigate({ to: "/settings", search: { card: "updates" } });
   }, [navigate]);
 }
 
-/** Ouvre l'onglet Models des réglages (réglage des modèles cloud). */
+/** Ouvre l'onglet General des réglages (écran du moteur). */
+function useOpenEngineSettings() {
+  const navigate = useNavigate();
+  return useCallback(() => {
+    void navigate({ to: "/settings", search: { section: "general" } });
+  }, [navigate]);
+}
+
+/** Ouvre l'onglet Models des réglages (modèles distants). */
 function useOpenModelsSettings() {
   const navigate = useNavigate();
   return useCallback(() => {
@@ -188,11 +190,6 @@ function useSendVoice() {
 
 const NO_COMPACTIONS: readonly Compaction[] = [];
 
-/** Recherche web refusée faute de compte relié au serveur. */
-function isWebSearchSignedOut(error: StreamError | null) {
-  return error?.kind === "webSearchUnavailable";
-}
-
 /** Nouvelle conversation : logo et zone de saisie, centrés verticalement. */
 function NewChat() {
   const stream = useNewChatStream();
@@ -203,38 +200,35 @@ function NewChat() {
   useEffect(() => () => clearError(NEW_CHAT), []);
   const { send, cancel } = useSendMessage();
   const sendVoice = useSendVoice();
-  const health = useServerHealth();
-  const openAccountSettings = useOpenAccountSettings();
+  const openUpdates = useOpenUpdates();
   const openModelsSettings = useOpenModelsSettings();
+  const openEngineSettings = useOpenEngineSettings();
   const ephemeral = useNewChatEphemeral();
   // Le moteur crée la conversation avant ces erreurs : elles n'arrivent ici
   // que par accident, sans message à relancer.
-  const banner = (error || !health.healthy) && (
-    <>
-      {error && (
-        <div className="mx-auto w-full max-w-[768px] px-5">
-          <ErrorMessage message={error.message}>
-            {isWebSearchSignedOut(error) && (
-              <WebSearchErrorActions onSignIn={openAccountSettings} />
-            )}
-            {isCloudError(error.kind) && (
-              <CloudErrorActions
-                kind={error.kind}
-                onSignIn={openAccountSettings}
-                onOpenSettings={openModelsSettings}
-              />
-            )}
-          </ErrorMessage>
-        </div>
-      )}
-      {!health.healthy && (
-        <ServerLostBanner
-          onRetry={health.retry}
-          starting={health.starting}
-          failed={health.failed}
-        />
-      )}
-    </>
+  const banner = error && (
+    <div className="mx-auto w-full max-w-[768px] px-5">
+      <ErrorMessage message={error.message}>
+        {isWebSearchError(error.kind) && (
+          <WebSearchErrorActions
+            kind={error.kind}
+            onCheckUpdates={openUpdates}
+          />
+        )}
+        {isRemoteError(error.kind) && (
+          <RemoteErrorActions
+            kind={error.kind}
+            onOpenSettings={openModelsSettings}
+          />
+        )}
+        {isEngineError(error.kind) && (
+          <EngineErrorActions
+            kind={error.kind}
+            onOpenSettings={openEngineSettings}
+          />
+        )}
+      </ErrorMessage>
+    </div>
   );
 
   return (
@@ -247,7 +241,6 @@ function NewChat() {
           chatId="new"
           hasMessages={false}
           isStreaming={stream !== null}
-          isDisabled={!health.healthy}
           banner={banner}
           ephemeralNotice={ephemeral && <EphemeralBanner />}
           onSubmit={(
@@ -299,7 +292,6 @@ function ChatView({ chatId }: { chatId: string }) {
   const error = useChatError(chatId);
   const { send, cancel } = useSendMessage();
   const sendVoice = useSendVoice();
-  const health = useServerHealth();
   const saved = chat?.messages;
   // Même tableau tant que rien ne change (bandeau, espace réservé...).
   const messages = useMemo(
@@ -347,66 +339,61 @@ function ChatView({ chatId }: { chatId: string }) {
   // compactage (conversation occupée), sans moyen de l'arrêter.
   const voiceShown = useVoiceModeFor(chatId).shown;
   // « Compact now » : pas pendant une réponse (un compactage automatique n'a
-  // lieu que pendant l'une d'elles), Ollama perdu, rien à compacter, une
-  // modification ou le mode vocal en cours.
+  // lieu que pendant l'une d'elles), rien à compacter, une modification ou
+  // le mode vocal en cours.
   const compactDisabled =
-    isStreaming ||
-    !health.healthy ||
-    !compactable ||
-    editing !== null ||
-    voiceShown;
+    isStreaming || !compactable || editing !== null || voiceShown;
   const { containerRef, spacerHeight, onMessageSent } = useMessageAutoscroll({
     messages,
     isStreaming,
   });
-  const openAccountSettings = useOpenAccountSettings();
+  const openUpdates = useOpenUpdates();
   const openModelsSettings = useOpenModelsSettings();
-  const signedOutError = isWebSearchSignedOut(error);
-  const cloudError = isCloudError(error?.kind) ? error?.kind : undefined;
-  // Compte lu tant que l'erreur est là : relié entre-temps (réglages),
-  // Retry relance avec la recherche web, ou vers le modèle cloud ; son
-  // forfait choisit la page « Upgrade ».
-  const { isAuthenticated, account } = useAccount({
-    enabled:
-      signedOutError ||
-      cloudError === "remoteKey" ||
-      cloudError === "remoteLimit",
-  });
+  const openEngineSettings = useOpenEngineSettings();
+  const webSearchError = isWebSearchError(error?.kind)
+    ? error?.kind
+    : undefined;
+  const remoteError = isRemoteError(error?.kind) ? error?.kind : undefined;
   // Dernier message enregistré de l'utilisateur : celui qu'on relance.
   const lastSent = messages.findLast((m) => m.role === "user" && m.id > 0);
-  const errorActions = signedOutError ? (
-    <WebSearchErrorActions
-      onSignIn={openAccountSettings}
-      onRetry={
-        lastSent
-          ? (webSearch) => formRef.current?.retry(lastSent, { webSearch })
-          : undefined
-      }
-      signedIn={isAuthenticated}
-      retryDisabled={isStreaming || manualCompacting || !health.healthy}
-    />
-  ) : cloudError !== undefined ? (
-    <CloudErrorActions
-      kind={cloudError}
-      onSignIn={openAccountSettings}
-      onOpenSettings={openModelsSettings}
-      onRetry={lastSent ? () => formRef.current?.retry(lastSent) : undefined}
-      signedIn={isAuthenticated}
-      plan={account?.state === "signedIn" ? account.plan : undefined}
-      retryDisabled={isStreaming || manualCompacting || !health.healthy}
-    />
-  ) : error?.kind === "contextFull" ? (
-    <ContextFullActions chatId={chatId} disabled={compactDisabled} />
-  ) : error?.kind === "loop" ? (
-    <LoopErrorActions
-      onRetry={lastSent ? () => formRef.current?.retry(lastSent) : undefined}
-      retryDisabled={isStreaming || manualCompacting || !health.healthy}
-    />
-  ) : (
-    // Clé d'Ollama cachée à son service (téléchargement, compte) : la
-    // correction.
-    isHomeError(error?.message) && <OllamaHomeLink error={error?.message} />
-  );
+  const errorActions =
+    webSearchError !== undefined ? (
+      <WebSearchErrorActions
+        kind={webSearchError}
+        onCheckUpdates={openUpdates}
+        onRetry={
+          lastSent
+            ? (webSearch) => formRef.current?.retry(lastSent, { webSearch })
+            : undefined
+        }
+        retryDisabled={isStreaming || manualCompacting}
+      />
+    ) : remoteError !== undefined ? (
+      <RemoteErrorActions
+        kind={remoteError}
+        onOpenSettings={openModelsSettings}
+        onRetry={lastSent ? () => formRef.current?.retry(lastSent) : undefined}
+        retryDisabled={isStreaming || manualCompacting}
+      />
+    ) : isEngineError(error?.kind) ? (
+      <EngineErrorActions
+        kind={error.kind}
+        onOpenSettings={openEngineSettings}
+        onRetry={lastSent ? () => formRef.current?.retry(lastSent) : undefined}
+        retryDisabled={isStreaming || manualCompacting}
+      />
+    ) : error?.kind === "contextFull" ? (
+      <ContextFullActions chatId={chatId} disabled={compactDisabled} />
+    ) : (
+      error?.kind === "loop" && (
+        <LoopErrorActions
+          onRetry={
+            lastSent ? () => formRef.current?.retry(lastSent) : undefined
+          }
+          retryDisabled={isStreaming || manualCompacting}
+        />
+      )
+    );
 
   // <div> plutôt que le <main> officiel : la mise en page en fournit déjà un.
   return (
@@ -440,7 +427,6 @@ function ChatView({ chatId }: { chatId: string }) {
           chatId={chatId}
           hasMessages={messages.length > 0}
           isStreaming={isStreaming || manualCompacting}
-          isDisabled={!health.healthy}
           ephemeralNotice={
             chat?.ephemeral && <EphemeralBanner chatId={chatId} />
           }
@@ -454,17 +440,9 @@ function ChatView({ chatId }: { chatId: string }) {
             )
           }
           banner={
-            !health.healthy ? (
-              <ServerLostBanner
-                onRetry={health.retry}
-                starting={health.starting}
-                failed={health.failed}
-              />
-            ) : (
-              ruminating &&
-              active && (
-                <RuminationBanner onStop={() => cancel(active.streamId)} />
-              )
+            ruminating &&
+            active && (
+              <RuminationBanner onStop={() => cancel(active.streamId)} />
             )
           }
           onSubmit={(

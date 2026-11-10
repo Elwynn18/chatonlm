@@ -8,11 +8,9 @@
 //! texte quand elle est reconnue : avec des exemples en langues mêlées, les
 //! petits modèles traduisaient souvent le texte dans la langue d'un exemple.
 
-use serde_json::{Value, json};
-
 use super::language::{self, Language};
 use super::{ProofreadMode, ProofreadOptions, format};
-use crate::chat::Server;
+use crate::inference::{self, ChatRequest, Message};
 
 /// Consignes de « Correct ».
 pub const CORRECT_PROMPT: &str = "\
@@ -229,20 +227,11 @@ pub fn wrap(text: &str) -> String {
 
 /// Température, basse dans les deux modes : 0,4 ne reformulait guère plus
 /// et faisait écarter davantage de réponses (contrat § 6).
-pub const TEMPERATURE: f64 = 0.2;
+pub const TEMPERATURE: f32 = 0.2;
 
-/// Corps de `POST /api/chat` pour un passage : consignes, exemples, passage ;
-/// `think: false` seulement si `think_off` ; contexte et durée en mémoire de
-/// l'app comme le chat (seulement s'ils sont réglés).
-pub fn request_body(
-    server: &Server,
-    model: &str,
-    mode: ProofreadMode,
-    options: ProofreadOptions,
-    text: &str,
-    think_off: bool,
-) -> Value {
-    let mut messages = vec![json!({ "role": "system", "content": prompt(mode, options) })];
+/// Messages d'un passage : consignes, exemples, passage.
+pub fn messages(mode: ProofreadMode, options: ProofreadOptions, text: &str) -> Vec<Message> {
+    let mut messages = vec![Message::system(prompt(mode, options))];
     for (user, assistant) in examples(mode, text) {
         // Mise en forme coupée : exemples sans la majuscule ni la
         // ponctuation finale ajoutées.
@@ -251,40 +240,40 @@ pub fn request_body(
         } else {
             format::finish(user, assistant, false)
         };
-        messages.push(json!({ "role": "user", "content": wrap(user) }));
-        messages.push(json!({ "role": "assistant", "content": assistant }));
+        messages.push(Message::user(wrap(user)));
+        messages.push(Message::assistant(assistant));
     }
-    messages.push(json!({ "role": "user", "content": wrap(text) }));
-    let mut body = json!({
-        "model": model,
-        "messages": messages,
-        "stream": true,
-        "options": { "temperature": TEMPERATURE },
-    });
+    messages.push(Message::user(wrap(text)));
+    messages
+}
+
+/// Réglages posés sur la requête de la session (ils gagnent sur ceux
+/// repris du modèle) : température basse, réflexion coupée seulement si
+/// `think_off`. Contexte et durée en mémoire : ceux de l'app, comme le chat
+/// (ouverture du modèle).
+pub fn tune(request: &mut ChatRequest, think_off: bool) {
+    request.temperature = Some(TEMPERATURE);
     if think_off {
-        body["think"] = json!(false);
+        request.think = inference::Think::Off;
     }
-    if server.context_length > 0 {
-        body["options"]["num_ctx"] = json!(server.context_length);
-    }
-    if server.keep_alive != 0 {
-        body["keep_alive"] = json!(server.keep_alive);
-    }
-    body
 }
 
 #[cfg(test)]
 mod tests {
+    use serde_json::{Value, json};
+
     use super::*;
 
-    fn server(context_length: u32, keep_alive: i64) -> Server {
-        Server {
-            url: "http://x".into(),
-            context_length,
-            keep_alive,
-            cloud: false,
-            ..crate::chat::Server::detached()
-        }
+    /// Corps d'une requête de passage, réglages posés.
+    fn request_body(
+        mode: ProofreadMode,
+        options: ProofreadOptions,
+        text: &str,
+        think_off: bool,
+    ) -> Value {
+        let mut request = ChatRequest::new(messages(mode, options, text));
+        tune(&mut request, think_off);
+        request.body(true)
     }
 
     #[test]
@@ -340,8 +329,6 @@ mod tests {
     fn the_request_carries_instructions_examples_and_text() {
         let text = "I recieve the message and the letter.";
         let body = request_body(
-            &server(0, 0),
-            "gemma3:4b",
             ProofreadMode::Correct,
             ProofreadOptions::default(),
             text,
@@ -359,26 +346,20 @@ mod tests {
             messages.last().unwrap()["content"],
             "<text>\nI recieve the message and the letter.\n</text>"
         );
-        assert_eq!(body["model"], "gemma3:4b");
         assert_eq!(body["stream"], true);
-        assert_eq!(body["options"], json!({ "temperature": 0.2 }));
-        assert!(body.get("think").is_none());
-        assert!(body.get("keep_alive").is_none());
+        assert_eq!(body["temperature"].as_f64(), Some(f64::from(TEMPERATURE)));
+        assert!(body.get("chat_template_kwargs").is_none());
 
         let rephrase = request_body(
-            &server(8192, -1),
-            "m",
             ProofreadMode::Rephrase,
             ProofreadOptions::default(),
             text,
             true,
         );
         assert_eq!(rephrase["messages"][0]["content"], REPHRASE_PROMPT);
-        assert_eq!(rephrase["think"], false);
-        assert_eq!(rephrase["keep_alive"], -1);
         assert_eq!(
-            rephrase["options"],
-            json!({ "temperature": 0.2, "num_ctx": 8192 })
+            rephrase["chat_template_kwargs"],
+            json!({ "enable_thinking": false })
         );
     }
 
@@ -420,8 +401,6 @@ mod tests {
         );
 
         let body = request_body(
-            &server(0, 0),
-            "m",
             ProofreadMode::Correct,
             all,
             "est-ce que tu sais a quelle heure ferme la pharmacie",

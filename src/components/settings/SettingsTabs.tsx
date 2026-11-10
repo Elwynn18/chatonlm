@@ -1,5 +1,5 @@
 // Onglets des réglages (propres à ChatonLM : l'officiel est une page unique) :
-// General, Models, Account, Dictation, Read aloud, Voice mode, Easy Link,
+// General, Models, Dictation, Read aloud, Voice mode, Easy Link,
 // VS Code, Keyboard shortcuts, portés par le
 // paramètre `section` de l'adresse (General sans paramètre). Même style que
 // les onglets du ModelHub : vrais liens (Tab puis Entrée), onglet courant
@@ -24,7 +24,6 @@ declare module "@tanstack/react-router" {
 export type SettingsTab =
   | "general"
   | "models"
-  | "account"
   | "dictation"
   | "readAloud"
   | "voiceMode"
@@ -35,7 +34,6 @@ export type SettingsTab =
 const TABS: { name: SettingsTab; label: TKey }[] = [
   { name: "general", label: "settings.tabs.general" },
   { name: "models", label: "settings.tabs.models" },
-  { name: "account", label: "settings.tabs.account" },
   { name: "dictation", label: "settings.tabs.dictation" },
   { name: "readAloud", label: "settings.tabs.readAloud" },
   { name: "voiceMode", label: "settings.tabs.voiceMode" },
@@ -52,7 +50,7 @@ export function SettingsTabs({ current }: { current: SettingsTab }) {
       className="flex-none px-6 pt-4 select-none"
     >
       <div className="mx-auto max-w-4xl">
-        {/* Neuf onglets, plus longs en espagnol et en français : à la ligne
+        {/* Huit onglets, plus longs en espagnol et en français : à la ligne
             plutôt que de déborder. */}
         <div
           data-testid="settings-tabs"

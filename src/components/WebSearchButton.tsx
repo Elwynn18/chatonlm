@@ -11,11 +11,30 @@
  * translated into English, Spanish and French (src/i18n); for a model that
  * can't use tools the button is kept, greyed out and inert, and says why
  * (the official app hides it: the button vanished without a word when
- * another model was selected).
+ * another model was selected); the search goes through ChatonLM's relay,
+ * whose daily quota and state are read while the button is on and said in
+ * its tooltip.
  */
 
 import { GlobeAltIcon } from "@heroicons/react/24/outline";
+import { useQuery } from "@tanstack/react-query";
 import { useT } from "@/i18n";
+import { webSearchStatus } from "@/lib/ipc";
+import { statusTitle, webSearchStatusKey } from "@/lib/webSearch";
+
+/**
+ * État de la recherche web (relais), lu tant que le bouton est allumé ;
+ * relu au plus une fois par minute.
+ */
+function useWebSearchStatus(enabled: boolean) {
+  return useQuery({
+    queryKey: webSearchStatusKey,
+    queryFn: webSearchStatus,
+    enabled,
+    staleTime: 60_000,
+    retry: false,
+  });
+}
 
 export function WebSearchButton({
   isVisible,
@@ -30,6 +49,9 @@ export function WebSearchButton({
   onToggle: () => void;
 }) {
   const t = useT();
+  const status = useWebSearchStatus(
+    Boolean(isVisible) && !isUnavailable && isActive,
+  );
   if (!isVisible) return null;
 
   if (isUnavailable) {
@@ -54,7 +76,9 @@ export function WebSearchButton({
       type="button"
       aria-label={t("chat.webSearch.label")}
       aria-pressed={isActive}
-      title={t(isActive ? "chat.webSearch.disable" : "chat.webSearch.enable")}
+      title={
+        isActive ? statusTitle(t, status.data) : t("chat.webSearch.enable")
+      }
       onClick={onToggle}
       className={`flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-transparent whitespace-nowrap transition-all select-none focus:outline-2 focus:outline-offset-2 focus:outline-accent-fg ${
         isActive

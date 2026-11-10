@@ -144,6 +144,7 @@ fn context(store: &Store, data_dir: &Path, hf_url: &str) -> Context {
         data_dir: data_dir.to_owned(),
         hf_url: hf_url.to_owned(),
         cancel: Arc::new(AtomicBool::new(false)),
+        downloads_active: Arc::new(|| false),
     }
 }
 
@@ -1071,6 +1072,37 @@ async fn a_missing_builtin_folder_stays_pending() {
             .unwrap(),
         Some(dir.to_string_lossy().into_owned())
     );
+}
+
+/// Relecture de l'intégration, M1 : un téléchargement du ModelHub en cours
+/// pendant la reprise de l'intégré déplacé : son dossier n'est pas adopté
+/// (le téléchargement finit dans le dossier actuel) ; sans téléchargement,
+/// il l'est.
+#[tokio::test]
+async fn a_moved_builtin_folder_is_not_adopted_during_a_download() {
+    for downloading in [true, false] {
+        let data = tempfile::tempdir().unwrap();
+        let store = database_0_9_5(data.path());
+        let dir = data.path().join("big").join("ollama");
+        let _fixture = fixture(dir.clone());
+        set_builtin_folder(&store, &dir).await;
+        let report = run(
+            builtin_job(&dir, None),
+            Context {
+                downloads_active: Arc::new(move || downloading),
+                ..context(&store, data.path(), "http://127.0.0.1:9")
+            },
+            |_| {},
+        )
+        .await;
+        assert_eq!(report.error, None);
+        let adopted = store
+            .call(|c| crate::store::local_models::models_dir(c))
+            .await
+            .unwrap();
+        let expected = (!downloading).then(|| dir.to_string_lossy().into_owned());
+        assert_eq!(adopted, expected, "downloading: {downloading}");
+    }
 }
 
 /// Relecture L6, I1 : une reprise de l'intégré limitée à un nom ne le

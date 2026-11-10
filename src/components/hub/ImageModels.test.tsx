@@ -116,7 +116,7 @@ describe("Images tab", () => {
     ).toBe("page");
     expect(
       screen.getByText(
-        "Image models create pictures from your descriptions in a chat. They run inside ChatonLM, not in Ollama.",
+        "Image models create pictures from your descriptions in a chat. They run inside ChatonLM.",
       ),
     ).toBeTruthy();
     // Comment ça marche : trois étapes, dans l'ordre.

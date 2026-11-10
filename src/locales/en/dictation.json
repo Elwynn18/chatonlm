@@ -6,8 +6,6 @@
   "card": {
     "title": "Dictation",
     "description": "Press a shortcut anywhere to dictate. Your speech is transcribed on this computer, cleaned up by a local model, and copied to the clipboard.",
-    "remoteDescription": "Press a shortcut anywhere to dictate. Your speech is transcribed on this computer, cleaned up, and copied to the clipboard.",
-    "remoteNote": "The transcript is sent to your Ollama server at {server} for clean-up.",
     "loadFailed": "Couldn't load the dictation settings.",
     "downloadModel": "Download a speech model",
     "enable": "Enable dictation"
@@ -76,11 +74,11 @@
     "title": "Polish",
     "model": {
       "label": "Polish model",
-      "description": "An Ollama model cleans up the transcript: punctuation, filler words, self-corrections.",
+      "description": "A model on this computer cleans up the transcript: punctuation, filler words, self-corrections.",
       "off": "Off",
-      "cloud": "{name} (cloud models are not used)",
+      "remote": "{name} (remote models are not used)",
       "recommended": "Recommended models",
-      "unreachable": "Ollama is unreachable. Its models will be listed once it answers.",
+      "unreachable": "The installed models couldn't be read. They will be listed as soon as they are.",
       "loading": "Loading models…"
     },
     "instructions": {

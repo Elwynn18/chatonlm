@@ -1,9 +1,9 @@
 {
-  "description": "Image button: the text goes as it is to the image model (1024 x 1024 with a graphics card), with no request to Ollama: an answer made of one generate_image call, the image's progress, the image, the call's result, then done.",
+  "description": "Image button: the text goes as it is to the image model (1024 x 1024 with a graphics card), with no request to the text engine: an answer made of one generate_image call, the image's progress, the image, the call's result, then done.",
   "request": {
     "streamId": "stream-1",
     "content": "A red fox in the snow, watercolor",
-    "model": "qwen3:0.6b",
+    "model": "Qwen/Qwen3-0.6B-GGUF:Q8_0",
     "image": true
   },
   "events": [

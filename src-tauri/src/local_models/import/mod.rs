@@ -326,6 +326,7 @@ impl OllamaParams {
 }
 
 /// Même volume Windows (lettre ou partage), logique pure essayée sous Linux.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn same_volume(a: &str, b: &str) -> bool {
     use crate::ollama::models_dir::rules::volume;
     volume(a).is_some() && volume(a) == volume(b)
@@ -592,6 +593,10 @@ pub struct Context {
     /// Adresse de Hugging Face (fiches des modèles `hf.co/…`).
     pub hf_url: String,
     pub cancel: Arc<AtomicBool>,
+    /// Un téléchargement du ModelHub est en file ou en cours : le dossier
+    /// déplacé de l'intégré n'est alors pas adopté (le téléchargement écrit
+    /// dans le dossier lu à son départ).
+    pub downloads_active: Arc<dyn Fn() -> bool + Send + Sync>,
 }
 
 /// Fichier d'un modèle repris : chemin relatif dans le dossier des modèles.
@@ -962,19 +967,26 @@ pub async fn run(
         data_dir,
         hf_url,
         cancel,
+        downloads_active,
     } = context;
     let save_error = |error: AppError| t!("modelImport.saveFailed", error = error);
     let builtin = job.origin == ImportOrigin::Builtin;
     // Intégré partagé avec la machine : noté pour toujours. Sinon, son
-    // dossier déplacé devient celui des modèles (base locale vide).
+    // dossier déplacé devient celui des modèles (base locale vide), sauf si
+    // un téléchargement du ModelHub est en file ou en cours : il écrit dans
+    // le dossier lu à son départ (relecture de l'intégration, M1). Pas de
+    // verrou du dossier ici (un téléchargement lancé dans l'instant qui
+    // sépare la lecture de la file de l'écriture du réglage reste possible :
+    // fenêtre de quelques microsecondes, contre plusieurs secondes avant).
     if builtin {
+        let adopt = !downloads_active();
         let (dir, shared) = (dir_text.clone(), job.shared);
         let prepared = store
             .call(move |connection| {
                 if shared {
                     records::set_builtin_shared(connection)?;
                 }
-                if !records::builtin_shared(connection)? {
+                if adopt && !records::builtin_shared(connection)? {
                     records::adopt_builtin_folder(connection, &dir)?;
                 }
                 Ok(())

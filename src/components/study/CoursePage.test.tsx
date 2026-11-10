@@ -217,48 +217,15 @@ describe("Course plan", () => {
 });
 
 describe("Failed course", () => {
-  it("signed out: Sign In opens the sign-in page, or the course goes on without web search", async () => {
+  it("web search failed: Retry with it, or the course goes on without it", async () => {
     const user = userEvent.setup();
     const { simulator } = setup({
       status: "failed",
       web: true,
-      error: { code: "webSearch", message: "Sign in to use web search." },
+      error: { code: "webSearch", message: "Web search is unavailable." },
     });
     const alert = await screen.findByTestId("study-error");
-    expect(alert.textContent).toContain("Sign in to use web search.");
-    await user.click(within(alert).getByRole("button", { name: "Sign In" }));
-    expect(simulator.callsTo("account_sign_in")).toHaveLength(1);
-    await user.click(
-      within(alert).getByRole("button", {
-        name: "Continue without web search",
-      }),
-    );
-    expect(simulator.callsTo("study_retry")).toEqual([
-      { courseId: "c1", withoutWeb: true },
-    ]);
-    await screen.findByTestId("study-plan");
-  });
-
-  it("signed out, then signed in: Retry, with web search", async () => {
-    const user = userEvent.setup();
-    const { simulator } = setup(
-      {
-        status: "failed",
-        web: true,
-        error: { code: "webSearch", message: "Sign in to use web search." },
-      },
-      (b) => {
-        b.account = {
-          state: "signedIn",
-          name: "ada",
-          email: "ada@example.com",
-          plan: "free",
-          avatar: null,
-        };
-      },
-    );
-    const alert = await screen.findByTestId("study-error");
-    await within(alert).findByText("Signed in.");
+    expect(alert.textContent).toContain("Web search is unavailable.");
     expect(
       within(alert)
         .getAllByRole("button")
@@ -268,6 +235,25 @@ describe("Failed course", () => {
     expect(simulator.callsTo("study_retry")).toEqual([
       { courseId: "c1", withoutWeb: false },
     ]);
+  });
+
+  it("web search failed: Continue without web search goes on without it", async () => {
+    const user = userEvent.setup();
+    const { simulator } = setup({
+      status: "failed",
+      web: true,
+      error: { code: "webSearch", message: "Web search is unavailable." },
+    });
+    const alert = await screen.findByTestId("study-error");
+    await user.click(
+      within(alert).getByRole("button", {
+        name: "Continue without web search",
+      }),
+    );
+    expect(simulator.callsTo("study_retry")).toEqual([
+      { courseId: "c1", withoutWeb: true },
+    ]);
+    await screen.findByTestId("study-plan");
   });
 
   it("no model: the model picker, ModelHub and Retry", async () => {
@@ -323,7 +309,7 @@ describe("Failed course", () => {
 describe("Course page in other languages", () => {
   it("has no hard-coded text: planning, unclear, plan, failure", async () => {
     const user = userEvent.setup();
-    const { study, backend, app } = setup(
+    const { study } = setup(
       {
         status: "planning",
         web: true,
@@ -390,21 +376,11 @@ describe("Course page in other languages", () => {
     expect(untranslatedTexts(document.body, allow)).toEqual([]);
     await study.failPlan("c1", { code: "modelNotFound", message: "Boom" });
     expect(untranslatedTexts(document.body, allow)).toEqual([]);
-    // Recherche web sans compte, puis compte relié.
+    // Recherche web impossible : relance avec ou sans elle.
     await study.failPlan("c1", { code: "webSearch", message: "Boom" });
-    await screen.findByRole("button", { name: "⟦Sign In⟧" });
-    expect(untranslatedTexts(document.body, allow)).toEqual([]);
-    backend.account = {
-      state: "signedIn",
-      name: "ada",
-      email: "ada@example.com",
-      plan: "free",
-      avatar: null,
-    };
-    await act(() =>
-      app.queryClient.invalidateQueries({ queryKey: ["account"] }),
-    );
-    await screen.findByRole("button", { name: "⟦Retry⟧" });
+    await screen.findByRole("button", {
+      name: "⟦Continue without web search⟧",
+    });
     expect(untranslatedTexts(document.body, allow)).toEqual([]);
     await user.keyboard("{Tab}");
   });

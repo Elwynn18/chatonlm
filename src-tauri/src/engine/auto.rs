@@ -33,6 +33,19 @@ pub fn model_of(
     (!chat.is_empty()).then(|| chat.to_owned())
 }
 
+/// [`model_of`] sur le moteur et la base de l'app : `own` s'il est choisi,
+/// sinon le meilleur modèle prêt, sinon `chat` (pages Proofread et Study).
+/// Base illisible : aucun modèle installé n'est vu (rien de prêt ne sert).
+pub async fn model_for(access: &crate::llm::Access, own: &str, chat: &str) -> Option<String> {
+    if !own.trim().is_empty() {
+        return Some(own.trim().to_owned());
+    }
+    let installed = crate::local_models::list(access.store(), access.data_dir())
+        .await
+        .unwrap_or_default();
+    model_of(&access.engine().running(), &installed, own, chat)
+}
+
 /// Meilleur modèle prêt qui sert ici ; `None` : aucun.
 pub fn best_loaded(
     running: &[RunningModel],
@@ -256,5 +269,28 @@ mod tests {
             model_of(&loaded[..1], &installed, "", chat).as_deref(),
             Some(chat)
         );
+    }
+
+    /// Sur le moteur de l'app : le modèle prêt, sinon celui du chat.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn auto_reads_the_engine_and_the_database() {
+        let small = "test/Small-GGUF:Q4_K_M";
+        let chat = "test/Chat-GGUF:Q4_K_M";
+        let bench = crate::llm::testing::FakeBench::new(&[(small, "simple"), (chat, "simple")]);
+        let access = &bench.access;
+        assert_eq!(
+            model_for(access, " own ", chat).await.as_deref(),
+            Some("own")
+        );
+        assert_eq!(model_for(access, "", chat).await.as_deref(), Some(chat));
+        assert_eq!(model_for(access, "", "").await, None);
+        let lease = bench
+            .engine()
+            .ensure(small, crate::engine::LoadOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(model_for(access, "", chat).await.as_deref(), Some(small));
+        drop(lease);
+        bench.shutdown().await;
     }
 }

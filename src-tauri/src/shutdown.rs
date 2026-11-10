@@ -35,8 +35,7 @@ pub(crate) trait Steps {
     /// Réponses, cours, corrections, téléchargements, dictée, lecture et
     /// images arrêtés.
     async fn stop_work(&self);
-    /// Modèles déchargés (réglage « Unload models when quitting »), puis
-    /// l'Ollama intégré arrêté.
+    /// Modèles du moteur arrêtés (tous les `llama-server`, attente bornée).
     async fn release_models(&self);
     /// Processus web de WebKit arrêtés.
     fn end_web(&self);

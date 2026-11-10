@@ -115,7 +115,7 @@ describe("ConfirmDialog", () => {
     render(
       <ConfirmDialog
         title="Delete qwen3:0.6b?"
-        message="This removes the model from Ollama. You can download it again later."
+        message="This removes the model from this computer. You can download it again later."
         confirmLabel="Delete"
         onConfirm={onConfirm}
         onCancel={() => {}}

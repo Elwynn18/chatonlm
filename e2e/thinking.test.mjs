@@ -1,27 +1,27 @@
 // Raisonnement dans l'app réelle (build e2e : frontend embarqué, CSP de
-// production), avec le faux serveur et de vraies touches du clavier
-// (e2e/lib/keyboard.mjs, client libei de KWin : Tab, Entrée, Espace, Échap et
-// flèches ont leur effet natif, ce que les touches simulées de WebDriver n'ont
-// pas) :
-// - bouton Think selon /api/show : bascule de qwen3:0.6b ([false, true],
-//   défaut true) et de chatonlm-nometa (capacité sans objet thinking), menu de
-//   niveaux de chatonlm-levels (Low/Medium/High, défaut Medium) et de
-//   chatonlm-levels-off (Off en plus, défaut Low, pilule grise sur Off), aucun
-//   bouton pour chatonlm-always (raisonne toujours), chatonlm-never et
-//   chatonlm-plain ; chatonlm-stubborn (comme LFM2.5) raisonne malgré Think
+// production), avec le faux moteur (fake-llama lancé par l'app, scénarios de
+// scenarios/l8.rs) et de vraies touches du clavier (e2e/lib/keyboard.mjs,
+// client libei de KWin : Tab, Entrée, Espace, Échap et flèches ont leur effet
+// natif, ce que les touches simulées de WebDriver n'ont pas) :
+// - bouton Think selon les capacités du GGUF (gabarit qui sait réfléchir) :
+//   bascule d'un modèle Qwen3 (défaut activé), menu de niveaux d'un modèle
+//   gpt-oss (Low/Medium/High, défaut Medium), aucun bouton pour un modèle
+//   sans réflexion ; un modèle têtu (comme LFM2.5) raisonne malgré Think
 //   coupé : raisonnement affiché, puis plus de bouton ; infobulles ;
-// - valeur envoyée, relue dans GET /fake/requests et citée par la réponse
-//   (« Received think=… ») : true ou false explicites, niveau, ou champ absent
-//   (bouton absent) ; chatonlm-plain : une seule requête, sans think ;
+// - valeur envoyée, relue dans les requêtes du faux et citée par la réponse
+//   (« Received think=… », chatonlm-echothink) : true ou false explicites
+//   (`chat_template_kwargs.enable_thinking`), niveau (`reasoning_effort`), ou
+//   rien (bouton absent) ; modèle sans réflexion : une seule requête, sans
+//   réglage ;
 // - préférence mémorisée par modèle : relue en changeant de modèle et en
 //   revenant (sélecteur, ou conversation rouverte), après un rechargement de
 //   la page et après une relance de l'app ;
 // - bloc de raisonnement : « Thinking... » et aperçu replié pendant le
-//   raisonnement (chatonlm-slowthink), « Thought for N.N seconds » et repli à
+//   raisonnement (chatonlm-dawdle), « Thought for N.N seconds » et repli à
 //   l'arrivée du contenu, durée relue en base ; déplier et replier au clic, à
 //   Entrée et à Espace ; arrêt pendant le raisonnement : titre jamais figé sur
 //   « Thinking... », ni tout de suite, ni après relecture ; long raisonnement
-//   (chatonlm-longthink) : l'aperçu de 12rem montre la fin, début coupé sous
+//   (chatonlm-ponder) : l'aperçu de 12rem montre la fin, début coupé sous
 //   un dégradé de la couleur du fond, en clair et en sombre (captures
 //   thinking-light.png et thinking-dark.png) ;
 // - clavier : Tab mène de la zone de saisie au bouton « + », au bouton
@@ -30,15 +30,44 @@
 //   menu le ferme ; Échap dans le menu le ferme sans arrêter la réponse en
 //   cours (Échap suivante l'arrête) ; capture think-levels-menu.png ;
 // - aucune violation de la CSP ni erreur ou avertissement dans la console.
+// Retirés avec Ollama (sans équivalent dans le moteur intégré) : niveaux avec
+// « Off » (levels-off), capacité sans objet `thinking` (nometa), réflexion
+// déclarée impossible (never) ; « raisonne toujours » (always) n'est plus
+// annoncé par le serveur : il est appris du modèle têtu.
 import assert from "node:assert/strict";
 import { withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
-import { PENDING_CALLS } from "./lib/page.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
+import { PENDING_CALLS, shownModel } from "./lib/page.mjs";
 import { pressKeys } from "./lib/keyboard.mjs";
 
 const binary = process.argv[2];
-const fake = await startFake("ollama");
-const env = { OLLAMA_HOST: fake.url };
+/** Bascule (Qwen3 : outils et réflexion). */
+const TOGGLE = fakeModel("echothink");
+/** Autre modèle à bascule, pour changer de modèle et revenir. */
+const SECOND = fakeModel("echothink", "Q8_0");
+/** Niveaux (architecture gpt-oss), sans outils. */
+const LEVELS = "chatonlm-e2e/chatonlm-echothink-oss-GGUF:MXFP4";
+/** Raisonne malgré Think coupé. */
+const STUBBORN = fakeModel("stubborn");
+/** Sans réflexion. */
+const PLAIN = "chatonlm-e2e/chatonlm-echothink-plain-GGUF:Q4_K_M";
+/** Ne répond jamais (premier bloc, puis rien). */
+const WAIT = fakeModel("hang");
+/** Raisonnement lent (environ 9 s), sans bouton Think. */
+const DAWDLE = fakeModel("dawdle");
+/** Long raisonnement, sans bouton Think. */
+const PONDER = fakeModel("ponder");
+const engine = startEngine([
+  { id: TOGGLE, think: true, tools: true },
+  { id: SECOND, think: true },
+  { id: LEVELS, think: true, arch: "gpt-oss" },
+  { id: STUBBORN, think: true },
+  { id: PLAIN, think: false },
+  WAIT,
+  DAWDLE,
+  PONDER,
+]);
+const env = engine.env;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -57,10 +86,19 @@ async function waitUntil(check, what, timeoutMs = 10000) {
   }
 }
 
-/** Corps des /api/chat reçus par le faux serveur, d'un modèle. */
-async function requestsOf(model) {
-  const response = await fetch(new URL("/fake/requests", fake.url));
-  return (await response.json()).filter((request) => request.model === model);
+/** Corps des demandes de chat reçues par l'instance d'un modèle. */
+const requestsOf = (model) => engine.chatRequests(model);
+
+/**
+ * Réglage de réflexion d'une requête (comme le cite chatonlm-echothink) :
+ * niveau (`reasoning_effort`, `none` = false), sinon
+ * `chat_template_kwargs.enable_thinking`, sinon undefined (rien d'envoyé).
+ */
+function thinkOf(request) {
+  const effort = request.reasoning_effort;
+  if (typeof effort === "string") return effort === "none" ? false : effort;
+  const enabled = request.chat_template_kwargs?.enable_thinking;
+  return typeof enabled === "boolean" ? enabled : undefined;
 }
 
 const exists = (driver, css) =>
@@ -132,11 +170,6 @@ async function reload(driver) {
   );
   await driver.execute(WATCH_PAGE);
 }
-
-const shownModel = (driver) =>
-  driver.execute(
-    "return document.querySelector('[title=\"Select model\"]')?.textContent ?? null",
-  );
 
 /**
  * Choisit un modèle (absent de la liste), puis recharge la page. La page doit
@@ -581,7 +614,7 @@ try {
       await driver.waitFor("[data-testid=new-chat]");
       // Modèle de secours écrit par la page (session neuve) avant tout choix.
       await waitUntil(
-        async () => (await shownModel(driver)) === "qwen3:0.6b",
+        async () => (await shownModel(driver)) === TOGGLE,
         "modèle par défaut",
       );
 
@@ -601,7 +634,7 @@ try {
       );
       await driver.execute("window.__csp = []");
 
-      // qwen3:0.6b : bascule réelle ([false, true], défaut true), envoyée
+      // Bascule (Qwen3) : bascule réelle ([false, true], défaut true), envoyée
       // explicitement. Ordre de Tab : zone de saisie, Think, sélecteur, Send,
       // puis hors de la zone.
       let state = await waitThink(driver, "toggle");
@@ -612,13 +645,13 @@ try {
         grey: false,
       });
       await typeMessage(driver, "Say hello in one word.");
-      // qwen3:0.6b a la capacité « tools » : globe après Think.
+      // Le modèle à bascule a la capacité « tools » : globe après Think.
       await checkTabOrder(driver, "Think", { webSearch: true });
       await submit(driver);
       await driver.waitFor("[data-testid=chat]");
-      await waitReply(driver, '"Hello"');
+      await waitReply(driver, "Received think=true.");
       chats.qwen = await currentChatId(driver);
-      assert.equal((await requestsOf("qwen3:0.6b")).at(-1).think, true);
+      assert.equal(thinkOf((await requestsOf(TOGGLE)).at(-1)), true);
       // Raisonnement enregistré, rejoué sans délai : moins de 2 s.
       let thinking = await waitThinking(driver, FOLDED, "raisonnement replié");
       assert.equal(thinking.title, "Thought for a moment");
@@ -637,27 +670,27 @@ try {
         "Espace a déplacé le focus",
       );
       assert.equal(
-        await driver.invoke("get_think_pref", { model: "qwen3:0.6b" }),
+        await driver.invoke("get_think_pref", { model: TOGGLE }),
         false,
       );
       await send(driver, "Without thinking.");
       await waitUntil(
-        async () => (await requestsOf("qwen3:0.6b")).length === 2,
+        async () => (await requestsOf(TOGGLE)).length === 2,
         "seconde requête de qwen3:0.6b",
       );
       await driver.waitFor("button[aria-label='Send message']");
-      assert.equal((await requestsOf("qwen3:0.6b")).at(-1).think, false);
+      assert.equal(thinkOf((await requestsOf(TOGGLE)).at(-1)), false);
       assert.equal(await lastThinking(driver), null, "raisonnement sans think");
 
       // Changer de modèle et revenir (sélecteur) : préférence de chacun.
-      await pickModel(driver, "qwen3.5:0.8b");
+      await pickModel(driver, SECOND);
       await waitThink(driver, "toggle", (s) => s.pressed === "true");
-      await pickModel(driver, "qwen3:0.6b");
+      await pickModel(driver, TOGGLE);
       await waitThink(driver, "toggle", (s) => s.pressed === "false");
 
-      // chatonlm-levels : niveaux seulement, défaut Medium.
+      // Niveaux (gpt-oss) : défaut Medium.
       await newChat(driver);
-      await useModel(driver, "chatonlm-levels");
+      await useModel(driver, LEVELS);
       state = await waitThink(driver, "levels");
       assert.deepEqual(state, {
         kind: "levels",
@@ -671,17 +704,14 @@ try {
       await driver.waitFor("[data-testid=chat]");
       await waitReply(driver, 'Received think="medium".');
       chats.levels = await currentChatId(driver);
-      assert.equal(
-        (await requestsOf("chatonlm-levels")).at(-1).think,
-        "medium",
-      );
+      assert.equal(thinkOf((await requestsOf(LEVELS)).at(-1)), "medium");
       thinking = await waitThinking(
         driver,
         FOLDED,
         "raisonnement de chatonlm-levels",
       );
       assert.equal(thinking.title, "Thought for a moment");
-      // Menu : niveaux dans l'ordre d'Ollama, niveau courant coché et
+      // Menu : niveaux dans l'ordre de gpt-oss, niveau courant coché et
       // focalisé ; flèche bas puis Entrée (vraies touches) : High.
       let menu = await openLevelMenu(driver);
       assert.deepEqual(menu, {
@@ -706,12 +736,12 @@ try {
         "focus non rendu au bouton",
       );
       assert.equal(
-        await driver.invoke("get_think_pref", { model: "chatonlm-levels" }),
+        await driver.invoke("get_think_pref", { model: LEVELS }),
         "high",
       );
       await send(driver, "And now?");
       await waitReply(driver, 'Received think="high".');
-      assert.equal((await requestsOf("chatonlm-levels")).at(-1).think, "high");
+      assert.equal(thinkOf((await requestsOf(LEVELS)).at(-1)), "high");
       // Ordre de Tab avec la pilule des niveaux.
       await typeMessage(driver, "Tab order.");
       // Modèle sans la capacité « tools » : le globe reste, grisé, et garde
@@ -719,77 +749,18 @@ try {
       await checkTabOrder(driver, "Thinking level: High", { webSearch: true });
       await driver.clear(await driver.find("textarea[aria-label='Message']"));
 
-      // chatonlm-levels-off : Off en plus, défaut Low ; Off choisi au clic :
-      // pilule grise, think false, pas de raisonnement.
-      await newChat(driver);
-      await useModel(driver, "chatonlm-levels-off");
-      state = await waitThink(driver, "levels");
-      assert.equal(state.label, "Thinking level: Low");
-      assert.equal(state.grey, false);
-      menu = await openLevelMenu(driver);
-      assert.deepEqual(menu, {
-        items: ["Off", "Low", "Medium", "High"],
-        checked: ["Low"],
-        focused: 1,
-      });
-      await driver.execute(
-        `[...document.querySelectorAll("[role=menuitemradio]")]
-           .find((item) => item.textContent === "Off").click()`,
-      );
-      state = await waitThink(
-        driver,
-        "levels",
-        (s) => s.label === "Thinking level: Off",
-      );
-      assert.equal(state.grey, true, "pilule Off non grise");
-      assert.equal(state.title, "Thinking level: Off");
-      await send(driver, "Off?");
-      await driver.waitFor("[data-testid=chat]");
-      await waitReply(driver, "Received think=false.");
-      chats.levelsOff = await currentChatId(driver);
-      assert.equal(
-        (await requestsOf("chatonlm-levels-off")).at(-1).think,
-        false,
-      );
-      assert.equal(await lastThinking(driver), null);
-
-      // chatonlm-always ([true]) : raisonne toujours, aucun bouton (choix de la
-      // recette de l'étape 15) ; think absent ; raisonnement affiché.
-      await newChat(driver);
-      await useModel(driver, "chatonlm-always");
-      await delay(1500);
-      assert.deepEqual(await thinkState(driver), { kind: "none" });
-      assert.equal(
-        await driver.invoke("get_think_pref", { model: "chatonlm-always" }),
-        null,
-      );
-      await typeMessage(driver, "Always?");
-      await submit(driver);
-      await driver.waitFor("[data-testid=chat]");
-      await waitReply(driver, "Received think=absent.");
-      assert.equal(
-        "think" in (await requestsOf("chatonlm-always")).at(-1),
-        false,
-      );
-      thinking = await waitThinking(
-        driver,
-        FOLDED,
-        "raisonnement de chatonlm-always",
-      );
-      assert.equal(thinking.title, "Thought for a moment");
-
       // chatonlm-stubborn (LFM2.5 tiré de Hugging Face) : bascule tant qu'on
       // ne sait rien ; Think coupé, il raisonne quand même : raisonnement
       // affiché, puis plus de bouton pour ce modèle (relu après une relance).
       await newChat(driver);
-      await useModel(driver, "chatonlm-stubborn");
+      await useModel(driver, STUBBORN);
       await waitThink(driver, "toggle", (s) => s.pressed === "true");
       await driver.click(await driver.find("button[aria-label='Think']"));
       await waitThink(driver, "toggle", (s) => s.pressed === "false");
       await send(driver, "Off?");
       await driver.waitFor("[data-testid=chat]");
       await waitReply(driver, "Received think=false.");
-      assert.equal((await requestsOf("chatonlm-stubborn")).at(-1).think, false);
+      assert.equal(thinkOf((await requestsOf(STUBBORN)).at(-1)), false);
       thinking = await waitThinking(
         driver,
         FOLDED,
@@ -800,17 +771,16 @@ try {
       await send(driver, "Again?");
       await waitReply(driver, "Received think=absent.");
       assert.equal(
-        "think" in (await requestsOf("chatonlm-stubborn")).at(-1),
+        thinkOf((await requestsOf(STUBBORN)).at(-1)) !== undefined,
         false,
       );
       await newChat(driver);
-      await useModel(driver, "chatonlm-stubborn");
+      await useModel(driver, STUBBORN);
       await delay(1500);
       assert.deepEqual(await thinkState(driver), { kind: "none" });
 
-      // chatonlm-never ([false]) et chatonlm-plain (sans capacité) : aucun
-      // bouton, think absent ; chatonlm-plain : une seule requête.
-      for (const model of ["chatonlm-never", "chatonlm-plain"]) {
+      // Sans réflexion : aucun bouton, rien d'envoyé, une seule requête.
+      for (const model of [PLAIN]) {
         await newChat(driver);
         await useModel(driver, model);
         await delay(1500);
@@ -820,50 +790,26 @@ try {
         await waitReply(driver, "Received think=absent.");
         const sent = await requestsOf(model);
         assert.equal(sent.length, 1, `${model} : ${JSON.stringify(sent)}`);
-        assert.equal("think" in sent[0], false, model);
+        assert.equal(thinkOf(sent[0]), undefined, model);
         assert.equal(await lastThinking(driver), null, model);
       }
 
-      // chatonlm-nometa : capacité sans objet thinking, bascule active.
-      await newChat(driver);
-      await useModel(driver, "chatonlm-nometa");
-      await waitThink(driver, "toggle", (s) => s.pressed === "true");
-      await send(driver, "On?");
-      await driver.waitFor("[data-testid=chat]");
-      await waitReply(driver, "Received think=true.");
-      assert.equal((await requestsOf("chatonlm-nometa")).at(-1).think, true);
-      assert.notEqual(await lastThinking(driver), null);
-      await driver.click(await driver.find("button[aria-label='Think']"));
-      await waitThink(driver, "toggle", (s) => s.pressed === "false");
-      await send(driver, "Off?");
-      await waitReply(driver, "Received think=false.");
-      assert.equal((await requestsOf("chatonlm-nometa")).at(-1).think, false);
-
       // Revenir aux conversations : leur modèle redevient le modèle choisi,
       // avec sa préférence (Off, High) ; puis rechargement : relue en base.
-      await openChat(driver, chats.levelsOff);
-      await waitThink(
-        driver,
-        "levels",
-        (s) => s.label === "Thinking level: Off",
-      );
       await openChat(driver, chats.levels);
       await waitThink(
         driver,
         "levels",
         (s) => s.label === "Thinking level: High",
       );
-      await openChat(driver, chats.levelsOff);
-      await waitThink(
-        driver,
-        "levels",
-        (s) => s.label === "Thinking level: Off",
-      );
+      await openChat(driver, chats.qwen);
+      await waitThink(driver, "toggle", (s) => s.pressed === "false");
+      await openChat(driver, chats.levels);
       await reload(driver);
       await waitThink(
         driver,
         "levels",
-        (s) => s.label === "Thinking level: Off",
+        (s) => s.label === "Thinking level: High",
       );
       await openChat(driver, chats.qwen);
       await waitThink(driver, "toggle", (s) => s.pressed === "false");
@@ -873,25 +819,25 @@ try {
       // message de réponse : rouvrir sa conversation garde le modèle choisi,
       // donc chatonlm-levels (rouvert juste avant).
       await newChat(driver);
-      await useModel(driver, "chatonlm-wait");
+      await useModel(driver, WAIT);
       await send(driver, "Wait.");
       await driver.waitFor("[data-testid=chat]");
       await driver.waitFor("button[aria-label='Stop']");
       chats.wait = await currentChatId(driver);
       await openChat(driver, chats.levels);
       await waitUntil(
-        async () => (await shownModel(driver)) === "chatonlm-levels",
+        async () => (await shownModel(driver)) === LEVELS,
         "modèle de la conversation chatonlm-levels",
       );
       await openChat(driver, chats.wait);
       await driver.waitFor("button[aria-label='Stop']");
-      assert.equal(await shownModel(driver), "chatonlm-levels");
+      assert.equal(await shownModel(driver), LEVELS);
       await waitThink(
         driver,
         "levels",
         (s) => s.label === "Thinking level: High",
       );
-      const abandoned = await fake.disconnects();
+      const abandoned = await engine.disconnects(WAIT);
       menu = await openLevelMenu(driver);
       assert.equal(menu.focused, 2);
       await recordFocus(driver);
@@ -911,7 +857,7 @@ try {
         await exists(driver, "button[aria-label='Stop']"),
         "Échap dans le menu a arrêté la réponse",
       );
-      assert.equal(await fake.disconnects(), abandoned);
+      assert.equal(await engine.disconnects(WAIT), abandoned);
       // Tab depuis le menu : fermé, focus au contrôle suivant (le globe,
       // grisé pour ce modèle sans outils, garde le focus).
       await openLevelMenu(driver);
@@ -925,7 +871,7 @@ try {
       await pressKeys("escape");
       await driver.waitFor("button[aria-label='Send message']");
       await waitUntil(
-        async () => (await fake.disconnects()) === abandoned + 1,
+        async () => (await engine.disconnects(WAIT)) === abandoned + 1,
         "réponse arrêtée par Échap",
       );
 
@@ -933,7 +879,7 @@ try {
       // raisonnement ; /api/show sans capacité thinking : pas de bouton
       // Think).
       await newChat(driver);
-      await useModel(driver, "chatonlm-slowthink");
+      await useModel(driver, DAWDLE);
       await send(driver, "Think slowly.");
       await driver.waitFor("[data-testid=chat]");
       chats.slow = await currentChatId(driver);
@@ -954,7 +900,7 @@ try {
       assert.equal(thinking.opacity, "0");
       const seconds = Number(SECONDS.exec(thinking.title)?.[1]);
       assert.ok(seconds >= 5 && seconds <= 20, `titre ${thinking.title}`);
-      await waitReply(driver, '"Hello"');
+      await waitReply(driver, "Thought it through.");
       let saved = (await driver.invoke("get_chat", { id: chats.slow }))
         .messages;
       assert.equal(
@@ -1039,7 +985,7 @@ try {
       // Long raisonnement : l'aperçu de 12rem montre la fin, le début coupé
       // sous un dégradé de la couleur du fond (clair puis sombre).
       await newChat(driver);
-      await useModel(driver, "chatonlm-longthink");
+      await useModel(driver, PONDER);
       await setTheme(driver, "light");
       await send(driver, "Think a lot.");
       await driver.waitFor("[data-testid=chat]");
@@ -1087,7 +1033,7 @@ try {
 
       // Modèle choisi au prochain lancement.
       await driver.invoke("update_settings", {
-        patch: { selectedModel: "chatonlm-levels-off" },
+        patch: { selectedModel: LEVELS },
       });
       await collectViolations(driver);
     }),
@@ -1101,23 +1047,19 @@ try {
       await driver.waitFor("[data-testid=new-chat]");
       await driver.execute(WATCH_PAGE);
       await waitUntil(
-        async () => (await shownModel(driver)) === "chatonlm-levels-off",
+        async () => (await shownModel(driver)) === LEVELS,
         "modèle choisi relu",
       );
       await waitThink(
         driver,
         "levels",
-        (s) => s.label === "Thinking level: Off" && s.grey,
+        (s) => s.label === "Thinking level: High" && !s.grey,
       );
-      await pickModel(driver, "qwen3:0.6b");
+      await pickModel(driver, TOGGLE);
       await waitThink(driver, "toggle", (s) => s.pressed === "false");
       assert.equal(
-        await driver.invoke("get_think_pref", { model: "chatonlm-levels" }),
+        await driver.invoke("get_think_pref", { model: LEVELS }),
         "high",
-      );
-      assert.equal(
-        await driver.invoke("get_think_pref", { model: "chatonlm-nometa" }),
-        false,
       );
       await openChat(driver, chats.slow);
       await waitUntil(
@@ -1140,7 +1082,7 @@ try {
     }),
   );
 } finally {
-  await fake.stop();
+  // Rien à arrêter : les instances du faux moteur sont celles de l'app.
 }
 
 assert.deepEqual(violations, [], "violations de la CSP");

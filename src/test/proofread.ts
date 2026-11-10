@@ -32,7 +32,7 @@ import type { ProofreadEvent } from "@/bindings/ProofreadEvent";
 import type { ProofreadMode } from "@/bindings/ProofreadMode";
 import type { ProofreadPart } from "@/bindings/ProofreadPart";
 import type { SelectionResult } from "@/bindings/SelectionResult";
-import type { RunningModel } from "@/bindings/RunningModel";
+import type { EngineRunningModel } from "@/bindings/EngineRunningModel";
 import type { Settings } from "@/bindings/Settings";
 import type { ShortcutKeys } from "@/bindings/ShortcutKeys";
 import type { ShortcutsStatus } from "@/bindings/ShortcutsStatus";
@@ -205,7 +205,7 @@ export function fakeProofread(
   backend: {
     settings: Settings;
     models: string[];
-    running: RunningModel[];
+    running: EngineRunningModel[];
   },
 ): FakeProofread {
   const fake: FakeProofread = {

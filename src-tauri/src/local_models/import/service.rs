@@ -19,10 +19,9 @@ use crate::i18n::t;
 use crate::store::Store;
 use crate::store::model_import as records;
 
-/// Reprise automatique de l'Ollama intégré au lancement : coupée tant que
-/// le chat passe encore par Ollama (lot L5) ; à allumer avec le retrait de
-/// l'intégré (lot L10). La commande `model_import_start` marche déjà.
-pub const AUTO_AT_STARTUP: bool = false;
+/// Reprise automatique de l'Ollama intégré au lancement (allumée depuis que
+/// plus rien ne passe par Ollama, fin de l'étape 2 du passage à llama.cpp).
+pub const AUTO_AT_STARTUP: bool = true;
 
 /// Délai de la détection du dossier de l'Ollama de la machine.
 #[cfg_attr(test, allow(dead_code))]
@@ -99,11 +98,15 @@ impl ModelImport {
             *slot = Some(cancel.clone());
         }
         let this = self.clone();
+        let reader = store.clone();
         let context = Context {
             store,
             data_dir,
             hf_url: crate::hub::names::hf_url(),
             cancel,
+            downloads_active: Arc::new(move || {
+                crate::llm::access_for(&reader).downloads().any_active()
+            }),
         };
         Ok(tauri::async_runtime::spawn(async move {
             let guard = before.await;
@@ -144,7 +147,9 @@ pub async fn stop_builtin() -> Option<crate::ollama::builtin::Paused> {
 
 /// Dossiers de l'Ollama de la machine trouvés (voir [`super::sources`]),
 /// hors de `exclude`. Essais : jamais de détection réelle (aucun Ollama de la
-/// machine interrogé), dossiers donnés par [`TEST_MACHINE_DIRS`].
+/// machine interrogé), dossiers donnés par [`TEST_MACHINE_DIRS`] ; app lancée
+/// par les e2e ou la recette : dossiers de
+/// [`super::sources::MACHINE_DIRS_VAR`] s'il est posé.
 async fn machine_candidates(exclude: Vec<PathBuf>) -> Vec<PathBuf> {
     #[cfg(test)]
     {
@@ -153,6 +158,15 @@ async fn machine_candidates(exclude: Vec<PathBuf>) -> Vec<PathBuf> {
     }
     #[cfg(not(test))]
     {
+        let forced =
+            super::sources::forced_dirs(std::env::var_os(super::sources::MACHINE_DIRS_VAR));
+        if forced.is_some() {
+            return tauri::async_runtime::spawn_blocking(move || {
+                super::sources::chosen(forced, &exclude, Vec::new)
+            })
+            .await
+            .unwrap_or_default();
+        }
         let detected = tokio::time::timeout(
             DETECT_TIMEOUT,
             crate::ollama::models_dir::detect("http://127.0.0.1:11434"),

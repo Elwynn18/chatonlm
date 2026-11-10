@@ -3,7 +3,7 @@
   "request": {
     "streamId": "stream-1",
     "content": "Describe these files.",
-    "model": "qwen3.5:0.8b",
+    "model": "Qwen/Qwen3.5-0.8B-GGUF:Q4_K_M",
     "think": false,
     "attachmentIds": [
       "staged-1",
@@ -59,20 +59,96 @@
     },
     {
       "type": "content",
-      "text": "\""
+      "text": "I"
     },
     {
       "type": "content",
-      "text": "Hi"
+      "text": " see"
     },
     {
       "type": "content",
-      "text": "!\""
+      "text": " 1"
+    },
+    {
+      "type": "content",
+      "text": " image(s)."
+    },
+    {
+      "type": "content",
+      "text": " You"
+    },
+    {
+      "type": "content",
+      "text": " said:"
+    },
+    {
+      "type": "content",
+      "text": " Describe"
+    },
+    {
+      "type": "content",
+      "text": " these"
+    },
+    {
+      "type": "content",
+      "text": " files."
+    },
+    {
+      "type": "content",
+      "text": "\n---"
+    },
+    {
+      "type": "content",
+      "text": " File:"
+    },
+    {
+      "type": "content",
+      "text": " notes.txt"
+    },
+    {
+      "type": "content",
+      "text": " ---"
+    },
+    {
+      "type": "content",
+      "text": "\nLine"
+    },
+    {
+      "type": "content",
+      "text": " 1"
+    },
+    {
+      "type": "content",
+      "text": "\nLine"
+    },
+    {
+      "type": "content",
+      "text": " 2"
+    },
+    {
+      "type": "content",
+      "text": "\n---"
+    },
+    {
+      "type": "content",
+      "text": " End"
+    },
+    {
+      "type": "content",
+      "text": " of"
+    },
+    {
+      "type": "content",
+      "text": " notes.txt"
+    },
+    {
+      "type": "content",
+      "text": " ---"
     },
     {
       "type": "context",
-      "used": 26,
-      "size": 4096
+      "used": 109,
+      "size": 32768
     },
     {
       "type": "done",

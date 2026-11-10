@@ -2,7 +2,6 @@
 //! synchrone s'exécuterait sur le thread principal (boucle GTK) et figerait la
 //! fenêtre pendant un accès à la base ou au réseau.
 
-pub mod account;
 pub mod attachments;
 pub mod bridge;
 pub mod chats;
@@ -17,6 +16,7 @@ pub mod models_dir;
 pub mod models_import;
 pub mod platform;
 pub mod proofread;
+pub mod remote;
 pub mod report;
 pub mod server;
 pub mod settings;
@@ -25,6 +25,7 @@ pub mod system;
 pub mod tts;
 pub mod updates;
 pub mod voice_mode;
+pub mod web_search;
 
 /// Valeur de `OLLAMA_HOST` dans l'environnement de l'app.
 pub fn ollama_host_env() -> Option<String> {

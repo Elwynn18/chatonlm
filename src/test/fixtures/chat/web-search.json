@@ -1,9 +1,9 @@
 {
-  "description": "Web search with an Ollama account linked to the server: a first answer made of thinking and a web_search call, its result, then a second answer that quotes it.",
+  "description": "Web search by ChatonLM's relay: a first answer made of a web_search call, its result (titles and links only), then a second answer that quotes what the model received (the excerpts too).",
   "request": {
     "streamId": "stream-1",
-    "content": "What is the latest Ollama release?",
-    "model": "chatonlm-search",
+    "content": "What is new in llama.cpp?",
+    "model": "chat/Websearch-GGUF:Q4_K_M",
     "webSearch": true
   },
   "events": [
@@ -16,7 +16,7 @@
       "message": {
         "id": 1,
         "role": "user",
-        "content": "What is the latest Ollama release?",
+        "content": "What is new in llama.cpp?",
         "thinking": "",
         "model": null,
         "createdAt": 1700000000000,
@@ -34,17 +34,14 @@
       "type": "loaded"
     },
     {
+      "type": "context",
+      "used": 42,
+      "size": 32768
+    },
+    {
       "type": "replyStarted",
       "messageId": 2,
       "createdAt": 1700000000000
-    },
-    {
-      "type": "thinking",
-      "text": "The user wants a"
-    },
-    {
-      "type": "thinking",
-      "text": " web search."
     },
     {
       "type": "toolCalls",
@@ -52,7 +49,7 @@
       "toolCalls": [
         {
           "name": "web_search",
-          "arguments": "{\"query\":\"What is the latest Ollama release?\"}",
+          "arguments": "{\"query\":\"What is new in llama.cpp?\"}",
           "result": null,
           "error": null
         }
@@ -62,7 +59,7 @@
       "type": "toolResult",
       "messageId": 2,
       "index": 0,
-      "result": "{\"results\":[{\"title\":\"Result 1 for What is the latest Ollama release?\",\"url\":\"https://example.com/1?q=What+is+the+latest+Ollama+release%3F\",\"content\":\"Content 1 about What is the latest Ollama release?.\"},{\"title\":\"Result 2 for What is the latest Ollama release?\",\"url\":\"https://example.com/2?q=What+is+the+latest+Ollama+release%3F\",\"content\":\"Content 2 about What is the latest Ollama release?.\"}]}",
+      "result": "{\"results\":[{\"title\":\"Résultat 1 pour What is new in llama.cpp?\",\"url\":\"https://example.org/1\"},{\"title\":\"Résultat 2 pour What is new in llama.cpp?\",\"url\":\"https://example.org/2\"},{\"title\":\"Résultat 3 pour What is new in llama.cpp?\",\"url\":\"https://example.org/3\"},{\"title\":\"Résultat 4 pour What is new in llama.cpp?\",\"url\":\"https://example.org/4\"},{\"title\":\"Résultat 5 pour What is new in llama.cpp?\",\"url\":\"https://example.org/5\"}],\"provider\":\"brave\"}",
       "error": null
     },
     {
@@ -72,107 +69,12 @@
     },
     {
       "type": "content",
-      "text": "Found: {\"results"
+      "text": "Found: {\"results\":[{\"title\":\"Résultat 1 pour What is new in llama.cpp?\",\"url\":\"https://example.org/1\",\"content\":\"Extrait 1 & What is new in llama.cpp?\"},{\"title\":\"Résultat 2 pour What is new in llama.cpp?\",\"url\":\"https://example.org/2\",\"content\":\"Extrait 2 & What is new in llama.cpp?\"},{\"title\":\"Résultat 3 pour What is new in llama.cpp?\",\"url\":\"https://example.org/3\",\"content\":\"Extrait 3 & What is new in llama.cpp?\"},{\"title\":\"Résultat 4 pour What is new in llama.cpp?\",\"url\":\"https://example.org/4\",\"content\":\"Extrait 4 & What is new in llama.cpp?\"},{\"title\":\"Résultat 5 pour What is new in llama.cpp?\",\"url\":\"https://example.org/5\",\"content\":\"Extrait 5 & What is new in llama.cpp?\"}]}"
     },
     {
-      "type": "content",
-      "text": "\":[{\"title\":\"Res"
-    },
-    {
-      "type": "content",
-      "text": "ult 1 for What i"
-    },
-    {
-      "type": "content",
-      "text": "s the latest Oll"
-    },
-    {
-      "type": "content",
-      "text": "ama release?\",\"u"
-    },
-    {
-      "type": "content",
-      "text": "rl\":\"https://exa"
-    },
-    {
-      "type": "content",
-      "text": "mple.com/1?q=Wha"
-    },
-    {
-      "type": "content",
-      "text": "t+is+the+latest+"
-    },
-    {
-      "type": "content",
-      "text": "Ollama+release%3"
-    },
-    {
-      "type": "content",
-      "text": "F\",\"content\":\"Co"
-    },
-    {
-      "type": "content",
-      "text": "ntent 1 about Wh"
-    },
-    {
-      "type": "content",
-      "text": "at is the latest"
-    },
-    {
-      "type": "content",
-      "text": " Ollama release?"
-    },
-    {
-      "type": "content",
-      "text": ".\"},{\"title\":\"Re"
-    },
-    {
-      "type": "content",
-      "text": "sult 2 for What "
-    },
-    {
-      "type": "content",
-      "text": "is the latest Ol"
-    },
-    {
-      "type": "content",
-      "text": "lama release?\",\""
-    },
-    {
-      "type": "content",
-      "text": "url\":\"https://ex"
-    },
-    {
-      "type": "content",
-      "text": "ample.com/2?q=Wh"
-    },
-    {
-      "type": "content",
-      "text": "at+is+the+latest"
-    },
-    {
-      "type": "content",
-      "text": "+Ollama+release%"
-    },
-    {
-      "type": "content",
-      "text": "3F\",\"content\":\"C"
-    },
-    {
-      "type": "content",
-      "text": "ontent 2 about W"
-    },
-    {
-      "type": "content",
-      "text": "hat is the lates"
-    },
-    {
-      "type": "content",
-      "text": "t Ollama release"
-    },
-    {
-      "type": "content",
-      "text": "?.\"}]}"
+      "type": "context",
+      "used": 126,
+      "size": 32768
     },
     {
       "type": "done",

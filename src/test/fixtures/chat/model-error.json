@@ -1,9 +1,9 @@
 {
-  "description": "The model fails in the middle of its answer (error line in the stream).",
+  "description": "The model fails in the middle of its answer (error block in the stream).",
   "request": {
     "streamId": "stream-1",
     "content": "Say hello in one word.",
-    "model": "chatonlm-error"
+    "model": "chat/Error-GGUF:Q4_K_M"
   },
   "events": [
     {
@@ -39,16 +39,20 @@
     },
     {
       "type": "content",
-      "text": "\""
+      "text": "One"
     },
     {
       "type": "content",
-      "text": "Hi"
+      "text": " two"
+    },
+    {
+      "type": "content",
+      "text": " three"
     },
     {
       "type": "error",
       "kind": "model",
-      "message": "model runner has unexpectedly stopped"
+      "message": "the text engine answered with an error (HTTP 500)"
     }
   ],
   "error": null

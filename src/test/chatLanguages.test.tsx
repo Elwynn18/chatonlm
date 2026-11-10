@@ -21,8 +21,6 @@ import type { DatabaseProblem } from "@/bindings/DatabaseProblem";
 import type { HubDownload } from "@/bindings/HubDownload";
 import type { Lang } from "@/bindings/Lang";
 import type { Message } from "@/bindings/Message";
-import type { ServerState } from "@/bindings/ServerState";
-import type { ServerStatus } from "@/bindings/ServerStatus";
 import type { ToolCall } from "@/bindings/ToolCall";
 import { App } from "@/App";
 import { CommandBlock } from "@/components/CommandBlock";
@@ -35,9 +33,6 @@ import { ErrorMessage } from "@/components/ErrorMessage";
 import { ExternalLink } from "@/components/ExternalLink";
 import { LinkErrorNotice } from "@/components/LinkErrorNotice";
 import { LoadingModel } from "@/components/LoadingModel";
-import { ServerGate } from "@/components/ServerGate";
-import { ServerLostBanner } from "@/components/ServerLostBanner";
-import { ServerStatusScreen } from "@/components/ServerStatusScreen";
 import { Thinking } from "@/components/Thinking";
 import { WebSearchErrorActions } from "@/components/WebSearchErrorActions";
 import { setLanguage } from "@/i18n";
@@ -191,27 +186,6 @@ function toolCall(
   };
 }
 
-function status(
-  state: ServerState,
-  extra: Partial<ServerStatus> = {},
-): ServerStatus {
-  return {
-    url: "http://localhost:11434",
-    state,
-    version: null,
-    alternativeUrl: null,
-    hostEnv: null,
-    httpStatus: null,
-    detail: null,
-    service: null,
-    builtin: false,
-    builtinAvailable: false,
-    explicitAddress: false,
-    logPath: null,
-    ...extra,
-  };
-}
-
 describe("pseudo-language: no text written in the code", () => {
   it("new chat: history with favorites and dates, composer, downloads", async () => {
     usePseudoLanguage();
@@ -355,21 +329,27 @@ describe("pseudo-language: no text written in the code", () => {
     ).toEqual([]);
   });
 
-  it("chat parts: error and its actions, download, loading, lost server", () => {
+  it("chat parts: error and its actions, download, loading", () => {
     usePseudoLanguage();
-    const ERROR = "web search requires an Ollama account";
+    const ERROR = "web search is not available right now";
     render(
       <div>
-        <ErrorMessage message={ERROR}>
-          <WebSearchErrorActions onSignIn={vi.fn()} onRetry={vi.fn()} />
-        </ErrorMessage>
-        <ErrorMessage message={ERROR}>
-          <WebSearchErrorActions
-            onSignIn={vi.fn()}
-            onRetry={vi.fn()}
-            signedIn
-          />
-        </ErrorMessage>
+        {(
+          [
+            "webSearchUnavailable",
+            "webSearchLimit",
+            "webSearchPaused",
+            "webSearchOutdated",
+          ] as const
+        ).map((kind) => (
+          <ErrorMessage key={kind} message={ERROR}>
+            <WebSearchErrorActions
+              kind={kind}
+              onRetry={vi.fn()}
+              onCheckUpdates={vi.fn()}
+            />
+          </ErrorMessage>
+        ))}
         <Downloading completed={1.2 * GIB} total={4.7 * GIB} />
         <LoadingModel />
         <Thinking thinking="hmm" startTime={new Date(0)} />
@@ -378,9 +358,6 @@ describe("pseudo-language: no text written in the code", () => {
           startTime={new Date(0)}
           endTime={new Date(500)}
         />
-        <ServerLostBanner onRetry={() => Promise.resolve()} />
-        <ServerLostBanner onRetry={() => Promise.resolve()} starting />
-        <ServerLostBanner onRetry={() => Promise.resolve()} failed />
         <CommandBlock command="ollama serve" />
         <ExternalLink href="https://ollama.com">ollama.com</ExternalLink>
         <DropOverlay />
@@ -463,129 +440,6 @@ describe("pseudo-language: no text written in the code", () => {
         "File type not supported",
       ]),
     ).toEqual([]);
-  });
-
-  it("server screens: every state, other address, browser failure", async () => {
-    usePseudoLanguage();
-    const user = { user: true, enabled: false };
-    const system = { user: false, enabled: false };
-    const statuses = [
-      status("notInstalled"),
-      status("serviceStopped", { service: user }),
-      status("serviceStopped", { service: system }),
-      status("noService", { hostEnv: "127.0.0.1:11500" }),
-      status("noService"),
-      status("noService", { url: "http://10.0.0.2:11434" }),
-      status("serviceFailed", { service: user }),
-      status("serviceStarting", { service: system }),
-      status("notResponding", { httpStatus: 502 }),
-      status("notResponding", { service: system }),
-      status("notResponding"),
-      status("remoteUnreachable", { httpStatus: 502 }),
-      status("remoteUnreachable"),
-      status("connectionFailed", { url: "https://localhost:11434" }),
-      status("connectionFailed", { detail: "tls: bad record" }),
-      status("notOllama", { httpStatus: 404 }),
-      status("notOllama"),
-      status("accessDenied", { httpStatus: 403 }),
-      status("running", { version: "0.35.1" }),
-      status("noService", { alternativeUrl: "http://127.0.0.1:11500" }),
-    ];
-    const allow = [
-      "http://localhost:11434",
-      "https://localhost:11434",
-      "http://10.0.0.2:11434",
-      "http://127.0.0.1:11500",
-      "0.35.1",
-      "tls: bad record",
-      "browser missing",
-    ];
-    for (const current of statuses) {
-      const { unmount } = render(
-        <ServerStatusScreen
-          status={current}
-          savedUrl=""
-          isChecking={false}
-          onRetry={vi.fn()}
-          onSaveAddress={vi.fn()}
-          onOpen={() => Promise.reject(new Error("browser missing"))}
-        />,
-      );
-      // Commandes à copier : telles quelles, dans toutes les langues.
-      const commands = [...document.querySelectorAll("code")].map(
-        (code) => code.textContent ?? "",
-      );
-      const link = screen.queryByRole("link");
-      if (link) {
-        await userEvent.click(link);
-        await screen.findByRole("alert");
-      }
-      expect(
-        untranslatedTexts(document.body, [...allow, ...commands]),
-        `${current.state}`,
-      ).toEqual([]);
-      unmount();
-    }
-    // Vérification en cours : « Checking… ».
-    render(
-      <ServerStatusScreen
-        status={status("notInstalled")}
-        savedUrl=""
-        isChecking
-        onRetry={vi.fn()}
-        onSaveAddress={vi.fn()}
-        onOpen={vi.fn()}
-      />,
-    );
-    const commands = [...document.querySelectorAll("code")].map(
-      (code) => code.textContent ?? "",
-    );
-    expect(untranslatedTexts(document.body, [...allow, ...commands])).toEqual(
-      [],
-    );
-  });
-
-  it("server gate: first check, then a failed check", async () => {
-    usePseudoLanguage();
-    let answer: () => Promise<unknown> = () => new Promise(() => {});
-    mockIPC((command) => {
-      if (command === "server_status") return answer();
-      if (command === "get_settings") return { serverUrl: "" };
-      throw new Error(`unexpected command ${command}`);
-    });
-    onTestFinished(() => clearMocks());
-    const client = new QueryClient({
-      defaultOptions: { queries: { networkMode: "always", retry: false } },
-    });
-    const { unmount } = render(
-      <QueryClientProvider client={client}>
-        <ServerGate>
-          <p>app</p>
-        </ServerGate>
-      </QueryClientProvider>,
-    );
-    await screen.findByRole("status");
-    expect(untranslatedTexts(document.body)).toEqual([]);
-    unmount();
-
-    answer = () => Promise.reject({ kind: "system", message: "no D-Bus" });
-    render(
-      <QueryClientProvider
-        client={
-          new QueryClient({
-            defaultOptions: {
-              queries: { networkMode: "always", retry: false },
-            },
-          })
-        }
-      >
-        <ServerGate>
-          <p>app</p>
-        </ServerGate>
-      </QueryClientProvider>,
-    );
-    await screen.findByRole("alert");
-    expect(untranslatedTexts(document.body, ["no D-Bus"])).toEqual([]);
   });
 
   it("database problems: every kind, while checking", async () => {
@@ -734,7 +588,7 @@ describe("French and Spanish", () => {
     );
   });
 
-  it("Spanish: thinking time, dialog buttons, server advice", () => {
+  it("Spanish: thinking time, dialog buttons", () => {
     act(() => setLanguage("es"));
     render(
       <div>
@@ -744,14 +598,6 @@ describe("French and Spanish", () => {
           endTime={new Date(3000)}
         />
         <ConfirmDialog message="?" onCancel={vi.fn()} />
-        <ServerStatusScreen
-          status={status("notInstalled")}
-          savedUrl=""
-          isChecking={false}
-          onRetry={vi.fn()}
-          onSaveAddress={vi.fn()}
-          onOpen={vi.fn()}
-        />
       </div>,
     );
     expect(screen.getByText("Pensó durante 3,0 segundos")).toBeTruthy();
@@ -760,8 +606,6 @@ describe("French and Spanish", () => {
         .getAllByRole("button")
         .map((button) => button.textContent),
     ).toEqual(["Cancelar", "Aceptar"]);
-    expect(screen.getByText("Ollama no está instalado")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Reintentar" })).toBeTruthy();
   });
 
   it("changing the language keeps the draft and translates what is shown", async () => {

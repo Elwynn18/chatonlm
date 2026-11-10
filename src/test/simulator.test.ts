@@ -170,17 +170,16 @@ describe("simulator", () => {
         .map((e) => e.type)
         .filter((type) => type !== "loading" && type !== "loaded"),
     ).toEqual(["chatCreated", "userMessage", "replyStarted", "content"]);
-    expect(replay.remaining).toBe(2);
+    const recorded = sequence("model-error").events;
+    expect(replay.remaining).toBe(recorded.length - events.length);
+    expect(replay.remaining).toBeGreaterThan(0);
     expect(answered).toBe(false);
     expect(open()).toBe(true);
 
     await replay.finish();
     await sending;
-    expect(events.at(-1)).toEqual({
-      type: "error",
-      kind: "model",
-      message: "model runner has unexpectedly stopped",
-    });
+    expect(events.at(-1)).toEqual(recorded.at(-1));
+    expect(events.at(-1)?.type).toBe("error");
     expect(answered).toBe(true);
     expect(open()).toBe(false);
   });
@@ -508,9 +507,6 @@ describe("recorded sequences", () => {
     expect(sequenceNames).toEqual([
       "attachments",
       "cancelled",
-      "cloud-limit",
-      "cloud-off",
-      "cloud-signed-out",
       "compacted-auto",
       "connection-lost",
       "context-full",
@@ -518,8 +514,9 @@ describe("recorded sequences", () => {
       "download-cancelled",
       "download-offline",
       "edit",
+      "engine-failed",
+      "engine-unavailable",
       "existing-chat",
-      "http-error",
       "image-button",
       "image-button-no-model",
       "image-tool",
@@ -532,11 +529,9 @@ describe("recorded sequences", () => {
       "refused-edit-unknown-message",
       "refused-empty",
       "refused-unknown-attachment",
-      "unreachable",
+      "remote-off",
       "web-search",
       "web-search-cancelled",
-      "web-search-signed-out",
-      "web-search-signed-out-late",
     ]);
   });
 

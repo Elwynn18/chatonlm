@@ -56,7 +56,7 @@ pub async fn chat_once(
     let body = send(
         endpoint
             .post("/v1/chat/completions")
-            .json(&request.body(false)),
+            .json(&request.body_for(endpoint.dialect, false)),
         None,
         &cancel,
     )

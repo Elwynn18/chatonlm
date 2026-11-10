@@ -292,7 +292,7 @@ pub(super) async fn study_create<H: Host>(
     let host = Arc::clone(shared);
     // La page l'apprend (`study-updated`) ; les connexions qui suivent les
     // cours, par la diffusion du moteur.
-    let ctx = Ctx::new(shared.store.clone(), move |updated| {
+    let ctx = Ctx::with_access(shared.access.clone(), move |updated| {
         host.host.study_updated(&updated);
     });
     let language = params.language.unwrap_or_else(crate::i18n::current);
@@ -437,8 +437,7 @@ struct ProofreadParams {
     #[allow(dead_code)]
     language: Option<Lang>,
     /// Le texte ne doit pas quitter cette machine (outil des agents) : refus
-    /// `notLocal` si Ollama est sur une autre machine ou si le modèle de la
-    /// correction tourne ailleurs.
+    /// `notLocal` si le modèle de la correction est distant.
     #[serde(default)]
     local_only: bool,
 }
@@ -458,25 +457,25 @@ pub(super) async fn proofread_run<H: Host>(
     let Ok(params) = serde_json::from_value::<ProofreadParams>(params) else {
         return invalid(out, id);
     };
-    let settings = match crate::commands::models::app_settings(&shared.store).await {
+    let settings = match super::connection::app_settings(&shared.store).await {
         Ok(settings) => settings,
         Err(error) => return refused(out, id, error.to_string()),
     };
-    let model = proofread::model_of(&settings).await.unwrap_or_default();
+    // Comme la page : le modèle réglé, sinon « Auto » (le meilleur modèle
+    // prêt dans le moteur, sinon celui du chat).
+    let model = proofread::model_for(&shared.access, &settings)
+        .await
+        .unwrap_or_default();
     if (params.local_only || agents)
-        && let Some(message) =
-            super::connection::elsewhere(&settings.effective_server_url, &model).await
+        && let Some(message) = super::connection::elsewhere(&model)
     {
         return super::connection::not_local(out, id, message);
     }
-    // « Auto » : un modèle cloud ou distant n'est utilisé que s'il est
-    // choisi sur la page Proofread, comme pour le raccourci de correction
+    // « Auto » : un modèle distant n'est utilisé que s'il est choisi sur la
+    // page Proofread, comme pour le raccourci de correction
     // (`proofread::selection`) : celui du chat n'y retombe jamais. Refus
     // `noModel` : il faut choisir un modèle.
-    if settings.proofread_model.is_empty()
-        && !model.is_empty()
-        && proofread::selection::runs_elsewhere(&settings.effective_server_url, &model).await
-    {
+    if settings.proofread_model.is_empty() && crate::llm::ids::is_remote(&model) {
         let message = t!("proofread.selection.cloudHint", model = model);
         return out.error(
             id,
@@ -499,8 +498,12 @@ pub(super) async fn proofread_run<H: Host>(
             );
         }
     };
+    let server = match Server::current(&shared.access).await {
+        Ok(server) => server,
+        Err(error) => return refused(out, id, error.to_string()),
+    };
     let outcome = proofread::run(
-        &Server::with_settings(shared.access.clone(), &settings),
+        &server,
         &model,
         params.mode,
         proofread::ProofreadOptions::of(&settings),

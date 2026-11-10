@@ -22,11 +22,12 @@
 //   found », copié quand même) ; second appui pendant une correction qui
 //   l'arrête (`chatonlm-proofread-slow` : « Proofreading stopped », rien de
 //   copié) ; sans sélection (« No text selected », presse-papiers d'une autre
-//   application intact) ; sélection trop longue ; modèle absent du serveur
-//   (« Proofreading failed », rien de copié) ; « Auto » (rien de choisi pour
-//   la correction), rien en mémoire : modèle du chat cloud ou distant (rien
-//   d'envoyé), aucun modèle (« No model selected ») ; « Auto » avec un modèle
-//   en mémoire : corrigé avec lui, même si le modèle du chat est cloud ; la dictée n'est jamais déclenchée ;
+//   application intact) ; sélection trop longue ; modèle plus installé
+//   (corrigé avec le modèle chargé, ce que la notification dit) ; « Auto »
+//   (rien de choisi pour la correction), rien en mémoire : modèle du chat
+//   distant (`@remote/…`, rien d'envoyé), aucun modèle (« No model
+//   selected ») ; « Auto » avec un modèle en mémoire : corrigé avec lui, même
+//   si le modèle du chat est distant ; la dictée n'est jamais déclenchée ;
 // - `--proofread` : premier lancement fenêtre masquée et sélection corrigée
 //   une fois l'app prête, relance qui corrige de nouveau sans montrer la
 //   fenêtre, relance sans argument qui la montre ; sans portail
@@ -49,8 +50,10 @@
 //   coupé : aucune session ; bureau sans ce portail (les autres scénarios) :
 //   le presse-papiers et « press Ctrl+V ».
 //
-// Dépend du faux serveur de l'agent R1 : `chatonlm-proofread` (« teh » →
-// « the », « recieve » → « receive »…) et `chatonlm-proofread-slow`.
+// Faux moteur (fake-llama, e2e/lib/fake.mjs `startEngine`), scénarios de
+// src-tauri/crates/fake-llama/src/scenarios/l5a/proof.rs : `chatonlm-proofer`
+// (« teh » → « the », « recieve » → « receive »…) et `chatonlm-proofer-slow`
+// (150 ms entre deux morceaux).
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { openSync } from "node:fs";
@@ -61,7 +64,7 @@ import {
   readClipboard,
 } from "./lib/clipboard.mjs";
 import { poll, startDesktopServices } from "./lib/desktop.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { forWindows, runKWinScript } from "./lib/kwin.mjs";
 
 const binary = process.argv[2];
@@ -73,8 +76,12 @@ assert.ok(
   "CHATONLM_DATA_DIR absent : lancer dans scripts/e2e-session.sh",
 );
 
-const MODEL = "chatonlm-proofread";
-const SLOW = "chatonlm-proofread-slow";
+const MODEL = fakeModel("proofer");
+const SLOW = fakeModel("proofer-slow");
+/** Modèle choisi plus tard, puis plus installé. */
+const VANISHED = fakeModel("vanished");
+/** Modèle distant (fournisseur jamais contacté : refusé avant). */
+const REMOTE = "@remote/custom/chatonlm-remote-openai";
 const CORRECTING = "Correcting the selected text…";
 const CORRECTED = "Corrected text copied";
 const PASTED = "Corrected text pasted";
@@ -158,27 +165,15 @@ async function runInstance(args, name) {
 
 /** Évènements « bind » du faux portail. */
 const binds = (desk) => desk.events.filter((e) => e.event === "bind");
-/** Décharge du faux serveur tous les modèles en mémoire (`/api/ps`). */
-async function unloadAll() {
-  const ps = await (await fetch(new URL("/api/ps", fake.url))).json();
-  for (const { name } of ps.models) {
-    await fetch(new URL("/api/generate", fake.url), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: name, keep_alive: 0 }),
-    });
-  }
-}
+/** Décharge tous les modèles du moteur de l'app (processus arrêtés). */
+const unloadAll = (driver) => driver.invoke("unload_all_models");
 
-/** Charge `model` sur le faux serveur, sans échéance. */
-async function loadOnFake(model) {
-  const response = await fetch(new URL("/api/generate", fake.url), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, keep_alive: -1 }),
-  });
-  assert.equal(response.status, 200, `chargement de ${model}`);
-}
+/** Charge `model` dans le moteur de l'app ; rend la main une fois prêt. */
+const loadModel = (driver, model) => driver.invoke("load_model", { model });
+
+/** Corps des requêtes reçues par les instances du faux moteur en marche. */
+const sentToEngine = () =>
+  Promise.all(engine.ids.map((id) => engine.requests(id)));
 
 /** Notifications reçues après la `since`-ième. */
 const notifiedSince = (desk, since) => desk.notifications().slice(since);
@@ -213,8 +208,8 @@ async function pressProofread(
   return { progress: started[0], final };
 }
 
-const fake = await startFake("ollama");
-const env = { OLLAMA_HOST: fake.url };
+const engine = startEngine([MODEL, SLOW]);
+const env = engine.env;
 
 try {
   // 1. Raccourcis liés, appuis, notifications, « Show ».
@@ -461,10 +456,13 @@ try {
             await long.release();
           }
 
-          // Modèle absent du serveur : corrigé avec le modèle chargé dans
-          // Ollama (chatonlm-proofread, chargé par les essais d'avant), ce
-          // que la notification dit ; le réglage n'est pas modifié.
-          await settings(driver, { proofreadModel: "chatonlm-vanished" });
+          // Modèle plus installé : corrigé avec le modèle chargé dans le
+          // moteur (MODEL seul : le lent, servi en dernier, serait pris le
+          // premier), ce que la notification dit ; le réglage n'est pas
+          // modifié.
+          await unloadAll(driver);
+          await loadModel(driver, MODEL);
+          await settings(driver, { proofreadModel: VANISHED });
           const missing = await holdSelection("teh text");
           try {
             // Deux progressions : la correction est refaite avec l'autre
@@ -476,51 +474,49 @@ try {
             );
             assert.equal(
               replaced.body,
-              "The text\n\nThe model chatonlm-vanished is no longer installed: corrected with chatonlm-proofread, loaded in Ollama.",
+              `The text\n\nThe model ${VANISHED} is no longer installed: corrected with ${MODEL}, loaded in memory.`,
             );
           } finally {
             await missing.release();
           }
           assert.equal(
             (await driver.invoke("get_settings")).proofreadModel,
-            "chatonlm-vanished",
+            VANISHED,
           );
           // Le texte corrigé est copié ; rien ne le remplace ensuite.
           const copied = (await readClipboard()).text;
           assert.equal(copied, "The text");
 
           // « Auto » (rien de choisi pour la correction) sans modèle en
-          // mémoire : celui du chat ; cloud ou distant (`/api/show`), rien
-          // n'est envoyé, même modèles cloud permis (sans eux, la page
-          // remplace aussitôt un modèle cloud choisi dans le chat).
-          await unloadAll();
-          for (const model of ["gpt-oss:20b-cloud", "chatonlm-polish-remote"]) {
-            await settings(driver, {
-              proofreadModel: "",
-              selectedModel: model,
-              cloudModels: true,
-            });
-            const secret = await holdSelection("teh confidential text");
-            try {
-              const { final: kept } = await pressProofread(
-                desk,
-                "Selected text not sent",
-                { progress: false },
-              );
-              assert.equal(
-                kept.body,
-                `The chat model (${model}) runs outside this computer. To proofread with it, choose it on the Proofread page of ChatonLM.`,
-              );
-            } finally {
-              await secret.release();
-            }
-            assert.equal((await readClipboard()).text, copied);
+          // mémoire : celui du chat ; distant (`@remote/…`), rien n'est
+          // envoyé, même modèles distants permis (sans eux, la page
+          // remplace aussitôt un modèle distant choisi dans le chat).
+          await unloadAll(driver);
+          await settings(driver, {
+            proofreadModel: "",
+            selectedModel: REMOTE,
+            remoteModels: true,
+          });
+          const secret = await holdSelection("teh confidential text");
+          try {
+            const { final: kept } = await pressProofread(
+              desk,
+              "Selected text not sent",
+              { progress: false },
+            );
+            assert.equal(
+              kept.body,
+              `The chat model (${REMOTE}) runs outside this computer. To proofread with it, choose it on the Proofread page of ChatonLM.`,
+            );
+          } finally {
+            await secret.release();
           }
-          const chats = await (
-            await fetch(new URL("/fake/requests", fake.url))
-          ).json();
+          assert.equal((await readClipboard()).text, copied);
+          // Rien n'a été chargé pour cette correction (aucune instance du
+          // moteur), donc rien envoyé au moteur.
+          assert.deepEqual(await driver.invoke("running_models"), []);
           assert.ok(
-            !JSON.stringify(chats).includes("confidential"),
+            !JSON.stringify(await sentToEngine()).includes("confidential"),
             "texte sélectionné envoyé",
           );
 
@@ -528,7 +524,7 @@ try {
           await settings(driver, {
             proofreadModel: "",
             selectedModel: "",
-            cloudModels: false,
+            remoteModels: false,
           });
           const noModel = await holdSelection("teh text");
           try {
@@ -547,12 +543,12 @@ try {
           assert.equal((await readClipboard()).text, copied);
 
           // « Auto » avec un modèle en mémoire : corrigé avec lui (il tourne
-          // sur la machine), même si le modèle du chat est cloud.
-          await loadOnFake(MODEL);
+          // sur la machine), même si le modèle du chat est distant.
+          await loadModel(driver, MODEL);
           await settings(driver, {
             proofreadModel: "",
-            selectedModel: "gpt-oss:20b-cloud",
-            cloudModels: true,
+            selectedModel: REMOTE,
+            remoteModels: true,
           });
           const auto = await holdSelection("teh text");
           try {
@@ -563,14 +559,14 @@ try {
             await auto.release();
           }
           assert.equal((await readClipboard()).text, copied);
-          await settings(driver, { cloudModels: false });
+          await settings(driver, { remoteModels: false });
         } finally {
           await held.release();
         }
         await settings(driver, { proofreadModel: MODEL });
         // La dernière correction réussie reste celle montrée par « Show »
         // (pas celle qui a été arrêtée) : ici celle faite avec le modèle
-        // chargé à la place de chatonlm-vanished.
+        // chargé à la place du modèle plus installé.
         assert.equal(
           (await driver.invoke("proofread_last_selection")).parts
             .map((part) => part.text)
@@ -1067,7 +1063,7 @@ try {
     await pasting.stop();
   }
 } finally {
-  await fake.stop();
+  // Rien à arrêter : les instances du faux moteur sont celles de l'app.
 }
 
 console.log("✓ proofread-shortcut");

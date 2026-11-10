@@ -19,6 +19,7 @@ pub fn same_file(_a: &Path, _b: &Path) -> bool {
 
 /// Aucun dossier du système : l'app officielle d'Ollama range ses modèles
 /// chez l'utilisateur.
+#[cfg_attr(test, allow(dead_code))]
 pub fn system_dirs() -> Vec<PathBuf> {
     Vec::new()
 }

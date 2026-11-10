@@ -93,7 +93,7 @@
       "cloudHint": "El modelo del chat ({model}) se ejecuta fuera de este equipo. Para corregir con este modelo, elígelo en la página «Corrección» de ChatonLM.",
       "stopped": "Corrección detenida",
       "stoppedHint": "No se copió nada.",
-      "replaced": "El modelo {missing} ya no está instalado: corrección hecha con {model}, cargado en Ollama.",
+      "replaced": "El modelo {missing} ya no está instalado: corrección hecha con {model}, cargado en memoria.",
       "keysHeld": "Suelta las teclas del atajo y vuelve a usarlo.",
       "copyBlocked": "Windows no permitió que ChatonLM copiara el texto seleccionado."
     },
@@ -104,16 +104,15 @@
     "failed": "Error en la corrección: {detail}",
     "failedRephrase": "Error al reformular: {detail}",
     "timedOut": "el modelo tardó demasiado en responder",
-    "connectionLost": "se perdió la conexión con Ollama"
+    "connectionLost": "se perdió la conexión con el modelo"
   },
   "study": {
     "noModel": "Elige un modelo para tus cursos",
     "modelNotFound": "El modelo {model} no está instalado",
     "failed": "Error en la generación: {detail}",
     "timedOut": "el modelo tardó demasiado en responder",
-    "connectionLost": "se perdió la conexión con Ollama",
+    "connectionLost": "se perdió la conexión con el modelo",
     "invalid": "Las respuestas del modelo no se pueden usar. Vuelve a intentarlo o elige un modelo más grande.",
-    "signedOut": "La búsqueda web requiere una cuenta de Ollama",
     "whichMeaning": "¿A cuál te refieres?",
     "topicTooLong": "El tema es demasiado largo: 300 caracteres como máximo",
     "badDuration": "Un curso dura 10, 20 o 30 minutos",
@@ -150,7 +149,7 @@
     "runtimeUnavailable": "Parakeet no puede ejecutarse: no se pudo cargar ONNX Runtime ({detail}). Reinstala ChatonLM o elige un modelo Whisper en la configuración.",
     "polish": {
       "skipped": "Pulido omitido: la respuesta del modelo no se parecía a tu texto",
-      "cloud": "Pulido omitido: los modelos en la nube no se usan para el dictado",
+      "cloud": "Pulido omitido: los modelos remotos no se usan para el dictado",
       "failed": "Error en el pulido: {detail}",
       "tooLong": "el modelo tardó demasiado en responder"
     },
@@ -221,7 +220,6 @@
     "emptyMessage": "el mensaje está vacío",
     "noModel": "no hay ningún modelo seleccionado",
     "busy": "este chat ya está esperando una respuesta",
-    "webSearchSignedOut": "La búsqueda web requiere una cuenta de Ollama",
     "notFound": "chat no encontrado: {id}",
     "emptyTitle": "el título no puede estar vacío",
     "loopStopped": "El modelo repetía sin parar el mismo texto, así que se detuvo su respuesta.",
@@ -263,12 +261,10 @@
   },
   "ollama": {
     "unreachable": "no se puede conectar con Ollama",
-    "unreachableAt": "no se puede conectar con Ollama en {address}",
     "timeout": "Ollama no respondió a tiempo",
     "requestFailed": "error en la solicitud a Ollama: {error}",
     "http": "Ollama respondió con HTTP {status}: {message}",
     "httpStatus": "Ollama respondió con HTTP {status}",
-    "unexpectedAnswer": "respuesta inesperada de Ollama: {error}",
     "unexpectedModels": "Ollama devolvió una lista de modelos inesperada: {error}",
     "unexpectedDetails": "Ollama devolvió detalles del modelo inesperados: {error}",
     "unexpectedRecommendations": "Ollama devolvió recomendaciones de modelos inesperadas: {error}",
@@ -280,9 +276,6 @@
   },
   "account": {
     "noConnectUrl": "No se pudo obtener la URL de conexión"
-  },
-  "models": {
-    "cloudNotLoaded": "{model} se ejecuta en ollama.com: los modelos en la nube no se cargan en este equipo"
   },
   "cloud": {
     "signedOut": "Los modelos en la nube requieren una cuenta de Ollama",
@@ -419,8 +412,7 @@
       "busyBridge": "VS Code ya está dictando"
     },
     "local": {
-      "remoteServer": "ChatonLM usa un Ollama en otro ordenador, así que no se ha enviado nada.",
-      "cloudModel": "{model} se ejecuta fuera de este ordenador, así que no se ha enviado nada."
+      "remoteModel": "{model} se ejecuta fuera de este ordenador, así que no se ha enviado nada."
     }
   },
   "easyLink": {
@@ -456,31 +448,37 @@
       "busy": "Todavía estoy respondiendo a tu mensaje anterior. Envía {p}stop para interrumpirlo.",
       "missed": "ChatonLM no estaba en marcha cuando enviaste este mensaje. Envíalo de nuevo si todavía quieres una respuesta.",
       "noModels": "No hay ningún modelo instalado. Instala uno en ChatonLM (ModelHub).",
-      "modelsTitle": "Modelos instalados:",
+      "modelsTitle": "Modelos:",
       "modelCurrent": "elegido",
       "modelLoaded": "en memoria",
+      "modelRemote": "remoto",
       "modelsHint": "Elige uno con {p}model seguido de su número o su nombre.",
       "model": "Modelo: {model}",
       "noModel": "No hay ningún modelo elegido. Envía {p}models para ver los instalados.",
       "modelMissing": "{model} ya no está instalado. Elige otro modelo con {p}models.",
+      "remoteMissing": "{model} no está disponible en su proveedor en este momento. Elige otro modelo con {p}models.",
       "modelChosen": "Modelo: {model}. Tu próximo mensaje lo usará.",
       "modelUnknown": "Ningún modelo instalado coincide con «{name}». Envía {p}models para verlos.",
       "modelAmbiguous": "Varios modelos coinciden con «{name}»: {models}",
       "loading": "Cargando {model}…",
       "loaded": "{model} está en memoria.",
+      "remoteNoLoad": "{model} se ejecuta en su proveedor: no hay nada que cargar ni liberar.",
       "unloaded": "{model} se ha liberado.",
       "unloadedAll": "Se han liberado todos los modelos.",
       "failed": "No ha funcionado: {error}",
       "statusLoaded": "En memoria: {models}",
       "statusNothingLoaded": "En memoria: nada",
-      "statusUnreachable": "Ollama no responde: {error}",
-      "ollamaDown": "Ollama no responde en el ordenador.",
+      "statusEngineOff": "El motor de texto no está disponible en el ordenador.",
+      "engineDown": "El motor de texto no responde en el ordenador.",
       "statusWebOn": "Búsqueda web: activada",
       "statusWebOff": "Búsqueda web: desactivada",
       "webOn": "La búsqueda web está activada.",
       "webOff": "La búsqueda web está desactivada.",
       "webUsage": "Envía {p}web on o {p}web off.",
-      "webSignedOut": "La búsqueda web necesita una cuenta de Ollama conectada en ChatonLM (Configuración > Cuenta). Envía {p}web off para responder sin ella.",
+      "webUnavailable": "La búsqueda web no está disponible ahora mismo. Envía {p}web off para responder sin ella.",
+      "webLimit": "Se ha alcanzado el límite de la búsqueda web por ahora. Envía {p}web off para responder sin ella.",
+      "webPaused": "La búsqueda web está en pausa por ahora. Envía {p}web off para responder sin ella.",
+      "webOutdated": "La búsqueda web necesita una versión más reciente de ChatonLM en el ordenador. Envía {p}web off para responder sin ella.",
       "statusEphemeralOn": "Chats efímeros: activados",
       "statusEphemeralOff": "Chats efímeros: desactivados",
       "ephemeralOn": "Los chats efímeros están activados: no se guardan en el historial de ChatonLM y se borran con {p}new, con {p}ephemeral off o al cerrar ChatonLM. Envía {p}keep para guardar el actual.",
@@ -588,10 +586,10 @@
   },
   "llm": {
     "remoteOff": "Los modelos remotos están desactivados. Actívalos en los ajustes para usar este modelo.",
-    "remoteUnavailable": "Este modelo remoto no está disponible: su proveedor no está configurado.",
+    "remoteUnavailable": "Este modelo remoto no está disponible: su proveedor no lo ofrece o ya no está configurado. Elige otro modelo.",
     "remoteKey": "{provider} rechazó la clave de API. Revísala en los ajustes.",
     "remoteLimit": "{provider} indica que se alcanzó tu límite de uso.",
-    "remoteUnreachable": "No se puede conectar con {provider}. Revisa tu conexión a Internet y vuelve a intentarlo.",
+    "remoteUnreachable": "No se puede conectar con {provider} en este momento. Revisa tu conexión a Internet o vuelve a intentarlo más tarde.",
     "cancelled": "la solicitud se detuvo",
     "inference": {
       "loading": "el modelo todavía se está cargando",
@@ -605,6 +603,13 @@
       "interrupted": "la respuesta se interrumpió",
       "malformed": "el motor de texto envió una respuesta ilegible"
     }
+  },
+  "remote": {
+    "invalidName": "Este nombre es demasiado largo (60 caracteres como máximo).",
+    "invalidUrl": "Escribe la dirección de un servidor compatible con la API de OpenAI, que empiece por http:// o https://.",
+    "invalidKey": "Esta clave de API no es válida: no puede contener espacios.",
+    "keyNotSaved": "ChatonLM no pudo guardar la clave de API. Comprueba que queda espacio libre en el disco y vuelve a intentarlo.",
+    "notFound": "Este proveedor ya no existe."
   },
   "modelImport": {
     "busy": "Ya se están importando o moviendo modelos. Espera a que termine.",

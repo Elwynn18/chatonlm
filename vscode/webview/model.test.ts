@@ -21,7 +21,7 @@ const STATE: PanelState = {
   ephemeral: false,
   chatId: "c1",
   busy: false,
-  cloudModels: [],
+  remoteModels: [],
   generation: 0,
   notice: null,
 };

@@ -303,9 +303,16 @@ describe("what leaves", () => {
     });
   });
 
-  it("guesses a cloud model from its name only as a fallback", () => {
+  it("guesses a remote model from its id only as a fallback", () => {
+    // Modèles distants de l'app.
+    expect(looksRemote("@remote/openrouter/qwen/qwen3-coder")).toBe(true);
+    expect(looksRemote("@remote/mistral/mistral-small-latest")).toBe(true);
+    // Noms cloud d'Ollama (app 0.9.x).
     expect(looksRemote("gpt-oss:120b-cloud")).toBe(true);
     expect(looksRemote("kimi:cloud")).toBe(true);
+    // Modèles de cette machine.
+    expect(looksRemote("Qwen/Qwen3-0.6B-GGUF:Q8_0")).toBe(false);
+    expect(looksRemote("@ollama/qwen3:0.6b")).toBe(false);
     expect(looksRemote("qwen3:0.6b")).toBe(false);
   });
 });

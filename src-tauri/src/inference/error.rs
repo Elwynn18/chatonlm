@@ -8,7 +8,9 @@ use serde_json::Value;
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InferenceError {
-    /// 503 : modèle en cours de chargement.
+    /// 503 de `llama-server` (`unavailable_error`, ou sans corps) : modèle en
+    /// cours de chargement. Un 503 qui dit autre chose (fournisseur distant
+    /// surchargé, débit) reste [`InferenceError::Http`], son texte gardé.
     #[error("the model is loading")]
     Loading,
     /// 400 « model '…' not found » (mode routeur).
@@ -79,7 +81,7 @@ impl InferenceError {
         let kind = error["type"].as_str().unwrap_or_default();
         let number = |value: &Value| value.as_u64().and_then(|n| u32::try_from(n).ok());
         match status {
-            503 => InferenceError::Loading,
+            503 if message.is_empty() || kind == "unavailable_error" => InferenceError::Loading,
             401 => InferenceError::Unauthorized,
             400 if kind == "exceed_context_size_error" => InferenceError::ContextExceeded {
                 n_prompt_tokens: number(&error["n_prompt_tokens"]),
@@ -173,6 +175,20 @@ mod tests {
                 status: 400,
                 message: "'messages' is required".into()
             }
+        );
+        // 503 d'un autre serveur (fournisseur distant) : son texte gardé ;
+        // sans corps : chargement, comme llama-server.
+        let busy = json!({ "error": { "message": "No available providers", "code": 503 } });
+        assert_eq!(
+            InferenceError::from_response(503, &busy),
+            InferenceError::Http {
+                status: 503,
+                message: "No available providers".into()
+            }
+        );
+        assert_eq!(
+            InferenceError::from_response(503, &Value::Null),
+            InferenceError::Loading
         );
         // Sans corps lisible.
         assert_eq!(

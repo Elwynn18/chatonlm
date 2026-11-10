@@ -85,6 +85,7 @@ impl remote::RemoteModels for FakeRemote {
             Ok(Session::remote(
                 ids::remote_id(provider, model),
                 model.to_owned(),
+                provider.to_owned(),
                 Endpoint::remote("http://127.0.0.1:9", "key").unwrap(),
                 Some(32_768),
                 Default::default(),
@@ -224,6 +225,21 @@ fn gpt_oss_thinks_in_levels() {
     assert_eq!(plain.values, [Think::Enabled(true), Think::Enabled(false)]);
     assert_eq!(models::thinking_options(false, Some("qwen3")), None);
     assert_eq!(models::thinking_options(false, None), None);
+}
+
+/// Sans moteur installé : aucun chargement annoncé, et l'ouverture dit que le
+/// moteur manque.
+#[tokio::test]
+async fn nothing_is_announced_without_an_engine() {
+    let bench = FakeBench::with_config(&[(SIMPLE, "simple")], |config| config.bin = None);
+    let counter = Counter::default();
+    let error = open(&bench, SIMPLE, &counter).await.expect_err("no engine");
+    assert_eq!(counter.get(), 0, "rien d'annoncé");
+    assert_eq!(
+        error.chat_kind(),
+        Some(crate::chat::ChatErrorKind::EngineUnavailable),
+        "{error:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -429,11 +445,13 @@ fn remote_errors_name_their_provider() {
     let session = Session::remote(
         "@remote/openrouter/x/y".into(),
         "x/y".into(),
+        "My OpenRouter".into(),
         Endpoint::remote("http://127.0.0.1:9", "k").unwrap(),
         None,
         Default::default(),
     );
-    let provider = "openrouter".to_owned();
+    // Nom choisi par l'utilisateur, pas l'identifiant (`openrouter`).
+    let provider = "My OpenRouter".to_owned();
     let http = |status| InferenceError::Http {
         status,
         message: String::new(),
@@ -472,8 +490,14 @@ fn remote_errors_name_their_provider() {
             .chat_kind(),
         Some(crate::chat::ChatErrorKind::ConnectionLost)
     );
+    // Panne du fournisseur : injoignable pour le moment (jamais « le moteur
+    // local a échoué ») ; requête refusée : erreur du modèle.
     assert_eq!(
         session.error(http(500)).chat_kind(),
+        Some(crate::chat::ChatErrorKind::RemoteUnreachable)
+    );
+    assert_eq!(
+        session.error(http(400)).chat_kind(),
         Some(crate::chat::ChatErrorKind::Model)
     );
     assert_eq!(

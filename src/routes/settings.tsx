@@ -7,8 +7,7 @@
  * file app/ui/app/src/routes/settings.tsx, commit 42e911bc3d05.
  * Modified for ChatonLM: named import of the Settings component; a "section"
  * search parameter, the tab of the page ("general", the default; "models":
- * loading of the models into memory; "account":
- * the Ollama account card, focused; "dictation": the dictation cards,
+ * loading of the models into memory; "dictation": the dictation cards,
  * scrolled into view and focused, again on each navigation that is not a
  * mere change of tab; "readAloud": the reading aloud of replies, ChatonLM's
  * own; "voiceMode": the voice mode, ChatonLM's own; "easyLink": the Telegram
@@ -33,8 +32,8 @@ import {
 import { useT } from "@/i18n";
 
 /**
- * Onglet des réglages à montrer (lien de l'erreur de recherche web, menu de
- * la zone de notification, onglets).
+ * Onglet des réglages à montrer (liens des erreurs, menu de la zone de
+ * notification, onglets).
  */
 export interface SettingsSearch {
   section?: SettingsSection;
@@ -45,7 +44,7 @@ export interface SettingsSearch {
 /**
  * Type du paramètre pour la navigation. Le routeur garde aussi les
  * paramètres bruts : la page compare elle-même la valeur (« general »,
- * « models », « account », « dictation », « readAloud », « voiceMode »,
+ * « models », « dictation », « readAloud », « voiceMode »,
  * « easyLink », « vscode », « shortcuts »).
  */
 export function validateSettingsSearch(
@@ -54,7 +53,6 @@ export function validateSettingsSearch(
   return {
     ...(raw.section === "general" ||
     raw.section === "models" ||
-    raw.section === "account" ||
     raw.section === "dictation" ||
     raw.section === "readAloud" ||
     raw.section === "voiceMode" ||

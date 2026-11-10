@@ -4,7 +4,7 @@
     "chatId": "chat-1",
     "streamId": "stream-1",
     "content": "Describe this file instead.",
-    "model": "qwen3.5:0.8b",
+    "model": "Qwen/Qwen3.5-0.8B-GGUF:Q4_K_M",
     "think": false,
     "editMessageId": 99
   },

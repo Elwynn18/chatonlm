@@ -4,15 +4,21 @@
 // (initialize, tools/list, erreurs), liste blanche des cinq outils et leurs
 // `readOnlyHint`, entrées bornées (champs hérités refusés), justificatifs lus
 // seulement dans le fichier privé de l'extension (effacement vérifié),
-// séance sans fenêtre refusée, accès retiré, modèles du cloud et Ollama
-// d'une autre machine refusés, correction `localOnly`, conversation
+// séance sans fenêtre refusée, accès retiré, modèles distants et modèles
+// d'une autre machine (app 0.9.x) refusés, correction `localOnly`, conversation
 // éphémère effacée, journal des appels (sans caractères bidirectionnels) et
 // arrêts (agent, panneau, réglage coupé, même au repos).
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { deferred, FakeBridge, RpcFailure, until } from "../test/fakeBridge";
+import {
+  deferred,
+  FakeBridge,
+  REMOTE_MODEL,
+  RpcFailure,
+  until,
+} from "../test/fakeBridge";
 import {
   activityFile,
   controlFile,
@@ -34,7 +40,7 @@ import {
 } from "./run";
 import {
   type BridgeLike,
-  isCloud,
+  isRemote,
   LIMITS,
   NOT_LOCAL_TEXT,
   toolList,
@@ -409,6 +415,29 @@ describe("tools", () => {
     };
     expect(listed.models.map((m) => m.name)).toEqual(["qwen3:0.6b"]);
     expect(listed.default).toBe("qwen3:0.6b");
+    expect(listed.models[0]).toMatchObject({
+      contextLength: 40960,
+      capabilities: ["completion", "tools", "thinking"],
+    });
+    // Distant d'après la liste : écarté sans demander ses détails.
+    expect(
+      env.fake.calls("models.details").map((params) => params.model),
+    ).not.toContain(REMOTE_MODEL);
+  });
+
+  it("leaves out a remote model by its origin, whatever its id", async () => {
+    const env = await start();
+    env.fake.handlers["models.list"] = () => [
+      { id: "qwen3:0.6b", displayName: "Qwen3 0.6B", origin: "hf" },
+      // Identifiant sans préfixe : seule l'origine dit qu'il est distant.
+      { id: "provider-model", displayName: "Provider", origin: "remote" },
+    ];
+    const reply = await env.call("chatonlm_models").reply();
+    const listed = JSON.parse(textOf(reply)) as { models: { name: string }[] };
+    expect(listed.models.map((m) => m.name)).toEqual(["qwen3:0.6b"]);
+    expect(
+      env.fake.calls("models.details").map((params) => params.model),
+    ).toEqual(["qwen3:0.6b"]);
   });
 
   it("asks a local model in an ephemeral chat, then forgets it", async () => {
@@ -442,13 +471,19 @@ describe("tools", () => {
     expect(records[0].detail).toBe("Meaning of life?");
   });
 
-  it("refuses a cloud model, by name or as the app reports it", async () => {
+  it("refuses a remote model, by its id or name or as the app reports it", async () => {
     const env = await start();
     env.fake.handlers["chat.send"] = () => ({ chatId: null, outcome: "done" });
-    const byName = await env
-      .call("chatonlm_ask", { question: "hi", model: "gpt-oss:120b-cloud" })
-      .reply();
-    expect(byName.result?.isError).toBe(true);
+    for (const model of [
+      "@remote/openrouter/qwen/qwen3-coder",
+      // Nom cloud d'Ollama (app 0.9.x).
+      "gpt-oss:120b-cloud",
+    ]) {
+      const byName = await env
+        .call("chatonlm_ask", { question: "hi", model })
+        .reply();
+      expect(byName.result?.isError).toBe(true);
+    }
     env.fake.handlers["models.details"] = (params) => ({
       model: params.model,
       remote: true,
@@ -457,11 +492,11 @@ describe("tools", () => {
       .call("chatonlm_ask", { question: "hi", model: "remote-model" })
       .reply();
     expect(reported.result?.isError).toBe(true);
-    expect(textOf(reported)).toMatch(/runs in the cloud/);
+    expect(textOf(reported)).toMatch(/runs outside this computer/);
     expect(env.fake.calls("chat.send")).toEqual([]);
   });
 
-  it("refuses an Ollama on another computer, for questions and the model list", async () => {
+  it("refuses the models of another computer (app 0.9.x), for questions and the model list", async () => {
     const env = await start();
     env.fake.local = false;
     env.fake.handlers["chat.send"] = () => ({ chatId: null, outcome: "done" });
@@ -480,7 +515,7 @@ describe("tools", () => {
     expect(env.fake.calls("models.list")).toEqual([]);
   });
 
-  it("counts every model as off this computer when the app's Ollama is elsewhere", async () => {
+  it("counts every model as off this computer when the app's models are elsewhere", async () => {
     const stub = (local: unknown): BridgeLike => ({
       call: <T>(method: string) => ({
         id: 1,
@@ -491,10 +526,10 @@ describe("tools", () => {
       cancel: () => {},
       onNotification: () => () => {},
     });
-    expect(await isCloud(stub(true), "qwen3:0.6b")).toBe(false);
-    expect(await isCloud(stub(false), "qwen3:0.6b")).toBe(true);
+    expect(await isRemote(stub(true), "qwen3:0.6b")).toBe(false);
+    expect(await isRemote(stub(false), "qwen3:0.6b")).toBe(true);
     // Ce que l'app ne dit pas : une autre machine.
-    expect(await isCloud(stub(undefined), "qwen3:0.6b")).toBe(true);
+    expect(await isRemote(stub(undefined), "qwen3:0.6b")).toBe(true);
   });
 
   it("passes on a refusal of agents by the app", async () => {
@@ -566,7 +601,7 @@ describe("tools", () => {
       .call("chatonlm_proofread", { text: "teh cat" })
       .reply();
     expect(textOf(reply)).toBe("the cat");
-    // Seulement sur cette machine : l'app refuse un modèle du cloud.
+    // Seulement sur cette machine : l'app refuse un modèle distant.
     expect(env.fake.calls("proofread.run")).toEqual([
       { text: "teh cat", mode: "correct", localOnly: true },
     ]);
@@ -581,7 +616,7 @@ describe("tools", () => {
           message: "The proofreading model doesn't run on this computer.",
         });
       }
-      return { text: "sent to the cloud" };
+      return { text: "sent to a provider" };
     };
     const reply = await env
       .call("chatonlm_proofread", { text: "teh cat" })

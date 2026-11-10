@@ -7,33 +7,42 @@
  * files app/ui/app/src/hooks/useModels.ts,
  * app/ui/app/src/hooks/useSelectedModel.ts and
  * app/ui/app/src/hooks/useFeaturedModels.ts, commit 42e911bc3d05.
- * Modified for ChatonLM: Tauri commands instead of HTTP calls; search and
- * order of the list done by the picker (src/lib/models.ts); cloud models only
- * once the "Use cloud models" setting is on (and the server cloud is not
- * turned off): otherwise a selected cloud model gives way to the most recently
- * installed one, saved; they come from the server's recommendations and from a
- * typed name found in the registry, not from /api/tags (the list of installed
- * models stays local); no VRAM-based default; the recommendations do not delay the model list
- * ("Loading..."); the registry is asked about a typed name 300 ms after the
- * last keystroke (debounce), not at each keystroke.
+ * Modified for ChatonLM: Tauri commands instead of HTTP calls, over the
+ * models of ChatonLM's own engine; search and order of the list done by the
+ * picker (src/lib/models.ts); remote models only while the "remote models"
+ * setting is on: otherwise a selected remote model gives way to the most
+ * recently installed local one, saved; recommendations from ChatonLM's own
+ * list (Hugging Face ids), read again when the context length setting
+ * changes (their memory needs depend on it); no VRAM-based default; the
+ * recommendations do not delay the model list ("Loading..."); a typed
+ * Hugging Face id is looked up on Hugging Face (repository card of the
+ * ModelHub) 300 ms after the last keystroke (debounce), not at each
+ * keystroke; the model of a chat from before ChatonLM 0.10 (an old Ollama
+ * name) becomes the selected model under its new id, never under a name the
+ * engine no longer knows.
  */
 
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RecommendedModel } from "@/bindings/RecommendedModel";
 import { useChat } from "@/hooks/useChats";
-import { useCloudStatus } from "@/hooks/useCloudStatus";
 import { useSettings } from "@/hooks/useSettings";
-import { isCloudModel } from "@/lib/dictation";
-import { listModels, modelExistsUpstream, recommendedModels } from "@/lib/ipc";
-import { chatModel, defaultModel, selectedEntry } from "@/lib/models";
+import { hubRepo, listModels, recommendedModels } from "@/lib/ipc";
+import { isRemoteModel, sameModel } from "@/lib/modelNames";
+import {
+  chatModel,
+  defaultModel,
+  restoredModel,
+  selectedEntry,
+  type TypedRepo,
+  upstreamModel,
+} from "@/lib/models";
 
 export const modelsKey = ["models"] as const;
 export const recommendedKey = ["recommendedModels"] as const;
-export const upstreamKey = (model: string) =>
-  ["modelExistsUpstream", model] as const;
+export const upstreamKey = (repo: string) => ["modelUpstream", repo] as const;
 
-/** Attente après la dernière frappe avant d'interroger le registre. */
+/** Attente après la dernière frappe avant d'interroger Hugging Face. */
 export const UPSTREAM_DEBOUNCE_MS = 300;
 
 const NO_MODELS: readonly RecommendedModel[] = [];
@@ -53,14 +62,19 @@ export function useModels() {
 }
 
 /**
- * Modèles recommandés par le serveur Ollama (cloud compris, avec leur
- * forfait), en tête du sélecteur ; liste vide tant qu'elle n'est pas lue, ou
- * si elle ne peut pas l'être.
+ * Modèles recommandés (identifiants Hugging Face, avec la mémoire qu'il leur
+ * faut au contexte réglé, et la pastille « tient ou non »), en tête du
+ * sélecteur ; liste vide tant qu'elle n'est pas lue, ou si elle ne peut pas
+ * l'être. Le contexte réglé fait partie de la clé : le changer relit la
+ * liste (comme les estimations du ModelHub, useHub.ts).
  */
 export function useRecommendedModels(): readonly RecommendedModel[] {
+  const { settings } = useSettings();
   const { data } = useQuery({
-    queryKey: recommendedKey,
+    queryKey: [...recommendedKey, settings?.contextLength ?? null],
     queryFn: recommendedModels,
+    // Réglages pas encore lus : la clé ne serait pas la bonne.
+    enabled: settings !== undefined,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -69,55 +83,47 @@ export function useRecommendedModels(): readonly RecommendedModel[] {
 }
 
 /**
- * Modèles cloud permis : réglage « Use cloud models » activé et cloud du
- * serveur pas coupé (`/api/status`, lu seulement une fois le réglage activé ;
- * inconnu : permis, le moteur refusera ce que le serveur refuse). Réglages
- * pas encore lus : non permis.
+ * Identifiant à proposer pour un dépôt de Hugging Face tapé dans le
+ * sélecteur (version demandée, sinon celle conseillée pour la machine), ou
+ * null ; `typed` null : rien à chercher. Hugging Face n'est interrogé
+ * qu'après 300 ms sans changement ; une erreur (hors ligne) vaut « absent ».
  */
-export function useCloudModels(): boolean {
-  const { settings } = useSettings();
-  const on = settings?.remoteModels ?? false;
-  const { cloudDisabled } = useCloudStatus({ enabled: on });
-  return on && !cloudDisabled;
-}
-
-/**
- * `name` s'il existe au registre, sinon null ; vide : rien à chercher. Le
- * registre n'est interrogé qu'après 300 ms sans changement du nom ; une
- * erreur (registre injoignable) vaut « absent ».
- */
-export function useUpstreamModel(name: string): string | null {
-  // Dernier nom resté 300 ms sans changer.
+export function useUpstreamModel(typed: TypedRepo | null): string | null {
+  const repo = typed?.repo ?? "";
+  // Dernier dépôt resté 300 ms sans changer.
   const [settled, setSettled] = useState("");
   useEffect(() => {
-    if (!name) return;
-    const timer = setTimeout(() => setSettled(name), UPSTREAM_DEBOUNCE_MS);
+    if (!repo) return;
+    const timer = setTimeout(() => setSettled(repo), UPSTREAM_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [name]);
-  const ready = name !== "" && settled === name;
-  // Clé du nom stabilisé : pas d'entrée de cache par frappe.
+  }, [repo]);
+  const ready = repo !== "" && settled === repo;
+  // Clé du dépôt stabilisé : pas d'entrée de cache par frappe.
   const { data } = useQuery({
     queryKey: upstreamKey(settled),
-    queryFn: () => modelExistsUpstream(settled),
+    queryFn: () => hubRepo(settled),
     enabled: ready,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
-  return ready && data === true ? name : null;
+  return ready && data ? upstreamModel(data.repo, typed?.quant ?? null) : null;
 }
 
 /**
  * Modèle choisi (réglage global) et modèles installés. À l'ouverture d'une
- * conversation, son dernier modèle redevient le modèle choisi ; sans modèle
- * choisi, le plus récemment installé est pris ; un modèle cloud choisi alors
- * qu'ils ne sont pas permis laisse la place au plus récemment installé (ou à
- * aucun), comme l'officiel quand le cloud est coupé, mais enregistré.
+ * conversation, son dernier modèle redevient le modèle choisi (un ancien nom
+ * d'Ollama, retrouvé sous son nouvel identifiant, voir restoredModel) ; sans modèle
+ * choisi, le plus récemment installé est pris ; un modèle distant choisi
+ * alors qu'ils ne sont pas permis laisse la place au plus récemment
+ * installé (ou à aucun), comme l'officiel quand le cloud est coupé, mais
+ * enregistré.
  */
 export function useSelectedModel(chatId?: string) {
   const { settings, setSettings } = useSettings();
   const { data: models, isLoading, isSuccess } = useModels();
   const { data: chat } = useChat(chatId && chatId !== "new" ? chatId : "");
-  const cloud = useCloudModels();
+  // Réglages pas encore lus : non permis.
+  const remote = settings?.remoteModels ?? false;
   const selectedName = settings?.selectedModel ?? "";
   const installed = useMemo(() => models ?? [], [models]);
   const selected = useMemo(
@@ -130,31 +136,61 @@ export function useSelectedModel(chatId?: string) {
 
   useEffect(() => {
     if (!chatId || chatId === "new" || !chat || !settings) return;
+    // Liste pas encore lue : un ancien nom ne serait pas retrouvé.
+    if (!isSuccess) return;
     if (restoredChatRef.current === chatId) return;
     restoredChatRef.current = chatId;
-    const model = chatModel(chat.messages);
-    // Modèle cloud pas permis : le modèle choisi reste (le repli plus bas
-    // l'aurait remplacé par un autre que celui de l'utilisateur).
-    if (model && model !== selectedName && (cloud || !isCloudModel(model))) {
-      void setSettings({ selectedModel: model });
+    const name = chatModel(chat.messages);
+    // Modèle distant pas permis, modèle repris puis supprimé : le modèle
+    // choisi reste (le repli plus bas l'aurait remplacé par un autre que
+    // celui de l'utilisateur).
+    const restored = name ? restoredModel(installed, name, remote) : null;
+    if (!restored || sameModel(restored.model, selectedName)) return;
+    if (restored.kind === "adopt") {
+      void setSettings({ selectedModel: restored.model });
+      return;
     }
-  }, [chatId, chat, settings, cloud, selectedName, setSettings]);
+    // Ancien nom d'une conversation d'avant la 0.10 : le moteur le traduit
+    // à l'enregistrement s'il a été repris (réglages rendus) ; resté tel
+    // quel, il ne désigne aucun modèle (l'envoi échouerait) : le modèle
+    // choisi d'avant revient.
+    const previous = selectedName;
+    void setSettings({ selectedModel: restored.model }).then(
+      (saved) => {
+        if (sameModel(saved.selectedModel, restored.model)) {
+          void setSettings({ selectedModel: previous });
+        }
+      },
+      () => {},
+    );
+  }, [
+    chatId,
+    chat,
+    settings,
+    isSuccess,
+    installed,
+    remote,
+    selectedName,
+    setSettings,
+  ]);
 
   useEffect(() => {
     if (!isSuccess || !settings || selectedName) return;
-    const fallback = defaultModel(installed, cloud);
+    const fallback = defaultModel(installed);
     if (fallback) void setSettings({ selectedModel: fallback });
-  }, [isSuccess, settings, cloud, selectedName, installed, setSettings]);
+  }, [isSuccess, settings, selectedName, installed, setSettings]);
 
-  // Modèle cloud qui n'est pas (ou plus) permis : rien ne doit y partir. Le
-  // remplaçant n'est jamais lui-même un nom de modèle cloud (sinon l'effet
+  // Modèle distant qui n'est pas (ou plus) permis : rien ne doit y partir. Le
+  // remplaçant n'est jamais lui-même un modèle distant (sinon l'effet
   // repartirait sans fin).
   useEffect(() => {
-    if (!isSuccess || !settings || cloud || !isCloudModel(selectedName)) return;
-    const fallback = defaultModel(installed, false) ?? "";
+    if (!isSuccess || !settings || remote || !isRemoteModel(selectedName)) {
+      return;
+    }
+    const fallback = defaultModel(installed) ?? "";
     if (fallback !== selectedName)
       void setSettings({ selectedModel: fallback });
-  }, [isSuccess, settings, cloud, selectedName, installed, setSettings]);
+  }, [isSuccess, settings, remote, selectedName, installed, setSettings]);
 
   const select = useCallback(
     (model: string) => setSettings({ selectedModel: model }),

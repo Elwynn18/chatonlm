@@ -2,12 +2,11 @@
 // conseillés pour nettoyer la transcription de la dictée (mesures du contrat
 // 42 § 0), identifiants de Hugging Face téléchargés par le ModelHub (onglet
 // Downloads, base locale des modèles) ; installés : ceux de la base locale
-// (hub_installed), plus ceux d'Ollama (list_models, noms `hf.co/…`) pendant
-// le passage à llama-server. « Use for polish » règle le modèle de la
+// (hub_installed et list_models). « Use for polish » règle le modèle de la
 // dictée, « In use » pour celui qui l'est. Tout autre modèle installé se
 // choisit dans les réglages. Base locale pas encore lue : ni Download ni
-// Use, puisqu'on ne sait pas ce qui est installé. Ollama injoignable : dit,
-// puisque le nettoyage passe encore par lui.
+// Use, puisqu'on ne sait pas ce qui est installé. Liste des modèles
+// illisible : dit.
 
 import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
@@ -49,12 +48,12 @@ export function PolishModels() {
   const { settings } = useDictationSettings();
   const names = [
     ...(local.data ?? []).map((model) => model.model),
-    ...(models.data ?? []).map((model) => model.model),
+    ...(models.data ?? []).map((model) => model.id),
   ];
   // Base locale lue (même ancienne) ; sinon on ne sait pas ce qui est
   // installé.
   const read = local.data !== undefined;
-  // Échec d'Ollama, même pendant les nouveaux essais de useModels.
+  // Liste illisible, même pendant les nouveaux essais de useModels.
   const unreachable =
     models.data === undefined && (models.isError || models.failureCount > 0);
   return (

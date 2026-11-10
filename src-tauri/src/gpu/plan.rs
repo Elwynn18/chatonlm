@@ -9,7 +9,8 @@
 
 use serde::Serialize;
 
-use crate::ollama::running::{RunningModel, same_model};
+use crate::local_models::id::same_model;
+use crate::ollama::running::RunningModel;
 
 const GIB: u64 = 1024 * 1024 * 1024;
 

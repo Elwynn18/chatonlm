@@ -1,10 +1,10 @@
 //! Machine d'états de la dictée, avec faux micro, moteur, presse-papiers et
-//! notifications ; nettoyage par le faux serveur Ollama.
+//! notifications ; nettoyage par le faux moteur (`FakeBench`).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use fake_ollama::{FakeOllama, Mode};
+use crate::llm::testing::FakeBench;
 
 use super::audio::{Captured, Prerecorded, Recording};
 use super::clipboard::PasteError;
@@ -17,6 +17,10 @@ const WAIT: Duration = Duration::from_secs(10);
 const LISTENING: &str = "Listening…";
 const TRANSCRIBING: &str = "Transcribing…";
 const SPOKEN: &str = "hello world this is a dictation test";
+/// Modèles du nettoyage du banc : « Polished: » suivi du texte, ou un poème
+/// (écarté par le garde-fou).
+const POLISHER: &str = "test/Polisher-GGUF:Q4_K_M";
+const POEM: &str = "test/Poem-GGUF:Q4_K_M";
 
 /// « Parole » (syllabes : 250 ms de sinus à -13 dBFS, 150 ms de silence) à
 /// 48 kHz.
@@ -198,14 +202,12 @@ impl Recognizer for FakeRecognizer {
 struct FakeHost {
     settings: Mutex<DictationSettings>,
     models_dir: tempfile::TempDir,
-    server: String,
-    /// Contexte et `keep_alive` des réglages de l'app.
-    context_length: Mutex<u32>,
-    keep_alive: Mutex<i64>,
+    /// Accès au faux moteur (réglages de l'app dans sa base).
+    access: crate::llm::Access,
     trigger: Mutex<Option<String>>,
     phases: Mutex<Vec<DictationPhase>>,
-    /// Lectures du serveur (adresse d'Ollama) ; retenues jusqu'au feu vert
-    /// si une barrière est posée (Ollama intégré qui démarre).
+    /// Lectures du serveur (accès et réglages de l'app) ; retenues jusqu'au
+    /// feu vert si une barrière est posée.
     server_reads: AtomicUsize,
     server_gate: Mutex<Option<Arc<tokio::sync::Notify>>>,
 }
@@ -223,19 +225,15 @@ impl Host for FakeHost {
 
     fn server(&self) -> BoxFuture<Result<Server, String>> {
         self.server_reads.fetch_add(1, Ordering::SeqCst);
-        let server = Server {
-            url: self.server.clone(),
-            context_length: *self.context_length.lock(),
-            keep_alive: *self.keep_alive.lock(),
-            cloud: false,
-            ..crate::chat::Server::detached()
-        };
+        let access = self.access.clone();
         let gate = self.server_gate.lock().clone();
         Box::pin(async move {
             if let Some(gate) = gate {
                 gate.notified().await;
             }
-            Ok(server)
+            Server::current(&access)
+                .await
+                .map_err(|error| error.to_string())
         })
     }
 
@@ -251,18 +249,18 @@ struct Rig {
     clipboard: Arc<FakeClipboard>,
     notifier: Arc<FakeNotifier>,
     model: Arc<Model>,
-    server: FakeOllama,
+    bench: FakeBench,
 }
 
 /// Dictée activée, whisper-tiny installé (fichier creux à la bonne taille),
-/// nettoyage par `polish_model` sur le faux serveur.
+/// nettoyage par `polish_model` sur le faux moteur.
 async fn rig(polish_model: &str) -> Rig {
     rig_on(polish_model, |_| Ok(())).await
 }
 
 /// [`rig`] sur une machine dont `support` dit quels moteurs y tournent.
 async fn rig_on(polish_model: &str, support: fn(SpeechEngine) -> Result<(), String>) -> Rig {
-    let server = FakeOllama::start(Mode::ollama()).await.unwrap();
+    let bench = FakeBench::new(&[(POLISHER, "polisher"), (POEM, "polisher-poem")]);
     let models_dir = tempfile::tempdir().unwrap();
     let tiny = models::find("whisper-tiny").unwrap();
     let dir = models_dir.path().join(tiny.id);
@@ -286,9 +284,7 @@ async fn rig_on(polish_model: &str, support: fn(SpeechEngine) -> Result<(), Stri
             auto_paste: false,
         }),
         models_dir,
-        server: server.url(),
-        context_length: Mutex::new(0),
-        keep_alive: Mutex::new(0),
+        access: bench.access.clone(),
         trigger: Mutex::new(Some("Ctrl+Alt+D".into())),
         phases: Mutex::new(Vec::new()),
         server_reads: AtomicUsize::new(0),
@@ -330,11 +326,42 @@ async fn rig_on(polish_model: &str, support: fn(SpeechEngine) -> Result<(), Stri
         clipboard,
         notifier,
         model,
-        server,
+        bench,
     }
 }
 
 impl Rig {
+    /// Requêtes de chat reçues par le processus du modèle `id`.
+    async fn chat_requests(&self, id: &str) -> Vec<serde_json::Value> {
+        let session = self
+            .bench
+            .access
+            .open(
+                id,
+                crate::llm::OpenOptions::default(),
+                &tokio_util::sync::CancellationToken::new(),
+                &|| {},
+            )
+            .await
+            .unwrap();
+        let url = format!("{}/fake/requests", session.endpoint.base_url);
+        let all: Vec<serde_json::Value> = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(url)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        all.into_iter()
+            .filter(|request| request["path"] == "/v1/chat/completions")
+            .map(|request| request["body"].clone())
+            .collect()
+    }
+
     fn host(&self) -> Arc<dyn Host> {
         self.host.clone()
     }
@@ -415,9 +442,9 @@ impl Rig {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_dictation_is_transcribed_polished_copied_and_notified() {
-    let rig = rig("chatonlm-polish").await;
+    let rig = rig(POLISHER).await;
     rig.dictate().await;
     let polished = format!("Polished: {SPOKEN}");
     assert_eq!(
@@ -457,9 +484,9 @@ async fn a_dictation_is_transcribed_polished_copied_and_notified() {
 /// rust-2 : le micro s'ouvre sans attendre Ollama (l'intégré peut démarrer
 /// pendant que l'on parle) ; le serveur n'est lu qu'au moment du nettoyage,
 /// et jamais sans modèle de nettoyage.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_microphone_opens_without_waiting_for_ollama() {
-    let rig = rig("chatonlm-polish").await;
+    let rig = rig(POLISHER).await;
     let gate = Arc::new(tokio::sync::Notify::new());
     *rig.host.server_gate.lock() = Some(gate.clone());
     rig.toggle();
@@ -483,31 +510,31 @@ async fn the_microphone_opens_without_waiting_for_ollama() {
 }
 
 /// Le nettoyage charge le modèle comme le chat : contexte et durée en
-/// mémoire réglés dans l'app (onglet Models), rien d'envoyé par défaut.
-#[tokio::test]
+/// mémoire réglés dans l'app (onglet Models).
+#[tokio::test(flavor = "multi_thread")]
 async fn the_polish_loads_the_model_as_set_in_the_app() {
-    for (context_length, keep_alive) in [(0, 0), (8192, 300), (0, -1)] {
+    for (context_length, keep_alive) in [(8192, 300), (0, -1)] {
         let case = format!("{context_length} {keep_alive}");
-        let rig = rig("chatonlm-polish").await;
-        *rig.host.context_length.lock() = context_length;
-        *rig.host.keep_alive.lock() = keep_alive;
+        let rig = rig(POLISHER).await;
+        rig.bench.set(crate::store::settings::SettingsPatch {
+            context_length: Some(context_length),
+            keep_alive: Some(keep_alive),
+            ..Default::default()
+        });
         rig.dictate().await;
         assert!(rig.last_result().unwrap().polished, "{case}");
-        let request = rig.server.chat_requests().pop().unwrap();
-        let sent = (keep_alive != 0).then_some(keep_alive);
-        assert_eq!(
-            request
-                .get("keep_alive")
-                .and_then(serde_json::Value::as_i64),
-            sent,
-            "{case}"
-        );
-        let context = (context_length > 0).then_some(u64::from(context_length));
-        assert_eq!(request["options"]["num_ctx"].as_u64(), context, "{case}");
+        let running = rig.bench.engine().running();
+        assert_eq!(running.len(), 1, "{case}");
+        if context_length > 0 {
+            assert_eq!(running[0].context_length, context_length, "{case}");
+        }
+        // Gardé en mémoire (`-1`), ou jusqu'à une échéance.
+        assert_eq!(running[0].kept, keep_alive < 0, "{case}");
+        rig.bench.shutdown().await;
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn without_polish_the_transcript_is_copied_and_can_stay_hidden() {
     let rig = rig("").await;
     {
@@ -538,9 +565,9 @@ async fn without_polish_the_transcript_is_copied_and_can_stay_hidden() {
     assert!(!rig.host.phases.lock().contains(&DictationPhase::Polishing));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_rejected_polish_copies_the_raw_transcript() {
-    let rig = rig("chatonlm-polish-poem").await;
+    let rig = rig(POEM).await;
     *rig.host.trigger.lock() = None;
     *rig.model.text.lock() = "the <b>bold</b> & brave".into();
     rig.dictate().await;
@@ -565,7 +592,7 @@ async fn a_rejected_polish_copies_the_raw_transcript() {
 /// Copie automatique coupée : rien dans le presse-papiers, pas d'erreur ; la
 /// notification « Transcription ready » propose « Copy », qui copie le texte
 /// de ce résultat.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn without_auto_copy_the_notification_offers_copy() {
     let rig = rig("").await;
     rig.host.settings.lock().auto_copy = false;
@@ -589,9 +616,9 @@ async fn without_auto_copy_the_notification_offers_copy() {
     assert!(rig.last_result().unwrap().copied);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn without_auto_copy_a_skipped_polish_is_still_said() {
-    let rig = rig("chatonlm-polish-poem").await;
+    let rig = rig(POEM).await;
     {
         let mut settings = rig.host.settings.lock();
         settings.auto_copy = false;
@@ -611,9 +638,9 @@ async fn without_auto_copy_a_skipped_polish_is_still_said() {
 
 /// Collage activé : le texte est copié, puis collé là où se trouve le
 /// curseur (Ctrl+V après la copie) ; la notification le dit.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn auto_paste_pastes_the_copied_text_where_the_cursor_is() {
-    let rig = rig("chatonlm-polish").await;
+    let rig = rig(POLISHER).await;
     rig.host.settings.lock().auto_paste = true;
     rig.dictate().await;
     let polished = format!("Polished: {SPOKEN}");
@@ -625,7 +652,7 @@ async fn auto_paste_pastes_the_copied_text_where_the_cursor_is() {
     assert_eq!(Title::Pasted.text(), "Text pasted");
 
     // Nettoyage écarté : collé quand même, le titre le dit.
-    let raw = self::rig("chatonlm-polish-poem").await;
+    let raw = self::rig(POEM).await;
     raw.host.settings.lock().auto_paste = true;
     raw.dictate().await;
     assert_eq!(*raw.clipboard.pastes.lock(), [Some(SPOKEN.into())]);
@@ -637,7 +664,7 @@ async fn auto_paste_pastes_the_copied_text_where_the_cursor_is() {
 
 /// Collage impossible : le texte reste copié, la notification et le
 /// résultat disent pourquoi et de coller par Ctrl+V.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_failed_paste_leaves_the_text_copied_and_says_why() {
     for (error, reason) in [
         (
@@ -692,7 +719,7 @@ async fn a_failed_paste_leaves_the_text_copied_and_says_why() {
 /// Dictée abandonnée pendant le collage (boîte d'autorisation du bureau
 /// ouverte) : le collage va à son terme (session du portail fermée), sans
 /// résultat ni notification de fin.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_dictation_cancelled_while_pasting_lets_the_paste_finish() {
     let rig = rig("").await;
     rig.host.settings.lock().auto_paste = true;
@@ -717,7 +744,7 @@ async fn a_dictation_cancelled_while_pasting_lets_the_paste_finish() {
 
 /// Essai lancé depuis la page : copié, jamais collé (le curseur est dans
 /// ChatonLM).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_dictation_started_from_the_page_is_not_pasted() {
     let rig = rig("").await;
     rig.host.settings.lock().auto_paste = true;
@@ -740,7 +767,7 @@ async fn a_dictation_started_from_the_page_is_not_pasted() {
 
 /// Rien n'est collé sans le réglage, sans copie automatique (le
 /// presse-papiers n'a pas le texte), si la copie échoue, ni par « Copy ».
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn nothing_is_pasted_without_the_text_in_the_clipboard() {
     let off = rig("").await;
     off.dictate().await;
@@ -774,7 +801,7 @@ async fn nothing_is_pasted_without_the_text_in_the_clipboard() {
 
 /// L'action d'une notification plus ancienne copie son propre texte, sans
 /// marquer le résultat suivant comme copié.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn an_older_copy_action_copies_its_own_text_only() {
     let rig = rig("").await;
     rig.host.settings.lock().auto_copy = false;
@@ -789,7 +816,7 @@ async fn an_older_copy_action_copies_its_own_text_only() {
     assert!(!last.copied);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn copy_last_copies_the_last_text() {
     let rig = rig("").await;
     assert_eq!(rig.core.copy_last().await, Err(CopyError::Nothing));
@@ -813,7 +840,7 @@ async fn copy_last_copies_the_last_text() {
     assert!(rig.last_result().unwrap().copied);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_clipboard_failure_keeps_the_text_in_the_result() {
     let rig = rig("").await;
     *rig.clipboard.fail.lock() = Some("no data-control protocol".into());
@@ -829,7 +856,7 @@ async fn a_clipboard_failure_keeps_the_text_in_the_result() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn start_is_refused_without_a_usable_model_or_when_turned_off() {
     let rig = rig("").await;
     let refused = |rig: &Rig| {
@@ -862,7 +889,7 @@ async fn start_is_refused_without_a_usable_model_or_when_turned_off() {
 /// Moteur que la machine ne peut pas faire tourner (Whisper sans AVX2,
 /// Parakeet sans ONNX Runtime) : refusé avant d'ouvrir le micro, avec le
 /// refus de `support`, et le modèle jamais chargé.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn an_engine_this_machine_cannot_run_is_refused_before_listening() {
     let rig = rig_on("", |engine| {
         assert_eq!(engine, SpeechEngine::Whisper);
@@ -880,7 +907,7 @@ async fn an_engine_this_machine_cannot_run_is_refused_before_listening() {
     assert!(rig.clipboard.copied.lock().is_empty());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn microphone_errors_are_reported() {
     let rig = rig("").await;
     *rig.microphone.captured.lock() = Err(audio::no_microphone());
@@ -896,7 +923,7 @@ async fn microphone_errors_are_reported() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_short_press_is_dropped_silently() {
     let rig = rig("").await;
     *rig.microphone.captured.lock() = Ok(speech(0.2));
@@ -907,7 +934,7 @@ async fn a_short_press_is_dropped_silently() {
     assert_eq!(rig.model.transcriptions.load(Ordering::SeqCst), 0);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn silence_is_not_transcribed() {
     let rig = rig("").await;
     *rig.microphone.captured.lock() = Ok(Captured {
@@ -930,7 +957,7 @@ async fn silence_is_not_transcribed() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn cancel_drops_the_recording() {
     let rig = rig("").await;
     rig.toggle();
@@ -945,7 +972,7 @@ async fn cancel_drops_the_recording() {
     assert!(!rig.core.cancel(), "nothing left to cancel");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn cancel_during_transcription_discards_the_result() {
     let rig = rig("").await;
     let (go, gate) = std::sync::mpsc::channel();
@@ -982,7 +1009,7 @@ async fn cancel_during_transcription_discards_the_result() {
 
 /// Abandon pendant que la tâche ne peut pas être interrompue (copie qui
 /// bloque sans rendre la main) : sa fin ne touche plus à rien.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_task_cancelled_too_late_to_stop_changes_nothing() {
     let rig = rig("").await;
     let (go, gate) = std::sync::mpsc::channel();
@@ -1013,7 +1040,7 @@ async fn a_task_cancelled_too_late_to_stop_changes_nothing() {
 /// Fermeture de l'app pendant le chargement anticipé du modèle : elle
 /// attend sa fin (sinon whisper.cpp plante à la sortie), et plus aucune
 /// dictée ne commence ensuite.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn shutdown_waits_for_the_model_and_nothing_starts_after() {
     let rig = rig("").await;
     *rig.model.load_delay.lock() = Duration::from_millis(400);
@@ -1038,7 +1065,7 @@ async fn shutdown_waits_for_the_model_and_nothing_starts_after() {
 
 /// Abandon pendant la transcription d'une longue dictée : elle s'arrête au
 /// morceau suivant au lieu d'aller au bout (le moteur se libère).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn cancel_stops_a_long_transcription_between_chunks() {
     let rig = rig("").await;
     // 100 s à 16 kHz (pas de rééchantillonnage) : 3 morceaux.
@@ -1069,7 +1096,7 @@ async fn cancel_stops_a_long_transcription_between_chunks() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_stop_before_the_microphone_opens_is_kept() {
     let rig = rig("").await;
     // Bascule deux fois de suite : l'arrêt attend l'ouverture du micro.
@@ -1080,7 +1107,7 @@ async fn a_stop_before_the_microphone_opens_is_kept() {
     assert_eq!(rig.microphone.opens.load(Ordering::SeqCst), 1);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_recording_stops_by_itself_at_the_limit() {
     let mut rig = rig("").await;
     let core = Arc::get_mut(&mut rig.core).unwrap();
@@ -1109,7 +1136,7 @@ fn listening_tells_how_to_stop() {
 /// Séance du mode vocal : la dictée refuse de démarrer (avis d'échec), ne
 /// libère pas le modèle qu'elle partage, puis redémarre à la fin de la
 /// séance ; une dictée en cours empêche la réservation.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_voice_mode_holds_the_dictation_back() {
     let rig = rig("").await;
     assert!(rig.core.reserve());
@@ -1201,9 +1228,9 @@ impl Rig {
 /// ni collage, ni notification, ni « Last dictation ») ; glossaire de la
 /// séance ajouté au dictionnaire pour Whisper et le nettoyage, sans toucher
 /// aux réglages ; l'interrupteur de la dictée (raccourci) ne compte pas.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn an_editor_dictation_gives_its_text_to_the_editor_only() {
-    let rig = rig("chatonlm-polish").await;
+    let rig = rig(POLISHER).await;
     {
         let mut settings = rig.host.settings.lock();
         settings.dictionary = vec!["ChatonLM".into()];
@@ -1250,7 +1277,7 @@ async fn an_editor_dictation_gives_its_text_to_the_editor_only() {
         request.project,
         vec!["GpuChief".to_owned(), "use_dictation".to_owned()]
     );
-    let request = rig.server.chat_requests().pop().unwrap();
+    let request = rig.chat_requests(POLISHER).await.pop().unwrap();
     let system = request["messages"][0]["content"].as_str().unwrap();
     assert!(
         system.contains("Spell these words exactly as written: ChatonLM, GpuChief, use_dictation."),
@@ -1272,7 +1299,7 @@ async fn an_editor_dictation_gives_its_text_to_the_editor_only() {
 /// Une seule dictée dans l'app : l'éditeur est refusé si l'app (raccourci,
 /// page), le mode vocal ou une autre connexion l'occupe ; une dictée
 /// d'éditeur empêche le mode vocal.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn an_editor_dictation_is_refused_while_the_dictation_is_busy() {
     let rig = rig("").await;
     let link = FakeLink::new(1, &[]);
@@ -1317,7 +1344,7 @@ async fn an_editor_dictation_is_refused_while_the_dictation_is_busy() {
 /// Le micro de l'éditeur se ferme quand sa connexion s'en va (abandon de sa
 /// dictée, pas d'une autre), au bouton du bandeau, à la fermeture de l'app ;
 /// rien ne lui est rendu, il apprend `idle`.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_microphone_of_an_editor_closes_when_it_goes() {
     let rig = rig("").await;
     let link = FakeLink::new(4, &[]);
@@ -1352,7 +1379,7 @@ async fn the_microphone_of_an_editor_closes_when_it_goes() {
 /// Arrêt pendant le démarrage (micro qui s'ouvre) : le démarrage répond
 /// « arrêtée », le micro ouvert ensuite se referme aussitôt, l'éditeur
 /// n'apprend aucune phase. Même chose si sa connexion se ferme avant.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_stop_while_the_editor_microphone_opens_closes_it() {
     let rig = rig("").await;
     for stop_by_request in [true, false] {
@@ -1390,7 +1417,7 @@ async fn a_stop_while_the_editor_microphone_opens_closes_it() {
 
 /// Refus avant d'écouter, rendus au démarrage : modèle absent (même s'il
 /// est réglé), micro ; un échec après l'ouverture va à l'éditeur.
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn an_editor_start_says_why_it_cannot_listen() {
     let rig = rig("").await;
     rig.host.settings.lock().speech_model = "whisper-base".into();

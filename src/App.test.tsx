@@ -1,4 +1,4 @@
-// L'app entière (base vérifiée, réglages, ServerGate, routeur de l'app) face au
+// L'app entière (base vérifiée, réglages, routeur de l'app) face au
 // simulateur : écran d'erreur des réglages, premier démarrage.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

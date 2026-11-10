@@ -17,8 +17,10 @@ mkdir -p "$TMPDIR" "$root/.tools/logs"
 
 log="$root/.tools/logs/e2e-build.log"
 # L'app, puis les faux serveurs dont se servent les tests (même dossier
-# cible) : Ollama, et les messageries d'Easy Link.
+# cible) : moteur de texte (fake-llama, aussi auteur des GGUF d'essai),
+# Hugging Face et Ollama (fake-ollama), et les messageries d'Easy Link.
 if ! node_modules/.bin/tauri build --debug --no-bundle --features e2e "$@" >"$log" 2>&1 ||
+  ! cargo build --manifest-path src-tauri/Cargo.toml -p fake-llama >>"$log" 2>&1 ||
   ! cargo build --manifest-path src-tauri/Cargo.toml -p fake-ollama >>"$log" 2>&1 ||
   ! cargo build --manifest-path src-tauri/Cargo.toml -p easy-link --features fake \
     --bin fake-messengers >>"$log" 2>&1; then

@@ -70,6 +70,14 @@ export function texts(role: "user" | "assistant") {
   );
 }
 
+/**
+ * Identifiant du modèle montré par le sélecteur (`data-model-id`) : le texte
+ * du bouton n'est que le titre et l'étiquette d'un modèle de Hugging Face.
+ */
+export function shownModel() {
+  return screen.getByTitle("Select model").getAttribute("data-model-id");
+}
+
 /** Zone de saisie. */
 export function composer() {
   return screen.getByLabelText("Message") as HTMLTextAreaElement;

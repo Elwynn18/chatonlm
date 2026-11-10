@@ -13,6 +13,8 @@ playwright-report/
 blob-report/
 # Réponses enregistrées d'Ollama (scripts/record-fixtures.sh), gardées telles quelles.
 src-tauri/crates/fake-ollama/fixtures/
+# Réponses enregistrées du vrai llama-server (scripts/record-fixtures.sh), gardées telles quelles.
+src-tauri/crates/fake-llama/fixtures/
 # Références de Pocket TTS écrites par scripts/tts/fixtures.py, gardées telles quelles.
 src-tauri/src/tts/fixtures/
 # Gabarits du site (marques {{…}}, SVG écrits à la main) : gardés tels quels.

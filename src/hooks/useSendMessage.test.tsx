@@ -189,9 +189,13 @@ describe("useSendMessage", () => {
     },
   );
   it.each([
-    ["webSearchUnavailable", true],
-    ["model", false],
-  ] as const)("a %s error re-reads the account: %s", async (kind, reread) => {
+    ["engineUnavailable", '["engineStatus"]', true],
+    ["engineFailed", '["engineStatus"]', true],
+    ["connectionLost", '["engineStatus"]', true],
+    ["model", '["engineStatus"]', false],
+    ["modelMissing", '["models"]', true],
+    ["model", '["models"]', false],
+  ] as const)("a %s error re-reads %s: %s", async (kind, key, reread) => {
     const { client, result } = setup((onEvent) => {
       onEvent.onmessage({ type: "chatCreated", chatId: "c1" });
       onEvent.onmessage({ type: "error", kind, message: "x" });
@@ -206,7 +210,7 @@ describe("useSendMessage", () => {
       result.current.send({ chatId: "new", content: "Hi", model: "m" }),
     );
     expect(
-      invalidated.some((key) => JSON.stringify(key) === '["account"]'),
+      invalidated.some((queryKey) => JSON.stringify(queryKey) === key),
     ).toBe(reread);
   });
   it("re-reads the models and the downloaded model's details once the download is done", async () => {

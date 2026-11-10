@@ -7,7 +7,7 @@
     "ephemeralOn": "Start an ephemeral chat",
     "ephemeralOff": "Turn off ephemeral chat",
     "chooseModel": "Choose a model",
-    "cloudModel": "{model} (cloud)",
+    "remoteModel": "{model} (remote)",
     "keepThis": "Keep this chat"
   },
   "status": {
@@ -76,12 +76,12 @@
       "other": "~{count} tokens"
     },
     "local": "stays on this computer",
-    "cloud": "goes to the cloud",
+    "cloud": "goes to the model's provider",
     "remote": "goes to another computer",
     "unknown": "may leave this computer",
     "localDetail": "The model runs on this computer: nothing leaves it.",
-    "cloudDetail": "The model runs in the cloud: this text is sent over the network.",
-    "remoteDetail": "The model runs on another computer (model location set in ChatonLM): this text is sent over the network.",
+    "cloudDetail": "The model runs at an online provider: this text is sent over the network.",
+    "remoteDetail": "The model runs on another computer: this text is sent over the network.",
     "unknownDetail": "ChatonLM couldn't tell where the model runs: this text is handled as if it left this computer.",
     "bestEffort": "Secrets are removed as best as possible, from known patterns: check what you send.",
     "historyDetail": {
@@ -155,7 +155,7 @@
     "noTerminalError": "No terminal error available",
     "where": {
       "local": "The model runs on this computer: what you say stays on it.",
-      "cloud": "The model runs in the cloud: what you say is sent over the network.",
+      "cloud": "The model runs at an online provider: what you say is sent over the network.",
       "remote": "The model runs on another computer: what you say is sent over the network.",
       "unknown": "ChatonLM couldn't tell where the model runs: what you say is handled as if it left this computer."
     }

@@ -181,7 +181,7 @@ export function voicePhaseLabel(t: TFunction, voice: VoiceView): string {
 }
 
 /** Où part ce qui est dit pendant la séance (modèle de cette machine, d'une
- * autre, du cloud). */
+ * autre, ou distant chez un fournisseur). */
 export function voiceDestination(t: TFunction, voice: VoiceView): string {
   switch (voice.destination) {
     case "local":

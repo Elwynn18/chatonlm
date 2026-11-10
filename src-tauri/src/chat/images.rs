@@ -830,25 +830,22 @@ mod tests {
         /// mémoire (le serveur d'images ne prend que la VRAM libre).
         #[tokio::test(flavor = "multi_thread")]
         async fn the_completion_model_is_unloaded_before_an_image() {
-            let ollama = fake_ollama::FakeOllama::start(fake_ollama::Mode::ollama())
-                .await
-                .unwrap();
-            let url = ollama.url();
+            const CODER: &str = "a/coder-GGUF:Q4_K_M";
+            let bench = crate::llm::testing::FakeBench::new(&[(CODER, "fim")]);
             let chief = crate::gpu::GpuChief::default();
             let inputs = crate::gpu::Inputs {
-                server: crate::chat::Server {
-                    url: url.clone(),
-                    context_length: 0,
-                    keep_alive: 0,
-                    cloud: false,
-                    ..crate::chat::Server::detached()
-                },
-                chat_model: "qwen3:0.6b".into(),
+                server: crate::chat::Server::current(&bench.access).await.unwrap(),
+                chat_model: String::new(),
                 local: true,
                 busy: Box::new(|| false),
                 machine: None,
             };
-            chief.prepare(&inputs, "chatonlm-fim").await.unwrap();
+            chief.prepare(&inputs, CODER).await.unwrap();
+            assert_eq!(
+                bench.engine().running().len(),
+                1,
+                "the completion model is loaded"
+            );
             let (dir, root, cache) = (temp_dir(), temp_dir(), temp_dir());
             let store = Store::open_in_memory().unwrap();
             let engine = ImageGen::new(fake_config(dir.path()));
@@ -867,10 +864,11 @@ mod tests {
             };
             painter.paint(request, &mut |_| {}).await.unwrap();
             assert!(
-                crate::ollama::running::list(&url).await.unwrap().is_empty(),
+                bench.engine().running().is_empty(),
                 "the completion model left the memory"
             );
-            assert_eq!(ollama.load_requests().last().unwrap()["kind"], "unload");
+            engine.shutdown().await;
+            bench.shutdown().await;
         }
 
         #[tokio::test(flavor = "multi_thread")]

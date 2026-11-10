@@ -1,28 +1,35 @@
-//! Requête d'autocomplétion « fill in the middle » (FIM) à Ollama
-//! (`/api/generate`) : `suffix` si le modèle annonce la capacité `insert`
-//! (son gabarit construit le prompt), sinon `raw` avec les jetons FIM de sa
-//! famille (relevés dans `AutocompleteTemplate.ts` de Continue, MIT :
-//! rapport 87-c § 3.1). Options figées (`num_ctx`, `keep_alive`) : jamais de
-//! rechargement silencieux. Réponse en flux, coupée tôt ; premier jeton
-//! attendu au plus [`FIRST_TOKEN`], envoi compris (Ollama n'écrit les
-//! en-têtes de sa réponse qu'avec le premier jeton), sinon abandon
-//! (l'autocomplétion ne doit jamais faire attendre la frappe). Les jetons
-//! spéciaux écrits dans le code de l'utilisateur sont neutralisés (ils
-//! casseraient la structure FIM) ; préfixe et suffixe ramenés au contexte.
-//! Proposition finie par [`finish`] : sans la ligne inachevée qu'a coupée la
-//! limite de jetons, ni la boucle d'un petit modèle (lignes de même forme).
+//! Autocomplétion « fill in the middle » (FIM) par `/infill` de
+//! `llama-server` (lot L5a) : le serveur construit le prompt avec les jetons
+//! FIM du GGUF (`FIM_PRE`, `FIM_SUF`, `FIM_MID`), seulement pour un modèle qui
+//! les a (capacité `fim` de la base locale ; sans eux, `/infill` rend du
+//! texte sans valeur : refus clair, plus de voie `raw`). Le code de
+//! l'utilisateur est découpé en jetons sans jetons spéciaux (b12110,
+//! `format_prompt_infill`) : rien à neutraliser. Options figées (contexte,
+//! `keep_alive`) : jamais de rechargement silencieux. Réponse entière
+//! attendue au plus [`deadline`] (le premier jeton, puis un débit minimal),
+//! sinon abandon (l'autocomplétion ne doit jamais faire attendre la frappe)
+//! ; préfixe et suffixe ramenés au contexte. Proposition finie par
+//! [`finish`] : sans la ligne inachevée qu'a coupée la limite de jetons, ni
+//! la boucle d'un petit modèle (lignes de même forme). Mesures lues dans les
+//! `timings` du serveur.
+//!
+//! Familles et jetons d'arrêt relevés dans `AutocompleteTemplate.ts` de
+//! Continue (MIT : rapport 87-c § 3.1).
 
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
-use crate::ollama::client;
+use crate::inference::{self, Endpoint, InfillRequest, InfillStop, Timings};
 
 /// Délai du premier jeton.
 pub const FIRST_TOKEN: Duration = Duration::from_millis(1500);
 /// Durée d'une réponse, au plus.
 const TOTAL: Duration = Duration::from_secs(15);
+/// Temps permis par jeton produit après le premier (40 jetons/s au moins :
+/// en deçà, la mesure dit « trop lent »).
+const PER_TOKEN: Duration = Duration::from_millis(25);
 /// Jetons produits sans `maxTokens` : plusieurs lignes, ou une seule.
 pub const MULTILINE_TOKENS: u32 = 64;
 pub const LINE_TOKENS: u32 = 16;
@@ -32,7 +39,7 @@ pub const MAX_TOKENS: u32 = 256;
 pub const MAX_PREFIX: usize = 32_000;
 pub const MAX_SUFFIX: usize = 16_000;
 /// Température basse : la suite la plus probable.
-const TEMPERATURE: f64 = 0.2;
+const TEMPERATURE: f32 = 0.2;
 /// Caractères par jeton comptés pour borner le préfixe (prudent : le code
 /// en fait plutôt 3,5 à 4).
 const CHARS_PER_TOKEN: usize = 3;
@@ -41,11 +48,9 @@ const TEMPLATE_TOKENS: u32 = 64;
 /// Lignes de même forme à la suite à partir desquelles une proposition est
 /// vue comme une boucle du modèle (`int a = 0;`, `int b = 0;`…).
 const LOOP_LINES: usize = 4;
-/// Insécable de largeur nulle glissée après le premier caractère d'un jeton
-/// spécial écrit dans le code : le modèle le lit comme du texte.
-const BREAK: char = '\u{200B}';
 
-/// Familles dont les jetons FIM sont connus.
+/// Familles dont les jetons FIM sont connus (arrêts, et modèles de code
+/// reconnus par leur nom : `engine::auto`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Family {
     QwenCoder,
@@ -76,19 +81,6 @@ pub fn family(model: &str) -> Option<Family> {
 }
 
 impl Family {
-    /// Prompt `raw` : préfixe, suffixe, puis le milieu à écrire.
-    pub fn prompt(self, prefix: &str, suffix: &str) -> String {
-        match self {
-            Family::QwenCoder | Family::CodeGemma => {
-                format!("<|fim_prefix|>{prefix}<|fim_suffix|>{suffix}<|fim_middle|>")
-            }
-            Family::StarCoder => format!("<fim_prefix>{prefix}<fim_suffix>{suffix}<fim_middle>"),
-            Family::DeepSeekCoder => {
-                format!("<｜fim▁begin｜>{prefix}<｜fim▁hole｜>{suffix}<｜fim▁end｜>")
-            }
-        }
-    }
-
     /// Jetons qui finissent une proposition.
     pub fn stops(self) -> &'static [&'static str] {
         match self {
@@ -126,34 +118,6 @@ impl Family {
             ],
         }
     }
-}
-
-/// Jetons spéciaux de toutes les familles connues (FIM, fin de texte,
-/// tours de chat).
-fn special_tokens() -> impl Iterator<Item = &'static str> {
-    [
-        Family::QwenCoder,
-        Family::StarCoder,
-        Family::CodeGemma,
-        Family::DeepSeekCoder,
-    ]
-    .into_iter()
-    .flat_map(|family| family.stops().iter().copied())
-}
-
-/// Le code de l'utilisateur, ses jetons spéciaux neutralisés (un fichier
-/// qui parle de FIM, comme celui-ci, ne casse pas la demande).
-pub fn neutralize(code: &str) -> std::borrow::Cow<'_, str> {
-    let mut text = std::borrow::Cow::Borrowed(code);
-    for token in special_tokens() {
-        if text.contains(token) {
-            let mut chars = token.chars();
-            let first = chars.next().unwrap_or_default();
-            let broken = format!("{first}{BREAK}{}", chars.as_str());
-            text = std::borrow::Cow::Owned(text.replace(token, &broken));
-        }
-    }
-    text
 }
 
 /// Caractères de préfixe et de suffixe permis pour un modèle chargé avec
@@ -244,91 +208,14 @@ impl FimParams {
     }
 }
 
-/// Options figées d'un modèle d'autocomplétion : `num_ctx` (0 : rien
-/// d'envoyé, défaut du serveur) et `keep_alive` (0 : rien d'envoyé).
+/// Options figées d'un modèle d'autocomplétion, comme les réglages de la
+/// conversation : `num_ctx` (0 : contexte choisi comme pour la
+/// conversation) et `keep_alive` (secondes ; 0 : défaut du moteur,
+/// négatif : gardé).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fixed {
     pub num_ctx: u32,
     pub keep_alive: i64,
-}
-
-/// Comment demander le milieu.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Way {
-    /// `suffix` : le gabarit du modèle construit le prompt.
-    Insert(Option<Family>),
-    /// `raw` : jetons de la famille écrits ici.
-    Raw(Family),
-}
-
-/// Manière de demander le milieu à ce modèle ; `None` : il ne sait pas.
-pub fn way(model: &str, insert: bool) -> Option<Way> {
-    let family = family(model);
-    if insert {
-        Some(Way::Insert(family))
-    } else {
-        family.map(Way::Raw)
-    }
-}
-
-/// Manière de demander le milieu pour ce suffixe : Ollama n'applique le
-/// gabarit FIM que si le suffixe n'est pas vide (sinon un modèle instruit
-/// répondrait comme dans une conversation) ; suffixe vide et famille
-/// connue : `raw` avec ses jetons.
-pub fn way_for(way: Way, suffix: &str) -> Way {
-    match way {
-        Way::Insert(Some(family)) if suffix.is_empty() => Way::Raw(family),
-        way => way,
-    }
-}
-
-/// Corps de `/api/generate`, en flux ; jetons spéciaux du code neutralisés.
-pub fn body(
-    model: &str,
-    prefix: &str,
-    suffix: &str,
-    way: Way,
-    fixed: Fixed,
-    tokens: u32,
-    multiline: bool,
-) -> Value {
-    let family = match way {
-        Way::Insert(family) => family,
-        Way::Raw(family) => Some(family),
-    };
-    let mut stop: Vec<&str> = vec![if multiline { "\n\n" } else { "\n" }];
-    if let Some(family) = family {
-        stop.extend_from_slice(family.stops());
-    }
-    let mut options = json!({
-        "num_predict": tokens,
-        "temperature": TEMPERATURE,
-        "stop": stop,
-    });
-    if fixed.num_ctx > 0 {
-        options["num_ctx"] = json!(fixed.num_ctx);
-    }
-    let mut body = json!({
-        "model": model,
-        "stream": true,
-        "think": false,
-        "options": options,
-    });
-    let (prefix, suffix) = (neutralize(prefix), neutralize(suffix));
-    match way {
-        Way::Insert(_) => {
-            body["prompt"] = json!(prefix);
-            body["suffix"] = json!(suffix);
-        }
-        Way::Raw(family) => {
-            body["prompt"] = json!(family.prompt(&prefix, &suffix));
-            body["raw"] = json!(true);
-        }
-    }
-    if fixed.keep_alive != 0 {
-        body["keep_alive"] = json!(fixed.keep_alive);
-    }
-    body
 }
 
 /// Proposition coupée comme la demande : à la première ligne vide en
@@ -408,162 +295,126 @@ pub fn finish(text: &str, multiline: bool, family: Option<Family>, truncated: bo
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Completed {
     pub text: String,
-    /// Du départ de la requête au premier jeton (ou à la fin s'il n'y en a
-    /// aucun).
+    /// Du départ de la requête au premier jeton (lu dans les mesures du
+    /// serveur), ou à l'abandon.
     pub first_token_ms: u64,
     pub total_ms: u64,
-    /// Jetons du prompt repris du cache d'Ollama.
+    /// Jetons du prompt repris du cache du serveur.
     pub cached_tokens: u64,
-    /// Premier jeton pas arrivé à temps : abandonnée, texte vide.
+    /// Réponse pas arrivée à temps : abandonnée, texte vide.
     pub timed_out: bool,
-}
-
-/// Mesures d'une réponse finie (`/api/generate`, durées en ns).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
-pub struct Durations {
-    #[serde(default)]
-    pub total_duration: u64,
-    #[serde(default)]
-    pub load_duration: u64,
-    #[serde(default)]
-    pub prompt_eval_count: u64,
-    #[serde(default)]
-    pub prompt_eval_cached_count: u64,
-    #[serde(default)]
-    pub prompt_eval_duration: u64,
-    #[serde(default)]
-    pub eval_count: u64,
-    #[serde(default)]
-    pub eval_duration: u64,
 }
 
 /// Échec d'une requête.
 #[derive(Debug, PartialEq, Eq)]
 pub enum FimFailure {
-    /// Texte d'Ollama (ou de la connexion), à montrer tel quel.
+    /// Texte traduit (langue du moment), à montrer tel quel.
     Failed(String),
 }
 
-fn failed(error: impl std::fmt::Display) -> FimFailure {
-    FimFailure::Failed(error.to_string())
+fn failed(error: inference::InferenceError) -> FimFailure {
+    FimFailure::Failed(crate::llm::LlmError::Inference(error).message())
 }
 
-/// Envoie la requête et lit le flux ; lâcher le futur ferme la requête
-/// (Ollama arrête de générer).
+/// Attente d'une proposition de `tokens` jetons : le premier jeton, puis
+/// [`PER_TOKEN`] par jeton, au plus [`TOTAL`] (`/infill` rend la réponse
+/// entière).
+pub fn deadline(tokens: u32) -> Duration {
+    (FIRST_TOKEN + PER_TOKEN * tokens).min(TOTAL)
+}
+
+/// Arrêts d'une proposition : la ligne vide (plusieurs lignes) ou la fin de
+/// ligne (une seule), puis les jetons de la famille.
+pub fn stops(multiline: bool, family: Option<Family>) -> Vec<String> {
+    let mut stops = vec![if multiline { "\n\n" } else { "\n" }.to_owned()];
+    if let Some(family) = family {
+        stops.extend(family.stops().iter().map(|stop| (*stop).to_owned()));
+    }
+    stops
+}
+
+/// Demande `/infill` d'une proposition (température basse, `tokens` au
+/// plus, arrêts de [`stops`]).
+pub fn request(
+    prefix: &str,
+    suffix: &str,
+    tokens: u32,
+    multiline: bool,
+    family: Option<Family>,
+) -> InfillRequest {
+    InfillRequest {
+        input_prefix: prefix.to_owned(),
+        input_suffix: suffix.to_owned(),
+        input_extra: Vec::new(),
+        n_predict: Some(tokens),
+        temperature: Some(TEMPERATURE),
+        stop: stops(multiline, family),
+    }
+}
+
+/// Envoie la demande au modèle tenu (`endpoint` de son `Lease`) ; au-delà
+/// de [`deadline`], abandon (requête lâchée : le serveur arrête la
+/// génération ou la retire de sa file).
 pub async fn complete(
-    base: &str,
-    body: &Value,
+    endpoint: &Endpoint,
+    request: &InfillRequest,
     multiline: bool,
     family: Option<Family>,
 ) -> Result<Completed, FimFailure> {
     let started = Instant::now();
-    let deadline = tokio::time::Instant::from_std(started + FIRST_TOKEN);
-    let late = || Completed {
-        first_token_ms: millis(started.elapsed()),
-        total_ms: millis(started.elapsed()),
-        timed_out: true,
-        ..Completed::default()
+    let tokens = request.n_predict.unwrap_or(MULTILINE_TOKENS);
+    let cancel = CancellationToken::new();
+    let _cancel_on_drop = cancel.clone().drop_guard();
+    let answer = tokio::time::timeout(
+        deadline(tokens),
+        inference::infill(endpoint, request, cancel.clone()),
+    )
+    .await;
+    let Ok(answer) = answer else {
+        let elapsed = millis(started.elapsed());
+        return Ok(Completed {
+            first_token_ms: elapsed,
+            total_ms: elapsed,
+            timed_out: true,
+            ..Completed::default()
+        });
     };
-    let url = client::server_url(base).map_err(failed)?;
-    let http = client::client(&url, Some(TOTAL)).map_err(failed)?;
-    // Ollama n'écrit les en-têtes qu'avec le premier jeton (après la file,
-    // le chargement et la lecture du prompt) : le délai couvre l'envoi.
-    // Lâcher l'envoi ferme la connexion ; Ollama saute une requête en file
-    // dont le client est parti.
-    let sending = http.post(format!("{base}/api/generate")).json(body).send();
-    let mut response = match tokio::time::timeout_at(deadline, sending).await {
-        Err(_) => return Ok(late()),
-        Ok(sent) => sent.map_err(|error| failed(error.without_url()))?,
-    };
-    let status = response.status();
-    if !status.is_success() {
-        let text = response.text().await.unwrap_or_default();
-        let message = crate::chat::error_line(&text);
-        return Err(FimFailure::Failed(if message.trim().is_empty() {
-            crate::i18n::t!("ollama.httpStatus", status = status.as_u16())
-        } else {
-            message
-        }));
-    }
-    let mut lines = crate::chat::stream::LineBuffer::default();
-    let mut text = String::new();
-    let mut first: Option<u64> = None;
-    let mut cached = 0;
-    // Fin à la limite de jetons (`num_predict`) : dernière ligne inachevée.
-    let mut truncated = false;
-    'reading: loop {
-        let chunk = if first.is_none() {
-            match tokio::time::timeout_at(deadline, response.chunk()).await {
-                Ok(chunk) => chunk,
-                Err(_) => return Ok(late()),
-            }
-        } else {
-            response.chunk().await
-        };
-        let Some(chunk) = chunk.map_err(|error| failed(error.without_url()))? else {
-            break;
-        };
-        for line in lines.push(&chunk) {
-            let value: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
-            if let Some(error) = value["error"].as_str() {
-                return Err(FimFailure::Failed(error.to_owned()));
-            }
-            if let Some(piece) = value["response"].as_str()
-                && !piece.is_empty()
-            {
-                first.get_or_insert_with(|| millis(started.elapsed()));
-                text.push_str(piece);
-            }
-            if value["done"] == true {
-                cached = value["prompt_eval_cached_count"].as_u64().unwrap_or(0);
-                truncated = value["done_reason"] == "length";
-                first.get_or_insert_with(|| millis(started.elapsed()));
-                break 'reading;
-            }
-            // Coupe atteinte : inutile d'attendre la fin.
-            if cut(&text, multiline, family).len() < text.trim_end_matches([' ', '\t', '\r']).len()
-            {
-                first.get_or_insert_with(|| millis(started.elapsed()));
-                break 'reading;
-            }
-        }
-    }
+    let answer = answer.map_err(failed)?;
+    let total_ms = millis(started.elapsed());
+    let first_token_ms = answer
+        .timings
+        .map_or(total_ms, |timings| speed(&timings).0.min(total_ms));
     Ok(Completed {
-        text: finish(&text, multiline, family, truncated),
-        first_token_ms: first.unwrap_or_else(|| millis(started.elapsed())),
-        total_ms: millis(started.elapsed()),
-        cached_tokens: cached,
+        text: finish(
+            &answer.content,
+            multiline,
+            family,
+            answer.stop == InfillStop::Limit,
+        ),
+        first_token_ms,
+        total_ms,
+        cached_tokens: answer
+            .timings
+            .map_or(0, |timings| u64::from(timings.cache_n)),
         timed_out: false,
     })
 }
 
-/// Une requête de mesure, sans flux : durées lues dans la réponse
-/// d'Ollama (indépendantes de la charge du pont).
-pub async fn measured(base: &str, body: &Value) -> Result<Durations, FimFailure> {
-    let url = client::server_url(base).map_err(failed)?;
-    let http = client::client(&url, Some(Duration::from_secs(120))).map_err(failed)?;
-    let mut body = body.clone();
-    body["stream"] = json!(false);
-    let response = http
-        .post(format!("{base}/api/generate"))
-        .json(&body)
-        .send()
-        .await
-        .map_err(|error| failed(error.without_url()))?;
-    let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|error| failed(error.without_url()))?;
-    if !status.is_success() {
-        let message = crate::chat::error_line(&text);
-        return Err(FimFailure::Failed(if message.trim().is_empty() {
-            crate::i18n::t!("ollama.httpStatus", status = status.as_u16())
-        } else {
-            message
-        }));
-    }
-    serde_json::from_str(&text).map_err(failed)
+/// Une requête de mesure (32 jetons, seuls les jetons de fin arrêtent) :
+/// mesures du serveur (indépendantes de la charge du pont).
+pub async fn measured(endpoint: &Endpoint, request: &InfillRequest) -> Result<Timings, FimFailure> {
+    let cancel = CancellationToken::new();
+    let _cancel_on_drop = cancel.clone().drop_guard();
+    let answer = tokio::time::timeout(
+        Duration::from_secs(120),
+        inference::infill(endpoint, request, cancel.clone()),
+    )
+    .await
+    .map_err(|_| failed(inference::InferenceError::Timeout))?
+    .map_err(failed)?;
+    answer
+        .timings
+        .ok_or_else(|| failed(inference::InferenceError::Malformed("no timings".into())))
 }
 
 fn millis(elapsed: Duration) -> u64 {
@@ -582,21 +433,21 @@ pub enum Rating {
 /// Jetons d'une proposition type, pour le verdict.
 pub const RATED_TOKENS: f64 = 32.0;
 
-/// Premier jeton (ms) et vitesse (jetons/s) d'une réponse mesurée.
-pub fn speed(durations: &Durations) -> (u64, f64) {
-    // Premier jeton : chargement (presque nul, modèle en mémoire), lecture du
-    // prompt, puis un jeton.
-    let per_token = durations
-        .eval_duration
-        .checked_div(durations.eval_count)
-        .unwrap_or(0);
-    let first = durations.load_duration + durations.prompt_eval_duration + per_token;
-    let tokens_per_second = if durations.eval_duration > 0 {
-        durations.eval_count as f64 / (durations.eval_duration as f64 / 1e9)
+/// Premier jeton (ms) et vitesse (jetons/s) d'une réponse mesurée
+/// (`timings` du serveur) : lecture du prompt, puis un jeton.
+pub fn speed(timings: &Timings) -> (u64, f64) {
+    let per_token = if timings.predicted_n > 0 {
+        timings.predicted_ms / f64::from(timings.predicted_n)
     } else {
         0.0
     };
-    (first / 1_000_000, tokens_per_second)
+    let first = (timings.prompt_ms + per_token).max(0.0) as u64;
+    let tokens_per_second = if timings.predicted_ms > 0.0 {
+        f64::from(timings.predicted_n) / (timings.predicted_ms / 1000.0)
+    } else {
+        0.0
+    };
+    (first, tokens_per_second)
 }
 
 /// Fluide sous 0,5 s pour une proposition de 32 jetons, utilisable jusqu'à
@@ -659,89 +510,35 @@ mod tests {
         }
     }
 
+    /// `/infill` : contexte de la famille, arrêts, jetons et température ;
+    /// le serveur construit le prompt (aucun jeton écrit par l'app).
     #[test]
-    fn raw_prompts_use_the_family_tokens() {
-        assert_eq!(
-            Family::QwenCoder.prompt("a", "b"),
-            "<|fim_prefix|>a<|fim_suffix|>b<|fim_middle|>"
-        );
-        assert_eq!(
-            Family::StarCoder.prompt("a", "b"),
-            "<fim_prefix>a<fim_suffix>b<fim_middle>"
-        );
-        assert_eq!(
-            Family::CodeGemma.prompt("a", "b"),
-            "<|fim_prefix|>a<|fim_suffix|>b<|fim_middle|>"
-        );
-        assert_eq!(
-            Family::DeepSeekCoder.prompt("a", "b"),
-            "<｜fim▁begin｜>a<｜fim▁hole｜>b<｜fim▁end｜>"
-        );
+    fn the_request_carries_the_stops_and_the_limit() {
+        let multi = request("def f(", ")\n", 64, true, Some(Family::QwenCoder));
+        assert_eq!(multi.input_prefix, "def f(");
+        assert_eq!(multi.input_suffix, ")\n");
+        assert_eq!(multi.n_predict, Some(64));
+        assert_eq!(multi.temperature, Some(TEMPERATURE));
+        assert_eq!(multi.stop[0], "\n\n");
+        assert!(multi.stop.iter().any(|stop| stop == "<|fim_middle|>"));
+        let body = multi.body();
+        assert!(body.get("prompt").is_none(), "{body}");
+        let line = request("x = ", "", 16, false, None);
+        assert_eq!(line.stop, ["\n"]);
+        // Le code de l'utilisateur part tel quel (le serveur ne lit pas ses
+        // jetons spéciaux).
+        let code = "s = '<|fim_middle|>'";
+        assert_eq!(request(code, "", 16, false, None).input_prefix, code);
     }
 
+    /// Le premier jeton, puis un débit minimal ; jamais plus de 15 s.
     #[test]
-    fn insert_is_preferred_then_raw_then_nothing() {
-        assert_eq!(
-            way("qwen2.5-coder:1.5b-base", true),
-            Some(Way::Insert(Some(Family::QwenCoder)))
-        );
-        assert_eq!(way("mystery", true), Some(Way::Insert(None)));
-        assert_eq!(
-            way("qwen3-coder:30b", false),
-            Some(Way::Raw(Family::QwenCoder))
-        );
-        assert_eq!(way("qwen3:0.6b", false), None);
-    }
-
-    #[test]
-    fn the_body_keeps_fixed_options() {
-        let fixed = Fixed {
-            num_ctx: 4096,
-            keep_alive: 600,
-        };
-        let insert = body(
-            "qwen2.5-coder:1.5b-base",
-            "def f(",
-            ")\n",
-            Way::Insert(Some(Family::QwenCoder)),
-            fixed,
-            64,
-            true,
-        );
-        assert_eq!(insert["prompt"], "def f(");
-        assert_eq!(insert["suffix"], ")\n");
-        assert_eq!(insert["think"], false);
-        assert_eq!(insert["stream"], true);
-        assert_eq!(insert["keep_alive"], 600);
-        assert_eq!(insert["options"]["num_ctx"], 4096);
-        assert_eq!(insert["options"]["num_predict"], 64);
-        assert_eq!(insert["options"]["stop"][0], "\n\n");
-        assert!(insert.get("raw").is_none());
-        let raw = body(
-            "starcoder2:3b",
-            "x = ",
-            "",
-            Way::Raw(Family::StarCoder),
-            Fixed {
-                num_ctx: 0,
-                keep_alive: 0,
-            },
-            16,
-            false,
-        );
-        assert_eq!(raw["prompt"], "<fim_prefix>x = <fim_suffix><fim_middle>");
-        assert_eq!(raw["raw"], true);
-        assert!(raw.get("suffix").is_none());
-        // 0 : rien d'envoyé (défaut du serveur, comme la conversation).
-        assert!(raw.get("keep_alive").is_none());
-        assert!(raw["options"].get("num_ctx").is_none());
-        assert_eq!(raw["options"]["stop"][0], "\n");
-        assert!(
-            raw["options"]["stop"]
-                .as_array()
-                .unwrap()
-                .contains(&json!("<fim_middle>"))
-        );
+    fn the_deadline_follows_the_tokens() {
+        assert_eq!(deadline(0), FIRST_TOKEN);
+        assert_eq!(deadline(16), Duration::from_millis(1500 + 16 * 25));
+        assert_eq!(deadline(64), Duration::from_millis(1500 + 64 * 25));
+        assert_eq!(deadline(MAX_TOKENS), Duration::from_millis(1500 + 256 * 25));
+        assert_eq!(deadline(10_000), TOTAL);
     }
 
     #[test]
@@ -764,67 +561,6 @@ mod tests {
         };
         assert_eq!(line.tokens(), LINE_TOKENS);
         assert_eq!(params(Some(8), 1).tokens(), 8);
-    }
-
-    /// Rapport 92, m1 : un jeton spécial écrit dans le code ne casse pas la
-    /// demande, dans les deux manières.
-    #[test]
-    fn special_tokens_in_the_code_are_neutralized() {
-        let code = "s = '<|fim_middle|>' + \"<fim_prefix>\" + '<｜fim▁hole｜>'";
-        let raw = body(
-            "qwen2.5-coder:1.5b-base",
-            code,
-            "<|endoftext|>",
-            Way::Raw(Family::QwenCoder),
-            Fixed {
-                num_ctx: 4096,
-                keep_alive: 240,
-            },
-            16,
-            false,
-        );
-        let prompt = raw["prompt"].as_str().unwrap();
-        assert_eq!(prompt.matches("<|fim_middle|>").count(), 1, "{prompt}");
-        assert!(prompt.ends_with("<|fim_middle|>"));
-        assert_eq!(prompt.matches("<|fim_suffix|>").count(), 1);
-        for token in ["<fim_prefix>", "<｜fim▁hole｜>", "<|endoftext|>"] {
-            assert!(!prompt.contains(token), "{token} in {prompt}");
-        }
-        let insert = body(
-            "chatonlm-fim",
-            code,
-            "<|endoftext|>",
-            Way::Insert(None),
-            Fixed {
-                num_ctx: 4096,
-                keep_alive: 240,
-            },
-            16,
-            false,
-        );
-        let prompt = insert["prompt"].as_str().unwrap();
-        assert!(
-            special_tokens().all(|token| !prompt.contains(token)),
-            "{prompt}"
-        );
-        assert!(!insert["suffix"].as_str().unwrap().contains("<|endoftext|>"));
-        // Le texte reste lisible : seul un caractère invisible est ajouté.
-        assert_eq!(prompt.replace(BREAK, ""), code);
-        assert_eq!(neutralize("plain code"), "plain code");
-    }
-
-    /// Rapport 92, m2 : suffixe vide, Ollama n'appliquerait pas le gabarit
-    /// FIM ; famille connue : `raw`.
-    #[test]
-    fn an_empty_suffix_goes_raw_when_the_family_is_known() {
-        let qwen = Way::Insert(Some(Family::QwenCoder));
-        assert_eq!(way_for(qwen, ""), Way::Raw(Family::QwenCoder));
-        assert_eq!(way_for(qwen, "\n"), qwen);
-        assert_eq!(way_for(Way::Insert(None), ""), Way::Insert(None));
-        assert_eq!(
-            way_for(Way::Raw(Family::StarCoder), ""),
-            Way::Raw(Family::StarCoder)
-        );
     }
 
     /// Rapport 92, m3 : préfixe et suffixe ramenés au contexte, à des lignes
@@ -904,21 +640,23 @@ mod tests {
 
     #[test]
     fn a_measure_is_rated() {
-        let durations = Durations {
-            load_duration: 1_000_000,
-            prompt_eval_duration: 60_000_000,
-            eval_count: 40,
-            eval_duration: 100_000_000,
-            ..Durations::default()
+        let timings = Timings {
+            cache_n: 900,
+            prompt_n: 100,
+            prompt_ms: 60.5,
+            predicted_n: 40,
+            predicted_ms: 100.0,
         };
-        let (first, speed) = speed(&durations);
-        // 1 + 60 + 2,5 ms.
+        let (first, per_second) = speed(&timings);
+        // 60,5 + 2,5 ms.
         assert_eq!(first, 63);
-        assert!((speed - 400.0).abs() < 1e-9);
-        assert_eq!(rate(first, speed), Rating::Smooth);
+        assert!((per_second - 400.0).abs() < 1e-9);
+        assert_eq!(rate(first, per_second), Rating::Smooth);
         assert_eq!(rate(400, 100.0), Rating::Usable);
         assert_eq!(rate(1000, 20.0), Rating::TooSlow);
         assert_eq!(rate(10, 0.0), Rating::TooSlow);
+        // Rien de produit : vitesse nulle, pas de division par zéro.
+        assert_eq!(speed(&Timings::default()), (0, 0.0));
         let (prefix, suffix) = measure_prompt(1);
         assert!(prefix.ends_with("def average_1(values):\n    "));
         assert!(prefix.len() > 3_000, "{}", prefix.len());

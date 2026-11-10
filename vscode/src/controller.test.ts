@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostMessage } from "../shared/protocol";
 import { type Credentials, Link } from "./bridge/link";
 import { Controller } from "./controller";
-import { deferred, FakeBridge, RpcFailure, until } from "./test/fakeBridge";
+import {
+  deferred,
+  FakeBridge,
+  REMOTE_MODEL,
+  RpcFailure,
+  until,
+} from "./test/fakeBridge";
 import {
   Diagnostic,
   Position,
@@ -153,8 +159,8 @@ describe("Controller", () => {
       theme: "dark",
       state: {
         connection: "connected",
-        models: ["qwen3:0.6b", "gpt-oss:120b-cloud"],
-        cloudModels: ["gpt-oss:120b-cloud"],
+        models: ["qwen3:0.6b", REMOTE_MODEL],
+        remoteModels: [REMOTE_MODEL],
         model: "qwen3:0.6b",
         ephemeral: false,
         chatId: null,
@@ -291,15 +297,15 @@ describe("Controller", () => {
     });
   });
 
-  it("remembers the chosen model and says when it runs in the cloud", async () => {
+  it("remembers the chosen model and says when it runs remotely", async () => {
     const { controller, posted, sent, memory } = await setup();
     await controller.handle({
       type: "selectModel",
-      model: "gpt-oss:120b-cloud",
+      model: REMOTE_MODEL,
     });
-    expect(memory.get("chatonlm.model")).toBe("gpt-oss:120b-cloud");
+    expect(memory.get("chatonlm.model")).toBe(REMOTE_MODEL);
     await controller.handle({ type: "send", text: "hi" });
-    expect(sent[0].model).toBe("gpt-oss:120b-cloud");
+    expect(sent[0].model).toBe(REMOTE_MODEL);
     expect(ofType(posted, "receipt")[0].receipt).toMatchObject({
       destination: "cloud",
       contextLength: null,
@@ -330,10 +336,10 @@ describe("Controller", () => {
     ]);
   });
 
-  it("keeps a secret file away from a cloud model, but not from a local one", async () => {
+  it("keeps a secret file away from a remote model, but not from a local one", async () => {
     const { controller, sent } = await setup();
     editor("/work/.env", "TOKEN=abcd1234\n", [0, 0], [0, 14], "dotenv");
-    await controller.selectModel("gpt-oss:120b-cloud");
+    await controller.selectModel(REMOTE_MODEL);
     await controller.runAction("explain");
     expect(sent).toEqual([]);
     expect(testState.shown.at(-1)?.text).toMatch(/^Nothing was sent/);
@@ -342,7 +348,7 @@ describe("Controller", () => {
     expect(sent[0].content).toContain("TOKEN=abcd1234");
   });
 
-  it("masks secret lines for a cloud model and lists them in the receipt", async () => {
+  it("masks secret lines for a remote model and lists them in the receipt", async () => {
     const { controller, sent, posted } = await setup();
     editor(
       "/work/src/db.ts",
@@ -350,7 +356,7 @@ describe("Controller", () => {
       [0, 0],
       [2, 0],
     );
-    await controller.selectModel("gpt-oss:120b-cloud");
+    await controller.selectModel(REMOTE_MODEL);
     await controller.runAction("tests");
     expect(sent[0].content).not.toContain("hunter22");
     expect(sent[0].content).toContain(
@@ -662,7 +668,7 @@ describe("Controller, after the review", () => {
     expect(ids[0]).not.toBe(ids[1]);
   });
 
-  it("treats an Ollama of another computer as off this computer (S2, C9)", async () => {
+  it("treats the models of another computer (app 0.9.x) as off this computer (S2, C9)", async () => {
     const { fake, controller, sent, posted } = await setup();
     fake.local = false;
     editor("/work/src/db.ts", 'const password = "hunter22";\n', [0, 0], [1, 0]);
@@ -695,14 +701,14 @@ describe("Controller, after the review", () => {
     editor("/work/.env", "TOKEN=abcd1234\n", [0, 0], [0, 14], "dotenv");
     await controller.runAction("explain");
     expect(controller.state.chatId).toBe("chat-1");
-    await controller.selectModel("gpt-oss:120b-cloud");
+    await controller.selectModel(REMOTE_MODEL);
     expect(controller.state).toMatchObject({
       chatId: null,
       notice: "offMachineNewChat",
       generation: 1,
     });
     await controller.handle({ type: "send", text: "more" });
-    expect(sent[1]).toEqual({ content: "more", model: "gpt-oss:120b-cloud" });
+    expect(sent[1]).toEqual({ content: "more", model: REMOTE_MODEL });
     // L'avis dure jusqu'à l'envoi suivant.
     expect(controller.state.notice).toBeNull();
   });
@@ -719,9 +725,9 @@ describe("Controller, after the review", () => {
 
   it("keeps a chat begun off this computer when the model stays off it", async () => {
     const { controller, sent } = await setup();
-    await controller.selectModel("gpt-oss:120b-cloud");
+    await controller.selectModel(REMOTE_MODEL);
     await controller.handle({ type: "send", text: "a" });
-    await controller.selectModel("gpt-oss:120b-cloud");
+    await controller.selectModel(REMOTE_MODEL);
     await controller.handle({ type: "send", text: "b" });
     expect(sent[1].chatId).toBe("chat-1");
   });
@@ -940,7 +946,7 @@ describe("Controller, selection sent with a typed question (R1)", () => {
     expect(controller.state.attachment).toBeNull();
   });
 
-  it("filters the selection like the actions for a cloud model", async () => {
+  it("filters the selection like the actions for a remote model", async () => {
     const { controller, sent, posted } = await setup();
     editor(
       "/work/src/db.ts",
@@ -948,7 +954,7 @@ describe("Controller, selection sent with a typed question (R1)", () => {
       [0, 0],
       [2, 0],
     );
-    await controller.selectModel("gpt-oss:120b-cloud");
+    await controller.selectModel(REMOTE_MODEL);
     await controller.handle({ type: "send", text: "Why?" });
     expect(sent[0].content).not.toContain("hunter22");
     expect(ofType(posted, "receipt")[0].receipt.blocked).toEqual([

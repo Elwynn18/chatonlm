@@ -4,8 +4,6 @@ import { translator } from "@/i18n";
 import {
   addWord,
   isActiveSpeechDownload,
-  isCloudModel,
-  isLocalAddress,
   navigablePath,
   phaseText,
   POLISH_MODELS,
@@ -187,51 +185,5 @@ describe("polish models", () => {
     expect(
       polishModelNote(es, model("ggml-org/gemma-3-1b-it-GGUF:Q4_K_M")),
     ).toBe("Para equipos modestos, menos fiable");
-  });
-});
-
-describe("isCloudModel", () => {
-  it("names ending in cloud, like the engine", () => {
-    expect(isCloudModel("gpt-oss:120b-cloud")).toBe(true);
-    expect(isCloudModel("kimi-k2:cloud")).toBe(true);
-    expect(isCloudModel("gemma3:4b")).toBe(false);
-    expect(isCloudModel("cloudy-model:1b")).toBe(false);
-    // Comme le serveur : étiquette sans casse ; un nom local en « cloud »
-    // reste local.
-    expect(isCloudModel("kimi-k2.6:Cloud")).toBe(true);
-    expect(isCloudModel("pointcloud")).toBe(false);
-    expect(isCloudModel("registry.example.com:5000/cloud")).toBe(false);
-  });
-});
-
-describe("isLocalAddress", () => {
-  it("this machine", () => {
-    for (const address of [
-      "",
-      "http://127.0.0.1:11434",
-      "http://localhost:11434",
-      "localhost:8080/ollama",
-      "http://[::1]:11434",
-      "[::1]:11434",
-      "http://127.0.0.2:11434",
-      "http://0.0.0.0:11434",
-      "http://ollama.localhost",
-    ]) {
-      expect(isLocalAddress(address), address).toBe(true);
-    }
-  });
-
-  it("another machine, or an address that cannot be read", () => {
-    for (const address of [
-      "http://192.168.1.20:11434",
-      "https://ollama.example.com",
-      "10.0.0.2:11434",
-      "http://[fe80::1]:11434",
-      "http://localhost.example.com",
-      "http://127.0.0.1.example.com",
-      "http://exa mple",
-    ]) {
-      expect(isLocalAddress(address), address).toBe(false);
-    }
   });
 });

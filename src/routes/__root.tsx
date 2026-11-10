@@ -8,8 +8,9 @@
  * Modified for ChatonLM: no account or cloud status; no data preloaded here
  * (chats, models and model recommendations are read by the components that
  * show them; the settings are read here for the preloading of the chosen
- * model, and the models and the state of Ollama too, only while that setting
- * is on); Ctrl+, opens the settings (Cmd+, from the
+ * model, and the models too, only while that setting is on); the models of
+ * ChatonLM's own engine (loading, loaded, unloaded) are followed here, for
+ * the whole app; Ctrl+, opens the settings (Cmd+, from the
  * macOS menu in the official app); Ctrl+N (Windows only in the official app),
  * zoom, navigation guard and context menu zones (official webview.go and
  * index.html scripts) wired here; the ModelHub downloads (ChatonLM's own) are
@@ -20,7 +21,7 @@
  * corrected selection) opens a page of the settings, of the ModelHub or the
  * Proofread page, unless a dialog or a menu is open, each request being a
  * new history state (the page shows the requested part again); the model
- * chosen in the chat is loaded into Ollama's memory from here when the
+ * chosen in the chat is loaded into memory from here when the
  * "Preload the chosen model" setting is on (ModelPreloader.tsx); the status
  * of the system-wide shortcuts (ChatonLM's own) is followed here, like the
  * dictation status; the corrections of a reloaded page are stopped when it
@@ -42,7 +43,9 @@
  * code); while the VS Code extension holds a voice session, ChatonLM's own
  * banner says so on every page, with a button that ends it; a code model
  * the extension asks for (autocomplete) is offered for download here, on any
- * page, and only downloaded once the user accepts.
+ * page, and only downloaded once the user accepts; the end of an import of
+ * Ollama models (ChatonLM's own) is followed here: the models and the
+ * settings (selected model under its new id) are read again.
  */
 
 import type { QueryClient } from "@tanstack/react-query";
@@ -63,7 +66,9 @@ import { useDownloadEvents } from "@/hooks/useDownloads";
 import { useBridgeEvents } from "@/hooks/useBridge";
 import { useEasyLinkEvents } from "@/hooks/useEasyLink";
 import { useImageModelEvents } from "@/hooks/useImageModels";
+import { useModelImportEvents } from "@/hooks/useModelImport";
 import { useReadAloudEvents } from "@/hooks/useReadAloud";
+import { useEngineModelEvents } from "@/hooks/useRunningModels";
 import { useSettings } from "@/hooks/useSettings";
 import { useShortcutsEvents } from "@/hooks/useShortcuts";
 import { useVoiceModeEvents } from "@/hooks/useVoiceMode";
@@ -129,6 +134,12 @@ function RootComponent() {
   // Pont de l'extension VS Code : état, éditeurs appairés, code
   // d'appairage (onglet des réglages).
   useBridgeEvents();
+  // Modèles du moteur (chargement, déchargement, repli) : onglet Models et
+  // escargot à jour aussitôt.
+  useEngineModelEvents();
+  // Reprise des modèles d'Ollama : sa fin relit les modèles et les réglages
+  // (modèle choisi renommé), même hors de Settings › Models.
+  useModelImportEvents();
   // Conversation créée ou modifiée par le moteur (message reçu par un bot) :
   // historique et conversation relus, quelle que soit la page.
   useChatsEvents();

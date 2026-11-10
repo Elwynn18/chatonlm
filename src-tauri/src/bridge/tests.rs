@@ -1,10 +1,11 @@
-//! Essais du pont : service réel, base en mémoire, faux Ollama, connexions
-//! par des flux en mémoire (les points d'accès du système ont leurs essais
-//! dans `linux.rs` et `windows.rs`).
+//! Essais du pont : service réel, base en mémoire, faux moteur (`FakeBench` :
+//! faux `llama-server`, modèles de la base locale par scénario) et faux
+//! fournisseur distant, connexions par des flux en mémoire (les points
+//! d'accès du système ont leurs essais dans `linux.rs` et `windows.rs`).
 
 use std::sync::{Arc, OnceLock};
 
-use fake_ollama::{FakeOllama, Mode};
+use futures_util::future::BoxFuture as RemoteFuture;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 use tokio::io::{AsyncWriteExt, BufReader, DuplexStream, ReadHalf, WriteHalf};
@@ -19,6 +20,10 @@ use crate::dictation::clipboard::BoxFuture;
 use crate::dictation::editor::{
     DictationLink, DictationOwner, EditorEnd, EditorStartError, Opened,
 };
+use crate::llm::models::{ChatModel, ModelOrigin};
+use crate::llm::remote::RemoteModels;
+use crate::llm::testing::FakeBench;
+use crate::llm::{Access, LlmError, Session};
 use crate::store::chats::{self, ChatSource};
 use crate::store::settings::{self, SettingsPatch};
 use crate::tts::service::{ReadingEnd, Segment, SegmentEvent, SegmentSink, SegmentsRefusal};
@@ -312,7 +317,7 @@ impl Host for TestHost {
     fn gpu(&self) -> &crate::gpu::GpuChief {
         &self.gpu
     }
-    fn machine(&self, _server_url: String) -> BoxFuture<Option<crate::hub::hardware::Machine>> {
+    fn machine(&self) -> BoxFuture<Option<crate::hub::hardware::Machine>> {
         let machine = self.machine.lock().clone();
         Box::pin(async move { machine })
     }
@@ -340,12 +345,96 @@ impl Host for TestHost {
     }
 }
 
+// Modèles du faux moteur : identifiant de la base locale et scénario de
+// `fake-llama` (fichier `chatonlm-<scénario>.gguf`, capacités d'après le nom).
+/// Modèle de la conversation : répond « Hello! You said: … ».
+const CHAT: &str = "Qwen/Qwen3-0.6B-GGUF:Q8_0";
+/// Modèle qui réfléchit (réflexion coupée par `enable_thinking: false`).
+const THINKER: &str = "bench/Think-GGUF:Q4_K_M";
+/// Réponse commencée, puis plus rien (arrêtée seulement par un arrêt).
+const HANG: &str = "bench/Hang-GGUF:Q4_K_M";
+/// 150 ms entre deux morceaux.
+const SLOW: &str = "bench/Slow-GGUF:Q4_K_M";
+/// `/infill` : « return a + b ».
+const FIM: &str = "bench/Fim-GGUF:Q8_0";
+/// Proposition qui n'arrive qu'au bout de 5 s (scénario du lot L5a ; l'app
+/// abandonne avant).
+const FIM_WAIT: &str = "bench/Fimwait-GGUF:Q8_0";
+/// Proposition qui dit ce qu'elle a reçu, sur plusieurs lignes (lot L5a).
+const FIM_LINES: &str = "bench/Fimlines-GGUF:Q8_0";
+/// Visite guidée : plan JSON dans les lignes du code (scénario du lot L5a).
+const TOUR: &str = "bench/Tour-GGUF:Q4_K_M";
+/// Un morceau de réponse, puis plus rien (scénario du lot L9).
+const STALL: &str = "bench/Stall-GGUF:Q4_K_M";
+/// Cours de l'Étude (scénarios du lot L5a).
+const STUDY: &str = "bench/Study-GGUF:Q4_K_M";
+const STUDY_SLOW: &str = "bench/Studyslow-GGUF:Q4_K_M";
+/// Correction (scénarios du lot L5a).
+const PROOFER: &str = "bench/Proofer-GGUF:Q4_K_M";
+const PROOFER_SLOW: &str = "bench/Proofslow-GGUF:Q4_K_M";
+/// Modèle distant du faux fournisseur (jamais joint).
+const REMOTE: &str = "@remote/test/remote-model";
+
+const MODELS: &[(&str, &str)] = &[
+    (HANG, "hang"),
+    (THINKER, "think"),
+    (SLOW, "slow"),
+    (FIM, "fim"),
+    (FIM_WAIT, "gpu-fimwait"),
+    (FIM_LINES, "gpu-fimlines"),
+    (TOUR, "gpu-tour"),
+    (STALL, "editor-stall"),
+    (STUDY, "study"),
+    (STUDY_SLOW, "study-slow"),
+    (PROOFER, "proofer"),
+    (PROOFER_SLOW, "proofer-slow"),
+    (CHAT, "simple"),
+];
+
+/// Fournisseur distant des essais : un modèle listé ; l'ouvrir échoue
+/// (rien ne part jamais vers un vrai fournisseur), et chaque ouverture est
+/// comptée.
+#[derive(Default)]
+struct TestRemote {
+    opened: Mutex<Vec<String>>,
+}
+
+impl RemoteModels for TestRemote {
+    fn list(&self) -> RemoteFuture<'_, Vec<ChatModel>> {
+        Box::pin(async {
+            vec![ChatModel {
+                id: REMOTE.into(),
+                display_name: "Remote model".into(),
+                origin: ModelOrigin::Remote,
+                provider: Some("test".into()),
+                size_bytes: None,
+                params_label: None,
+                quant: None,
+                context_max: Some(32_768),
+                capabilities: vec!["completion".into(), "tools".into()],
+                installed_at: None,
+            }]
+        })
+    }
+
+    fn open<'a>(
+        &'a self,
+        provider: &'a str,
+        model: &'a str,
+    ) -> RemoteFuture<'a, Result<Session, LlmError>> {
+        self.opened.lock().push(format!("{provider}/{model}"));
+        let provider = provider.to_owned();
+        Box::pin(async move { Err(LlmError::RemoteUnreachable { provider }) })
+    }
+}
+
 struct Bench {
     bridge: Bridge<TestHost>,
     host: TestHost,
     store: Store,
     dir: tempfile::TempDir,
-    _ollama: FakeOllama,
+    fake: FakeBench,
+    remote: Arc<TestRemote>,
 }
 
 /// Banc au délai d'authentification réel : les essais qui enchaînent des
@@ -355,16 +444,26 @@ async fn bench() -> Bench {
 }
 
 async fn bench_with(auth_timeout: std::time::Duration) -> Bench {
-    let ollama = FakeOllama::start(Mode::ollama()).await.unwrap();
-    let store = Store::open_in_memory().unwrap();
-    let patch = SettingsPatch {
-        server_url: Some(ollama.url()),
-        selected_model: Some("qwen3:0.6b".to_owned()),
+    bench_of(MODELS, auth_timeout).await
+}
+
+/// Banc aux modèles `models` (identifiant, scénario).
+async fn bench_of(models: &[(&str, &str)], auth_timeout: std::time::Duration) -> Bench {
+    let fake = FakeBench::new(models);
+    let store = fake.store().clone();
+    fake.set(SettingsPatch {
+        selected_model: Some(CHAT.to_owned()),
         ..Default::default()
-    };
-    store
-        .blocking(|c| settings::update(c, patch, None).map(drop))
-        .unwrap();
+    });
+    let remote = Arc::new(TestRemote::default());
+    let access = Access::new(
+        fake.engine().clone(),
+        store.clone(),
+        fake.access.data_dir().to_owned(),
+        Arc::clone(&remote) as Arc<dyn RemoteModels>,
+        fake.access.relay().clone(),
+        fake.access.downloads().clone(),
+    );
     let dir = tempfile::tempdir().unwrap();
     let config = Config {
         dir: Some(dir.path().join("run")),
@@ -376,13 +475,64 @@ async fn bench_with(auth_timeout: std::time::Duration) -> Bench {
     };
     let host = TestHost::default();
     host.store.set(store.clone()).ok();
-    let bridge = Bridge::new(host.clone(), crate::llm::access_for(&store), config);
+    let bridge = Bridge::new(host.clone(), access, config);
     Bench {
         bridge,
         host,
         store,
         dir,
-        _ollama: ollama,
+        fake,
+        remote,
+    }
+}
+
+/// Route de pilotage du faux moteur (`/fake/<route>`) du processus de `id`.
+async fn pilot<T: serde::de::DeserializeOwned>(access: &Access, id: &str, route: &str) -> T {
+    // Chargé : mêmes options que son processus (un autre contexte le
+    // relancerait : autocomplétion, visite) ; sinon, les réglages.
+    let running = access
+        .engine()
+        .running()
+        .into_iter()
+        .find(|running| running.id == id);
+    let options = crate::llm::OpenOptions {
+        ctx: running.as_ref().map(|running| running.context_length),
+        cpu_only: running.is_some_and(|running| running.cpu_only),
+        ..Default::default()
+    };
+    let session = access
+        .open(
+            id,
+            options,
+            &tokio_util::sync::CancellationToken::new(),
+            &|| {},
+        )
+        .await
+        .unwrap();
+    let url = format!("{}/fake/{route}", session.endpoint.base_url);
+    reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(url)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
+}
+
+/// Attend que `check` réponde vrai (au plus 20 s).
+async fn eventually<F, Fut>(what: &str, check: F)
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !check().await {
+        assert!(std::time::Instant::now() < deadline, "never: {what}");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
 }
 
@@ -397,6 +547,41 @@ struct Client {
 }
 
 impl Bench {
+    /// Arrête les processus du faux moteur.
+    async fn done(&self) {
+        self.fake.shutdown().await;
+    }
+
+    /// Requêtes reçues par le processus de `id` (`{path, body}` : chat,
+    /// `/infill`, `/tokenize`) ; aucune s'il n'est pas chargé (rien n'est
+    /// lancé pour le demander).
+    async fn requests(&self, id: &str) -> Vec<Value> {
+        let loaded = self
+            .fake
+            .engine()
+            .running()
+            .iter()
+            .any(|running| running.id == id);
+        if !loaded {
+            return Vec::new();
+        }
+        pilot(&self.fake.access, id, "requests").await
+    }
+
+    /// Requêtes `/infill` reçues par le processus de `id`.
+    async fn infills(&self, id: &str) -> usize {
+        self.requests(id)
+            .await
+            .iter()
+            .filter(|request| request["path"] == "/infill")
+            .count()
+    }
+
+    /// Réponses que le client a lâchées avant leur fin (processus de `id`).
+    async fn disconnects(&self, id: &str) -> u64 {
+        pilot(&self.fake.access, id, "disconnects").await
+    }
+
     fn connect(&self) -> Client {
         let (client, server) = tokio::io::duplex(1 << 20);
         let shared = Arc::clone(self.bridge.shared());
@@ -573,7 +758,7 @@ async fn an_editor_pairs_proves_itself_and_chats() {
 
     assert_eq!(client.request("ping", json!({})).await["result"], json!({}));
     let app = client.request("app.state", json!({})).await;
-    assert_eq!(app["result"]["selectedModel"], "qwen3:0.6b");
+    assert_eq!(app["result"]["selectedModel"], CHAT);
     let models = client.request("models.list", json!({})).await;
     assert!(models["result"].is_array(), "{models}");
 
@@ -807,7 +992,7 @@ async fn the_bridge_is_unavailable_without_a_runtime_dir() {
     config.dir = None;
     bench.bridge = Bridge::new(
         bench.host.clone(),
-        crate::llm::access_for(&bench.store),
+        bench.bridge.shared().access.clone(),
         config,
     );
     let state = bench.bridge.set_enabled(true).await.unwrap();
@@ -836,7 +1021,7 @@ async fn a_send_is_cancelled_by_cancel_request() {
     client
         .send(&json!({
             "jsonrpc": "2.0", "id": id, "method": "chat.send",
-            "params": { "content": "Wait", "model": "chatonlm-hang" }
+            "params": { "content": "Wait", "model": HANG }
         }))
         .await;
     // La réponse a commencé.
@@ -964,7 +1149,7 @@ async fn chat_get_reads_a_chat_with_the_reply_in_progress() {
     client
         .send(&json!({
             "jsonrpc": "2.0", "id": id, "method": "chat.send",
-            "params": { "content": "Wait", "model": "chatonlm-stall" }
+            "params": { "content": "Wait", "model": STALL }
         }))
         .await;
     // La réponse a commencé à s'écrire.
@@ -1049,23 +1234,44 @@ async fn chat_list_gives_the_editor_chats_recent_first_and_fifty_at_most() {
 #[tokio::test]
 async fn models_details_tell_whether_the_model_runs_elsewhere() {
     let bench = bench().await;
+    bench.fake.set(SettingsPatch {
+        remote_models: Some(true),
+        ..Default::default()
+    });
     let (mut client, _, _) = bench.paired().await;
     let local = client
-        .request("models.details", json!({ "model": "qwen3:0.6b" }))
+        .request("models.details", json!({ "model": CHAT }))
         .await;
-    assert_eq!(local["result"]["model"], "qwen3:0.6b", "{local}");
+    assert_eq!(local["result"]["model"], CHAT, "{local}");
     assert!(local["result"]["capabilities"].is_array());
     assert_eq!(local["result"]["remote"], false);
-    for model in ["gpt-oss:20b-cloud", "chatonlm-polish-remote"] {
-        let remote = client
-            .request("models.details", json!({ "model": model }))
-            .await;
-        assert_eq!(remote["result"]["remote"], true, "{model}: {remote}");
-    }
+    let remote = client
+        .request("models.details", json!({ "model": REMOTE }))
+        .await;
+    assert_eq!(remote["result"]["remote"], true, "{remote}");
+    assert_eq!(remote["result"]["contextLength"], Value::Null, "{remote}");
+    // Rien n'est ouvert chez le fournisseur pour le dire.
+    assert!(bench.remote.opened.lock().is_empty());
+    // Distants coupés : le modèle n'est plus connu.
+    bench.fake.set(SettingsPatch {
+        remote_models: Some(false),
+        ..Default::default()
+    });
     assert_eq!(
         error_code(
             &client
-                .request("models.details", json!({ "model": "missing:1b" }))
+                .request("models.details", json!({ "model": REMOTE }))
+                .await
+        ),
+        code::REFUSED
+    );
+    assert_eq!(
+        error_code(
+            &client
+                .request(
+                    "models.details",
+                    json!({ "model": "missing/Model-GGUF:Q4_K_M" })
+                )
                 .await
         ),
         code::REFUSED
@@ -1074,6 +1280,53 @@ async fn models_details_tell_whether_the_model_runs_elsewhere() {
         error_code(&client.request("models.details", json!({})).await),
         code::INVALID_PARAMS
     );
+}
+
+/// `models.list` : `ChatModel` de l'app, distants compris s'ils sont permis,
+/// plus les champs de l'ancien `ModelInfo` qu'une extension 0.1.x lit
+/// (`model` et `digest` = identifiant, `contextLength`…).
+#[tokio::test]
+async fn models_list_gives_chat_models_with_the_fields_of_older_extensions() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    let listed = client.request("models.list", json!({})).await;
+    let models = listed["result"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{listed}"));
+    let ids: Vec<&str> = models.iter().map(|m| m["id"].as_str().unwrap()).collect();
+    assert_eq!(ids.len(), MODELS.len(), "{ids:?}");
+    assert!(!ids.contains(&REMOTE), "remote models are off by default");
+    // Le plus récent d'abord.
+    assert_eq!(ids[0], CHAT);
+    let chat = &models[0];
+    assert_eq!(chat["origin"], "hf");
+    assert_eq!(chat["model"], CHAT);
+    assert_eq!(chat["digest"], CHAT);
+    assert_eq!(chat["contextLength"], chat["contextMax"]);
+    assert_eq!(chat["contextMax"], 40_960);
+    assert_eq!(chat["parameterSize"], "0.6B");
+    assert_eq!(chat["quantizationLevel"], "Q8_0");
+    assert_eq!(chat["size"], chat["sizeBytes"]);
+    assert!(chat["capabilities"].is_array());
+
+    bench.fake.set(SettingsPatch {
+        remote_models: Some(true),
+        ..Default::default()
+    });
+    let listed = client.request("models.list", json!({})).await;
+    let remote = listed["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"] == REMOTE)
+        .unwrap_or_else(|| panic!("{listed}"))
+        .clone();
+    assert_eq!(remote["origin"], "remote");
+    assert_eq!(remote["model"], REMOTE);
+    // Champs absents d'un distant : vides comme avant (textes, 0).
+    assert_eq!(remote["size"], 0);
+    assert_eq!(remote["parameterSize"], "");
+    assert!(bench.remote.opened.lock().is_empty());
 }
 
 #[test]
@@ -1182,7 +1435,7 @@ async fn chat_forget_stops_the_reply_in_progress_first() {
     client
         .send(&json!({
             "jsonrpc": "2.0", "id": id, "method": "chat.send",
-            "params": { "content": "Wait", "model": "chatonlm-hang", "ephemeral": true }
+            "params": { "content": "Wait", "model": HANG, "ephemeral": true }
         }))
         .await;
     let mut chat = String::new();
@@ -1319,7 +1572,7 @@ async fn a_cancel_before_the_engine_starts_stops_the_send() {
     client
         .send(&json!({
             "jsonrpc": "2.0", "id": 7, "method": "chat.send",
-            "params": { "content": "Wait", "model": "chatonlm-hang" }
+            "params": { "content": "Wait", "model": HANG }
         }))
         .await;
     client
@@ -1335,7 +1588,7 @@ async fn a_cancel_before_the_engine_starts_stops_the_send() {
     client
         .send(&json!({
             "jsonrpc": "2.0", "id": 8, "method": "chat.send",
-            "params": { "content": "Wait", "model": "chatonlm-hang" }
+            "params": { "content": "Wait", "model": HANG }
         }))
         .await;
     client
@@ -1345,30 +1598,32 @@ async fn a_cancel_before_the_engine_starts_stops_the_send() {
 }
 
 #[tokio::test]
-async fn app_state_tells_where_the_server_runs_and_the_context() {
+async fn app_state_tells_where_the_models_run_and_the_context() {
     let bench = bench().await;
     let (mut client, _, _) = bench.paired().await;
     let state = client.request("app.state", json!({})).await;
+    // Toujours sur cette machine (moteur de l'app) : gardé pour l'extension
+    // 0.1.x, qui le lit.
     assert_eq!(state["result"]["local"], true, "{state}");
     assert_eq!(state["result"]["contextLength"], 0);
-    let patch = SettingsPatch {
-        server_url: Some("http://192.168.1.10:11434".to_owned()),
+    assert_eq!(state["result"]["selectedModel"], CHAT);
+    bench.fake.set(SettingsPatch {
         context_length: Some(8192),
+        remote_models: Some(true),
         ..Default::default()
-    };
-    bench
-        .store
-        .call(|c| settings::update(c, patch, None).map(drop))
-        .await
-        .unwrap();
+    });
     let state = client.request("app.state", json!({})).await;
-    assert_eq!(state["result"]["local"], false, "{state}");
+    assert_eq!(state["result"]["local"], true, "{state}");
     assert_eq!(state["result"]["contextLength"], 8192);
 }
 
 #[tokio::test]
 async fn models_details_give_the_context_the_engine_will_use() {
     let bench = bench().await;
+    bench.fake.set(SettingsPatch {
+        remote_models: Some(true),
+        ..Default::default()
+    });
     let (mut client, _, _) = bench.paired().await;
     let context = async |client: &mut Client, model: &str| {
         let details = client
@@ -1377,25 +1632,35 @@ async fn models_details_give_the_context_the_engine_will_use() {
         assert!(details.get("result").is_some(), "{details}");
         details["result"]["contextLength"].clone()
     };
-    // Contexte du serveur, aucun modèle chargé : inconnu.
-    assert_eq!(context(&mut client, "qwen3:0.6b").await, Value::Null);
+    // Choisi par le moteur au chargement, aucun modèle chargé : inconnu.
+    assert_eq!(context(&mut client, CHAT).await, Value::Null);
+    // Réglage, borné par le maximum du modèle (40 960).
     for (set, expected) in [(8192, json!(8192)), (65536, json!(40960))] {
-        let patch = SettingsPatch {
+        bench.fake.set(SettingsPatch {
             context_length: Some(set),
             ..Default::default()
-        };
-        bench
-            .store
-            .call(|c| settings::update(c, patch, None).map(drop))
-            .await
-            .unwrap();
-        assert_eq!(context(&mut client, "qwen3:0.6b").await, expected, "{set}");
+        });
+        assert_eq!(context(&mut client, CHAT).await, expected, "{set}");
     }
     assert_eq!(
-        context(&mut client, "gpt-oss:20b-cloud").await,
+        context(&mut client, REMOTE).await,
         Value::Null,
-        "a cloud model"
+        "a remote model"
     );
+    // Chargé : celui de son processus.
+    bench.fake.set(SettingsPatch {
+        context_length: Some(4096),
+        ..Default::default()
+    });
+    crate::llm::models::load(&bench.fake.access, CHAT)
+        .await
+        .unwrap();
+    bench.fake.set(SettingsPatch {
+        context_length: Some(8192),
+        ..Default::default()
+    });
+    assert_eq!(context(&mut client, CHAT).await, json!(4096));
+    bench.done().await;
 }
 
 #[tokio::test]
@@ -1717,7 +1982,7 @@ async fn a_spoken_turn_is_sent_by_the_engine_and_relayed() {
     let link = voice_session(
         &bench,
         &mut client,
-        json!({ "profile": "duck", "model": "qwen3:0.6b", "context": "fn main() {}" }),
+        json!({ "profile": "duck", "model": THINKER, "context": "fn main() {}" }),
     )
     .await;
     assert_eq!(
@@ -1778,7 +2043,8 @@ async fn a_spoken_turn_is_sent_by_the_engine_and_relayed() {
         0,
         "levels are throttled"
     );
-    let request = bench._ollama.chat_requests().last().unwrap().clone();
+    let requests = bench.requests(THINKER).await;
+    let request = requests.last().unwrap()["body"].clone();
     let system = request["messages"][0]["content"]
         .as_str()
         .unwrap()
@@ -1788,7 +2054,11 @@ async fn a_spoken_turn_is_sent_by_the_engine_and_relayed() {
     assert!(system.contains(&crate::i18n::t!("bridge.voice.duck")));
     assert!(system.contains("cannot find value"));
     assert!(!system.contains("fn main"), "the context was replaced");
-    assert_eq!(request["think"], false);
+    // Réflexion coupée pour la voix (modèle qui l'accepte).
+    assert_eq!(
+        request["chat_template_kwargs"]["enable_thinking"], false,
+        "{request}"
+    );
     let marks = bench.host.marks.lock().clone();
     assert!(marks.contains(&(chat.clone(), Some(ChatSource::Vscode))));
 
@@ -1817,6 +2087,7 @@ async fn a_spoken_turn_is_sent_by_the_engine_and_relayed() {
     until("reply failed", || !voice.failed_replies.lock().is_empty()).await;
     let (connection, turn, _) = voice.failed_replies.lock()[0].clone();
     assert_eq!((connection, turn), (link.connection(), 3));
+    bench.done().await;
 }
 
 /// `tour.plan` : plan du modèle en JSON contraint, lignes rapportées au code
@@ -1837,20 +2108,23 @@ async fn tour_plan_gives_segments_checked_against_the_code() {
             "kind": "file",
         })
     };
-    let texts = fake_ollama::tour::TOUR_TEXTS[1];
-    let answer = client.request("tour.plan", params("chatonlm-tour")).await;
+    // Plan du faux (lot L5a) : la première ligne, puis tout le code.
+    let answer = client.request("tour.plan", params(TOUR)).await;
     assert_eq!(
         answer["result"],
         json!({ "segments": [
-            { "lines": [10, 10], "text": texts[0] },
-            { "lines": [11, 13], "text": texts[1] },
+            { "lines": [10, 10], "text": "This line starts it." },
+            { "lines": [10, 13], "text": "And this is the whole." },
         ] }),
         "{answer}"
     );
-    let requests = bench._ollama.chat_requests();
-    let sent = requests.last().unwrap();
+    let requests = bench.requests(TOUR).await;
+    let sent = &requests.last().unwrap()["body"];
     assert_eq!(sent["stream"], false);
-    assert!(sent["format"]["properties"]["segments"].is_object());
+    assert!(
+        sent["response_format"]["json_schema"]["schema"]["properties"]["segments"].is_object(),
+        "{sent}"
+    );
     assert!(
         sent["messages"][1]["content"]
             .as_str()
@@ -1864,30 +2138,29 @@ async fn tour_plan_gives_segments_checked_against_the_code() {
             .contains("French")
     );
 
-    let before = bench._ollama.chat_requests().len();
-    let refused = client
-        .request("tour.plan", params("chatonlm-tour-invalid"))
-        .await;
+    // Plan inutilisable (le faux le rend vide) : redemandé une fois, puis
+    // refusé avec un message.
+    let before = bench.requests(TOUR).await.len();
+    let mut unusable = params(TOUR);
+    unusable["code"] = json!("UNUSABLE\nfn main() {}");
+    let refused = client.request("tour.plan", unusable).await;
     assert_eq!(error_code(&refused), code::REFUSED);
     assert!(refused["error"]["data"]["message"].is_string());
-    assert_eq!(
-        bench._ollama.chat_requests().len(),
-        before + 2,
-        "asked twice"
-    );
+    assert_eq!(bench.requests(TOUR).await.len(), before + 2, "asked twice");
 
-    let mut bad = params("chatonlm-tour");
+    let mut bad = params(TOUR);
     bad["firstLine"] = json!(0);
     assert_eq!(
         error_code(&client.request("tour.plan", bad).await),
         code::INVALID_PARAMS
     );
-    let mut empty = params("chatonlm-tour");
+    let mut empty = params(TOUR);
     empty["code"] = json!("  ");
     assert_eq!(
         error_code(&client.request("tour.plan", empty).await),
         code::INVALID_PARAMS
     );
+    bench.done().await;
 }
 
 /// Séance éphémère (`ephemeral`, sans `chatId`) : la conversation ouverte
@@ -1901,7 +2174,7 @@ async fn an_ephemeral_voice_session_opens_an_ephemeral_editor_chat() {
     let link = voice_session(
         &bench,
         &mut client,
-        json!({ "profile": "duck", "model": "qwen3:0.6b", "ephemeral": true }),
+        json!({ "profile": "duck", "model": CHAT, "ephemeral": true }),
     )
     .await;
     let say = |turn: u32, text: &str| VoiceModeUtterance {
@@ -2150,7 +2423,7 @@ async fn ending_the_session_stops_the_reply_of_its_turn() {
     let link = voice_session(
         &bench,
         &mut client,
-        json!({ "profile": "duck", "model": "chatonlm-stall" }),
+        json!({ "profile": "duck", "model": STALL }),
     )
     .await;
     link.utterance(&VoiceModeUtterance {
@@ -2170,18 +2443,17 @@ async fn ending_the_session_stops_the_reply_of_its_turn() {
     }
 }
 
-/// Modèle du cloud, réglage coupé : le tour finit avec un avis et rien ne
-/// part, même pas `/api/show`.
+/// Modèle distant, réglage coupé : le tour finit avec un avis et rien ne
+/// part, même pas l'ouverture chez le fournisseur.
 #[tokio::test]
-async fn a_cloud_model_is_refused_before_anything_leaves() {
+async fn a_remote_model_is_refused_before_anything_leaves() {
     let bench = bench().await;
     let voice = bench.host.voice.clone();
     let (mut client, _, _) = bench.paired().await;
-    let model = "gpt-oss:120b-cloud";
     let link = voice_session(
         &bench,
         &mut client,
-        json!({ "profile": "duck", "model": model }),
+        json!({ "profile": "duck", "model": REMOTE }),
     )
     .await;
     link.utterance(&VoiceModeUtterance {
@@ -2190,21 +2462,12 @@ async fn a_cloud_model_is_refused_before_anything_leaves() {
         language: Some(VoiceLanguage::En),
     });
     until("reply failed", || !voice.failed_replies.lock().is_empty()).await;
+    let (_, _, message) = voice.failed_replies.lock()[0].clone();
+    assert_eq!(message, LlmError::RemoteOff.message());
+    assert!(bench.remote.opened.lock().is_empty());
     assert!(
-        !bench
-            ._ollama
-            .show_requests()
-            .iter()
-            .any(|shown| shown.contains("cloud")),
-        "{:?}",
-        bench._ollama.show_requests()
-    );
-    assert!(
-        bench
-            ._ollama
-            .chat_requests()
-            .iter()
-            .all(|sent| sent["model"] != model)
+        all_chats(&bench.store).await.is_empty(),
+        "nothing was saved"
     );
 }
 
@@ -2241,16 +2504,12 @@ async fn a_tour_plan_is_cancelled_by_cancel_request() {
     client
         .send(
             &json!({ "jsonrpc": "2.0", "id": plan, "method": "tour.plan", "params": {
-            "model": "chatonlm-wait", "locale": "en", "path": "a.rs", "language": "rust",
+            "model": HANG, "locale": "en", "path": "a.rs", "language": "rust",
             "code": "fn main() {}", "firstLine": 1, "kind": "file" } }),
         )
         .await;
-    until("the plan was asked", || {
-        bench
-            ._ollama
-            .chat_requests()
-            .iter()
-            .any(|sent| sent["model"] == "chatonlm-wait")
+    eventually("the plan was asked", || async {
+        !bench.requests(HANG).await.is_empty()
     })
     .await;
     client
@@ -2258,10 +2517,11 @@ async fn a_tour_plan_is_cancelled_by_cancel_request() {
         .await;
     let answer = client.response(plan).await;
     assert_eq!(error_code(&answer), code::CANCELLED, "{answer}");
-    until("the model request was dropped", || {
-        bench._ollama.disconnects() > 0
+    eventually("the model request was dropped", || async {
+        bench.disconnects(HANG).await > 0
     })
     .await;
+    bench.done().await;
 }
 
 /// Envoie une requête sans attendre sa réponse ; rend son identifiant.
@@ -2292,16 +2552,12 @@ async fn the_gpu_methods_are_served_after_authentication_only() {
         "models.offerPull",
     ] {
         assert_eq!(
-            error_code(
-                &client
-                    .request(method, json!({ "model": "chatonlm-fim" }))
-                    .await
-            ),
+            error_code(&client.request(method, json!({ "model": FIM_LINES })).await),
             code::UNAUTHENTICATED,
             "{method}"
         );
     }
-    assert!(bench._ollama.load_requests().is_empty());
+    assert!(bench.fake.engine().running().is_empty(), "nothing loaded");
 }
 
 /// Une proposition ne charge jamais : en pause tant que le modèle n'est pas
@@ -2311,24 +2567,24 @@ async fn the_gpu_methods_are_served_after_authentication_only() {
 async fn completion_waits_for_prepare_and_the_plan_is_followed() {
     let bench = bench().await;
     let (mut client, _, _) = bench.paired().await;
-    let fim = json!({ "model": "chatonlm-fim", "prefix": "def f(", "suffix": ")\n",
+    let fim = json!({ "model": FIM_LINES, "prefix": "def f(", "suffix": ")\n",
         "language": "python", "path": "a.py" });
     let answer = client.request("complete.fim", fim.clone()).await;
     assert_eq!(paused_reason(&answer), "notLoaded");
-    assert!(bench._ollama.generate_requests().is_empty());
-    assert!(bench._ollama.load_requests().is_empty());
+    // Rien d'envoyé ni de chargé.
+    assert!(bench.fake.engine().running().is_empty());
 
     let status = client
-        .request("gpu.status", json!({ "model": "chatonlm-fim" }))
+        .request("gpu.status", json!({ "model": FIM_LINES }))
         .await;
     let plan = &status["result"];
-    assert_eq!(plan["completion"]["model"], "chatonlm-fim", "{status}");
+    assert_eq!(plan["completion"]["model"], FIM_LINES, "{status}");
     assert_eq!(plan["completion"]["loaded"], false);
-    assert_eq!(plan["chat"]["model"], "qwen3:0.6b");
+    assert_eq!(plan["chat"]["model"], CHAT);
     assert_eq!(plan["reason"], "notLoaded");
 
     let prepared = client
-        .request("completion.prepare", json!({ "model": "chatonlm-fim" }))
+        .request("completion.prepare", json!({ "model": FIM_LINES }))
         .await;
     assert_eq!(
         prepared["result"]["plan"]["completion"]["loaded"], true,
@@ -2348,9 +2604,9 @@ async fn completion_waits_for_prepare_and_the_plan_is_followed() {
     assert!(answer["result"]["cachedTokens"].is_u64());
     // Paramètres invalides.
     for params in [
-        json!({ "model": "chatonlm-fim" }),
+        json!({ "model": FIM_LINES }),
         json!({ "model": "", "prefix": "a" }),
-        json!({ "model": "chatonlm-fim", "prefix": "a", "maxTokens": 0 }),
+        json!({ "model": FIM_LINES, "prefix": "a", "maxTokens": 0 }),
     ] {
         assert_eq!(
             error_code(&client.request("complete.fim", params.clone()).await),
@@ -2371,23 +2627,20 @@ async fn one_completion_in_flight_and_cancel_request() {
     let bench = bench().await;
     let (mut client, _, _) = bench.paired().await;
     let prepared = client
-        .request(
-            "completion.prepare",
-            json!({ "model": "chatonlm-fim-long" }),
-        )
+        .request("completion.prepare", json!({ "model": FIM_WAIT }))
         .await;
     assert!(prepared.get("result").is_some(), "{prepared}");
-    let long = json!({ "model": "chatonlm-fim-long", "prefix": "a", "suffix": "" });
+    let long = json!({ "model": FIM_WAIT, "prefix": "a", "suffix": "" });
     let first = start(&mut client, "complete.fim", long.clone()).await;
-    until("the first request reached the model", || {
-        bench._ollama.generate_requests().len() == 1
+    eventually("the first request reached the model", || async {
+        bench.infills(FIM_WAIT).await == 1
     })
     .await;
     let second = start(&mut client, "complete.fim", long.clone()).await;
     let answer = client.response(first).await;
     assert_eq!(error_code(&answer), code::CANCELLED, "{answer}");
-    until("the second request reached the model", || {
-        bench._ollama.generate_requests().len() == 2
+    eventually("the second request reached the model", || async {
+        bench.infills(FIM_WAIT).await == 2
     })
     .await;
     client
@@ -2396,15 +2649,14 @@ async fn one_completion_in_flight_and_cancel_request() {
     let answer = client.response(second).await;
     assert_eq!(error_code(&answer), code::CANCELLED, "{answer}");
     // Les deux requêtes au modèle ont été abandonnées.
-    until("the model requests were dropped", || {
-        bench._ollama.disconnects() >= 2
+    eventually("the model requests were dropped", || async {
+        bench.disconnects(FIM_WAIT).await >= 2
     })
     .await;
     // Une autre connexion a sa propre proposition en vol.
     let (mut other, _, _) = bench.paired().await;
     let mine = start(&mut client, "complete.fim", long.clone()).await;
-    let quick =
-        json!({ "model": "chatonlm-fim-long", "prefix": "b", "suffix": "", "maxTokens": 1 });
+    let quick = json!({ "model": FIM_WAIT, "prefix": "b", "suffix": "", "maxTokens": 1 });
     let theirs = other.request("complete.fim", quick).await;
     assert!(theirs.get("result").is_some(), "{theirs}");
     let answer = client.response(mine).await;
@@ -2418,22 +2670,19 @@ async fn a_chat_reply_pauses_completion() {
     let bench = bench().await;
     let (mut client, _, _) = bench.paired().await;
     client
-        .request(
-            "completion.prepare",
-            json!({ "model": "chatonlm-fim-long" }),
-        )
+        .request("completion.prepare", json!({ "model": FIM_WAIT }))
         .await;
-    let long = json!({ "model": "chatonlm-fim-long", "prefix": "a", "suffix": "" });
+    let long = json!({ "model": FIM_WAIT, "prefix": "a", "suffix": "" });
     let fim = start(&mut client, "complete.fim", long.clone()).await;
-    until("the request reached the model", || {
-        bench._ollama.generate_requests().len() == 1
+    eventually("the request reached the model", || async {
+        bench.infills(FIM_WAIT).await == 1
     })
     .await;
     let (mut chatting, _, _) = bench.paired().await;
     let send = start(
         &mut chatting,
         "chat.send",
-        json!({ "content": "Wait", "model": "chatonlm-hang" }),
+        json!({ "content": "Wait", "model": HANG }),
     )
     .await;
     let answer = client.response(fim).await;
@@ -2442,13 +2691,10 @@ async fn a_chat_reply_pauses_completion() {
     let answer = client.request("complete.fim", long.clone()).await;
     assert_eq!(paused_reason(&answer), "chatBusy");
     let answer = client
-        .request(
-            "completion.measure",
-            json!({ "model": "chatonlm-fim-long" }),
-        )
+        .request("completion.measure", json!({ "model": FIM_WAIT }))
         .await;
     assert_eq!(paused_reason(&answer), "chatBusy");
-    assert_eq!(bench._ollama.generate_requests().len(), 1);
+    assert_eq!(bench.infills(FIM_WAIT).await, 1);
     let status = client.request("gpu.status", json!({})).await;
     assert_eq!(status["result"]["chatBusy"], true, "{status}");
     chatting
@@ -2456,37 +2702,31 @@ async fn a_chat_reply_pauses_completion() {
         .await;
     chatting.response(send).await;
     // Réponse finie : le modèle chargé répond de nouveau.
-    let quick = json!({ "model": "chatonlm-fim-long", "prefix": "b", "maxTokens": 1 });
+    let quick = json!({ "model": FIM_WAIT, "prefix": "b", "maxTokens": 1 });
     let answer = client.request("complete.fim", quick).await;
     assert!(answer.get("result").is_some(), "{answer}");
     let answer = client
-        .request(
-            "complete.fim",
-            json!({ "model": "chatonlm-fim", "prefix": "a" }),
-        )
+        .request("complete.fim", json!({ "model": FIM_LINES, "prefix": "a" }))
         .await;
     // Un modèle pas chargé : en pause, mais plus pour la conversation.
     assert_eq!(paused_reason(&answer), "notLoaded");
 }
 
-/// Rapport 92, M5 et M6 : un autre travail de l'app sur Ollama
+/// Rapport 92, M5 et M6 : un autre travail de l'app sur un modèle
 /// (Correction, Étude, polissage, chargement par la page…) met
 /// l'autocomplétion en pause comme une réponse : la proposition en cours
 /// s'arrête, la suivante n'est pas envoyée ; reprise à la fin.
 #[tokio::test(flavor = "multi_thread")]
-async fn other_work_on_ollama_pauses_completion() {
+async fn other_work_on_a_model_pauses_completion() {
     let bench = bench().await;
     let (mut client, _, _) = bench.paired().await;
     client
-        .request(
-            "completion.prepare",
-            json!({ "model": "chatonlm-fim-long" }),
-        )
+        .request("completion.prepare", json!({ "model": FIM_WAIT }))
         .await;
-    let long = json!({ "model": "chatonlm-fim-long", "prefix": "a", "suffix": "" });
+    let long = json!({ "model": FIM_WAIT, "prefix": "a", "suffix": "" });
     let fim = start(&mut client, "complete.fim", long.clone()).await;
-    until("the request reached the model", || {
-        bench._ollama.generate_requests().len() == 1
+    eventually("the request reached the model", || async {
+        bench.infills(FIM_WAIT).await == 1
     })
     .await;
     let working = bench.host.engine.hold();
@@ -2497,16 +2737,16 @@ async fn other_work_on_ollama_pauses_completion() {
     assert_eq!(
         paused_reason(
             &client
-                .request("completion.prepare", json!({ "model": "chatonlm-fim" }))
+                .request("completion.prepare", json!({ "model": FIM_LINES }))
                 .await
         ),
         "chatBusy"
     );
     let status = client.request("gpu.status", json!({})).await;
     assert_eq!(status["result"]["chatBusy"], true, "{status}");
-    assert_eq!(bench._ollama.generate_requests().len(), 1);
+    assert_eq!(bench.infills(FIM_WAIT).await, 1);
     drop(working);
-    let quick = json!({ "model": "chatonlm-fim-long", "prefix": "b", "maxTokens": 1 });
+    let quick = json!({ "model": FIM_WAIT, "prefix": "b", "maxTokens": 1 });
     let answer = client.request("complete.fim", quick).await;
     assert!(answer.get("result").is_some(), "{answer}");
 }
@@ -2518,29 +2758,23 @@ async fn no_completion_while_measuring() {
     let bench = bench().await;
     let (mut client, _, _) = bench.paired().await;
     client
-        .request(
-            "completion.prepare",
-            json!({ "model": "chatonlm-fim-slow" }),
-        )
+        .request("completion.prepare", json!({ "model": FIM_WAIT }))
         .await;
     let measure = start(
         &mut client,
         "completion.measure",
-        json!({ "model": "chatonlm-fim-slow" }),
+        json!({ "model": FIM_WAIT }),
     )
     .await;
-    until("the measure reached the model", || {
-        bench._ollama.generate_requests().len() == 1
+    eventually("the measure reached the model", || async {
+        bench.infills(FIM_WAIT).await == 1
     })
     .await;
     let answer = client
-        .request(
-            "complete.fim",
-            json!({ "model": "chatonlm-fim-slow", "prefix": "a" }),
-        )
+        .request("complete.fim", json!({ "model": FIM_WAIT, "prefix": "a" }))
         .await;
     assert_eq!(error_code(&answer), code::CANCELLED, "{answer}");
-    assert_eq!(bench._ollama.generate_requests().len(), 1);
+    assert_eq!(bench.infills(FIM_WAIT).await, 1);
     client
         .send(
             &json!({ "jsonrpc": "2.0", "method": "$/cancelRequest", "params": { "id": measure } }),
@@ -2554,17 +2788,22 @@ async fn measure_suggest_and_offer_pull() {
     let bench = bench().await;
     let (mut client, _, _) = bench.paired().await;
     let answer = client
-        .request("completion.measure", json!({ "model": "chatonlm-fim" }))
+        .request("completion.measure", json!({ "model": FIM_LINES }))
         .await;
     assert_eq!(paused_reason(&answer), "notLoaded");
     client
-        .request("completion.prepare", json!({ "model": "chatonlm-fim" }))
+        .request("completion.prepare", json!({ "model": FIM_LINES }))
         .await;
     let measure = client
-        .request("completion.measure", json!({ "model": "chatonlm-fim" }))
+        .request("completion.measure", json!({ "model": FIM_LINES }))
         .await;
     let result = &measure["result"];
-    assert_eq!(result["tokensPerSecond"], 200.0, "{measure}");
+    assert!(
+        result["tokensPerSecond"]
+            .as_f64()
+            .is_some_and(|speed| speed > 0.0),
+        "{measure}"
+    );
     assert!(["smooth", "usable", "tooSlow"].contains(&result["rating"].as_str().unwrap()));
     assert_eq!(result["partialGpu"], false);
 
@@ -2611,7 +2850,7 @@ async fn measure_suggest_and_offer_pull() {
     assert_eq!(offered["result"]["installed"], false, "{offered}");
     assert_eq!(bench.host.offers.lock().len(), 1);
     // Seulement un nom proposé ; jamais de téléchargement par le pont.
-    for model in ["qwen3:0.6b", "chatonlm-fim", ""] {
+    for model in [CHAT, FIM_LINES, ""] {
         assert_eq!(
             error_code(
                 &client
@@ -2623,7 +2862,10 @@ async fn measure_suggest_and_offer_pull() {
         );
     }
     assert_eq!(bench.host.offers.lock().len(), 1);
-    assert!(bench._ollama.pull_requests().is_empty());
+    assert!(
+        bench.fake.access.downloads().list().is_empty(),
+        "nothing downloaded"
+    );
     // Téléchargé par le ModelHub (base locale) : installé, plus proposé.
     let one_five = "ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF:Q8_0";
     let row = crate::store::local_models::tests::model(
@@ -2650,6 +2892,208 @@ async fn measure_suggest_and_offer_pull() {
     assert_eq!(offered["result"]["installed"], true, "{offered}");
 }
 
+/// Ancien nom d'Ollama d'un modèle proposé (réglage d'une extension 0.1.x) :
+/// renommé par le pont ; la table des renommages est donnée à l'extension
+/// (`completion.suggest`), qui récrit son réglage.
+#[tokio::test]
+async fn an_old_ollama_name_of_a_proposed_model_is_renamed() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    let offered = client
+        .request(
+            "models.offerPull",
+            json!({ "model": "qwen2.5-coder:1.5b-base" }),
+        )
+        .await;
+    assert_eq!(offered["result"]["installed"], false, "{offered}");
+    assert_eq!(
+        *bench.host.offers.lock(),
+        ["ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF:Q8_0"]
+    );
+    let suggested = client.request("completion.suggest", json!({})).await;
+    assert_eq!(
+        suggested["result"]["renamed"]["qwen2.5-coder:7b-base"],
+        "ggml-org/Qwen2.5-Coder-7B-Q8_0-GGUF:Q8_0",
+        "{suggested}"
+    );
+    // Un autre ancien nom n'est pas proposé.
+    assert_eq!(
+        error_code(
+            &client
+                .request("models.offerPull", json!({ "model": "codellama:7b-code" }))
+                .await
+        ),
+        code::INVALID_PARAMS
+    );
+}
+
+/// Ancien nom d'autocomplétion (réglage d'une extension 0.1.x), modèle
+/// `installed` (dépôt proposé, ou modèle repris d'Ollama sous cet ancien
+/// nom) : le pont sert ce modèle à `gpu.status`, `completion.prepare` et
+/// `complete.fim` ; le plan de cette connexion porte le nom qu'elle a demandé
+/// (l'extension 0.1.x le compare à son réglage) ; rien n'est offert.
+async fn an_old_completion_name_is_served_by(installed: &str) {
+    const OLD: &str = "qwen2.5-coder:1.5b-base";
+    let mut models = MODELS.to_vec();
+    models.push((installed, "gpu-fimlines"));
+    let bench = bench_of(&models, connection::AUTH_TIMEOUT).await;
+    let (mut client, id, secret) = bench.paired().await;
+    let suggested = client.request("completion.suggest", json!({})).await;
+    assert_eq!(
+        suggested["result"]["renamed"][OLD], installed,
+        "{suggested}"
+    );
+    assert_eq!(suggested["result"]["options"][1]["model"], installed);
+    assert_eq!(suggested["result"]["options"][1]["installed"], true);
+
+    let status = client.request("gpu.status", json!({ "model": OLD })).await;
+    assert_eq!(status["result"]["completion"]["model"], OLD, "{status}");
+    assert_eq!(status["result"]["completion"]["loaded"], false);
+    // Une autre connexion (sans ancien nom) voit le modèle servi.
+    let mut other = reconnect(&bench, &id, &secret).await;
+    let plan = other.request("gpu.status", json!({})).await;
+    assert_eq!(plan["result"]["completion"]["model"], installed, "{plan}");
+
+    let prepared = client
+        .request("completion.prepare", json!({ "model": OLD }))
+        .await;
+    let plan = &prepared["result"]["plan"];
+    assert_eq!(plan["completion"]["loaded"], true, "{prepared}");
+    assert_eq!(plan["completion"]["model"], OLD);
+    assert!(
+        bench
+            .fake
+            .engine()
+            .running()
+            .iter()
+            .any(|running| running.id == installed),
+        "{installed} loaded"
+    );
+    let changed = client.notification("gpu.changed").await;
+    assert_eq!(changed["plan"]["completion"]["model"], OLD, "{changed}");
+
+    let fim = json!({ "model": OLD, "prefix": "def f(", "suffix": ")\n",
+        "language": "python", "path": "a.py" });
+    let answer = client.request("complete.fim", fim).await;
+    assert_eq!(
+        answer["result"]["text"], "value(6|2)\n    second line",
+        "{answer}"
+    );
+    assert_eq!(bench.infills(installed).await, 1);
+
+    let offered = client
+        .request("models.offerPull", json!({ "model": OLD }))
+        .await;
+    assert_eq!(offered["result"]["installed"], true, "{offered}");
+    let offered = client
+        .request("models.offerPull", json!({ "model": installed }))
+        .await;
+    assert_eq!(offered["result"]["installed"], true, "{offered}");
+    assert!(bench.host.offers.lock().is_empty(), "nothing offered");
+
+    // Le nouveau nom demandé : le plan le porte de nouveau.
+    let status = client
+        .request("gpu.status", json!({ "model": installed }))
+        .await;
+    assert_eq!(status["result"]["completion"]["model"], installed);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_old_completion_name_is_served_by_the_proposed_repository() {
+    an_old_completion_name_is_served_by("ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF:Q8_0").await;
+}
+
+/// Modèle repris d'Ollama sous l'ancien nom : gardé, rien à télécharger.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_old_completion_name_keeps_the_model_imported_from_ollama() {
+    an_old_completion_name_is_served_by("@ollama/qwen2.5-coder:1.5b-base").await;
+}
+
+/// Panneau, voix et visite d'une extension 0.1.x : `@ollama/<nom>` sans
+/// `:latest` (retiré par l'extension) désigne le modèle repris
+/// `@ollama/<nom>:latest`.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ollama_id_without_its_tag_is_its_latest_tag() {
+    const IMPORTED: &str = "@ollama/llama3.2:latest";
+    let mut models = MODELS.to_vec();
+    models.push((IMPORTED, "simple"));
+    let bench = bench_of(&models, connection::AUTH_TIMEOUT).await;
+    let (mut client, _, _) = bench.paired().await;
+    let details = client
+        .request("models.details", json!({ "model": "@ollama/llama3.2" }))
+        .await;
+    assert_eq!(details["result"]["remote"], false, "{details}");
+    assert_eq!(details["result"]["model"], IMPORTED);
+    let sent = client
+        .request(
+            "chat.send",
+            json!({ "content": "Hello", "model": " @ollama/llama3.2 ", "ephemeral": true }),
+        )
+        .await;
+    assert_eq!(sent["result"]["outcome"], "done", "{sent}");
+    assert!(
+        bench
+            .fake
+            .engine()
+            .running()
+            .iter()
+            .any(|running| running.id == IMPORTED),
+        "served by {IMPORTED}"
+    );
+}
+
+#[test]
+fn an_editor_model_gets_the_default_ollama_tag_only_when_it_lacks_one() {
+    use super::connection::editor_model;
+    assert_eq!(editor_model("@ollama/llama3.2"), "@ollama/llama3.2:latest");
+    assert_eq!(
+        editor_model(" @ollama/library/x "),
+        "@ollama/library/x:latest"
+    );
+    assert_eq!(editor_model("@ollama/qwen3:0.6b"), "@ollama/qwen3:0.6b");
+    assert_eq!(editor_model("@ollama/a/b:q4"), "@ollama/a/b:q4");
+    for same in [
+        "a/b:Q4_K_M",
+        "@remote/test/remote-model",
+        "@remote/test/a/b",
+        "qwen3",
+        "@ollama/",
+        "",
+    ] {
+        assert_eq!(editor_model(same), same);
+    }
+}
+
+/// Correction depuis l'éditeur, aucun modèle choisi sur la page Proofread :
+/// « Auto », comme la page (le meilleur modèle prêt, pas celui du chat).
+#[tokio::test(flavor = "multi_thread")]
+async fn proofreading_from_the_editor_uses_auto_like_the_page() {
+    let bench = bench().await;
+    let (mut client, _, _) = bench.paired().await;
+    crate::llm::models::load(&bench.fake.access, PROOFER)
+        .await
+        .unwrap();
+    let answer = client
+        .request(
+            "proofread.run",
+            json!({ "text": "I recieve teh letter.", "mode": "correct" }),
+        )
+        .await;
+    assert_eq!(answer["result"]["model"], PROOFER, "{answer}");
+    // Réglé sur la page : celui-là.
+    bench.fake.set(SettingsPatch {
+        proofread_model: Some(PROOFER_SLOW.to_owned()),
+        ..Default::default()
+    });
+    let answer = client
+        .request(
+            "proofread.run",
+            json!({ "text": "I recieve teh letter.", "mode": "correct" }),
+        )
+        .await;
+    assert_eq!(answer["result"]["model"], PROOFER_SLOW, "{answer}");
+}
+
 #[tokio::test]
 async fn switching_off_and_on_quickly_always_reopens() {
     // Fermeture de l'ancien point d'accès retardée, comme sur une machine
@@ -2660,7 +3104,7 @@ async fn switching_off_and_on_quickly_always_reopens() {
     config.close_delay = std::time::Duration::from_millis(300);
     bench.bridge = Bridge::new(
         bench.host.clone(),
-        crate::llm::access_for(&bench.store),
+        bench.bridge.shared().access.clone(),
         config,
     );
     for round in 0..3 {
@@ -2776,7 +3220,7 @@ async fn the_editor_notifies_through_easy_link_with_its_own_codes() {
 #[tokio::test]
 async fn a_course_is_made_from_texts_sent_by_the_editor() {
     let bench = bench().await;
-    bench.select_model("chatonlm-study").await;
+    bench.select_model(STUDY).await;
     let (mut client, _, _) = bench.paired().await;
     let created = client
         .request(
@@ -2886,9 +3330,9 @@ async fn the_editor_follows_its_courses_whoever_runs_the_study_queue() {
     use crate::i18n::Lang;
     use crate::study::StudyLevel;
     let bench = bench().await;
-    bench.select_model("chatonlm-study-slow").await;
+    bench.select_model(STUDY_SLOW).await;
     // L'onglet Study prépare déjà un cours : la file tourne avec son `Ctx`.
-    let page = crate::study::Ctx::new(bench.store.clone(), |_| {});
+    let page = crate::study::Ctx::with_access(bench.fake.access.clone(), |_| {});
     let engine = Arc::clone(&bench.host.study);
     engine
         .create_from_texts(
@@ -3156,7 +3600,7 @@ async fn an_image_comes_back_as_bytes_and_is_never_written() {
 #[tokio::test]
 async fn the_editor_proofreads_a_text_part_by_part() {
     let bench = bench().await;
-    bench.select_model("chatonlm-proofread").await;
+    bench.select_model(PROOFER).await;
     let (mut client, _, _) = bench.paired().await;
     let text = "I recieve teh letter.\n\nThe second paragraph.";
     let answer = client
@@ -3167,7 +3611,7 @@ async fn the_editor_proofreads_a_text_part_by_part() {
         .await;
     assert_eq!(
         answer["result"],
-        json!({ "text": "I receive the letter.\n\nThe second paragraph.", "model": "chatonlm-proofread" }),
+        json!({ "text": "I receive the letter.\n\nThe second paragraph.", "model": PROOFER }),
         "{answer}"
     );
     let started = client.notification("proofread.event").await;
@@ -3189,7 +3633,7 @@ async fn the_editor_proofreads_a_text_part_by_part() {
     assert_eq!(error_code(&answer), code::INVALID_PARAMS);
 
     // Arrêt par l'éditeur pendant un passage ; l'activité tenue est lâchée.
-    bench.select_model("chatonlm-proofread-slow").await;
+    bench.select_model(PROOFER_SLOW).await;
     client
         .send(&json!({ "jsonrpc": "2.0", "id": 700, "method": "proofread.run",
             "params": { "text": "I recieve teh letter, slowly, word after word.", "mode": "rephrase" } }))
@@ -3208,67 +3652,46 @@ async fn the_editor_proofreads_a_text_part_by_part() {
 }
 
 /// « Auto » ne retombe jamais sur un modèle du chat qui tourne hors de la
-/// machine (cloud, même activé, ou distant) : refus, et rien ne part ;
-/// choisi sur la page Proofread, il est utilisé.
+/// machine (distant, même permis) : refus, et rien ne part ; choisi sur la
+/// page Proofread, il est utilisé.
 #[tokio::test]
-async fn auto_never_sends_the_text_to_a_cloud_or_remote_chat_model() {
+async fn auto_never_sends_the_text_to_a_remote_chat_model() {
     let bench = bench().await;
-    let patch = SettingsPatch {
+    bench.fake.set(SettingsPatch {
         remote_models: Some(true),
         ..Default::default()
-    };
-    bench
-        .store
-        .call(move |c| settings::update(c, patch, None).map(drop))
-        .await
-        .unwrap();
+    });
     let (mut client, _, _) = bench.paired().await;
-    for model in ["gpt-oss:20b-cloud", "chatonlm-polish-remote"] {
-        bench.select_model(model).await;
-        let answer = client
-            .request(
-                "proofread.run",
-                json!({ "text": "My password is hunter2.", "mode": "correct" }),
-            )
-            .await;
-        assert_eq!(error_code(&answer), code::REFUSED, "{answer}");
-        assert_eq!(answer["error"]["data"]["code"], "noModel", "{answer}");
-        assert_eq!(
-            answer["error"]["data"]["message"],
-            format!(
-                "The chat model ({model}) runs outside this computer. To proofread with it, \
-                 choose it on the Proofread page of ChatonLM."
-            ),
-        );
-    }
-    assert!(
-        bench._ollama.chat_requests().is_empty(),
-        "{:?}",
-        bench._ollama.chat_requests()
+    bench.select_model(REMOTE).await;
+    let answer = client
+        .request(
+            "proofread.run",
+            json!({ "text": "My password is hunter2.", "mode": "correct" }),
+        )
+        .await;
+    assert_eq!(error_code(&answer), code::REFUSED, "{answer}");
+    assert_eq!(answer["error"]["data"]["code"], "noModel", "{answer}");
+    assert_eq!(
+        answer["error"]["data"]["message"],
+        format!(
+            "The chat model ({REMOTE}) runs outside this computer. To proofread with it, \
+             choose it on the Proofread page of ChatonLM."
+        ),
     );
-    // Choisi sur la page Proofread : il est utilisé.
-    let patch = SettingsPatch {
-        proofread_model: Some("chatonlm-polish-remote".to_owned()),
+    assert!(bench.remote.opened.lock().is_empty());
+    // Choisi sur la page Proofread : il est utilisé (ouvert chez le
+    // fournisseur).
+    bench.fake.set(SettingsPatch {
+        proofread_model: Some(REMOTE.to_owned()),
         ..Default::default()
-    };
-    bench
-        .store
-        .call(move |c| settings::update(c, patch, None).map(drop))
-        .await
-        .unwrap();
+    });
     let _ = client
         .request(
             "proofread.run",
             json!({ "text": "I recieve teh letter.", "mode": "correct" }),
         )
         .await;
-    assert!(
-        bench
-            ._ollama
-            .chat_requests()
-            .iter()
-            .any(|sent| sent["model"] == "chatonlm-polish-remote")
-    );
+    assert_eq!(*bench.remote.opened.lock(), ["test/remote-model"]);
 }
 
 #[test]
@@ -3308,7 +3731,7 @@ fn only_listed_pages_can_be_shown() {
 #[tokio::test]
 async fn the_editor_shows_the_app_on_a_listed_page_only() {
     let bench = bench().await;
-    bench.select_model("chatonlm-study").await;
+    bench.select_model(STUDY).await;
     let (mut client, _, _) = bench.paired().await;
     let answer = client.request("app.show", json!({})).await;
     assert_eq!(answer["result"], json!({}), "{answer}");
@@ -3841,8 +4264,7 @@ fn not_local(answer: &Value, message: &str) {
 }
 
 /// L'accès agents, et `proofread.run` avec `localOnly`, n'envoient rien hors
-/// de cette machine : modèle cloud ou distant, ou Ollama sur une autre
-/// machine.
+/// de cette machine : modèle distant, même permis.
 #[tokio::test]
 async fn agents_and_local_only_never_send_outside_this_computer() {
     let bench = bench().await;
@@ -3854,55 +4276,34 @@ async fn agents_and_local_only_never_send_outside_this_computer() {
     let (mut editor, _, _) = bench.paired().await;
     let (mut agents, _, _) = agents_access(&bench, &mut editor).await;
 
-    for model in ["gpt-oss:20b-cloud", "chatonlm-polish-remote"] {
-        let message = format!("{model} runs outside this computer, so nothing was sent.");
-        let sent = agents
-            .request(
-                "chat.send",
-                json!({ "content": "My password is hunter2.", "model": model, "ephemeral": true }),
-            )
-            .await;
-        not_local(&sent, &message);
-        // Correction : modèle choisi sur la page Proofread.
-        let patch = SettingsPatch {
-            proofread_model: Some(model.to_owned()),
-            ..Default::default()
-        };
-        patch_settings(&bench, patch).await;
-        let text = json!({ "text": "My password is hunter2.", "mode": "correct" });
-        not_local(
-            &agents.request("proofread.run", text.clone()).await,
-            &message,
-        );
-        let mut local_only = text.clone();
-        local_only["localOnly"] = json!(true);
-        not_local(&editor.request("proofread.run", local_only).await, &message);
-    }
-    assert!(
-        bench._ollama.chat_requests().is_empty(),
-        "{:?}",
-        bench._ollama.chat_requests()
-    );
-    assert!(all_chats(&bench.store).await.is_empty(), "nothing written");
-
-    // Ollama sur une autre machine : refusé avant toute requête.
+    let message = format!("{REMOTE} runs outside this computer, so nothing was sent.");
+    let sent = agents
+        .request(
+            "chat.send",
+            json!({ "content": "My password is hunter2.", "model": REMOTE, "ephemeral": true }),
+        )
+        .await;
+    not_local(&sent, &message);
+    // Correction : modèle choisi sur la page Proofread.
     let patch = SettingsPatch {
-        proofread_model: Some("chatonlm-proofread".to_owned()),
-        server_url: Some("http://192.0.2.1:11434".to_owned()),
+        proofread_model: Some(REMOTE.to_owned()),
         ..Default::default()
     };
     patch_settings(&bench, patch).await;
-    let message = "ChatonLM uses an Ollama on another computer, so nothing was sent.";
-    let sent = agents
-        .request("chat.send", json!({ "content": "Hi", "ephemeral": true }))
-        .await;
-    not_local(&sent, message);
-    let local_only = json!({ "text": "Hi", "mode": "correct", "localOnly": true });
-    not_local(&editor.request("proofread.run", local_only).await, message);
+    let text = json!({ "text": "My password is hunter2.", "mode": "correct" });
+    not_local(
+        &agents.request("proofread.run", text.clone()).await,
+        &message,
+    );
+    let mut local_only = text.clone();
+    local_only["localOnly"] = json!(true);
+    not_local(&editor.request("proofread.run", local_only).await, &message);
+    assert!(bench.remote.opened.lock().is_empty(), "nothing opened");
+    assert!(all_chats(&bench.store).await.is_empty(), "nothing written");
 
     // Local : la correction `localOnly` se fait.
     let patch = SettingsPatch {
-        server_url: Some(bench._ollama.url()),
+        proofread_model: Some(PROOFER.to_owned()),
         ..Default::default()
     };
     patch_settings(&bench, patch).await;
@@ -3913,4 +4314,5 @@ async fn agents_and_local_only_never_send_outside_this_computer() {
         answer["result"]["text"], "I receive the letter.",
         "{answer}"
     );
+    bench.done().await;
 }

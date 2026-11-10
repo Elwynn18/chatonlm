@@ -16,11 +16,15 @@ log=".tools/logs/e2e-$name.log"
 
 scripts/e2e-session.sh --shot "$name-before" >/dev/null
 
-# Adresses d'Ollama fermées, celle de l'app et l'adresse locale standard
-# qu'elle propose en remplacement (comme withApp) : sans elles, l'app interroge
-# l'Ollama de la machine s'il tourne (qui réécrit alors son cache de
-# recommandations dans ~/.ollama). L'écran du serveur suffit à cet essai.
-OLLAMA_HOST=http://127.0.0.1:9 CHATONLM_E2E_STANDARD_URL=http://127.0.0.1:1 \
+# Moteur de texte : le faux binaire (fake-llama, construit à côté de l'app
+# par scripts/e2e-build.sh), sans modèle, comme withApp ; Hugging Face fermé.
+# Variables du développeur retirées (modèles inscrits, binaire de llama.cpp,
+# Ollama), dossiers de l'Ollama de la machine fermés à la reprise. L'écran
+# d'accueil suffit à cet essai.
+env -u CHATONLM_E2E_MODELS -u OLLAMA_HOST -u LLAMA_CACHE \
+  CHATONLM_LLAMA_SERVER_BIN="$(cd "$(dirname "$binary")" && pwd)/fake-llama" \
+  CHATONLM_HF_URL=http://127.0.0.1:1 CHATONLM_HF_STATUS_URL=http://127.0.0.1:1 \
+  CHATONLM_OLLAMA_MACHINE_DIRS= \
   "$binary" >"$log" 2>&1 &
 app=$!
 trap 'kill "$app" 2>/dev/null || true; wait "$app" 2>/dev/null || true' EXIT

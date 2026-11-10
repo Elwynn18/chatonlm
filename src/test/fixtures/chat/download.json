@@ -1,9 +1,9 @@
 {
-  "description": "The model isn't installed: it is downloaded (progress of its largest layer, then done), loaded, then it answers.",
+  "description": "The model isn't installed: it is downloaded from Hugging Face by the ModelHub's queue (progress of all its files, normalized: 0, half, then done), loaded, then it answers.",
   "request": {
     "streamId": "stream-1",
     "content": "Say hello in one word.",
-    "model": "chatonlm-pull"
+    "model": "chatonlm-dl/Tiny-slow-GGUF:Q4_K_M"
   },
   "events": [
     {
@@ -28,74 +28,20 @@
     },
     {
       "type": "download",
-      "total": 5046586573,
+      "total": 50704,
       "completed": 0,
       "done": false
     },
     {
       "type": "download",
-      "total": 5046586573,
-      "completed": 504658657,
+      "total": 50704,
+      "completed": 25352,
       "done": false
     },
     {
       "type": "download",
-      "total": 5046586573,
-      "completed": 1009317314,
-      "done": false
-    },
-    {
-      "type": "download",
-      "total": 5046586573,
-      "completed": 1513975971,
-      "done": false
-    },
-    {
-      "type": "download",
-      "total": 5046586573,
-      "completed": 2018634629,
-      "done": false
-    },
-    {
-      "type": "download",
-      "total": 5046586573,
-      "completed": 2523293286,
-      "done": false
-    },
-    {
-      "type": "download",
-      "total": 5046586573,
-      "completed": 3027951943,
-      "done": false
-    },
-    {
-      "type": "download",
-      "total": 5046586573,
-      "completed": 3532610601,
-      "done": false
-    },
-    {
-      "type": "download",
-      "total": 5046586573,
-      "completed": 4037269258,
-      "done": false
-    },
-    {
-      "type": "download",
-      "total": 5046586573,
-      "completed": 4541927915,
-      "done": false
-    },
-    {
-      "type": "download",
-      "total": 5046586573,
-      "completed": 5046586573,
-      "done": false
-    },
-    {
-      "type": "download",
-      "total": 5046586573,
-      "completed": 5046586573,
+      "total": 50704,
+      "completed": 50704,
       "done": true
     },
     {
@@ -111,20 +57,40 @@
     },
     {
       "type": "content",
-      "text": "\""
+      "text": "Hello!"
     },
     {
       "type": "content",
-      "text": "Hi"
+      "text": " You"
     },
     {
       "type": "content",
-      "text": "!\""
+      "text": " said:"
+    },
+    {
+      "type": "content",
+      "text": " Say"
+    },
+    {
+      "type": "content",
+      "text": " hello"
+    },
+    {
+      "type": "content",
+      "text": " in"
+    },
+    {
+      "type": "content",
+      "text": " one"
+    },
+    {
+      "type": "content",
+      "text": " word."
     },
     {
       "type": "context",
-      "used": 26,
-      "size": 4096
+      "used": 20,
+      "size": 32768
     },
     {
       "type": "done",

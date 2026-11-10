@@ -1,22 +1,24 @@
 // Onglet « Models » des réglages (propre à ChatonLM : l'officiel n'a ni
 // réglage de chargement, ni pré-prompt, ni liste des modèles en mémoire), en
 // trois cartes.
-// La première règle le chargement : durée avant déchargement (keep_alive
-// envoyé par ChatonLM avec chaque requête qui charge un modèle, le service
-// d'Ollama n'est pas modifié), préchargement du modèle choisi et
-// déchargement des modèles en quittant l'app (activé par défaut ; pas à la
-// fermeture de la fenêtre dans la zone de notification), puis la
-// rubrique « Uncensored » du ModelHub (masquée par défaut) et les modèles
-// cloud d'Ollama (coupés par défaut : rien ne part sur ollama.com sans ce
-// choix ; cloud coupé sur le serveur : dit sous la ligne) ; chaque
+// La première règle le chargement : durée avant déchargement (gardée par le
+// moteur de l'app pour chaque modèle qu'il charge) et préchargement du
+// modèle choisi (le moteur s'arrête avec l'app : plus de réglage du
+// déchargement en quittant), puis la rubrique « Uncensored » du ModelHub
+// (masquée par défaut) ; chaque
 // changement est enregistré aussitôt (« Saved » de la page, erreur sous la
 // ligne), « Reset to defaults » (General) n'y touche pas. La deuxième règle le
 // pré-prompt, envoyé en message système au début de chaque conversation
 // (PromptField.tsx : enregistré en quittant le champ). La troisième montre
-// d'abord la jauge de la VRAM (VramGauge.tsx), puis les modèles en mémoire (/api/ps, relu toutes les 2 s tant que l'onglet est
-// affiché et après chaque action), avec Unload et Unload all, et charge un
-// modèle installé (Load) ; un escargot (SlowModelSnail.tsx) suit le nom d'un
-// modèle en partie sur le processeur. Le bouton d'une action en cours reste focalisable
+// d'abord la jauge de la VRAM (VramGauge.tsx), puis les modèles du moteur
+// (en chargement ou chargés ; relus toutes les 2 s tant que l'onglet est
+// affiché, à chaque changement annoncé par le moteur et après chaque
+// action), avec Unload (qui arrête aussi un chargement) et Unload all, et
+// charge un modèle installé (Load ; options et erreurs au nom court du
+// modèle, jamais à l'identifiant brut) ; un escargot (SlowModelSnail.tsx) suit
+// le nom d'un modèle en partie (ou, après l'échec de la carte, tout entier)
+// sur le processeur. Les modèles distants se règlent à part
+// (RemoteModels.tsx). Le bouton d'une action en cours reste focalisable
 // (aria-disabled) ; une ligne déchargée passe le focus à la ligne suivante
 // (ou précédente), sinon au titre de la carte.
 
@@ -24,13 +26,11 @@ import {
   ArrowPathIcon,
   BoltIcon,
   ClockIcon,
-  CloudIcon,
-  PowerIcon,
   ShieldExclamationIcon,
 } from "@heroicons/react/20/solid";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useId, useRef, useState } from "react";
-import type { RunningModel } from "@/bindings/RunningModel";
+import type { EngineRunningModel } from "@/bindings/EngineRunningModel";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import { ModelLabel } from "@/components/ModelLabel";
 import { SlowModelSnail } from "@/components/SlowModelSnail";
@@ -38,7 +38,6 @@ import { PromptField } from "@/components/settings/PromptField";
 import { Row, RowError, Switch } from "@/components/settings/Row";
 import { Slider } from "@/components/settings/Slider";
 import { VramGauge } from "@/components/settings/VramGauge";
-import { useCloudStatus } from "@/hooks/useCloudStatus";
 import { useFocusRescue } from "@/hooks/useFocusRescue";
 import { machineMemoryKey } from "@/hooks/useMachineMemory";
 import { useModels } from "@/hooks/useModels";
@@ -46,21 +45,20 @@ import { forgetPreloads } from "@/hooks/usePreloadModel";
 import { runningModelsKey, useRunningModels } from "@/hooks/useRunningModels";
 import { useSettings } from "@/hooks/useSettings";
 import { type TFunction, useT } from "@/i18n";
-import { isCloudModel } from "@/lib/dictation";
 import {
   errorMessage,
   loadModel,
   unloadAllModels,
   unloadModel,
 } from "@/lib/ipc";
-import { sameModel } from "@/lib/modelNames";
+import { sameModel, shortModelName } from "@/lib/modelNames";
 import {
-  cpuShare,
   KEEP_ALIVE_STEPS,
   keepAliveLabel,
   loadedSummary,
   runningDetails,
-  sameRunningModel,
+  runningOf,
+  slowRun,
 } from "@/lib/runningModels";
 import { modelShade } from "@/lib/vram";
 
@@ -81,13 +79,7 @@ function keepAliveOptions(t: TFunction) {
   }));
 }
 
-type Field =
-  | "keepAlive"
-  | "preloadModel"
-  | "unloadOnQuit"
-  | "showUncensored"
-  | "remoteModels"
-  | "systemPrompt";
+type Field = "keepAlive" | "preloadModel" | "showUncensored" | "systemPrompt";
 
 /** Longueur maximale du pré-prompt (`MAX_SYSTEM_PROMPT_CHARS` du moteur). */
 const MAX_SYSTEM_PROMPT_CHARS = 10_000;
@@ -115,22 +107,13 @@ export function Models({
   // Context length).
   const [pendingKeepAlive, setPendingKeepAlive] = useState<number | null>(null);
   const pendingSaves = useRef(0);
-  // Cloud coupé sur le serveur : lu seulement une fois les modèles cloud
-  // activés.
-  const { cloudDisabled } = useCloudStatus({
-    enabled: settings?.remoteModels ?? false,
-  });
   const ids = {
     keepAlive: useId(),
     keepAliveDescription: useId(),
     preload: useId(),
     preloadDescription: useId(),
-    unloadOnQuit: useId(),
-    unloadOnQuitDescription: useId(),
     uncensored: useId(),
     uncensoredDescription: useId(),
-    cloud: useId(),
-    cloudDescription: useId(),
     systemPrompt: useId(),
     systemPromptDescription: useId(),
     systemPromptTitle: useId(),
@@ -219,29 +202,6 @@ export function Models({
 
           <div className="flex items-start justify-between gap-4">
             <Row
-              icon={PowerIcon}
-              label={
-                <span id={ids.unloadOnQuit}>
-                  {t("settings.models.unloadOnQuit.label")}
-                </span>
-              }
-              description={t("settings.models.unloadOnQuit.description")}
-              descriptionId={ids.unloadOnQuitDescription}
-            >
-              <RowError message={errors.unloadOnQuit} />
-            </Row>
-            <Switch
-              label={t("settings.models.unloadOnQuit.label")}
-              checked={settings.unloadOnQuit}
-              describedBy={ids.unloadOnQuitDescription}
-              onChange={(unloadOnQuit) =>
-                void save("unloadOnQuit", { unloadOnQuit })
-              }
-            />
-          </div>
-
-          <div className="flex items-start justify-between gap-4">
-            <Row
               icon={ShieldExclamationIcon}
               label={
                 <span id={ids.uncensored}>
@@ -259,32 +219,6 @@ export function Models({
               describedBy={ids.uncensoredDescription}
               onChange={(showUncensored) =>
                 void save("showUncensored", { showUncensored })
-              }
-            />
-          </div>
-
-          <div className="flex items-start justify-between gap-4">
-            <Row
-              icon={CloudIcon}
-              label={
-                <span id={ids.cloud}>{t("settings.models.cloud.label")}</span>
-              }
-              description={t("settings.models.cloud.description")}
-              descriptionId={ids.cloudDescription}
-            >
-              {settings.remoteModels && cloudDisabled && (
-                <p className={`mt-1 ${MUTED}`}>
-                  {t("settings.models.cloud.serverOff")}
-                </p>
-              )}
-              <RowError message={errors.remoteModels} />
-            </Row>
-            <Switch
-              label={t("settings.models.cloud.label")}
-              checked={settings.remoteModels}
-              describedBy={ids.cloudDescription}
-              onChange={(remoteModels) =>
-                void save("remoteModels", { remoteModels })
               }
             />
           </div>
@@ -389,7 +323,10 @@ function LoadedModels({ selectedModel }: { selectedModel: string }) {
       setUnloadError({
         model,
         message: (t) =>
-          t("settings.models.loaded.unloadError", { model, message }),
+          t("settings.models.loaded.unloadError", {
+            model: shortModelName(model),
+            message,
+          }),
       });
     }
     // Le bouton garde « Unloading… » jusqu'à la liste relue : la ligne
@@ -428,7 +365,10 @@ function LoadedModels({ selectedModel }: { selectedModel: string }) {
       setLoadError({
         model,
         message: (t) =>
-          t("settings.models.loaded.loadError", { model, message }),
+          t("settings.models.loaded.loadError", {
+            model: shortModelName(model),
+            message,
+          }),
       });
     }
     await refresh();
@@ -484,22 +424,18 @@ function LoadedModels({ selectedModel }: { selectedModel: string }) {
     // Heure de la dernière lecture réussie : elle change à chaque relecture,
     // même d'un résultat identique, et les échéances sont recalculées.
     const now = running.dataUpdatedAt;
-    // Installés, pas dans le nuage (rien à mettre en mémoire ici), pas déjà
-    // en mémoire.
+    // Installés, pas distants (rien à mettre en mémoire ici), pas déjà
+    // dans le moteur.
     const candidates = (installed.data ?? [])
-      .map((info) => info.model)
-      .filter(
-        (name) =>
-          !isCloudModel(name) &&
-          !models.some((model) => sameRunningModel(model.name, name)),
-      );
+      .filter((info) => info.origin !== "remote")
+      .map((info) => info.id)
+      .filter((id) => runningOf(models, id) === null);
     const chosen =
       candidates.find((name) => name === choice) ??
       candidates.find((name) => sameModel(name, selectedModel)) ??
       candidates[0] ??
       "";
-    const loaded = (name: string) =>
-      models.some((model) => sameRunningModel(model.name, name));
+    const loaded = (name: string) => runningOf(models, name) !== null;
     // Échecs dépassés : modèle chargé depuis (chat...), modèle déchargé
     // depuis, plus rien en mémoire après un Unload all raté.
     const shownLoadError =
@@ -543,12 +479,12 @@ function LoadedModels({ selectedModel }: { selectedModel: string }) {
             <ul>
               {models.map((model, index) => (
                 <LoadedModelRow
-                  key={model.name}
+                  key={model.id}
                   index={index}
                   model={model}
                   now={now}
-                  unloading={unloadingAll || unloading.has(model.name)}
-                  onUnload={() => void unload(model.name)}
+                  unloading={unloadingAll || unloading.has(model.id)}
+                  onUnload={() => void unload(model.id)}
                 />
               ))}
             </ul>
@@ -585,7 +521,7 @@ function LoadedModels({ selectedModel }: { selectedModel: string }) {
               ) : (
                 candidates.map((name) => (
                   <option key={name} value={name}>
-                    {name}
+                    {shortModelName(name)}
                   </option>
                 ))
               )}
@@ -633,7 +569,7 @@ function LoadedModels({ selectedModel }: { selectedModel: string }) {
   );
 }
 
-/** Un modèle en mémoire : nom lisible, détails, Unload. */
+/** Un modèle du moteur : nom lisible, détails, Unload. */
 function LoadedModelRow({
   index,
   model,
@@ -643,7 +579,7 @@ function LoadedModelRow({
 }: {
   /** Rang dans la liste (focus rendu à la ligne venue à sa place). */
   index: number;
-  model: RunningModel;
+  model: EngineRunningModel;
   now: number;
   /** Déchargement en cours (ce modèle, ou tous). */
   unloading: boolean;
@@ -651,11 +587,12 @@ function LoadedModelRow({
 }) {
   const t = useT();
   const nameId = useId();
-  const cpu = cpuShare([model], model.name);
+  const slow = slowRun([model], model.id);
   return (
     <li
       data-testid="loaded-model"
-      data-model={model.name}
+      data-model={model.id}
+      data-state={model.state}
       data-index={index}
       className="flex items-center justify-between gap-4 border-t border-zinc-950/5 py-3 first:border-t-0 first:pt-0 last:pb-0 dark:border-white/10"
     >
@@ -663,10 +600,10 @@ function LoadedModelRow({
         <div
           id={nameId}
           className="flex items-center gap-2 text-sm/6 text-zinc-950 dark:text-white"
-          title={model.name}
+          title={model.id}
         >
           {/* Teinte de sa part sur la jauge de la VRAM. */}
-          {model.sizeVram > 0 && (
+          {model.vramBytes > 0 && (
             <span
               aria-hidden="true"
               data-testid="vram-swatch"
@@ -674,9 +611,9 @@ function LoadedModelRow({
             />
           )}
           <span className="min-w-0">
-            <ModelLabel model={model.name} />
+            <ModelLabel model={model.id} />
           </span>
-          {cpu !== null && <SlowModelSnail model={model.name} cpu={cpu} />}
+          {slow !== null && <SlowModelSnail model={model.id} run={slow} />}
         </div>
         <p className={MUTED}>{runningDetails(t, model, now)}</p>
       </div>

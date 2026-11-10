@@ -272,16 +272,6 @@ describe("Study home", () => {
     });
   });
 
-  it("has no web search button when the cloud is disabled", async () => {
-    setup((b) => {
-      b.cloud = { disabled: true, source: "config" };
-    });
-    await home();
-    await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Web search" })).toBeNull(),
-    );
-  });
-
   it("without any model: Create disabled, a hint", async () => {
     const user = userEvent.setup();
     setup(() => {}, "/study", { selectedModel: "" });
@@ -322,7 +312,7 @@ describe("Study home", () => {
       "Small models make more mistakes in courses. A larger model gives better lessons.",
     );
     simulator.handle("list_models", () => [
-      { ...modelInfo("qwen3:0.6b"), parameterSize: "8.2B" },
+      { ...modelInfo("qwen3:0.6b"), paramsLabel: "8.2B" },
     ]);
     await act(() =>
       app.queryClient.invalidateQueries({ queryKey: ["models"] }),
@@ -357,7 +347,7 @@ describe("Study home", () => {
     backend.models.push("big:8b");
     const listed = [
       modelInfo("qwen3:0.6b"),
-      { ...modelInfo("big:8b"), parameterSize: "8.2B" },
+      { ...modelInfo("big:8b"), paramsLabel: "8.2B" },
     ];
     simulator.handle("list_models", () => listed);
     await home();

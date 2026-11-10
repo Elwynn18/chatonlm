@@ -21,7 +21,7 @@ import { resetStreams } from "@/lib/streams";
 import { fakeBackend, type FakeBackend } from "@/test/backend";
 import { untranslatedTexts, usePseudoLanguage } from "@/test/i18n";
 import { renderApp } from "@/test/renderApp";
-import { installSimulator } from "@/test/simulator";
+import { installSimulator, sequence } from "@/test/simulator";
 import { VOICE_EN } from "@/test/tts";
 
 configure({ asyncUtilTimeout: 5000 });
@@ -32,7 +32,8 @@ afterEach(() => {
   resetStreams();
 });
 
-const MODEL = "qwen3:0.6b";
+/** Modèle des séquences enregistrées (identifiant Hugging Face). */
+const MODEL = sequence("existing-chat").request.model;
 
 /** Réponse nommée par l'état de la lecture. */
 const answer = (messageId: number) => ({ kind: "message", messageId }) as const;
@@ -498,7 +499,15 @@ describe("Read aloud and the response being written", () => {
     await replay.until("content");
     const reply = () =>
       [...document.querySelectorAll("[data-role=assistant]")].at(-1)!;
-    await waitFor(() => expect(reply().textContent).toBe('"'));
+    // Premier morceau de la réponse enregistrée.
+    const first = sequence("existing-chat").events.find(
+      (event) => event.type === "content",
+    );
+    await waitFor(() =>
+      expect(reply().textContent).toBe(
+        first?.type === "content" ? first.text.trim() : "",
+      ),
+    );
     const actions = () =>
       reply().closest(".mb-8")!.querySelector("[data-role=actions]");
     // En cours d'écriture, pas lue : aucune action, mais la région des

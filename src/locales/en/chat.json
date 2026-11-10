@@ -3,9 +3,7 @@
     "settingsUnreadable": "ChatonLM could not read its settings: {error}"
   },
   "actions": {
-    "checking": "Checking…",
-    "saving": "Saving…",
-    "save": "Save"
+    "checking": "Checking…"
   },
   "layout": {
     "showSidebar": "Show sidebar",
@@ -60,6 +58,7 @@
     "loadingModel": "Loading model..."
   },
   "slowModel": "Slower replies: {percent} of {model} runs on the processor (not enough graphics memory)",
+  "slowModelFallback": "Slower replies: {model} runs on the processor (the graphics card couldn't run it)",
   "context": {
     "gauge": "Context: {percent} used",
     "title": "Context",
@@ -144,7 +143,6 @@
   "picker": {
     "button": "Select model",
     "loading": "Loading...",
-    "unavailable": "Unavailable",
     "none": "Select a model",
     "search": "Find model...",
     "searchLabel": "Find model",
@@ -152,12 +150,7 @@
     "empty": "No models found",
     "notDownloaded": "Not downloaded",
     "memory": "Needs {size} of memory to run",
-    "cloud": "Cloud model: runs on ollama.com",
-    "plans": {
-      "pro": "Pro",
-      "max": "Max"
-    },
-    "planRequired": "Needs the Ollama {plan} plan"
+    "remote": "Remote model: runs at {provider}"
   },
   "think": {
     "label": "Think",
@@ -180,13 +173,28 @@
     "enable": "Enable web search",
     "disable": "Disable web search",
     "unavailable": "Web search isn't available: this model can't use tools.",
-    "signIn": "Sign In",
-    "withoutWebSearch": "Generate without web search"
+    "withoutWebSearch": "Generate without web search",
+    "checkUpdates": "Check for updates",
+    "poweredByBrave": "Powered by Brave Search",
+    "status": {
+      "remaining": {
+        "one": "Disable web search ({count} search left today)",
+        "other": "Disable web search ({count} searches left today)"
+      },
+      "limit": "Disable web search (today's searches are used up)",
+      "paused": "Disable web search (web search is paused for now)",
+      "outdated": "Disable web search (update ChatonLM to search again)",
+      "unavailable": "Disable web search (the search service can't be reached)"
+    }
   },
-  "cloud": {
-    "signIn": "Sign In",
-    "upgrade": "Upgrade",
-    "openSettings": "Open settings"
+  "remote": {
+    "openSettings": "Open settings",
+    "checkKey": "Check the key"
+  },
+  "engine": {
+    "openLogs": "Open logs",
+    "openSettings": "Engine settings",
+    "openLogsError": "Could not open the logs: {message}"
   },
   "copy": {
     "failed": "Copy failed",
@@ -228,23 +236,6 @@
   "dialog": {
     "ok": "OK"
   },
-  "server": {
-    "connecting": "Connecting to Ollama…",
-    "checkFailed": "Can't check the Ollama server",
-    "lost": "Ollama isn't responding.",
-    "builtinFailed": "The built-in Ollama failed to start.",
-    "download": "Download from ollama.com",
-    "runningAt": "Ollama is running at {url}.",
-    "useAddress": "Use this address",
-    "start": "Start Ollama",
-    "starting": "Starting…",
-    "startFailed": "Couldn't start Ollama: {message}",
-    "notAuthorized": "Authentication failed. Ollama was not started.",
-    "noService": "No Ollama service was found. Start Ollama in a terminal with ollama serve.",
-    "noApp": "Ollama's app was not found. Start Ollama in a terminal with ollama serve.",
-    "address": "Server address",
-    "addressHint": "Leave empty to use the OLLAMA_HOST environment variable, or http://localhost:11434 if it isn't set."
-  },
   "staleModel": {
     "available": "A newer version of {model} is available",
     "update": "Update",
@@ -252,63 +243,6 @@
     "updatingProgress": "Updating {model}… {percent}",
     "dismiss": "Dismiss",
     "failed": "Couldn't update the model: {message}"
-  },
-  "advice": {
-    "notInstalled": {
-      "title": "Ollama is not installed",
-      "description": "ChatonLM chats with the models that Ollama runs on this computer. Install Ollama, then click Retry. If Ollama runs in a container or on another computer, enter its address below."
-    },
-    "notRunning": "Ollama is not running",
-    "serviceStopped": "Ollama is installed, but its service is stopped. Start it in a terminal:",
-    "serviceStoppedStart": "Ollama is installed, but its service is stopped. Click Start Ollama, or start it in a terminal:",
-    "enableAtLogin": "To start it automatically when you log in:",
-    "enableAtBoot": "To start it automatically at boot:",
-    "notRunningHere": "Ollama is not running at this address",
-    "serveHost": "Start the Ollama server on this address in a terminal and keep it open:",
-    "serve": "Start the Ollama server in a terminal and keep it open:",
-    "nothingListening": "Nothing is listening at {url}. Check the server address below.",
-    "serviceFailed": {
-      "title": "Ollama failed to start",
-      "description": "The Ollama service stopped with an error, or keeps restarting. Check its status and logs to find out why:"
-    },
-    "serviceStarting": {
-      "title": "Ollama is starting",
-      "description": "The Ollama service is starting. If this takes more than a few seconds, check its logs:"
-    },
-    "notResponding": "Ollama is not responding",
-    "behindProxy": "{url} responded with HTTP {status}: the Ollama server behind it is not responding.",
-    "noResponseLogs": "No response from {url}. Check the Ollama logs:",
-    "noResponseAddress": "No response from {url}. Check the server address below.",
-    "remoteUnreachable": {
-      "title": "Can't reach the Ollama server",
-      "description": "No response from {url}. Check that Ollama is running on that computer and accepts connections from the network (OLLAMA_HOST=0.0.0.0)."
-    },
-    "connectionFailed": {
-      "title": "Can't connect to Ollama",
-      "https": "Something is listening at {url}, but the connection failed. Ollama serves plain HTTP: use an address that starts with http://.",
-      "address": "Something is listening at {url}, but the connection failed. Check the server address below."
-    },
-    "notOllama": {
-      "title": "This is not an Ollama server",
-      "withStatus": "{url} responded with HTTP {status}, but it isn't an Ollama server. Check the server address below.",
-      "description": "{url} responded, but it isn't an Ollama server. Check the server address below."
-    },
-    "accessDenied": {
-      "title": "Access denied",
-      "description": "{url} refused access (HTTP {status}). Check the server address below."
-    },
-    "builtinStarting": {
-      "title": "Starting Ollama…",
-      "description": "ChatonLM is starting its built-in Ollama. This takes a few seconds."
-    },
-    "builtinFailed": {
-      "title": "The built-in Ollama failed to start",
-      "description": "It stopped with an error several times. Its log may tell why:"
-    },
-    "running": {
-      "title": "Ollama is running",
-      "description": "Connected to Ollama {version} at {url}."
-    }
   },
   "database": {
     "newer": {
@@ -332,10 +266,6 @@
     "restore": "Restore the backup from {date}",
     "restoring": "Restoring…",
     "restoreNote": "Your current database is kept next to it, under another name: chats created since this backup stay in that file."
-  },
-  "adviceWindows": {
-    "appStopped": "Ollama is installed, but it isn't running. Click Start Ollama, or open Ollama from the Start menu.",
-    "appStarting": "The Ollama app is starting. If this takes more than a few seconds, check its log:"
   },
   "ephemeral": {
     "toggle": "Ephemeral chat",

@@ -1,8 +1,10 @@
 // ModelHub dans l'app réelle (build e2e : frontend embarqué, CSP de
-// production), avec le faux Ollama et le faux Hugging Face (contrat 37) :
+// production), avec le faux moteur (modèles inscrits) et le faux Hugging Face
+// (contrat 37 ; téléchargements par la file du ModelHub depuis les dépôts
+// synthétisés `chatonlm-dl/…`, qui servent de vrais fichiers) :
 // - premier lancement, Hugging Face fermé (profil neuf) : Discover montre
 //   « You're offline » sans aucune carte ; l'onglet Installed liste quand
-//   même les modèles du serveur ;
+//   même les modèles de la base locale ;
 // - accueil depuis le faux Hugging Face (deux listes : populaires et
 //   tendances) : rubriques dans l'ordre, familles, pastille de la machine
 //   « RTX 3090 · 24 GB VRAM · 32 GB RAM » ; tuile Qwen → vue de la famille
@@ -18,21 +20,22 @@
 // - fiche de chatonlm/Tiny-Chat-GGUF : version conseillée (Q8_0) cochée,
 //   README assaini (texte visible, <script> montré en texte et jamais
 //   exécuté, lien relatif résolu vers Hugging Face, badge retiré), version
-//   à étiquette ambiguë : nom Ollama avec le fichier complet ;
+//   à étiquette ambiguë : identifiant avec le fichier complet ;
 // - dépôt mixte (unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF) : version
 //   découpée grisée, désactivée, avec sa raison ; dépôt restreint
 //   (google/gemma-2-2b-it-GGUF) : texte Restricted, aucun bouton Download ;
-// - fiche de chatonlm/Tiny-Vision-GGUF : Download → progression → Installed →
-//   Use in chat : nouvelle conversation, modèle enregistré, sélecteur avec
-//   titre et étiquette ; onglet Downloads (fini, Dismiss, état vide) ; onglet
-//   Installed : suppression confirmée par la boîte, vue par le faux Ollama ;
-// - téléchargement lent (faux Ollama servant aussi de registre Hugging
-//   Face) : « Downloading 1 · n% » dans la barre latérale (n croissant,
-//   nombre et pourcentage non tronqués dans sa largeur de 192 px), onglet
-//   Downloads (nombre actif, progression, Cancel), fin ; téléchargement bloqué
-//   arrêté par Cancel (déconnexion vue par le faux Ollama) ; manifestes
-//   refusés (étiquette absente, version découpée, dépôt inconnu) : messages
-//   lisibles, sans pull ;
+// - fiche de chatonlm-dl/Tiny-vision-GGUF : version Q4_K_M, Download →
+//   progression → Installed → Use in chat : nouvelle conversation, modèle
+//   enregistré et montré par le sélecteur ; onglet Downloads (fini, Dismiss,
+//   état vide) ; onglet Installed : suppression confirmée par la boîte,
+//   fichiers retirés du dossier des modèles ;
+// - téléchargement lent (`slow`) : « Downloading 1 · n% » dans la barre
+//   latérale (n croissant, nombre et pourcentage non tronqués dans sa largeur
+//   de 192 px), onglet Downloads (nombre actif, progression, Cancel), fin ;
+//   téléchargement calé (`stall`) arrêté par Cancel ; pause (ce qui est reçu
+//   gardé) puis reprise par `Range` ; Download first ; versions refusées
+//   (quantification absente, dépôt inconnu, fichier qui n'est pas un GGUF) :
+//   messages lisibles ;
 // - pannes, sur des recherches pas encore en cache : 503 → « Hugging Face
 //   isn't responding » et incident (page d'état interrogée) ; 429 →
 //   « Hugging Face is limiting requests. Try again in 42 s. », décompte,
@@ -41,30 +44,32 @@
 //   d'Installed (.tools/shots/hub/), et des autres états ;
 // - aucune violation de la CSP ni erreur ou avertissement dans la console.
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { withApp } from "./lib/app.mjs";
-import { startFake, startFakeHf } from "./lib/fake.mjs";
+import { fakeModel, startEngine, startFakeHf } from "./lib/fake.mjs";
 import { chordsOf, pressKeys } from "./lib/keyboard.mjs";
 
 const binary = process.argv[2];
 const SHOTS = ".tools/shots/hub";
 mkdirSync(SHOTS, { recursive: true });
 
-const fake = await startFake("ollama");
+/** Modèles installés d'avance (base locale), le plus récent d'abord. */
+const INSTALLED = [fakeModel("simple"), fakeModel("tools")];
+const engine = startEngine(INSTALLED);
 const hf = await startFakeHf("hf");
 const hfDown = await startFakeHf("hf-status:503");
 const hfLimited = await startFakeHf("hf-ratelimit");
 
-/** Environnement : faux Ollama, et ce Hugging Face (fermé par défaut). */
+/** Environnement : faux moteur, et ce Hugging Face (fermé par défaut). */
 const envWith = (url) =>
   url
     ? {
-        OLLAMA_HOST: fake.url,
+        ...engine.env,
         CHATONLM_HF_URL: url,
         CHATONLM_HF_STATUS_URL: url,
       }
-    : { OLLAMA_HOST: fake.url };
+    : engine.env;
 
 const SECTIONS = [
   "Best for your machine",
@@ -80,7 +85,13 @@ const UNVERIFIED_HINT =
   "This publisher isn't on ChatonLM's list of trusted publishers. Check the model card before using it.";
 const RESTRICTED =
   "This model needs a Hugging Face account. ChatonLM can't download it.";
-const VISION_MODEL = "hf.co/chatonlm/Tiny-Vision-GGUF:Q4_K_M";
+const VISION_REPO = "chatonlm-dl/Tiny-vision-GGUF";
+const VISION_MODEL = `${VISION_REPO}:Q4_K_M`;
+/** Fichiers d'un dépôt dans le dossier des modèles. */
+const filesOf = (repo) => {
+  const dir = `${engine.modelsDir}/${repo}`;
+  return existsSync(dir) ? readdirSync(dir) : [];
+};
 
 /** `what` : texte, ou fonction appelée à l'échec (dernier état observé). */
 async function waitUntil(check, what, timeoutMs = 10000) {
@@ -617,12 +628,12 @@ try {
     await shoot(driver, "readme");
     // Étiquette ambiguë (Q4_K_L) : le fichier complet.
     await chooseVersion(driver, "Q4_K_L");
-    await waitUntil(
-      async () =>
-        (await textOf(driver, "[data-testid=ollama-name]")) ===
-        "hf.co/chatonlm/Tiny-Chat-GGUF:Tiny-Chat-Q4_K_L.gguf",
-      "nom Ollama de la version Q4_K_L",
-    );
+    await waitUntil(async () => {
+      const id = await driver.execute(
+        "return document.querySelector('[data-testid=model-id]')?.title ?? ''",
+      );
+      return id.startsWith("chatonlm/Tiny-Chat-GGUF:") && id.includes("Q4_K_L");
+    }, "identifiant de la version Q4_K_L");
     assert.equal(
       await buttonStarting(driver, "aside", "Download"),
       "Download · 429 MB",
@@ -653,10 +664,7 @@ try {
     assert.equal(list[0].label, "BF16");
     assert.equal(list[0].disabled, true);
     assert.equal(list[0].checked, false);
-    assert.match(
-      list[0].text,
-      /Split into several files — not supported by Ollama yet/,
-    );
+    assert.match(list[0].text, /Split into several files — not supported/);
     assert.match(list[0].className, /opacity-50/);
     const checked = list.filter((v) => v.checked);
     assert.deepEqual(
@@ -684,27 +692,27 @@ try {
     );
     await shoot(driver, "restricted");
 
-    // Tiny-Vision : téléchargement, puis Use in chat.
-    await navigate(driver, "/hub/model/chatonlm/Tiny-Vision-GGUF");
-    await waitRepo(driver, "chatonlm/Tiny-Vision-GGUF");
+    // Tiny-vision (dépôt synthétisé, vrais fichiers) : Q4_K_M, téléchargement,
+    // puis Use in chat.
+    await navigate(driver, `/hub/model/${VISION_REPO}`);
+    await waitRepo(driver, VISION_REPO);
     list = await versions(driver);
-    assert.deepEqual(
-      list.map((v) => [v.label, v.checked]),
-      [["Q4_K_M", true]],
-    );
-    assert.match(list[0].text, /Recommended/);
     assert.ok(
-      (await textsOf(driver, "ul[aria-label=Capabilities] li")).includes(
-        "Vision",
-      ),
+      list.some((v) => v.label === "Q4_K_M"),
+      JSON.stringify(list),
     );
-    assert.equal(
-      await textOf(driver, "[data-testid=ollama-name]"),
-      VISION_MODEL,
+    await chooseVersion(driver, "Q4_K_M");
+    await waitUntil(
+      async () =>
+        (await driver.execute(
+          "return document.querySelector('[data-testid=model-id]')?.title ?? null",
+        )) === VISION_MODEL,
+      "identifiant de la version Q4_K_M",
     );
     await driver.execute(WATCH_PROGRESS);
-    const pullsBefore = (await fake.pulls()).length;
-    await clickText(driver, "aside button", "Download · 572 MB");
+    const downloadLabel = await buttonStarting(driver, "aside", "Download · ");
+    assert.ok(downloadLabel, "bouton Download");
+    await clickText(driver, "aside button", downloadLabel);
     await waitUntil(
       async () =>
         (await textsOf(driver, "aside p")).includes("Installed") &&
@@ -717,11 +725,13 @@ try {
       entry.startsWith("Downloading Q4_K_M|"),
     );
     assert.ok(bars.length > 0, `aucune progression vue : ${seen.join(" / ")}`);
-    const pulled = (await fake.pulls()).slice(pullsBefore);
-    assert.deepEqual(
-      pulled.map((p) => p.model),
-      [VISION_MODEL],
+    assert.ok(
+      (await driver.invoke("hub_installed")).some(
+        (m) => m.model === VISION_MODEL,
+      ),
+      "modèle dans la base locale",
     );
+    assert.ok(filesOf(VISION_REPO).length >= 2, "poids et projecteur reçus");
     // Installé : la version porte la coche (installés relus).
     await driver.waitFor("[data-testid=version] [aria-label=Installed]");
     await clickText(driver, "aside button", "Use in chat");
@@ -731,17 +741,12 @@ try {
         (await driver.invoke("get_settings")).selectedModel === VISION_MODEL,
       "modèle choisi",
     );
-    let picker;
     await waitUntil(
-      async () => {
-        picker = await driver.execute(
-          `const button = document.querySelector("[title='Select model']");
-           return [...button.querySelectorAll("span")]
-             .filter((s) => s.children.length === 0).map((s) => s.textContent)`,
-        );
-        return picker.join() === "Tiny-Vision,Q4_K_M";
-      },
-      () => `sélecteur : ${JSON.stringify(picker)}`,
+      async () =>
+        (await driver.execute(
+          "return document.querySelector(\"[title='Select model']\")?.dataset.modelId ?? null",
+        )) === VISION_MODEL,
+      "sélecteur sur le modèle téléchargé",
     );
     assert.match(await where(driver), /^\/c\/new/);
 
@@ -759,7 +764,7 @@ try {
     );
     assert.match(
       await textOf(driver, "[data-testid=download]"),
-      /Tiny-VisionQ4_K_MInstalled · .*Use in chatDismiss$/,
+      /Tiny-visionQ4_K_MInstalled · .*Use in chatDismiss$/,
     );
     await shoot(driver, "downloads-light");
     await tab(driver, "Installed");
@@ -768,7 +773,7 @@ try {
         (await driver.execute(
           `return document.querySelector("[data-testid=installed-model] div[title]")?.title`,
         )) === VISION_MODEL,
-      "Tiny-Vision en tête des installés",
+      "Tiny-vision en tête des installés",
     );
     assert.match(
       await textOf(driver, "[data-testid=hub-scroll] h2"),
@@ -806,21 +811,29 @@ try {
     // Installed : suppression confirmée par la boîte.
     await tab(driver, "Installed");
     await driver.waitFor("[data-testid=installed-model]");
-    await driver.click(
-      await driver.find("button[aria-label='Delete Tiny-Vision:Q4_K_M']"),
+    assert.ok(
+      await driver.execute(
+        `const row = [...document.querySelectorAll("[data-testid=installed-model]")]
+           .find((r) => r.querySelector("div[title]")?.title === arguments[0]);
+         const button = [...(row?.querySelectorAll("button") ?? [])]
+           .find((b) => (b.getAttribute("aria-label") ?? "").startsWith("Delete "));
+         button?.click();
+         return Boolean(button);`,
+        [VISION_MODEL],
+      ),
+      "bouton Delete de Tiny-vision",
     );
     await driver.waitFor("[role=alertdialog]");
-    assert.equal(
+    assert.match(
       await textOf(driver, "[role=alertdialog] h2"),
-      "Delete Tiny-Vision:Q4_K_M?",
+      /^Delete Tiny-vision.*\?$/,
     );
     assert.equal(
       await textOf(driver, "[role=alertdialog] p"),
-      "This removes the model from Ollama. You can download it again later.",
+      "This removes the model from this computer. You can download it again later.",
     );
-    assert.deepEqual(
-      await fake.deletes(),
-      [],
+    assert.ok(
+      filesOf(VISION_REPO).length >= 2,
       "supprimé avant la confirmation",
     );
     await clickText(driver, "[role=alertdialog] button", "Delete");
@@ -831,34 +844,43 @@ try {
             `return [...document.querySelectorAll("[data-testid=installed-model] div[title]")]
              .map((e) => e.title)`,
           )
-        ).join() === "qwen3:0.6b,qwen3.5:0.8b",
-      "Tiny-Vision retiré des installés",
+        ).join() === INSTALLED.join(),
+      "Tiny-vision retiré des installés",
     );
-    assert.deepEqual(await fake.deletes(), [VISION_MODEL]);
+    await waitUntil(
+      () => filesOf(VISION_REPO).length === 0,
+      "fichiers supprimés",
+    );
     assert.equal(await exists(driver, "[role=alertdialog]"), false);
 
     // Thème clair pour les lancements suivants.
     await setTheme(driver, "Light");
   });
 
-  // 3. Faux Ollama aussi registre de Hugging Face (espace chatonlm) :
-  //    téléchargement lent, bloqué puis arrêté, manifestes refusés.
-  await launch("hub-downloads", envWith(fake.url), async (driver) => {
+  // 3. Téléchargements par la file du ModelHub depuis les dépôts synthétisés
+  //    du faux Hugging Face : lent, calé puis arrêté, pause et reprise,
+  //    priorité, versions refusées.
+  await launch("hub-downloads", envWith(hf.url), async (driver) => {
     const download = (model) =>
       driver.invoke("hub_download", {
         request: {
           model,
-          repo: model.slice("hf.co/".length).split(":")[0],
-          label: "Q4_K_M",
+          repo: model.split(":")[0],
+          label: model.split(":")[1],
         },
       });
+    /** Demandes de fichiers reçues par le faux Hugging Face pour `repo`. */
+    const resolves = async (repo) =>
+      (await hf.requests()).filter((request) =>
+        request.path.startsWith(`/${repo}/resolve/`),
+      );
     const indicator = () =>
       textOf(driver, "[data-testid=download-indicator] span");
     await sidebar(driver, "Chat");
     await driver.waitFor("[data-testid=new-chat]");
 
-    // Lent (~5 s) : barre latérale, puis onglet Downloads.
-    const slow = "hf.co/chatonlm/Tiny-Slow-GGUF:Q4_K_M";
+    // Lent : barre latérale, puis onglet Downloads.
+    const slow = "chatonlm-dl/Tiny-slow-big-GGUF:Q4_K_M";
     await download(slow);
     const percents = [];
     await waitUntil(
@@ -907,7 +929,7 @@ try {
         `return document.querySelector("[data-testid=download] [role=progressbar]")
            .getAttribute("aria-valuetext")`,
       ),
-      /^\d+(\.\d)? (B|KB|MB|GB) of 1\.1 GB/,
+      /^\d+(\.\d)? (B|KB|MB|GB) of \d+(\.\d)? (B|KB|MB|GB)/,
     );
     await shoot(driver, "downloads-active");
     await driver.waitFor("[data-testid=download][data-state=done]", {
@@ -920,9 +942,9 @@ try {
       "indicateur retiré à la fin",
     );
 
-    // Bloqué : Cancel ferme la requête.
-    const disconnects = await fake.disconnects();
-    await download("hf.co/chatonlm/Tiny-Stall-GGUF:Q4_K_M");
+    // Calé à mi-chemin : Cancel l'arrête, rien de gardé.
+    const stalled = "chatonlm-dl/Tiny-stall-GGUF";
+    await download(`${stalled}:Q4_K_M`);
     await driver.waitFor("[data-testid=download][data-state=downloading]");
     await clickText(
       driver,
@@ -931,8 +953,8 @@ try {
     );
     await driver.waitFor("[data-testid=download][data-state=cancelled]");
     await waitUntil(
-      async () => (await fake.disconnects()) === disconnects + 1,
-      "téléchargement abandonné vu par le faux Ollama",
+      () => filesOf(stalled).length === 0,
+      "reçu effacé après Cancel",
     );
     assert.deepEqual(
       await textsOf(
@@ -943,7 +965,7 @@ try {
     );
 
     // Pause : la requête est fermée, la ligne garde ce qui est reçu ;
-    // Resume lance un nouveau pull (Ollama repart de ses morceaux).
+    // Resume reprend le fichier là où il s'était arrêté (`Range`).
     const stateOf = (repo) =>
       driver.execute(
         `const row = [...document.querySelectorAll("[data-testid=download]")]
@@ -961,29 +983,23 @@ try {
          return button !== undefined;`,
         [repo, label],
       );
-    const held = "hf.co/chatonlm/Held-Stall-GGUF:Q4_K_M";
-    const closedBefore = await fake.disconnects();
-    const pullsBefore = (await fake.pulls()).length;
-    await download(held);
+    const held = "chatonlm-dl/Held-stall-GGUF";
+    await download(`${held}:Q4_K_M`);
     await waitUntil(
-      async () => (await stateOf("Held-Stall")) === "downloading",
+      async () => (await stateOf("Held-stall")) === "downloading",
       "téléchargement à mettre en pause",
     );
-    assert.ok(await inRow("Held-Stall", "Pause"), "bouton Pause");
+    assert.ok(await inRow("Held-stall", "Pause"), "bouton Pause");
     await waitUntil(
-      async () => (await stateOf("Held-Stall")) === "paused",
+      async () => (await stateOf("Held-stall")) === "paused",
       "téléchargement en pause",
-    );
-    await waitUntil(
-      async () => (await fake.disconnects()) === closedBefore + 1,
-      "requête fermée par la pause",
     );
     assert.match(
       await driver.execute(
         `return document.querySelector("[data-testid=download][data-state=paused] [role=progressbar]")
            .getAttribute("aria-valuetext")`,
       ),
-      /^Paused · \d+(\.\d)? (B|KB|MB|GB) of 1\.1 GB$/,
+      /^Paused · \d+(\.\d)? (B|KB|MB|GB) of \d+(\.\d)? (B|KB|MB|GB)$/,
     );
     assert.deepEqual(
       await textsOf(driver, "[data-testid=download][data-state=paused] button"),
@@ -994,40 +1010,50 @@ try {
       false,
       "une pause n'est pas un téléchargement actif",
     );
+    assert.ok(
+      filesOf(held).some((name) => name.endsWith(".part")),
+      `reçu gardé pendant la pause : ${filesOf(held).join(", ")}`,
+    );
     await shoot(driver, "downloads-paused");
-    assert.ok(await inRow("Held-Stall", "Resume"), "bouton Resume");
+    const before = (await resolves(held)).length;
+    assert.ok(await inRow("Held-stall", "Resume"), "bouton Resume");
     await waitUntil(
-      async () => (await stateOf("Held-Stall")) === "downloading",
+      async () => (await stateOf("Held-stall")) === "downloading",
       "téléchargement repris",
     );
-    assert.equal((await fake.pulls()).length, pullsBefore + 2, "nouveau pull");
+    const resumed = await waitUntil(
+      async () =>
+        (await resolves(held)).slice(before).find((request) => request.range),
+      "reprise par Range",
+    );
+    assert.match(resumed.range, /^bytes=[1-9]\d*-$/);
 
     // Download first : le téléchargement en file démarre tout de suite, le
     // dernier en cours retourne en file (deux à la fois).
-    await download("hf.co/chatonlm/Second-Stall-GGUF:Q4_K_M");
-    await download("hf.co/chatonlm/Third-Stall-GGUF:Q4_K_M");
+    await download("chatonlm-dl/Second-stall-GGUF:Q4_K_M");
+    await download("chatonlm-dl/Third-stall-GGUF:Q4_K_M");
     await waitUntil(
       async () =>
-        (await stateOf("Second-Stall")) === "downloading" &&
-        (await stateOf("Third-Stall")) === "queued",
+        (await stateOf("Second-stall")) === "downloading" &&
+        (await stateOf("Third-stall")) === "queued",
       "deux en cours, un en file",
     );
-    assert.ok(await inRow("Third-Stall", "Download first"), "Download first");
+    assert.ok(await inRow("Third-stall", "Download first"), "Download first");
     await waitUntil(
       async () =>
-        (await stateOf("Third-Stall")) === "downloading" &&
-        (await stateOf("Second-Stall")) === "queued" &&
-        (await stateOf("Held-Stall")) === "downloading",
+        (await stateOf("Third-stall")) === "downloading" &&
+        (await stateOf("Second-stall")) === "queued" &&
+        (await stateOf("Held-stall")) === "downloading",
       "téléchargement passé en premier",
     );
     assert.equal(
       await driver.execute(
         `return document.querySelector("[data-testid=download]").querySelector("[title]").title`,
       ),
-      "hf.co/chatonlm/Third-Stall-GGUF:Q4_K_M",
+      "chatonlm-dl/Third-stall-GGUF:Q4_K_M",
       "le téléchargement prioritaire est en tête de la liste",
     );
-    for (const repo of ["Third-Stall", "Held-Stall", "Second-Stall"]) {
+    for (const repo of ["Third-stall", "Held-stall", "Second-stall"]) {
       assert.ok(await inRow(repo, "Cancel"), `Cancel de ${repo}`);
       await waitUntil(
         async () => (await stateOf(repo)) === "cancelled",
@@ -1036,14 +1062,14 @@ try {
       assert.ok(await inRow(repo, "Dismiss"), `Dismiss de ${repo}`);
     }
 
-    // Manifestes refusés par le registre : message lisible, aucun pull.
+    // Versions refusées : message lisible, rien d'installé.
     const refused = {
-      "hf.co/chatonlm/Tiny-Badtag-GGUF:Q4_K_M":
+      "chatonlm-dl/Tiny-GGUF:Q6_K":
         "This version isn't available on Hugging Face. Choose another version.",
-      "hf.co/chatonlm/Tiny-Sharded-GGUF:Q4_K_M":
-        "This version is split into several files, which Ollama can't download from Hugging Face yet. Choose another version.",
-      "hf.co/chatonlm/Tiny-Missing-GGUF:Q4_K_M":
+      "chatonlm-dl/Gone-missing-GGUF:Q4_K_M":
         "This model doesn't exist on Hugging Face, is private, or needs an account to download.",
+      "chatonlm-dl/Weights-notgguf-GGUF:Q4_K_M":
+        "Weights-Q4_K_M.gguf isn't a GGUF model file: ChatonLM can't use it.",
     };
     for (const model of Object.keys(refused)) await download(model);
     await waitUntil(
@@ -1058,9 +1084,14 @@ try {
          .map((row) => [row.querySelector("[title]").title, row.querySelector("[role=alert]").textContent]))`,
     );
     assert.deepEqual(failures, refused);
-    const pulledNames = (await fake.pulls()).map((p) => p.model);
+    const installed = (await driver.invoke("hub_installed")).map(
+      (m) => m.model,
+    );
     for (const model of Object.keys(refused)) {
-      assert.ok(!pulledNames.includes(model), `pull lancé pour ${model}`);
+      assert.ok(
+        !installed.includes(model),
+        `${model} installé malgré le refus`,
+      );
     }
     await shoot(driver, "downloads-states");
   });
@@ -1225,5 +1256,5 @@ try {
   assert.deepEqual(consoleErrors, [], "erreurs dans la console");
   assert.deepEqual(consoleWarnings, [], "avertissements dans la console");
 } finally {
-  await Promise.all([hf.stop(), hfDown.stop(), hfLimited.stop(), fake.stop()]);
+  await Promise.all([hf.stop(), hfDown.stop(), hfLimited.stop()]);
 }

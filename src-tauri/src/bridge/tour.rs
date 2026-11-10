@@ -1,8 +1,9 @@
 //! Plan d'une visite guidée parlée (`tour.plan`, propre à ChatonLM) : le
 //! modèle découpe son explication d'un fichier, d'une sélection ou d'une
 //! modification en segments liés à des lignes, en sortie JSON contrainte
-//! (`format` de `/api/chat`, comme les parties des cours ; numéros de ligne
-//! bornés au code par le schéma). Le plan est assaini plutôt que rejeté (les
+//! (`response_format` json_schema de `llama-server`, comme les parties des
+//! cours ; numéros de ligne bornés au code par le schéma ; température 0,3 ;
+//! contexte imposé à l'ouverture du modèle, assez pour le code). Le plan est assaini plutôt que rejeté (les
 //! petits modèles débordent la fin, reculent ou se répètent) : clés en trop
 //! ignorées ; plage remise dans l'ordre et ramenée au code ; segment écarté
 //! s'il tombe hors du code, recule, répète une plage gardée ou n'a pas de
@@ -14,9 +15,13 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use tokio_util::sync::CancellationToken;
+
 use crate::chat::Server;
+use crate::chat::stream::Think;
 use crate::i18n::t;
-use crate::ollama::{client, models};
+use crate::inference::{self, ChatRequest, Message, ResponseFormat};
+use crate::llm::{LlmError, OpenOptions, Session};
 
 /// Segments d'un plan, au plus.
 pub const MAX_SEGMENTS: usize = 16;
@@ -26,8 +31,8 @@ pub const MAX_TEXT: usize = 700;
 pub const MAX_CODE: usize = 100_000;
 /// Délai d'une réponse du modèle.
 const TIMEOUT: Duration = Duration::from_secs(300);
-/// Réponse lue au plus.
-const MAX_BODY: usize = 4 * 1024 * 1024;
+/// Température : un plan proche du code, peu inventif.
+const TEMPERATURE: f32 = 0.3;
 
 /// Ce qui est expliqué.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -319,7 +324,20 @@ pub fn user(params: &PlanParams) -> String {
 fn context(server: &Server, code: &str) -> u32 {
     let needed = u32::try_from(code.chars().count() / 3 + 3_000).unwrap_or(u32::MAX);
     let needed = needed.clamp(8_192, 32_768).div_ceil(1_024) * 1_024;
-    server.context_length.max(needed)
+    server.prefs.context_length.max(needed)
+}
+
+/// Refus d'une erreur du moteur : celles d'un modèle distant sont des
+/// phrases entières, les autres le détail de `bridge.tour.failed`.
+fn refused(error: &LlmError) -> PlanError {
+    match error {
+        LlmError::RemoteOff
+        | LlmError::RemoteUnavailable
+        | LlmError::RemoteKey { .. }
+        | LlmError::RemoteLimit { .. }
+        | LlmError::RemoteUnreachable { .. } => PlanError::Refused(error.message()),
+        _ => PlanError::Refused(t!("bridge.tour.failed", detail = error.message())),
+    }
 }
 
 /// Demande le plan au modèle `model` (deux essais) ; erreur traduite.
@@ -338,40 +356,42 @@ pub async fn plan(
     if model.is_empty() {
         return Err(PlanError::Refused(t!("bridge.tour.noModel")));
     }
-    // Modèle du cloud, réglage coupé : rien ne part (même pas `/api/show`).
-    if let Some(message) = server.refuses(model, models::is_cloud_name(model)) {
-        return Err(PlanError::Refused(message));
-    }
-    let details = models::show(&server.url, model).await.ok();
-    let remote = models::is_cloud_name(model) || details.as_ref().is_some_and(|d| d.remote);
-    if let Some(message) = server.refuses(model, remote) {
-        return Err(PlanError::Refused(message));
-    }
-    let think_off = crate::dictation::polish::think_off(details.as_ref(), false);
+    let access = &server.access;
+    // Réflexion coupée si le modèle sait la couper (plan plus rapide).
+    let think = match crate::llm::models::details(access, model).await {
+        Ok(details)
+            if crate::chat::call::accepted_think(Some(Think::Enabled(false)), &details)
+                .is_some() =>
+        {
+            inference::Think::Off
+        }
+        _ => inference::Think::Default,
+    };
     let range = range(&params.code, params.first_line);
-    let mut body = json!({
-        "model": model,
-        "messages": [
-            { "role": "system", "content": system(params.kind, &params.locale, range) },
-            { "role": "user", "content": user(params) },
-        ],
-        "stream": false,
-        "format": schema(range),
-        "options": { "temperature": 0.3, "num_ctx": context(server, &params.code) },
-    });
-    if think_off {
-        body["think"] = json!(false);
-    }
-    if server.keep_alive != 0 {
-        body["keep_alive"] = json!(server.keep_alive);
-    }
+    // Contexte imposé (assez pour le code) ; distant coupé : refus sans
+    // rien appeler.
+    let options = OpenOptions {
+        ctx: Some(context(server, &params.code)),
+        ..OpenOptions::default()
+    };
+    let session = access
+        .open(model, options, &CancellationToken::new(), &|| {})
+        .await
+        .map_err(|error| refused(&error))?;
+    let mut request = session.request(vec![
+        Message::system(system(params.kind, &params.locale, range)),
+        Message::user(user(params)),
+    ]);
+    request.response_format = Some(ResponseFormat::JsonSchema(schema(range)));
+    request.temperature = Some(TEMPERATURE);
+    request.think = think;
     let headers = if params.kind == Kind::Diff {
         diff_headers(&params.code)
     } else {
         Vec::new()
     };
     for _ in 0..2 {
-        let content = ask(server, &body).await?;
+        let content = ask(&session, &request).await?;
         if let Some(planned) = parse(&content).and_then(|value| sanitize(&value, range, &headers)) {
             return Ok(planned);
         }
@@ -393,57 +413,20 @@ fn parse(content: &str) -> Option<Value> {
         .flatten()
 }
 
-/// Une requête ; rend le contenu du message.
-async fn ask(server: &Server, body: &Value) -> Result<String, PlanError> {
-    let failed = |detail: &dyn std::fmt::Display| {
-        let message = t!("bridge.tour.failed", detail = detail);
-        PlanError::Refused(message)
-    };
-    let base = server.url.as_str();
-    let url = client::server_url(base).map_err(|error| failed(&error))?;
-    let http = client::client(&url, Some(TIMEOUT)).map_err(|error| failed(&error))?;
-    let response = http
-        .post(format!("{base}/api/chat"))
-        .json(body)
-        .send()
-        .await
-        .map_err(|error| {
-            if error.is_connect() {
-                PlanError::Refused(t!("ollama.unreachableAt", address = base))
-            } else {
-                failed(&error.without_url())
-            }
-        })?;
-    let status = response.status();
-    let mut response = response;
-    let mut data = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| failed(&error.without_url()))?
-    {
-        if data.len() + chunk.len() > MAX_BODY {
-            return Err(failed(&t!("ollama.httpStatus", status = status.as_u16())));
-        }
-        data.extend_from_slice(&chunk);
-    }
-    let text = String::from_utf8_lossy(&data);
-    if !status.is_success() {
-        let message = crate::chat::error_line(&text);
-        return Err(if message.trim().is_empty() {
-            failed(&t!("ollama.httpStatus", status = status.as_u16()))
-        } else {
-            failed(&message)
-        });
-    }
-    let answer: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-    if let Some(message) = answer["error"].as_str().filter(|m| !m.trim().is_empty()) {
-        return Err(failed(&message));
-    }
-    Ok(answer["message"]["content"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned())
+/// Une requête (réponse entière, au plus [`TIMEOUT`]) ; rend le contenu
+/// du message (la réflexion, séparée par le serveur, n'en fait pas partie).
+async fn ask(session: &Session, request: &ChatRequest) -> Result<String, PlanError> {
+    let cancel = CancellationToken::new();
+    let _cancel_on_drop = cancel.clone().drop_guard();
+    let answer = tokio::time::timeout(
+        TIMEOUT,
+        inference::chat_once(&session.endpoint, request, cancel.clone()),
+    )
+    .await
+    .map_err(|_| inference::InferenceError::Timeout)
+    .and_then(|answer| answer)
+    .map_err(|error| refused(&session.error(error)))?;
+    Ok(answer.content)
 }
 
 #[cfg(test)]
@@ -719,5 +702,169 @@ mod tests {
             Some(json!({ "segments": [] }))
         );
         assert_eq!(parse("no json"), None);
+    }
+
+    /// Visite contre le faux moteur.
+    mod engine {
+        use super::*;
+        use crate::engine::{KeepAlive, LoadOptions};
+        use crate::llm::testing::{FakeBench, RealBench, Role};
+        use crate::store::settings::SettingsPatch;
+
+        const TOUR: &str = "test/Tour-GGUF:Q4_K_M";
+        const THINKER: &str = "test/Thinker-GGUF:Q4_K_M";
+
+        fn params(code: &str) -> PlanParams {
+            PlanParams {
+                model: None,
+                locale: "fr".into(),
+                path: "src/main.rs".into(),
+                language: "rust".into(),
+                code: code.into(),
+                first_line: 10,
+                kind: Kind::File,
+            }
+        }
+
+        /// Corps de chat reçus par le processus de `id` (prêt avec ce
+        /// contexte : rien n'est relancé).
+        async fn chats(bench: &FakeBench, id: &str, ctx: u32) -> Vec<Value> {
+            let options = LoadOptions {
+                ctx: Some(ctx),
+                keep_alive: KeepAlive::Default,
+                cpu_only: false,
+            };
+            assert!(bench.engine().is_ready(id, options).await, "{id} at {ctx}");
+            let lease = bench.engine().ensure(id, options).await.unwrap();
+            let all: Value = reqwest::get(format!("{}/fake/requests", lease.endpoint.base_url))
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            drop(lease);
+            all.as_array()
+                .unwrap()
+                .iter()
+                .filter(|request| request["path"] == "/v1/chat/completions")
+                .map(|request| request["body"].clone())
+                .collect()
+        }
+
+        /// Sortie JSON contrainte par le schéma (lignes bornées au code),
+        /// température 0,3, contexte imposé assez grand pour le code, plan
+        /// gardé ; réflexion coupée pour un modèle qui la coupe.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn a_tour_is_planned_under_a_json_schema() {
+            let bench = FakeBench::new(&[(TOUR, "gpu-tour"), (THINKER, "gpu-tourthink")]);
+            let server = Server::current(&bench.access).await.unwrap();
+            let code = "fn main() {\n    run();\n}";
+            let planned = plan(&server, TOUR, &params(code)).await.unwrap();
+            assert_eq!(
+                planned,
+                [
+                    Planned {
+                        lines: (10, 10),
+                        text: "This line starts it.".into()
+                    },
+                    Planned {
+                        lines: (10, 12),
+                        text: "And this is the whole.".into()
+                    },
+                ]
+            );
+            let sent = chats(&bench, TOUR, 8192).await;
+            assert_eq!(sent.len(), 1);
+            let body = &sent[0];
+            assert_eq!(body["response_format"]["type"], "json_schema");
+            assert_eq!(
+                body["response_format"]["json_schema"]["schema"],
+                schema((10, 12))
+            );
+            assert_eq!(body["temperature"], 0.3f32);
+            assert_eq!(body["messages"][0]["role"], "system");
+            assert!(
+                body["messages"][1]["content"]
+                    .as_str()
+                    .unwrap()
+                    .contains("   11 |     run();")
+            );
+            // Sans réflexion : rien de demandé au gabarit.
+            assert!(body.get("chat_template_kwargs").is_none(), "{body}");
+            // Contexte réglé plus grand : le réglage.
+            bench.set(SettingsPatch {
+                context_length: Some(16_384),
+                ..Default::default()
+            });
+            let server = Server::current(&bench.access).await.unwrap();
+            plan(&server, THINKER, &params(code)).await.unwrap();
+            let sent = chats(&bench, THINKER, 16_384).await;
+            assert_eq!(
+                sent[0]["chat_template_kwargs"]["enable_thinking"], false,
+                "{}",
+                sent[0]
+            );
+            bench.shutdown().await;
+        }
+
+        /// Plan inutilisable : redemandé une fois, puis refusé ; refus
+        /// d'emblée (paramètres, modèle) sans rien envoyer.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn an_unusable_plan_is_asked_twice_then_refused() {
+            let bench = FakeBench::new(&[(TOUR, "gpu-tour")]);
+            let server = Server::current(&bench.access).await.unwrap();
+            assert_eq!(
+                plan(&server, TOUR, &params("UNUSABLE\nx")).await,
+                Err(PlanError::Refused(t!("bridge.tour.invalid")))
+            );
+            assert_eq!(chats(&bench, TOUR, 8192).await.len(), 2);
+            assert_eq!(
+                plan(&server, TOUR, &params("  ")).await,
+                Err(PlanError::Params)
+            );
+            assert_eq!(
+                plan(&server, " ", &params("x")).await,
+                Err(PlanError::Refused(t!("bridge.tour.noModel")))
+            );
+            // Modèle distant, réglage coupé : refus sans rien appeler.
+            assert_eq!(
+                plan(&server, "@remote/mistral/x", &params("x")).await,
+                Err(PlanError::Refused(LlmError::RemoteOff.message()))
+            );
+            // Absent : l'erreur du moteur, dans le texte de la visite.
+            let Err(PlanError::Refused(message)) =
+                plan(&server, "test/Absent-GGUF:Q4_K_M", &params("x")).await
+            else {
+                panic!("expected a refusal");
+            };
+            assert!(message.contains("test/Absent-GGUF:Q4_K_M"), "{message}");
+            assert_eq!(bench.engine().running().len(), 1);
+            bench.shutdown().await;
+        }
+
+        /// Contrat : un vrai plan de Qwen3 0.6B sur le vrai `llama-server`
+        /// (sortie contrainte par le schéma, lignes dans le code).
+        #[tokio::test(flavor = "multi_thread")]
+        #[ignore = "vrai llama-server : CHATONLM_LLAMA_TEST_BIN et un modèle Text"]
+        async fn contract_a_tour_from_the_real_engine() {
+            let Some(bench) = RealBench::new(Role::Text) else {
+                return;
+            };
+            let server = Server::current(&bench.access).await.unwrap();
+            let code = "fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\nfn main() {\n    println!(\"{}\", add(1, 2));\n}";
+            let mut asked = params(code);
+            asked.locale = "en".into();
+            let planned = plan(&server, &bench.id, &asked).await.unwrap();
+            eprintln!("tour: {planned:?}");
+            assert!(!planned.is_empty());
+            assert!(
+                planned
+                    .iter()
+                    .all(|segment| segment.lines.0 >= 10 && segment.lines.1 <= 16)
+            );
+            let running = bench.access.engine().running();
+            assert_eq!(running[0].context_length, 8192, "{running:?}");
+            bench.shutdown().await;
+        }
     }
 }

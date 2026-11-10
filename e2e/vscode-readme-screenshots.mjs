@@ -1,11 +1,14 @@
 // Captures du README de l'extension VS Code (vscode/media/screenshots/) :
 // l'app réelle et VSCodium (e2e/lib/vscodium.mjs) dans la session virtuelle,
-// avec l'instance Ollama de test (scripts/test-ollama.sh, 127.0.0.1:11435) et
-// de vrais modèles : qwen3:8b pour la conversation et la visite guidée,
-// qwen2.5-coder:0.5b-base pour l'autocomplétion ; voix de lecture de
-// .tools/voice-models. Ce n'est pas un essai : check.sh ne le lance pas, et
-// seule la forme des écrans est attendue.
-//   scripts/test-ollama.sh start
+// avec le vrai llama-server (verrou des vrais serveurs tenu pendant le script)
+// et les vrais modèles d'essai (scripts/test-llama.sh fetch) : rôle « text »
+// (Qwen3 0.6B) pour la conversation et la visite guidée, rôle « fim »
+// (Qwen2.5-Coder 0.5B de base) pour l'autocomplétion ; voix de lecture de
+// .tools/voice-models. Pour des captures de meilleure tenue (un 8B comme
+// avant), rangez un plus gros GGUF dans .tools/llama-test et donnez-le au
+// rôle « text » de models.json. Ce n'est pas un essai : check.sh ne le lance
+// pas, et seule la forme des écrans est attendue.
+//   scripts/test-llama.sh fetch
 //   E2E_TIMEOUT=1500 scripts/e2e-session.sh e2e/run.sh \
 //     e2e/vscode-readme-screenshots.mjs "$(scripts/e2e-build.sh)"
 // Captures brutes (PNG 1360 × 960) dans .tools/shots/ (readme-vscode-*),
@@ -21,13 +24,19 @@ import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { findDiscovery } from "./lib/bridge.mjs";
+import { holdRealLock, startRealEngine } from "./lib/fake.mjs";
 import { linkVoice } from "./lib/voice.mjs";
 import { chooseModel, prepare, shot, waitUntil } from "./lib/vscodium.mjs";
 
 const binary = process.argv[2];
-const OLLAMA = "http://127.0.0.1:11435";
-const MODEL = "qwen3:8b";
-const COMPLETION = "qwen2.5-coder:0.5b-base";
+await holdRealLock();
+const engine = startRealEngine(["text", "fim"]);
+if (!engine) {
+  throw new Error(
+    "Vrai moteur ou modèles absents : scripts/build-llama-server.sh, scripts/test-llama.sh fetch",
+  );
+}
+const [MODEL, COMPLETION] = engine.ids;
 const OUT = `${ROOT}.tools/shots/readme-vscode`;
 const DATA = process.env.CHATONLM_DATA_DIR;
 assert.ok(
@@ -37,18 +46,6 @@ assert.ok(
 mkdirSync(OUT, { recursive: true });
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const ollama = (path) =>
-  fetch(`${OLLAMA}${path}`)
-    .then((response) => response.json())
-    .catch(() => null);
-const tags = await ollama("/api/tags");
-for (const model of [MODEL, COMPLETION]) {
-  if (!tags?.models.some((m) => m.name === model)) {
-    throw new Error(
-      `${model} absent ou instance arrêtée : scripts/test-ollama.sh start`,
-    );
-  }
-}
 for (const voice of ["pocket-tts-en", "pocket-tts-fr", "pocket-tts-es"]) {
   linkVoice(DATA, voice);
 }
@@ -125,15 +122,12 @@ async function replyDone(driver, chatId) {
 try {
   await withApp(
     binary,
-    { name: "vscode-readme", env: { OLLAMA_HOST: OLLAMA } },
+    { name: "vscode-readme", env: engine.env },
     async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
       await chooseModel(driver, MODEL);
       // Modèle chargé d'avance (lecture lente du disque de .tools).
-      await fetch(`${OLLAMA}/api/generate`, {
-        method: "POST",
-        body: JSON.stringify({ model: MODEL, keep_alive: "30m" }),
-      }).then((response) => response.text());
+      await driver.invoke("load_model", { model: MODEL });
       await driver.invoke("bridge_set_enabled", { enabled: true });
       const { pairing } = await driver.invoke("bridge_pair");
       const found = await waitUntil(findDiscovery, "bridge.json");
@@ -199,8 +193,8 @@ try {
         );
         await waitUntil(
           async () =>
-            (await ollama("/api/ps"))?.models?.some(
-              (m) => m.name === COMPLETION,
+            (await driver.invoke("running_models")).some(
+              (m) => m.id === COMPLETION && m.state === "ready",
             ),
           "modèle d'autocomplétion chargé",
           120_000,

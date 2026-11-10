@@ -37,23 +37,32 @@ use super::{
 use crate::attachments::Staging;
 use crate::error::{AppError, AppResult};
 use crate::i18n::t;
+use crate::inference::Message;
+use crate::llm::Access;
 use crate::proofread::Cancel;
 use crate::store::{Store, now_ms, study as db};
 
 /// Émet `study-updated`.
 pub type Notify = Arc<dyn Fn(StudyUpdated) + Send + Sync>;
 
-/// Base et évènements d'un appel (et des travaux qu'il met en file).
+/// Base, accès aux modèles et évènements d'un appel (et des travaux qu'il
+/// met en file).
 #[derive(Clone)]
 pub struct Ctx {
     pub store: Store,
+    pub access: Access,
     pub notify: Notify,
 }
 
 impl Ctx {
-    pub fn new(store: Store, notify: impl Fn(StudyUpdated) + Send + Sync + 'static) -> Self {
+    /// Accès de l'app (commandes, pont) : base et moteur.
+    pub fn with_access(
+        access: Access,
+        notify: impl Fn(StudyUpdated) + Send + Sync + 'static,
+    ) -> Self {
         Self {
-            store,
+            store: access.store().clone(),
+            access,
             notify: Arc::new(notify),
         }
     }
@@ -185,11 +194,14 @@ fn checked(topic: &str, minutes: u32, documents: usize) -> AppResult<String> {
 }
 
 /// Un modèle servira : celui des cours ou du chat réglé (rien à attendre
-/// d'Ollama), sinon « Auto », qui n'a que les modèles en mémoire.
+/// du moteur), sinon « Auto », qui n'a que les modèles prêts.
 async fn any_model(ctx: &Ctx) -> AppResult<()> {
-    let settings = crate::ollama::target::display_settings(&ctx.store).await?;
+    let settings = ctx
+        .store
+        .call(|c| crate::store::settings::get(c, None))
+        .await?;
     let configured = !settings.study_model.is_empty() || !settings.selected_model.is_empty();
-    if !configured && super::model_of(&settings).await.is_none() {
+    if !configured && super::model_of(&ctx.access, &settings).await.is_none() {
         return Err(AppError::Invalid(t!("study.noModel")));
     }
     Ok(())
@@ -897,22 +909,23 @@ impl StudyEngine {
             .as_ref()
             .map(|plan| plan.title.clone())
             .unwrap_or_else(|| snapshot.row.topic.clone());
-        let mut messages = vec![serde_json::json!({
-            "role": "system",
-            "content": prompts::ask_prompt(&title, &lesson, snapshot.row.language),
-        })];
+        let mut messages = vec![Message::system(prompts::ask_prompt(
+            &title,
+            &lesson,
+            snapshot.row.language,
+        ))];
         let earlier = level.asks.len().saturating_sub(3);
         for ask in &level.asks[earlier..] {
-            messages.push(serde_json::json!({ "role": "user", "content": ask.question }));
-            messages.push(serde_json::json!({ "role": "assistant", "content": ask.answer }));
+            messages.push(Message::user(ask.question.clone()));
+            messages.push(Message::assistant(ask.answer.clone()));
         }
-        messages.push(serde_json::json!({ "role": "user", "content": question }));
+        messages.push(Message::user(question.clone()));
         self.stream(
             ctx,
             course,
             stream_id,
             channel,
-            serde_json::Value::Array(messages),
+            messages,
             move |answer| {
                 Box::new(move |level: &mut LevelData| level.asks.push(Ask { question, answer }))
             },
@@ -933,7 +946,7 @@ impl StudyEngine {
         course: &str,
         stream_id: String,
         channel: &Channel<StudyStreamEvent>,
-        messages: serde_json::Value,
+        messages: Vec<Message>,
         save: impl FnOnce(String) -> Box<dyn FnOnce(&mut LevelData) + Send> + Send,
         index: usize,
         lesson: Lesson,
@@ -945,8 +958,8 @@ impl StudyEngine {
                 cancel.cancel();
             }
         };
-        let ollama = match Gen::connect(&ctx.store, &cancel, self.shared.timeouts).await {
-            Ok(ollama) => ollama,
+        let asker = match Gen::connect(&ctx.access, &cancel, self.shared.timeouts).await {
+            Ok(asker) => asker,
             Err(stop) => {
                 stream_end(&send, stop, String::new());
                 return Ok(());
@@ -957,7 +970,7 @@ impl StudyEngine {
             partial.lock().push_str(&text);
             send(StudyStreamEvent::Delta { text });
         };
-        match ollama.stream(messages, &on_delta).await {
+        match asker.stream(messages, &on_delta).await {
             Ok(text) => {
                 let change = save(text.clone());
                 let id = course.to_owned();
@@ -1016,8 +1029,8 @@ impl StudyEngine {
         }
     }
 
-    /// Ollama va s'arrêter (fermeture de l'app, changement de serveur ou du
-    /// dossier des modèles de l'intégré) : file vidée, partie en cours et
+    /// Le moteur va s'arrêter (fermeture de l'app, changement du dossier
+    /// des modèles) : file vidée, partie en cours et
     /// flux arrêtés, sans rien enregistrer. Rien n'est noté en échec : une
     /// partie en attente le reste, celle en cours reste « en cours » et
     /// reprend à la prochaine lecture du cours (`study_get`) ou au lancement
@@ -1189,6 +1202,7 @@ async fn work(shared: Arc<Shared>, ctx: Ctx) {
         };
         let runner = Job {
             store: &ctx.store,
+            access: &ctx.access,
             course: &job.course,
             cancel: &cancel,
             timeouts: shared.timeouts,

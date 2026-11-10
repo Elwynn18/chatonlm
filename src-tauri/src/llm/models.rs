@@ -172,11 +172,27 @@ pub async fn get(access: &Access, id: &str) -> AppResult<Option<ChatModel>> {
 }
 
 /// Détails du modèle `id` ; [`AppError::NotFound`] s'il est absent.
+///
+/// Distant (modèles distants permis) : jamais absent ici, même si la liste
+/// du fournisseur ne répond pas (clé refusée, limite, hors ligne) ou ne le
+/// cite pas : capacités de la liste si elle répond à temps, sinon
+/// conversation et outils. L'ouverture qui suit donne alors le vrai code
+/// (`remoteKey`, `remoteLimit`, `remoteUnreachable`, ou `RemoteUnavailable`
+/// pour un fournisseur absent ou coupé). Réglage coupé : absent.
 pub async fn details(access: &Access, id: &str) -> AppResult<ModelDetails> {
     let (capabilities, thinking) = if ids::is_remote(id) {
-        let model = get(access, id).await?.ok_or_else(|| not_found(id))?;
-        let thinking = model.capabilities.iter().any(|word| word == "thinking");
-        (model.capabilities, thinking_options(thinking, None))
+        let Some(ids::Target::Remote { provider, model }) = ids::parse(id) else {
+            return Err(not_found(id));
+        };
+        if !access.prefs().await?.remote_models {
+            return Err(not_found(id));
+        }
+        let capabilities = access.remote().capabilities(&provider, &model).await;
+        // Aucune réflexion annoncée par un fournisseur (`catalog`).
+        (
+            capability_words(&capabilities),
+            thinking_options(capabilities.thinking, None),
+        )
     } else {
         let model = crate::local_models::get(access.store(), access.data_dir(), id)
             .await?

@@ -1,25 +1,25 @@
 // Jauge du contexte et compactage (propres à ChatonLM) dans l'app réelle
-// (build e2e : frontend embarqué, CSP de production), avec le faux serveur
-// (modèle chatonlm-context : réponse de 600 jetons, jetons comptés à 4
-// caractères, `num_predict` respecté, résumé quand on le lui demande) et de
+// (build e2e : frontend embarqué, CSP de production), avec le faux moteur
+// (fake-llama, scénario chatonlm-context : réponse de 600 jetons, un jeton par
+// mot comme le compte le faux, `max_tokens` respecté, résumé quand on le lui
+// demande ; contexte du processus lu dans ses arguments, `-c`) et de
 // vraies touches du clavier (e2e/lib/keyboard.mjs : Échap). Réglage du
 // contexte : 4096 (le plus petit cran). Vérifié :
 // - page d'une nouvelle conversation : pas de jauge ;
-// - premier message long (11 200 caractères) : réponse limitée dès le premier
-//   envoi (taille connue, aucun compte : num_predict = 4096 − estimation du
-//   message × 0,75), sans couper les 600 jetons ; après la réponse, jauge
-//   « Context: 83% used » (3 400 jetons comptés par le faux serveur sur
-//   4 096 : prompt_eval_count + eval_count, réponse sans raisonnement ;
+// - premier message long (environ 2 750 mots) : réponse limitée dès le
+//   premier envoi (`max_tokens` sous la place qui reste), sans couper les 600
+//   jetons ; après la réponse, jauge « Context: N% used » au-dessus de 80 %
+//   (jetons comptés par le faux : prompt et réponse, sans raisonnement ;
 //   pourcentage arrondi vers le bas), aria-haspopup="dialog", aria-expanded ;
-//   get_chat : context { used: 3400, size: 4096 } ; clic : panneau (dialog
-//   « Context ») focalisé, « 3,400 / 4,096 tokens (83%) », règle des 80 %,
+//   get_chat : context { used, size: 4096 } ; clic : panneau (dialog
+//   « Context ») focalisé, « U / 4,096 tokens (N%) », règle des 80 %,
 //   « Compact now » actif ; vraie touche Échap : panneau fermé, focus rendu
 //   à la jauge ;
 // - second message (passé 80 %) : compactage automatique avant la réponse
 //   (« Compacting conversation… » noté s'il paraît : le faux serveur résume
 //   sans délai, sous les 750 ms d'attente des points) ; requête du résumé
-//   (GET /fake/requests) : les deux premiers messages (tout ce qui tient avec
-//   la place du résumé) puis « Summarize our conversation… », num_predict
+//   (`/fake/requests` du faux) : les deux premiers messages (tout ce qui tient
+//   avec la place du résumé) puis « Summarize our conversation… », max_tokens
 //   512 (4096 / 8) ; requête de la réponse : un message system qui finit par
 //   le résumé, puis le seul nouveau message, limitée au-dessus de 600 ;
 //   séparateur « Context compacted automatically » après la première
@@ -28,11 +28,11 @@
 //   automatique jusqu'à la première réponse ;
 // - contexte plein (autre conversation, 78 % après le premier échange) :
 //   réponse limitée à ce qui reste (entre 256 et 600 jetons, sous
-//   taille − contexte compté), coupée (done_reason « length ») : erreur
+//   taille − contexte compté), coupée (finish_reason « length ») : erreur
 //   « The conversation filled the model's context… » avec « Compact now »
 //   dessous, réponse partielle gardée, jauge à 95 % au moins, aucun
 //   compactage automatique ; « Compact now » : résumé du seul premier échange
-//   (le reste ne tiendrait pas avec la place du résumé, num_predict 512),
+//   (le reste ne tiendrait pas avec la place du résumé, max_tokens 512),
 //   séparateur « Context compacted » après la première réponse, erreur
 //   effacée, jauge à la valeur enregistrée (relevée dans le rapport) ;
 // - compactage manuel (troisième conversation, 14 %) : panneau → « Compact
@@ -46,21 +46,22 @@
 // - aucune violation de la CSP ni erreur ou avertissement dans la console.
 import assert from "node:assert/strict";
 import { withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
-import { PENDING_CALLS } from "./lib/page.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
+import { PENDING_CALLS, shownModel } from "./lib/page.mjs";
 import { pressKeys } from "./lib/keyboard.mjs";
 
 const binary = process.argv[2];
-const fake = await startFake("ollama");
-const env = { OLLAMA_HOST: fake.url };
-
-const MODEL = "chatonlm-context";
+const MODEL = fakeModel("context");
+const engine = startEngine([MODEL]);
+const env = engine.env;
 const SIZE = 4096;
-/** Réponse de chatonlm-context (fake-ollama, CONTEXT_ANSWER × 40). */
+/** Réponse de chatonlm-context (fake-llama scenarios/l8.rs, CONTEXT_ANSWER × 40). */
 const ANSWER =
-  "This answer fills the context of the model, fifteen tokens. ".repeat(40);
-const ANSWER_TOKENS = ANSWER.length / 4;
-/** Résumé écrit par chatonlm-context (fake-ollama, CONTEXT_SUMMARY). */
+  "This answer fills the context of the model with fifteen words in every single sentence. "
+    .repeat(40)
+    .trimEnd();
+const ANSWER_TOKENS = 600;
+/** Résumé écrit par chatonlm-context (fake-llama, CONTEXT_SUMMARY). */
 const SUMMARY = "The user said hello; the model answered at length.";
 const ERROR_FULL =
   "The conversation filled the model's context, so the reply was cut. Compact the conversation to continue.";
@@ -91,20 +92,58 @@ function note(length) {
   return `${text}.`;
 }
 
-/** Jetons comptés par le faux serveur pour un texte (4 octets par jeton). */
-const fakeTokens = (text) => Math.floor(Buffer.byteLength(text) / 4);
+/**
+ * Jetons comptés par le faux pour un texte (fake-llama tokens.rs : un
+ * morceau commence au début d'un mot et garde les blancs qui le précèdent).
+ */
+function fakeTokens(text) {
+  let pieces = 0;
+  let current = false;
+  let previousBlank = false;
+  for (const character of text) {
+    const blank = /\s/.test(character);
+    if (blank && !previousBlank && current) pieces += 1;
+    current = true;
+    previousBlank = blank;
+  }
+  return current ? pieces + 1 : 0;
+}
 
-/** Jetons du prompt d'une requête, comptés comme le faux serveur. */
+/**
+ * Jetons du prompt d'une requête, comptés comme le faux : texte de chaque
+ * message plus 4 (balises du gabarit), plus 3 pour le début de la réponse.
+ */
 const promptTokens = (request) =>
   request.messages.reduce(
-    (sum, message) => sum + fakeTokens(message.content ?? ""),
-    0,
+    (sum, message) => sum + fakeTokens(message.content ?? "") + 4,
+    3,
   );
 
-/** Corps des /api/chat reçus par le faux serveur pour chatonlm-context. */
-async function requests() {
-  const response = await fetch(new URL("/fake/requests", fake.url));
-  return (await response.json()).filter((request) => request.model === MODEL);
+/** Corps des demandes de chat reçues par le faux pour MODEL. */
+const requests = () => engine.chatRequests(MODEL);
+
+/** Contexte du processus du modèle (`-c`). */
+async function processContext() {
+  const args = (await engine.args(MODEL)) ?? [];
+  return Number(args[args.indexOf("-c") + 1]);
+}
+
+/**
+ * Limite d'un envoi : sous la place qui reste après le prompt, sans couper
+ * la réponse de 600 jetons (valeur exacte : celle du compactage de l'app,
+ * relevée dans les notes).
+ */
+function checkLimit(request, what) {
+  const limit = request.max_tokens;
+  assert.ok(
+    limit > ANSWER_TOKENS,
+    `${what} : réponse limitée trop bas (${limit})`,
+  );
+  assert.ok(
+    limit <= SIZE - promptTokens(request),
+    `${what} : limite ${limit} au-delà de la place (${SIZE - promptTokens(request)})`,
+  );
+  notes.push(`${what} : max_tokens ${limit}`);
 }
 
 const isSummaryRequest = (request) =>
@@ -113,13 +152,6 @@ const isSummaryRequest = (request) =>
 /** Pourcentage affiché : arrondi vers le bas, borné à 100. */
 const percentOf = (used) => Math.min(Math.floor((used * 100) / SIZE), 100);
 
-/**
- * Limite d'un premier envoi (taille connue, aucun compte d'Ollama) : taille
- * moins l'estimation du message (caractères / 3 + 16), corrigée par 0,75
- * (UNCALIBRATED, src-tauri/src/chat/compact.rs), arrondie par excès.
- */
-const firstLimit = (text) =>
-  SIZE - Math.ceil((Math.floor([...text].length / 3) + 16) * 0.75);
 const formatInt = (value) => value.toLocaleString("en-US");
 
 const exists = (driver, css) =>
@@ -187,11 +219,6 @@ async function reload(driver) {
   );
   await driver.execute(WATCH_PAGE);
 }
-
-const shownModel = (driver) =>
-  driver.execute(
-    "return document.querySelector('[title=\"Select model\"]')?.textContent ?? null",
-  );
 
 /** Nouvelle conversation, par le bouton « New chat ». */
 async function newChat(driver) {
@@ -349,7 +376,7 @@ const shotOnFailure = (name, fn) => async (driver) => {
 /** Observations rapportées (pas des échecs). */
 const notes = [];
 
-try {
+{
   await withApp(
     binary,
     { name: "context", env },
@@ -399,8 +426,8 @@ try {
         "jauge sur la page d'une nouvelle conversation",
       );
 
-      // ---- 1. Premier message : 83 % après la réponse.
-      const long = note(11200);
+      // ---- 1. Premier message : passé 80 % après la réponse.
+      const long = note(15400);
       await send(driver, long);
       await driver.waitFor("[data-testid=chat]");
       await waitIdle(driver, 2);
@@ -413,16 +440,18 @@ try {
         ["user"],
       );
       assert.equal(sent[0].messages[0].content, long);
-      assert.equal(sent[0].options?.num_ctx, SIZE);
+      assert.equal(await processContext(), SIZE);
       // Taille connue : la réponse est limitée dès le premier envoi, sans
       // couper la réponse de 600 jetons.
-      assert.equal(sent[0].options?.num_predict, firstLimit(long));
-      assert.ok(sent[0].options.num_predict > ANSWER_TOKENS);
+      checkLimit(sent[0], "premier envoi");
       const used1 = promptTokens(sent[0]) + ANSWER_TOKENS;
-      assert.equal(used1, 3400);
+      assert.ok(
+        percentOf(used1) >= 80 && percentOf(used1) < 95,
+        `départ à ${percentOf(used1)} %`,
+      );
       let state = await waitGauge(driver, percentOf(used1));
-      assert.equal(state.label, "Context: 83% used");
-      assert.equal(state.title, "Context: 83% used");
+      assert.equal(state.label, `Context: ${percentOf(used1)}% used`);
+      assert.equal(state.title, `Context: ${percentOf(used1)}% used`);
       assert.equal(state.haspopup, "dialog");
       assert.equal(state.expanded, "false");
       assert.equal(state.sector, true, "secteur roux absent");
@@ -437,7 +466,7 @@ try {
         role: "dialog",
         title: "Context",
         lines: [
-          "3,400 / 4,096 tokens (83%)",
+          `${formatInt(used1)} / 4,096 tokens (${percentOf(used1)}%)`,
           "When the conversation passes 80%, older messages are summarized automatically.",
         ],
         action: { text: "Compact now", disabled: false },
@@ -500,7 +529,7 @@ try {
       assert.equal(summarize.messages[0].content, long);
       assert.equal(summarize.messages[1].content, ANSWER);
       // Place du résumé : un huitième du contexte.
-      assert.equal(summarize.options?.num_predict, SIZE / 8);
+      assert.equal(summarize.max_tokens, SIZE / 8);
       const reply2 = sent[2];
       assert.deepEqual(
         reply2.messages.map((m) => m.role),
@@ -512,10 +541,7 @@ try {
         `message system sans le résumé : ${reply2.messages[0].content}`,
       );
       assert.equal(reply2.messages[1].content, "Second question");
-      assert.ok(
-        reply2.options?.num_predict > ANSWER_TOKENS,
-        `réponse limitée trop bas : ${reply2.options?.num_predict}`,
-      );
+      checkLimit(reply2, "réponse après le compactage");
       const summarySystem = reply2.messages[0].content;
       // Tous les messages affichés, séparateur après la première réponse.
       let list = await listState(driver);
@@ -558,17 +584,20 @@ try {
 
       // ---- 3. Contexte plein : réponse coupée, « Compact now » sous l'erreur.
       await newChat(driver);
-      const long2 = note(10400);
+      const long2 = note(14500);
       await send(driver, long2);
       await driver.waitFor("[data-testid=chat]");
       await waitIdle(driver, 2);
       const full = await currentChatId(driver);
       assert.notEqual(full, auto);
       sent = await requests();
-      assert.equal(sent.at(-1).options?.num_predict, firstLimit(long2));
+      checkLimit(sent.at(-1), "premier envoi de la conversation pleine");
       const used3 = promptTokens(sent.at(-1)) + ANSWER_TOKENS;
-      assert.equal(used3, 3200);
-      await waitGauge(driver, percentOf(used3)); // 78 %, sous le seuil
+      assert.ok(
+        percentOf(used3) >= 70 && percentOf(used3) < 80,
+        `sous le seuil attendu : ${percentOf(used3)} %`,
+      );
+      await waitGauge(driver, percentOf(used3)); // sous le seuil
       const before = sent.length;
       const mid = note(1200);
       await send(driver, mid);
@@ -580,7 +609,7 @@ try {
       // Limite : taille − contexte compté − estimation du nouveau message
       // (1200 caractères / 3 + 16, corrigée par le rapport compté/estimé) :
       // sous les 600 jetons de la réponse, au moins 256.
-      const limit = cut.options?.num_predict;
+      const limit = cut.max_tokens;
       assert.ok(
         Number.isInteger(limit) && limit >= 256 && limit < ANSWER_TOKENS,
         `limite de la réponse : ${limit}`,
@@ -637,7 +666,7 @@ try {
         ["user", "assistant", "user"],
       );
       assert.equal(sent.at(-1).messages[0].content, long2);
-      assert.equal(sent.at(-1).options?.num_predict, SIZE / 8);
+      assert.equal(sent.at(-1).max_tokens, SIZE / 8);
       const estimate = Math.floor(summarySystem.length / 3) + 16;
       chat = await driver.invoke("get_chat", { id: full });
       assert.equal(chat.compactions.length, 1);
@@ -663,7 +692,10 @@ try {
       const manual = await currentChatId(driver);
       sent = await requests();
       const used5 = promptTokens(sent.at(-1)) + ANSWER_TOKENS;
-      assert.equal(used5, 601);
+      assert.ok(
+        used5 > ANSWER_TOKENS && used5 < SIZE / 4,
+        `après le résumé : ${used5}`,
+      );
       await waitGauge(driver, 14);
       opened = await openPanel(driver);
       assert.equal(opened.lines[0], "601 / 4,096 tokens (14%)");
@@ -777,8 +809,6 @@ try {
       await collectViolations(driver);
     }),
   );
-} finally {
-  await fake.stop();
 }
 
 for (const line of notes) console.log(`Note : ${line}`);

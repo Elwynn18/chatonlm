@@ -51,8 +51,9 @@ pub(crate) use os::{
     watch_exit,
 };
 
-/// Ports jamais pris : celui d'Ollama et celui de l'instance de test.
-pub(crate) const RESERVED_PORTS: [u16; 2] = [11434, 11435];
+/// Ports jamais pris : celui d'Ollama, celui de son instance de test et
+/// celui du `llama-server` d'essai (`scripts/test-llama.sh`).
+pub(crate) const RESERVED_PORTS: [u16; 3] = [11434, 11435, 11436];
 
 /// Lance une tâche sur le moteur tokio en cours, sinon sur celui de Tauri.
 pub(crate) fn spawn_task(future: impl std::future::Future<Output = ()> + Send + 'static) {
@@ -67,7 +68,7 @@ pub(crate) fn spawn_task(future: impl std::future::Future<Output = ()> + Send + 
 }
 
 /// Port libre de 127.0.0.1 : le précédent s'il l'est encore, sinon un port
-/// choisi par le système, jamais ceux d'Ollama ou de l'instance de test.
+/// choisi par le système, jamais ceux de [`RESERVED_PORTS`].
 pub(crate) fn pick_port(previous: Option<u16>) -> io::Result<u16> {
     if let Some(port) = previous.filter(|port| !RESERVED_PORTS.contains(port))
         && TcpListener::bind((Ipv4Addr::LOCALHOST, port)).is_ok()

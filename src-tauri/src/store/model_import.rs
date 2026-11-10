@@ -164,7 +164,6 @@ fn renames(connection: &Connection) -> AppResult<HashMap<String, String>> {
 
 /// Nouvel identifiant d'un ancien nom (sans la casse, `:latest` compris) :
 /// pour un ancien nom venu d'ailleurs (réglage VS Code, lot L5).
-#[allow(dead_code)]
 pub fn renamed(connection: &Connection, name: &str) -> AppResult<Option<String>> {
     Ok(renames(connection)?.remove(&ollama_key(name)))
 }
@@ -281,7 +280,6 @@ pub fn set_defaults(
 
 /// Réglages repris du modèle `model` (identifiant exact), s'il y en a :
 /// pour les requêtes au moteur (lot L5).
-#[allow(dead_code)]
 pub fn defaults(connection: &Connection, model: &str) -> AppResult<Option<ModelDefaults>> {
     let row: Option<(String, String)> = connection
         .query_row(

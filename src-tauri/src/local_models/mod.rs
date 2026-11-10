@@ -9,8 +9,9 @@
 //! Lecture (`list`, `get`, `LocalModel`) et modèles périmés
 //! (`check_outdated`) : pour le moteur (lot L3) et le sélecteur (lot L5), pas
 //! encore appelés hors des essais.
-#![allow(dead_code)]
 
+#[cfg(any(test, debug_assertions, feature = "e2e"))]
+pub mod e2e_seed;
 pub mod id;
 pub mod import;
 

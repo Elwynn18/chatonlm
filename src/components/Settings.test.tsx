@@ -15,7 +15,7 @@ import type { Settings } from "@/bindings/Settings";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import { setLanguage } from "@/i18n";
 import { validateSettingsSearch } from "@/routes/settings";
-import { fakeBackend, SERVER_URL } from "@/test/backend";
+import { fakeBackend } from "@/test/backend";
 import { untranslatedTexts, usePseudoLanguage } from "@/test/i18n";
 import { renderApp } from "@/test/renderApp";
 import { installSimulator } from "@/test/simulator";
@@ -35,9 +35,6 @@ function setup(
   const simulator = installSimulator();
   const backend = fakeBackend(simulator);
   Object.assign(backend.settings, settings);
-  // Comme le moteur : adresse réglée, sinon celle de l'environnement.
-  backend.settings.effectiveServerUrl =
-    backend.settings.serverUrl || SERVER_URL;
   prepare?.(backend);
   const app = renderApp(path);
   return { simulator, backend, app };
@@ -60,8 +57,6 @@ function holdUpdates(
         patch,
         release: () => {
           Object.assign(backend.settings, patch);
-          backend.settings.effectiveServerUrl =
-            backend.settings.serverUrl || SERVER_URL;
           resolve({ ...backend.settings });
         },
         reject,
@@ -78,21 +73,21 @@ const saved = () => screen.queryByText("Saved");
 
 describe("Settings", () => {
   it("shows one card with the three settings", async () => {
-    setup({ contextLength: 8192, theme: "dark", serverUrl: "" });
+    setup({ contextLength: 8192, theme: "dark" });
     await screen.findByTestId("settings");
-    expect(screen.getByText("Server address")).toBeTruthy();
+    // Le moteur et le dossier des modèles à la place de l'adresse d'un
+    // serveur.
+    expect(screen.getByText("Engine")).toBeTruthy();
+    expect(screen.queryByText("Server address")).toBeNull();
+    expect(screen.getByText("Model location")).toBeTruthy();
+    expect(
+      await screen.findByDisplayValue(
+        "/home/user/.local/share/com.chatonlm.chatonlm/models",
+      ),
+    ).toBeTruthy();
     expect(screen.getByText("Context length")).toBeTruthy();
     expect(screen.getByText(CONTEXT_DESCRIPTION)).toBeTruthy();
     expect(screen.getByText("Theme")).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Leave empty to use the OLLAMA_HOST environment variable, or http://localhost:11434 if it isn't set.",
-      ),
-    ).toBeTruthy();
-    // Champ d'adresse relié à son libellé, adresse utilisée en indication.
-    const address = screen.getByLabelText<HTMLInputElement>("Server address");
-    expect(address.value).toBe("");
-    expect(address.placeholder).toBe("http://127.0.0.1:11434");
     // Curseur : 8 crans, valeur enregistrée.
     const slider = screen.getByRole("slider", { name: "Context length" });
     expect(slider.getAttribute("aria-valuetext")).toBe("8k");
@@ -228,36 +223,8 @@ describe("Settings", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("saves the server address, and shows why it was refused", async () => {
-    const { simulator } = setup();
-    const address =
-      await screen.findByLabelText<HTMLInputElement>("Server address");
-    const save = screen.getByRole<HTMLButtonElement>("button", {
-      name: "Save",
-    });
-    expect(save.disabled).toBe(true);
-    await userEvent.type(address, "ftp://example.com{Enter}");
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/invalid server address/);
-    expect(saved()).toBeNull();
-    await userEvent.clear(address);
-    await userEvent.type(address, "  http://192.168.1.20:11434 ");
-    await userEvent.click(save);
-    await screen.findByText("Saved");
-    expect(patches(simulator).at(-1)).toEqual({
-      serverUrl: "http://192.168.1.20:11434",
-    });
-    // Champ remonté avec la valeur enregistrée : relu.
-    await waitFor(() => {
-      const field = screen.getByLabelText<HTMLInputElement>("Server address");
-      expect(field.value).toBe("http://192.168.1.20:11434");
-      expect(field.placeholder).toBe("http://192.168.1.20:11434");
-    });
-  });
-
-  it("resets the language, address, context length, theme and reading aloud, not the model", async () => {
+  it("resets the language, context length, theme and reading aloud, not the model", async () => {
     const { simulator, backend } = setup({
-      serverUrl: "http://10.0.0.2:11434",
       contextLength: 32768,
       theme: "dark",
       selectedModel: "qwen3.5:0.8b",
@@ -265,17 +232,12 @@ describe("Settings", () => {
       autoRead: true,
     });
     const held = holdUpdates(simulator, backend);
-    const address =
-      await screen.findByLabelText<HTMLInputElement>("Server address");
-    // Brouillon non enregistré : abandonné par le Reset.
-    await userEvent.type(address, "/draft");
     await userEvent.click(
-      screen.getByRole("button", { name: "Reset to defaults" }),
+      await screen.findByRole("button", { name: "Reset to defaults" }),
     );
     await waitFor(() => expect(held).toHaveLength(1));
     expect(held[0].patch).toEqual({
       language: "system",
-      serverUrl: "",
       contextLength: 0,
       theme: "system",
       autoRead: false,
@@ -296,11 +258,6 @@ describe("Settings", () => {
     await screen.findByText("Saved");
     expect(fieldset.disabled).toBe(false);
     expect(screen.getByRole("button", { name: "Reset to defaults" }));
-    await waitFor(() =>
-      expect(
-        screen.getByLabelText<HTMLInputElement>("Server address").value,
-      ).toBe(""),
-    );
     await waitFor(() => {
       expect(
         screen
@@ -315,27 +272,8 @@ describe("Settings", () => {
         ).toBe(true);
       }
     });
-    expect(
-      screen.getByLabelText<HTMLInputElement>("Server address").placeholder,
-    ).toBe(SERVER_URL);
     expect(backend.settings.selectedModel).toBe("qwen3.5:0.8b");
     expect(backend.settings.autoRead).toBe(false);
-  });
-
-  it("drops an address draft on Reset even if the address doesn't change", async () => {
-    setup({ serverUrl: "" });
-    const address =
-      await screen.findByLabelText<HTMLInputElement>("Server address");
-    await userEvent.type(address, "draft");
-    await userEvent.click(
-      screen.getByRole("button", { name: "Reset to defaults" }),
-    );
-    await screen.findByText("Saved");
-    await waitFor(() =>
-      expect(
-        screen.getByLabelText<HTMLInputElement>("Server address").value,
-      ).toBe(""),
-    );
   });
 
   it("hides Saved while resetting", async () => {
@@ -469,28 +407,6 @@ describe("Settings", () => {
     expect(status.textContent).toBe("Saved");
     expect(screen.getByRole("status")).toBe(status);
   });
-
-  it("shows the address as saved, keeping the focus", async () => {
-    const { simulator, backend } = setup();
-    simulator.handle("update_settings", (args) => {
-      const patch = args.patch as SettingsPatch;
-      // Normalisation du moteur : schéma et port ajoutés.
-      backend.settings.serverUrl = `http://${patch.serverUrl}:11434`;
-      backend.settings.effectiveServerUrl = backend.settings.serverUrl;
-      return { ...backend.settings };
-    });
-    const address =
-      await screen.findByLabelText<HTMLInputElement>("Server address");
-    await userEvent.type(address, "192.168.1.20{Enter}");
-    await screen.findByText("Saved");
-    await waitFor(() =>
-      expect(address.value).toBe("http://192.168.1.20:11434"),
-    );
-    expect(document.activeElement).toBe(address);
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Save" }).disabled,
-    ).toBe(true);
-  });
 });
 
 describe("Settings tabs", () => {
@@ -501,9 +417,9 @@ describe("Settings tabs", () => {
       .filter((link) => link.getAttribute("aria-current") === "page")
       .map((link) => link.textContent);
 
-  it("General by default: the server settings and Reset, links to each tab", async () => {
+  it("General by default: the engine settings and Reset, links to each tab", async () => {
     setup();
-    await screen.findByText("Server address");
+    await screen.findByText("Model location");
     const nav = screen.getByRole("navigation", { name: "Settings" });
     expect(
       within(nav)
@@ -512,7 +428,6 @@ describe("Settings tabs", () => {
     ).toEqual([
       ["General", "/settings"],
       ["Models", "/settings?section=models"],
-      ["Account", "/settings?section=account"],
       ["Dictation", "/settings?section=dictation"],
       ["Read aloud", "/settings?section=readAloud"],
       ["Voice mode", "/settings?section=voiceMode"],
@@ -522,15 +437,13 @@ describe("Settings tabs", () => {
     ]);
     expect(currentTabs()).toEqual(["General"]);
     expect(screen.getByRole("button", { name: "Reset to defaults" }));
-    expect(screen.queryByTestId("ollama-account")).toBeNull();
     expect(screen.queryByTestId("dictation")).toBeNull();
     expect(screen.queryByTestId("models-settings")).toBeNull();
   });
 
   const shown = {
-    General: () => screen.findByText("Server address"),
+    General: () => screen.findByText("Model location"),
     Models: () => screen.findByTestId("models-settings"),
-    Account: () => screen.findByTestId("ollama-account"),
     Dictation: () => screen.findByTestId("dictation"),
     "Easy Link": () => screen.findByTestId("easy-link-settings"),
     "VS Code": () => screen.findByTestId("vscode-settings"),
@@ -539,7 +452,8 @@ describe("Settings tabs", () => {
   it.each([
     ["/settings?section=general", "General"],
     ["/settings?section=models", "Models"],
-    ["/settings?section=account", "Account"],
+    // Ancien onglet du compte d'Ollama : General.
+    ["/settings?section=account", "General"],
     ["/settings?section=dictation", "Dictation"],
     ["/settings?section=easyLink", "Easy Link"],
     ["/settings?section=vscode", "VS Code"],
@@ -554,7 +468,6 @@ describe("Settings tabs", () => {
     for (const section of [
       "general",
       "models",
-      "account",
       "dictation",
       "readAloud",
       "voiceMode",
@@ -565,22 +478,23 @@ describe("Settings tabs", () => {
       expect(validateSettingsSearch({ section })).toEqual({ section });
     }
     expect(validateSettingsSearch({ section: "other" })).toEqual({});
+    expect(validateSettingsSearch({ section: "account" })).toEqual({});
     expect(validateSettingsSearch({})).toEqual({});
   });
 
   it("a click shows the tab and replaces the address, without stacking history", async () => {
     const { app } = setup();
-    await screen.findByText("Server address");
+    await screen.findByText("Model location");
     const length = app.router.history.length;
     await userEvent.click(tab("dictation"));
     await screen.findByTestId("dictation");
     expect(app.router.state.location.search).toEqual({ section: "dictation" });
     expect(currentTabs()).toEqual(["Dictation"]);
-    expect(screen.queryByText("Server address")).toBeNull();
-    await userEvent.click(tab("account"));
-    await screen.findByTestId("ollama-account");
+    expect(screen.queryByText("Model location")).toBeNull();
+    await userEvent.click(tab("models"));
+    await screen.findByTestId("models-settings");
     await userEvent.click(tab("general"));
-    await screen.findByText("Server address");
+    await screen.findByText("Model location");
     expect(app.router.state.location.search).toEqual({});
     expect(app.router.history.length).toBe(length);
     // Changement d'onglet : le focus reste sur l'onglet.
@@ -589,7 +503,7 @@ describe("Settings tabs", () => {
 
   it("keyboard: Tab reaches the tabs, Enter opens one", async () => {
     const { app } = setup();
-    await screen.findByText("Server address");
+    await screen.findByText("Model location");
     act(() => (document.activeElement as HTMLElement | null)?.blur());
     const user = userEvent.setup();
     // Après le bouton de la barre latérale : les onglets.
@@ -600,17 +514,19 @@ describe("Settings tabs", () => {
     await user.tab();
     expect(document.activeElement).toBe(tab("models"));
     await user.tab();
-    expect(document.activeElement).toBe(tab("account"));
+    expect(document.activeElement).toBe(tab("dictation"));
     await user.keyboard("{Enter}");
-    await screen.findByTestId("ollama-account");
-    expect(app.router.state.location.search).toEqual({ section: "account" });
+    await screen.findByTestId("dictation");
+    expect(app.router.state.location.search).toEqual({
+      section: "dictation",
+    });
   });
 
   it("Ctrl+, from another tab comes back to General", async () => {
     const { app } = setup({}, "/settings?section=dictation");
     await screen.findByTestId("dictation");
     fireEvent.keyDown(document.body, { key: ",", ctrlKey: true });
-    await screen.findByText("Server address");
+    await screen.findByText("Model location");
     expect(app.router.state.location.search).toEqual({});
   });
 
@@ -688,7 +604,7 @@ describe("Settings in other languages", () => {
 
   it("General: every text comes from the catalogs, errors included", async () => {
     const { simulator, backend } = setup({ theme: "dark" });
-    await screen.findByText("Server address");
+    await screen.findByText("Model location");
     // Reset en échec, puis une ligne en échec : leurs textes aussi.
     backend.settingsErrors.update = { kind: "database", message: "disk full" };
     const consoleError = vi
@@ -709,7 +625,7 @@ describe("Settings in other languages", () => {
     await screen.findByText("⟦Saved⟧");
     expect(
       untranslatedTexts(screen.getByTestId("settings"), [
-        SERVER_URL,
+        "/home/user/.local/share/com.chatonlm.chatonlm/models",
         "disk full",
       ]),
     ).toEqual([]);
@@ -734,7 +650,7 @@ describe("Settings in other languages", () => {
 
   it("General in French, then in Spanish, without reloading", async () => {
     const { backend } = setup({ contextLength: 0 });
-    await screen.findByText("Server address");
+    await screen.findByText("Model location");
     speak(backend, "fr");
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
       "Paramètres",
@@ -747,7 +663,6 @@ describe("Settings in other languages", () => {
     ).toEqual([
       "Général",
       "Modèles",
-      "Compte",
       "Dictée",
       "Lecture à voix haute",
       "Mode vocal",
@@ -755,7 +670,7 @@ describe("Settings in other languages", () => {
       "VS Code",
       "Raccourcis clavier",
     ]);
-    expect(screen.getByLabelText("Adresse du serveur")).toBeTruthy();
+    expect(screen.getByLabelText("Emplacement des modèles")).toBeTruthy();
     expect(
       screen
         .getByRole("slider", { name: "Longueur du contexte" })

@@ -94,8 +94,8 @@ export function SearchField({
 }
 
 /**
- * Pastille de la machine du serveur ; infobulle : sens des pastilles des
- * modèles. `undefined` : pas encore connue ; null : serveur distant.
+ * Pastille de cette machine ; infobulle : sens des pastilles des
+ * modèles. `undefined` : pas encore connue ; null : mémoire illisible.
  */
 export function MachinePill({
   hardware,
@@ -116,12 +116,12 @@ export function MachinePill({
   return (
     <span
       data-testid="machine"
-      title={remote ? t("hub.machine.remoteHint") : machineHint(t, hardware)}
+      title={remote ? t("hub.machine.unknownHint") : machineHint(t, hardware)}
       className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
     >
       <Icon aria-hidden="true" className="h-4 w-4 flex-none text-neutral-500" />
       <span className="truncate">
-        {remote ? t("hub.machine.remote") : machineLabel(t, hardware)}
+        {remote ? t("hub.machine.unknown") : machineLabel(t, hardware)}
       </span>
     </span>
   );

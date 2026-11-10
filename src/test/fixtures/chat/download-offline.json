@@ -1,9 +1,9 @@
 {
-  "description": "The model isn't installed and the registry can't be reached: the official offline message.",
+  "description": "The model isn't installed and Hugging Face can't be reached: the queue's error, before any progress.",
   "request": {
     "streamId": "stream-1",
     "content": "Say hello in one word.",
-    "model": "chatonlm-pull-offline"
+    "model": "chatonlm-dl/Tiny-slow-GGUF:Q4_K_M"
   },
   "events": [
     {
@@ -29,7 +29,7 @@
     {
       "type": "error",
       "kind": "download",
-      "message": "Unable to download model. Please check your internet connection to download the model for offline use."
+      "message": "can't reach Hugging Face: error sending request"
     }
   ],
   "error": null

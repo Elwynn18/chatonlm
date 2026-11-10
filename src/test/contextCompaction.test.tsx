@@ -17,9 +17,7 @@ import type { AppError } from "@/bindings/AppError";
 import type { Compaction } from "@/bindings/Compaction";
 import type { ContextUsage } from "@/bindings/ContextUsage";
 import type { Message } from "@/bindings/Message";
-import type { ServerStatus } from "@/bindings/ServerStatus";
 import { resetCompactions } from "@/hooks/useCompactChat";
-import { healthKey } from "@/hooks/useServerHealth";
 import * as streams from "@/lib/streams";
 import { fakeBackend } from "@/test/backend";
 import { PARAKEET } from "@/test/dictation";
@@ -47,22 +45,6 @@ const CONTEXT_FULL =
   "The conversation filled the model's context, so the reply was cut. Compact the conversation to continue.";
 const AUTO_HINT =
   "When the conversation passes 80%, older messages are summarized automatically.";
-
-/** Ollama ne répond plus (vérification de santé de la session). */
-const UNREACHABLE: ServerStatus = {
-  url: "http://127.0.0.1:11434",
-  state: "notResponding",
-  version: null,
-  alternativeUrl: null,
-  hostEnv: null,
-  httpStatus: null,
-  detail: null,
-  service: null,
-  builtin: false,
-  builtinAvailable: false,
-  explicitAddress: false,
-  logPath: null,
-};
 
 function message(
   id: number,
@@ -158,10 +140,6 @@ async function send(text: string) {
     expect(screen.getByTitle("Select model").textContent).toBe(MODEL),
   );
   await userEvent.type(textarea, `${text}{Enter}`);
-}
-
-function setHealth(app: ReturnType<typeof setup>["app"], status: ServerStatus) {
-  act(() => app.queryClient.setQueryData(healthKey, status));
 }
 
 describe("context gauge", () => {
@@ -310,7 +288,13 @@ describe("Compact now", () => {
     // Le focus passe au panneau (le bouton est désactivé).
     expect(document.activeElement).toBe(panel);
 
-    act(() => fail({ kind: "engine", message: "Ollama isn't responding." }));
+    act(() =>
+      fail({
+        kind: "engine",
+        message:
+          "the text engine stopped while loading the model: out of memory",
+      }),
+    );
     const alert = await within(panel).findByRole("alert");
     // Fin du compactage : la zone de saisie ne reprend pas le focus au
     // panneau, qui reste ouvert avec l'échec, sans le rouvrir.
@@ -318,7 +302,9 @@ describe("Compact now", () => {
     expect(screen.getByRole("dialog")).toBe(panel);
     expect(document.activeElement).toBe(panel);
     expect(panel.contains(alert)).toBe(true);
-    expect(alert.textContent).toBe("Ollama isn't responding.");
+    expect(alert.textContent).toBe(
+      "the text engine stopped while loading the model: out of memory",
+    );
     expect(alert.className).toContain("text-red-600");
     expect(compactButton(panel).textContent).toBe("Compact now");
     expect(compactButton(panel).disabled).toBe(false);
@@ -364,14 +350,6 @@ describe("Compact now", () => {
     setup({ compactions: [compaction({ throughMessageId: 1 })] });
     const panel = await openPanel();
     expect(compactButton(panel).disabled).toBe(false);
-  });
-
-  it("is disabled while Ollama is lost", async () => {
-    const { app } = setup();
-    const panel = await openPanel();
-    expect(compactButton(panel).disabled).toBe(false);
-    setHealth(app, UNREACHABLE);
-    await waitFor(() => expect(compactButton(panel).disabled).toBe(true));
   });
 
   it("is disabled while a reply is being written", async () => {
@@ -597,19 +575,5 @@ describe("a reply cut because the context is full", () => {
         name: "Compact now",
       }).disabled,
     ).toBe(false);
-  });
-
-  it("Compact now under the error waits for Ollama to answer again", async () => {
-    const { simulator, app } = setup();
-    simulator.queue(contextFull());
-    await send("Tell me everything");
-    await replyEnded();
-    const alert = await screen.findByRole("alert");
-    const button = within(alert).getByRole<HTMLButtonElement>("button", {
-      name: "Compact now",
-    });
-    expect(button.disabled).toBe(false);
-    setHealth(app, UNREACHABLE);
-    await waitFor(() => expect(button.disabled).toBe(true));
   });
 });

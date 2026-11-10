@@ -1,7 +1,7 @@
 // Colonne « Choose a version » de la fiche : versions en boutons radio
 // (flèches du clavier natives ; indisponibles grisées avec leur raison),
 // puis selon la version choisie Download, progression et Cancel, Installed
-// et Use in chat, ou l'échec et Try again ; nom Ollama à copier, autres
+// et Use in chat, ou l'échec et Try again ; identifiant du modèle à copier, autres
 // sources du même modèle. Un téléchargement fini ne vaut « Installed » que
 // s'il est plus récent que la dernière lecture des modèles installés : un
 // modèle supprimé depuis redevient téléchargeable.
@@ -432,11 +432,11 @@ function DownloadArea({
       {action}
       <div className="border-t border-neutral-200 pt-3 dark:border-neutral-800">
         <div className="text-xs text-neutral-500 dark:text-neutral-400">
-          {t("hub.versions.ollamaName")}
+          {t("hub.versions.modelId")}
         </div>
         <div className="mt-1 flex items-center gap-1">
           <code
-            data-testid="ollama-name"
+            data-testid="model-id"
             title={model}
             className="allow-context-menu min-w-0 flex-1 truncate rounded-md bg-neutral-100 px-2 py-1 font-mono text-xs text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
           >
@@ -444,7 +444,7 @@ function DownloadArea({
           </code>
           <CopyButton
             content={model}
-            title={t("hub.versions.copyOllamaName")}
+            title={t("hub.versions.copyModelId")}
             className="text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
           />
         </div>

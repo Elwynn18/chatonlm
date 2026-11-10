@@ -1,8 +1,8 @@
 // Préchargement du modèle choisi (« Preload the chosen model ») face au
-// simulateur : au démarrage, une fois par adresse, modèle et contexte (pas
-// la durée avant déchargement), une seconde après le dernier changement ;
-// pas sans l'option (rien de lu pour lui), pas pour un modèle non installé,
-// pas sans Ollama ; au changement de modèle (sélecteur, conversation
+// simulateur : au démarrage, une fois par modèle et contexte (pas la durée
+// avant déchargement), une seconde après le dernier changement ; pas sans
+// l'option (rien de lu pour lui), pas pour un modèle non installé ni pour un
+// modèle distant ; au changement de modèle (sélecteur, conversation
 // ouverte) ; l'option activée.
 
 import {
@@ -19,9 +19,8 @@ import type { Settings } from "@/bindings/Settings";
 import { forgetPreloads, PRELOAD_DELAY_MS } from "@/hooks/usePreloadModel";
 import { runningModelsKey } from "@/hooks/useRunningModels";
 import { modelsKey } from "@/hooks/useModels";
-import { healthKey } from "@/hooks/useServerHealth";
 import { settingsKey } from "@/hooks/useSettings";
-import { type FakeBackend, fakeBackend, modelInfo } from "@/test/backend";
+import { type FakeBackend, fakeBackend } from "@/test/backend";
 import { renderApp } from "@/test/renderApp";
 import { installSimulator } from "@/test/simulator";
 
@@ -49,7 +48,7 @@ function setup(
 }
 
 /**
- * Laisse passer les lectures (réglages, modèles, état d'Ollama) et le délai
+ * Laisse passer les lectures (réglages, modèles) et le délai
  * du préchargement : rien n'est parti d'ici, rien ne partira.
  */
 const settle = (ms = PRELOAD_DELAY_MS + 400) =>
@@ -88,7 +87,7 @@ describe("preloading the chosen model", () => {
   it("loads it once when ChatonLM starts", async () => {
     const { app, loads, backend } = setup("/c/new");
     await waitFor(() => expect(loads()).toEqual(["qwen3:0.6b"]));
-    expect(backend.running.map((m) => m.name)).toEqual(["qwen3:0.6b"]);
+    expect(backend.running.map((m) => m.id)).toEqual(["qwen3:0.6b"]);
     // Autres pages, retour : pas de nouveau chargement.
     await act(() => app.router.navigate({ to: "/settings" }));
     await screen.findByTestId("settings");
@@ -101,21 +100,33 @@ describe("preloading the chosen model", () => {
   });
 
   it("reads nothing for it while the option is off", async () => {
-    // General ne lit ni la liste des modèles ni l'état d'Ollama.
+    // General ne lit pas la liste des modèles.
     const { simulator, loads } = setup("/settings", { preloadModel: false });
-    await screen.findByText("Server address");
+    await screen.findByText("Model location");
     await settle();
     expect(loads()).toEqual([]);
     expect(simulator.callsTo("list_models")).toEqual([]);
-    expect(simulator.callsTo("server_status")).toEqual([]);
   });
 
-  it("reads the models and the state of Ollama from any page once it is on", async () => {
+  it("reads the models from any page once it is on", async () => {
     const { simulator, loads } = setup("/settings");
-    await screen.findByText("Server address");
+    await screen.findByText("Model location");
     await waitFor(() => expect(loads()).toEqual(["qwen3:0.6b"]));
     expect(simulator.callsTo("list_models").length).toBeGreaterThan(0);
-    expect(simulator.callsTo("server_status").length).toBeGreaterThan(0);
+  });
+
+  it("never loads a remote model", async () => {
+    const REMOTE = "@remote/mistral/mistral-small-latest";
+    const { loads } = setup(
+      "/c/new",
+      { selectedModel: REMOTE, remoteModels: true },
+      (backend) => {
+        backend.models = [...backend.models, REMOTE];
+      },
+    );
+    await pickerShows("mistral-small-latest");
+    await settle();
+    expect(loads()).toEqual([]);
   });
 
   it("does not load a model that is not installed, then loads the one chosen instead", async () => {
@@ -203,59 +214,15 @@ describe("preloading the chosen model", () => {
     expect(loads()).toEqual(["qwen3:0.6b"]);
   });
 
-  it("waits for Ollama to answer", async () => {
-    const { app, simulator, backend, loads } = setup(
-      "/c/new",
-      {},
-      (backend) => {
-        backend.serverState = "connectionFailed";
-      },
-    );
-    // Comme le moteur : Ollama injoignable, la liste des modèles aussi.
-    simulator.handle("list_models", () => {
-      if (backend.serverState !== "running") {
-        throw { kind: "engine", message: "Could not connect to Ollama" };
-      }
-      return backend.models.map(modelInfo);
-    });
-    await screen.findByText("Ollama isn't responding.");
-    await settle();
-    expect(loads()).toEqual([]);
-    // De retour : les vérifications suivantes le voient (sans attendre
-    // leurs délais ici).
-    backend.serverState = "running";
-    await act(async () => {
-      await app.queryClient.invalidateQueries({ queryKey: healthKey });
-      await app.queryClient.invalidateQueries({ queryKey: modelsKey });
-    });
-    await waitFor(() => expect(loads()).toEqual(["qwen3:0.6b"]));
-  });
-
-  it("not while Ollama is known to be down, even with the model list read", async () => {
-    const { app, backend, loads } = setup("/c/new", { preloadModel: false });
-    await pickerShows("qwen3:0.6b");
-    backend.serverState = "connectionFailed";
-    await screen.findByText("Ollama isn't responding.", undefined, {
-      timeout: 5000,
-    });
-    // Option activée pendant la panne (autre fenêtre de réglages...).
-    await act(async () => {
-      backend.settings = { ...backend.settings, preloadModel: true };
-      await app.queryClient.invalidateQueries({ queryKey: settingsKey });
-    });
-    await settle();
-    expect(loads()).toEqual([]);
-  });
-
   it("not while the last read of the models failed", async () => {
     const { app, simulator, backend, loads } = setup("/c/new", {
       preloadModel: false,
     });
     await pickerShows("qwen3:0.6b");
-    // Liste lue, puis Ollama ne répond plus pour elle ; ses nouveaux essais
-    // (useModels) passés d'un coup.
+    // Liste lue, puis illisible ; ses nouveaux essais (useModels) passés
+    // d'un coup.
     simulator.handle("list_models", () => {
-      throw { kind: "engine", message: "Could not connect to Ollama" };
+      throw { kind: "database", message: "locked" };
     });
     vi.useFakeTimers();
     await act(async () => {
@@ -320,6 +287,6 @@ describe("preloading the chosen model", () => {
     );
     await userEvent.click(toggle);
     await waitFor(() => expect(loads()).toEqual(["qwen3:0.6b", "qwen3:0.6b"]));
-    expect(backend.running.map((m) => m.name)).toEqual(["qwen3:0.6b"]);
+    expect(backend.running.map((m) => m.id)).toEqual(["qwen3:0.6b"]);
   });
 });

@@ -30,9 +30,11 @@ export type PanelState = {
   connection: Connection;
   /** Texte d'erreur déjà traduit (état `error`). */
   error?: string;
+  /** Identifiants des modèles de l'app. */
   models: string[];
-  /** Ceux de `models` qui tournent dans le cloud (marqués dans le sélecteur). */
-  cloudModels: string[];
+  /** Ceux de `models` qui sont distants, chez un fournisseur (marqués dans
+   * le sélecteur). */
+  remoteModels: string[];
   model: string | null;
   /** La prochaine conversation sera éphémère (chaton-fantôme). */
   ephemeral: boolean;
@@ -66,9 +68,9 @@ export type Receipt = {
   contextLength: number | null;
   /**
    * Où part le texte : `local` = modèle sur cette machine (rien n'est
-   * retiré) ; `cloud` = modèle cloud ; `remote` = Ollama sur une autre
-   * machine ; `unknown` = l'app n'a pas pu le dire. Hors `local`, les
-   * secrets sont retirés.
+   * retiré) ; `cloud` = modèle distant, chez un fournisseur ; `remote` =
+   * modèles d'une autre machine (app 0.9.x seulement) ; `unknown` = l'app
+   * n'a pas pu le dire. Hors `local`, les secrets sont retirés.
    */
   destination: "local" | "cloud" | "remote" | "unknown";
   /** Messages précédents de la conversation, envoyés avec (le moteur
@@ -134,7 +136,7 @@ export type TourCommand = "previous" | "next" | "pause" | "resume" | "stop";
 /** Modèle tenu par le chef de la carte graphique de l'app (`gpu.status`). */
 export type GpuSlot = {
   model: string;
-  /** En mémoire (constat de `/api/ps`). */
+  /** En mémoire (constat du moteur de l'app). */
   loaded: boolean;
   sizeBytes: number;
   /** Part dans la mémoire de la carte graphique. */

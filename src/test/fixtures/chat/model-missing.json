@@ -1,9 +1,9 @@
 {
-  "description": "The model is gone when it is loaded (HTTP 404 from /api/generate, after /api/show found it): the send ends with that error, /api/chat is not asked.",
+  "description": "A model imported from Ollama that is no longer installed: a modelMissing error, nothing is downloaded.",
   "request": {
     "streamId": "stream-1",
     "content": "Say hello in one word.",
-    "model": "chatonlm-vanished"
+    "model": "@ollama/llama3.2:latest"
   },
   "events": [
     {
@@ -27,15 +27,9 @@
       }
     },
     {
-      "type": "loading"
-    },
-    {
-      "type": "loaded"
-    },
-    {
       "type": "error",
       "kind": "modelMissing",
-      "message": "404 Not Found: model 'chatonlm-vanished' not found"
+      "message": "the model @ollama/llama3.2:latest isn't installed"
     }
   ],
   "error": null

@@ -12,7 +12,7 @@
 //! modèles de 2 milliards de paramètres et moins fusionnaient les paragraphes
 //! d'un passage (lignes vides perdues, 4 modèles sur 11, contrat § 6) ; un
 //! passage par paragraphe n'a plus de ligne vide à perdre, pour un coût
-//! faible (consignes et exemples, communs, restent en cache chez Ollama).
+//! faible (consignes et exemples, communs, restent dans le cache du prompt).
 
 use super::ProofreadPart;
 

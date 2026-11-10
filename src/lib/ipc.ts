@@ -3,23 +3,18 @@
 // (générés depuis Rust dans src/bindings) se rencontrent.
 import { type Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AccountStatus } from "@/bindings/AccountStatus";
 import type { AppError } from "@/bindings/AppError";
 import type { BugReport } from "@/bindings/BugReport";
 import type { Chat } from "@/bindings/Chat";
 import type { ChatEvent } from "@/bindings/ChatEvent";
 import type { ChatInfo } from "@/bindings/ChatInfo";
 import type { CloseButtonStatus } from "@/bindings/CloseButtonStatus";
-import type { CloudStatus } from "@/bindings/CloudStatus";
 import type { Compaction } from "@/bindings/Compaction";
 import type { DatabaseProblem } from "@/bindings/DatabaseProblem";
 import type { DictationInfo } from "@/bindings/DictationInfo";
 import type { DictationPatch } from "@/bindings/DictationPatch";
 import type { DictationSettings } from "@/bindings/DictationSettings";
 import type { DictationStatus } from "@/bindings/DictationStatus";
-import type { FolderCheck } from "@/bindings/FolderCheck";
-import type { HiddenHome } from "@/bindings/HiddenHome";
-import type { HomeFixOutcome } from "@/bindings/HomeFixOutcome";
 import type { HubDownload } from "@/bindings/HubDownload";
 import type { HubDownloadRequest } from "@/bindings/HubDownloadRequest";
 import type { HubFilters } from "@/bindings/HubFilters";
@@ -49,16 +44,12 @@ import type { RemoteProvider } from "@/bindings/RemoteProvider";
 import type { RemoteProviderInput } from "@/bindings/RemoteProviderInput";
 import type { RemoteCheck } from "@/bindings/RemoteCheck";
 import type { WebSearchStatus } from "@/bindings/WebSearchStatus";
-import type { ModelsLocation } from "@/bindings/ModelsLocation";
 import type { ProofreadEvent } from "@/bindings/ProofreadEvent";
 import type { ProofreadMode } from "@/bindings/ProofreadMode";
-import type { MoveEvent } from "@/bindings/MoveEvent";
 import type { Lang } from "@/bindings/Lang";
-import type { MoveOutcome } from "@/bindings/MoveOutcome";
 import type { RecommendedModel } from "@/bindings/RecommendedModel";
 import type { SelectionResult } from "@/bindings/SelectionResult";
 import type { SendRequest } from "@/bindings/SendRequest";
-import type { ServerStatus } from "@/bindings/ServerStatus";
 import type { Settings } from "@/bindings/Settings";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import type { ShortcutsStatus } from "@/bindings/ShortcutsStatus";
@@ -73,10 +64,6 @@ import type { CourseSummary } from "@/bindings/CourseSummary";
 import type { NewCourse } from "@/bindings/NewCourse";
 import type { StudyStreamEvent } from "@/bindings/StudyStreamEvent";
 import type { StudyUpdated } from "@/bindings/StudyUpdated";
-import type { OllamaRuntime } from "@/bindings/OllamaRuntime";
-import type { OllamaSource } from "@/bindings/OllamaSource";
-import type { OllamaTarget } from "@/bindings/OllamaTarget";
-import type { ServiceStart } from "@/bindings/ServiceStart";
 import type { AppVersions } from "@/bindings/AppVersions";
 import type { UpdateStatus } from "@/bindings/UpdateStatus";
 import type { ReadAloudOutcome } from "@/bindings/ReadAloudOutcome";
@@ -181,85 +168,6 @@ export function setMenuEntry(enabled: boolean): Promise<MenuEntryStatus> {
 }
 
 /**
- * Vérifie l'Ollama qui sert l'app (celui de la machine ou l'intégré, démarré
- * au besoin).
- */
-export function serverStatus(): Promise<ServerStatus> {
-  return invoke<ServerStatus>("server_status");
-}
-
-/**
- * Ollama qui sert l'app : réglage `source`, celui de la machine ou
- * l'intégré (état, versions), dossier des modèles de l'intégré et modèles
- * qui s'y trouvent, journal.
- */
-export function ollamaRuntime(): Promise<OllamaRuntime> {
-  return invoke<OllamaRuntime>("ollama_runtime");
-}
-
-/**
- * Change le réglage `source` (choix automatique, ou toujours l'intégré) ;
- * l'intégré démarre au besoin, sans attendre qu'il réponde. Renvoie l'Ollama
- * qui sert désormais.
- */
-export function setOllamaSource(source: OllamaSource): Promise<OllamaRuntime> {
-  return invoke<OllamaRuntime>("set_ollama_source", { source });
-}
-
-/** Relance l'Ollama intégré après un échec (Retry). */
-export function restartBuiltinOllama(): Promise<void> {
-  return invoke<void>("restart_builtin_ollama");
-}
-
-/**
- * « Start Ollama » : démarre le service systemd d'Ollama arrêté (une invite
- * polkit pour un service du système) ; l'issue dit si systemd l'a lancé.
- */
-export function startOllamaService(): Promise<ServiceStart> {
-  return invoke<ServiceStart>("start_ollama_service");
-}
-
-/** Événement du moteur quand la cible change (ollama::target::TARGET_EVENT). */
-export const OLLAMA_TARGET_EVENT = "ollama-target";
-
-/** Écoute les changements de cible (source, adresse, intégré choisi seul). */
-export function listenOllamaTarget(
-  onChange: (target: OllamaTarget) => void,
-): Promise<UnlistenFn> {
-  return listen<OllamaTarget>(OLLAMA_TARGET_EVENT, (event) =>
-    onChange(event.payload),
-  );
-}
-
-/**
- * Change le dossier des modèles de l'Ollama intégré (choisi par
- * pick_models_folder et vérifié par check_models_folder), en y déplaçant les
- * modèles si `moveModels`, puis le redémarre ; la progression arrive sur
- * `onEvent`.
- */
-export function changeBuiltinModelsDir(
-  path: string,
-  moveModels: boolean,
-  onEvent: Channel<MoveEvent>,
-): Promise<MoveOutcome> {
-  return invoke<MoveOutcome>("change_builtin_models_dir", {
-    path,
-    moveModels,
-    onEvent,
-  });
-}
-
-/** Ouvre le dossier des modèles de l'Ollama intégré (créé au besoin). */
-export function openBuiltinFolder(): Promise<void> {
-  return invoke<void>("open_builtin_folder");
-}
-
-/** Ouvre le journal de l'Ollama intégré (son dossier s'il n'existe pas encore). */
-export function openBuiltinLog(): Promise<void> {
-  return invoke<void>("open_builtin_log");
-}
-
-/**
  * Diagnostic qui serait joint à un signalement de bug (versions, système,
  * Ollama utilisé, fin du journal de l'app ; dossier personnel masqué).
  */
@@ -278,96 +186,12 @@ export function openAppLogs(): Promise<void> {
 }
 
 /**
- * Où Ollama range ses modèles (service système, service de l'utilisateur,
- * lancement à la main, conteneur, autre machine...), pour l'adresse
- * effective du serveur.
- */
-export function getModelsLocation(): Promise<ModelsLocation> {
-  return invoke<ModelsLocation>("get_models_location");
-}
-
-/**
  * Sélecteur de dossier natif « Select Model Directory » ; null si
  * l'utilisateur annule. Seul le dossier remis ici peut ensuite être vérifié
  * et utilisé.
  */
 export function pickModelsFolder(): Promise<string | null> {
   return invoke<string | null>("pick_models_folder");
-}
-
-/**
- * Vérifie le dossier choisi, sans droits ni invite : refus éventuel, modèles
- * à déplacer, place, commandes à copier.
- */
-export function checkModelsFolder(path: string): Promise<FolderCheck> {
-  return invoke<FolderCheck>("check_models_folder", { path });
-}
-
-/**
- * Change le dossier des modèles du service système d'Ollama (une invite
- * polkit), en y déplaçant les modèles si `moveModels` ; la progression arrive
- * sur `onEvent`. Rejette si une autre opération est en cours ou si le dossier
- * n'est pas celui du sélecteur.
- */
-export function changeModelsLocation(
-  path: string,
-  moveModels: boolean,
-  onEvent: Channel<MoveEvent>,
-): Promise<MoveOutcome> {
-  return invoke<MoveOutcome>("change_models_location", {
-    path,
-    moveModels,
-    onEvent,
-  });
-}
-
-/**
- * Dossier `.ollama` du service système d'Ollama (sa clé id_ed25519) que
- * `ProtectHome=` lui cache, pour l'adresse effective du serveur ; null : rien
- * à signaler.
- */
-export function getOllamaHome(): Promise<HiddenHome | null> {
-  return invoke<HiddenHome | null>("get_ollama_home");
-}
-
-/**
- * Rend au service système son dossier `.ollama` (une invite polkit, puis
- * redémarrage d'Ollama). Rejette si une autre opération ou des
- * téléchargements sont en cours.
- */
-export function fixOllamaHome(): Promise<HomeFixOutcome> {
-  return invoke<HomeFixOutcome>("fix_ollama_home");
-}
-
-/**
- * Compte ollama.com du serveur Ollama (/api/me) : relié (nom, e-mail, offre,
- * avatar en URL data:) ou non. Rejette si le serveur est injoignable ou
- * répond autre chose.
- */
-export function accountStatus(): Promise<AccountStatus> {
-  return invoke<AccountStatus>("account_status");
-}
-
-/**
- * Ouvre dans le navigateur la page de connexion d'ollama.com donnée par le
- * serveur ; sans effet si le compte est déjà relié. Rejette avec « Failed to
- * fetch connect URL » sans adresse valable.
- */
-export function accountSignIn(): Promise<void> {
-  return invoke<void>("account_sign_in");
-}
-
-/** Délie le compte du serveur Ollama (/api/signout). */
-export function accountSignOut(): Promise<void> {
-  return invoke<void>("account_sign_out");
-}
-
-/**
- * Le nuage d'Ollama est-il coupé sur le serveur (/api/status) ? null si le
- * serveur n'en dit rien (trop ancien, injoignable...).
- */
-export function cloudStatus(): Promise<CloudStatus | null> {
-  return invoke<CloudStatus | null>("cloud_status");
 }
 
 /** Ouvre un lien http(s) dans le navigateur par défaut ; rejette si l'ouverture échoue. */
@@ -397,14 +221,6 @@ export function modelDetails(model: string): Promise<ModelDetails> {
  */
 export function recommendedModels(): Promise<RecommendedModel[]> {
   return invoke<RecommendedModel[]>("recommended_models");
-}
-
-/**
- * Le modèle existe-t-il au registre (ollama.com) ? Rejette si le registre
- * est injoignable.
- */
-export function modelExistsUpstream(model: string): Promise<boolean> {
-  return invoke<boolean>("model_exists_upstream", { model });
 }
 
 /**

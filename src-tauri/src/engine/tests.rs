@@ -120,6 +120,8 @@ pub(crate) fn fake_config(data: &Path) -> Config {
     .to_vec();
     config.args_in_env = Some(fake_llama::cli::ARGS_ENV.into());
     config.extra_env = vec![("FAKE_LLAMA_LOAD_MS".into(), "100".into())];
+    // Jamais la variable des e2e : les essais choisissent eux-mêmes.
+    config.force_cpu = false;
     config.timing = Timing {
         ready_timeout: Duration::from_secs(30),
         ready_poll: Duration::from_millis(50),
@@ -183,6 +185,16 @@ impl Bench {
 
     pub fn logs(&self) -> PathBuf {
         self.dir.path().join("data").join("logs")
+    }
+
+    /// Journal du modèle `id` (`llama-<modèle>.log`).
+    pub fn log_of(&self, id: &str) -> PathBuf {
+        self.logs().join(journal::file_name(id))
+    }
+
+    /// Journal du lancement précédent de `id` (`.1`).
+    pub fn old_log_of(&self, id: &str) -> PathBuf {
+        self.log_of(id).with_extension("log.1")
     }
 
     /// Fichier du modèle `id` installé.
@@ -318,7 +330,7 @@ async fn a_model_is_launched_ready_and_guarded_by_its_key() {
     );
     assert!(env.get("GGML_VK_VISIBLE_DEVICES").is_none());
     // Journal, mémoire lue dans le journal.
-    let log = std::fs::read_to_string(bench.logs().join("llama-0.log")).unwrap();
+    let log = std::fs::read_to_string(bench.log_of(&id)).unwrap();
     assert!(log.contains("model loaded"), "{log}");
     let shown = bench.model(&id).unwrap();
     assert_eq!(shown.state, ModelState::Ready);
@@ -376,8 +388,60 @@ async fn another_context_relaunches_once_the_model_is_free() {
         2048
     );
     // Le journal du premier lancement est gardé en `.1`.
-    assert!(bench.logs().join("llama-0.log.1").is_file());
+    assert!(bench.old_log_of(&id).is_file());
     drop(lease);
+    bench.engine.shutdown().await;
+}
+
+/// Contexte non imposé (`ensure_at_least`) : une instance TENUE avec un
+/// contexte plus grand est reprise aussitôt (même processus, son contexte) ;
+/// un plus petit attend comme avant ; libre, elle est relancée au contexte
+/// demandé (un réglage abaissé reprend effet) (relecture L5a, B1).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_larger_context_in_use_is_taken_as_is() {
+    let bench = bench();
+    let id = bench.install("simple", GIB);
+    let held = bench.engine.ensure(&id, with_ctx(8192)).await.unwrap();
+    let pid = bench.engine.pid_of(&id).unwrap();
+    assert!(bench.engine.is_ready_at_least(&id, with_ctx(4096)).await);
+    assert!(!bench.engine.is_ready(&id, with_ctx(4096)).await);
+    let taken = tokio::time::timeout(
+        Duration::from_secs(5),
+        bench.engine.ensure_at_least(&id, with_ctx(4096)),
+    )
+    .await
+    .expect("taken without waiting")
+    .unwrap();
+    assert_eq!(taken.ctx, 8192);
+    assert_eq!(bench.engine.pid_of(&id), Some(pid));
+    drop(taken);
+    // Plus grand que celui qui tourne : attend qu'il soit libre.
+    assert!(!bench.engine.is_ready_at_least(&id, with_ctx(16_384)).await);
+    let engine = bench.engine.clone();
+    let wanted = id.clone();
+    let mut larger =
+        tokio::spawn(async move { engine.ensure_at_least(&wanted, with_ctx(16_384)).await });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), &mut larger)
+            .await
+            .is_err()
+    );
+    drop(held);
+    let larger = larger.await.unwrap().unwrap();
+    assert_eq!(larger.ctx, 16_384);
+    assert!(dead(pid).await, "the smaller process is stopped");
+    let pid = bench.engine.pid_of(&id).unwrap();
+    drop(larger);
+    // Libre : relancé au contexte demandé.
+    assert!(!bench.engine.is_ready_at_least(&id, with_ctx(4096)).await);
+    let smaller = bench
+        .engine
+        .ensure_at_least(&id, with_ctx(4096))
+        .await
+        .unwrap();
+    assert_eq!(smaller.ctx, 4096);
+    assert!(dead(pid).await, "the idle larger process is replaced");
+    drop(smaller);
     bench.engine.shutdown().await;
 }
 
@@ -580,7 +644,7 @@ async fn a_card_failure_falls_back_to_the_processor() {
     assert_eq!(shown.vram_bytes, 0);
     assert_eq!(shown.gpu_layers, None);
     // Le journal de l'essai sur la carte est gardé.
-    let first = std::fs::read_to_string(bench.logs().join("llama-0.log.1")).unwrap();
+    let first = std::fs::read_to_string(bench.old_log_of(&id)).unwrap();
     assert!(first.contains("ErrorDeviceLost"), "{first}");
     // Repris sans relance, même sans demander le processeur.
     let pid = bench.engine.pid_of(&id).unwrap();
@@ -674,6 +738,77 @@ async fn the_processor_can_be_forced_and_files_are_checked() {
     bench.engine.shutdown().await;
 }
 
+/// Gel (déplacement du dossier des modèles) : tout est déchargé, une demande
+/// attend la fin du gel sans rien lancer, puis relit le modèle (nouveau
+/// chemin) ; l'autocomplétion n'obtient rien (relecture L5b, M4).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_frozen_engine_launches_nothing_until_thawed() {
+    let bench = bench();
+    let id = bench.install("simple", GIB);
+    bench.engine.preload(&id, kept()).await.unwrap();
+    let pid = bench.engine.pid_of(&id).unwrap();
+    let frozen = bench.engine.freeze().await;
+    assert!(bench.engine.running().is_empty());
+    assert!(dead(pid).await);
+    assert!(bench.engine.lease_if_ready(&id, kept()).await.is_none());
+    let engine = bench.engine.clone();
+    let wanted = id.clone();
+    let mut waiting = tokio::spawn(async move { engine.ensure(&wanted, kept()).await });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), &mut waiting)
+            .await
+            .is_err()
+    );
+    assert!(bench.engine.running().is_empty(), "nothing launched");
+    // Le fichier déplacé pendant le gel : relu à la fin.
+    let old = bench.model_path(&id);
+    let new = old.with_file_name("moved-simple.gguf");
+    std::fs::rename(&old, &new).unwrap();
+    bench.models.models.lock().get_mut(&id).unwrap().path = new.to_string_lossy().into_owned();
+    drop(frozen);
+    let lease = tokio::time::timeout(Duration::from_secs(20), waiting)
+        .await
+        .expect("launched once thawed")
+        .unwrap()
+        .unwrap();
+    let args = pilot(&lease, "args").await;
+    assert!(args.to_string().contains("moved-simple.gguf"), "{args}");
+    drop(lease);
+    bench.engine.shutdown().await;
+}
+
+/// `CHATONLM_LLAMA_CPU_ONLY=1` des e2e (configuration `force_cpu`) : tout
+/// lancement sur le processeur, annoncé comme demandé (pas un repli) ; les
+/// arguments le disent (relecture L8, M2). Seul `1` compte.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_test_variable_forces_the_processor() {
+    use std::ffi::OsStr;
+    assert!(super::options::cpu_only_value(Some(OsStr::new("1"))));
+    assert!(!super::options::cpu_only_value(Some(OsStr::new("0"))));
+    assert!(!super::options::cpu_only_value(Some(OsStr::new(""))));
+    assert!(!super::options::cpu_only_value(None));
+    let bench = bench_with(|config| config.force_cpu = true);
+    let id = bench.install("simple", GIB);
+    let lease = bench.engine.ensure(&id, kept()).await.unwrap();
+    assert!(!lease.cpu_fallback);
+    let shown = bench.model(&id).unwrap();
+    assert!(shown.cpu_only && !shown.cpu_fallback);
+    let args = pilot(&lease, "args").await;
+    let args: Vec<&str> = args
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(
+        args.windows(2).any(|pair| pair == ["-ngl", "0"]),
+        "{args:?}"
+    );
+    assert!(bench.engine.is_ready(&id, kept()).await);
+    drop(lease);
+    bench.engine.shutdown().await;
+}
+
 /// Mort en cours (plantage pendant une réponse) : le modèle quitte la liste,
 /// la requête suivante le relance.
 #[tokio::test(flavor = "multi_thread")]
@@ -753,7 +888,7 @@ async fn a_model_that_never_gets_ready_is_stopped() {
     assert!(bench.ids().is_empty());
     // Arrêté avant que l'erreur soit rendue (pas laissé à un `Drop`).
     assert!(!alive(pid), "the process is stopped before the error");
-    let log = std::fs::read_to_string(bench.logs().join("llama-0.log")).unwrap();
+    let log = std::fs::read_to_string(bench.log_of(&id)).unwrap();
     assert!(!log.contains("model loaded"), "{log}");
     bench.engine.shutdown().await;
 }
@@ -770,7 +905,7 @@ async fn concurrent_and_abandoned_requests_share_one_launch() {
     );
     let (a, b) = (a.unwrap(), b.unwrap());
     assert_eq!(a.endpoint.base_url, b.endpoint.base_url);
-    assert!(!bench.logs().join("llama-0.log.1").exists());
+    assert!(!bench.old_log_of(&id).exists());
     drop((a, b));
     bench.engine.unload(&id).await;
 
@@ -1152,7 +1287,7 @@ async fn a_model_is_stopped_with_a_single_sigterm() {
     let pid = bench.engine.pid_of(&id).unwrap();
     bench.engine.unload(&id).await;
     assert!(dead(pid).await);
-    let log = std::fs::read_to_string(bench.logs().join("llama-0.log")).unwrap();
+    let log = std::fs::read_to_string(bench.log_of(&id)).unwrap();
     assert_eq!(
         log.matches("stopping on a termination signal").count(),
         1,

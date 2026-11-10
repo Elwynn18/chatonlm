@@ -1,33 +1,54 @@
 // Téléchargement d'un modèle absent et sélecteur de modèles dans l'app réelle
-// (build e2e : frontend embarqué, CSP de production), avec le faux serveur
-// (scénarios chatonlm-pull*, contrat de l'étape 10, § 3 et § 4), qui sert
-// aussi de registre (CHATONLM_REGISTRY_URL) :
-// - sélecteur : modèles recommandés par le serveur (gemma4, qwen3.5) en tête,
-//   avec l'icône de téléchargement, puis les modèles installés ; nom tapé
-//   llama3.2 proposé après vérification au registre, nom inconnu non proposé ;
-//   le nom choisi est seulement enregistré, en fin de liste avec l'icône ;
-// - chatonlm-pull-slow : bloc « Downloading model » avec « x / 4.7 GB (n%) »
-//   qui progresse, sans trois points ; Stop : bouton d'envoi revenu, bloc
-//   retiré, téléchargement abandonné vu par le faux serveur, aucune réponse
-//   ni message vide en base ;
-// - chatonlm-pull : le bloc arrive à 100 %, s'efface en fondu (opacité et
-//   translation, 300 ms), puis la réponse arrive ;
-// - chatonlm-pull-offline : message d'erreur officiel, sans bloc ;
+// (build e2e : frontend embarqué, CSP de production), avec le faux moteur et
+// le faux Hugging Face (dépôts synthétisés `chatonlm-dl/…`) : un modèle de
+// Hugging Face choisi mais absent est téléchargé au premier envoi par la file
+// du ModelHub, comme l'officiel le tirait (chat/pull.rs) :
+// - sélecteur : modèles recommandés de ChatonLM en tête, avec l'icône de
+//   téléchargement, puis les modèles installés ; identifiant de Hugging Face
+//   tapé proposé après lecture de son dépôt, nom inconnu non proposé ; le
+//   modèle choisi est seulement enregistré, en fin de liste avec l'icône ;
+// - dépôt qui cale à mi-chemin (`stall`) : bloc « Downloading model » avec
+//   « x / y (n%) », sans trois points ; Stop : bouton d'envoi revenu, bloc
+//   retiré, téléchargement annulé dans la file (demandé par cet envoi),
+//   aucune réponse ni message vide en base ;
+// - dépôt lent (`slow`) : le bloc arrive à 100 %, s'efface en fondu (opacité
+//   et translation, 300 ms), puis la réponse du faux moteur arrive ;
+// - Hugging Face injoignable : message officiel, sans bloc ;
 // - aucune violation de la CSP ni erreur ou avertissement dans la console.
 import assert from "node:assert/strict";
 import { withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
-import { PENDING_CALLS } from "./lib/page.mjs";
+import { fakeModel, startEngine, startFakeHf } from "./lib/fake.mjs";
+import { PENDING_CALLS, shownModel } from "./lib/page.mjs";
 
 const binary = process.argv[2];
-const fake = await startFake("ollama");
-const env = { OLLAMA_HOST: fake.url, CHATONLM_REGISTRY_URL: fake.url };
+/** Installés, le plus récent d'abord. */
+const NEWEST = fakeModel("simple");
+const OLDER = fakeModel("tools");
+const engine = startEngine([NEWEST, OLDER]);
+const hf = await startFakeHf("hf");
+const env = {
+  ...engine.env,
+  CHATONLM_HF_URL: hf.url,
+  CHATONLM_HF_STATUS_URL: hf.url,
+};
+
+/** Recommandés (hub/curation.json, dans cet ordre). */
+const RECOMMENDED = [
+  "unsloth/Qwen3.5-9B-GGUF:Q4_K_M",
+  "ggml-org/gemma-3-12b-it-GGUF:Q4_K_M",
+  "ggml-org/gpt-oss-20b-GGUF:MXFP4",
+  "unsloth/Qwen3.5-4B-GGUF:Q4_K_M",
+];
+const TYPED = "chatonlm-dl/Typed-GGUF:Q4_K_M";
+const STALLED = "chatonlm-dl/Pull-stall-big-GGUF:Q4_K_M";
+const PULLED = "chatonlm-dl/Pull-slow-GGUF:Q4_K_M";
+const OFFLINE_MODEL = "chatonlm-dl/Away-GGUF:Q4_K_M";
 
 const HELLO = "Say hello in one word.";
 const OFFLINE =
   "Unable to download model. Please check your internet connection to download the model for offline use.";
-/** Progression de la grosse couche des scénarios de pull (4.7 GB). */
-const PROGRESS = /^(\d+\.\d) GB \/ 4\.7 GB \((\d+)%\)$/;
+/** Progression de tous les fichiers du modèle : « x / y (n%) ». */
+const PROGRESS = /^([\d.]+ [kMG]?B) \/ ([\d.]+ [kMG]?B) \((\d+)%\)$/;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -111,11 +132,6 @@ async function reload(driver) {
   );
   await driver.execute(WATCH_PAGE);
 }
-
-const shownModel = (driver) =>
-  driver.execute(
-    "return document.querySelector('[title=\"Select model\"]')?.textContent ?? null",
-  );
 
 /** Choisit un modèle (absent du serveur) par le réglage, puis recharge. */
 async function useModel(driver, model) {
@@ -263,22 +279,21 @@ try {
       await driver.execute(WATCH_PAGE);
       // Modèle par défaut : le plus récemment installé, jamais un recommandé.
       await waitUntil(
-        async () => (await shownModel(driver)) === "qwen3:0.6b",
+        async () => (await shownModel(driver)) === NEWEST,
         "modèle par défaut",
       );
 
       // Sélecteur : recommandés en tête (non installés : icône), puis les
       // modèles installés.
-      let rows = await openPicker(driver, "gemma4");
+      let rows = await openPicker(driver, RECOMMENDED[0]);
       assert.deepEqual(rows, [
-        { model: "gemma4", missing: true },
-        { model: "qwen3.5", missing: true },
-        { model: "qwen3:0.6b", missing: false },
-        { model: "qwen3.5:0.8b", missing: false },
+        ...RECOMMENDED.map((model) => ({ model, missing: true })),
+        { model: NEWEST, missing: false },
+        { model: OLDER, missing: false },
       ]);
       await driver.screenshot(".tools/shots/download-picker.png");
 
-      // Nom inconnu : rien n'est proposé, même après la réponse du registre.
+      // Nom inconnu : rien n'est proposé.
       await driver.type(
         await driver.find("[aria-label='Find model']"),
         "nosuchmodel",
@@ -291,39 +306,37 @@ try {
       );
       await closePicker(driver);
 
-      // Nom présent au registre : proposé avec l'icône, puis choisi (il
-      // sera téléchargé au prochain envoi).
-      await openPicker(driver, "gemma4");
-      await driver.type(
-        await driver.find("[aria-label='Find model']"),
-        "llama3.2",
-      );
+      // Identifiant de Hugging Face tapé : proposé avec l'icône une fois son
+      // dépôt lu, puis choisi (il sera téléchargé au prochain envoi).
+      await openPicker(driver, RECOMMENDED[0]);
+      await driver.type(await driver.find("[aria-label='Find model']"), TYPED);
       await waitUntil(
-        async () => (await pickerRows(driver))[0]?.model === "llama3.2",
-        "llama3.2 proposé après le registre",
+        async () => (await pickerRows(driver))[0]?.model === TYPED,
+        "identifiant proposé après lecture du dépôt",
       );
       assert.deepEqual(await pickerRows(driver), [
-        { model: "llama3.2", missing: true },
+        { model: TYPED, missing: true },
       ]);
       await driver.screenshot(".tools/shots/download-picker-registry.png");
       await driver.click(await driver.find("[role=option]"));
       await waitUntil(
-        async () => (await shownModel(driver)) === "llama3.2",
-        "llama3.2 choisi",
+        async () => (await shownModel(driver)) === TYPED,
+        "identifiant choisi",
       );
-      assert.equal(
-        (await driver.invoke("get_settings")).selectedModel,
-        "llama3.2",
-      );
-      rows = await openPicker(driver, "gemma4");
-      assert.deepEqual(rows.at(-1), { model: "llama3.2", missing: true });
-      assert.equal(rows.length, 5);
+      assert.equal((await driver.invoke("get_settings")).selectedModel, TYPED);
+      rows = await openPicker(driver, RECOMMENDED[0]);
+      assert.deepEqual(rows.at(-1), { model: TYPED, missing: true });
+      assert.equal(rows.length, RECOMMENDED.length + 3);
       await closePicker(driver);
+      assert.deepEqual(
+        await driver.invoke("hub_downloads"),
+        [],
+        "rien de téléchargé au choix",
+      );
 
-      // chatonlm-pull-slow : progression visible, sans trois points ; Stop
-      // arrête le téléchargement.
-      await useModel(driver, "chatonlm-pull-slow");
-      const abandoned = await fake.disconnects();
+      // Dépôt qui cale : progression visible, sans trois points ; Stop
+      // annule le téléchargement demandé par cet envoi.
+      await useModel(driver, STALLED);
       await driver.execute(WATCH_DOWNLOAD);
       await send(driver, HELLO);
       await driver.waitFor("[data-testid=chat]");
@@ -339,37 +352,36 @@ try {
       assert.equal(block.title, "Downloading model");
       assert.match(block.className, /opacity-100 translate-y-0/);
       assert.ok(await exists(driver, "button[aria-label='Stop']"));
-      const firstPercent = Number(PROGRESS.exec(block.progress)[2]);
-      await waitUntil(
-        async () => {
-          block = await downloadBlock(driver);
-          const match = PROGRESS.exec(block?.progress ?? "");
-          return match !== null && Number(match[2]) > firstPercent;
-        },
-        () => `progression après ${firstPercent} % : ${block?.progress}`,
-      );
       // Plus de 750 ms de téléchargement : les points seraient là.
       await delay(1000);
       assert.equal(await exists(driver, "[data-testid=waiting]"), false);
+      block = await downloadBlock(driver);
       await driver.screenshot(".tools/shots/download-progress.png");
-      const percentAtStop = Number(PROGRESS.exec(block.progress)[2]);
+      const percentAtStop = Number(PROGRESS.exec(block.progress)[3]);
       assert.ok(percentAtStop < 100, `déjà fini : ${block.progress}`);
+      assert.equal(
+        (await driver.invoke("hub_downloads")).filter(
+          (download) => download.model === STALLED,
+        ).length,
+        1,
+        "un seul téléchargement dans la file",
+      );
 
       await driver.click(await driver.find("button[aria-label='Stop']"));
       await driver.waitFor("button[aria-label='Send message']");
       assert.equal(await downloadBlock(driver), null);
       await waitUntil(
-        async () => (await fake.disconnects()) === abandoned + 1,
-        "téléchargement abandonné vu par le faux serveur",
+        async () =>
+          (await driver.invoke("hub_downloads")).some(
+            (download) =>
+              download.model === STALLED && download.state === "cancelled",
+          ),
+        "téléchargement annulé dans la file",
       );
-      const slowPulls = (await fake.pulls()).filter(
-        (pull) => pull.model === "chatonlm-pull-slow",
-      );
-      assert.equal(slowPulls.length, 1);
       let state = await downloadState(driver);
       assert.equal(state.dotsWhileDownloading, false);
       assert.equal(state.done, null, "fini malgré Stop");
-      assert.ok(state.progress.length >= 2, JSON.stringify(state.progress));
+      assert.ok(state.progress.length >= 1, JSON.stringify(state.progress));
       assert.ok(
         state.progress.every((text) => PROGRESS.test(text)),
         JSON.stringify(state.progress),
@@ -383,22 +395,33 @@ try {
         "seul le message envoyé est enregistré",
       );
 
-      // chatonlm-pull : 100 %, fondu, puis la réponse.
+      // Dépôt lent : 100 %, fondu, puis la réponse du faux moteur.
       await newChat(driver);
-      await useModel(driver, "chatonlm-pull");
+      await useModel(driver, PULLED);
       await driver.execute(WATCH_DOWNLOAD);
       await send(driver, HELLO);
       await driver.waitFor("[data-testid=chat]");
       const pullChat = await currentChatId(driver);
-      await waitUntil(async () => {
-        const replies = await driver.execute(
-          "return [...document.querySelectorAll('[data-role=assistant]')].map((r) => r.textContent)",
-        );
-        return replies.length === 1 && replies[0].trim() !== "";
-      }, "réponse après le téléchargement");
+      await waitUntil(
+        async () => {
+          const replies = await driver.execute(
+            "return [...document.querySelectorAll('[data-role=assistant]')].map((r) => r.textContent)",
+          );
+          return (
+            replies.length === 1 &&
+            replies[0].includes(`Hello! You said: ${HELLO}`)
+          );
+        },
+        "réponse après le téléchargement",
+        30000,
+      );
       await driver.waitFor("button[aria-label='Send message']");
       state = await downloadState(driver);
-      assert.equal(state.progress.at(-1), "4.7 GB / 4.7 GB (100%)");
+      const last = PROGRESS.exec(state.progress.at(-1) ?? "");
+      assert.ok(
+        last && last[1] === last[2] && last[3] === "100",
+        JSON.stringify(state.progress),
+      );
       assert.ok(
         state.progress.every((text) => PROGRESS.test(text)),
         JSON.stringify(state.progress),
@@ -424,15 +447,25 @@ try {
       assert.equal(saved.length, 2);
       assert.equal(saved[0], `user:${HELLO}`);
       assert.match(saved[1], /^assistant:\S/);
-      assert.equal(
-        (await fake.pulls()).filter((pull) => pull.model === "chatonlm-pull")
-          .length,
-        1,
+      assert.ok(
+        (await driver.invoke("hub_installed")).some(
+          (model) => model.model === PULLED,
+        ),
+        "modèle installé",
       );
+      await collectViolations(driver);
+    }),
+  );
 
-      // chatonlm-pull-offline : message officiel, pas de bloc.
-      await newChat(driver);
-      await useModel(driver, "chatonlm-pull-offline");
+  // Hugging Face injoignable (fermé, comme par défaut dans withApp) :
+  // message officiel, pas de bloc.
+  await withApp(
+    binary,
+    { name: "download-offline", env: engine.env },
+    shotOnFailure("download-offline", async (driver) => {
+      await driver.waitFor("[data-testid=new-chat]");
+      await driver.execute(WATCH_PAGE);
+      await useModel(driver, OFFLINE_MODEL);
       await send(driver, HELLO);
       await driver.waitFor("[data-testid=chat]");
       const alert = await driver.waitFor(
@@ -450,7 +483,7 @@ try {
     }),
   );
 } finally {
-  await fake.stop();
+  await hf.stop();
 }
 
 assert.deepEqual(violations, [], "violations de la CSP");

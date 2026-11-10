@@ -10,6 +10,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
+import type { AppError } from "@/bindings/AppError";
 import { createQueryClient } from "@/lib/queryClient";
 import { fakeBackend } from "@/test/backend";
 import { installSimulator } from "@/test/simulator";
@@ -30,9 +31,19 @@ function Probe({ installed }: { installed: InstalledVersion[] }) {
 
 const probe = () => screen.getByTestId("probe").textContent;
 
-function setup(installed: InstalledVersion[]) {
+/**
+ * `outdated` : modèles périmés pour le faux moteur, et `error` : refus de
+ * outdated_models, posés avant le rendu (la vérification part aussitôt).
+ */
+function setup(
+  installed: InstalledVersion[],
+  outdated: string[] = [],
+  error: AppError | null = null,
+) {
   const simulator = installSimulator();
   const backend = fakeBackend(simulator);
+  for (const model of outdated) backend.outdated.add(model);
+  backend.outdatedError = error;
   const queryClient = createQueryClient();
   const show = (list: InstalledVersion[]) => (
     <QueryClientProvider client={queryClient}>
@@ -54,13 +65,12 @@ function setup(installed: InstalledVersion[]) {
   };
 }
 
-const A = { model: "qwen3:0.6b", version: "a1" };
-const B = { model: "qwen3.5:0.8b", version: "b1" };
+const A = { model: "unsloth/Qwen3-0.6B-GGUF:Q4_K_M", version: "1" };
+const B = { model: "unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M", version: "2" };
 
 describe("useOutdatedModels", () => {
   it("asks once for the installed versions, whatever their order", async () => {
-    const { backend, rerender, asked } = setup([A, B]);
-    backend.outdated.add(B.model);
+    const { rerender, asked } = setup([A, B], [B.model]);
     await waitFor(() => expect(probe()).toBe(B.model));
     expect(asked()).toEqual([[A.model, B.model]]);
     rerender([B, A]);
@@ -70,19 +80,14 @@ describe("useOutdatedModels", () => {
   });
 
   it("asks nothing for an empty list", async () => {
-    const { simulator, asked } = setup([]);
-    await waitFor(() =>
-      expect(simulator.callsTo("get_settings").length).toBeGreaterThan(0),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    const { asked } = setup([]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(probe()).toBe("none");
     expect(asked()).toEqual([]);
   });
 
   it("checks again when an installed version changes, keeping the previous answer meanwhile", async () => {
-    const { simulator, backend, rerender, asked } = setup([A, B]);
-    backend.outdated.add(A.model);
-    backend.outdated.add(B.model);
+    const { simulator, rerender, asked } = setup([A, B], [A.model, B.model]);
     await waitFor(() => expect(probe()).toBe(`${A.model},${B.model}`));
 
     // A est téléchargé de nouveau (autre version) : la réponse suivante se
@@ -92,17 +97,18 @@ describe("useOutdatedModels", () => {
       "outdated_models",
       () => new Promise<string[]>((resolve) => (answer = resolve)),
     );
-    rerender([{ ...A, version: "a2" }, B]);
+    rerender([{ ...A, version: "3" }, B]);
     await waitFor(() => expect(asked()).toHaveLength(2));
     expect(probe()).toBe(`${A.model},${B.model}`);
     answer([B.model]);
     await waitFor(() => expect(probe()).toBe(B.model));
   });
 
-  it("an unreachable Ollama or registry says nothing", async () => {
-    const { backend, asked } = setup([A]);
-    backend.outdated.add(A.model);
-    backend.outdatedError = { kind: "engine", message: "unreachable" };
+  it("a failed check says nothing", async () => {
+    const { asked } = setup([A], [A.model], {
+      kind: "internal",
+      message: "unreadable",
+    });
     await waitFor(() => expect(asked()).toHaveLength(1));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(probe()).toBe("none");
@@ -110,11 +116,13 @@ describe("useOutdatedModels", () => {
     expect(asked()).toHaveLength(1);
   });
 
-  it("compares names without case, latest being implied", () => {
-    expect(listsModel(["gemma4:latest"], "Gemma4")).toBe(true);
-    expect(listsModel(["gemma4"], "gemma4:LATEST")).toBe(true);
-    expect(listsModel(["gemma4:27b", "qwen3:0.6b"], "gemma4")).toBe(false);
-    expect(listsModel([], "gemma4")).toBe(false);
+  it("compares ids like the engine: the quantization without case", () => {
+    expect(listsModel([A.model], A.model.replace("Q4_K_M", "q4_k_m"))).toBe(
+      true,
+    );
+    expect(listsModel([A.model], A.model.toLowerCase())).toBe(false);
+    expect(listsModel([A.model, B.model], "a/Other-GGUF:Q8_0")).toBe(false);
+    expect(listsModel([], A.model)).toBe(false);
   });
 
   it("forgets a model in the answers kept, the others staying as they are", async () => {
@@ -122,9 +130,9 @@ describe("useOutdatedModels", () => {
     const first = ["outdatedModels", "x", "1"];
     const second = ["outdatedModels", "x", "2"];
     const other = [A.model];
-    queryClient.setQueryData(first, ["gemma4", A.model]);
+    queryClient.setQueryData(first, [B.model, A.model]);
     queryClient.setQueryData(second, other);
-    forgetOutdated(queryClient, "gemma4:latest");
+    forgetOutdated(queryClient, B.model.replace("Q4_K_M", "q4_k_m"));
     expect(queryClient.getQueryData(first)).toEqual([A.model]);
     expect(queryClient.getQueryData(second)).toBe(other);
   });

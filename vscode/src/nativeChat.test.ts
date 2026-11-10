@@ -13,7 +13,7 @@ import {
   resetTestState,
   testState,
 } from "./test/vscode";
-import { flatten, VENDOR } from "./nativeChat";
+import { family, flatten, VENDOR } from "./nativeChat";
 import type * as vscode from "vscode";
 
 beforeEach(() => resetTestState());
@@ -52,26 +52,83 @@ describe("native chat models", () => {
   it("offers only the models that run on this computer", async () => {
     const { chat, fake } = await provider();
     testState.config["chatonlm.nativeChat.enabled"] = true;
+    // `ChatModel` de l'app 0.10, avec les champs de l'ancien `ModelInfo`.
     fake.handlers["models.list"] = () => [
-      { model: "qwen3:0.6b", contextLength: 40960, digest: "abcdef0123456789" },
-      { model: "gpt-oss:120b-cloud", contextLength: 131072 },
-      // L'app dit qu'il tourne ailleurs (nom sans « cloud »).
-      { model: "elsewhere:7b", contextLength: 8192 },
+      {
+        id: "Qwen/Qwen3-0.6B-GGUF:Q8_0",
+        displayName: "Qwen3 0.6B",
+        origin: "hf",
+        contextMax: 40960,
+        model: "Qwen/Qwen3-0.6B-GGUF:Q8_0",
+        digest: "Qwen/Qwen3-0.6B-GGUF:Q8_0",
+      },
+      {
+        id: "@ollama/llama3.2:latest",
+        displayName: "llama3.2",
+        origin: "ollama",
+        contextMax: null,
+      },
+      // Distant : écarté sans même demander ses détails.
+      {
+        id: "@remote/openrouter/qwen/qwen3-coder",
+        displayName: "Qwen3 Coder",
+        origin: "remote",
+        contextMax: 262144,
+      },
+      // L'app dit qu'il tourne ailleurs.
+      { id: "elsewhere/x-GGUF:Q4_K_M", displayName: "x", origin: "hf" },
     ];
     const base = fake.handlers["models.details"];
     fake.handlers["models.details"] = (params, context) =>
-      params.model === "elsewhere:7b"
+      params.model === "elsewhere/x-GGUF:Q4_K_M"
         ? { model: params.model, remote: true, contextLength: null }
         : base(params, context);
+    const infos = await chat.provideLanguageModelChatInformation();
+    expect(infos.map((info) => info.id)).toEqual([
+      "Qwen/Qwen3-0.6B-GGUF:Q8_0",
+      "@ollama/llama3.2:latest",
+    ]);
+    expect(infos[0]).toMatchObject({
+      name: "Qwen3 0.6B",
+      family: "Qwen/Qwen3-0.6B-GGUF",
+      version: "Qwen/Qwen3-0.6B-GGUF:Q8_0",
+      capabilities: { imageInput: false, toolCalling: false },
+    });
+    // Repris d'Ollama : l'identifiant garde son étiquette.
+    expect(infos[1]).toMatchObject({
+      name: "llama3.2",
+      family: "@ollama/llama3.2",
+      version: "@ollama/llama3.2:latest",
+    });
+    expect(infos[0].maxInputTokens).toBeGreaterThan(0);
+    expect(
+      fake.calls("models.details").map((params) => params.model),
+    ).not.toContain("@remote/openrouter/qwen/qwen3-coder");
+  });
+
+  it("names the family after the id without its quantization or tag", () => {
+    expect(family("Qwen/Qwen3-0.6B-GGUF:Q8_0")).toBe("Qwen/Qwen3-0.6B-GGUF");
+    expect(family("@ollama/llama3.2:latest")).toBe("@ollama/llama3.2");
+    expect(family("qwen3:0.6b")).toBe("qwen3");
+    expect(family("qwen3")).toBe("qwen3");
+    // Un « : » avant le dernier « / » n'est pas une étiquette.
+    expect(family("a:b/c")).toBe("a:b/c");
+  });
+
+  it("still reads the model list of an app 0.9.x", async () => {
+    const { chat, fake } = await provider();
+    testState.config["chatonlm.nativeChat.enabled"] = true;
+    fake.handlers["models.list"] = () => [
+      { model: "qwen3:0.6b", contextLength: 40960, digest: "abcdef0123456789" },
+      { model: "gpt-oss:120b-cloud", contextLength: 131072 },
+    ];
     const infos = await chat.provideLanguageModelChatInformation();
     expect(infos.map((info) => info.id)).toEqual(["qwen3:0.6b"]);
     expect(infos[0]).toMatchObject({
       name: "qwen3:0.6b",
       family: "qwen3",
-      version: "abcdef012345",
-      capabilities: { imageInput: false, toolCalling: false },
+      version: "qwen3:0.6b",
     });
-    expect(infos[0].maxInputTokens).toBeGreaterThan(0);
   });
 
   it("answers in an ephemeral chat, streams the reply, then forgets the chat", async () => {
@@ -115,14 +172,14 @@ describe("native chat models", () => {
     expect(ofType(posted, "event")).toHaveLength(before);
   });
 
-  it("refuses a cloud model even if asked directly", async () => {
+  it("refuses a remote model even if asked directly", async () => {
     const { chat, fake } = await provider();
     testState.config["chatonlm.nativeChat.enabled"] = true;
     await expect(
       chat.provideLanguageModelChatResponse(
         {
-          id: "gpt-oss:120b-cloud",
-          name: "gpt-oss:120b-cloud",
+          id: "@remote/openrouter/qwen/qwen3-coder",
+          name: "Qwen3 Coder",
         } as vscode.LanguageModelChatInformation,
         [message(LanguageModelChatMessageRole.User, "hi")],
         OPTIONS,
@@ -133,7 +190,7 @@ describe("native chat models", () => {
     expect(fake.calls("chat.send")).toEqual([]);
   });
 
-  it("offers and answers nothing when ChatonLM uses an Ollama on another computer", async () => {
+  it("offers and answers nothing when the models are on another computer (app 0.9.x)", async () => {
     const { chat, fake } = await provider();
     testState.config["chatonlm.nativeChat.enabled"] = true;
     fake.local = false;
@@ -150,7 +207,7 @@ describe("native chat models", () => {
         { report: () => {} },
         token(new CancellationTokenSource()),
       ),
-    ).rejects.toThrow(/Ollama server on another computer/);
+    ).rejects.toThrow(/models run on another computer/);
     expect(fake.calls("chat.send")).toEqual([]);
   });
 

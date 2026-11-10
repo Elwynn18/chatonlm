@@ -12,25 +12,22 @@ use crate::hub::types::{
     HubDownload, HubDownloadRequest, HubFilters, HubHardware, HubHome, HubInstalled, HubList,
     HubReadme, HubRepoResult, HubScope, HubSearch,
 };
-use crate::store::Store;
+use crate::store::{Store, settings};
 
-/// Machine du serveur qui sert (cible, contexte réglé) ; `None` pour un
-/// serveur distant. Sans attendre l'intégré : seul compte que l'adresse soit
-/// locale (le catalogue de Hugging Face ne dépend pas d'Ollama).
+/// Machine de l'app, avec le contexte réglé (le moteur tourne toujours sur
+/// cet ordinateur) ; `None` si elle ne se lit pas.
 pub(crate) async fn machine(catalog: &Catalog, store: &Store) -> AppResult<Option<HubHardware>> {
     Ok(machine_and_uncensored(catalog, store).await?.0)
 }
 
-/// Machine du serveur (voir [`machine`]) et réglage « Show uncensored
+/// Machine de l'app (voir [`machine`]) et réglage « Show uncensored
 /// models », lus ensemble.
 async fn machine_and_uncensored(
     catalog: &Catalog,
     store: &Store,
 ) -> AppResult<(Option<HubHardware>, bool)> {
-    let settings = crate::ollama::target::display_settings(store).await?;
-    let hardware = catalog
-        .hardware(&settings.effective_server_url, settings.context_length)
-        .await;
+    let settings = store.call(|c| settings::get(c, None)).await?;
+    let hardware = catalog.hardware(settings.context_length).await;
     Ok((hardware, settings.show_uncensored))
 }
 
@@ -92,7 +89,7 @@ pub async fn hub_readme(
     Ok(catalog.readme(&id, &revision).await)
 }
 
-/// Mémoire de la machine du serveur ; `None` pour un serveur distant.
+/// Mémoire de la machine ; `None` si elle ne se lit pas.
 #[tauri::command]
 pub async fn hub_hardware(
     catalog: State<'_, Catalog>,
@@ -101,16 +98,12 @@ pub async fn hub_hardware(
     machine(&catalog, &store).await
 }
 
-/// Mémoire de la machine du serveur pour la jauge de VRAM des réglages
-/// (propre à ChatonLM), détectée depuis au plus une seconde ; `None` pour un
-/// serveur distant.
+/// Mémoire de la machine pour la jauge de VRAM des réglages (propre à
+/// ChatonLM), détectée depuis au plus une seconde ; `None` si elle ne se lit
+/// pas.
 #[tauri::command]
-pub async fn machine_memory(
-    catalog: State<'_, Catalog>,
-    store: State<'_, Store>,
-) -> AppResult<Option<Machine>> {
-    let settings = crate::ollama::target::display_settings(&store).await?;
-    Ok(catalog.memory(&settings.effective_server_url).await)
+pub async fn machine_memory(catalog: State<'_, Catalog>) -> AppResult<Option<Machine>> {
+    Ok(catalog.memory().await)
 }
 
 /// Lance (ou met en file) un téléchargement depuis Hugging Face, vers la
@@ -200,7 +193,8 @@ pub async fn hub_delete_model(
     delete_model(&engine, &store, &data_dir, &model, &downloads.reserved()).await
 }
 
-/// Arrête le processus du modèle, puis le supprime.
+/// Arrête le processus du modèle, puis le supprime avec ses journaux du
+/// moteur (relecture L5a, M3).
 async fn delete_model(
     engine: &crate::engine::Engine,
     store: &Store,
@@ -208,11 +202,18 @@ async fn delete_model(
     model: &str,
     reserved: &crate::local_models::Reserved,
 ) -> AppResult<()> {
-    unload_then(
-        engine,
-        model.trim(),
-        installed::delete(store, data_dir, model, reserved),
-    )
+    let model = model.trim();
+    // Identifiant tel que le moteur a nommé ses journaux (celui de la base).
+    let canonical = crate::local_models::get(store, data_dir, model)
+        .await
+        .ok()
+        .flatten()
+        .map_or_else(|| model.to_owned(), |local| local.id);
+    unload_then(engine, model, async {
+        installed::delete(store, data_dir, model, reserved).await?;
+        engine.remove_logs(&canonical);
+        Ok(())
+    })
     .await
 }
 
@@ -259,6 +260,43 @@ mod engine_tests {
         bench.engine.shutdown().await;
     }
 
+    /// Relecture L5a, M3 : les journaux du moteur d'un modèle supprimé
+    /// partent avec lui (`.1` compris) ; ceux d'un autre restent.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_logs_of_a_deleted_model_go_with_it() {
+        const GONE: &str = "test/Gone-GGUF:Q4_K_M";
+        const KEPT: &str = "test/Kept-GGUF:Q4_K_M";
+        let bench = crate::llm::testing::FakeBench::new(&[(GONE, "simple"), (KEPT, "simple")]);
+        let engine = bench.engine();
+        for id in [GONE, KEPT] {
+            engine
+                .preload(id, crate::engine::LoadOptions::default())
+                .await
+                .unwrap();
+        }
+        let log_of = |id: &str| {
+            engine
+                .logs_dir()
+                .join(crate::engine::journal::file_name(id))
+        };
+        let old = log_of(GONE).with_extension("log.1");
+        std::fs::write(&old, "previous run").unwrap();
+        assert!(log_of(GONE).is_file() && log_of(KEPT).is_file());
+        delete_model(
+            engine,
+            bench.store(),
+            &bench.dir().join("data"),
+            &format!(" {GONE} "),
+            &bench.access.downloads().reserved(),
+        )
+        .await
+        .unwrap();
+        assert!(!log_of(GONE).exists());
+        assert!(!old.exists());
+        assert!(log_of(KEPT).is_file());
+        bench.shutdown().await;
+    }
+
     /// Le processus est fini AVANT que le fichier parte (le faux note, à son
     /// arrêt, un fichier déjà effacé), et rien ne relance le modèle pendant
     /// l'effacement.
@@ -288,7 +326,7 @@ mod engine_tests {
             "no relaunch while deleting"
         );
         assert!(bench.engine.running().is_empty());
-        let log = std::fs::read_to_string(bench.logs().join("llama-0.log")).unwrap();
+        let log = std::fs::read_to_string(bench.log_of(&id)).unwrap();
         assert!(log.contains("stopping on a termination signal"), "{log}");
         assert!(!log.contains(fake_llama::cli::DELETED_BEFORE_STOP), "{log}");
         bench.engine.shutdown().await;

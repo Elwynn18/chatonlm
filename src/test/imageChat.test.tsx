@@ -22,11 +22,13 @@ import * as streams from "@/lib/streams";
 import { fakeBackend, type StoredChat } from "@/test/backend";
 import { untranslatedTexts, usePseudoLanguage } from "@/test/i18n";
 import { KLEIN_ID, Z_IMAGE_ID } from "@/test/images";
-import { composer, renderApp, texts } from "@/test/renderApp";
+import { composer, renderApp, shownModel, texts } from "@/test/renderApp";
 import {
   installSimulator,
+  replyText,
   SEQUENCE_TIME,
   type Sequence,
+  sequence,
 } from "@/test/simulator";
 
 configure({ asyncUtilTimeout: 5000 });
@@ -35,7 +37,8 @@ afterEach(() => {
   streams.resetStreams();
 });
 
-const MODEL = "qwen3:0.6b";
+/** Modèle choisi des séquences enregistrées (identifiant Hugging Face). */
+const MODEL = sequence("image-button").request.model;
 const TOOL_MODEL = "chatonlm-image";
 const PROMPT = "A red kitten on a cream sofa";
 const IMAGE_MODEL = "FLUX.2 klein 4B";
@@ -204,9 +207,7 @@ async function field() {
 /** Tape et envoie, une fois `model` choisi par le sélecteur. */
 async function sendTo(model: string, text: string) {
   await field();
-  await waitFor(() =>
-    expect(screen.getByTitle("Select model").textContent).toBe(model),
-  );
+  await waitFor(() => expect(shownModel()).toBe(model));
   await userEvent.type(composer(), `${text}{Enter}`);
 }
 
@@ -354,9 +355,7 @@ describe("image mode of the composer", () => {
     const { backend, app } = setup({ chosen: false });
     backend.images.install(KLEIN_ID, Z_IMAGE_ID);
     await field();
-    await waitFor(() =>
-      expect(screen.getByTitle("Select model").textContent).toBe(MODEL),
-    );
+    await waitFor(() => expect(shownModel()).toBe(MODEL));
     await enableImageMode();
     const picker = await screen.findByTitle("Select image model");
     await waitFor(() =>
@@ -380,7 +379,7 @@ describe("image mode of the composer", () => {
     expect(backend.images.selected).toBe(Z_IMAGE_ID);
     // Mode coupé : le sélecteur d'Ollama revient.
     await userEvent.click(await imageButton());
-    expect(screen.getByTitle("Select model").textContent).toBe(MODEL);
+    expect(shownModel()).toBe(MODEL);
     await enableImageMode();
     await userEvent.click(await screen.findByTitle("Select image model"));
     await userEvent.click(
@@ -622,12 +621,16 @@ describe("sequences recorded by the engine", () => {
   });
 
   it("image-tool: the image between the call and the next reply", async () => {
-    const { simulator } = setup({ selectedModel: TOOL_MODEL });
+    const { model } = sequence("image-tool").request;
+    const { simulator } = setup({
+      selectedModel: model,
+      models: [MODEL, model],
+    });
     simulator.queue("image-tool");
-    await sendTo(TOOL_MODEL, FOX);
+    await sendTo(model, FOX);
     await replyEnded();
     expect(generated()?.getAttribute("src")).toBe(attachmentImageUrl(1));
-    expect(texts("assistant")).toEqual(["Here is your image."]);
+    expect(texts("assistant")).toEqual([replyText("image-tool")]);
     expect(
       screen.getByRole("button", { name: "Created an image" }),
     ).toBeTruthy();

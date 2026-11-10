@@ -3,9 +3,7 @@
     "settingsUnreadable": "ChatonLM n'a pas pu lire ses paramètres : {error}"
   },
   "actions": {
-    "checking": "Vérification…",
-    "saving": "Enregistrement…",
-    "save": "Enregistrer"
+    "checking": "Vérification…"
   },
   "layout": {
     "showSidebar": "Afficher la barre latérale",
@@ -60,6 +58,7 @@
     "loadingModel": "Chargement du modèle…"
   },
   "slowModel": "Réponses plus lentes : {percent} de {model} tourne sur le processeur (mémoire graphique insuffisante)",
+  "slowModelFallback": "Réponses plus lentes : {model} tourne sur le processeur (la carte graphique n'a pas pu le faire tourner)",
   "context": {
     "gauge": "Contexte : {percent} utilisé",
     "title": "Contexte",
@@ -144,7 +143,6 @@
   "picker": {
     "button": "Choisir un modèle",
     "loading": "Chargement…",
-    "unavailable": "Indisponible",
     "none": "Choisir un modèle",
     "search": "Rechercher un modèle…",
     "searchLabel": "Rechercher un modèle",
@@ -152,12 +150,7 @@
     "empty": "Aucun modèle trouvé",
     "notDownloaded": "Non téléchargé",
     "memory": "Nécessite {size} de mémoire pour tourner",
-    "cloud": "Modèle cloud : tourne sur ollama.com",
-    "plans": {
-      "pro": "Pro",
-      "max": "Max"
-    },
-    "planRequired": "Nécessite le forfait {plan} d'Ollama"
+    "remote": "Modèle distant : tourne chez {provider}"
   },
   "think": {
     "label": "Réfléchir",
@@ -180,13 +173,28 @@
     "enable": "Activer la recherche web",
     "disable": "Désactiver la recherche web",
     "unavailable": "Recherche web indisponible : ce modèle ne sait pas utiliser d'outils.",
-    "signIn": "Se connecter",
-    "withoutWebSearch": "Générer sans recherche web"
+    "withoutWebSearch": "Générer sans recherche web",
+    "checkUpdates": "Rechercher des mises à jour",
+    "poweredByBrave": "Résultats fournis par Brave Search",
+    "status": {
+      "remaining": {
+        "one": "Désactiver la recherche web (encore {count} recherche aujourd'hui)",
+        "other": "Désactiver la recherche web (encore {count} recherches aujourd'hui)"
+      },
+      "limit": "Désactiver la recherche web (les recherches du jour sont épuisées)",
+      "paused": "Désactiver la recherche web (la recherche web est en pause pour le moment)",
+      "outdated": "Désactiver la recherche web (mettez ChatonLM à jour pour chercher de nouveau)",
+      "unavailable": "Désactiver la recherche web (le service de recherche est injoignable)"
+    }
   },
-  "cloud": {
-    "signIn": "Se connecter",
-    "upgrade": "Changer de forfait",
-    "openSettings": "Ouvrir les paramètres"
+  "remote": {
+    "openSettings": "Ouvrir les paramètres",
+    "checkKey": "Vérifier la clé"
+  },
+  "engine": {
+    "openLogs": "Ouvrir les journaux",
+    "openSettings": "Paramètres du moteur",
+    "openLogsError": "Impossible d'ouvrir les journaux : {message}"
   },
   "copy": {
     "failed": "Échec de la copie",
@@ -228,23 +236,6 @@
   "dialog": {
     "ok": "OK"
   },
-  "server": {
-    "connecting": "Connexion à Ollama…",
-    "checkFailed": "Impossible de vérifier le serveur Ollama",
-    "lost": "Ollama ne répond pas.",
-    "builtinFailed": "L'Ollama intégré n'a pas pu démarrer.",
-    "download": "Télécharger depuis ollama.com",
-    "runningAt": "Ollama fonctionne à l'adresse {url}.",
-    "useAddress": "Utiliser cette adresse",
-    "start": "Démarrer Ollama",
-    "starting": "Démarrage…",
-    "startFailed": "Impossible de démarrer Ollama : {message}",
-    "notAuthorized": "L'authentification a échoué. Ollama n'a pas été démarré.",
-    "noService": "Aucun service Ollama n'a été trouvé. Démarrez Ollama dans un terminal avec ollama serve.",
-    "noApp": "L'application Ollama est introuvable. Démarrez Ollama dans un terminal avec ollama serve.",
-    "address": "Adresse du serveur",
-    "addressHint": "Laissez vide pour utiliser la variable d'environnement OLLAMA_HOST, ou http://localhost:11434 si elle n'est pas définie."
-  },
   "staleModel": {
     "available": "Une version plus récente de {model} est disponible",
     "update": "Mettre à jour",
@@ -252,63 +243,6 @@
     "updatingProgress": "Mise à jour de {model}… {percent}",
     "dismiss": "Fermer",
     "failed": "Impossible de mettre à jour le modèle : {message}"
-  },
-  "advice": {
-    "notInstalled": {
-      "title": "Ollama n'est pas installé",
-      "description": "Avec ChatonLM, vous conversez avec les modèles qu'Ollama exécute sur cet ordinateur. Installez Ollama, puis cliquez sur Réessayer. Si Ollama fonctionne dans un conteneur ou sur un autre ordinateur, saisissez son adresse ci-dessous."
-    },
-    "notRunning": "Ollama n'est pas démarré",
-    "serviceStopped": "Ollama est installé, mais son service est arrêté. Démarrez-le dans un terminal :",
-    "serviceStoppedStart": "Ollama est installé, mais son service est arrêté. Cliquez sur Démarrer Ollama, ou démarrez-le dans un terminal :",
-    "enableAtLogin": "Pour le démarrer automatiquement à l'ouverture de session :",
-    "enableAtBoot": "Pour le lancer automatiquement au démarrage de l'ordinateur :",
-    "notRunningHere": "Ollama ne fonctionne pas à cette adresse",
-    "serveHost": "Démarrez le serveur Ollama sur cette adresse dans un terminal et gardez-le ouvert :",
-    "serve": "Démarrez le serveur Ollama dans un terminal et gardez-le ouvert :",
-    "nothingListening": "Aucun service n'écoute à l'adresse {url}. Vérifiez l'adresse du serveur ci-dessous.",
-    "serviceFailed": {
-      "title": "Ollama n'a pas pu démarrer",
-      "description": "Le service Ollama s'est arrêté sur une erreur, ou redémarre sans cesse. Consultez son état et ses journaux pour savoir pourquoi :"
-    },
-    "serviceStarting": {
-      "title": "Ollama démarre",
-      "description": "Le service Ollama démarre. Si cela prend plus de quelques secondes, consultez ses journaux :"
-    },
-    "notResponding": "Ollama ne répond pas",
-    "behindProxy": "{url} a répondu avec le code HTTP {status} : le serveur Ollama situé derrière ne répond pas.",
-    "noResponseLogs": "Aucune réponse de {url}. Consultez les journaux d'Ollama :",
-    "noResponseAddress": "Aucune réponse de {url}. Vérifiez l'adresse du serveur ci-dessous.",
-    "remoteUnreachable": {
-      "title": "Impossible de joindre le serveur Ollama",
-      "description": "Aucune réponse de {url}. Vérifiez qu'Ollama fonctionne sur l'ordinateur distant et accepte les connexions venant du réseau (OLLAMA_HOST=0.0.0.0)."
-    },
-    "connectionFailed": {
-      "title": "Impossible de se connecter à Ollama",
-      "https": "Un service écoute à l'adresse {url}, mais la connexion a échoué. Ollama n'accepte que le HTTP simple : utilisez une adresse qui commence par http://.",
-      "address": "Un service écoute à l'adresse {url}, mais la connexion a échoué. Vérifiez l'adresse du serveur ci-dessous."
-    },
-    "notOllama": {
-      "title": "Ce n'est pas un serveur Ollama",
-      "withStatus": "{url} a répondu avec le code HTTP {status}, mais ce n'est pas un serveur Ollama. Vérifiez l'adresse du serveur ci-dessous.",
-      "description": "{url} a répondu, mais ce n'est pas un serveur Ollama. Vérifiez l'adresse du serveur ci-dessous."
-    },
-    "accessDenied": {
-      "title": "Accès refusé",
-      "description": "{url} a refusé l'accès (HTTP {status}). Vérifiez l'adresse du serveur ci-dessous."
-    },
-    "builtinStarting": {
-      "title": "Démarrage d'Ollama…",
-      "description": "ChatonLM démarre son Ollama intégré. Cela prend quelques secondes."
-    },
-    "builtinFailed": {
-      "title": "L'Ollama intégré n'a pas pu démarrer",
-      "description": "Il s'est arrêté sur une erreur plusieurs fois. Son journal peut en donner la raison :"
-    },
-    "running": {
-      "title": "Ollama fonctionne",
-      "description": "Connecté à Ollama {version} à l'adresse {url}."
-    }
   },
   "database": {
     "newer": {
@@ -332,10 +266,6 @@
     "restore": "Restaurer la sauvegarde du {date}",
     "restoring": "Restauration…",
     "restoreNote": "La base actuelle est gardée à côté, sous un autre nom : les conversations créées depuis cette sauvegarde restent dans ce fichier."
-  },
-  "adviceWindows": {
-    "appStopped": "Ollama est installé, mais il n'est pas démarré. Cliquez sur Démarrer Ollama, ou ouvrez Ollama depuis le menu Démarrer.",
-    "appStarting": "L'application Ollama démarre. Si cela prend plus de quelques secondes, consultez son journal :"
   },
   "ephemeral": {
     "toggle": "Conversation éphémère",

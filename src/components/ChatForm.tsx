@@ -6,13 +6,13 @@
  * Adapted from Ollama (https://github.com/ollama/ollama),
  * file app/ui/app/src/components/ChatForm.tsx, commit 42e911bc3d05.
  * Modified for ChatonLM: no cloud models; web search button for models that
- * can use tools (cloud status read only for such a model; for a model known
- * not to use tools the button stays, greyed out, and says why), without the
- * "Web search requires an Ollama account" banner nor any account read: a
- * search without an account ends with that error in the chat, whose
- * "Generate without web search" (or "Retry" once signed in) asks the chat
+ * can use tools (for a model known not to use tools the button stays, greyed
+ * out, and says why), without the "Web search requires an Ollama account"
+ * banner nor any account read: a failed search ends with an error in the
+ * chat, whose "Generate without web search" (or "Retry") asks the chat
  * form to send the last message again without (or with) web search (retry),
- * the focus going back to the message field; files are staged by the
+ * the focus going back to the message field; the engine is built into the
+ * app, so the composer is never veiled waiting for a server; files are staged by the
  * backend (native picker opened by the backend, chips in ComposerFiles), and
  * sending waits for the files still being read; Enter respects file errors
  * like the send button; images are kept for a model whose capabilities are
@@ -24,7 +24,7 @@
  * whole window) or pasted (DropOverlay, src/lib/pastedFiles.ts); editing a
  * message is started by the chat view (startEdit), keeps its attachments by
  * id, and Escape cancels it only when nothing else has used the key; Think
- * button for any model that can think, from the values Ollama allows and
+ * button for any model that can think, from the values the model allows and
  * remembered per model (src/lib/think.ts), its value sent with the message
  * (false included); Heroicons instead of SF Symbols; native Tab order (the
  * official Tab cycle never leaves the message area, a keyboard trap);
@@ -33,12 +33,11 @@
  * "A newer version of ... is available" banner (StaleModelBanner.tsx) is
  * shown here, above the form, where the selected model is known (the
  * official app shows it from Chat.tsx), unless the chat view has its own
- * banner to show (Ollama unreachable, error of a new chat); the
+ * banner to show (error of a new chat, rumination); the
  * message field never takes the focus from another field, a menu or a
  * dialog, an open popover dialog included (nor, when a reply ends, from
  * any other control), also takes it on mount during a reply, and leaves
- * Space to the focused button; Stop stays clickable while Ollama is
- * unreachable; texts translated into English, Spanish and French
+ * Space to the focused button; texts translated into English, Spanish and French
  * (src/i18n); Enter, Escape and Ctrl+V read from the shortcut catalog
  * (src/lib/shortcuts.ts), also shown in the settings;
  * ChatonLM's own voice mode: a "wave" button next to Send (and Ctrl+Shift+
@@ -47,7 +46,7 @@
  * (the draft, its files and the edit hint come back at the end; files, Send
  * and Stop are hidden — the bar interrupts the reply —, Think too unless
  * the "Let models think" setting is on; the model picker and web search
- * stay; the bar stays usable above the veil while Ollama is unreachable);
+ * stay);
  * its transcribed sentences are sent through onSubmit like a message, with
  * thinking turned off when the model allows it (src/lib/think.ts) and
  * `voice`; the failure of its launch is shown above the composer, like the
@@ -57,7 +56,7 @@
  * created by its first sentence, which gives it back at the end; the
  * composer carries a `data-tour` mark, shown by the first-launch tour;
  * ChatonLM's own context gauge (given by the chat view, ContextGauge.tsx) sits
- * next to the model picker, under the veil while Ollama is unreachable;
+ * next to the model picker;
  * ChatonLM's own "Image" toggle (ImageButton.tsx), shown when the image
  * engine is shipped (greyed out, with the reason, when the processor lacks
  * what it needs): local state, kept after sending (and taken over by the
@@ -73,12 +72,13 @@
  * backend's message in the same notice (the link too when the image models,
  * read again, show none chosen), and an amber line under the composer warns
  * when there is no graphics card; while it is on, the model picker lists the
- * installed image models instead of Ollama's (ImageModelPicker.tsx, same
+ * installed image models instead of the chat models (ImageModelPicker.tsx, same
  * close handle), its failure to choose one shown in the same notice;
  * the line breaks and spaces ending a message are removed when it is sent
  * (sentText), in both modes; ChatonLM's own snail (SlowModelSnail.tsx) after
- * the model picker while the chosen model runs partly on the processor
- * (useCpuShare), not in image mode; ChatonLM's own ephemeral chats: the
+ * the model picker while the chosen model runs partly (or, after a failure
+ * of the graphics card, wholly) on the processor (useSlowRun), not in image
+ * mode; ChatonLM's own ephemeral chats: the
  * notice given by the chat view (EphemeralBanner.tsx) above the other
  * banners, and a dashed outline around the composer.
  */
@@ -118,8 +118,7 @@ import { ThinkButton } from "@/components/ThinkButton";
 import { VoiceModeBar } from "@/components/VoiceModeBar";
 import { VoiceModeButton } from "@/components/VoiceModeButton";
 import { WebSearchButton } from "@/components/WebSearchButton";
-import { useCloudStatus } from "@/hooks/useCloudStatus";
-import { useCpuShare } from "@/hooks/useCpuShare";
+import { useSlowRun } from "@/hooks/useSlowRun";
 import {
   addPathsToActiveComposer,
   release,
@@ -182,8 +181,6 @@ interface ChatFormProps {
   hasMessages: boolean;
   /** Une réponse est en cours : Entrée n'envoie pas, le bouton arrête. */
   isStreaming: boolean;
-  /** Ollama ne répond plus : zone de saisie inactive. */
-  isDisabled: boolean;
   /** Bandeau affiché au-dessus de la zone de saisie. */
   banner?: ReactNode;
   /**
@@ -236,8 +233,8 @@ export interface ChatFormHandle {
    * contient ; le réglage de la recherche web prend la valeur `webSearch`
    * (demandée comme pour un envoi : modèle `tools`, nuage non coupé ;
    * absente, le réglage actuel est gardé). Le
-   * focus revient à la zone de saisie. Sans effet pendant une réponse,
-   * Ollama perdu ou sans modèle.
+   * focus revient à la zone de saisie. Sans effet pendant une réponse ou
+   * sans modèle.
    */
   retry: (message: Message, options?: { webSearch?: boolean }) => void;
 }
@@ -302,7 +299,6 @@ export function ChatForm({
   chatId,
   hasMessages,
   isStreaming,
-  isDisabled,
   banner,
   ephemeralNotice,
   contextGauge,
@@ -324,6 +320,8 @@ export function ChatForm({
   const composerRef = useRef<HTMLDivElement>(null);
   const modelPickerRef = useRef<ModelPickerHandle>(null);
   const wasStreamingRef = useRef(isStreaming);
+  // Seul observateur qui reprend le modèle de la conversation ouverte (le
+  // sélecteur, dedans, ne le fait pas : une seule reprise).
   const { selected } = useSelectedModel(chatId);
   const { control: thinkControl, setThink } = useThink(selected?.model ?? null);
   // Erreur du sélecteur : message du moteur, ou "" (texte officiel, traduit
@@ -346,14 +344,11 @@ export function ChatForm({
   const dragging = dropped && !voice.shown;
   // Capacités connues sans « vision » : images signalées, retirées à l'envoi.
   const visionMissing = useHasVision(selected?.model ?? null) === false;
-  // Recherche web : modèle qui sait appeler des outils, nuage du serveur non
-  // coupé ; réglage persistant.
+  // Recherche web : modèle qui sait appeler des outils ; réglage persistant.
   const { settings, setSettings } = useSettings();
   const webSearchEnabled = settings?.webSearchEnabled ?? false;
   const toolsSupport = useToolsSupport(selected?.model ?? null);
-  const supportsWebSearch = toolsSupport === true;
-  const { cloudDisabled } = useCloudStatus({ enabled: supportsWebSearch });
-  const webSearchUsable = supportsWebSearch && !cloudDisabled;
+  const webSearchUsable = toolsSupport === true;
   const { settings: voiceSettings } = useVoiceModeSettings({
     enabled: voice.shown,
   });
@@ -372,15 +367,12 @@ export function ChatForm({
   const imageModel = useImageModelState(imageActive);
   // Escargot : le modèle choisi tourne en partie sur le processeur.
   const slowModel = imageActive ? null : (selected?.model ?? null);
-  const cpu = useCpuShare(slowModel);
+  const slow = useSlowRun(slowModel);
   const queryClient = useQueryClient();
   const [imageNotice, setImageNotice] = useState<ImageNotice | null>(null);
   // Séance tenue par VS Code : pas de mode vocal dans la page.
   const canStartVoice =
-    !isDisabled &&
-    selected !== null &&
-    editingMessage === null &&
-    !voice.editor;
+    selected !== null && editingMessage === null && !voice.editor;
 
   // Phrase transcrite : envoyée comme un message, avec le modèle et la
   // recherche web de la zone de saisie, la réflexion coupée (sauf réglage).
@@ -435,11 +427,6 @@ export function ChatForm({
     [setSettings],
   );
 
-  // Nuage coupé sur le serveur : la recherche web est désactivée.
-  useEffect(() => {
-    if (cloudDisabled && webSearchEnabled) setWebSearch(false);
-  }, [cloudDisabled, webSearchEnabled, setWebSearch]);
-
   const resize = () => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -455,7 +442,6 @@ export function ChatForm({
   // lecture), pour refuser ici, avec le lien, quand aucun n'est choisi.
   const canSend =
     !isStreaming &&
-    !isDisabled &&
     content.trim() !== "" &&
     !composerFiles.busy &&
     (imageActive
@@ -480,9 +466,6 @@ export function ChatForm({
             ? null
             : imageNotice
           : imageNotice;
-  // Ollama perdu pendant une réponse : on doit pouvoir l'arrêter à la souris.
-  const stopAboveVeil = isStreaming && isDisabled;
-
   /** Texte envoyé : sans les retours à la ligne ni les espaces de la fin. */
   const sentText = () => content.trimEnd();
 
@@ -582,7 +565,7 @@ export function ChatForm({
         message: Message,
         { webSearch = webSearchEnabled }: { webSearch?: boolean } = {},
       ) => {
-        if (isStreaming || isDisabled || !selected) return;
+        if (isStreaming || !selected) return;
         if (webSearch !== webSearchEnabled) setWebSearch(webSearch);
         // Comme un envoi : images retirées pour un modèle sans vision.
         const keptToSend = visionMissing
@@ -605,7 +588,6 @@ export function ChatForm({
       discard,
       voice.shown,
       isStreaming,
-      isDisabled,
       selected,
       webSearchEnabled,
       webSearchUsable,
@@ -847,16 +829,8 @@ export function ChatForm({
       <div
         ref={composerRef}
         data-tour="composer"
-        className={`relative mx-auto flex min-h-[88px] w-full max-w-[768px] flex-col items-center rounded-3xl bg-white pt-4 pb-2 transition-opacity duration-200 after:pointer-events-none after:absolute after:inset-0 after:rounded-3xl dark:bg-neutral-800 ${ephemeralNotice ? "after:border-[1.5px] after:border-dashed after:border-neutral-500 dark:after:border-neutral-400" : "after:ring-[1.5px] after:ring-neutral-300 after:ring-inset dark:after:ring-white/10"} ${isDisabled ? "opacity-50" : "opacity-100"}`}
+        className={`relative mx-auto flex min-h-[88px] w-full max-w-[768px] flex-col items-center rounded-3xl bg-white pt-4 pb-2 transition-opacity duration-200 after:pointer-events-none after:absolute after:inset-0 after:rounded-3xl dark:bg-neutral-800 ${ephemeralNotice ? "after:border-[1.5px] after:border-dashed after:border-neutral-500 dark:after:border-neutral-400" : "after:ring-[1.5px] after:ring-neutral-300 after:ring-inset dark:after:ring-white/10"}`}
       >
-        {/* Voile qui bloque la zone ; seul Stop reste au-dessus (stopAboveVeil) */}
-        {isDisabled && (
-          <div
-            data-testid="composer-veil"
-            className="absolute inset-0 z-50 rounded-3xl"
-          />
-        )}
-
         {editingMessage && !voice.shown && (
           <div className="w-full px-5 pb-2">
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
@@ -880,11 +854,7 @@ export function ChatForm({
           />
         )}
 
-        {/* Barre du mode vocal au-dessus du voile (Ollama perdu) : la séance
-            reste maîtrisable (micro, fin). */}
-        <div
-          className={`relative w-full px-5 ${voice.shown && isDisabled ? "z-60" : ""}`}
-        >
+        <div className="relative w-full px-5">
           {voice.shown ? (
             <VoiceModeBar chatId={chatId} view={voice} />
           ) : (
@@ -901,7 +871,6 @@ export function ChatForm({
                   : "chat.composer.placeholder",
               )}
               aria-label={t("chat.composer.label")}
-              disabled={isDisabled}
               rows={1}
               onKeyDown={handleKeyDown}
               onCompositionStart={() => {
@@ -920,66 +889,62 @@ export function ChatForm({
 
         {/* Controls */}
         <div className="flex w-full items-center justify-end gap-2 px-3 pt-2">
-          {/* Tool buttons, hidden while Ollama is unreachable */}
-          {!isDisabled && (
-            <div className="flex flex-1 items-center justify-end gap-2">
-              <div className="flex gap-2">
-                {/* File Upload Buttons (pas de fichier en mode vocal) */}
-                {!voice.shown && (
-                  <button
-                    type="button"
-                    onClick={() => void handleFilesUpload()}
-                    className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-transparent bg-neutral-200 focus:outline-2 focus:outline-offset-2 focus:outline-accent-fg dark:bg-neutral-700"
-                    title={t("chat.composer.attach")}
-                    aria-label={t("chat.composer.attach")}
-                  >
-                    <PlusIcon className="h-4.5 w-4.5 stroke-2 text-neutral-500 dark:text-neutral-400" />
-                  </button>
+          {/* Tool buttons */}
+          <div className="flex flex-1 items-center justify-end gap-2">
+            <div className="flex gap-2">
+              {/* File Upload Buttons (pas de fichier en mode vocal) */}
+              {!voice.shown && (
+                <button
+                  type="button"
+                  onClick={() => void handleFilesUpload()}
+                  className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-transparent bg-neutral-200 focus:outline-2 focus:outline-offset-2 focus:outline-accent-fg dark:bg-neutral-700"
+                  title={t("chat.composer.attach")}
+                  aria-label={t("chat.composer.attach")}
+                >
+                  <PlusIcon className="h-4.5 w-4.5 stroke-2 text-neutral-500 dark:text-neutral-400" />
+                </button>
+              )}
+              {/* Mode Image : ni Think ni recherche web pour l'envoi. */}
+              {thinkControl.kind !== "none" &&
+                !imageActive &&
+                (!voice.shown || keepThink) && (
+                  <ThinkButton
+                    control={thinkControl}
+                    onChange={setThink}
+                    // Un seul menu ouvert à la fois. L'inverse est
+                    // automatique : le sélecteur prend le focus pour sa
+                    // recherche, et le menu Think se ferme quand il le perd.
+                    onDropdownToggle={(isOpen) => {
+                      if (isOpen) modelPickerRef.current?.close();
+                    }}
+                  />
                 )}
-                {/* Mode Image : ni Think ni recherche web pour l'envoi. */}
-                {thinkControl.kind !== "none" &&
-                  !imageActive &&
-                  (!voice.shown || keepThink) && (
-                    <ThinkButton
-                      control={thinkControl}
-                      onChange={setThink}
-                      // Un seul menu ouvert à la fois. L'inverse est
-                      // automatique : le sélecteur prend le focus pour sa
-                      // recherche, et le menu Think se ferme quand il le perd.
-                      onDropdownToggle={(isOpen) => {
-                        if (isOpen) modelPickerRef.current?.close();
-                      }}
-                    />
-                  )}
-                {/* Modèle qui ne sait pas appeler d'outils : bouton gardé,
+              {/* Modèle qui ne sait pas appeler d'outils : bouton gardé,
                     grisé, avec la raison (il ne disparaît plus sans rien
                     dire en changeant de modèle). */}
-                <WebSearchButton
-                  isVisible={
-                    !imageActive &&
-                    ((supportsWebSearch && cloudDisabled === false) ||
-                      toolsSupport === false)
-                  }
-                  isUnavailable={toolsSupport === false}
-                  isActive={webSearchEnabled}
-                  onToggle={() => setWebSearch(!webSearchEnabled)}
-                />
-                <ImageButton
-                  isVisible={imageShown}
-                  missingCpuFeatures={imageMissingCpu}
-                  isActive={imageActive}
-                  onToggle={() => {
-                    setImageMode(!imageMode);
-                    setImageNotice(null);
-                  }}
-                />
-              </div>
+              <WebSearchButton
+                isVisible={
+                  !imageActive && (webSearchUsable || toolsSupport === false)
+                }
+                isUnavailable={toolsSupport === false}
+                isActive={webSearchEnabled}
+                onToggle={() => setWebSearch(!webSearchEnabled)}
+              />
+              <ImageButton
+                isVisible={imageShown}
+                missingCpuFeatures={imageMissingCpu}
+                isActive={imageActive}
+                onToggle={() => {
+                  setImageMode(!imageMode);
+                  setImageNotice(null);
+                }}
+              />
             </div>
-          )}
+          </div>
 
           <div className="relative z-20 flex items-center gap-2">
             {/* Mode Image : les modèles d'images installés à la place de
-                ceux d'Ollama. */}
+                ceux de la conversation. */}
             {imageActive ? (
               <ImageModelPicker
                 ref={modelPickerRef}
@@ -997,14 +962,12 @@ export function ChatForm({
             ) : (
               <ModelPicker
                 ref={modelPickerRef}
-                chatId={chatId}
-                isDisabled={isDisabled}
                 onModelSelect={() => textareaRef.current?.focus()}
                 onEscape={() => textareaRef.current?.focus()}
               />
             )}
-            {slowModel !== null && cpu !== null && (
-              <SlowModelSnail model={slowModel} cpu={cpu} />
+            {slowModel !== null && slow !== null && (
+              <SlowModelSnail model={slowModel} run={slow} />
             )}
           </div>
           {contextGauge && (
@@ -1012,16 +975,14 @@ export function ChatForm({
               {contextGauge}
             </div>
           )}
-          {!isDisabled && !voice.shown && (
+          {!voice.shown && (
             <VoiceModeButton
               chatId={chatId}
               disabled={!canStartVoice}
               editor={voice.editor}
             />
           )}
-          {/* Hors du groupe z-20 : sinon il ne peut pas passer au-dessus du
-              voile, qui partage le contexte d'empilement de la zone. Pas en
-              mode vocal : sa barre interrompt la réponse. */}
+          {/* Pas en mode vocal : sa barre interrompt la réponse. */}
           {!voice.shown && (
             <button
               type="button"
@@ -1030,7 +991,7 @@ export function ChatForm({
               aria-label={t(
                 isStreaming ? "chat.composer.stop" : "chat.composer.send",
               )}
-              className={`flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-black text-white focus:outline-2 focus:outline-offset-2 focus:outline-accent-fg disabled:cursor-default disabled:opacity-10 dark:bg-white dark:text-black ${stopAboveVeil ? "relative z-60" : ""}`}
+              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-black text-white focus:outline-2 focus:outline-offset-2 focus:outline-accent-fg disabled:cursor-default disabled:opacity-10 dark:bg-white dark:text-black"
             >
               {isStreaming ? (
                 <StopIcon className="h-3.5 w-3.5" />

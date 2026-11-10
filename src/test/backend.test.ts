@@ -15,10 +15,6 @@ import type { DictationPatch } from "@/bindings/DictationPatch";
 import type { SendRequest } from "@/bindings/SendRequest";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import {
-  accountSignIn,
-  accountSignOut,
-  accountStatus,
-  cloudStatus,
   dictationBindShortcut,
   dictationConfigureShortcut,
   dictationStatus,
@@ -26,6 +22,7 @@ import {
   getChat,
   getSettings,
   listChats,
+  listModels,
   loadModel,
   pickFiles,
   runningModels,
@@ -41,7 +38,7 @@ import {
   updateDictationSettings,
   updateSettings,
 } from "@/lib/ipc";
-import { fakeBackend, MAX_FILE_SIZE, SERVER_URL } from "@/test/backend";
+import { fakeBackend, MAX_FILE_SIZE } from "@/test/backend";
 import { DEFAULT_POLISH_PROMPT, WHISPER_TINY } from "@/test/dictation";
 import {
   type Handler,
@@ -337,42 +334,20 @@ describe("attachments in the fake backend", () => {
 describe("settings in the fake backend", () => {
   const invalid = (message: string) => ({ kind: "invalid", message });
 
-  it("update_settings answers a new object and recomputes the effective address", async () => {
+  it("update_settings answers a new object", async () => {
     const simulator = installSimulator();
     const backend = fakeBackend(simulator);
     const before = backend.settings;
 
     const updated = await updateSettings({
-      serverUrl: "  http://10.0.0.2:11434  ",
       contextLength: 8192,
       theme: "dark",
     });
-    expect(updated).toEqual({
-      ...before,
-      serverUrl: "http://10.0.0.2:11434",
-      effectiveServerUrl: "http://10.0.0.2:11434",
-      contextLength: 8192,
-      theme: "dark",
-    });
+    expect(updated).toEqual({ ...before, contextLength: 8192, theme: "dark" });
     // Nouvel objet : l'ancien est intact.
     expect(backend.settings).not.toBe(before);
-    expect(before.serverUrl).toBe("");
+    expect(before.theme).toBe("system");
     expect(await getSettings()).toEqual(updated);
-
-    // Adresse vide : automatique.
-    expect(await updateSettings({ serverUrl: " " })).toMatchObject({
-      serverUrl: "",
-      effectiveServerUrl: SERVER_URL,
-    });
-    expect(
-      await updateSettings({ serverUrl: "localhost:8080/ollama" }),
-    ).toMatchObject({
-      serverUrl: "localhost:8080/ollama",
-      effectiveServerUrl: "localhost:8080/ollama",
-    });
-    expect(await updateSettings({ serverUrl: "[::1]:11434" })).toMatchObject({
-      serverUrl: "[::1]:11434",
-    });
   });
 
   it("update_settings accepts every context length step", async () => {
@@ -412,26 +387,8 @@ describe("settings in the fake backend", () => {
       [{ theme: "sepia" as SettingsPatch["theme"] }, "unknown theme: sepia"],
       [{ keepAlive: 120 }, "unsupported keep alive: 120"],
       [{ keepAlive: -2 }, "unsupported keep alive: -2"],
-      [{ serverUrl: "not a url" }, "invalid server address: not a url"],
-      [{ serverUrl: "http://" }, "invalid server address: http://"],
-      [
-        { serverUrl: "ftp://example.com" },
-        "invalid server address: unsupported scheme ftp",
-      ],
-      [
-        { serverUrl: "http://user:secret@example.com" },
-        "invalid server address: credentials are not supported",
-      ],
-      [
-        { serverUrl: "http://example.com/?a=1" },
-        "invalid server address: query strings are not supported",
-      ],
       // Atomique : une valeur refusée, rien d'écrit.
       [{ theme: "dark", contextLength: 7 }, "unsupported context length: 7"],
-      [
-        { contextLength: 8192, serverUrl: "ftp://x" },
-        "invalid server address: unsupported scheme ftp",
-      ],
     ];
     for (const [patch, message] of refusals) {
       await expect(updateSettings(patch)).rejects.toEqual(invalid(message));
@@ -471,41 +428,43 @@ describe("models in memory in the fake backend", () => {
   it("loads an installed model with the settings, unloads one or all", async () => {
     const simulator = installSimulator();
     const backend = fakeBackend(simulator, {
-      models: ["qwen3:0.6b", "smollm2", "gemma3:270m"],
+      models: ["qwen3:0.6b", "smollm2:Q8_0", "gemma3:270m"],
     });
     expect(await runningModels()).toEqual([]);
     const before = Date.now();
     await loadModel("qwen3:0.6b");
     let [loaded] = await runningModels();
     expect(loaded).toMatchObject({
-      name: "qwen3:0.6b",
-      size: 1024 ** 3,
-      sizeVram: 1024 ** 3,
+      id: "qwen3:0.6b",
+      state: "ready",
+      sizeBytes: 1024 ** 3,
+      vramBytes: 1024 ** 3,
       contextLength: 4096,
       kept: false,
     });
-    // Défaut du serveur : 5 min.
+    // Défaut du moteur : 5 min.
     expect(loaded.expiresAt).toBeGreaterThanOrEqual(before + 300_000);
     expect(loaded.expiresAt).toBeLessThanOrEqual(Date.now() + 300_000);
 
-    // Réglages de l'app : contexte et durée ; « :latest » comme /api/ps.
+    // Réglages de l'app : contexte et durée ; identifiant de la base
+    // (quantification sans la casse).
     Object.assign(backend.settings, { contextLength: 8192, keepAlive: -1 });
-    await loadModel("smollm2");
-    [, loaded] = await runningModels();
+    await loadModel("smollm2:q8_0");
+    [loaded] = await runningModels();
     expect(loaded).toMatchObject({
-      name: "smollm2:latest",
+      id: "smollm2:Q8_0",
       contextLength: 8192,
       expiresAt: null,
       kept: true,
     });
-    // Rechargé : une seule ligne, durée et contexte nouveaux.
+    // Rechargé : une seule ligne, en tête (le plus récemment servi).
     backend.settings.keepAlive = 60;
     await loadModel("qwen3:0.6b");
-    const names = (await runningModels()).map((m) => m.name);
-    expect(names).toEqual(["smollm2:latest", "qwen3:0.6b"]);
+    const ids = (await runningModels()).map((m) => m.id);
+    expect(ids).toEqual(["qwen3:0.6b", "smollm2:Q8_0"]);
 
-    await unloadModel("smollm2");
-    expect((await runningModels()).map((m) => m.name)).toEqual(["qwen3:0.6b"]);
+    await unloadModel("smollm2:Q8_0");
+    expect((await runningModels()).map((m) => m.id)).toEqual(["qwen3:0.6b"]);
     // Pas en mémoire : sans effet.
     await unloadModel("gemma3:270m");
     await loadModel("gemma3:270m");
@@ -513,13 +472,17 @@ describe("models in memory in the fake backend", () => {
     expect(await runningModels()).toEqual([]);
   });
 
-  it("refuses an unknown model like Ollama, and fails on demand", async () => {
+  it("refuses an unknown model like the engine, loads nothing for a remote one, fails on demand", async () => {
     const simulator = installSimulator();
-    const backend = fakeBackend(simulator);
+    const backend = fakeBackend(simulator, {
+      models: ["qwen3:0.6b", "qwen3.5:0.8b", "@remote/mistral/small"],
+    });
     await expect(loadModel("nope:1b")).rejects.toEqual({
       kind: "notFound",
-      message: "model 'nope:1b' not found",
+      message: "the model nope:1b isn't installed",
     });
+    await loadModel("@remote/mistral/small");
+    expect(await runningModels()).toEqual([]);
     const memory = { kind: "engine" as const, message: "out of memory" };
     backend.runningErrors.load.set("qwen3:0.6b", memory);
     await expect(loadModel("qwen3:0.6b")).rejects.toEqual(memory);
@@ -530,40 +493,26 @@ describe("models in memory in the fake backend", () => {
     backend.runningErrors.unload = down;
     await expect(unloadModel("qwen3.5:0.8b")).rejects.toEqual(down);
     await expect(unloadAllModels()).rejects.toEqual(down);
-    expect(backend.running.map((m) => m.name)).toEqual(["qwen3.5:0.8b"]);
+    expect(backend.running.map((m) => m.id)).toEqual(["qwen3.5:0.8b"]);
+  });
+
+  it("lists the remote models only while the setting allows them", async () => {
+    const simulator = installSimulator();
+    const backend = fakeBackend(simulator, {
+      models: ["qwen3:0.6b", "@remote/mistral/small"],
+    });
+    expect((await listModels()).map((m) => [m.id, m.origin])).toEqual([
+      ["qwen3:0.6b", "hf"],
+    ]);
+    backend.settings.remoteModels = true;
+    expect((await listModels()).map((m) => [m.id, m.origin])).toEqual([
+      ["qwen3:0.6b", "hf"],
+      ["@remote/mistral/small", "remote"],
+    ]);
   });
 });
 
-describe("account and web search in the fake backend", () => {
-  it("answers the account and the cloud status, signs out, fails on demand", async () => {
-    const simulator = installSimulator();
-    const backend = fakeBackend(simulator);
-    await expect(accountStatus()).resolves.toEqual({ state: "signedOut" });
-    await expect(cloudStatus()).resolves.toEqual({
-      disabled: false,
-      source: "none",
-    });
-    backend.account = {
-      state: "signedIn",
-      name: "ada",
-      email: "ada@example.com",
-      plan: "free",
-      avatar: null,
-    };
-    await accountSignIn();
-    await expect(accountStatus()).resolves.toMatchObject({ name: "ada" });
-    await accountSignOut();
-    await expect(accountStatus()).resolves.toEqual({ state: "signedOut" });
-
-    const broken = { kind: "engine" as const, message: "down" };
-    backend.accountErrors = { status: broken, signIn: broken, signOut: broken };
-    await expect(accountStatus()).rejects.toEqual(broken);
-    await expect(accountSignIn()).rejects.toEqual(broken);
-    await expect(accountSignOut()).rejects.toEqual(broken);
-    backend.cloud = null;
-    await expect(cloudStatus()).resolves.toBeNull();
-  });
-
+describe("web search in the fake backend", () => {
   it("saves the tool calls and their results of a recorded search", async () => {
     const simulator = installSimulator();
     const backend = fakeBackend(simulator);
@@ -578,8 +527,10 @@ describe("account and web search in the fake backend", () => {
     expect(call.name).toBe("web_search");
     expect(call.result).toContain('"results"');
     expect(call.error).toBeNull();
-    // Raisonnement du tour d'outils clos, réponse dans le tour suivant.
-    expect(chat.messages[1].thinkingEndedAt).not.toBeNull();
+    // Historique : titres et liens seulement (les extraits ne vont qu'au
+    // modèle) ; réponse dans le tour suivant.
+    expect(call.result).toContain("https://example.org/1");
+    expect(call.result).not.toContain("Extrait");
     expect(chat.messages[2].content).toMatch(/^Found: /);
     expect(chat.messages[2].toolCalls).toEqual([]);
   });

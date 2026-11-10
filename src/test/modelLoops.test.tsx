@@ -11,7 +11,7 @@ import type { ChatEvent } from "@/bindings/ChatEvent";
 import type { Message } from "@/bindings/Message";
 import * as streams from "@/lib/streams";
 import { fakeBackend } from "@/test/backend";
-import { renderApp, texts } from "@/test/renderApp";
+import { renderApp, shownModel, texts } from "@/test/renderApp";
 import {
   installSimulator,
   SEQUENCE_TIME,
@@ -41,9 +41,7 @@ function setup(model: string) {
 
 async function send(text: string, model: string) {
   const textarea = await screen.findByLabelText("Message");
-  await waitFor(() =>
-    expect(screen.getByTitle("Select model").textContent).toBe(model),
-  );
+  await waitFor(() => expect(shownModel()).toBe(model));
   await userEvent.type(textarea, `${text}{Enter}`);
 }
 

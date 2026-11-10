@@ -170,46 +170,6 @@ export function polishModelNote(
   }
 }
 
-/**
- * Modèle du cloud d'Ollama (nom en « cloud », comme le moteur) : jamais
- * proposé pour le nettoyage, le texte dicté quitterait la machine.
- */
-export function isCloudModel(model: string): boolean {
-  // Comme le serveur (et `is_cloud_name` du moteur) : l'étiquette après le
-  // dernier « : » (hors hôte) vaut « cloud » ou finit par « -cloud ».
-  const colon = model.lastIndexOf(":");
-  if (colon < 0) return false;
-  const tag = model.slice(colon + 1);
-  if (tag.includes("/")) return false;
-  const lower = tag.trim().toLowerCase();
-  return lower === "cloud" || lower.endsWith("-cloud");
-}
-
-/**
- * L'adresse du serveur Ollama est-elle cette machine (localhost, 127.x,
- * ::1, ou 0.0.0.0 qu'un client joint en local) ? Une adresse illisible
- * compte comme distante.
- */
-export function isLocalAddress(address: string): boolean {
-  const value = address.trim();
-  if (!value) return true;
-  let host: string;
-  try {
-    host = new URL(value.includes("://") ? value : `http://${value}`).hostname;
-  } catch {
-    return false;
-  }
-  host = host.replace(/^\[|\]$/g, "").toLowerCase();
-  return (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    /^127(\.\d{1,3}){3}$/.test(host) ||
-    host === "::1" ||
-    host === "0.0.0.0" ||
-    host === "::"
-  );
-}
-
 /** Identifiant d'une conversation ou d'un cours (UUID). */
 const UUID = "[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}";
 

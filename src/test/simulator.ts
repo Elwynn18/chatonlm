@@ -80,6 +80,16 @@ export function sequence(name: string): Sequence {
   return clone(found);
 }
 
+/**
+ * Texte de la réponse enregistrée d'une séquence (morceaux `content` bout à
+ * bout, tous tours confondus).
+ */
+export function replyText(name: string): string {
+  return sequence(name)
+    .events.map((event) => (event.type === "content" ? event.text : ""))
+    .join("");
+}
+
 /** Remplace les horodatages normalisés par `now`. */
 function restamp(value: unknown, now: number): unknown {
   if (Array.isArray(value)) return value.map((item) => restamp(item, now));

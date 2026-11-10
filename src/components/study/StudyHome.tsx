@@ -34,7 +34,6 @@ import { ModelSettingSelect } from "@/components/ModelSettingSelect";
 import { PRIMARY_BUTTON, QUIET_BUTTON } from "@/components/study/ui";
 import { WebSearchButton } from "@/components/WebSearchButton";
 import { useAutoModel } from "@/hooks/useAutoModel";
-import { useCloudStatus } from "@/hooks/useCloudStatus";
 import { release, useComposerFiles } from "@/hooks/useComposerFiles";
 import { useModels } from "@/hooks/useModels";
 import { useSettings } from "@/hooks/useSettings";
@@ -116,7 +115,7 @@ function SmallModelNote() {
   const t = useT();
   const { model } = useStudyModel();
   const models = useModels();
-  const info = (models.data ?? []).find((m) => sameModel(m.model, model));
+  const info = (models.data ?? []).find((m) => sameModel(m.id, model));
   if (!isSmallModel(info)) return null;
   return (
     <p
@@ -147,7 +146,6 @@ function NewCourseForm({ search }: { search: StudySearch }) {
   const [error, setError] = useState<string | null>(null);
   const files = useComposerFiles();
   const { model, known } = useStudyModel();
-  const { cloudDisabled } = useCloudStatus();
   const topicRef = useRef<HTMLTextAreaElement>(null);
 
   const documents = files.files.filter((file) => file.kind !== "image");
@@ -165,7 +163,7 @@ function NewCourseForm({ search }: { search: StudySearch }) {
       topic: topic.trim(),
       level,
       minutes,
-      web: web && !cloudDisabled,
+      web,
       documentIds: documents.map((file) => file.id),
     }).then(
       (courseId) => {
@@ -310,11 +308,11 @@ function NewCourseForm({ search }: { search: StudySearch }) {
             {t("study.form.addDocument")}
           </button>
           <WebSearchButton
-            isVisible={!cloudDisabled}
+            isVisible
             isActive={web}
             onToggle={() => setWeb((on) => !on)}
           />
-          {web && !cloudDisabled && (
+          {web && (
             <span className="text-xs text-neutral-500 dark:text-neutral-400">
               {t("study.form.webOn")}
             </span>

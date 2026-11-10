@@ -473,10 +473,7 @@ impl<H: Host> EasyLink<H> {
 impl<H: Host> Shared<H> {
     fn messenger(&self, platform: Platform, token: &str) -> AppResult<Messenger> {
         let base = self.urls.of(platform);
-        let url = crate::ollama::client::server_url(base)?;
-        // Client de l'app : proxy du système, fournisseur TLS, agent.
-        let http = crate::ollama::client::builder(&url, None)
-            .connect_timeout(CONNECT_TIMEOUT)
+        let http = http_builder(base)?
             // Aucune redirection suivie : l'adresse d'un fichier vient d'un
             // message, et ne doit mener qu'à l'hôte vérifié par le crate.
             .redirect(reqwest::redirect::Policy::none())
@@ -804,6 +801,40 @@ fn connect_error(platform: Platform, problem: &Problem) -> AppError {
             };
             AppError::System(t!("easyLink.refused", service = service, error = code))
         }
+    }
+}
+
+/// Client HTTP d'une messagerie : fournisseur TLS (ring), agent ChatonLM,
+/// connexion bornée, proxy du système sauf vers cette machine (les faux
+/// serveurs des essais). Erreur en anglais : l'adresse vient de l'app, jamais
+/// de l'utilisateur.
+fn http_builder(base: &str) -> AppResult<reqwest::ClientBuilder> {
+    let url = url::Url::parse(base)
+        // i18n-ignore
+        .map_err(|_| AppError::Invalid(format!("invalid address: {base}")))?;
+    crate::hub::hf::ensure_crypto_provider();
+    let builder = reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .user_agent(concat!("ChatonLM/", env!("CARGO_PKG_VERSION")));
+    Ok(if on_this_machine(&url) {
+        builder.no_proxy()
+    } else {
+        builder
+    })
+}
+
+/// Adresse de bouclage (`localhost`, `127.0.0.0/8`, `::1`, et leur forme
+/// IPv4 dans IPv6).
+fn on_this_machine(url: &url::Url) -> bool {
+    let local_v4 = |ip: std::net::Ipv4Addr| ip.is_loopback();
+    match url.host() {
+        Some(url::Host::Domain(domain)) => {
+            let domain = domain.trim_end_matches('.').to_ascii_lowercase();
+            domain == "localhost" || domain.ends_with(".localhost")
+        }
+        Some(url::Host::Ipv4(ip)) => local_v4(ip),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback() || ip.to_ipv4_mapped().is_some_and(local_v4),
+        None => false,
     }
 }
 

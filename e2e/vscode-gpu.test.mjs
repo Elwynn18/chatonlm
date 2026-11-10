@@ -1,32 +1,42 @@
 // Chef de la carte graphique et autocomplétion par le lien VS Code (lot 3),
-// dans l'app réelle (build e2e), avec le faux Ollama et le client Node du pont
+// dans l'app réelle (build e2e), avec le faux moteur (fake-llama lancé par
+// l'app sur des modèles inscrits) et le client Node du pont
 // (e2e/lib/bridge.mjs) :
 // - une proposition (complete.fim) ne charge JAMAIS le modèle : en pause
-//   (`notLoaded`), rien d'envoyé au modèle, rien en mémoire ;
-// - gpu.status rend le plan (machine du serveur, modèles), puis gpu.changed
+//   (`notLoaded`), aucun processus lancé ;
+// - gpu.status rend le plan (machine simulée, modèles), puis gpu.changed
 //   suit « Préparer » et un chargement fait par la page (bouton Load) ;
-// - completion.prepare charge avec les options figées (contexte 4 096,
-//   4 min en mémoire : plus court que la conversation, ici au défaut du
-//   serveur, 5 min), puis complete.fim répond avec ces mêmes options ;
-//   aucune proposition ne (re)charge un modèle (`byPrompt`) ;
+// - completion.prepare lance le modèle avec son contexte imposé (4 096,
+//   `-c`), puis complete.fim répond par `/infill` (préfixe et suffixe
+//   transmis) ;
 // - une seule proposition en vol par connexion : la nouvelle arrête
 //   l'ancienne (-32800) ;
 // - pendant une réponse de conversation, ou un chargement demandé par la
 //   page : en pause (`chatBusy`), rien d'envoyé ; reprise ensuite ;
-// - completion.measure et completion.suggest (machine simulée : 24 Gio) ;
-// - models.offerPull : la page propose le téléchargement, qui ne part qu'à
-//   « Download » ; un nom non proposé est refusé ;
+// - completion.measure et completion.suggest (modèles d'autocomplétion de
+//   Hugging Face, machine simulée : 24 Gio) ;
+// - models.offerPull : la page propose le téléchargement (file du ModelHub),
+//   qui ne part qu'à « Download » ; un modèle non proposé est refusé ;
 // - aucune violation de la CSP ni erreur dans la console.
 import assert from "node:assert/strict";
 import { withApp } from "./lib/app.mjs";
 import { BridgeClient, readDiscovery } from "./lib/bridge.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 
 const binary = process.argv[2];
-const fake = await startFake("ollama");
-const MODEL = "qwen3:0.6b";
-const FIM = "chatonlm-fim";
-const LONG = "chatonlm-fim-long";
+const MODEL = fakeModel("simple");
+const FIM = fakeModel("fim");
+/** Proposition qui attend 300 ms avant de répondre (une seule en vol). */
+const SLOW_FIM = fakeModel("fim-slow");
+const HANG = fakeModel("hang");
+const LONGLOAD = fakeModel("longload");
+const engine = startEngine([
+  MODEL,
+  { id: FIM, base: true },
+  { id: SLOW_FIM, base: true },
+  HANG,
+  LONGLOAD,
+]);
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -40,11 +50,16 @@ async function waitUntil(check, what, timeoutMs = 20000) {
   }
 }
 
-const fakeGet = async (path) => (await fetch(new URL(path, fake.url))).json();
-const generates = () => fakeGet("/fake/generates");
-const loads = () => fakeGet("/fake/loads");
-const loaded = async () =>
-  (await fakeGet("/api/ps")).models.map((model) => model.name);
+/** Propositions reçues par l'instance de `id` (`/infill`). */
+const infills = async (id) =>
+  (await engine.requests(id))
+    .filter((request) => request.path === "/infill")
+    .map((request) => request.body);
+/** Contexte de lancement (`-c`) de l'instance de `id`. */
+const ctxOf = async (id) => {
+  const args = await engine.args(id);
+  return args ? args[args.indexOf("-c") + 1] : null;
+};
 
 const WATCH_PAGE = `
   if (!window.__csp) {
@@ -82,10 +97,10 @@ function start(client, method, params) {
   return { id, answer: client.request(method, params) };
 }
 
-try {
+{
   await withApp(
     binary,
-    { name: "vscode-gpu", env: { OLLAMA_HOST: fake.url } },
+    { name: "vscode-gpu", env: engine.env },
     async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
       await driver.execute(WATCH_PAGE);
@@ -112,9 +127,7 @@ try {
         paused(await client.request("complete.fim", fim)),
         "notLoaded",
       );
-      assert.deepEqual(await generates(), []);
-      assert.deepEqual(await loaded(), []);
-      assert.deepEqual(await loads(), []);
+      assert.deepEqual(engine.servers(), [], "aucun processus lancé");
 
       // Plan : machine simulée (24 Gio de VRAM), rien en mémoire.
       const status = await client.request("gpu.status", { model: FIM });
@@ -137,9 +150,12 @@ try {
         true,
         JSON.stringify(prepared),
       );
-      assert.deepEqual(await loads(), [
-        { model: FIM, kind: "load", keep_alive: 240, num_ctx: 4096 },
-      ]);
+      assert.equal(await ctxOf(FIM), "4096");
+      assert.deepEqual(
+        engine.servers().map((entry) => entry.alias),
+        [FIM],
+        "seul le modèle d'autocomplétion est lancé",
+      );
       await notification(
         client,
         "gpu.changed",
@@ -147,19 +163,18 @@ try {
         (params) => params.plan.completion?.loaded,
       );
       const answer = await client.request("complete.fim", fim);
-      assert.equal(answer.result?.text, "value(6|2)\n    second line");
+      assert.equal(answer.result?.text, "return a + b", JSON.stringify(answer));
       assert.equal(answer.result.timedOut, false);
-      const [sent] = await generates();
-      assert.equal(sent.options.num_ctx, 4096);
-      assert.equal(sent.keep_alive, 240);
+      const [sent] = await infills(FIM);
+      assert.equal(sent.input_prefix, "def f(");
+      assert.equal(sent.input_suffix, ")\n");
 
-      // Préparé avant que la page charge la conversation (taille apprise :
-      // le faux modèle n'est pas dans /api/tags).
+      // Préparé avant que la page charge la conversation.
       assert.ok(
-        (await client.request("completion.prepare", { model: LONG })).result,
+        (await client.request("completion.prepare", { model: SLOW_FIM }))
+          .result,
       );
-      assert.equal(sent.suffix, ")\n");
-      assert.equal(sent.think, false);
+      assert.equal(await ctxOf(SLOW_FIM), "4096");
 
       // Chargement par la page (Load) : le plan suit aussitôt.
       from = client.notifications.length;
@@ -172,28 +187,30 @@ try {
       );
       assert.equal(changed.plan.mode, "together", JSON.stringify(changed));
 
-      // Une seule proposition en vol : la nouvelle arrête l'ancienne.
-      const before = (await generates()).length;
-      const first = start(client, "complete.fim", { model: LONG, prefix: "a" });
+      // Une seule proposition en vol : la nouvelle arrête l'ancienne
+      // (`chatonlm-fim-slow` attend 300 ms avant de répondre).
+      const before = (await infills(SLOW_FIM)).length;
+      const first = start(client, "complete.fim", {
+        model: SLOW_FIM,
+        prefix: "a",
+      });
       await waitUntil(
-        async () => (await generates()).length === before + 1,
+        async () => (await infills(SLOW_FIM)).length === before + 1,
         "première proposition envoyée",
       );
       const second = start(client, "complete.fim", {
-        model: LONG,
+        model: SLOW_FIM,
         prefix: "ab",
       });
       assert.equal((await first.answer).error?.code, -32800);
       const done = await second.answer;
-      assert.ok(
-        done.result?.text.startsWith("value(2|0)"),
-        JSON.stringify(done),
-      );
+      assert.equal(done.result?.text, "return a + b", JSON.stringify(done));
+      assert.equal((await infills(SLOW_FIM)).at(-1).input_prefix, "ab");
 
       // Pendant une réponse de conversation : en pause, rien d'envoyé.
       const chatting = start(client, "chat.send", {
         content: "Wait",
-        model: "chatonlm-hang",
+        model: HANG,
       });
       await notification(
         client,
@@ -201,7 +218,7 @@ try {
         0,
         (params) => params.event.type === "userMessage",
       );
-      const sentBefore = (await generates()).length;
+      const sentBefore = (await infills(FIM)).length;
       assert.equal(
         paused(await client.request("complete.fim", fim)),
         "chatBusy",
@@ -210,23 +227,23 @@ try {
         paused(await client.request("completion.measure", { model: FIM })),
         "chatBusy",
       );
-      assert.equal((await generates()).length, sentBefore);
+      assert.equal((await infills(FIM)).length, sentBefore);
       client.send({ method: "$/cancelRequest", params: { id: chatting.id } });
       assert.equal((await chatting.answer).result?.outcome, "cancelled");
 
       // Chargement lent demandé par la page : en pause aussi, puis reprise.
       await driver.execute(
         `window.__loading = window.__TAURI_INTERNALS__
-           .invoke("load_model", { model: "chatonlm-longload" })
+           .invoke("load_model", { model: arguments[0] })
            .then(() => "done", (error) => String(error));
          return true;`,
+        [LONGLOAD],
       );
       await waitUntil(
-        async () =>
-          (await loads()).some((load) => load.model === "chatonlm-longload"),
+        () => engine.server(LONGLOAD) !== null,
         "chargement lent demandé",
       );
-      const quick = { model: LONG, prefix: "b", maxTokens: 1 };
+      const quick = { model: SLOW_FIM, prefix: "b", maxTokens: 1 };
       assert.equal(
         paused(await client.request("complete.fim", quick)),
         "chatBusy",
@@ -254,22 +271,35 @@ try {
         JSON.stringify(measure),
       );
       assert.ok(measure.result.tokensPerSecond > 0);
+      // Modèles d'autocomplétion proposés : dépôts GGUF de Hugging Face
+      // (`auteur/dépôt:QUANT`), le conseillé parmi eux.
       const suggested = await client.request("completion.suggest");
-      assert.equal(suggested.result?.recommended, "qwen2.5-coder:7b-base");
-      const three = suggested.result.options.find(
-        (option) => option.model === "qwen2.5-coder:3b-base",
+      const HF_ID = /^[\w.-]+\/[\w.-]+:[\w.-]+$/;
+      const ids = suggested.result?.options.map((option) => option.model) ?? [];
+      assert.ok(
+        ids.length > 0 && ids.every((id) => HF_ID.test(id)),
+        JSON.stringify(suggested),
       );
-      assert.equal(three.commercialUse, false);
+      assert.ok(ids.includes(suggested.result.recommended));
+      assert.ok(
+        suggested.result.options.every(
+          (option) => typeof option.commercialUse === "boolean",
+        ),
+      );
 
       // Téléchargement proposé dans l'app, seulement après « Download ».
       const refused = await client.request("models.offerPull", {
         model: MODEL,
       });
       assert.equal(refused.error?.code, -32602);
+      const pulled = ids.at(-1);
       const offered = await client.request("models.offerPull", {
-        model: "qwen2.5-coder:1.5b-base",
+        model: pulled,
       });
       assert.equal(offered.result?.installed, false, JSON.stringify(offered));
+      const repoName = pulled
+        .slice(pulled.indexOf("/") + 1, pulled.lastIndexOf(":"))
+        .replace(/-GGUF$/i, "");
       const title = await waitUntil(
         () =>
           driver.execute(
@@ -279,24 +309,22 @@ try {
           ),
         "proposition de téléchargement",
       );
-      assert.match(title, /qwen2\.5-coder:1\.5b-base/);
-      assert.deepEqual(await fake.pulls(), [], "nothing before Download");
+      assert.ok(title.toLowerCase().includes(repoName.toLowerCase()), title);
+      assert.deepEqual(
+        await driver.invoke("hub_downloads"),
+        [],
+        "nothing before Download",
+      );
       await driver.execute(
         `[...document.querySelectorAll("[role=alertdialog] button")]
            .find((b) => b.textContent.trim() === "Download").click();`,
       );
       await waitUntil(
         async () =>
-          (await fake.pulls()).some(
-            (pull) => pull.model === "qwen2.5-coder:1.5b-base",
+          (await driver.invoke("hub_downloads")).some(
+            (download) => download.model === pulled,
           ),
-        "téléchargement lancé",
-      );
-
-      assert.deepEqual(
-        (await loads()).filter((load) => load.kind === "byPrompt"),
-        [],
-        "no model (re)loaded by a proposal",
+        "téléchargement mis en file",
       );
 
       await client.close();
@@ -308,6 +336,4 @@ try {
     },
   );
   console.log("vscode-gpu : OK");
-} finally {
-  await fake.stop();
 }

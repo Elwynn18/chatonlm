@@ -87,6 +87,9 @@ struct Shared {
     revisions: Mutex<HashMap<String, u32>>,
     /// Fichiers synthétisés abandonnés par le client avant leur fin.
     disconnects: AtomicUsize,
+    /// Fichier retenu ([`FakeHf::hold`]) : nom de fichier qui finit par ce
+    /// texte.
+    held: Mutex<Option<String>>,
 }
 
 impl Shared {
@@ -146,6 +149,7 @@ impl FakeHf {
             requests: Mutex::new(Vec::new()),
             revisions: Mutex::new(HashMap::new()),
             disconnects: AtomicUsize::new(0),
+            held: Mutex::new(None),
         });
         let (shutdown, stop) = oneshot::channel::<()>();
         let app = Router::new().fallback(handle).with_state(shared.clone());
@@ -178,6 +182,19 @@ impl FakeHf {
     /// poids changent).
     pub fn publish(&self, repo: &str) {
         publish(&self.shared, repo);
+    }
+
+    /// Retient les fichiers `slow` dont le nom finit par `file` : passée leur
+    /// moitié (ou dès le début d'une reprise au-delà), un octet toutes les
+    /// 200 ms, jusqu'à [`FakeHf::release`]. Un geste (pause, annulation) tombe
+    /// ainsi toujours en plein téléchargement, même sous la charge.
+    pub fn hold(&self, file: &str) {
+        *self.shared.held.lock().unwrap() = Some(file.to_owned());
+    }
+
+    /// Fin de [`FakeHf::hold`] : la suite est servie normalement.
+    pub fn release(&self) {
+        *self.shared.held.lock().unwrap() = None;
     }
 
     /// Fichiers synthétisés abandonnés par le client avant leur fin.
@@ -472,12 +489,22 @@ async fn handle(
         [author, name, "resolve", revision, file @ ..] => {
             if let Some(synth) = shared.synth_at(&format!("{author}/{name}"), revision) {
                 let counter = shared.clone();
+                let name = decode(&file.join("/"));
+                let (holder, held_name) = (shared.clone(), name.clone());
                 return crate::hf_models::resolve(
                     &synth,
-                    &decode(&file.join("/")),
+                    &name,
                     &headers,
                     move || {
                         counter.disconnects.fetch_add(1, Ordering::SeqCst);
+                    },
+                    move || {
+                        holder
+                            .held
+                            .lock()
+                            .unwrap()
+                            .as_deref()
+                            .is_some_and(|held| held_name.ends_with(held))
                     },
                 );
             }
@@ -684,7 +711,9 @@ fn list(shared: &Shared, query: &str, headers: &HeaderMap) -> Response {
         .split_whitespace()
         .map(str::to_lowercase)
         .collect();
-    let ollama = get("apps") == Some("ollama");
+    // Filtre des applications de Hugging Face : `ollama` (avant) ou
+    // `llama.cpp` (ChatonLM 0.10), mêmes dépôts GGUF.
+    let ollama = matches!(get("apps"), Some("ollama" | "llama.cpp"));
     let pipeline = get("pipeline_tag");
     let gguf_only = get("filter") == Some("gguf");
     let mut found: Vec<&Value> = repos()

@@ -69,6 +69,45 @@ impl Step {
 
 pub type Script = Vec<Step>;
 
+/// Borne un script comme le vrai serveur et comme les scénarios intégrés
+/// (`scenario::limit`) : au plus `max_tokens` (sinon `n_predict`) morceaux de
+/// réflexion et de réponse, et pas plus que la place `room` du contexte ;
+/// limite atteinte : la suite est retirée et la fin devient `length`. Un
+/// script avec un appel d'outil n'est pas borné (règle des intégrés).
+pub fn limit(script: Script, request: &Value, room: usize) -> Script {
+    if script
+        .iter()
+        .any(|step| matches!(step, Step::ToolCall { .. }))
+    {
+        return script;
+    }
+    let max = request["max_tokens"]
+        .as_i64()
+        .or(request["n_predict"].as_i64())
+        .filter(|n| *n >= 0)
+        .map_or(usize::MAX, |n| n as usize)
+        .min(room);
+    let produced = script.iter().filter(|step| step.produces()).count();
+    if produced < max {
+        return script;
+    }
+    let mut kept = Vec::new();
+    let mut count = 0;
+    for step in script {
+        if step.produces() {
+            if count == max {
+                break;
+            }
+            count += 1;
+        } else if matches!(step, Step::Finish(_)) {
+            break;
+        }
+        kept.push(step);
+    }
+    kept.push(Step::Finish("length"));
+    kept
+}
+
 /// Scénario d'un lot.
 #[derive(Clone, Copy)]
 pub struct Custom {
@@ -149,6 +188,59 @@ pub fn conflicts(all: &[&[Custom]], builtin: &[&str]) -> Vec<String> {
         }
     }
     conflicts
+}
+
+#[cfg(test)]
+mod limit_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn text(n: usize) -> Script {
+        (0..n).map(|i| Step::Content(format!("w{i} "))).collect()
+    }
+
+    /// `max_tokens` d'abord, puis `n_predict`, puis la place du contexte ;
+    /// fin `length` à la limite ; un appel d'outil n'est jamais borné.
+    #[test]
+    fn scripts_stop_at_the_token_limit() {
+        let limited = limit(text(5), &json!({ "max_tokens": 3 }), usize::MAX);
+        assert_eq!(limited.iter().filter(|s| s.produces()).count(), 3);
+        assert_eq!(limited.last(), Some(&Step::Finish("length")));
+        let limited = limit(text(5), &json!({ "n_predict": 2 }), usize::MAX);
+        assert_eq!(limited.iter().filter(|s| s.produces()).count(), 2);
+        let limited = limit(
+            text(5),
+            &json!({ "max_tokens": 4, "n_predict": 1 }),
+            usize::MAX,
+        );
+        assert_eq!(limited.iter().filter(|s| s.produces()).count(), 4);
+        let limited = limit(text(5), &json!({}), 2);
+        assert_eq!(limited.iter().filter(|s| s.produces()).count(), 2);
+        assert_eq!(limited.last(), Some(&Step::Finish("length")));
+        // Sous la limite, ou sans limite : inchangé.
+        assert_eq!(
+            limit(text(3), &json!({ "max_tokens": 4 }), usize::MAX),
+            text(3)
+        );
+        assert_eq!(
+            limit(text(3), &json!({ "max_tokens": -1 }), usize::MAX),
+            text(3)
+        );
+        // Raison donnée par le script remplacée à la limite.
+        let mut finished = text(4);
+        finished.push(Step::Finish("stop"));
+        let limited = limit(finished, &json!({ "max_tokens": 2 }), usize::MAX);
+        assert_eq!(limited.last(), Some(&Step::Finish("length")));
+        assert_eq!(limited.len(), 3);
+        // Appel d'outil : pas de limite.
+        let mut tools = text(5);
+        tools.push(Step::ToolCall {
+            name: "f".into(),
+            arguments: "{}".into(),
+        });
+        assert_eq!(limit(tools.clone(), &json!({ "max_tokens": 1 }), 1), tools);
+    }
 }
 
 #[cfg(test)]

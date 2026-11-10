@@ -97,7 +97,7 @@ describe("Installed", () => {
       name: "Delete Qwen3.5-9B:Q4_K_M?",
     });
     expect(dialog.textContent).toContain(
-      "This removes the model from Ollama. You can download it again later.",
+      "This removes the model from this computer. You can download it again later.",
     );
     // Annuler : rien n'est supprimé.
     await userEvent.click(

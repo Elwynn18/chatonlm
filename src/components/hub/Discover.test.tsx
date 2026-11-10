@@ -73,7 +73,7 @@ describe("Discover: home", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "Open models from Hugging Face, ready to run with Ollama.",
+        "Open models from Hugging Face, ready to run in ChatonLM.",
       ),
     ).toBeTruthy();
     const machine = screen.getByTestId("machine");
@@ -144,14 +144,12 @@ describe("Discover: home", () => {
     expect(within(card("gpt-oss-20b")).queryByText("Installed")).toBeNull();
   });
 
-  it("a remote server: no fit, no Fits chip, sizes only", async () => {
+  it("a machine that can't be read: no fit, no Fits chip, sizes only", async () => {
     renderHub("/hub", ({ hub }) => {
       hub.hardware = null;
     });
     await screen.findByRole("heading", { name: "Trending" });
-    expect(screen.getByTestId("machine").textContent).toBe(
-      "Remote server — memory fit unknown",
-    );
+    expect(screen.getByTestId("machine").textContent).toBe("Memory unknown");
     expect(
       screen.queryByRole("button", { name: "Fits my machine" }),
     ).toBeNull();
@@ -179,7 +177,7 @@ describe("Discover: home", () => {
     ).toContain("Memory the model needs to run, context included.");
   });
 
-  it("reads the catalog and the machine again when the server or the context length changes", async () => {
+  it("reads the catalog and the machine again when the context length changes", async () => {
     const { simulator, app } = renderHub("/hub");
     await home();
     const counts = () =>
@@ -195,16 +193,17 @@ describe("Discover: home", () => {
         contextLength: 8192,
       }),
     );
-    await waitFor(() => expect(counts().slice(0, 2)).toEqual([2, 2]));
-    // Autre serveur : tout est relu, installés compris.
+    await waitFor(() => expect(counts()).toEqual([2, 2, 1]));
+    // Un autre réglage (thème) : rien n'est relu.
     act(() =>
       app.queryClient.setQueryData(settingsKey, {
         ...settings,
         contextLength: 8192,
-        effectiveServerUrl: "http://192.168.1.20:11434",
+        theme: "dark",
       }),
     );
-    await waitFor(() => expect(counts()).toEqual([3, 3, 2]));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(counts()).toEqual([2, 2, 1]);
     await home();
   });
 

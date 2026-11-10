@@ -253,12 +253,14 @@ describe("context menu zones", () => {
     expect(fireEvent.contextMenu(toggle)).toBe(false);
   });
 
-  it("in the settings, only in the address field", async () => {
+  it("in the settings, only in a text field", async () => {
     const app = await openNewChat();
-    await act(() => app.router.navigate({ to: "/settings" }));
-    const field = await screen.findByLabelText("Server address");
+    await act(() =>
+      app.router.navigate({ to: "/settings", search: { section: "models" } }),
+    );
+    const field = await screen.findByLabelText("System prompt");
     expect(fireEvent.contextMenu(field)).toBe(true);
-    expect(fireEvent.contextMenu(screen.getByText("Context length"))).toBe(
+    expect(fireEvent.contextMenu(screen.getByText("Keep models loaded"))).toBe(
       false,
     );
   });

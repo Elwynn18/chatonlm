@@ -1,6 +1,7 @@
-// Mode conversation vocale en conditions réelles : un tour avec qwen3:0.6b
-// sur l'instance Ollama de test (scripts/test-ollama.sh, 127.0.0.1:11435,
-// démarrée par scripts/check.sh --full), jamais sur le service du système ;
+// Mode conversation vocale en conditions réelles : un tour avec Qwen3 0.6B
+// sur le vrai llama-server lancé par l'app (modèle d'essai de
+// scripts/test-llama.sh fetch, lié dans le dossier des modèles de l'essai ;
+// verrou .tools/locks/llama-real.lock tenu pendant le test) ;
 // vrai Parakeet, vraies voix (.tools/voice-models : la française, et
 // l'anglaise et l'espagnole si le petit modèle répond dans une autre langue),
 // sortie audio factice au rythme réel, faux micro (début de fr0.wav, voir
@@ -17,6 +18,7 @@ import assert from "node:assert/strict";
 import { existsSync, rmSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { ROOT, withApp } from "./lib/app.mjs";
+import { holdRealLock, startRealEngine } from "./lib/fake.mjs";
 import { watchLog } from "./lib/log.mjs";
 import {
   PARAKEET,
@@ -36,8 +38,14 @@ import {
 } from "./lib/voice.mjs";
 
 const binary = process.argv[2];
-const OLLAMA = "http://127.0.0.1:11435";
-const MODEL = "qwen3:0.6b";
+await holdRealLock();
+const engine = startRealEngine(["text"]);
+if (!engine) {
+  throw new Error(
+    "Vrai moteur ou modèle absent : scripts/build-llama-server.sh, scripts/test-llama.sh fetch",
+  );
+}
+const MODEL = engine.ids[0];
 /** Borne de la latence (fin de la parole → premier son), en ms. */
 const LIMIT_MS = 8000;
 const DATA = process.env.CHATONLM_DATA_DIR;
@@ -61,17 +69,6 @@ async function waitUntil(check, what, timeoutMs = 10000) {
   }
 }
 
-const response = await fetch(`${OLLAMA}/api/tags`).catch(() => null);
-if (!response?.ok) {
-  throw new Error(
-    "Instance Ollama de test injoignable : scripts/test-ollama.sh start",
-  );
-}
-const installed = (await response.json()).models.map((m) => m.name);
-if (!installed.includes(MODEL)) {
-  throw new Error(`${MODEL} absent : scripts/test-ollama.sh pull ${MODEL}`);
-}
-
 linkParakeet(DATA);
 for (const voice of ["pocket-tts-fr", "pocket-tts-en", "pocket-tts-es"]) {
   linkVoice(DATA, voice);
@@ -84,7 +81,7 @@ try {
     {
       name: "real-voice-mode",
       env: {
-        OLLAMA_HOST: OLLAMA,
+        ...engine.env,
         CHATONLM_NO_GLOBAL_SHORTCUTS: "1",
         CHATONLM_VOICE_TIMINGS: "1",
         CHATONLM_E2E_VOICE_MIC: JSON.stringify([
@@ -113,7 +110,9 @@ try {
         // Modèle en mémoire avant le tour (rend la main une fois chargé).
         await driver.invoke("load_model", { model: MODEL });
         assert.ok(
-          (await driver.invoke("running_models")).some((m) => m.name === MODEL),
+          (await driver.invoke("running_models")).some(
+            (m) => m.id === MODEL && m.state === "ready",
+          ),
           `${MODEL} pas en mémoire`,
         );
         await recordVoiceEvents(driver);

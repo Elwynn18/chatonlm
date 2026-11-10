@@ -1,19 +1,18 @@
-//! Consignes, schémas JSON (`format` d'Ollama) et corps des requêtes des
-//! cours.
+//! Consignes, schémas JSON (`response_format`) et requêtes des cours.
 //!
 //! Choisis par essais sur l'Ollama de test (`.tools/research/
 //! 47-study-eval.py`, mesures dans `47-study-contract.md` § 6), qui en garde
 //! une copie : à modifier ensemble. Consignes en anglais (comme la
 //! correction), non traduites ; la langue du cours y est nommée.
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::data::{QType, StoredQuestion};
 use super::{AnswerValue, Lesson, Plan, QuestionBody, StudyKind, StudyLevel};
-use crate::chat::Server;
 use crate::i18n::Lang;
+use crate::inference::{ChatRequest, Message, ResponseFormat, Think};
 
-/// Contexte demandé (`num_ctx`) au moins : consignes mesurées jusqu'à
+/// Contexte demandé au lancement du modèle au moins : consignes mesurées jusqu'à
 /// ~1 900 jetons sans les sources, ~6 000 caractères d'extraits en plus.
 pub const STUDY_CONTEXT: u32 = 8192;
 
@@ -142,14 +141,18 @@ pub fn plan_user(topic: &str, meaning: Option<&str>) -> String {
     text
 }
 
-/// Schéma JSON tel qu'envoyé (`format`), clés dans l'ordre écrit : Ollama
-/// contraint la réponse dans cet ordre. (`serde_json::Value` trie ses clés :
-/// le plan commençait alors par « further » et finissait par « unclear », et
-/// qwen3:0.6b bouclait jusqu'à 300 000 caractères ; contrat du 7 oct.)
+/// Schéma JSON tel qu'envoyé (`response_format`), clés dans l'ordre écrit :
+/// la grammaire contraint la réponse dans cet ordre (lu en `Value` avec
+/// `preserve_order`, qui garde cet ordre jusqu'au corps de la requête). Sans
+/// cet ordre, le plan commençait par « further » et finissait par
+/// « unclear », et qwen3:0.6b bouclait jusqu'à 300 000 caractères (contrat
+/// du 7 oct.).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Schema(String);
 
 impl Schema {
+    /// Texte tel qu'écrit (essais).
+    #[cfg(test)]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -829,82 +832,45 @@ pub fn ask_prompt(title: &str, lesson: &Lesson, lang: Lang) -> String {
 /// 271 s) et bloquait la file.
 pub const MAX_PART_TOKENS: u32 = 4096;
 
-fn options(server: &Server, temperature: f64) -> Value {
-    json!({
-        "temperature": temperature,
-        "num_ctx": server.context_length.max(STUDY_CONTEXT),
-    })
-}
-
-/// Corps d'une requête en JSON contraint (`stream: false`, `format` en
-/// tête, tel qu'écrit : voir [`Schema`]), en texte.
-pub fn json_body(
-    server: &Server,
-    model: &str,
-    think_off: bool,
-    messages: Value,
+/// Requête d'une partie en JSON contraint (réponse entière) : `request`
+/// vient de `Session::request` (défauts du modèle déjà posés : ce qui est
+/// posé ici gagne) ; schéma tel qu'écrit (ordre des propriétés gardé, voir
+/// [`Schema`]), longueur bornée.
+pub fn json_request(
+    mut request: ChatRequest,
+    think: Think,
     schema: &Schema,
     temperature: f64,
-) -> String {
-    let mut body = json!({
-        "model": model,
-        "messages": messages,
-        "stream": false,
-        "options": options(server, temperature),
-    });
-    body["options"]["num_predict"] = json!(MAX_PART_TOKENS);
-    finish(&mut body, server, think_off);
-    let text = body.to_string();
-    format!(r#"{{"format":{},{}"#, schema.as_str(), &text[1..])
+) -> ChatRequest {
+    request.response_format = Some(ResponseFormat::JsonSchema(schema.value()));
+    request.max_tokens = Some(MAX_PART_TOKENS);
+    request.temperature = Some(temperature as f32);
+    request.think = think;
+    request
 }
 
 /// Jetons écrits au plus pour une réponse en flux (~150 mots demandés).
 pub const MAX_STREAM_TOKENS: u32 = 1024;
 
-/// Corps d'une requête en flux (Markdown), longueur bornée.
-pub fn stream_body(server: &Server, model: &str, think_off: bool, messages: Value) -> String {
-    let mut body = json!({
-        "model": model,
-        "messages": messages,
-        "stream": true,
-        "options": options(server, TEMPERATURE),
-    });
-    body["options"]["num_predict"] = json!(MAX_STREAM_TOKENS);
-    finish(&mut body, server, think_off);
-    body.to_string()
-}
-
-fn finish(body: &mut Value, server: &Server, think_off: bool) {
-    if think_off {
-        body["think"] = json!(false);
-    }
-    if server.keep_alive != 0 {
-        body["keep_alive"] = json!(server.keep_alive);
-    }
+/// Requête d'une réponse en flux (Markdown), longueur bornée.
+pub fn stream_request(mut request: ChatRequest, think: Think) -> ChatRequest {
+    request.max_tokens = Some(MAX_STREAM_TOKENS);
+    request.temperature = Some(TEMPERATURE as f32);
+    request.think = think;
+    request
 }
 
 /// Consignes et message de l'apprenant.
-pub fn messages(system: &str, user: &str) -> Value {
-    json!([
-        {"role": "system", "content": system},
-        {"role": "user", "content": user},
-    ])
+pub fn messages(system: &str, user: &str) -> Vec<Message> {
+    vec![Message::system(system), Message::user(user)]
 }
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
     use crate::study::{LessonSection, PlanLevel, WorkedExample};
-
-    fn server(context_length: u32, keep_alive: i64) -> Server {
-        Server {
-            url: "http://x".into(),
-            context_length,
-            keep_alive,
-            cloud: false,
-            ..crate::chat::Server::detached()
-        }
-    }
 
     fn plan() -> Plan {
         Plan {
@@ -1294,72 +1260,62 @@ mod tests {
                 "{pair:?}"
             );
         }
-        // Le corps garde ce texte tel quel.
-        let body = json_body(
-            &server(0, 0),
-            "m",
-            false,
-            messages("s", "u"),
+        // Le corps garde cet ordre tel quel (`preserve_order`).
+        let request = json_request(
+            ChatRequest::new(messages("s", "u")),
+            Think::Default,
             &plan,
             TEMPERATURE,
         );
-        assert!(
-            body.starts_with(&format!("{{\"format\":{},", plan.as_str())),
-            "{body}"
+        let body = request.body(false);
+        assert_eq!(
+            body["response_format"]["json_schema"]["schema"].to_string(),
+            plan.as_str()
         );
-        let value: Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(value["format"], plan.value());
     }
 
     #[test]
-    fn requests_use_at_least_the_study_context() {
+    fn requests_are_bounded_and_set_their_temperature() {
         let schema = Schema(r#"{"type":"object"}"#.into());
-        let body: Value = serde_json::from_str(&json_body(
-            &server(0, 0),
-            "m",
-            false,
-            messages("s", "u"),
+        let body = json_request(
+            ChatRequest::new(messages("s", "u")),
+            Think::Default,
             &schema,
             TEMPERATURE,
-        ))
-        .unwrap();
+        )
+        .body(false);
         assert_eq!(body["stream"], false);
         // Longueur bornée : un petit modèle qui boucle ne bloque pas la file.
+        assert_eq!(body["max_tokens"], 4096);
+        assert!((body["temperature"].as_f64().unwrap() - 0.3).abs() < 1e-6);
+        assert!(body.get("chat_template_kwargs").is_none());
         assert_eq!(
-            body["options"],
-            json!({"temperature": 0.3, "num_ctx": 8192, "num_predict": 4096})
+            body["messages"],
+            json!([{"role": "system", "content": "s"}, {"role": "user", "content": "u"}])
         );
-        assert!(body.get("think").is_none() && body.get("keep_alive").is_none());
-        let body: Value = serde_json::from_str(&json_body(
-            &server(32768, -1),
-            "m",
-            true,
-            messages("s", "u"),
-            &schema,
-            CHECK_TEMPERATURE,
-        ))
-        .unwrap();
+        // Ce qui est posé ici gagne sur les défauts repris du modèle.
+        let mut defaults = ChatRequest::new(messages("s", "u"));
+        defaults.temperature = Some(0.9);
+        defaults.max_tokens = Some(10);
+        let body = json_request(defaults, Think::Off, &schema, CHECK_TEMPERATURE).body(false);
+        assert_eq!(body["temperature"], 0.0);
+        assert_eq!(body["max_tokens"], 4096);
         assert_eq!(
-            body["options"],
-            json!({"temperature": 0.0, "num_ctx": 32768, "num_predict": 4096})
+            body["chat_template_kwargs"],
+            json!({"enable_thinking": false})
         );
-        assert_eq!(body["think"], false);
-        assert_eq!(body["keep_alive"], -1);
-        assert_eq!(body["format"], json!({"type": "object"}));
-        let body: Value = serde_json::from_str(&stream_body(
-            &server(4096, 300),
-            "m",
-            false,
-            messages("s", "u"),
-        ))
-        .unwrap();
+        assert_eq!(
+            body["response_format"],
+            json!({"type": "json_schema", "json_schema": {"name": "response", "schema": {"type": "object"}}})
+        );
+        let body = stream_request(ChatRequest::new(messages("s", "u")), Think::Off).body(true);
         assert_eq!(body["stream"], true);
-        assert!(body.get("format").is_none());
+        assert!(body.get("response_format").is_none());
+        assert_eq!(body["max_tokens"], 1024);
         assert_eq!(
-            body["options"],
-            json!({"temperature": 0.3, "num_ctx": 8192, "num_predict": 1024})
+            body["chat_template_kwargs"],
+            json!({"enable_thinking": false})
         );
-        assert_eq!(body["keep_alive"], 300);
     }
 
     #[test]

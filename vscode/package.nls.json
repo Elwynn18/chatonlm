@@ -38,5 +38,5 @@
   "command.dictate": "Dictate",
   "command.dictateStop": "Stop Dictating",
   "config.mcp.enabled": "Let the agents of this editor (agent mode of the chat, Cline, Cursor…) use ChatonLM through MCP: ask a model on this computer, generate an image, read a text aloud, proofread a text, list the models. They get an access of their own, which ChatonLM limits to these tools: not your chats, not your settings. Off by default; turning it off withdraws that access. Every call is shown in the ChatonLM panel, where you can stop it or turn this off. VS Code must be paired with ChatonLM.",
-  "config.nativeChat.enabled": "Offer ChatonLM's models in the model picker of VS Code's chat. Only models on this computer, never cloud models; each request is a temporary chat that ChatonLM deletes right after. Off by default."
+  "config.nativeChat.enabled": "Offer ChatonLM's models in the model picker of VS Code's chat. Only models on this computer, never remote models; each request is a temporary chat that ChatonLM deletes right after. Off by default."
 }

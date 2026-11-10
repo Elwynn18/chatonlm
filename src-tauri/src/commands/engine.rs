@@ -65,20 +65,26 @@ pub fn status_of(
     }
 }
 
-#[tauri::command]
-pub async fn engine_status(engine: State<'_, Engine>) -> AppResult<EngineStatus> {
+/// État du moteur lu maintenant (écran du moteur, diagnostic d'un
+/// signalement).
+pub(crate) async fn current(engine: &Engine) -> EngineStatus {
     let version = engine
         .binary()
         .as_deref()
         .and_then(crate::engine::binary::version);
     let machine = engine.machine().await;
-    Ok(status_of(
+    status_of(
         engine.available(),
         version,
         machine.as_ref(),
         engine.gpu_failed(),
         engine.logs_dir().to_string_lossy().into_owned(),
-    ))
+    )
+}
+
+#[tauri::command]
+pub async fn engine_status(engine: State<'_, Engine>) -> AppResult<EngineStatus> {
+    Ok(current(&engine).await)
 }
 
 /// Ouvre le dossier des journaux du moteur (`<données>/logs`).

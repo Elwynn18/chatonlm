@@ -1,7 +1,8 @@
 //! Lancement et surveillance d'UN `llama-server` (patron `image_gen/server.rs`
 //! et `process/`) : port libre de 127.0.0.1, clé d'API aléatoire par la
-//! variable `LLAMA_API_KEY`, journal `<données>/logs/llama-<n>.log` (le
-//! précédent en `.1`), dossier de travail = dossier des journaux (jamais le
+//! variable `LLAMA_API_KEY`, journal `<données>/logs/llama-<modèle>.log` (le
+//! précédent en `.1`), rempli par l'app depuis les sorties du processus et
+//! reparti à zéro tous les 16 Mio (`journal::Capped`, l'ancien en `.1`), dossier de travail = dossier des journaux (jamais le
 //! dossier courant de l'app : ggml y chargerait tout `libggml-*.so` /
 //! `ggml-*.dll`), environnement nettoyé (`process::scrub`, puis les
 //! variables de llama.cpp et de ggml), isolation (groupe et PDEATHSIG sous
@@ -23,7 +24,7 @@ use std::time::Duration;
 
 use tokio::sync::{oneshot, watch};
 
-use super::journal::ExitFacts;
+use super::journal::{self, ExitFacts};
 use super::options::{self, Spec};
 use super::{Config, EngineError, Stopping};
 use crate::inference::{self, Endpoint, Health, InferenceError};
@@ -100,14 +101,15 @@ pub(super) struct Launch<'a> {
     pub cache_ram: u32,
 }
 
-/// Lance `llama-server` sur `spec` (journal numéro `slot`) sans attendre
-/// qu'il soit prêt. `on_exit` est appelé une fois, à la fin du processus
+/// Lance `llama-server` sur `spec` (journal du modèle `alias`) sans attendre
+/// qu'il soit prêt ; `_slot` (numéro de l'instance) ne nomme plus le
+/// journal. `on_exit` est appelé une fois, à la fin du processus
 /// (morte ou arrêtée).
 pub(super) async fn spawn(
     launch: &Launch<'_>,
     spec: &Spec,
     alias: &str,
-    slot: usize,
+    _slot: usize,
     on_exit: impl FnOnce(&Exited) + Send + 'static,
 ) -> Result<Arc<Process>, EngineError> {
     let config = launch.config;
@@ -122,13 +124,14 @@ pub(super) async fn spawn(
     let key = options::api_key();
     let endpoint = Endpoint::new(format!("http://127.0.0.1:{port}"), key.clone())
         .map_err(|error| EngineError::StartFailed(error.to_string()))?;
-    let log = config.logs.join(format!("llama-{slot}.log"));
+    let log = config.logs.join(super::journal::file_name(alias));
     let args = options::server_args(spec, alias, port, launch.cache_ram, cfg!(windows));
-    let command = prepare(config, &bin, spec, args, &key, &log).map_err(failed)?;
-    let child = spawn_with(launch.spawner, "chatonlm-llama", command)
+    let (command, file) = prepare(config, &bin, spec, args, &key, &log).map_err(failed)?;
+    let mut child = spawn_with(launch.spawner, "chatonlm-llama", command)
         .await
         .map_err(failed)?;
     let pid = child.id();
+    let relays = relay_output(&mut child, file, &log);
     let mut exited = watch_exit(child);
     let (exit_tx, exit_rx) = watch::channel(None);
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
@@ -160,6 +163,11 @@ pub(super) async fn spawn(
                 }
             }
         };
+        // Dernières lignes recopiées dans le journal avant d'annoncer la fin
+        // (l'erreur d'un échec y est lue) ; borné : un petit-enfant qui
+        // tiendrait les tubes ne retient pas la fin.
+        let mut relays = relays;
+        let _ = tokio::time::timeout(RELAY_WAIT, relays.wait_for(|live| *live == 0)).await;
         // Fin publiée AVANT de prévenir le moteur : quand `on_exit` voit un
         // modèle encore en chargement (et l'ignore), le lancement verra la
         // fin dans `Process::exited`.
@@ -176,7 +184,54 @@ pub(super) async fn spawn(
     }))
 }
 
-/// Journal et commande d'un lancement (`server_args` : [`options::server_args`]).
+/// Attente des dernières lignes du journal après la fin du processus.
+const RELAY_WAIT: Duration = Duration::from_secs(2);
+
+/// Recopie la sortie et l'erreur de `child` dans `file` (le journal `log`),
+/// qui repart à zéro tous les [`journal::MAX_LOG`] (deux fils, jusqu'à la
+/// fin des tubes) ; rend le nombre de recopies encore en vie.
+fn relay_output(child: &mut std::process::Child, file: File, log: &Path) -> watch::Receiver<usize> {
+    let sink = Arc::new(parking_lot::Mutex::new(journal::Capped::rotating(
+        file,
+        journal::MAX_LOG,
+        journal::reopen_file(log),
+    )));
+    let sources: Vec<Box<dyn std::io::Read + Send>> = [
+        child
+            .stdout
+            .take()
+            .map(|out| Box::new(out) as Box<dyn std::io::Read + Send>),
+        child
+            .stderr
+            .take()
+            .map(|err| Box::new(err) as Box<dyn std::io::Read + Send>),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let (live, relays) = watch::channel(sources.len());
+    let live = Arc::new(live);
+    for source in sources {
+        let (sink, done) = (Arc::clone(&sink), Arc::clone(&live));
+        let started = std::thread::Builder::new()
+            .name("chatonlm-llama-log".into())
+            .spawn(move || {
+                journal::relay(source, &sink);
+                done.send_modify(|count| *count -= 1);
+            });
+        if started.is_err() {
+            // Fil refusé : le tube se ferme (le processus voit une
+            // écriture impossible, pas un blocage).
+            live.send_modify(|count| *count -= 1);
+        }
+    }
+    relays
+}
+
+/// Journal (ouvert, à remplir par [`relay_output`]) et commande d'un
+/// lancement (`server_args` : [`options::server_args`]). L'ancien journal
+/// du modèle est renommé en `.1` AVANT d'ouvrir le nouveau (sous Windows, un
+/// fichier ouvert ne se renomme pas).
 fn prepare(
     config: &Config,
     bin: &Path,
@@ -184,7 +239,7 @@ fn prepare(
     server_args: Vec<OsString>,
     key: &str,
     log: &Path,
-) -> std::io::Result<Command> {
+) -> std::io::Result<(Command, File)> {
     std::fs::create_dir_all(&config.logs)?;
     std::fs::create_dir_all(&config.cache)?;
     rotate_log(log);
@@ -229,12 +284,12 @@ fn prepare(
         .env_clear()
         .envs(environment)
         .stdin(Stdio::null())
-        .stdout(log.try_clone()?)
-        .stderr(log)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .current_dir(&config.logs);
     isolate(&mut command);
     no_core_dump(&mut command);
-    Ok(command)
+    Ok((command, log))
 }
 
 /// Pourquoi un lancement n'est pas prêt.
@@ -273,7 +328,10 @@ pub(super) async fn wait_ready(
         }
         if let Health::Ready = inference::health(&process.endpoint).await {
             match inference::props(&process.endpoint).await {
-                Ok(props) if props.model_alias == alias && props.n_ctx == ctx => return Ok(()),
+                Ok(props) if props.model_alias == alias && props.n_ctx == ctx => {
+                    caught_up(process).await;
+                    return Ok(());
+                }
                 Ok(_) | Err(InferenceError::Unauthorized) => return Err(NotReady::NotOurs),
                 // Encore en route (ou mort entre-temps : vu au tour suivant).
                 Err(_) => {}
@@ -285,6 +343,19 @@ pub(super) async fn wait_ready(
         // La mort du processus interrompt l'attente.
         let mut exit = process.exit.clone();
         let _ = tokio::time::timeout(timing.ready_poll, exit.wait_for(Option::is_some)).await;
+    }
+}
+
+/// Attend (au plus [`RELAY_WAIT`]) que la recopie du journal ait passé la
+/// fin du chargement : le serveur l'écrit avant d'écouter, mais la recopie
+/// (un fil par sortie) peut être en retard sous charge, et la mémoire du
+/// modèle est lue dans le journal dès qu'il est prêt.
+async fn caught_up(process: &Process) {
+    let deadline = tokio::time::Instant::now() + RELAY_WAIT;
+    while !journal::load_finished(&journal::read(&process.log))
+        && tokio::time::Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 
@@ -309,11 +380,11 @@ mod tests {
             ctx: 4096,
             cpu: true,
         };
-        let log = config.logs.join("llama-0.log");
+        let log = config.logs.join(journal::file_name("a/b:Q4_K_M"));
         std::fs::create_dir_all(&config.logs).unwrap();
         std::fs::write(&log, "old").unwrap();
         let args = options::server_args(&spec, "a/b:Q4_K_M", 4321, 512, false);
-        let command = prepare(&config, &bin, &spec, args, "s3cret", &log).unwrap();
+        let (command, _file) = prepare(&config, &bin, &spec, args, "s3cret", &log).unwrap();
         assert_eq!(command.get_current_dir(), Some(config.logs.as_path()));
         assert_ne!(
             command.get_current_dir(),
@@ -344,7 +415,7 @@ mod tests {
         assert_eq!(env["GGML_VK_VISIBLE_DEVICES"].as_deref(), Some("none"));
         // Journal précédent gardé en `.1`, le nouveau vide.
         assert_eq!(
-            std::fs::read_to_string(config.logs.join("llama-0.log.1")).unwrap(),
+            std::fs::read_to_string(config.logs.join("llama-a_b_Q4_K_M.log.1")).unwrap(),
             "old"
         );
         assert_eq!(std::fs::read_to_string(&log).unwrap(), "");

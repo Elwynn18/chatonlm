@@ -277,7 +277,11 @@ fn verdict(
     let report = match compat::check(&blob_path(dir, &weights.digest)) {
         Ok(report) => report,
         Err(CompatError::NotGguf) => return verdict(Verdict::Skip(ImportProblem::NotGguf)),
-        Err(CompatError::Io(_)) => return verdict(Verdict::Skip(ImportProblem::Unreadable)),
+        Err(CompatError::Io(error)) => {
+            // Raison gardée au journal (droits, disque) : l'écran dit seulement « illisible ».
+            crate::app_log!("chatonlm: reprise d'Ollama : en-tête de modèle illisible ({error})");
+            return verdict(Verdict::Skip(ImportProblem::Unreadable));
+        }
     };
     let suggestion = || names::hf_equivalent(&found.name).map(str::to_owned);
     match report.support() {

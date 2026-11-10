@@ -7,7 +7,7 @@
     "ephemeralOn": "Iniciar un chat efímero",
     "ephemeralOff": "Desactivar el chat efímero",
     "chooseModel": "Elige un modelo",
-    "cloudModel": "{model} (nube)",
+    "remoteModel": "{model} (remoto)",
     "keepThis": "Conservar este chat"
   },
   "status": {
@@ -76,12 +76,12 @@
       "other": "~{count} tokens"
     },
     "local": "se queda en este equipo",
-    "cloud": "va a la nube",
+    "cloud": "va al proveedor del modelo",
     "remote": "va a otro equipo",
     "unknown": "puede salir de este equipo",
     "localDetail": "El modelo se ejecuta en este equipo: nada sale de él.",
-    "cloudDetail": "El modelo se ejecuta en la nube: este texto se envía por la red.",
-    "remoteDetail": "El modelo se ejecuta en otro equipo (ubicación configurada en ChatonLM): este texto se envía por la red.",
+    "cloudDetail": "El modelo se ejecuta en un proveedor en línea: este texto se envía por la red.",
+    "remoteDetail": "El modelo se ejecuta en otro equipo: este texto se envía por la red.",
     "unknownDetail": "ChatonLM no pudo indicar dónde se ejecuta el modelo: este texto se trata como si saliera de este equipo.",
     "bestEffort": "Los secretos se retiran en la medida de lo posible, según patrones conocidos: revisa lo que envías.",
     "historyDetail": {
@@ -155,7 +155,7 @@
     "noTerminalError": "No hay ningún error del terminal disponible",
     "where": {
       "local": "El modelo se ejecuta en este equipo: lo que dices se queda en él.",
-      "cloud": "El modelo se ejecuta en la nube: lo que dices se envía por la red.",
+      "cloud": "El modelo se ejecuta en un proveedor en línea: lo que dices se envía por la red.",
       "remote": "El modelo se ejecuta en otro equipo: lo que dices se envía por la red.",
       "unknown": "ChatonLM no pudo saber dónde se ejecuta el modelo: lo que dices se trata como si saliera de este equipo."
     }

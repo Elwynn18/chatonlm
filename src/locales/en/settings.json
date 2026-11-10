@@ -3,7 +3,6 @@
   "tabs": {
     "general": "General",
     "models": "Models",
-    "account": "Account",
     "dictation": "Dictation",
     "readAloud": "Read aloud",
     "voiceMode": "Voice mode",
@@ -17,12 +16,6 @@
       "label": "Language",
       "description": "Follow the system language, or always use another one.",
       "system": "System"
-    },
-    "ollama": {
-      "label": "Ollama"
-    },
-    "address": {
-      "label": "Server address"
     },
     "modelLocation": {
       "label": "Model location",
@@ -57,43 +50,25 @@
       "error": "ChatonLM could not reset every setting. Check the settings above and try again."
     }
   },
-  "ollama": {
-    "builtin": "Built-in Ollama {version}",
-    "builtinNoVersion": "Built-in Ollama",
-    "local": "Ollama {version} on this computer",
-    "localNoVersion": "Ollama on this computer",
-    "remote": "Ollama {version} at {url}",
-    "remoteNoVersion": "Ollama at {url}",
-    "autoBuiltin": "No other Ollama was found on this computer.",
-    "failed": "The built-in Ollama failed to start. See its log: {path}",
-    "openLog": "Open log",
-    "openLogError": "Couldn't open the log: {message}",
-    "useBuiltin": "Use the built-in Ollama",
-    "useBuiltinInstead": "Use the built-in Ollama instead",
-    "useBuiltinModels": {
-      "one": "Use the built-in Ollama and its model",
-      "other": "Use the built-in Ollama and its {count} models"
-    },
-    "useLocal": "Use Ollama on this computer",
-    "useAddress": "Use the Ollama at {url}",
-    "switching": "Switching…",
-    "switchError": "Couldn't switch Ollama: {message}",
-    "address": "Address of the built-in Ollama, chosen by ChatonLM. Only apps on this computer can reach it.",
-    "leftover": {
-      "one": "The built-in Ollama still has {count} model ({size}) in its folder.",
-      "other": "The built-in Ollama still has {count} models ({size}) in its folder."
-    },
-    "leftoverHint": "Ollama on this computer doesn't see them. Use the built-in Ollama to chat with them, or delete the folder to free up space.",
-    "openFolder": "Open folder",
-    "openFolderError": "Couldn't open the folder: {message}",
-    "modelsDirMissing": "The model location chosen for the built-in Ollama can't be found. It uses its default folder instead."
+  "engine": {
+    "label": "Engine",
+    "version": "llama.cpp {version}",
+    "versionUnknown": "llama.cpp",
+    "accelerationGpu": "Acceleration: {name}",
+    "accelerationGpuUnnamed": "Acceleration: graphics card",
+    "accelerationCpu": "Acceleration: processor only",
+    "cpuFallback": "The graphics card failed during this session: models run on the processor until ChatonLM restarts.",
+    "unavailable": "The engine is missing from this installation. Reinstall ChatonLM.",
+    "statusError": "Could not read the engine's state: {message}",
+    "openLogs": "Open logs",
+    "openLogsError": "Could not open the logs: {message}"
   },
   "updates": {
     "title": "Updates",
     "versions": {
       "label": "Version",
       "chatonlm": "ChatonLM {version}",
-      "ollama": "Built-in Ollama {version}"
+      "llamaCpp": "llama.cpp {version}"
     },
     "status": {
       "idle": "Not checked yet",
@@ -160,7 +135,7 @@
       "show": "Show",
       "hide": "Hide",
       "loading": "Reading the diagnostic…",
-      "hint": "Versions, system, the Ollama in use and the end of ChatonLM's log. Never the content of your conversations; your home folder and user name are hidden.",
+      "hint": "Versions, system, the state of the text engine and the end of ChatonLM's log. Never the content of your conversations; your home folder and user name are hidden.",
       "error": "Couldn't read the diagnostic: {error}"
     },
     "openLogs": "Open logs folder",
@@ -178,108 +153,41 @@
   },
   "donate": {
     "title": "Support ChatonLM",
-    "description": "Donations keep ChatonLM growing. In particular, they will pay for servers of its own, so that web search no longer depends on Ollama.",
+    "description": "Donations keep ChatonLM growing. In particular, they pay for its own servers, such as the one behind web search.",
     "button": "Donate"
   },
-  "modelLocation": {
-    "remoteField": "On {host}",
-    "unknownField": "Unknown",
-    "browse": "Browse",
-    "moving": "Moving models…",
-    "movingLabel": "Moving models",
-    "changing": "Changing location…",
-    "restarting": "Restarting Ollama…",
-    "progress": "{done} of {total}",
-    "remote": "Ollama runs on {host}. Change the model location on that computer.",
-    "notRunning": "Start Ollama to see where models are stored.",
-    "container": "Ollama seems to run in a container. Change the models volume where the container is created, for example:",
-    "desktopApp": "Ollama's app chooses this folder; the one shown is its usual location. To change it, open Ollama's settings (Model location), or set the OLLAMA_MODELS variable of your user account, then quit Ollama from the system tray and start it again.",
-    "envFile": "OLLAMA_MODELS is set in {file}. Change it there.",
-    "envFileUnknown": "OLLAMA_MODELS is set in an environment file of the service. Change it there.",
-    "manual": "Ollama was started from a terminal. Stop it, then start it again with:",
-    "userService": "Ollama runs as a service of your user account. Run:",
-    "unknownRunning": "ChatonLM can't tell how Ollama was started. Start it with:",
-    "rootService": "The Ollama service runs as root. Change its model location in a terminal:",
-    "noPkexec": "Changing the Ollama service needs administrator rights, and pkexec is not installed. Run these commands in a terminal:",
-    "downloads": "Wait for the model downloads to finish, then try again.",
-    "problems": {
-      "system": "This folder can't hold models. Choose a folder outside the system folders.",
-      "badCharacters": "Choose a folder whose name has no \" \\ : $ or ` characters.",
-      "badCharactersWindows": "This folder's name has characters ChatonLM can't use. Choose another folder.",
-      "notEmpty": "Choose an empty folder, or a folder that already contains Ollama models.",
-      "inside": "Choose a folder outside the current model location.",
-      "missing": "This folder can't be found.",
-      "notYours": "Choose a folder you created, or a new folder."
+  "modelsFolder": {
+    "default": "Default folder",
+    "models": {
+      "one": "{count} model ({size})",
+      "other": "{count} models ({size})"
     },
+    "noModels": "No models yet",
+    "free": "{size} free",
+    "change": "Change…",
     "confirm": {
-      "moveTitle": "Move models to the new location?",
-      "changeTitle": "Change the model location?",
-      "restartAndStore": "Ollama will restart and store new models in {path}.",
-      "store": "Ollama will store new models in {path}.",
+      "title": "Move your models to the new folder?",
+      "store": "ChatonLM will keep your models in {path}.",
       "models": {
-        "one": "Your {count} model ({size}) is in {dir}.",
+        "one": "Your model ({size}) is in {dir}.",
         "other": "Your {count} models ({size}) are in {dir}."
       },
-      "modelsUnknown": "Your models are in {dir}.",
-      "otherDrive": "Copying them to another drive can take several minutes.",
-      "nextStart": "Used the next time Ollama starts.",
-      "replies": "Replies in progress will stop.",
-      "leaveThem": "Leave them",
-      "moveModels": "Move models",
-      "changeLocation": "Change location"
+      "useAsIs": "Use the new folder as it is only if it already has these models.",
+      "unload": "Loaded models will be unloaded first.",
+      "useFolder": "Use it as it is",
+      "moveModels": "Move models"
     },
-    "stoppedSaved": "Saved. Ollama will use this folder the next time it starts.",
-    "cleanupFailed": "The models were copied, but the old copies in {dir} could not be deleted.",
-    "failures": {
-      "notAuthorized": "Authentication failed. The model location was not changed.",
-      "noSpace": "Not enough free space: {need} needed, {free} available.",
-      "noSpaceUnknown": "Not enough free space.",
-      "cannotWrite": "The Ollama service (user {user}) can't write to this folder. Its drive may not support Linux permissions, or a parent folder is private.",
-      "stopFailed": "Ollama could not be stopped. Nothing was changed.",
-      "putBack": "The model location could not be changed. Everything was put back as before.",
-      "overridden": "Another setting of the Ollama service chooses the model location. Everything was put back as before.",
-      "startFailed": "Ollama did not start with the new location, so the previous one was restored. See: journalctl -u ollama",
-      "unexpected": "The model location could not be changed."
-    },
-    "builtin": {
-      "cannotWrite": "ChatonLM can't write to this folder. Its drive may not support Linux permissions.",
-      "cannotWriteWindows": "ChatonLM can't write to this folder.",
-      "startFailed": "The built-in Ollama did not start with the new location, so the previous one was restored.",
-      "restoreFailed": "ChatonLM could not undo every change.",
-      "modelConflict": "The new folder already has another version of {model}. Nothing was moved.",
-      "symlink": "The model folder has a link or a special file that ChatonLM doesn't move: {path}. Nothing was moved."
-    }
-  },
-  "service": {
-    "noAgent": "No password prompt is available in this session. Run these commands in a terminal:",
-    "unitChanged": "The Ollama service changed. Reopen Settings and try again.",
-    "restoreFailed": "ChatonLM could not undo every change. Check the service with: systemctl status ollama",
-    "details": "Details"
-  },
-  "ollamaHome": {
-    "alert": "Ollama can't read its own files in {dir}: its systemd service hides {root} (ProtectHome). Downloads from ollama.com and your Ollama account won't work until this is fixed.",
-    "root": "Ollama's service runs as root: ChatonLM won't change it. Run the service as another user (User= in its unit), or change its ProtectHome= setting yourself.",
-    "fix": "Fix",
-    "fixing": "Fixing…",
-    "asksRestart": "Fix asks for an administrator password, then restarts Ollama.",
-    "asks": "Fix asks for an administrator password.",
-    "noPkexec": "Fixing this needs administrator rights, and pkexec is not installed. Run these commands in a terminal:",
-    "fixError": "Couldn't fix this: {message}",
-    "failures": {
-      "notAuthorized": "Authentication failed. Nothing was changed.",
-      "notYours": "{dir} is not a folder of the Ollama service (user {user}). Nothing was changed.",
-      "cannotCreate": "The Ollama service (user {user}) can't create {dir}. Nothing was changed.",
-      "configFailed": "The Ollama service could not be changed. Everything was put back as before.",
-      "overridden": "Another setting of the Ollama service hides {root} again. Everything was put back as before.",
-      "startFailed": "Ollama did not restart with this change, so it was undone. See: journalctl -u ollama",
-      "unexpected": "The Ollama service could not be changed."
-    },
-    "link": "Fix in Settings › General"
+    "moving": "Moving models…",
+    "changing": "Changing the models folder…",
+    "progress": "{done} of {total} ({percent})",
+    "movingLabel": "Moving models",
+    "cleanupFailed": "Some copies could not be deleted from the old folder {dir}. You can delete them yourself.",
+    "error": "Could not change the models folder: {message}"
   },
   "models": {
     "keepAlive": {
       "label": "Keep models loaded",
-      "description": "How long a model stays in memory after its last use. Default follows the Ollama server (5 minutes unless OLLAMA_KEEP_ALIVE is set).",
+      "description": "How long a model stays in memory after its last use. Default: 5 minutes.",
       "default": "Default",
       "minutes": {
         "one": "{count} min",
@@ -295,18 +203,9 @@
       "label": "Preload the chosen model",
       "description": "Load the model selected in the chat as soon as you choose it and when ChatonLM starts, so your first message doesn't wait."
     },
-    "unloadOnQuit": {
-      "label": "Unload models when quitting",
-      "description": "When you quit ChatonLM, the models Ollama still holds in memory are unloaded, freeing system memory and VRAM. Closing the window while ChatonLM keeps running in the system tray leaves them loaded."
-    },
     "uncensored": {
       "label": "Show uncensored models",
       "description": "Adds an “Uncensored” section to ModelHub: community versions of official models that no longer refuse to answer. They can write offensive or dangerous content, and ChatonLM doesn't check them."
-    },
-    "cloud": {
-      "label": "Use cloud models",
-      "description": "Adds Ollama's cloud models to the model picker. They run on ollama.com, not on this computer: the messages you send them leave this computer. They need an Ollama account (Account tab) and count against its plan.",
-      "serverOff": "This Ollama server has its cloud turned off: cloud models stay hidden."
     },
     "systemPrompt": {
       "title": "Instructions",
@@ -321,12 +220,12 @@
       "otherSize": "Other uses: {size}",
       "freeSize": "Free: {size}",
       "noGpu": "No graphics card detected: models run on the processor, in system memory.",
-      "unknown": "VRAM usage can't be read for this Ollama server.",
+      "unknown": "VRAM usage can't be read on this computer.",
       "spilled": "{size} doesn't fit in VRAM: that part runs from system memory, more slowly."
     },
     "loaded": {
       "title": "Loaded models",
-      "reachError": "Couldn't reach Ollama: {message}",
+      "reachError": "Couldn't read the engine's models: {message}",
       "none": "No models are loaded.",
       "summary": {
         "one": "{count} model loaded · {size} in memory",
@@ -362,8 +261,176 @@
       "loadLabel": "Load a model",
       "noOther": "No other model installed",
       "loading": "Loading…",
+      "loadingState": "Loading into memory…",
       "load": "Load",
       "loadError": "Couldn't load {model}: {message}"
+    }
+  },
+  "remoteModels": {
+    "title": "Remote models",
+    "use": "Use remote models",
+    "description": "Off by default. Adds the models of the providers below to the model picker, with your own API key. They don't run on this computer: the messages you send them go to the provider and count against your account there. ChatonLM pays for no model.",
+    "providers": "Providers",
+    "empty": "No provider yet. Add one with your API key: Ollama Cloud, OpenRouter, Mistral, or any server compatible with the OpenAI API.",
+    "formerServer": "ChatonLM used the Ollama at {address}. To use its models again, add it as “Other server (OpenAI-compatible)”.",
+    "formerServerAdd": "Add it",
+    "add": "Add a provider",
+    "loadFailed": "Couldn't read the providers: {error}",
+    "keyHint": "API key ending in {hint}",
+    "keySaved": "API key saved",
+    "noKey": "No API key",
+    "enable": "Use {name}",
+    "edit": "Edit",
+    "checking": "Checking…",
+    "customAt": "OpenAI-compatible server at {address}",
+    "removeTitle": "Remove {name}?",
+    "removeText": "Its API key is deleted from this computer, and its models leave the model picker.",
+    "removeKey": "Remove key",
+    "removeKeyTitle": "Remove the API key of {name}?",
+    "removeKeyText": "It is deleted from this computer. The provider stays in the list; its models need a key again to answer.",
+    "kinds": {
+      "ollamaCloud": "Ollama Cloud",
+      "openRouter": "OpenRouter",
+      "mistral": "Mistral",
+      "custom": "Other server (OpenAI-compatible)"
+    },
+    "check": {
+      "button": "Check",
+      "ok": {
+        "one": "Key accepted: {count} model available.",
+        "other": "Key accepted: {count} models available."
+      },
+      "noKey": "No API key saved for this provider.",
+      "key": "The provider refused this API key.",
+      "limit": "The provider says your usage limit or credit is reached.",
+      "unreachable": "The provider can't be reached. Check your internet connection and the address.",
+      "notFound": "Nothing answers at this address. Check it: it usually ends in /v1.",
+      "server": "The provider answered with an error (HTTP {status}).",
+      "malformed": "The provider's reply can't be read. Is this server compatible with the OpenAI API?"
+    },
+    "form": {
+      "addTitle": "Add a provider",
+      "editTitle": "Edit the provider",
+      "kind": "Provider",
+      "name": "Name (optional)",
+      "address": "Server address",
+      "addressExample": "https://example.com/v1",
+      "key": "API key",
+      "keyHelp": "Created in your account at the provider. Saved on this computer only, readable by you alone.",
+      "keyOptional": "Optional: only if the server asks for one. Saved on this computer only, readable by you alone.",
+      "keepKey": "Leave empty to keep the saved key.",
+      "keyDropped": "The new address doesn't keep the saved key: it is removed when you save. Type it again to keep it.",
+      "save": "Save"
+    }
+  },
+  "modelImport": {
+    "title": "Models from Ollama",
+    "description": "Bring over your Ollama models without downloading them again.",
+    "origins": {
+      "builtin": {
+        "title": "Built-in Ollama",
+        "description": "The Ollama that came with ChatonLM 0.9."
+      },
+      "machine": {
+        "title": "Ollama on this computer",
+        "description": "Its models are copied: nothing changes for it."
+      }
+    },
+    "look": "Look for models",
+    "lookAgain": "Look again",
+    "looking": "Looking…",
+    "scanError": "Could not look for models: {message}",
+    "noSources": "No Ollama folder was found.",
+    "emptyFolder": "No models in this folder.",
+    "unreadable": "ChatonLM can't read this folder.",
+    "shared": "This folder also belongs to the Ollama installed on this computer: its models are copied, and nothing in it is ever deleted.",
+    "copy": "These models will be copied: {need} needed, {free} free.",
+    "copyUnknownFree": "These models will be copied: {need} needed.",
+    "noSpace": "Not enough free space: {need} needed, {free} free.",
+    "aliases": "Also named {names}",
+    "vision": "Vision",
+    "status": {
+      "installed": "Already in ChatonLM",
+      "redownload": "Download it again from Hugging Face.",
+      "skipped": "Not imported.",
+      "failed": "Import failed twice in a row."
+    },
+    "problems": {
+      "ollamaFormat": "Stored in a format of Ollama's own: download it again from Hugging Face.",
+      "notGguf": "Not a GGUF model file: ChatonLM can't use it.",
+      "blobMissing": "Some of its files are missing.",
+      "cloud": "Cloud model: there is nothing to import.",
+      "adapter": "Adapter (LoRA): not supported.",
+      "invalidName": "Its name can't be saved on this computer.",
+      "unreadable": "Its files can't be read.",
+      "embedding": "Embedding model: not used for chats.",
+      "unsupported": "llama.cpp can't run this kind of model."
+    },
+    "noTemplate": "No chat template: llama.cpp will use a default one.",
+    "suggestion": "On Hugging Face: {id}",
+    "noSuggestion": "No equivalent was found on Hugging Face.",
+    "download": "Download",
+    "downloadNamed": "Download {name} again",
+    "downloaded": "Downloaded",
+    "downloadError": "Could not start the download: {message}",
+    "downloadFailed": "The download failed: {message}",
+    "downloadFailedPlain": "The download failed.",
+    "tryAgain": "Try again",
+    "tryAgainNamed": "Try importing {name} again",
+    "import": {
+      "one": "Import {count} model",
+      "other": "Import {count} models"
+    },
+    "startError": "Could not start the import: {message}",
+    "running": {
+      "model": "Importing {name}…",
+      "preparing": "Preparing the import…",
+      "models": {
+        "one": "{done} of {count} model",
+        "other": "{done} of {count} models"
+      },
+      "bytes": "{done} of {total} copied",
+      "label": "Importing models",
+      "stop": "Stop",
+      "stopError": "Could not stop the import: {message}"
+    },
+    "report": {
+      "titleBuiltin": "Last import from the built-in Ollama",
+      "titleMachine": "Last import from Ollama on this computer",
+      "imported": {
+        "one": "{count} model imported:",
+        "other": "{count} models imported:"
+      },
+      "nothing": "No model was imported.",
+      "cancelled": "Import stopped.",
+      "redownload": "To download again from Hugging Face:",
+      "failed": "Not imported:",
+      "failedItem": "{name}: {error}"
+    },
+    "cleanup": {
+      "notice": {
+        "one": "The old folder of the built-in Ollama still takes {size} ({count} file).",
+        "other": "The old folder of the built-in Ollama still takes {size} ({count} files)."
+      },
+      "hint": "Its models have been imported: delete it to free up space.",
+      "willDisappear": "These models were not imported and will be deleted with it:",
+      "delete": "Delete",
+      "deleting": "Deleting…",
+      "confirmTitle": "Delete the old folder of the built-in Ollama?",
+      "confirmText": "{size} will be freed in {dir}. This can't be undone.",
+      "confirmModels": {
+        "one": "This model will be deleted: {names}.",
+        "other": "These {count} models will be deleted: {names}."
+      },
+      "done": {
+        "one": "{count} file deleted ({size}).",
+        "other": "{count} files deleted ({size})."
+      },
+      "failed": {
+        "one": "{count} file could not be deleted: close the programs that use it, then try again.",
+        "other": "{count} files could not be deleted: close the programs that use them, then try again."
+      },
+      "error": "Could not delete the old folder: {message}"
     }
   },
   "readAloud": {
@@ -559,20 +626,6 @@
       "download": "Download",
       "nonCommercial": "Its license allows non-commercial use only."
     }
-  },
-  "account": {
-    "title": "Ollama account",
-    "cloudOffEnv": "The OLLAMA_NO_CLOUD environment variable is currently forcing cloud off.",
-    "cloudOff": "Cloud is turned off on the Ollama server.",
-    "checkError": "Couldn't check your Ollama account: {reason}",
-    "retrying": "Retrying…",
-    "upgrade": "Upgrade",
-    "manage": "Manage",
-    "signOut": "Sign out",
-    "notConnected": "Not connected",
-    "signIn": "Sign In",
-    "connectFailed": "Failed to connect to Ollama account",
-    "disconnectFailed": "Failed to disconnect Ollama account"
   },
   "tryAgain": "Try again",
   "saveError": "Couldn't save this setting: {message}",

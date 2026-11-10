@@ -35,7 +35,7 @@ describe("Transcription tab", () => {
     renderHub("/hub/transcription");
     await screen.findAllByTestId("speech-model");
     expect(
-      screen.getByText("Speech models run inside ChatonLM, not in Ollama.", {
+      screen.getByText("Speech models run inside ChatonLM.", {
         exact: false,
       }),
     ).toBeTruthy();
@@ -606,9 +606,7 @@ describe("Polish tab without Ollama (review 43, F2)", () => {
     simulator.handle("list_models", () => {
       throw { kind: "engine", message: "connection refused" };
     });
-    await screen.findByText(
-      "Ollama is unreachable. Start it to use these models for polish.",
-    );
+    await screen.findByText("The installed models couldn't be read.");
     await within(screen.getByRole("listitem", { name: GEMMA_4B })).findByRole(
       "button",
       { name: "Use for polish" },

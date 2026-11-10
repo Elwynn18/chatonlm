@@ -34,7 +34,8 @@ afterEach(() => {
   resetStreams();
 });
 
-const MODEL = "qwen3:0.6b";
+/** Modèle des séquences enregistrées (identifiant Hugging Face). */
+const MODEL = sequence("existing-chat").request.model;
 
 function message(id: number, role: "user" | "assistant", content: string) {
   return {

@@ -113,7 +113,6 @@
   },
   "error": {
     "withoutWeb": "Continue without web search",
-    "signedIn": "Signed in.",
     "openHub": "Open ModelHub",
     "retry": "Retry"
   },

@@ -17,6 +17,13 @@ fake = []
 name = "chatonlm-relay"
 path = "src/main.rs"
 
+# Relais d'essai des e2e de l'app (faux moteurs) : jamais dans le binaire
+# déployé.
+[[bin]]
+name = "fake-relay"
+path = "src/bin/fake-relay.rs"
+required-features = ["fake"]
+
 [dependencies]
 # Mêmes versions que le reste de l'espace de travail (déjà dans l'arbre).
 axum = "0.8.9"

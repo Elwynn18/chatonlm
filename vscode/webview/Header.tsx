@@ -1,4 +1,4 @@
-// En-tête du panneau : modèle choisi (modèles cloud marqués), nouvelle
+// En-tête du panneau : modèle choisi (modèles distants marqués), nouvelle
 // conversation, chaton-fantôme (conversation éphémère ; dans une conversation
 // éphémère, « Keep this chat », comme dans l'app), carte « Graphics card »
 // (autocomplétion, lot 3) et état de la liaison.
@@ -57,7 +57,7 @@ export function Header({
   const hasModels = state.models.length > 0;
   // Conversation éphémère déjà commencée : le chaton-fantôme la garde.
   const keepable = state.ephemeral && state.chatId !== null;
-  const cloud = new Set(state.cloudModels);
+  const remote = new Set(state.remoteModels);
 
   const newChat = (ephemeral: boolean) => (event: MouseEvent) => {
     // Second clic d'un double-clic : le premier a déjà agi (après Keep, le
@@ -90,16 +90,16 @@ export function Header({
             {t("vscode.header.chooseModel")}
           </option>
         )}
-        {/* Modèle choisi absent de la liste du serveur (supprimé depuis,
-            ou propre au serveur) : montré quand même, sinon le menu
+        {/* Modèle choisi absent de la liste de l'app (supprimé depuis) :
+            montré quand même, sinon le menu
             afficherait le premier modèle de la liste. */}
         {state.model !== null && !state.models.includes(state.model) && (
           <option value={state.model}>{state.model}</option>
         )}
         {state.models.map((name) => (
           <option key={name} value={name}>
-            {cloud.has(name)
-              ? t("vscode.header.cloudModel", { model: name })
+            {remote.has(name)
+              ? t("vscode.header.remoteModel", { model: name })
               : name}
           </option>
         ))}

@@ -64,7 +64,7 @@ function setup({
   state,
   autoDownload = true,
   checkedAt = null,
-  ollama = null,
+  llamaCpp = null,
   installer = "appImage",
   lastError = null,
   path = "/settings",
@@ -72,7 +72,7 @@ function setup({
   state?: UpdateState;
   autoDownload?: boolean;
   checkedAt?: number | null;
-  ollama?: string | null;
+  llamaCpp?: string | null;
   installer?: UpdateInstaller | null;
   lastError?: UpdateErrorInfo | null;
   path?: string;
@@ -86,7 +86,7 @@ function setup({
     installer,
     lastError,
   };
-  backend.versions = { chatonlm: "0.9.0", ollama };
+  backend.versions = { chatonlm: "0.9.0", llamaCpp };
   renderApp(path);
   return { simulator, backend };
 }
@@ -139,13 +139,16 @@ function dateTime(lang: string, time: number) {
 describe("Updates card", () => {
   it("shows the installed versions and when ChatonLM was last checked", async () => {
     const checkedAt = Date.UTC(2026, 9, 7, 12, 30);
-    const { simulator } = setup({ checkedAt, ollama: "0.12.3" });
+    const { simulator } = setup({
+      checkedAt,
+      llamaCpp: "v0.9.0+chatonlm.1b94fcb0b0db",
+    });
     const updates = await card(simulator);
     expect(
       within(updates).getByRole("heading", { name: "Updates" }),
     ).toBeTruthy();
     await within(updates).findByText("ChatonLM 0.9.0");
-    expect(within(updates).getByText("Built-in Ollama 0.12.3")).toBeTruthy();
+    expect(within(updates).getByText("llama.cpp v0.9.0")).toBeTruthy();
     expect(headline().textContent).toBe("ChatonLM is up to date");
     expect(
       within(updates).getByText(`Last checked: ${dateTime("en", checkedAt)}`),
@@ -163,12 +166,12 @@ describe("Updates card", () => {
     expect(simulator.callsTo("app_versions")).toHaveLength(1);
   });
 
-  it("leaves out the built-in Ollama when the app has none", async () => {
+  it("leaves out the engine version when the app has no engine", async () => {
     const { simulator } = setup();
     const updates = await card(simulator);
     await within(updates).findByText("ChatonLM 0.9.0");
-    expect(within(updates).queryByText(/Ollama/)).toBeNull();
-    expect(screen.queryByTestId("ollama-version")).toBeNull();
+    expect(within(updates).queryByText(/llama\.cpp/)).toBeNull();
+    expect(screen.queryByTestId("engine-version")).toBeNull();
   });
 
   it("checks on demand, one check at a time, and announces the result", async () => {
@@ -1017,10 +1020,10 @@ describe("Updates card languages", () => {
       state: AVAILABLE,
       autoDownload: false,
       checkedAt: Date.UTC(2026, 9, 7, 12, 0),
-      ollama: "0.12.3",
+      llamaCpp: "v0.9.0+chatonlm.1b94fcb0b0db",
     });
     const updates = await card(simulator);
-    await within(updates).findByText("Built-in Ollama 0.12.3");
+    await within(updates).findByText("llama.cpp v0.9.0");
     usePseudoLanguage();
     await within(updates).findByText("⟦Updates⟧");
     const allow = [NOTES, detail, OFFLINE.detail, UNREACHABLE.detail];
@@ -1097,13 +1100,13 @@ describe("Updates card languages", () => {
     const { simulator, backend } = setup({
       state: DOWNLOADING,
       checkedAt,
-      ollama: "0.12.3",
+      llamaCpp: "v0.9.0+chatonlm.1b94fcb0b0db",
     });
     const updates = await card(simulator);
-    await within(updates).findByText("Built-in Ollama 0.12.3");
+    await within(updates).findByText("llama.cpp v0.9.0");
     act(() => setLanguage("fr"));
     await within(updates).findByRole("heading", { name: "Mises à jour" });
-    expect(within(updates).getByText("Ollama intégré 0.12.3")).toBeTruthy();
+    expect(within(updates).getByText("llama.cpp v0.9.0")).toBeTruthy();
     expect(headline().textContent).toBe(
       "Téléchargement de la version 0.9.1 de ChatonLM…",
     );

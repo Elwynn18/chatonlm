@@ -262,6 +262,22 @@ pub fn images(messages: &[Value]) -> usize {
         .count()
 }
 
+/// Nombre d'images WebP jointes (d'après leurs premiers octets, « RIFF » en
+/// base64, ou leur type annoncé).
+pub fn webp_images(messages: &[Value]) -> usize {
+    messages
+        .iter()
+        .filter_map(|message| message["content"].as_array())
+        .flatten()
+        .filter(|part| part["type"] == "image_url")
+        .filter_map(|part| part["image_url"]["url"].as_str())
+        .filter(|url| {
+            let data = url.split_once(";base64,").map_or("", |(_, data)| data);
+            url.starts_with("data:image/webp") || data.starts_with("UklGR")
+        })
+        .count()
+}
+
 /// Valeur factice conforme à un schéma JSON (objets, tableaux, types
 /// simples, `enum`, `const`).
 pub fn instance(schema: &Value) -> Value {

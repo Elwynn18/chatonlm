@@ -93,7 +93,7 @@
       "cloudHint": "Le modèle de la conversation ({model}) fonctionne hors de cet ordinateur. Pour corriger avec ce modèle, choisissez-le sur la page « Correction » de ChatonLM.",
       "stopped": "Correction arrêtée",
       "stoppedHint": "Rien n'a été copié.",
-      "replaced": "Le modèle {missing} n'est plus installé : correction faite avec {model}, chargé dans Ollama.",
+      "replaced": "Le modèle {missing} n'est plus installé : correction faite avec {model}, chargé en mémoire.",
       "keysHeld": "Relâchez les touches du raccourci, puis utilisez-le de nouveau.",
       "copyBlocked": "Windows n'a pas laissé ChatonLM copier le texte sélectionné."
     },
@@ -104,16 +104,15 @@
     "failed": "La correction a échoué : {detail}",
     "failedRephrase": "La reformulation a échoué : {detail}",
     "timedOut": "le modèle a mis trop de temps à répondre",
-    "connectionLost": "la connexion à Ollama a été perdue"
+    "connectionLost": "la connexion au modèle a été perdue"
   },
   "study": {
     "noModel": "Choisissez un modèle pour vos cours",
     "modelNotFound": "Le modèle {model} n'est pas installé",
     "failed": "La génération a échoué : {detail}",
     "timedOut": "le modèle a mis trop de temps à répondre",
-    "connectionLost": "la connexion à Ollama a été perdue",
+    "connectionLost": "la connexion au modèle a été perdue",
     "invalid": "Les réponses du modèle sont inutilisables. Réessayez, ou choisissez un modèle plus grand.",
-    "signedOut": "La recherche web nécessite un compte Ollama",
     "whichMeaning": "Lequel voulez-vous dire ?",
     "topicTooLong": "Le sujet est trop long : 300 caractères au plus",
     "badDuration": "Un cours dure 10, 20 ou 30 minutes",
@@ -150,7 +149,7 @@
     "runtimeUnavailable": "Parakeet ne peut pas fonctionner : ONNX Runtime n'a pas pu être chargé ({detail}). Réinstallez ChatonLM, ou choisissez un modèle Whisper dans les paramètres.",
     "polish": {
       "skipped": "Pas de mise au propre : la réponse du modèle ne ressemblait pas à votre texte",
-      "cloud": "Pas de mise au propre : les modèles cloud ne servent pas à la dictée",
+      "cloud": "Pas de mise au propre : les modèles distants ne servent pas à la dictée",
       "failed": "Échec de la mise au propre : {detail}",
       "tooLong": "le modèle a mis trop de temps à répondre"
     },
@@ -221,7 +220,6 @@
     "emptyMessage": "le message est vide",
     "noModel": "aucun modèle n'est sélectionné",
     "busy": "cette conversation attend déjà une réponse",
-    "webSearchSignedOut": "La recherche web nécessite un compte Ollama",
     "notFound": "conversation introuvable : {id}",
     "emptyTitle": "le titre ne peut pas être vide",
     "loopStopped": "Le modèle répétait sans fin le même texte : sa réponse a été arrêtée.",
@@ -263,12 +261,10 @@
   },
   "ollama": {
     "unreachable": "impossible de se connecter à Ollama",
-    "unreachableAt": "impossible de se connecter à Ollama à l'adresse {address}",
     "timeout": "Ollama n'a pas répondu à temps",
     "requestFailed": "échec de la requête à Ollama : {error}",
     "http": "Ollama a répondu avec le code HTTP {status} : {message}",
     "httpStatus": "Ollama a répondu avec le code HTTP {status}",
-    "unexpectedAnswer": "réponse inattendue d'Ollama : {error}",
     "unexpectedModels": "réponse inattendue d'Ollama pour la liste des modèles : {error}",
     "unexpectedDetails": "réponse inattendue d'Ollama pour les détails du modèle : {error}",
     "unexpectedRecommendations": "réponse inattendue d'Ollama pour les recommandations de modèles : {error}",
@@ -280,9 +276,6 @@
   },
   "account": {
     "noConnectUrl": "Impossible d'obtenir l'adresse de connexion"
-  },
-  "models": {
-    "cloudNotLoaded": "{model} tourne sur ollama.com : les modèles cloud ne sont pas chargés sur cet ordinateur"
   },
   "cloud": {
     "signedOut": "Les modèles cloud nécessitent un compte Ollama",
@@ -419,8 +412,7 @@
       "busyBridge": "VS Code dicte déjà"
     },
     "local": {
-      "remoteServer": "ChatonLM utilise un Ollama sur un autre ordinateur : rien n'a été envoyé.",
-      "cloudModel": "{model} tourne hors de cet ordinateur : rien n'a été envoyé."
+      "remoteModel": "{model} tourne hors de cet ordinateur : rien n'a été envoyé."
     }
   },
   "easyLink": {
@@ -456,31 +448,37 @@
       "busy": "Je réponds encore à votre message précédent. Envoyez {p}stop pour l'interrompre.",
       "missed": "ChatonLM ne tournait pas quand vous avez envoyé ce message. Renvoyez-le si vous voulez encore une réponse.",
       "noModels": "Aucun modèle n'est installé. Installez-en un dans ChatonLM (ModelHub).",
-      "modelsTitle": "Modèles installés :",
+      "modelsTitle": "Modèles :",
       "modelCurrent": "choisi",
       "modelLoaded": "en mémoire",
+      "modelRemote": "distant",
       "modelsHint": "Choisissez-en un avec {p}model suivi de son numéro ou de son nom.",
       "model": "Modèle : {model}",
       "noModel": "Aucun modèle n'est choisi. Envoyez {p}models pour voir ceux qui sont installés.",
       "modelMissing": "{model} n'est plus installé. Choisissez un autre modèle avec {p}models.",
+      "remoteMissing": "{model} n'est pas disponible chez son fournisseur pour le moment. Choisissez un autre modèle avec {p}models.",
       "modelChosen": "Modèle : {model}. Votre prochain message s'en servira.",
       "modelUnknown": "Aucun modèle installé ne correspond à « {name} ». Envoyez {p}models pour les voir.",
       "modelAmbiguous": "Plusieurs modèles correspondent à « {name} » : {models}",
       "loading": "Chargement de {model}…",
       "loaded": "{model} est en mémoire.",
+      "remoteNoLoad": "{model} tourne chez son fournisseur : il n'y a rien à charger ni à décharger.",
       "unloaded": "{model} est déchargé.",
       "unloadedAll": "Tous les modèles sont déchargés.",
       "failed": "Cela n'a pas fonctionné : {error}",
       "statusLoaded": "En mémoire : {models}",
       "statusNothingLoaded": "En mémoire : rien",
-      "statusUnreachable": "Ollama ne répond pas : {error}",
-      "ollamaDown": "Ollama ne répond pas sur l'ordinateur.",
+      "statusEngineOff": "Le moteur de texte n'est pas disponible sur l'ordinateur.",
+      "engineDown": "Le moteur de texte ne répond pas sur l'ordinateur.",
       "statusWebOn": "Recherche web : activée",
       "statusWebOff": "Recherche web : désactivée",
       "webOn": "La recherche web est activée.",
       "webOff": "La recherche web est désactivée.",
       "webUsage": "Envoyez {p}web on ou {p}web off.",
-      "webSignedOut": "La recherche web demande un compte Ollama connecté dans ChatonLM (Paramètres > Compte). Envoyez {p}web off pour répondre sans elle.",
+      "webUnavailable": "La recherche web n'est pas disponible pour le moment. Envoyez {p}web off pour répondre sans elle.",
+      "webLimit": "La limite de la recherche web est atteinte pour le moment. Envoyez {p}web off pour répondre sans elle.",
+      "webPaused": "La recherche web est en pause pour le moment. Envoyez {p}web off pour répondre sans elle.",
+      "webOutdated": "La recherche web demande une version plus récente de ChatonLM sur l'ordinateur. Envoyez {p}web off pour répondre sans elle.",
       "statusEphemeralOn": "Conversations éphémères : activées",
       "statusEphemeralOff": "Conversations éphémères : désactivées",
       "ephemeralOn": "Les conversations éphémères sont activées : elles ne sont pas gardées dans l'historique de ChatonLM, et sont effacées par {p}new, par {p}ephemeral off ou à la fermeture de ChatonLM. Envoyez {p}keep pour garder celle en cours.",
@@ -588,10 +586,10 @@
   },
   "llm": {
     "remoteOff": "Les modèles distants sont coupés. Activez-les dans les réglages pour utiliser ce modèle.",
-    "remoteUnavailable": "Ce modèle distant n'est pas disponible : son fournisseur n'est pas configuré.",
+    "remoteUnavailable": "Ce modèle distant n'est pas disponible : son fournisseur ne le propose pas, ou n'est plus configuré. Choisissez un autre modèle.",
     "remoteKey": "{provider} a refusé la clé d'API. Vérifiez-la dans les réglages.",
     "remoteLimit": "{provider} indique que votre limite d'utilisation est atteinte.",
-    "remoteUnreachable": "{provider} est injoignable. Vérifiez votre connexion à Internet, puis réessayez.",
+    "remoteUnreachable": "{provider} est injoignable pour le moment. Vérifiez votre connexion à Internet, ou réessayez plus tard.",
     "cancelled": "la requête a été arrêtée",
     "inference": {
       "loading": "le modèle est encore en cours de chargement",
@@ -605,6 +603,13 @@
       "interrupted": "la réponse a été interrompue",
       "malformed": "le moteur de texte a envoyé une réponse illisible"
     }
+  },
+  "remote": {
+    "invalidName": "Ce nom est trop long (60 caractères au plus).",
+    "invalidUrl": "Saisissez l'adresse d'un serveur compatible avec l'API d'OpenAI, qui commence par http:// ou https://.",
+    "invalidKey": "Cette clé d'API n'est pas valable : elle ne peut pas contenir d'espace.",
+    "keyNotSaved": "ChatonLM n'a pas pu enregistrer la clé d'API. Vérifiez qu'il reste de la place sur le disque, puis réessayez.",
+    "notFound": "Ce fournisseur n'existe plus."
   },
   "modelImport": {
     "busy": "Des modèles sont déjà en cours de reprise ou de déplacement. Attendez la fin.",

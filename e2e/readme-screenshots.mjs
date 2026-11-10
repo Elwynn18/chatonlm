@@ -1,9 +1,10 @@
 // Captures du README (docs/screenshots/) : l'app réelle dans la session
-// virtuelle, interface en anglais, avec l'instance Ollama de test
-// (scripts/test-ollama.sh, 127.0.0.1:11435, qwen3:0.6b), le vrai Hugging Face
-// (réseau) et l'historique de démonstration. Ce n'est pas un essai :
-// check.sh ne le lance pas, et seule la forme des écrans est attendue.
-//   scripts/test-ollama.sh start
+// virtuelle, interface en anglais, avec le vrai llama-server et le vrai modèle
+// d'essai « text » (Qwen3 0.6B, scripts/test-llama.sh fetch ; verrou des vrais
+// serveurs tenu pendant le script), le vrai Hugging Face (réseau) et
+// l'historique de démonstration. Ce n'est pas un essai : check.sh ne le lance
+// pas, et seule la forme des écrans est attendue.
+//   scripts/test-llama.sh fetch
 //   E2E_TIMEOUT=900 scripts/e2e-session.sh e2e/run.sh \
 //     e2e/readme-screenshots.mjs "$(scripts/e2e-build.sh)"
 // Captures brutes (PNG 1360 × 960) dans .tools/shots/readme/, relues à l'œil
@@ -17,21 +18,19 @@
 import { mkdirSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { ROOT, withApp } from "./lib/app.mjs";
+import { holdRealLock, startRealEngine } from "./lib/fake.mjs";
 
 const binary = process.argv[2];
-const OLLAMA = "http://127.0.0.1:11435";
-const MODEL = "qwen3:0.6b";
-const OUT = `${ROOT}.tools/shots/readme`;
-mkdirSync(OUT, { recursive: true });
-
-const tags = await fetch(`${OLLAMA}/api/tags`)
-  .then((response) => response.json())
-  .catch(() => null);
-if (!tags?.models.some((m) => m.name === MODEL)) {
+await holdRealLock();
+const engine = startRealEngine(["text"]);
+if (!engine) {
   throw new Error(
-    `${MODEL} absent ou instance arrêtée : scripts/test-ollama.sh start`,
+    "Vrai moteur ou modèle absent : scripts/build-llama-server.sh, scripts/test-llama.sh fetch",
   );
 }
+const MODEL = engine.ids[0];
+const OUT = `${ROOT}.tools/shots/readme`;
+mkdirSync(OUT, { recursive: true });
 
 async function waitUntil(check, what, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
@@ -113,7 +112,7 @@ await withApp(
   {
     name: "readme-screenshots",
     env: {
-      OLLAMA_HOST: OLLAMA,
+      ...engine.env,
       CHATONLM_SEED_DEMO: "1",
       CHATONLM_HF_URL: "https://huggingface.co",
       CHATONLM_HF_STATUS_URL: "https://status.huggingface.co",
@@ -122,7 +121,7 @@ await withApp(
   async (driver) => {
     await driver.waitFor("[data-testid=new-chat]");
 
-    // Modèle de l'instance de test.
+    // Le vrai modèle d'essai.
     await driver.click(await driver.find("[title='Select model']"));
     await waitUntil(
       () =>

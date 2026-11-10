@@ -1,6 +1,7 @@
 //! Le faux `llama-server` en ligne de commande (binaire `fake-llama`, et
 //! relance d'un binaire d'essai de l'app : [`args_from_env`]) :
 //!   fake-llama --host 127.0.0.1 --port <n> -m <modèle.gguf> [options de llama-server…]
+//!   fake-llama gguf <sortie> [--arch --ctx --template --fim --vision …] (voir [`gguf`])
 //! (clé par `LLAMA_API_KEY`, `--api-key` ou `--api-key-file`, comme le vrai)
 //! Le comportement dépend du nom du modèle (voir `scenario`) ; mode réseau
 //! par `FAKE_LLAMA_MODE` (`ok`, `silent`, `close`, `huge`, `status:<code>`,
@@ -19,7 +20,9 @@
 //! `chatonlm-bindfail[-always]` : voir `scenario`. Avec
 //! `FAKE_LLAMA_STOP_MS`, l'arrêt dure ce temps après le premier SIGTERM, et
 //! un second SIGTERM le fait planter (`abort`), comme b12110 ; à l'arrêt, le
-//! journal dit si le fichier du modèle avait déjà disparu.
+//! journal dit si le fichier du modèle avait déjà disparu. Avec
+//! `FAKE_LLAMA_REGISTRY`, chaque instance note son adresse (voir
+//! [`REGISTRY_ENV`]).
 
 use std::io::Write;
 use std::net::{IpAddr, SocketAddr};
@@ -85,13 +88,25 @@ fn log(level: char, text: &str) {
     eprintln!("0.00.100.000 {level} {text}");
 }
 
+/// Nom (alias ou fichier) d'un modèle à cheval sur la carte et le
+/// processeur : 22 couches sur 29 seulement sur la carte (escargot de l'app).
+pub const SPLIT_NAME: &str = "chatonlm-split";
+
 /// Lignes de chargement du vrai à `-lv 4` (Qwen3-0.6B Q4_K_M) : sur la
-/// carte, 29 couches, poids, cache (selon le contexte) et calcul sur
-/// `Vulkan0` ; sur le processeur, tout en mémoire vive.
-fn memory_lines(gpu: bool, ctx: u32) {
+/// carte, 29 couches (22 pour [`SPLIT_NAME`]), poids, cache (selon le
+/// contexte) et calcul sur `Vulkan0` ; sur le processeur, tout en mémoire
+/// vive.
+fn memory_lines(gpu: bool, ctx: u32, split: bool) {
     let kv = f64::from(ctx) * 448.0 / 4096.0;
     if gpu {
-        log('I', "load_tensors: offloaded 29/29 layers to GPU");
+        log(
+            'I',
+            if split {
+                "load_tensors: offloaded 22/29 layers to GPU"
+            } else {
+                "load_tensors: offloaded 29/29 layers to GPU"
+            },
+        );
         log(
             'I',
             "load_tensors:   CPU_Mapped model buffer size =   121.71 MiB",
@@ -128,8 +143,37 @@ fn memory_lines(gpu: bool, ctx: u32) {
     }
 }
 
+/// Variable des e2e : dossier où chaque instance écrit `<pid>.json`
+/// (`{"url", "alias", "model", "pid"}`) une fois à l'écoute, retiré à l'arrêt
+/// propre. L'app choisit le port : l'essai y trouve l'adresse d'un modèle
+/// pour lire ses requêtes (`/fake/requests`).
+pub const REGISTRY_ENV: &str = "FAKE_LLAMA_REGISTRY";
+
+/// Inscrit l'instance dans [`REGISTRY_ENV`] (écriture puis renommage : un
+/// lecteur ne voit jamais un fichier à moitié écrit) ; rend le fichier.
+fn register(server: &FakeLlama, alias: Option<&str>, model: &str) -> Option<std::path::PathBuf> {
+    let dir = std::path::PathBuf::from(std::env::var_os(REGISTRY_ENV)?);
+    let pid = std::process::id();
+    let entry = serde_json::json!({
+        "url": server.url(),
+        "alias": alias,
+        "model": model,
+        "pid": pid,
+    });
+    std::fs::create_dir_all(&dir).ok()?;
+    let file = dir.join(format!("{pid}.json"));
+    let partial = dir.join(format!("{pid}.json.tmp"));
+    std::fs::write(&partial, entry.to_string()).ok()?;
+    std::fs::rename(&partial, &file).ok()?;
+    Some(file)
+}
+
 /// Le faux en entier ; rend le code de sortie (ou s'arrête net, `abort`).
+/// `fake-llama gguf …` : écrit un fichier GGUF d'essai (voir [`gguf`]).
 pub async fn run(argv: Vec<String>) -> i32 {
+    if argv.first().map(String::as_str) == Some("gguf") {
+        return gguf::main(&argv[1..]);
+    }
     // Clés aussi par l'environnement, comme le vrai (`LLAMA_API_KEY`,
     // `LLAMA_ARG_API_KEY_FILE`).
     let args = match args::parse_with_env(argv, |name| std::env::var(name).ok()) {
@@ -236,7 +280,12 @@ pub async fn run(argv: Vec<String>) -> i32 {
             return 1;
         }
     }
-    memory_lines(gpu, config.ctx);
+    let split = config
+        .alias
+        .iter()
+        .chain([&config.model])
+        .any(|name| name.to_ascii_lowercase().contains(SPLIT_NAME));
+    memory_lines(gpu, config.ctx, split);
     let model = config.model.clone();
     let server = match FakeLlama::start_on(SocketAddr::new(host, args.port), config).await {
         Ok(server) => server,
@@ -248,6 +297,7 @@ pub async fn run(argv: Vec<String>) -> i32 {
             return 1;
         }
     };
+    let registered = register(&server, args.alias.as_deref(), &model);
     let mut terminate = Terminate::listen();
     let exit = tokio::select! {
         _ = tokio::signal::ctrl_c() => None,
@@ -271,10 +321,298 @@ pub async fn run(argv: Vec<String>) -> i32 {
             }
         }
     }
+    if let Some(file) = registered {
+        let _ = std::fs::remove_file(file);
+    }
     server.stop().await;
     match exit {
         None => 0,
         Some(Exit::Code(code)) => code,
         Some(Exit::Abort) => std::process::abort(),
+    }
+}
+
+/// Formes du faux comparées aux réponses du vrai (`fixtures/`).
+#[cfg(test)]
+#[path = "fixtures.rs"]
+mod fixtures;
+
+/// `fake-llama gguf <sortie> [options]` : fichier GGUF d'essai à l'en-tête
+/// lisible par l'app (`hub::gguf::meta`), pour les e2e qui inscrivent des
+/// modèles (`CHATONLM_E2E_MODELS`) ou les rangent dans un dossier. Reprise
+/// du synthétiseur de `fake-ollama` (`hf_models.rs`).
+///
+/// Options : `--arch <a>` (défaut `qwen3`), `--ctx <n>` (contexte
+/// d'entraînement, défaut 40 960), `--size-label <t>` (défaut « 0.6B »),
+/// `--name <t>` (`general.name`), `--template <gabarit>` (gabarit Jinja tel
+/// quel), `--tools` et `--think` (ajoutés au gabarit : outils, réflexion),
+/// `--fim` (jetons FIM dans le vocabulaire), `--base` (modèle de base :
+/// `general.basename` sans `general.finetune`), `--vision` ou `--audio`
+/// (projecteur `clip` qui lit les images, ou l'audio seulement), `--size <n>`
+/// (taille totale, octets déterministes après l'en-tête).
+pub mod gguf {
+    use std::path::PathBuf;
+
+    /// Options lues.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct Options {
+        pub out: PathBuf,
+        pub arch: String,
+        pub ctx: u32,
+        pub size_label: String,
+        pub name: Option<String>,
+        pub template: Option<String>,
+        pub tools: bool,
+        pub think: bool,
+        pub fim: bool,
+        pub base: bool,
+        pub vision: bool,
+        pub audio: bool,
+        pub size: Option<u64>,
+    }
+
+    /// Lit les arguments (sans le mot `gguf`).
+    pub fn parse(argv: &[String]) -> Result<Options, String> {
+        let mut options = Options {
+            out: PathBuf::new(),
+            arch: "qwen3".into(),
+            ctx: 40_960,
+            size_label: "0.6B".into(),
+            name: None,
+            template: None,
+            tools: false,
+            think: false,
+            fim: false,
+            base: false,
+            vision: false,
+            audio: false,
+            size: None,
+        };
+        let mut out = None;
+        let mut args = argv.iter();
+        while let Some(arg) = args.next() {
+            let mut value = |name: &str| {
+                args.next()
+                    .cloned()
+                    .ok_or_else(|| format!("fake-llama gguf: {name} attend une valeur"))
+            };
+            match arg.as_str() {
+                "--arch" => options.arch = value("--arch")?,
+                "--ctx" => {
+                    options.ctx = value("--ctx")?
+                        .parse()
+                        .map_err(|_| "fake-llama gguf: --ctx attend un nombre".to_owned())?;
+                }
+                "--size-label" => options.size_label = value("--size-label")?,
+                "--name" => options.name = Some(value("--name")?),
+                "--template" => options.template = Some(value("--template")?),
+                "--size" => {
+                    options.size = Some(
+                        value("--size")?
+                            .parse()
+                            .map_err(|_| "fake-llama gguf: --size attend un nombre".to_owned())?,
+                    );
+                }
+                "--tools" => options.tools = true,
+                "--think" => options.think = true,
+                "--fim" => options.fim = true,
+                "--base" => options.base = true,
+                "--vision" => options.vision = true,
+                "--audio" => options.audio = true,
+                other if other.starts_with("--") => {
+                    return Err(format!("fake-llama gguf: option inconnue {other}"));
+                }
+                path if out.is_none() => out = Some(PathBuf::from(path)),
+                extra => return Err(format!("fake-llama gguf: argument en trop {extra}")),
+            }
+        }
+        if options.vision && options.audio {
+            return Err("fake-llama gguf: --vision ou --audio, pas les deux".into());
+        }
+        options.out = out.ok_or("Usage : fake-llama gguf <sortie> [options]")?;
+        Ok(options)
+    }
+
+    /// Valeur d'une paire GGUF.
+    enum Kv {
+        Str(String),
+        U32(u32),
+        Bool(bool),
+        Strs(Vec<String>),
+    }
+
+    fn header(pairs: &[(&str, Kv)]) -> Vec<u8> {
+        let mut out = b"GGUF".to_vec();
+        out.extend(3u32.to_le_bytes());
+        out.extend(0u64.to_le_bytes());
+        out.extend((pairs.len() as u64).to_le_bytes());
+        let string = |out: &mut Vec<u8>, text: &str| {
+            out.extend((text.len() as u64).to_le_bytes());
+            out.extend(text.as_bytes());
+        };
+        for (key, value) in pairs {
+            string(&mut out, key);
+            match value {
+                Kv::Str(text) => {
+                    out.extend(8u32.to_le_bytes());
+                    string(&mut out, text);
+                }
+                Kv::U32(number) => {
+                    out.extend(4u32.to_le_bytes());
+                    out.extend(number.to_le_bytes());
+                }
+                Kv::Bool(value) => {
+                    out.extend(7u32.to_le_bytes());
+                    out.push(u8::from(*value));
+                }
+                Kv::Strs(list) => {
+                    out.extend(9u32.to_le_bytes());
+                    out.extend(8u32.to_le_bytes());
+                    out.extend((list.len() as u64).to_le_bytes());
+                    for text in list {
+                        string(&mut out, text);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Contenu du fichier.
+    pub fn content(options: &Options) -> Vec<u8> {
+        let mut bytes = if options.vision || options.audio {
+            header(&[
+                ("general.architecture", Kv::Str("clip".into())),
+                ("clip.has_vision_encoder", Kv::Bool(options.vision)),
+                ("clip.has_audio_encoder", Kv::Bool(options.audio)),
+            ])
+        } else {
+            let name = options.name.clone().unwrap_or_else(|| {
+                options
+                    .out
+                    .file_stem()
+                    .map_or("model".into(), |stem| stem.to_string_lossy().into_owned())
+            });
+            let mut pairs = vec![
+                ("general.architecture", Kv::Str(options.arch.clone())),
+                ("general.name", Kv::Str(name.clone())),
+                ("general.size_label", Kv::Str(options.size_label.clone())),
+                ("general.file_type", Kv::U32(15)),
+            ];
+            let context_key = format!("{}.context_length", options.arch);
+            if options.base {
+                pairs.push(("general.basename", Kv::Str(name)));
+            }
+            let mut tokens = vec!["<|im_start|>".to_owned(), "<|im_end|>".to_owned()];
+            if options.fim {
+                for token in ["<|fim_prefix|>", "<|fim_suffix|>", "<|fim_middle|>"] {
+                    tokens.push(token.to_owned());
+                }
+            }
+            pairs.push(("tokenizer.ggml.tokens", Kv::Strs(tokens)));
+            let mut template = options.template.clone().unwrap_or_else(|| {
+                "{%- for message in messages %}{{ message.content }}{%- endfor %}".to_owned()
+            });
+            if options.tools {
+                template.push_str("{%- if tools %}<tool_call>{%- endif %}");
+            }
+            if options.think {
+                template.push_str("{%- if enable_thinking %}<think>{%- endif %}");
+            }
+            pairs.push(("tokenizer.chat_template", Kv::Str(template)));
+            let mut bytes = header(&pairs);
+            // Clé du contexte à part : son nom dépend de l'architecture.
+            let count = u64::from_le_bytes(bytes[16..24].try_into().unwrap()) + 1;
+            bytes[16..24].copy_from_slice(&count.to_le_bytes());
+            bytes.extend((context_key.len() as u64).to_le_bytes());
+            bytes.extend(context_key.as_bytes());
+            bytes.extend(4u32.to_le_bytes());
+            bytes.extend(options.ctx.to_le_bytes());
+            bytes
+        };
+        let size = options.size.unwrap_or(4096).max(bytes.len() as u64) as usize;
+        while bytes.len() < size {
+            let index = bytes.len();
+            bytes.push((index as u8).wrapping_mul(31) ^ 0x5a);
+        }
+        bytes
+    }
+
+    /// Écrit le fichier (dossiers créés) ; code de sortie.
+    pub fn main(argv: &[String]) -> i32 {
+        let options = match parse(argv) {
+            Ok(options) => options,
+            Err(error) => {
+                eprintln!("{error}");
+                return 2;
+            }
+        };
+        if let Some(parent) = options.out.parent()
+            && let Err(error) = std::fs::create_dir_all(parent)
+        {
+            eprintln!("fake-llama gguf: {}: {error}", parent.display());
+            return 1;
+        }
+        if let Err(error) = std::fs::write(&options.out, content(&options)) {
+            eprintln!("fake-llama gguf: {}: {error}", options.out.display());
+            return 1;
+        }
+        0
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn args(list: &[&str]) -> Vec<String> {
+            list.iter().map(|arg| (*arg).to_owned()).collect()
+        }
+
+        #[test]
+        fn options_are_read_and_checked() {
+            let options = parse(&args(&[
+                "out/m.gguf",
+                "--arch",
+                "gemma3",
+                "--ctx",
+                "8192",
+                "--fim",
+                "--tools",
+                "--size",
+                "9000",
+            ]))
+            .unwrap();
+            assert_eq!(options.out, PathBuf::from("out/m.gguf"));
+            assert_eq!((options.arch.as_str(), options.ctx), ("gemma3", 8192));
+            assert!(options.fim && options.tools && !options.think);
+            assert_eq!(content(&options).len(), 9000);
+            for bad in [
+                &["--ctx", "x", "m.gguf"][..],
+                &["m.gguf", "--nope"],
+                &["m.gguf", "other.gguf"],
+                &["--fim"],
+                &["m.gguf", "--vision", "--audio"],
+                &["m.gguf", "--arch"],
+            ] {
+                assert!(parse(&args(bad)).is_err(), "{bad:?}");
+            }
+        }
+
+        /// En-tête lu comme l'app le lit : clés dans l'ordre, nombre de
+        /// paires juste (la clé du contexte ajoutée à la fin compte).
+        #[test]
+        fn the_header_counts_every_pair() {
+            let options = parse(&args(&["m.gguf", "--arch", "llama", "--ctx", "2048"])).unwrap();
+            let bytes = content(&options);
+            assert_eq!(&bytes[..4], b"GGUF");
+            let count = u64::from_le_bytes(bytes[16..24].try_into().unwrap());
+            assert_eq!(count, 7);
+            let key = b"llama.context_length";
+            let at = bytes.windows(key.len()).position(|w| w == key).unwrap();
+            let value = &bytes[at + key.len() + 4..at + key.len() + 8];
+            assert_eq!(u32::from_le_bytes(value.try_into().unwrap()), 2048);
+            let projector = content(&parse(&args(&["p.gguf", "--audio"])).unwrap());
+            assert!(projector.windows(4).any(|w| w == b"clip"));
+        }
     }
 }

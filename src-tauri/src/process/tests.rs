@@ -15,8 +15,10 @@ use std::time::{Duration, Instant};
 use super::*;
 
 #[test]
-fn ports_avoid_ollama_and_the_test_instance() {
-    for previous in [Some(11434), Some(11435), None] {
+fn ports_avoid_ollama_and_the_test_instances() {
+    // 11436 : `llama-server` d'essai de `scripts/test-llama.sh`.
+    assert!(RESERVED_PORTS.contains(&11436));
+    for previous in [Some(11434), Some(11435), Some(11436), None] {
         let port = pick_port(previous).unwrap();
         assert!(!RESERVED_PORTS.contains(&port), "{port}");
     }

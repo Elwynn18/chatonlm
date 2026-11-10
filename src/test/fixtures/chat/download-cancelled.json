@@ -1,9 +1,9 @@
 {
-  "description": "Download stopped by the user after three progress events; no answer is created.",
+  "description": "Download stopped by the user after two progress events (normalized); the download is cancelled, no answer is created.",
   "request": {
     "streamId": "stream-1",
     "content": "Say hello in one word.",
-    "model": "chatonlm-pull-stall"
+    "model": "chatonlm-dl/Tiny-stall-GGUF:Q4_K_M"
   },
   "events": [
     {
@@ -28,20 +28,14 @@
     },
     {
       "type": "download",
-      "total": 5046586573,
-      "completed": 1160714911,
+      "total": 50704,
+      "completed": 0,
       "done": false
     },
     {
       "type": "download",
-      "total": 5046586573,
-      "completed": 1211180777,
-      "done": false
-    },
-    {
-      "type": "download",
-      "total": 5046586573,
-      "completed": 1261646643,
+      "total": 50704,
+      "completed": 25352,
       "done": false
     },
     {

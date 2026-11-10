@@ -6,70 +6,59 @@
  * Adapted from Ollama (https://github.com/ollama/ollama),
  * file app/ui/app/src/components/Settings.tsx, commit 42e911bc3d05.
  * Modified for ChatonLM: tabs instead of one page (settings/SettingsTabs.tsx,
- * the "section" search parameter): General (default), Models, Account,
- * Dictation, Read aloud, Voice mode, Easy Link, VS Code and Keyboard shortcuts; changing tab replaces the history entry and leaves the focus on
- * the tab. General: one card with the interface language (ChatonLM's own row,
+ * the "section" search parameter): General (default), Models, Dictation,
+ * Read aloud, Voice mode, Easy Link, VS Code and Keyboard shortcuts;
+ * changing tab replaces the history entry and leaves the focus on the tab.
+ * General: one card with the interface language (ChatonLM's own row,
  * first: System, English, Español, Français, each language written in
- * itself; the whole app switches at once, without reloading), server address,
- * model location, context length and theme (no cloud switch: ChatonLM does not
- * manage the server; no network or apps), ChatonLM's own "Updates" card
- * (settings/Updates.tsx: installed versions, "Check for updates", state of
- * the update, the official "Auto-download updates" switch; untouched by
- * "Reset to defaults"; scrolled into view and focused each time the page is
- * opened for it from the system tray, card=updates), then "Reset to
- * defaults", then ChatonLM's own "Report a bug" card (settings/BugReport.tsx:
- * a message sent through chatonlm.com, an optional reply address, diagnostic
- * shown before sending, logs folder) and "Support ChatonLM" card, last
- * (settings/Donate.tsx: what donations pay for, and a button that opens the
- * donation page of the website);
- * Account: the Ollama
- * account card (settings/OllamaAccount.tsx), focused when the page is opened
- * for it (section=account); the model location is the
- * folder of the Ollama server the app talks to, changed in its systemd
- * service (see settings/ModelLocation.tsx), with an alert under it when that
- * service can't see its own .ollama folder (settings/OllamaHome.tsx, "Fix");
- * the context length
- * is sent with each request, with a "Default" stop (the server's choice), and
- * is never disabled; "Saved" only once a change is saved, an error when it
- * isn't; "Reset to defaults" resets the language, the address, the context
- * length and the theme in one write, without clearing the selected model nor touching the
- * model location or web search; the context length knob stays on the chosen
- * step while it is saved; "Saved" announced again on each save; controls
- * rewritten (no copy of the original ui/ components); Dictation: ChatonLM's
- * own cards (settings/Dictation.tsx), shown and focused each time the page
- * is opened for them (section=dictation), untouched by "Reset to defaults";
- * Models: ChatonLM's own cards (settings/Models.tsx: how long models stay
- * loaded, preloading of the chosen model, the models in memory), untouched
- * by "Reset to defaults"; texts in English, Spanish and French (src/i18n),
- * the English ones unchanged; General also has ChatonLM's own "Ollama" row,
- * before the server address (settings/OllamaSource.tsx: which Ollama serves,
- * the one of this computer or the one built into ChatonLM, with its version,
- * and the button that switches to the other); while the built-in Ollama is
- * chosen, the server address shows its address, read-only (chosen for lack
- * of another Ollama, the address field shows http://localhost:11434, never
- * its private address), and the model location is its folder; models left in
- * its folder are pointed out under
- * the model location, and so is a missing folder chosen for it (the default
- * one used instead); Keyboard shortcuts: ChatonLM's own cards
- * (settings/Shortcuts.tsx: system-wide shortcuts of dictation and of the
- * correction of the selected text, then the app shortcuts),
- * untouched by "Reset to defaults". General also has ChatonLM's own
+ * itself; the whole app switches at once, without reloading), ChatonLM's
+ * own "Engine" row instead of the server address (settings/Engine.tsx: the
+ * llama.cpp engine built into ChatonLM, its version, the graphics card or
+ * the processor it uses, a fallback to the processor, its logs), the model
+ * location (settings/ModelsFolder.tsx: the folder of ChatonLM's own models,
+ * changed with a folder picker, the models moved with a progress bar),
+ * context length and theme (no cloud switch, no network or apps), the
  * "Close button" row (settings/CloseButton.tsx: hide to the system tray or
  * quit) and "Applications menu" row, last, only when running from an
- * AppImage (settings/MenuEntry.tsx), both untouched by "Reset to defaults".
- * Read aloud:
- * ChatonLM's own cards (settings/ReadAloud.tsx: reading new responses aloud
- * automatically, the state of the voices), the switch turned off by "Reset
- * to defaults" in the same write. Voice mode: ChatonLM's own cards
- * (settings/VoiceMode.tsx: taking turns, pause, interrupting by speaking,
- * thinking, voice instructions, links to dictation and voices), untouched
- * by "Reset to defaults". Easy Link: ChatonLM's own cards
- * (settings/EasyLink.tsx: the Telegram and Discord bots that let one talk to
- * the local models from a messenger, their linked accounts, the commands of
- * the bots), untouched by "Reset to defaults". VS Code: ChatonLM's own card
- * (settings/VsCode.tsx: the local bridge of the ChatonLM extension for VS
- * Code, its pairing code and the paired editors), untouched by "Reset to
- * defaults".
+ * AppImage (settings/MenuEntry.tsx), both untouched by "Reset to defaults";
+ * then ChatonLM's own "Updates" card (settings/Updates.tsx: installed
+ * versions, "Check for updates", state of the update, the official
+ * "Auto-download updates" switch; untouched by "Reset to defaults";
+ * scrolled into view and focused each time the page is opened for it from
+ * the system tray, card=updates), then "Reset to defaults", then ChatonLM's
+ * own "Report a bug" card (settings/BugReport.tsx: a message sent through
+ * chatonlm.com, an optional reply address, diagnostic shown before sending,
+ * logs folder) and "Support ChatonLM" card, last (settings/Donate.tsx: what
+ * donations pay for, and a button that opens the donation page of the
+ * website); the context length is sent with each request, with a "Default"
+ * stop (the model's own choice), and is never disabled; "Saved" only once a
+ * change is saved, an error when it isn't; "Reset to defaults" resets the
+ * language, the context length and the theme in one write, without clearing
+ * the selected model nor touching the model location or web search; the
+ * context length knob stays on the chosen step while it is saved; "Saved"
+ * announced again on each save; controls rewritten (no copy of the original
+ * ui/ components); Dictation: ChatonLM's own cards (settings/Dictation.tsx),
+ * shown and focused each time the page is opened for them
+ * (section=dictation), untouched by "Reset to defaults"; Models: ChatonLM's
+ * own cards (settings/Models.tsx: how long models stay loaded, preloading of
+ * the chosen model, the models in memory; settings/ModelImport.tsx: the
+ * models of Ollama taken into ChatonLM), untouched by "Reset to defaults";
+ * texts in English, Spanish and French (src/i18n), the English ones
+ * unchanged; Keyboard shortcuts: ChatonLM's own cards
+ * (settings/Shortcuts.tsx: system-wide shortcuts of dictation and of the
+ * correction of the selected text, then the app shortcuts), untouched by
+ * "Reset to defaults". Read aloud: ChatonLM's own cards
+ * (settings/ReadAloud.tsx: reading new responses aloud automatically, the
+ * state of the voices), the switch turned off by "Reset to defaults" in the
+ * same write. Voice mode: ChatonLM's own cards (settings/VoiceMode.tsx:
+ * taking turns, pause, interrupting by speaking, thinking, voice
+ * instructions, links to dictation and voices), untouched by "Reset to
+ * defaults". Easy Link: ChatonLM's own cards (settings/EasyLink.tsx: the
+ * Telegram and Discord bots that let one talk to the local models from a
+ * messenger, their linked accounts, the commands of the bots), untouched by
+ * "Reset to defaults". VS Code: ChatonLM's own card (settings/VsCode.tsx:
+ * the local bridge of the ChatonLM extension for VS Code, its pairing code
+ * and the paired editors), untouched by "Reset to defaults".
  */
 
 import {
@@ -77,32 +66,25 @@ import {
   CogIcon,
   FolderIcon,
   LanguageIcon,
-  ServerIcon,
   SwatchIcon,
 } from "@heroicons/react/20/solid";
-import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import type { LanguageChoice } from "@/bindings/LanguageChoice";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import type { Theme } from "@/bindings/Theme";
-import { AddressField } from "@/components/AddressField";
 import { BugReport } from "@/components/settings/BugReport";
 import { Dictation } from "@/components/settings/Dictation";
 import { CloseButtonRow } from "@/components/settings/CloseButton";
 import { Donate } from "@/components/settings/Donate";
 import { EasyLink } from "@/components/settings/EasyLink";
+import { EngineRow } from "@/components/settings/Engine";
 import { MenuEntryRow } from "@/components/settings/MenuEntry";
-import { ModelLocation } from "@/components/settings/ModelLocation";
+import { ModelImport } from "@/components/settings/ModelImport";
 import { Models } from "@/components/settings/Models";
-import { OllamaHomeAlert } from "@/components/settings/OllamaHome";
-import {
-  BuiltinLeftoverNotice,
-  BuiltinModelsDirNotice,
-  OllamaRow,
-} from "@/components/settings/OllamaSource";
-import { OllamaAccount } from "@/components/settings/OllamaAccount";
+import { ModelsFolder } from "@/components/settings/ModelsFolder";
 import { Row, RowError } from "@/components/settings/Row";
 import { ReadAloud } from "@/components/settings/ReadAloud";
+import { RemoteModels } from "@/components/settings/RemoteModels";
 import { VoiceMode } from "@/components/settings/VoiceMode";
 import { VsCode } from "@/components/settings/VsCode";
 import { Shortcuts } from "@/components/settings/Shortcuts";
@@ -112,12 +94,10 @@ import {
   SettingsTabs,
 } from "@/components/settings/SettingsTabs";
 import { Slider } from "@/components/settings/Slider";
-import { ollamaRuntimeKey, useOllamaRuntime } from "@/hooks/useOllamaRuntime";
 import { useSettings } from "@/hooks/useSettings";
 import { LANGUAGES, type TKey, useT } from "@/i18n";
 import { nativeLanguageName } from "@/i18n/format";
 import { errorMessage } from "@/lib/ipc";
-import { DEFAULT_ADDRESS } from "@/lib/serverAdvice";
 
 const savedConfirmationDuration = 3000;
 
@@ -140,7 +120,6 @@ const THEMES: { value: Theme; label: TKey }[] = [
 
 const DEFAULT_SETTINGS = {
   language: "system",
-  serverUrl: "",
   contextLength: 0,
   theme: "system",
   // Lecture automatique (onglet Read aloud) : coupée.
@@ -158,7 +137,6 @@ export type SettingsCard = "updates";
 /** Onglet d'une valeur brute du paramètre (General par défaut). */
 function tabOf(section: unknown): SettingsTab {
   return section === "models" ||
-    section === "account" ||
     section === "dictation" ||
     section === "readAloud" ||
     section === "voiceMode" ||
@@ -170,10 +148,9 @@ function tabOf(section: unknown): SettingsTab {
 }
 
 /**
- * Page des réglages, en onglets ; `section` « account » : la carte du compte
- * prend le focus (lien de l'erreur de recherche web) ; « dictation » : la
- * carte de la dictée (menu de la zone de notification) ; sinon General,
- * avec `card` « updates » : la carte des mises à jour (menu de la zone de
+ * Page des réglages, en onglets ; `section` « dictation » : la carte de la
+ * dictée (menu de la zone de notification) ; sinon General, avec `card`
+ * « updates » : la carte des mises à jour (menu de la zone de
  * notification).
  */
 export function Settings({
@@ -194,11 +171,6 @@ export function Settings({
   const tab = tabOf(section);
   const t = useT();
   const { settings, error, setSettings } = useSettings({ refresh: true });
-  const queryClient = useQueryClient();
-  const { data: runtime } = useOllamaRuntime({ enabled: tab === "general" });
-  // L'intégré choisi : l'adresse réglée ne sert plus, la sienne est montrée.
-  const builtinChosen =
-    runtime?.source === "builtin" && runtime.kind === "builtin";
   const [showSaved, setShowSaved] = useState(false);
   // Nouveau badge à chaque succès : remplacé, il est annoncé de nouveau.
   const [savedCount, setSavedCount] = useState(0);
@@ -208,8 +180,6 @@ export function Settings({
   const [rowErrors, setRowErrors] = useState<Partial<Record<RowField, string>>>(
     {},
   );
-  // Change à chaque Reset réussi : le brouillon d'adresse est abandonné.
-  const [resets, setResets] = useState(0);
   // Cran choisi en attente de la réponse : la pastille y reste (pas de
   // retour à l'ancien cran) et un second appui part de lui.
   const [pendingContext, setPendingContext] = useState<number | null>(null);
@@ -218,14 +188,11 @@ export function Settings({
   // Une réponse peut arriver après la sortie de la page : rien n'est alors
   // affiché ni programmé.
   const mounted = useRef(false);
-  const addressId = useId();
   const modelsId = useId();
   const ids = {
     language: useId(),
     languageDescription: useId(),
-    ollamaDescription: useId(),
-    address: useId(),
-    addressDescription: useId(),
+    engineDescription: useId(),
     modelsDescription: useId(),
     context: useId(),
     contextDescription: useId(),
@@ -281,20 +248,6 @@ export function Settings({
     }
   };
 
-  // Renvoie l'adresse enregistrée (normalisée par le moteur) au champ.
-  const saveAddress = async (url: string) => {
-    let saved;
-    try {
-      saved = await setSettings({ serverUrl: url });
-    } catch (cause) {
-      throw new Error(errorMessage(cause), { cause });
-    }
-    showSavedConfirmation();
-    // L'Ollama qui sert peut changer avec l'adresse.
-    void queryClient.invalidateQueries({ queryKey: ollamaRuntimeKey });
-    return saved.serverUrl;
-  };
-
   const reset = async () => {
     if (resetting) return;
     setResetting(true);
@@ -304,7 +257,6 @@ export function Settings({
     try {
       await setSettings(DEFAULT_SETTINGS);
       if (!mounted.current) return;
-      setResets((count) => count + 1);
       showSavedConfirmation();
     } catch (cause) {
       console.error("Failed to reset settings:", cause);
@@ -335,13 +287,11 @@ export function Settings({
         {tab === "models" && (
           <div className="mx-auto max-w-4xl min-w-0">
             {/* Réglages du chargement : Reset (General) n'y touche pas. */}
-            <Models onSaved={showSavedConfirmation} />
-          </div>
-        )}
-
-        {tab === "account" && (
-          <div className="mx-auto max-w-4xl min-w-0">
-            <OllamaAccount focusOnShow={request !== null} />
+            <div className="space-y-4">
+              <Models onSaved={showSavedConfirmation} />
+              <RemoteModels onSaved={showSavedConfirmation} />
+              <ModelImport />
+            </div>
           </div>
         )}
 
@@ -394,9 +344,9 @@ export function Settings({
             disabled={resetting}
             aria-busy={resetting}
             // min-w-0 : un fieldset prend au moins la largeur de son contenu
-            // (min-inline-size: min-content) ; une longue commande à copier
-            // (Model location) élargirait sinon toute la carte au-delà de la
-            // fenêtre, au lieu de défiler dans son bloc.
+            // (min-inline-size: min-content) ; un long chemin (Model
+            // location) élargirait sinon toute la carte au-delà de la
+            // fenêtre.
             className="mx-auto max-w-4xl min-w-0 space-y-4 border-0 p-0"
           >
             <div className="relative overflow-hidden rounded-xl bg-white dark:bg-neutral-800">
@@ -439,56 +389,10 @@ export function Settings({
                   </div>
                 </div>
 
-                <OllamaRow
-                  runtime={runtime}
-                  onSaved={showSavedConfirmation}
-                  descriptionId={ids.ollamaDescription}
-                />
+                <EngineRow descriptionId={ids.engineDescription} />
 
-                <Row
-                  icon={ServerIcon}
-                  label={
-                    <label id={ids.address} htmlFor={addressId}>
-                      {t("settings.general.address.label")}
-                    </label>
-                  }
-                  description={
-                    builtinChosen
-                      ? t("settings.ollama.address")
-                      : t("chat.server.addressHint")
-                  }
-                  descriptionId={ids.addressDescription}
-                >
-                  <div className="mt-3">
-                    {builtinChosen ? (
-                      <input
-                        id={addressId}
-                        value={runtime.url}
-                        readOnly
-                        aria-describedby={ids.addressDescription}
-                        className="h-9 w-full min-w-0 rounded-lg border border-neutral-300 bg-neutral-50 px-3 text-sm text-neutral-700 outline-none focus-visible:border-accent-fg focus-visible:ring-2 focus-visible:ring-accent-fg/40 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300"
-                      />
-                    ) : (
-                      <AddressField
-                        key={resets}
-                        id={addressId}
-                        saved={settings.serverUrl}
-                        // L'intégré sert faute d'autre Ollama : son adresse
-                        // est privée ; un champ vide donne celle-ci.
-                        effective={
-                          runtime?.kind === "builtin"
-                            ? DEFAULT_ADDRESS
-                            : settings.effectiveServerUrl
-                        }
-                        onSave={saveAddress}
-                        describedBy={ids.addressDescription}
-                      />
-                    )}
-                  </div>
-                </Row>
-
-                {/* Dossier du serveur d'Ollama, pas un réglage de l'app : Reset
-                  n'y touche pas. */}
+                {/* Dossier des modèles du moteur, pas un réglage de la page :
+                    Reset n'y touche pas. */}
                 <Row
                   icon={FolderIcon}
                   label={
@@ -499,21 +403,11 @@ export function Settings({
                   description={t("settings.general.modelLocation.description")}
                   descriptionId={ids.modelsDescription}
                 >
-                  <ModelLocation
+                  <ModelsFolder
                     inputId={modelsId}
                     describedBy={ids.modelsDescription}
-                    serverUrl={settings.effectiveServerUrl}
                     onSaved={showSavedConfirmation}
                   />
-                  {/* Clé d'Ollama cachée à son service (ProtectHome=). */}
-                  <OllamaHomeAlert onSaved={showSavedConfirmation} />
-                  {/* Modèles restés chez l'intégré, celui de la machine servant. */}
-                  <BuiltinLeftoverNotice
-                    runtime={runtime}
-                    onSaved={showSavedConfirmation}
-                  />
-                  {/* Dossier choisi pour l'intégré introuvable : celui par défaut. */}
-                  <BuiltinModelsDirNotice runtime={runtime} />
                 </Row>
 
                 <Row

@@ -13,9 +13,13 @@
 #                                                     reconnue étrangère au
 #                                                     projet : plus signalée
 #                                                     tant qu'elle ne change pas
+#         scripts/leak-check.sh processes             processus d'essai restés
+#                                                     en vie seulement
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/roots.sh
+source "$root/scripts/lib/roots.sh"
 marker="$root/.tools/leak/marker"
 acknowledged="$root/.tools/leak/acknowledged"
 app_id="com.chatonlm.chatonlm"
@@ -39,18 +43,47 @@ forbidden=(
 
 # Dossiers surveillés sur trois niveaux (le bureau y écrit en continu), plus la
 # racine du dossier personnel et le dossier d'exécution sur un niveau.
+# ~/.ollama reste surveillé (reprise des modèles d'un Ollama : lecture seule).
+# Moteur llama.cpp : son cache par défaut (~/.cache/llama.cpp, ou LLAMA_CACHE)
+# et celui de Hugging Face (~/.cache/huggingface, ~/.huggingface) ne doivent
+# jamais servir (l'app et scripts/test-llama.sh gardent tout sous leurs
+# dossiers) ; ils ne sont pas interdits (l'utilisateur peut se servir de
+# llama.cpp lui-même), mais signalés (signatures « llama », « huggingface »).
 watched=(
   "$HOME/.cache" "$HOME/.config" "$HOME/.local/share" "$HOME/.local/state"
   "$HOME/.ollama" "$HOME/.pki" "$HOME/.nv" "$HOME/.cargo" "$HOME/.ssh"
+  "$HOME/.huggingface"
 )
 shallow=("$HOME" "$runtime_dir")
 
 # Signatures des outils du projet : une modification qui y correspond est suspecte.
-suspect_re='chatonlm|tauri|webkit|ollama|/gh(/|$)|pki|nssdb|cargo|rustup|npm|node-gyp|node_repl|wget-hsts|playwright|chrom|fontconfig|mesa_shader|nvidia|GLCache|ComputeCache|spectacle|kwin|recently-used|dconf|gstreamer|/\.nv(/|$)|/dbus-1(/|$)|at-spi/bus$'
+suspect_re='chatonlm|tauri|webkit|ollama|llama|huggingface|/gh(/|$)|pki|nssdb|cargo|rustup|npm|node-gyp|node_repl|wget-hsts|playwright|chrom|fontconfig|mesa_shader|nvidia|GLCache|ComputeCache|spectacle|kwin|recently-used|dconf|gstreamer|/\.nv(/|$)|/dbus-1(/|$)|at-spi/bus$'
 
 usage() {
-  echo "Usage : $0 start | report [--since <epoch>] [-v] | ack <chemin>..." >&2
+  echo "Usage : $0 start | report [--since <epoch>] [-v] | ack <chemin>... | processes" >&2
   exit 2
+}
+
+# Chemin rendu littéral dans une expression régulière étendue (chaque
+# caractère spécial entre crochets : grep avertit d'une barre oblique
+# inverse devant un caractère ordinaire).
+ere_literal() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/[.*+?(){}|$[]/[&]/g' -e 's/\^/\\^/g'
+}
+
+# Processus d'essai restés en vie, une ligne « PROCESSUS <pid> <commande> »
+# chacun : sessions virtuelles et app lancée par un essai, et instance du
+# vrai moteur d'essai (HOME sous .tools/llama-test de l'arbre principal :
+# scripts/test-llama.sh), orpheline si elle survit à l'essai qui l'a lancée
+# (elle garderait sa mémoire, et parfois le verrou des vrais serveurs).
+test_processes() {
+  local runs llama pid
+  runs="$(ere_literal "$root/.tools/e2e-runs")"
+  llama="$(ere_literal "$(chatonlm_llama_test_home "$root")/home")"
+  while IFS= read -r pid; do
+    echo "  PROCESSUS $pid $(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | cut -c1-80)"
+  done < <(grep -lzsE "^(CHATONLM_E2E_SESSION=1|HOME=$runs/.*|HOME=$llama)$" \
+    /proc/[0-9]*/environ 2>/dev/null | cut -d/ -f3 | sort -n)
 }
 
 # Vrai si le chemin a été reconnu étranger au projet et n'a pas changé depuis.
@@ -125,13 +158,11 @@ case "${1:-}" in
       } | sort -u
     )
 
-    # Processus de test restés en vie (sessions virtuelles, app lancée par un
-    # essai). L'instance Ollama de test, voulue, n'en fait pas partie.
-    while IFS= read -r pid; do
-      echo "  PROCESSUS $pid $(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | cut -c1-80)"
+    # Processus de test restés en vie (test_processes).
+    while IFS= read -r line; do
+      echo "$line"
       suspects=$((suspects + 1))
-    done < <(grep -lzsE "^(CHATONLM_E2E_SESSION=1|HOME=$root/\.tools/e2e-runs/.*)$" \
-      /proc/[0-9]*/environ 2>/dev/null | cut -d/ -f3 | sort -n)
+    done < <(test_processes)
 
     while IFS= read -r path; do
       echo "  /tmp      $path (effacé au redémarrage)"
@@ -150,6 +181,14 @@ case "${1:-}" in
       exit 1
     fi
     echo "Aucune écriture suspecte."
+    ;;
+  processes)
+    found="$(test_processes)"
+    if [ -n "$found" ]; then
+      echo "$found"
+      exit 1
+    fi
+    echo "Aucun processus d'essai resté en vie."
     ;;
   *)
     usage

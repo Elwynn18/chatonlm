@@ -103,7 +103,7 @@ export type PanelAction =
 export const INITIAL_STATE: PanelState = {
   connection: "connecting",
   models: [],
-  cloudModels: [],
+  remoteModels: [],
   model: null,
   ephemeral: false,
   chatId: null,

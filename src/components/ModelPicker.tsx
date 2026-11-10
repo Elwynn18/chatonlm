@@ -7,21 +7,26 @@
  * file app/ui/app/src/components/ModelPicker.tsx, commit 42e911bc3d05.
  * Modified for ChatonLM: the stale-model check is made by the banner itself
  * (StaleModelBanner.tsx, src/hooks/useOutdatedModels.ts), not by the picker;
- * cloud models only once the "Use cloud models" setting allows them (a typed
- * cloud name is not looked up otherwise), with a Heroicons cloud instead of
- * the official glyph, also on the button, and the paid plan they need as a
- * chip; the selected model keeps its state during a search; Escape is consumed so that it never
- * reaches the rest of the app; typed close handle instead of a method added
- * to the DOM node; a typed name is looked up in the registry 300 ms after the
- * last keystroke (src/hooks/useModels.ts), not at each one; long names are
- * cut at their start so that their tag stays visible, a Hugging Face name
- * (hf.co/...) shown as a title and a tag chip (full name as tooltip); the
- * button has a maximum width; names compared without case (src/lib/models.ts);
- * while Ollama does not answer (src/hooks/useServerHealth.ts), the button says
- * "Unavailable" instead of "Loading..." (still "Loading..." while the built-in
- * Ollama starts); a recommended model not yet downloaded shows the memory it
- * needs and whether it fits this machine (ModelHub's pill); texts translated
- * into English, Spanish and French (src/i18n).
+ * the models of ChatonLM's own engine (Hugging Face ids, models taken from
+ * Ollama) and, once the "remote models" setting lists them, remote models,
+ * marked with a Heroicons cloud and their provider, also on the button; the
+ * selected model keeps its state during a search; Escape is consumed so that
+ * it never reaches the rest of the app; typed close handle instead of a
+ * method added to the DOM node; a typed Hugging Face id (author/repo[:QUANT])
+ * is looked up on Hugging Face 300 ms after the last keystroke
+ * (src/hooks/useModels.ts), not at each one, instead of Ollama's registry;
+ * long names are cut at their start so that their tag stays visible, a
+ * Hugging Face id shown as a title and a quantization chip (full shown name
+ * as tooltip); the button has a maximum width; ids compared like the engine
+ * (src/lib/models.ts); a recommended model not yet downloaded shows the
+ * memory it needs and whether it fits this machine (ModelHub's pill); the
+ * button and each line carry their model's id (data-model-id) for the
+ * app's tests;
+ * the model of an opened chat is restored by the composer (ChatForm), not
+ * by the picker, so that it is restored once; a remote provider is named by
+ * the name the user gave it (Settings ›
+ * Models), the tooltip of a line is its shown name, never the raw id;
+ * texts translated into English, Spanish and French (src/i18n).
  */
 
 import { ArrowDownTrayIcon, CloudIcon } from "@heroicons/react/24/outline";
@@ -39,24 +44,28 @@ import {
 import { ModelLabel } from "@/components/ModelLabel";
 import { FitPill } from "@/components/hub/ModelBits";
 import type { RecommendedModel } from "@/bindings/RecommendedModel";
+import type { RemoteProvider } from "@/bindings/RemoteProvider";
 import {
-  useCloudModels,
   useRecommendedModels,
   useSelectedModel,
   useUpstreamModel,
 } from "@/hooks/useModels";
 import { useHubHardware } from "@/hooks/useHub";
-import { useServerHealth } from "@/hooks/useServerHealth";
 import { useT } from "@/i18n";
 import { formatBytes } from "@/i18n/format";
-import { isCloudModel } from "@/lib/dictation";
-import { sameModel } from "@/lib/modelNames";
+import { useRemoteProviders } from "@/hooks/useRemoteProviders";
+import {
+  isRemoteModel,
+  parseModelName,
+  sameModel,
+  shortModelName,
+} from "@/lib/modelNames";
+import { providerName } from "@/lib/remoteModels";
 import {
   type ModelEntry,
-  paidPlan,
   pickerEntries,
   recommendedNames,
-  upstreamCandidate,
+  typedRepo,
 } from "@/lib/models";
 
 /** Fermeture du menu par la zone de saisie (un seul menu ouvert à la fois). */
@@ -65,41 +74,37 @@ export interface ModelPickerHandle {
 }
 
 export function ModelPicker({
-  chatId,
   onModelSelect,
   onEscape,
-  isDisabled,
   ref,
 }: {
-  chatId?: string;
   onModelSelect?: () => void;
   onEscape?: () => void;
-  isDisabled?: boolean;
   ref?: Ref<ModelPickerHandle>;
 }): JSX.Element {
   const t = useT();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const { selected, models, loading, select } = useSelectedModel(chatId);
-  // Ollama ne répond plus (bandeau « Ollama isn't responding ») : pas de
-  // « Loading... » sans fin ; l'intégré qui (re)démarre reste « Loading... ».
-  const health = useServerHealth();
-  const unavailable = !health.healthy && !health.starting;
+  // Le modèle de la conversation ouverte est repris par la zone de saisie
+  // (ChatForm), une seule fois : pas ici.
+  const { selected, models, loading, select } = useSelectedModel();
+  // Noms réglés des fournisseurs, lus seulement s'il y a un modèle distant.
+  const anyRemote =
+    isRemoteModel(selected?.model ?? "") ||
+    models.some((model) => model.origin === "remote");
+  const providers = useRemoteProviders(anyRemote).data;
   const recommendations = useRecommendedModels();
-  const cloud = useCloudModels();
   const recommended = useMemo(
-    () => recommendedNames(recommendations, cloud),
-    [recommendations, cloud],
+    () => recommendedNames(recommendations),
+    [recommendations],
   );
   const listed = useMemo(
     () => pickerEntries(models, selected, searchQuery, recommended),
     [models, selected, searchQuery, recommended],
   );
-  // Nom tapé qu'aucune ligne ne porte : proposé s'il existe au registre (il
-  // sera téléchargé au prochain envoi).
-  const upstream = useUpstreamModel(
-    upstreamCandidate(listed, searchQuery, cloud) ?? "",
-  );
+  // Identifiant de Hugging Face tapé qu'aucune ligne ne porte : proposé s'il
+  // existe (il sera téléchargé au prochain envoi).
+  const upstream = useUpstreamModel(typedRepo(listed, searchQuery));
   const entries = useMemo(
     () =>
       upstream === null
@@ -176,6 +181,9 @@ export function ModelPicker({
       <button
         type="button"
         title={t("chat.picker.button")}
+        // Identifiant du modèle montré (vide sans modèle) : lu par les e2e,
+        // le texte du bouton n'étant que le titre et l'étiquette.
+        data-model-id={selected?.model ?? ""}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         onClick={() => (isOpen ? close() : setIsOpen(true))}
@@ -189,14 +197,16 @@ export function ModelPicker({
         className="flex max-w-64 cursor-pointer items-center gap-1.5 rounded-full bg-neutral-200 px-3.5 py-1.5 text-neutral-800 select-none focus:outline-2 focus:outline-offset-2 focus:outline-accent-fg dark:bg-neutral-700 dark:text-neutral-100"
       >
         <div className="flex min-w-0 items-center gap-2">
-          {unavailable ? (
-            <span>{t("chat.picker.unavailable")}</span>
-          ) : isDisabled || loading ? (
+          {loading ? (
             <span>{t("chat.picker.loading")}</span>
           ) : selected ? (
             <>
               <ModelLabel model={selected.model} />
-              {isCloudModel(selected.model) && <CloudMark />}
+              {isRemoteModel(selected.model) && (
+                <RemoteMark
+                  provider={publisherOf(selected, providers) ?? "?"}
+                />
+              )}
             </>
           ) : (
             <span>{t("chat.picker.none")}</span>
@@ -237,6 +247,7 @@ export function ModelPicker({
             entries={entries}
             recommendations={recommendations}
             selected={selected}
+            providers={providers}
             onModelSelect={handleModelSelect}
           />
         </div>
@@ -255,18 +266,41 @@ function scrollToItem(container: HTMLDivElement | null, index: number) {
     item.offsetTop - containerHeight / 2 + item.clientHeight / 2;
 }
 
-/** Modèle qui tourne sur ollama.com (propre à ChatonLM : nuage de Heroicons). */
-function CloudMark() {
+/**
+ * Publieur montré d'une ligne : nom réglé du fournisseur d'un modèle
+ * distant, auteur d'un modèle de Hugging Face, sinon null.
+ */
+function publisherOf(
+  entry: ModelEntry,
+  providers: readonly RemoteProvider[] | undefined,
+): string | null {
+  return isRemoteModel(entry.model)
+    ? providerName(entry.model, providers, entry.info?.provider ?? null)
+    : parseModelName(entry.model).publisher;
+}
+
+/** Infobulle d'une ligne : son nom montré en entier (titre, étiquette, publieur). */
+function entryTooltip(entry: ModelEntry, publisher: string | null): string {
+  const short = shortModelName(entry.model);
+  return publisher ? `${short} · ${publisher}` : short;
+}
+
+/**
+ * Modèle qui tourne chez un fournisseur (propre à ChatonLM : nuage de
+ * Heroicons, fournisseur dans l'infobulle).
+ */
+function RemoteMark({ provider }: { provider: string }) {
   const t = useT();
+  const label = t("chat.picker.remote", { provider });
   // Infobulle portée par l'enveloppe : un <title> dans l'icône s'ajouterait
   // au texte du bouton.
   return (
-    <span title={t("chat.picker.cloud")} className="flex flex-none">
+    <span title={label} className="flex flex-none">
       <CloudIcon
         className="h-4 w-4 text-neutral-500 dark:text-neutral-400"
         strokeWidth={1.75}
         role="img"
-        aria-label={t("chat.picker.cloud")}
+        aria-label={label}
       />
     </span>
   );
@@ -277,13 +311,16 @@ function ModelList({
   entries,
   recommendations,
   selected,
+  providers,
   onModelSelect,
 }: {
   listRef: RefObject<HTMLDivElement | null>;
   entries: ModelEntry[];
-  /** Forfait exigé des modèles cloud recommandés. */
+  /** Mémoire et pastille des modèles recommandés. */
   recommendations: readonly RecommendedModel[];
   selected: ModelEntry | null;
+  /** Fournisseurs distants (noms réglés), s'ils sont lus. */
+  providers: readonly RemoteProvider[] | undefined;
   onModelSelect: (entry: ModelEntry) => void;
 }): JSX.Element {
   const t = useT();
@@ -338,55 +375,61 @@ function ModelList({
           {t("chat.picker.empty")}
         </div>
       ) : (
-        entries.map((entry, index) => (
-          <button
-            key={entry.model}
-            type="button"
-            role="option"
-            aria-selected={isSelected(entry)}
-            title={entry.model}
-            onClick={() => onModelSelect(entry)}
-            onMouseEnter={() => setHighlightedIndex(index)}
-            className={`flex w-full cursor-pointer items-center gap-2 px-3 py-2 hover:bg-neutral-100 focus:outline-none dark:hover:bg-neutral-700/60 ${
-              highlightedIndex === index || isSelected(entry)
-                ? "bg-neutral-100 dark:bg-neutral-700/60"
-                : ""
-            }`}
-          >
-            <span className="min-w-0 flex-1 text-left">
-              <ModelLabel model={entry.model} showPublisher />
-            </span>
-            {isCloudModel(entry.model) ? (
-              <>
-                <PlanChip plan={paidPlan(recommendations, entry.model)} />
-                <CloudMark />
-              </>
-            ) : (
-              entry.info === null && (
-                <>
-                  <NeedBits
-                    recommendation={recommendationOf(
-                      recommendations,
-                      entry.model,
-                    )}
-                  />
-                  <ArrowDownTrayIcon
-                    className="h-4 w-4 text-neutral-500 dark:text-neutral-400"
-                    strokeWidth={1.75}
-                    aria-label={t("chat.picker.notDownloaded")}
-                  />
-                </>
-              )
-            )}
-          </button>
-        ))
+        entries.map((entry, index) => {
+          const publisher = publisherOf(entry, providers);
+          return (
+            <button
+              key={entry.model}
+              type="button"
+              role="option"
+              aria-selected={isSelected(entry)}
+              title={entryTooltip(entry, publisher)}
+              // Identifiant de la ligne, lu par les essais (le texte et
+              // l'infobulle ne montrent que le nom).
+              data-model-id={entry.model}
+              onClick={() => onModelSelect(entry)}
+              onMouseEnter={() => setHighlightedIndex(index)}
+              className={`flex w-full cursor-pointer items-center gap-2 px-3 py-2 hover:bg-neutral-100 focus:outline-none dark:hover:bg-neutral-700/60 ${
+                highlightedIndex === index || isSelected(entry)
+                  ? "bg-neutral-100 dark:bg-neutral-700/60"
+                  : ""
+              }`}
+            >
+              <span className="min-w-0 flex-1 text-left">
+                <ModelLabel
+                  model={entry.model}
+                  showPublisher
+                  publisher={publisher}
+                />
+              </span>
+              {isRemoteModel(entry.model) ? (
+                <RemoteMark provider={publisher ?? "?"} />
+              ) : (
+                entry.info === null && (
+                  <>
+                    <NeedBits
+                      recommendation={recommendationOf(
+                        recommendations,
+                        entry.model,
+                      )}
+                    />
+                    <ArrowDownTrayIcon
+                      className="h-4 w-4 text-neutral-500 dark:text-neutral-400"
+                      strokeWidth={1.75}
+                      aria-label={t("chat.picker.notDownloaded")}
+                    />
+                  </>
+                )
+              )}
+            </button>
+          );
+        })
       )}
     </div>
   );
 }
 
-/** Forfait payant qu'exige un modèle cloud (rien s'il est gratuit ou inconnu). */
-/** Recommandation du serveur pour ce modèle, s'il en est une. */
+/** Recommandation pour ce modèle, s'il en est une. */
 function recommendationOf(
   recommendations: readonly RecommendedModel[],
   model: string,
@@ -422,20 +465,5 @@ function NeedBits({
         gpu={hardware === null ? null : hardware.gpus.length > 0}
       />
     </>
-  );
-}
-
-function PlanChip({ plan }: { plan: "pro" | "max" | null }) {
-  const t = useT();
-  if (plan === null) return null;
-  const name =
-    plan === "pro" ? t("chat.picker.plans.pro") : t("chat.picker.plans.max");
-  return (
-    <span
-      title={t("chat.picker.planRequired", { plan: name })}
-      className="flex-none rounded-full border border-neutral-300 px-1.5 text-xs/5 text-neutral-600 dark:border-neutral-600 dark:text-neutral-300"
-    >
-      {name}
-    </span>
   );
 }

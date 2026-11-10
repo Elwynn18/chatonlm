@@ -2,9 +2,8 @@
 // l'ordre de la file, ceux en pause à leur place), puis terminés (le plus
 // récent d'abord) ; progression, Pause ou Resume, « Download first » pour un
 // téléchargement en file (il démarre tout de suite, le dernier en cours
-// retournant en file), Cancel ; Use in chat et Dismiss, échec avec Try again
-// (et, si la clé d'Ollama est
-// cachée à son service, « Fix in Settings › General »). Un modèle téléchargé puis
+// retournant en file), Cancel ; Use in chat et Dismiss, échec avec Try
+// again. Un modèle téléchargé puis
 // supprimé (absent des installés relus depuis sa fin) n'est plus « Installed » :
 // « No longer installed », Download again. Sous eux, section « Speech
 // models » : téléchargements des modèles de transcription de la dictée, avec
@@ -27,7 +26,6 @@ import { ModelAvatar } from "@/components/hub/ModelBits";
 import { SpeechDownloadRow } from "@/components/hub/SpeechModels";
 import { VoiceDownloadRow } from "@/components/hub/VoiceModels";
 import { EmptyState } from "@/components/hub/Status";
-import { OllamaHomeLink } from "@/components/settings/OllamaHome";
 import {
   CARD,
   CHIP,
@@ -243,7 +241,7 @@ function DownloadRow({
   // Pas encore fini : en file, en cours ou en pause.
   const active = isPendingDownload(download);
   const paused = download.state === "paused";
-  // Tout est reçu, Ollama vérifie : plus rien à mettre en pause.
+  // Tout est reçu, l'empreinte est vérifiée : plus rien à mettre en pause.
   const pausable = active && !paused && download.state !== "finishing";
   const retry = () =>
     start.mutate({
@@ -421,20 +419,13 @@ function FinishedLine({
       );
     case "failed":
       return (
-        <>
-          <p
-            role="alert"
-            className="flex items-start gap-1.5 text-xs break-words text-red-600 dark:text-red-400"
-          >
-            <XCircleIcon aria-hidden="true" className="h-4 w-4 flex-none" />
-            {download.error ?? t("hub.downloadState.failed")}
-          </p>
-          {/* Clé d'Ollama cachée à son service : la correction. */}
-          <OllamaHomeLink
-            error={download.error}
-            className="mt-1 inline-block text-xs"
-          />
-        </>
+        <p
+          role="alert"
+          className="flex items-start gap-1.5 text-xs break-words text-red-600 dark:text-red-400"
+        >
+          <XCircleIcon aria-hidden="true" className="h-4 w-4 flex-none" />
+          {download.error ?? t("hub.downloadState.failed")}
+        </p>
       );
     default:
       return (

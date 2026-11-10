@@ -1,7 +1,13 @@
-// Noms de modèles lisibles (propre à ChatonLM) : un nom Ollama de Hugging Face
-// (`hf.co/<auteur>/<dépôt>:<étiquette>`) est long et sa fin, l'étiquette,
-// distingue les versions d'un même dépôt ; l'interface le montre en titre et
-// étiquette séparés, l'étiquette toujours visible.
+// Noms de modèles lisibles (propre à ChatonLM). Identifiants du moteur
+// (contrats 100 § 1 et 102 § 1.1) : `<auteur>/<dépôt>:<QUANT>` pour un
+// modèle de Hugging Face, `@ollama/<nom>:<étiquette>` pour un modèle repris
+// d'Ollama, `@remote/<fournisseur>/<modèle>` pour un modèle distant. Les
+// anciens noms d'Ollama (`qwen3:0.6b`, `hf.co/<auteur>/<dépôt>:<étiquette>`)
+// restent lisibles : l'historique les garde. L'interface montre un titre et
+// une étiquette séparés, l'étiquette toujours visible.
+
+/** Sorte d'identifiant. */
+export type ModelKind = "hf" | "ollama" | "remote" | "other";
 
 /** Nom de modèle décomposé pour l'affichage. */
 export interface ModelName {
@@ -9,11 +15,20 @@ export interface ModelName {
   title: string;
   /** « Q4_K_M », « 0.6b » ; vide : pas d'étiquette. */
   tag: string;
-  /** Auteur d'un nom hf.co, espace de noms d'un autre nom ; sinon null. */
+  /**
+   * Auteur d'un modèle de Hugging Face, fournisseur d'un modèle distant,
+   * espace de noms d'un ancien nom ; sinon null.
+   */
   publisher: string | null;
-  /** Dépôt Hugging Face « auteur/dépôt » d'un nom hf.co, sinon null. */
+  /** Dépôt Hugging Face « auteur/dépôt », sinon null. */
   repo: string | null;
+  kind: ModelKind;
 }
+
+/** Préfixe des modèles repris d'Ollama. */
+export const OLLAMA_PREFIX = "@ollama/";
+/** Préfixe des modèles distants. */
+export const REMOTE_PREFIX = "@remote/";
 
 const HF_HOSTS = ["hf.co", "huggingface.co"];
 
@@ -22,21 +37,65 @@ export function withoutGgufSuffix(repo: string): string {
   return repo.replace(/[-_]gguf$/i, "") || repo;
 }
 
+/** Modèle distant (`@remote/…`, même mal formé : jamais local). */
+export function isRemoteModel(model: string): boolean {
+  return model.trim().startsWith(REMOTE_PREFIX);
+}
+
+/** Coupe au dernier « : » placé après le dernier « / » (un hôte peut porter un port). */
+function splitTag(name: string): { path: string; tag: string } {
+  const slash = name.lastIndexOf("/");
+  const colon = name.lastIndexOf(":");
+  return colon > slash
+    ? { path: name.slice(0, colon), tag: name.slice(colon + 1) }
+    : { path: name, tag: "" };
+}
+
 /**
- * Décompose un nom de modèle : `hf.co/bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M`
- * → titre « SmolLM2-135M-Instruct », étiquette « Q4_K_M », publieur
- * « bartowski » ; `qwen3:0.6b` → « qwen3 », « 0.6b ». L'étiquette est ce qui
- * suit le dernier « : » placé après le dernier « / » (un hôte peut porter un
- * port).
+ * Décompose un nom de modèle :
+ * `bartowski/SmolLM2-135M-Instruct-GGUF:Q4_K_M` → titre
+ * « SmolLM2-135M-Instruct », étiquette « Q4_K_M », publieur « bartowski » ;
+ * `@ollama/qwen3:0.6b` → « qwen3 », « 0.6b » ;
+ * `@remote/openrouter/meta-llama/llama-3.3-70b:free` → titre
+ * « meta-llama/llama-3.3-70b:free » (le nom du fournisseur, tel quel),
+ * publieur « openrouter » ; ancien nom `qwen3:0.6b` → « qwen3 », « 0.6b ».
  */
 export function parseModelName(model: string): ModelName {
   const name = model.trim();
-  const slash = name.lastIndexOf("/");
-  const colon = name.lastIndexOf(":");
-  const hasTag = colon > slash;
-  const path = hasTag ? name.slice(0, colon) : name;
-  const tag = hasTag ? name.slice(colon + 1) : "";
+  if (name.startsWith(REMOTE_PREFIX)) {
+    const rest = name.slice(REMOTE_PREFIX.length);
+    const slash = rest.indexOf("/");
+    return slash > 0 && slash < rest.length - 1
+      ? {
+          title: rest.slice(slash + 1),
+          tag: "",
+          publisher: rest.slice(0, slash),
+          repo: null,
+          kind: "remote",
+        }
+      : {
+          title: rest || name,
+          tag: "",
+          publisher: null,
+          repo: null,
+          kind: "remote",
+        };
+  }
+  if (name.startsWith(OLLAMA_PREFIX)) {
+    const { path, tag } = splitTag(name.slice(OLLAMA_PREFIX.length));
+    // Identifiant de repli `@ollama/<hôte>/<espace>/<modèle>:<étiquette>` :
+    // le modèle seul en titre.
+    return {
+      title: path.split("/").at(-1) || path,
+      tag,
+      publisher: null,
+      repo: null,
+      kind: "ollama",
+    };
+  }
+  const { path, tag } = splitTag(name);
   const parts = path.split("/");
+  // Ancien nom de Hugging Face d'Ollama (`hf.co/<auteur>/<dépôt>`).
   if (
     parts.length === 3 &&
     HF_HOSTS.includes(parts[0].toLowerCase()) &&
@@ -48,6 +107,17 @@ export function parseModelName(model: string): ModelName {
       tag,
       publisher: parts[1],
       repo: `${parts[1]}/${parts[2]}`,
+      kind: "hf",
+    };
+  }
+  // Identifiant de la base locale : `<auteur>/<dépôt>:<QUANT>`.
+  if (parts.length === 2 && parts[0] && parts[1] && tag) {
+    return {
+      title: withoutGgufSuffix(parts[1]),
+      tag,
+      publisher: parts[0],
+      repo: path,
+      kind: "hf",
     };
   }
   const title = parts.at(-1) || name;
@@ -57,12 +127,8 @@ export function parseModelName(model: string): ModelName {
     tag,
     publisher: namespace && namespace !== "library" ? namespace : null,
     repo: null,
+    kind: "other",
   };
-}
-
-/** Nom de Hugging Face (`hf.co/...`, sans tenir compte de la casse) ? */
-export function isHuggingFaceName(model: string): boolean {
-  return parseModelName(model).repo !== null;
 }
 
 /**
@@ -75,31 +141,34 @@ export function displayTag(tag: string): string {
 
 /**
  * Nom court à citer dans une phrase : « SmolLM2-135M-Instruct:Q4_K_M » pour
- * un modèle de Hugging Face, le nom tel quel sinon (« qwen3:0.6b »).
+ * un modèle de Hugging Face ou repris d'Ollama, le nom du fournisseur pour
+ * un modèle distant, le nom tel quel sinon (« qwen3:0.6b »).
  */
 export function shortModelName(model: string): string {
   const name = parseModelName(model);
-  if (!name.repo) return model.trim();
-  return name.tag ? `${name.title}:${displayTag(name.tag)}` : name.title;
+  switch (name.kind) {
+    case "hf":
+    case "ollama":
+      return name.tag ? `${name.title}:${displayTag(name.tag)}` : name.title;
+    case "remote":
+      return name.title;
+    case "other":
+      return model.trim();
+  }
 }
 
 /**
- * Deux noms désignent-ils le même modèle ? Ollama résout les noms sans tenir
- * compte de la casse.
+ * Deux identifiants désignent-ils le même modèle ? Comme le moteur
+ * (`llm::ids::same`) : la quantification sans tenir compte de la casse, le
+ * reste exactement ; un modèle distant, exactement.
  */
 export function sameModel(a: string, b: string): boolean {
-  return a.trim().toLowerCase() === b.trim().toLowerCase();
-}
-
-/**
- * Nom avec son étiquette, `latest` à défaut comme Ollama le résout
- * (« gemma4 » → « gemma4:latest ») : le sélecteur montre les noms sans
- * `:latest`, /api/tags les donne avec. L'étiquette se cherche après le
- * dernier « / » (un hôte peut porter un port).
- */
-export function withTag(model: string): string {
-  const name = model.trim();
-  return name.slice(name.lastIndexOf("/") + 1).includes(":")
-    ? name
-    : `${name}:latest`;
+  const left = a.trim();
+  const right = b.trim();
+  if (isRemoteModel(left) || isRemoteModel(right)) return left === right;
+  const one = splitTag(left);
+  const other = splitTag(right);
+  return (
+    one.path === other.path && one.tag.toUpperCase() === other.tag.toUpperCase()
+  );
 }

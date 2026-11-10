@@ -9,12 +9,11 @@ import type { ImageProgress } from "@/bindings/ImageProgress";
 import type { StagedFile } from "@/bindings/StagedFile";
 import type { Think } from "@/bindings/Think";
 import type { VoiceSend } from "@/bindings/VoiceSend";
-import { accountKey } from "@/hooks/useAccount";
 import { chatKey, chatsKey } from "@/hooks/useChats";
 import { release } from "@/hooks/useComposerFiles";
 import { forgetLeft } from "@/hooks/useEphemeral";
+import { engineStatusKey } from "@/lib/engine";
 import { modelsKey } from "@/hooks/useModels";
-import { healthKey } from "@/hooks/useServerHealth";
 import { modelDetailsKey } from "@/hooks/useThink";
 import { markEphemeral, setNewChatEphemeral } from "@/lib/ephemeral";
 import { cancelMessage, errorMessage, sendMessage } from "@/lib/ipc";
@@ -184,18 +183,17 @@ export function useSendMessage() {
             }
             break;
           case "error":
+            // Moteur en panne ou repli sur le processeur : l'état du moteur
+            // (Settings › General) est relu.
             if (
+              event.kind === "engineUnavailable" ||
               event.kind === "engineFailed" ||
               event.kind === "connectionLost"
             )
-              void queryClient.invalidateQueries({ queryKey: healthKey });
-            // Le serveur n'a pas (ou plus) de compte : la carte des réglages,
-            // où mène l'erreur, ne doit pas montrer un compte périmé.
-            if (
-              event.kind === "webSearchUnavailable" ||
-              event.kind === "remoteKey"
-            )
-              void queryClient.invalidateQueries({ queryKey: accountKey });
+              void queryClient.invalidateQueries({ queryKey: engineStatusKey });
+            // Modèle disparu (supprimé ailleurs) : la liste est relue.
+            if (event.kind === "modelMissing")
+              void queryClient.invalidateQueries({ queryKey: modelsKey });
             finalEvent();
             break;
           case "done":

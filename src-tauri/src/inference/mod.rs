@@ -36,6 +36,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 mod api;
+mod dialect;
 mod error;
 mod sse;
 mod stream;
@@ -44,18 +45,20 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-// Réexportations : l'API du module (employée par les lots L3 et L5).
-#[allow(unused_imports)]
-pub use api::{chat_once, health, infill, props, tokenize};
+// Réexportations : l'API du module.
+pub use api::{chat_once, health, infill, props};
 pub use error::InferenceError;
-#[allow(unused_imports)]
 pub use stream::{ChatStream, Event, chat_stream};
-#[allow(unused_imports)]
 pub use types::{
-    ChatRequest, ChatResponse, Content, Effort, FinishReason, Health, InfillChunk, InfillRequest,
-    InfillResponse, InfillStop, Message, Modalities, Part, Props, ResponseFormat, Role,
-    TemplateCaps, Think, Timings, ToolCall, Usage,
+    ChatRequest, ChatResponse, Content, Effort, FinishReason, Health, InfillRequest, InfillStop,
+    Message, Part, ResponseFormat, Role, Think, Timings, ToolCall, Usage,
 };
+// Employés seulement par les essais du module (`/tokenize`, contexte de
+// l'autocomplétion, réponse de `/props`).
+#[cfg(test)]
+pub use api::tokenize;
+#[cfg(test)]
+pub use types::{InfillChunk, Props};
 
 /// Taille maximale d'un bloc SSE (un morceau de réponse ou un fragment
 /// d'appel d'outil en fait quelques centaines d'octets).
@@ -89,12 +92,16 @@ const REMOTE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Langue d'un serveur : `llama-server` (champs propres à llama.cpp permis)
 /// ou API d'OpenAI stricte (fournisseurs distants : le corps n'a ni
 /// `cache_prompt`, ni `chat_template_kwargs`, ni les réglages propres à
-/// llama.cpp ; filtrage écrit par le lot L7).
+/// llama.cpp ; filtrage dans `dialect.rs`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Dialect {
     #[default]
     LlamaServer,
     OpenAi,
+    /// API de Mistral : celle d'OpenAI, sans `stream_options`, `seed` nommé
+    /// `random_seed`, identifiants d'appels de neuf caractères ; tout champ
+    /// inconnu y est refusé (422).
+    Mistral,
 }
 
 /// Adresse d'un `llama-server` (ou d'un fournisseur distant) et sa clé

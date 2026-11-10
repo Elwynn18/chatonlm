@@ -1,6 +1,7 @@
 // Génération d'images dans la conversation, dans l'app réelle (build e2e :
 // frontend embarqué, CSP de production ; contrat
-// .tools/research/84-image-chat-contract.md § 4), avec le faux Ollama, le
+// .tools/research/84-image-chat-contract.md § 4), avec le faux moteur de
+// texte (fake-llama lancé par l'app), le
 // faux Hugging Face (familles d'essai à petites pièces,
 // CHATONLM_IMAGE_FAMILIES) et le faux moteur d'images (fake-sd-server,
 // CHATONLM_SD_SERVER_BIN) :
@@ -10,7 +11,7 @@
 //   generate_image dans la requête, « Creating an image… », barre d'étapes,
 //   aperçu (data:), image affichée et servie par le protocole des pièces
 //   jointes (chargée, 512 × 512), « Created an image », réponse suivante ;
-// - bouton Image : invite propre, aucune requête /api/chat au faux Ollama,
+// - bouton Image : invite propre, aucune demande de chat au faux moteur,
 //   image affichée, bouton toujours actif dans la conversation créée ;
 // - Stop pendant une image lente ([slow]) : « Image stopped », pas d'image ;
 //   l'image suivante se fait ;
@@ -24,16 +25,16 @@
 //   thèmes avec E2E_THEME_AUDIT ;
 // - aucune violation de la CSP ni erreur ou avertissement dans la console.
 //
-// Suppose : le faux Ollama du lot 4 (modèle chatonlm-image : appel
-// generate_image {prompt: <dernier message>, width: 512, height: 512}, puis
-// « Here is your image. ») ; le faux sd-server (`[slow]` : 400 ms par étape,
+// Suppose : le scénario chatonlm-image du faux moteur (fake-llama
+// scenarios/l8.rs : appel generate_image {prompt: <dernier message>,
+// width: 512, height: 512}, puis « Here is your image. ») ; le faux sd-server (`[slow]` : 400 ms par étape,
 // aperçus) ; chatonlm/klein-test-GGUF reconnu par image-families.json.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { E2E_HARDWARE, ROOT, withApp } from "./lib/app.mjs";
-import { startFake, startFakeHf } from "./lib/fake.mjs";
-import { PENDING_CALLS } from "./lib/page.mjs";
+import { fakeModel, startEngine, startFakeHf } from "./lib/fake.mjs";
+import { PENDING_CALLS, shownModel } from "./lib/page.mjs";
 
 const binary = process.argv[2];
 const SHOTS = ".tools/shots/image-chat";
@@ -44,14 +45,15 @@ const FAMILIES = `${ROOT}src-tauri/crates/fake-ollama/fixtures/hf/image-families
 const SD_SERVER = `${ROOT}.tools/e2e-target/debug/fake-sd-server`;
 assert.ok(existsSync(SD_SERVER), `faux moteur d'images absent : ${SD_SERVER}`);
 
-const TOOL_MODEL = "chatonlm-image";
-const PLAIN_MODEL = "qwen3:0.6b";
-
-const fake = await startFake("ollama");
+/** Modèle sans outil, le plus récent : choisi par défaut. */
+const PLAIN_MODEL = fakeModel("simple");
+/** Modèle à outils qui appelle generate_image. */
+const TOOL_MODEL = fakeModel("image");
+const engine = startEngine([PLAIN_MODEL, { id: TOOL_MODEL, tools: true }]);
 const hf = await startFakeHf("hf");
 
 const env = {
-  OLLAMA_HOST: fake.url,
+  ...engine.env,
   CHATONLM_HF_URL: hf.url,
   CHATONLM_HF_STATUS_URL: hf.url,
   CHATONLM_IMAGE_FAMILIES: FAMILIES,
@@ -76,10 +78,12 @@ async function waitUntil(check, what, timeoutMs = 10000) {
   }
 }
 
-/** Corps des /api/chat reçus par le faux serveur. */
+/** Demandes de chat reçues par le faux moteur, tous modèles confondus. */
 async function chatRequests() {
-  const response = await fetch(new URL("/fake/requests", fake.url));
-  return response.json();
+  const all = await Promise.all(
+    engine.ids.map((id) => engine.chatRequests(id)),
+  );
+  return all.flat();
 }
 
 const exists = (driver, css) =>
@@ -161,18 +165,13 @@ async function reload(driver) {
   await driver.execute(WATCH_PAGE);
 }
 
-const shownModel = (driver) =>
-  driver.execute(
-    "return document.querySelector('[title=\"Select model\"]')?.textContent ?? null",
-  );
-
 /** Bouton du sélecteur des modèles d'images (mode Image) : son texte, ou null. */
 const shownImageModel = (driver) =>
   driver.execute(
     "return document.querySelector('[title=\"Select image model\"]')?.textContent ?? null",
   );
 
-/** Attend que le sélecteur (d'Ollama ou d'images) affiche `expected`. */
+/** Attend que le sélecteur (de langage ou d'images) affiche `expected`. */
 async function waitShown(driver, read, expected, what) {
   let shown = null;
   await waitUntil(
@@ -360,7 +359,11 @@ try {
       "Choose an image model",
       "sélecteur d'images sans modèle",
     );
-    assert.equal(await shownModel(driver), null, "sélecteur d'Ollama masqué");
+    assert.equal(
+      await shownModel(driver),
+      null,
+      "sélecteur des modèles de langage masqué",
+    );
     // L'envoi attend que les modèles d'images soient lus (bouton d'envoi
     // grisé jusque-là) : refus ici, avec le lien. Un refus du moteur passe
     // par le même avis (texte rendu, lien une fois les modèles relus).
@@ -421,7 +424,7 @@ try {
     await send(driver, toolPrompt);
     const firstRequest = await waitUntil(
       async () => (await chatRequests())[before],
-      "requête /api/chat du modèle",
+      "demande de chat du modèle",
     );
     assert.ok(
       (firstRequest.tools ?? []).some(
@@ -475,7 +478,12 @@ try {
     // la famille, suivi de la variante.
     const title = chosen.recommended ? chosen.name : chosen.family.name;
     const imageModelName = chosen.quant ? `${title} ${chosen.quant}` : title;
-    await waitShown(driver, shownModel, TOOL_MODEL, "sélecteur d'Ollama");
+    await waitShown(
+      driver,
+      shownModel,
+      TOOL_MODEL,
+      "sélecteur des modèles de langage",
+    );
     await enableImageMode(driver);
     await waitShown(
       driver,
@@ -483,9 +491,18 @@ try {
       imageModelName,
       "sélecteur d'images",
     );
-    assert.equal(await shownModel(driver), null, "sélecteur d'Ollama masqué");
+    assert.equal(
+      await shownModel(driver),
+      null,
+      "sélecteur des modèles de langage masqué",
+    );
     await driver.click(await driver.find("button[aria-label='Image']"));
-    await waitShown(driver, shownModel, TOOL_MODEL, "sélecteur d'Ollama rendu");
+    await waitShown(
+      driver,
+      shownModel,
+      TOOL_MODEL,
+      "sélecteur des modèles de langage rendu",
+    );
     assert.equal(
       await shownImageModel(driver),
       null,
@@ -507,7 +524,7 @@ try {
     assert.equal(
       (await chatRequests()).length,
       requestsBefore,
-      "aucune requête /api/chat pour le bouton Image",
+      "aucune demande de chat pour le bouton Image",
     );
     // Pas de bloc de texte vide pour cette réponse.
     assert.deepEqual(await textsOf(driver, "[data-role=assistant]"), []);
@@ -574,5 +591,5 @@ try {
   assert.deepEqual(consoleErrors, [], "erreurs dans la console");
   assert.deepEqual(consoleWarnings, [], "avertissements dans la console");
 } finally {
-  await Promise.all([hf.stop(), fake.stop()]);
+  await hf.stop();
 }

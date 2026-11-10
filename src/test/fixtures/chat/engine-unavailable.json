@@ -1,0 +1,36 @@
+{
+  "description": "No engine in the installation (llama-server missing): an engineUnavailable error, nothing is loaded.",
+  "request": {
+    "streamId": "stream-1",
+    "content": "Say hello in one word.",
+    "model": "chat/Plain-GGUF:Q4_K_M"
+  },
+  "events": [
+    {
+      "type": "chatCreated",
+      "chatId": "chat-1"
+    },
+    {
+      "type": "userMessage",
+      "message": {
+        "id": 1,
+        "role": "user",
+        "content": "Say hello in one word.",
+        "thinking": "",
+        "model": null,
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000000,
+        "thinkingStartedAt": null,
+        "thinkingEndedAt": null,
+        "attachments": [],
+        "toolCalls": []
+      }
+    },
+    {
+      "type": "error",
+      "kind": "engineUnavailable",
+      "message": "this build of ChatonLM doesn't include the text engine"
+    }
+  ],
+  "error": null
+}

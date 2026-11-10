@@ -15,7 +15,8 @@ use crate::attachments::{MAX_FILE_SIZE, StageResult};
 use crate::chat::{self, ChatErrorKind, ChatEvent, Origin, SendRequest, Server};
 use crate::dictation::audio;
 use crate::i18n::t;
-use crate::ollama::{models, running};
+use crate::llm::models::{self, ChatModel};
+use crate::llm::{LlmError, ids};
 use crate::store::easy_link::{self as saved, Account, Platform};
 use crate::store::settings::Settings;
 use crate::store::{Store, chats, model_prefs, now_ms};
@@ -208,7 +209,8 @@ fn model_of(account: &Account, selected: &str) -> String {
     }
 }
 
-/// Modèle désigné par un numéro de la liste ou par un nom.
+/// Modèle désigné par un numéro de la liste, par son identifiant ou par son
+/// nom.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Picked {
     One(String),
@@ -216,42 +218,104 @@ pub(super) enum Picked {
     Many(Vec<String>),
 }
 
-/// Numéro (à partir de 1) de la liste, nom exact (à `:latest` et à la casse
-/// près), sinon le seul nom qui contient le texte.
-pub(super) fn pick(names: &[String], wanted: &str) -> Picked {
+/// Numéro (à partir de 1) de la liste ; identifiant exact (comparé comme la
+/// base : quantification sans la casse) ; nom exact (sans la casse : plusieurs quantifications d'un même
+/// dépôt le partagent) ; sinon le seul modèle dont l'identifiant ou le nom
+/// contient le texte. Rend des identifiants.
+pub(super) fn pick(models: &[ChatModel], wanted: &str) -> Picked {
     let wanted = wanted.trim();
     if let Ok(number) = wanted.parse::<usize>() {
-        return match number.checked_sub(1).and_then(|index| names.get(index)) {
-            Some(name) => Picked::One(name.clone()),
+        return match number.checked_sub(1).and_then(|index| models.get(index)) {
+            Some(model) => Picked::One(model.id.clone()),
             None => Picked::None,
         };
     }
-    if let Some(exact) = names.iter().find(|name| running::same_model(name, wanted)) {
-        return Picked::One(exact.clone());
+    if let Some(exact) = models.iter().find(|model| ids::same(&model.id, wanted)) {
+        return Picked::One(exact.id.clone());
+    }
+    let several = |mut found: Vec<String>| match found.len() {
+        0 => Picked::None,
+        1 => Picked::One(found.remove(0)),
+        _ => Picked::Many(found),
+    };
+    let named: Vec<String> = models
+        .iter()
+        .filter(|model| model.display_name.eq_ignore_ascii_case(wanted))
+        .map(|model| model.id.clone())
+        .collect();
+    if !named.is_empty() {
+        return several(named);
     }
     let needle = wanted.to_lowercase();
-    let mut matching: Vec<String> = names
-        .iter()
-        .filter(|name| name.to_lowercase().contains(&needle))
-        .cloned()
-        .collect();
-    match matching.len() {
-        0 => Picked::None,
-        1 => Picked::One(matching.remove(0)),
-        _ => Picked::Many(matching),
+    several(
+        models
+            .iter()
+            .filter(|model| {
+                model.id.to_lowercase().contains(&needle)
+                    || model.display_name.to_lowercase().contains(&needle)
+            })
+            .map(|model| model.id.clone())
+            .collect(),
+    )
+}
+
+/// Modèles du sélecteur de l'app (installés, puis distants si permis), triés
+/// par nom puis identifiant : les numéros de `/models` restent les mêmes d'un
+/// appel à l'autre.
+async fn installed(access: &crate::llm::Access) -> crate::error::AppResult<Vec<ChatModel>> {
+    let mut listed = models::list(access).await?;
+    listed.sort_by_cached_key(|model| (model.display_name.to_lowercase(), model.id.to_lowercase()));
+    Ok(listed)
+}
+
+/// Réglages de l'app, lus dans la base.
+async fn app_settings(store: &Store) -> crate::error::AppResult<Settings> {
+    store.call(|c| crate::store::settings::get(c, None)).await
+}
+
+/// Modèle choisi pour une réponse, s'il peut servir ; sinon ce que le bot
+/// répond. Un modèle distant, réglage coupé : refusé sans rien appeler. Un
+/// modèle absent (supprimé depuis son choix) : refusé, alors que le chat le
+/// téléchargerait de lui-même, ce qu'un bot ne doit pas déclencher.
+async fn usable(
+    access: &crate::llm::Access,
+    settings: &Settings,
+    model: &str,
+    p: &str,
+) -> Result<ChatModel, String> {
+    if model.is_empty() {
+        return Err(t!("easyLink.bot.noModel", p = p));
+    }
+    if ids::is_remote(model) && !settings.remote_models {
+        return Err(LlmError::RemoteOff.message());
+    }
+    match models::get(access, model).await {
+        Ok(Some(found)) => Ok(found),
+        // Distant que son fournisseur ne liste plus (ou injoignable) : rien
+        // n'est désinstallé, il n'est pas disponible.
+        Ok(None) if ids::is_remote(model) => {
+            Err(t!("easyLink.bot.remoteMissing", model = code(model), p = p))
+        }
+        Ok(None) => Err(t!("easyLink.bot.modelMissing", model = code(model), p = p)),
+        Err(error) => Err(t!("easyLink.bot.failed", error = error)),
     }
 }
 
-/// Noms des modèles installés, triés (les numéros de `/models` restent les
-/// mêmes d'un appel à l'autre).
-async fn installed(base: &str) -> crate::error::AppResult<Vec<String>> {
-    let mut names: Vec<String> = models::list(base)
-        .await?
-        .into_iter()
-        .map(|model| model.model)
-        .collect();
-    names.sort_by_key(|name| name.to_lowercase());
-    Ok(names)
+/// `/load` ou `/unload` d'un modèle distant : il tourne chez son
+/// fournisseur, rien à charger ni à décharger ; réglage des distants coupé :
+/// le refus du moteur (lu en base à chaque fois).
+async fn remote_load(access: &crate::llm::Access, id: &str) -> String {
+    match access.prefs().await {
+        Ok(prefs) if !prefs.remote_models => LlmError::RemoteOff.message(),
+        Ok(_) => t!("easyLink.bot.remoteNoLoad", model = code(id)),
+        Err(error) => t!("easyLink.bot.failed", error = error),
+    }
+}
+
+/// Le modèle sait lire les images (capacité `vision` de son fichier, ou
+/// annoncée par le fournisseur).
+fn sees(model: &ChatModel) -> bool {
+    model.capabilities.iter().any(|word| word == "vision")
 }
 
 fn code(name: &str) -> String {
@@ -368,10 +432,10 @@ async fn run<H: Host>(
                 p = p
             )
         }
-        // Le reste parle à Ollama.
+        // Le reste parle au moteur des modèles.
         command => {
             let _ = messenger.typing(channel).await;
-            match with_server(shared, messenger, account, channel, command).await {
+            match with_models(shared, messenger, account, channel, command).await {
                 Ok(reply) => reply,
                 Err(error) => t!("easyLink.bot.failed", error = error),
             }
@@ -456,8 +520,8 @@ fn web_line(enabled: bool) -> String {
     }
 }
 
-/// Commandes qui interrogent Ollama.
-async fn with_server<H: Host>(
+/// Commandes qui interrogent les modèles (liste, choix, chargement, état).
+async fn with_models<H: Host>(
     shared: &Arc<Shared<H>>,
     messenger: &Messenger,
     account: &Account,
@@ -465,39 +529,45 @@ async fn with_server<H: Host>(
     command: Command,
 ) -> crate::error::AppResult<String> {
     let p = prefix(account.platform);
-    let settings = crate::ollama::target::request_settings(&shared.store).await?;
-    let base = settings.effective_server_url.clone();
+    let access = &shared.access;
+    let settings = app_settings(&shared.store).await?;
     let current = model_of(account, &settings.selected_model);
     // Modèle visé par `/load` et `/unload` : celui nommé, sinon le courant.
-    let named = |names: &[String], wanted: Option<&str>| -> Result<String, String> {
+    let named = |listed: &[ChatModel], wanted: Option<&str>| -> Result<String, String> {
         match wanted {
             None if current.is_empty() => Err(t!("easyLink.bot.noModel", p = p)),
             None => Ok(current.clone()),
-            Some(wanted) => match pick(names, wanted) {
-                Picked::One(name) => Ok(name),
+            Some(wanted) => match pick(listed, wanted) {
+                Picked::One(id) => Ok(id),
                 Picked::None => Err(t!("easyLink.bot.modelUnknown", name = wanted, p = p)),
                 Picked::Many(found) => Err(t!(
                     "easyLink.bot.modelAmbiguous",
                     name = wanted,
-                    models = found.join(", ")
+                    models = found
+                        .iter()
+                        .map(|id| code(id))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )),
             },
         }
     };
     Ok(match command {
         Command::Models => {
-            let names = installed(&base).await?;
-            if names.is_empty() {
+            let listed = installed(access).await?;
+            if listed.is_empty() {
                 return Ok(t!("easyLink.bot.noModels"));
             }
-            let loaded = running::list(&base).await.unwrap_or_default();
+            let loaded = models::running(access);
             let mut lines = vec![t!("easyLink.bot.modelsTitle")];
-            for (index, name) in names.iter().enumerate() {
+            for (index, model) in listed.iter().enumerate() {
                 let mut notes = Vec::new();
-                if running::same_model(name, &current) {
+                if ids::same(&model.id, &current) {
                     notes.push(t!("easyLink.bot.modelCurrent"));
                 }
-                if loaded.iter().any(|l| running::same_model(&l.name, name)) {
+                if ids::is_remote(&model.id) {
+                    notes.push(t!("easyLink.bot.modelRemote"));
+                } else if loaded.iter().any(|l| ids::same(&l.id, &model.id)) {
                     notes.push(t!("easyLink.bot.modelLoaded"));
                 }
                 let notes = if notes.is_empty() {
@@ -505,7 +575,12 @@ async fn with_server<H: Host>(
                 } else {
                     format!(" ({})", notes.join(", "))
                 };
-                lines.push(format!("{}. {}{notes}", index + 1, code(name)));
+                lines.push(format!(
+                    "{}. {} {}{notes}",
+                    index + 1,
+                    model.display_name,
+                    code(&model.id)
+                ));
             }
             lines.push(String::new());
             lines.push(t!("easyLink.bot.modelsHint", p = p));
@@ -514,48 +589,59 @@ async fn with_server<H: Host>(
         Command::Model(None) if current.is_empty() => t!("easyLink.bot.noModel", p = p),
         Command::Model(None) => t!("easyLink.bot.model", model = code(&current)),
         Command::Model(Some(wanted)) => {
-            let names = installed(&base).await?;
-            match named(&names, Some(&wanted)) {
-                Ok(name) => {
-                    let (id, chosen) = (account.id, name.clone());
+            let listed = installed(access).await?;
+            match named(&listed, Some(&wanted)) {
+                Ok(id) => {
+                    let (account_id, chosen) = (account.id, id.clone());
                     shared
                         .store
-                        .call(move |c| saved::set_model(c, id, &chosen))
+                        .call(move |c| saved::set_model(c, account_id, &chosen))
                         .await?;
-                    t!("easyLink.bot.modelChosen", model = code(&name))
+                    t!("easyLink.bot.modelChosen", model = code(&id))
                 }
                 Err(reply) => reply,
             }
         }
         Command::Load(wanted) => {
-            let names = match &wanted {
-                Some(_) => installed(&base).await?,
+            let listed = match &wanted {
+                Some(_) => installed(access).await?,
                 None => Vec::new(),
             };
-            match named(&names, wanted.as_deref()) {
-                Ok(name) => {
-                    let loading = t!("easyLink.bot.loading", model = code(&name));
+            match named(&listed, wanted.as_deref()) {
+                // Distant : rien à charger (réglage coupé : refusé).
+                Ok(id) if ids::is_remote(&id) => remote_load(access, &id).await,
+                Ok(id) => {
+                    let loading = t!("easyLink.bot.loading", model = code(&id));
                     say(messenger, channel, &loading).await;
                     let _ = messenger.typing(channel).await;
-                    crate::commands::models::load(&shared.store, &name).await?;
-                    t!("easyLink.bot.loaded", model = code(&name))
+                    match models::load(access, &id).await {
+                        Ok(()) => t!("easyLink.bot.loaded", model = code(&id)),
+                        // Déchargé pendant son chargement (`/unload`, bouton
+                        // de l'app : `Engine(Unloaded)`), moteur fermé ou
+                        // annulation : un arrêt, pas une erreur.
+                        Err(error) if error.chat_kind().is_none() => {
+                            t!("easyLink.bot.unloaded", model = code(&id))
+                        }
+                        Err(error) => t!("easyLink.bot.failed", error = error.message()),
+                    }
                 }
                 Err(reply) => reply,
             }
         }
         Command::Unload(Some(all)) if all.eq_ignore_ascii_case("all") => {
-            running::unload_all(&base).await?;
+            models::unload_all(access).await;
             t!("easyLink.bot.unloadedAll")
         }
         Command::Unload(wanted) => {
-            let names = match &wanted {
-                Some(_) => installed(&base).await?,
+            let listed = match &wanted {
+                Some(_) => installed(access).await?,
                 None => Vec::new(),
             };
-            match named(&names, wanted.as_deref()) {
-                Ok(name) => {
-                    running::unload(&base, &name).await?;
-                    t!("easyLink.bot.unloaded", model = code(&name))
+            match named(&listed, wanted.as_deref()) {
+                Ok(id) if ids::is_remote(&id) => remote_load(access, &id).await,
+                Ok(id) => {
+                    models::unload(access, &id).await;
+                    t!("easyLink.bot.unloaded", model = code(&id))
                 }
                 Err(reply) => reply,
             }
@@ -567,15 +653,16 @@ async fn with_server<H: Host>(
             } else {
                 t!("easyLink.bot.model", model = code(&current))
             });
-            match running::list(&base).await {
-                Ok(loaded) if loaded.is_empty() => {
+            if access.engine().available() {
+                let loaded = models::running(access);
+                if loaded.is_empty() {
                     lines.push(t!("easyLink.bot.statusNothingLoaded"));
+                } else {
+                    let ids: Vec<String> = loaded.iter().map(|l| code(&l.id)).collect();
+                    lines.push(t!("easyLink.bot.statusLoaded", models = ids.join(", ")));
                 }
-                Ok(loaded) => {
-                    let names: Vec<String> = loaded.iter().map(|l| code(&l.name)).collect();
-                    lines.push(t!("easyLink.bot.statusLoaded", models = names.join(", ")));
-                }
-                Err(error) => lines.push(t!("easyLink.bot.statusUnreachable", error = error)),
+            } else {
+                lines.push(t!("easyLink.bot.statusEngineOff"));
             }
             lines.push(web_line(account.web_search));
             // Tâches de VS Code (réglage activé seulement).
@@ -684,7 +771,7 @@ async fn respond<H: Host>(
     let p = prefix(account.platform);
     let _ = messenger.typing(channel).await;
 
-    let settings = match crate::ollama::target::request_settings(&shared.store).await {
+    let settings = match app_settings(&shared.store).await {
         Ok(settings) => settings,
         Err(error) => {
             return {
@@ -694,31 +781,10 @@ async fn respond<H: Host>(
         }
     };
     let model = model_of(&account, &settings.selected_model);
-    if model.is_empty() {
-        return {
-            let text = t!("easyLink.bot.noModel", p = p);
-            say(messenger, channel, &text).await
-        };
-    }
-    // Nom d'un modèle cloud, réglage coupé : rien ne part, pas même
-    // /api/show.
-    if models::is_cloud_name(&model) && !settings.remote_models {
-        return say(messenger, channel, &models::cloud_off(&model)).await;
-    }
-    // Modèle absent du serveur (supprimé depuis son choix) : le moteur de
-    // chat le téléchargerait de lui-même, ce qu'un bot ne doit pas déclencher.
-    // Serveur injoignable ou autre échec : le moteur le dira.
-    let details = match models::show(&settings.effective_server_url, &model).await {
-        Ok(details) => Some(details),
-        Err(models::ShowError::NotFound(_)) => {
-            return {
-                let text = t!("easyLink.bot.modelMissing", model = code(&model), p = p);
-                say(messenger, channel, &text).await
-            };
-        }
-        Err(_) => None,
+    let can_see = match usable(&shared.access, &settings, &model, p).await {
+        Ok(chosen) => sees(&chosen),
+        Err(reply) => return say(messenger, channel, &reply).await,
     };
-    let can_see = chat::accepts_images(details.as_ref());
     let blind = || t!("easyLink.bot.noVision", model = code(&model), p = p);
 
     // Messages vocaux : transcrits, et redits à l'auteur pour qu'il voie ce
@@ -832,9 +898,16 @@ async fn respond<H: Host>(
         // Seulement pour une conversation à ouvrir (ignoré sinon).
         ephemeral: Some(account.ephemeral),
     };
-    let server = Server::with_settings(shared.access.clone(), &settings);
+    let server = match Server::current(&shared.access).await {
+        Ok(server) => server,
+        Err(error) => {
+            shared.staging.unstage(&files);
+            let text = t!("easyLink.bot.failed", error = error);
+            return say(messenger, channel, &text).await;
+        }
+    };
     let (events, mut received) = mpsc::unbounded_channel::<ChatEvent>();
-    // L'envoi dans sa tâche : la lecture de la réponse d'Ollama n'attend pas
+    // L'envoi dans sa tâche : la lecture de la réponse du modèle n'attend pas
     // les requêtes à la messagerie.
     let sending = {
         let shared = Arc::clone(shared);
@@ -979,15 +1052,7 @@ async fn respond<H: Host>(
         }
         Ok(Ok(())) if incomplete => Some(t!("easyLink.bot.incomplete")),
         Ok(Ok(())) => match failure {
-            Some((ChatErrorKind::WebSearchUnavailable, _)) => {
-                Some(t!("easyLink.bot.webSignedOut", p = p))
-            }
-            // Sans l'adresse du serveur, qui ne regarde pas le correspondant.
-            Some((ChatErrorKind::EngineFailed, _)) => Some(t!("easyLink.bot.ollamaDown")),
-            // Le correspondant ne peut pas compacter : l'envoi suivant le
-            // fera de lui-même.
-            Some((ChatErrorKind::ContextFull, _)) => Some(t!("easyLink.bot.contextFull")),
-            Some((_, message)) => Some(format!("⚠️ {message}")),
+            Some((kind, message)) => Some(error_note(kind, &message, p)),
             None if done && relay.is_empty() => Some(t!("easyLink.bot.emptyAnswer")),
             None => None,
         },
@@ -997,6 +1062,24 @@ async fn respond<H: Host>(
         && !relay.gone()
     {
         relay.say(&note).await;
+    }
+}
+
+/// Ce que le bot dit d'un envoi fini en erreur (code du chat) : un conseil
+/// pour la recherche web (`/web off` pour répondre sans elle), le moteur en
+/// panne sans son détail technique (qui ne regarde pas le correspondant), le
+/// contexte plein, sinon le message du chat.
+pub(super) fn error_note(kind: ChatErrorKind, message: &str, p: &str) -> String {
+    match kind {
+        ChatErrorKind::WebSearchUnavailable => t!("easyLink.bot.webUnavailable", p = p),
+        ChatErrorKind::WebSearchLimit => t!("easyLink.bot.webLimit", p = p),
+        ChatErrorKind::WebSearchPaused => t!("easyLink.bot.webPaused", p = p),
+        ChatErrorKind::WebSearchOutdated => t!("easyLink.bot.webOutdated", p = p),
+        ChatErrorKind::EngineFailed => t!("easyLink.bot.engineDown"),
+        // Le correspondant ne peut pas compacter : l'envoi suivant le fera de
+        // lui-même.
+        ChatErrorKind::ContextFull => t!("easyLink.bot.contextFull"),
+        _ => format!("⚠️ {message}"),
     }
 }
 
@@ -1021,7 +1104,7 @@ async fn keep_images<H: Host>(
 ) {
     let channel = incoming.channel.as_str();
     let p = prefix(account.platform);
-    let settings = match crate::ollama::target::request_settings(&shared.store).await {
+    let settings = match app_settings(&shared.store).await {
         Ok(settings) => settings,
         Err(error) => {
             let text = t!("easyLink.bot.failed", error = error);
@@ -1029,8 +1112,13 @@ async fn keep_images<H: Host>(
         }
     };
     let model = model_of(account, &settings.selected_model);
-    if let Err(reply) = sees(&settings, &model, p).await {
-        return say(messenger, channel, &reply).await;
+    match usable(&shared.access, &settings, &model, p).await {
+        Ok(chosen) if sees(&chosen) => {}
+        Ok(_) => {
+            let text = t!("easyLink.bot.noVision", model = code(&model), p = p);
+            return say(messenger, channel, &text).await;
+        }
+        Err(reply) => return say(messenger, channel, &reply).await,
     }
     let mut first = false;
     for image in &incoming.files {
@@ -1077,25 +1165,6 @@ async fn keep_images<H: Host>(
     if first && !shared.busy.lock().contains_key(&account.id) {
         let text = t!("easyLink.bot.imagePending");
         say(messenger, channel, &text).await;
-    }
-}
-
-/// Le modèle sait voir (ou n'en dit rien) ; sinon, ce que le bot répond.
-async fn sees(settings: &Settings, model: &str, p: &str) -> Result<(), String> {
-    if model.is_empty() {
-        return Err(t!("easyLink.bot.noModel", p = p));
-    }
-    // Nom d'un modèle cloud, réglage coupé : pas même /api/show.
-    if models::is_cloud_name(model) && !settings.remote_models {
-        return Err(models::cloud_off(model));
-    }
-    let details = models::show(&settings.effective_server_url, model)
-        .await
-        .ok();
-    if chat::accepts_images(details.as_ref()) {
-        Ok(())
-    } else {
-        Err(t!("easyLink.bot.noVision", model = code(model), p = p))
     }
 }
 
@@ -1189,27 +1258,135 @@ async fn hear<H: Host>(
 mod unit {
     use super::*;
 
-    fn names() -> Vec<String> {
-        ["gemma3:4b", "gemma3:270m", "qwen3:8b", "llava"]
-            .map(String::from)
-            .to_vec()
+    fn entry(id: &str, name: &str) -> ChatModel {
+        ChatModel {
+            id: id.into(),
+            display_name: name.into(),
+            origin: crate::llm::models::ModelOrigin::Hf,
+            provider: None,
+            size_bytes: None,
+            params_label: None,
+            quant: None,
+            context_max: None,
+            capabilities: vec!["completion".into()],
+            installed_at: None,
+        }
+    }
+
+    fn listed() -> Vec<ChatModel> {
+        vec![
+            entry("unsloth/gemma-3-4b-it-GGUF:Q4_K_M", "Gemma 3 4B"),
+            entry("unsloth/gemma-3-4b-it-GGUF:Q8_0", "Gemma 3 4B"),
+            entry("Qwen/Qwen3-8B-GGUF:Q4_K_M", "Qwen3 8B"),
+            entry("@ollama/llava:latest", "llava"),
+            entry("unsloth/Qwen3-8B-Instruct-GGUF:Q4_K_M", "Qwen3 8B Instruct"),
+        ]
     }
 
     #[test]
-    fn a_model_is_picked_by_number_name_or_part_of_name() {
-        let names = names();
-        assert_eq!(pick(&names, "1"), Picked::One("gemma3:4b".into()));
-        assert_eq!(pick(&names, " 4 "), Picked::One("llava".into()));
-        assert_eq!(pick(&names, "0"), Picked::None);
-        assert_eq!(pick(&names, "5"), Picked::None);
-        assert_eq!(pick(&names, "QWEN3:8B"), Picked::One("qwen3:8b".into()));
-        assert_eq!(pick(&names, "llava:latest"), Picked::One("llava".into()));
-        assert_eq!(pick(&names, "qwen"), Picked::One("qwen3:8b".into()));
+    fn a_model_is_picked_by_number_id_name_or_part_of_them() {
+        let listed = listed();
+        let one = |id: &str| Picked::One(id.into());
+        assert_eq!(pick(&listed, "1"), one("unsloth/gemma-3-4b-it-GGUF:Q4_K_M"));
+        assert_eq!(pick(&listed, " 4 "), one("@ollama/llava:latest"));
+        assert_eq!(pick(&listed, "0"), Picked::None);
+        assert_eq!(pick(&listed, "6"), Picked::None);
+        // Identifiant : quantification sans la casse ; un début d'identifiant
+        // suffit s'il est seul à correspondre.
         assert_eq!(
-            pick(&names, "gemma"),
-            Picked::Many(vec!["gemma3:4b".into(), "gemma3:270m".into()])
+            pick(&listed, "Qwen/Qwen3-8B-GGUF:q4_k_m"),
+            one("Qwen/Qwen3-8B-GGUF:Q4_K_M")
         );
-        assert_eq!(pick(&names, "mistral"), Picked::None);
+        assert_eq!(pick(&listed, "@ollama/llava"), one("@ollama/llava:latest"));
+        // Nom exact, sans la casse : gagne sur un nom qui le contient.
+        assert_eq!(pick(&listed, "QWEN3 8B"), one("Qwen/Qwen3-8B-GGUF:Q4_K_M"));
+        assert_eq!(pick(&listed, "LLAVA"), one("@ollama/llava:latest"));
+        // Deux quantifications du même dépôt : même nom.
+        assert_eq!(
+            pick(&listed, "gemma 3 4b"),
+            Picked::Many(vec![
+                "unsloth/gemma-3-4b-it-GGUF:Q4_K_M".into(),
+                "unsloth/gemma-3-4b-it-GGUF:Q8_0".into(),
+            ])
+        );
+        // Partie de l'identifiant ou du nom.
+        assert_eq!(
+            pick(&listed, "instruct"),
+            one("unsloth/Qwen3-8B-Instruct-GGUF:Q4_K_M")
+        );
+        assert_eq!(
+            pick(&listed, "qwen"),
+            Picked::Many(vec![
+                "Qwen/Qwen3-8B-GGUF:Q4_K_M".into(),
+                "unsloth/Qwen3-8B-Instruct-GGUF:Q4_K_M".into(),
+            ])
+        );
+        assert_eq!(
+            pick(&listed, "q8_0"),
+            one("unsloth/gemma-3-4b-it-GGUF:Q8_0")
+        );
+        assert_eq!(pick(&listed, "mistral"), Picked::None);
+    }
+
+    /// Chaque arrêt de la recherche web a son conseil ; le moteur en panne
+    /// est dit sans son détail ; le reste garde le message du chat.
+    #[test]
+    fn each_error_code_has_its_note() {
+        let note = |kind| error_note(kind, "detail", "/");
+        assert_eq!(
+            note(ChatErrorKind::WebSearchUnavailable),
+            t!("easyLink.bot.webUnavailable", p = "/")
+        );
+        assert_eq!(
+            note(ChatErrorKind::WebSearchLimit),
+            t!("easyLink.bot.webLimit", p = "/")
+        );
+        assert_eq!(
+            note(ChatErrorKind::WebSearchPaused),
+            t!("easyLink.bot.webPaused", p = "/")
+        );
+        assert_eq!(
+            note(ChatErrorKind::WebSearchOutdated),
+            t!("easyLink.bot.webOutdated", p = "/")
+        );
+        assert_eq!(
+            note(ChatErrorKind::EngineFailed),
+            t!("easyLink.bot.engineDown")
+        );
+        assert_eq!(
+            note(ChatErrorKind::ContextFull),
+            t!("easyLink.bot.contextFull")
+        );
+        for kind in [
+            ChatErrorKind::EngineUnavailable,
+            ChatErrorKind::RemoteOff,
+            ChatErrorKind::RemoteKey,
+            ChatErrorKind::ModelMissing,
+            ChatErrorKind::Model,
+        ] {
+            assert_eq!(note(kind), "⚠️ detail", "{kind:?}");
+        }
+        // Les quatre conseils de la recherche sont distincts et disent
+        // `/web off`.
+        let web: Vec<String> = [
+            ChatErrorKind::WebSearchUnavailable,
+            ChatErrorKind::WebSearchLimit,
+            ChatErrorKind::WebSearchPaused,
+            ChatErrorKind::WebSearchOutdated,
+        ]
+        .into_iter()
+        .map(note)
+        .collect();
+        assert!(web.iter().all(|text| text.contains("/web off")), "{web:?}");
+        let mut distinct = web.clone();
+        distinct.sort();
+        distinct.dedup();
+        assert_eq!(distinct.len(), 4);
+        assert!(
+            !web.iter()
+                .chain([&note(ChatErrorKind::EngineFailed)])
+                .any(|text| text.contains("Ollama"))
+        );
     }
 
     #[test]
@@ -1234,9 +1411,10 @@ mod unit {
             web_search: false,
             ephemeral: false,
         };
-        assert_eq!(model_of(&account, " gemma3:4b "), "gemma3:4b");
+        let gemma = "unsloth/gemma-3-4b-it-GGUF:Q4_K_M";
+        assert_eq!(model_of(&account, &format!(" {gemma} ")), gemma);
         assert_eq!(model_of(&account, ""), "");
-        account.model = "qwen3:8b".into();
-        assert_eq!(model_of(&account, "gemma3:4b"), "qwen3:8b");
+        account.model = "Qwen/Qwen3-8B-GGUF:Q4_K_M".into();
+        assert_eq!(model_of(&account, gemma), "Qwen/Qwen3-8B-GGUF:Q4_K_M");
     }
 }

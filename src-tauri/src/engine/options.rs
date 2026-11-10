@@ -39,7 +39,10 @@ pub enum KeepAlive {
     /// Jusqu'au déchargement demandé (ou la fin de l'app).
     Forever,
     /// Déchargé dès sa dernière requête finie.
-    #[allow(dead_code, reason = "demandé par le chat (lot L5)")]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "aucun appelant ne le demande encore")
+    )]
     Unload,
 }
 
@@ -109,6 +112,31 @@ pub fn context_for(requested: Option<u32>, vram_total: u64, max: Option<u32>, vi
         .filter(|ctx| *ctx > 0)
         .unwrap_or_else(|| fit::default_context(vram_total));
     fit::model_context(wanted, max, vision).max(4)
+}
+
+/// Variable des essais de l'app qui impose le processeur à tout lancement
+/// (e2e réels sans carte, ou voulus sur processeur).
+pub const CPU_ONLY_ENV: &str = "CHATONLM_LLAMA_CPU_ONLY";
+
+/// Processeur imposé par `CHATONLM_LLAMA_CPU_ONLY=1` (builds de débogage ou
+/// `e2e` seulement, comme `CHATONLM_E2E_HARDWARE`) : les `GGML_*` hérités
+/// étant retirés de l'environnement du processus, c'est le seul moyen pour un
+/// e2e réel de rester sur le processeur (relecture L8, M2).
+pub fn forced_cpu() -> bool {
+    #[cfg(any(debug_assertions, feature = "e2e"))]
+    {
+        cpu_only_value(std::env::var_os(CPU_ONLY_ENV).as_deref())
+    }
+    #[cfg(not(any(debug_assertions, feature = "e2e")))]
+    {
+        false
+    }
+}
+
+/// Lecture de la variable : `1` seulement.
+#[cfg_attr(not(any(test, debug_assertions, feature = "e2e")), allow(dead_code))]
+pub(crate) fn cpu_only_value(value: Option<&std::ffi::OsStr>) -> bool {
+    value.is_some_and(|value| value == "1")
 }
 
 /// Ce que lance un processus : deux demandes de même `Spec` partagent le

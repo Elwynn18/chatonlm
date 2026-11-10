@@ -25,7 +25,15 @@ pub async fn update_dictation_settings(
     patch: DictationPatch,
 ) -> AppResult<DictationSettings> {
     let settings = store
-        .call(move |connection| dictation::update(connection, patch))
+        .call(move |connection| {
+            // Modèle de mise en forme : un ancien nom d'Ollama déjà repris est
+            // enregistré sous son nouvel identifiant.
+            let mut patch = patch;
+            if let Some(name) = patch.polish_model.take() {
+                patch.polish_model = Some(super::settings::current_model(connection, name)?);
+            }
+            dictation::update(connection, patch)
+        })
         .await?;
     // Réglages enregistrés : un échec du raccourci se lit dans le statut.
     if let Err(error) = crate::desktop::apply(&app, &settings).await {

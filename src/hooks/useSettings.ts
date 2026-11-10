@@ -6,11 +6,7 @@ import {
 } from "@tanstack/react-query";
 import type { Settings } from "@/bindings/Settings";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
-import { accountKey } from "@/hooks/useAccount";
-import { cloudStatusKey } from "@/hooks/useCloudStatus";
-import { ollamaHomeKey } from "@/hooks/useOllamaHome";
 import { setLanguage } from "@/i18n";
-import { healthKey } from "@/hooks/useServerHealth";
 import { getSettings, updateSettings } from "@/lib/ipc";
 
 export const settingsKey = ["settings"] as const;
@@ -22,31 +18,13 @@ export const settingsKey = ["settings"] as const;
 export const settingsMutationScope = { id: "settings-update" } as const;
 
 /**
- * Requêtes qui dépendent du serveur Ollama, relues quand son adresse
- * effective change. Littéraux plutôt que les constantes de useModels.ts et
- * useThink.ts, qui importent ce fichier (import circulaire) : `["models"]`
- * (modelsKey), `["recommendedModels"]` (recommendedKey),
- * `["modelExistsUpstream"]` (préfixe d'upstreamKey), `["modelDetails"]`
- * (modelDetailsRoot). `["serverStatus"]` reste à ServerGate. Aussi le dossier
- * .ollama caché du service (ollamaHomeKey), relu après un changement de Model
- * location (son drop-in peut le rendre visible).
+ * Requêtes relues quand le réglage des modèles distants change (ils entrent
+ * dans la liste du sélecteur ou en sortent). Littéraux plutôt que les
+ * constantes de useModels.ts et useThink.ts, qui importent ce fichier
+ * (import circulaire) : `["models"]` (modelsKey), `["modelDetails"]`
+ * (modelDetailsRoot).
  */
-export const serverDependentKeys = [
-  ["models"],
-  ["recommendedModels"],
-  ["modelExistsUpstream"],
-  ["modelDetails"],
-  healthKey,
-  ollamaHomeKey,
-] as const;
-
-/**
- * Requêtes propres à un serveur, remises à zéro quand son adresse effective
- * change : compte ollama.com et état du nuage. Une relecture en échec sur le
- * nouveau serveur ne laisse pas en place ceux de l'ancien (nom et Sign out
- * d'un autre compte, bandeau à tort).
- */
-export const serverIdentityKeys = [accountKey, cloudStatusKey] as const;
+export const remoteDependentKeys = [["models"], ["modelDetails"]] as const;
 
 /**
  * Réglages de l'app. Ils ne changent que par `setSettings`, qui met le cache à
@@ -86,20 +64,17 @@ async function readSettings(): Promise<Settings> {
 }
 
 /**
- * Remplace le cache par la réponse (la langue affichée suit la sienne) ; si l'adresse effective du serveur a
- * changé (ou n'était pas connue), relit ce qui venait de l'ancien serveur,
- * sans attendre (la mise à jour suivante n'attend pas ces relectures), et
- * oublie le compte et l'état du nuage de l'ancien.
+ * Remplace le cache par la réponse (la langue affichée suit la sienne) ; si
+ * le réglage des modèles distants a changé (ou n'était pas connu), relit la
+ * liste des modèles, sans attendre (la mise à jour suivante n'attend pas
+ * ces relectures).
  */
 function applySettings(queryClient: QueryClient, settings: Settings) {
   const previous = queryClient.getQueryData<Settings>(settingsKey);
   queryClient.setQueryData(settingsKey, settings);
   setLanguage(settings.effectiveLanguage);
-  if (previous?.effectiveServerUrl === settings.effectiveServerUrl) return;
-  for (const queryKey of serverDependentKeys) {
+  if (previous?.remoteModels === settings.remoteModels) return;
+  for (const queryKey of remoteDependentKeys) {
     void queryClient.invalidateQueries({ queryKey });
-  }
-  for (const queryKey of serverIdentityKeys) {
-    void queryClient.resetQueries({ queryKey });
   }
 }

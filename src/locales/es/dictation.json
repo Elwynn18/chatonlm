@@ -6,8 +6,6 @@
   "card": {
     "title": "Dictado",
     "description": "Pulsa un atajo desde cualquier lugar para dictar. Lo que dices se transcribe en este equipo, se pule con un modelo local y se copia al portapapeles.",
-    "remoteDescription": "Pulsa un atajo desde cualquier lugar para dictar. Lo que dices se transcribe en este equipo, se pule y se copia al portapapeles.",
-    "remoteNote": "La transcripción se envía a tu servidor de Ollama en {server} para pulirla.",
     "loadFailed": "No se pudo cargar la configuración del dictado.",
     "downloadModel": "Descargar un modelo de transcripción",
     "enable": "Activar el dictado"
@@ -76,11 +74,11 @@
     "title": "Pulido",
     "model": {
       "label": "Modelo de pulido",
-      "description": "Un modelo de Ollama pule la transcripción: puntuación, muletillas, rectificaciones.",
+      "description": "Un modelo de este equipo pule la transcripción: puntuación, muletillas, rectificaciones.",
       "off": "Desactivado",
-      "cloud": "{name} (los modelos en la nube no se usan)",
+      "remote": "{name} (los modelos remotos no se usan)",
       "recommended": "Modelos recomendados",
-      "unreachable": "No se puede conectar con Ollama. Sus modelos aparecerán en cuanto responda.",
+      "unreachable": "No se pudieron leer los modelos instalados. Aparecerán en cuanto se lean.",
       "loading": "Cargando modelos…"
     },
     "instructions": {

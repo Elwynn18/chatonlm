@@ -1,20 +1,26 @@
-//! Essais d'Easy Link de bout en bout, sans fenêtre : faux Ollama, faux
-//! Telegram et faux Discord, base en mémoire.
+//! Essais d'Easy Link de bout en bout, sans fenêtre : faux moteur
+//! (`FakeBench` : faux `llama-server`, modèles de la base locale par
+//! scénario), faux fournisseur distant, faux Telegram et faux Discord, base
+//! en mémoire.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use easy_link::fake::discord::{self as fake_discord, FakeDiscord};
 use easy_link::fake::telegram::{self as fake_telegram, FakeTelegram};
-use fake_ollama::{FakeOllama, Mode};
+use futures_util::future::BoxFuture as RemoteFuture;
 use parking_lot::Mutex;
 use serde_json::{Value, json};
 
 use super::relay::Relay;
 use super::*;
 use crate::chat::{self, ChatEvent, Origin, SendRequest, Server};
+use crate::llm::models::{ChatModel, ModelOrigin};
+use crate::llm::remote::RemoteModels;
+use crate::llm::testing::FakeBench;
+use crate::llm::{Access, LlmError, OpenOptions, Session};
 use crate::store::chats::{self, AttachmentInfo};
-use crate::store::settings::{self, SettingsPatch};
+use crate::store::settings::SettingsPatch;
 
 /// Action d'un essai au prochain accès au moteur de chat.
 type Hook = Box<dyn FnOnce() + Send>;
@@ -65,8 +71,86 @@ impl Host for TestHost {
     }
 }
 
+// Modèles du faux moteur : identifiant de la base locale et scénario de
+// `fake-llama` (fichier `chatonlm-<scénario>.gguf`, capacités d'après le nom).
+/// Répond « Hello! You said: … » en morceaux d'un mot.
+const CHAT: &str = "Qwen/Qwen3-0.6B-GGUF:Q8_0";
+/// Second modèle, plus haut dans l'ordre des noms.
+const OTHER: &str = "Qwen/Qwen3.5-0.8B-GGUF:Q4_K_M";
+/// Réponse lente qui finit (3 s environ ; scénario du lot L9).
+const DRAWL: &str = "bench/Drawl-GGUF:Q4_K_M";
+/// Réponse de 3 000 morceaux (plusieurs messages de la messagerie).
+const LONG: &str = "bench/Long-GGUF:Q4_K_M";
+/// Voit les images (projecteur).
+const SEER: &str = "bench/Vision-GGUF:Q4_K_M";
+/// Appelle le premier outil reçu ; ne voit pas les images.
+const TOOLED: &str = "bench/Tools-GGUF:Q4_K_M";
+/// Répète la même phrase jusqu'au contexte plein.
+const LOOPING: &str = "bench/Loop-GGUF:Q4_K_M";
+/// Trois morceaux, puis une erreur.
+const FAILING: &str = "bench/Error-GGUF:Q4_K_M";
+/// Un morceau, puis plus rien (scénario du lot L9).
+const STALL: &str = "bench/Stall-GGUF:Q4_K_M";
+/// Demande une image (outil `generate_image`), puis dit « Here is your
+/// picture. » (scénario du lot L5a).
+const PAINTER: &str = "bench/Sketch-GGUF:Q4_K_M";
+/// Pas installé.
+const MISSING: &str = "bench/Missing-GGUF:Q4_K_M";
+/// Modèle distant du faux fournisseur (jamais joint).
+const REMOTE: &str = "@remote/test/remote-model";
+
+const MODELS: &[(&str, &str)] = &[
+    (DRAWL, "l9-drawl"),
+    (LONG, "long"),
+    (SEER, "vision"),
+    (TOOLED, "tools"),
+    (LOOPING, "loop"),
+    (FAILING, "error"),
+    (STALL, "editor-stall"),
+    (PAINTER, "sketch-think-tools"),
+    (OTHER, "simple"),
+    (CHAT, "simple"),
+];
+
+/// Fournisseur distant des essais : un modèle listé ; chaque ouverture est
+/// comptée et échoue (rien ne part vers un vrai fournisseur).
+#[derive(Default)]
+struct TestRemote {
+    opened: Mutex<Vec<String>>,
+}
+
+impl RemoteModels for TestRemote {
+    fn list(&self) -> RemoteFuture<'_, Vec<ChatModel>> {
+        Box::pin(async {
+            vec![ChatModel {
+                id: REMOTE.into(),
+                display_name: "Remote model".into(),
+                origin: ModelOrigin::Remote,
+                provider: Some("test".into()),
+                size_bytes: None,
+                params_label: None,
+                quant: None,
+                context_max: Some(32_768),
+                capabilities: vec!["completion".into(), "vision".into()],
+                installed_at: None,
+            }]
+        })
+    }
+
+    fn open<'a>(
+        &'a self,
+        provider: &'a str,
+        model: &'a str,
+    ) -> RemoteFuture<'a, Result<Session, LlmError>> {
+        self.opened.lock().push(format!("{provider}/{model}"));
+        let provider = provider.to_owned();
+        Box::pin(async move { Err(LlmError::RemoteUnreachable { provider }) })
+    }
+}
+
 struct Bench {
-    ollama: FakeOllama,
+    fake: FakeBench,
+    remote: Arc<TestRemote>,
     telegram: FakeTelegram,
     discord: FakeDiscord,
     store: Store,
@@ -84,18 +168,28 @@ const ANA: &str = "1001";
 
 /// App dont le modèle choisi est `model`, sans bot relié.
 async fn bench(model: &str) -> Bench {
-    let ollama = FakeOllama::start(Mode::ollama()).await.unwrap();
+    bench_of(model, MODELS).await
+}
+
+/// Comme [`bench`], modèles `models` (identifiant, scénario).
+async fn bench_of(model: &str, models: &[(&str, &str)]) -> Bench {
+    let fake = FakeBench::new(models);
     let telegram = FakeTelegram::start().await;
     let discord = FakeDiscord::start().await;
-    let store = Store::open_in_memory().unwrap();
-    let patch = SettingsPatch {
-        server_url: Some(ollama.url()),
+    let store = fake.store().clone();
+    fake.set(SettingsPatch {
         selected_model: Some(model.to_owned()),
         ..Default::default()
-    };
-    store
-        .blocking(|c| settings::update(c, patch, None).map(drop))
-        .unwrap();
+    });
+    let remote = Arc::new(TestRemote::default());
+    let access = Access::new(
+        fake.engine().clone(),
+        store.clone(),
+        fake.access.data_dir().to_owned(),
+        Arc::clone(&remote) as Arc<dyn RemoteModels>,
+        fake.access.relay().clone(),
+        fake.access.downloads().clone(),
+    );
     let engine = ChatEngine::default();
     let observed = Arc::new(Mutex::new(0));
     let seen = Arc::clone(&observed);
@@ -117,8 +211,9 @@ async fn bench(model: &str) -> Bench {
         discord: discord.url(),
     };
     Bench {
-        service: EasyLink::new(host, crate::llm::access_for(&store), urls),
-        ollama,
+        service: EasyLink::new(host, access, urls),
+        fake,
+        remote,
         telegram,
         discord,
         store,
@@ -129,6 +224,31 @@ async fn bench(model: &str) -> Bench {
         on_changed,
         observed,
     }
+}
+
+/// Texte d'un message envoyé au modèle : chaîne, ou parties `text` (message
+/// avec images, format OpenAI).
+fn text_of(message: &Value) -> String {
+    match &message["content"] {
+        Value::String(text) => text.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter(|part| part["type"] == "text")
+            .filter_map(|part| part["text"].as_str())
+            .collect::<Vec<_>>()
+            .join(""),
+        _ => String::new(),
+    }
+}
+
+/// Images d'un message envoyé au modèle (parties `image_url`).
+fn images_of(message: &Value) -> usize {
+    message["content"].as_array().map_or(0, |parts| {
+        parts
+            .iter()
+            .filter(|part| part["type"] == "image_url")
+            .count()
+    })
 }
 
 async fn wait_until(what: &str, ready: impl Fn() -> bool) {
@@ -305,16 +425,93 @@ impl Bench {
     /// Attend la fin de la réponse en cours.
     async fn wait_answered(&self, requests: usize) {
         wait_until("requête au modèle", || {
-            self.ollama.chat_requests().len() >= requests
+            self.chat_requests().len() >= requests
         })
         .await;
         wait_until("réponse finie", || !self.busy()).await;
+    }
+
+    /// Corps des requêtes de conversation reçues par les modèles chargés,
+    /// dans l'ordre de chacun (pas d'un modèle à l'autre), le modèle ajouté
+    /// en `model` (le corps d'un modèle local n'en a pas). Lu sans `await`
+    /// (conditions de `wait_until`).
+    fn chat_requests(&self) -> Vec<Value> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let mut bodies = Vec::new();
+                for running in self.fake.engine().running() {
+                    for request in self.requests_of(&running.id).await {
+                        if request["path"] != "/v1/chat/completions" {
+                            continue;
+                        }
+                        let mut body = request["body"].clone();
+                        body["model"] = json!(running.id);
+                        bodies.push(body);
+                    }
+                }
+                bodies
+            })
+        })
+    }
+
+    /// Requêtes reçues par le processus de `id` (`{path, body}`), ouvert
+    /// avec les options de son processus (un autre contexte le relancerait).
+    async fn requests_of(&self, id: &str) -> Vec<Value> {
+        let running = self
+            .fake
+            .engine()
+            .running()
+            .into_iter()
+            .find(|running| running.id == id);
+        let options = OpenOptions {
+            ctx: running.as_ref().map(|running| running.context_length),
+            cpu_only: running.is_some_and(|running| running.cpu_only),
+            ..Default::default()
+        };
+        let session = self
+            .fake
+            .access
+            .open(
+                id,
+                options,
+                &tokio_util::sync::CancellationToken::new(),
+                &|| {},
+            )
+            .await
+            .unwrap();
+        let url = format!("{}/fake/requests", session.endpoint.base_url);
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(url)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    }
+
+    /// Modèles chargés par le moteur.
+    fn loaded(&self) -> Vec<String> {
+        self.fake
+            .engine()
+            .running()
+            .into_iter()
+            .map(|running| running.id)
+            .collect()
+    }
+
+    /// Arrête les processus du faux moteur.
+    async fn done(&self) {
+        self.fake.shutdown().await;
     }
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_token_is_checked_saved_and_never_returned() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     let refused = bench
         .service
         .connect(Platform::Telegram, "1:wrong-token-wrong-token")
@@ -350,7 +547,7 @@ async fn a_token_is_checked_saved_and_never_returned() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stranger_gets_one_notice_and_never_reaches_the_model() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench
         .service
         .connect(Platform::Telegram, fake_telegram::TOKEN)
@@ -362,16 +559,16 @@ async fn a_stranger_gets_one_notice_and_never_reaches_the_model() {
     bench.wait_told("This bot is private").await;
     tokio::time::sleep(Duration::from_millis(400)).await;
     // Un seul avis, aucune commande servie, aucune conversation, rien envoyé
-    // à Ollama.
+    // au modèle.
     assert_eq!(bench.told().len(), 1, "{:?}", bench.told());
-    assert!(bench.ollama.chat_requests().is_empty());
+    assert!(bench.chat_requests().is_empty());
     assert!(bench.store.blocking(|c| chats::list(c)).unwrap().is_empty());
     assert!(bench.state().accounts.is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_pairing_code_links_an_account_once() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     // Pas de code sans bot.
     assert!(bench.service.pair(Platform::Telegram).await.is_err());
     bench
@@ -428,7 +625,7 @@ async fn the_pairing_code_links_an_account_once() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_linked_account_talks_to_the_model_in_a_marked_conversation() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     let before = bench.told().len();
     bench.say("hello");
@@ -466,7 +663,7 @@ async fn a_linked_account_talks_to_the_model_in_a_marked_conversation() {
     // Le message suivant continue la même conversation.
     bench.say("and then?");
     bench.wait_answered(2).await;
-    let requests = bench.ollama.chat_requests();
+    let requests = bench.chat_requests();
     assert_eq!(requests[1]["messages"].as_array().unwrap().len(), 3);
     assert_eq!(bench.store.blocking(|c| chats::list(c)).unwrap().len(), 1);
 
@@ -476,14 +673,14 @@ async fn a_linked_account_talks_to_the_model_in_a_marked_conversation() {
     assert_eq!(bench.account().chat_id, None);
     bench.say("fresh start");
     bench.wait_answered(3).await;
-    let requests = bench.ollama.chat_requests();
+    let requests = bench.chat_requests();
     assert_eq!(requests[2]["messages"].as_array().unwrap().len(), 1);
     assert_eq!(bench.store.blocking(|c| chats::list(c)).unwrap().len(), 2);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn stop_interrupts_the_answer_and_a_second_message_waits() {
-    let bench = bench("chatonlm-markdown-slow").await;
+    let bench = bench(STALL).await;
     bench.telegram_linked().await;
     let before = bench.told().len();
     bench.say("write slowly");
@@ -493,7 +690,7 @@ async fn stop_interrupts_the_answer_and_a_second_message_waits() {
     // Un second message pendant la réponse n'est pas envoyé au modèle.
     bench.say("are you there?");
     bench.wait_told("still answering").await;
-    assert_eq!(bench.ollama.chat_requests().len(), 1);
+    assert_eq!(bench.chat_requests().len(), 1);
 
     // Un rechargement de la page n'arrête pas la réponse d'un bot.
     bench.service.shared().host.engine.cancel_page();
@@ -518,24 +715,48 @@ async fn stop_interrupts_the_answer_and_a_second_message_waits() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn models_are_listed_chosen_loaded_and_unloaded_from_the_bot() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
 
     bench.say("/models");
-    bench.wait_told("Installed models").await;
+    bench.wait_told("Models:").await;
     let list = bench
         .told()
         .into_iter()
-        .find(|text| text.contains("Installed models"))
+        .find(|text| text.contains("Models:"))
         .unwrap();
-    // Triés par nom : les numéros ne changent pas d'un appel à l'autre.
-    let (first, second) = (
-        list.find("qwen3.5:0.8b").unwrap(),
-        list.find("qwen3:0.6b").unwrap(),
-    );
-    assert!(list.find("1. ").unwrap() < first && first < list.find("2. ").unwrap());
-    assert!(list.find("2. ").unwrap() < second, "{list}");
-    assert!(list.contains("chosen"), "{list}");
+    // Une ligne par modèle installé, numérotée, triée par nom : les numéros
+    // ne changent pas d'un appel à l'autre ; identifiant montré.
+    let lines: Vec<&str> = list
+        .lines()
+        .filter(|line| {
+            line.split_once(". ")
+                .is_some_and(|(n, _)| n.parse::<usize>().is_ok())
+        })
+        .collect();
+    assert_eq!(lines.len(), MODELS.len(), "{list}");
+    for (index, line) in lines.iter().enumerate() {
+        assert!(line.starts_with(&format!("{}. ", index + 1)), "{list}");
+    }
+    let names: Vec<String> = lines
+        .iter()
+        .map(|line| line.split_once(". ").unwrap().1.to_lowercase())
+        .collect();
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(names, sorted, "{list}");
+    // Identifiant en code (« `…` », rendu `<code>` par Telegram).
+    let number = |id: &str| {
+        lines
+            .iter()
+            .position(|line| line.contains(&format!("<code>{id}</code>")))
+            .unwrap_or_else(|| panic!("{id} : {list}"))
+            + 1
+    };
+    let other = number(OTHER);
+    assert!(lines[number(CHAT) - 1].contains("chosen"), "{list}");
+    assert!(!lines[other - 1].contains("chosen"), "{list}");
+    assert!(!list.contains(REMOTE), "remote models are off");
 
     // Un modèle qui n'est pas installé ne se choisit pas (rien n'est
     // téléchargé depuis un bot).
@@ -543,16 +764,12 @@ async fn models_are_listed_chosen_loaded_and_unloaded_from_the_bot() {
     bench.wait_told("No installed model matches").await;
     assert_eq!(bench.account().model, "");
 
-    bench.say("/model 1");
-    wait_until("modèle choisi", || bench.account().model == "qwen3.5:0.8b").await;
+    bench.say(&format!("/model {other}"));
+    wait_until("modèle choisi", || bench.account().model == OTHER).await;
 
     bench.say("/load");
     bench.wait_told("is in memory").await;
-    let loads = bench.ollama.load_requests();
-    assert!(
-        loads.iter().any(|load| load["model"] == "qwen3.5:0.8b"),
-        "{loads:?}"
-    );
+    assert_eq!(bench.loaded(), [OTHER]);
 
     bench.say("/status");
     bench.wait_told("In memory:").await;
@@ -560,22 +777,28 @@ async fn models_are_listed_chosen_loaded_and_unloaded_from_the_bot() {
 
     bench.say("/unload");
     bench.wait_told("is unloaded").await;
+    assert!(bench.loaded().is_empty());
 
     // Le message suivant part au modèle choisi par le compte, pas à celui de
     // l'app.
     bench.say("hello");
     bench.wait_answered(1).await;
-    assert_eq!(bench.ollama.chat_requests()[0]["model"], "qwen3.5:0.8b");
+    assert_eq!(bench.chat_requests()[0]["model"], OTHER);
 
     bench.say("/frobnicate");
     bench.wait_told("Unknown command").await;
-    assert!(bench.ollama.pull_requests().is_empty());
-    assert!(bench.ollama.delete_requests().is_empty());
+    // Rien de téléchargé ni de supprimé depuis un bot.
+    assert!(bench.fake.access.downloads().list().is_empty());
+    let installed = crate::local_models::list(bench.fake.store(), bench.fake.access.data_dir())
+        .await
+        .unwrap();
+    assert_eq!(installed.len(), MODELS.len());
+    bench.done().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_photo_goes_to_a_model_that_sees() {
-    let bench = bench("chatonlm-vision").await;
+    let bench = bench(SEER).await;
     bench.telegram_linked().await;
 
     // Photo sans légende : gardée pour le message suivant.
@@ -583,62 +806,148 @@ async fn a_photo_goes_to_a_model_that_sees() {
         .telegram
         .message(json!({ "user": ANA, "name": "Ana", "text": "", "image": true }));
     bench.wait_told("Photo received").await;
-    assert!(bench.ollama.chat_requests().is_empty());
+    assert!(bench.chat_requests().is_empty());
     bench.say("what is this?");
     bench.wait_answered(1).await;
-    let request = &bench.ollama.chat_requests()[0];
+    let request = &bench.chat_requests()[0];
     let message = &request["messages"][0];
-    assert_eq!(message["content"], "what is this?");
-    assert_eq!(message["images"].as_array().map(Vec::len), Some(1));
+    assert_eq!(text_of(message), "what is this?");
+    assert_eq!(images_of(message), 1);
 
     // Photo avec légende : envoyée tout de suite.
     bench.telegram.message(json!({
         "user": ANA, "name": "Ana", "text": "and this one?", "image": true
     }));
     bench.wait_answered(2).await;
-    let request = &bench.ollama.chat_requests()[1];
+    let request = &bench.chat_requests()[1];
     let last = request["messages"].as_array().unwrap().last().unwrap();
-    assert_eq!(last["content"], "and this one?");
-    assert_eq!(last["images"].as_array().map(Vec::len), Some(1));
+    assert_eq!(text_of(last), "and this one?");
+    assert_eq!(images_of(last), 1);
     // Rien ne reste dans la zone de préparation des bots.
     assert!(bench.service.shared().pending.lock().is_empty());
 }
 
-/// Modèle cloud choisi dans l'app, réglage coupé : le bot le dit, et rien
-/// ne part (ni détails, ni message), photo comprise.
+/// Modèle distant choisi dans l'app, réglage coupé : le bot le dit, et rien
+/// ne part (pas même une ouverture chez le fournisseur), photo comprise.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_cloud_model_is_refused_while_turned_off() {
-    let bench = bench("kimi-k2.6:cloud").await;
+async fn a_remote_model_is_refused_while_turned_off() {
+    let bench = bench(REMOTE).await;
     bench.telegram_linked().await;
     bench.say("hello");
-    bench.wait_told("Cloud models are turned off").await;
+    bench.wait_told("Remote models are turned off").await;
     wait_until("libre", || !bench.busy()).await;
     bench.telegram.message(json!({
         "user": ANA, "name": "Ana", "text": "what is this?", "image": true
     }));
     wait_until("photo refusée", || {
-        bench.told_count("Cloud models are turned off") == 2
+        bench.told_count("Remote models are turned off") == 2
     })
     .await;
-    assert!(bench.ollama.chat_requests().is_empty());
-    assert!(bench.ollama.show_requests().is_empty());
+    assert!(bench.remote.opened.lock().is_empty());
+    assert!(bench.loaded().is_empty());
+    // Permis : le modèle sert (ouvert chez le fournisseur, injoignable ici).
+    bench.fake.set(SettingsPatch {
+        remote_models: Some(true),
+        ..Default::default()
+    });
+    bench.say("hello again");
+    wait_until("ouvert chez le fournisseur", || {
+        !bench.remote.opened.lock().is_empty()
+    })
+    .await;
+    wait_until("libre", || !bench.busy()).await;
+    assert_eq!(*bench.remote.opened.lock(), ["test/remote-model"]);
+}
+
+/// Modèle distant permis : `/models` le liste comme distant (pas
+/// « installé », jamais « en mémoire ») ; `/load` et `/unload` disent qu'il
+/// n'y a rien à charger (réglage coupé : refusés) ; un distant que le
+/// fournisseur ne liste plus n'est « pas disponible », pas « plus installé ».
+/// Rien ne part chez le fournisseur.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_remote_model_is_told_as_remote_by_the_bot() {
+    let bench = bench(REMOTE).await;
+    let remote = |on: bool| {
+        bench.fake.set(SettingsPatch {
+            remote_models: Some(on),
+            ..Default::default()
+        });
+    };
+    remote(true);
+    bench.telegram_linked().await;
+    bench.say("/models");
+    bench.wait_told("Models:").await;
+    let list = bench
+        .told()
+        .into_iter()
+        .find(|text| text.contains("Models:"))
+        .unwrap();
+    assert!(!list.contains("Installed"), "{list}");
+    let line = list.lines().find(|line| line.contains(REMOTE)).unwrap();
+    assert!(line.contains("remote"), "{list}");
+
+    bench.say("/load");
+    bench.wait_told("nothing to load or unload").await;
+    bench.say("/unload");
+    wait_until("déchargement d'un distant", || {
+        bench.told_count("nothing to load or unload") == 2
+    })
+    .await;
+    assert_eq!(bench.told_count("in memory"), 0);
+    assert_eq!(bench.told_count("is unloaded"), 0);
+
+    remote(false);
+    bench.say("/load");
+    bench.wait_told("Remote models are turned off").await;
+
+    remote(true);
+    bench.fake.set(SettingsPatch {
+        selected_model: Some("@remote/test/gone".into()),
+        ..Default::default()
+    });
+    bench.say("hello");
+    bench.wait_told("available from its provider").await;
+    assert_eq!(bench.told_count("not installed anymore"), 0);
+    assert!(bench.remote.opened.lock().is_empty());
+    assert!(bench.loaded().is_empty());
+}
+
+/// `/load` interrompu par un déchargement (bouton Unload de l'app) : le bot
+/// dit que le modèle est déchargé, jamais « That did not work ».
+#[tokio::test(flavor = "multi_thread")]
+async fn a_load_interrupted_by_an_unload_is_told_unloaded() {
+    const SLOW_LOAD: &str = "bench/Slowload-GGUF:Q4_K_M";
+    let mut models = MODELS.to_vec();
+    models.push((SLOW_LOAD, "slowload"));
+    let bench = bench_of(SLOW_LOAD, &models).await;
+    bench.telegram_linked().await;
+    bench.say("/load");
+    bench.wait_told("Loading").await;
+    wait_until("en chargement", || {
+        bench.loaded().iter().any(|id| id == SLOW_LOAD)
+    })
+    .await;
+    crate::llm::models::unload(&bench.fake.access, SLOW_LOAD).await;
+    bench.wait_told("is unloaded").await;
+    assert_eq!(bench.told_count("did not work"), 0);
+    assert!(bench.loaded().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_photo_is_refused_by_a_model_that_cannot_see() {
-    let bench = bench("chatonlm-search").await;
+    let bench = bench(TOOLED).await;
     bench.telegram_linked().await;
     bench.telegram.message(json!({
         "user": ANA, "name": "Ana", "text": "what is this?", "image": true
     }));
     bench.wait_told("cannot read images").await;
     wait_until("libre", || !bench.busy()).await;
-    assert!(bench.ollama.chat_requests().is_empty());
+    assert!(bench.chat_requests().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_voice_message_is_transcribed_then_sent() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
 
     // Aucun modèle de transcription : le bot dit quoi installer.
@@ -647,7 +956,7 @@ async fn a_voice_message_is_transcribed_then_sent() {
         .message(json!({ "user": ANA, "name": "Ana", "text": "", "voice": true }));
     bench.wait_told("install a speech model").await;
     wait_until("libre", || !bench.busy()).await;
-    assert!(bench.ollama.chat_requests().is_empty());
+    assert!(bench.chat_requests().is_empty());
 
     *bench.heard.lock() = Ok("what time is it".into());
     bench
@@ -657,33 +966,33 @@ async fn a_voice_message_is_transcribed_then_sent() {
     bench.wait_told("🎤 what time is it").await;
     bench.wait_answered(1).await;
     assert_eq!(
-        bench.ollama.chat_requests()[0]["messages"][0]["content"],
+        text_of(&bench.chat_requests()[0]["messages"][0]),
         "what time is it"
     );
+    bench.done().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn web_search_follows_the_account() {
-    let bench = bench("chatonlm-search").await;
+    let bench = bench(TOOLED).await;
     bench.telegram_linked().await;
     bench.say("no search please");
     bench.wait_answered(1).await;
-    assert!(bench.ollama.chat_requests()[0].get("tools").is_none());
+    assert!(bench.chat_requests()[0].get("tools").is_none());
 
-    bench.ollama.set_signed_in(true);
     bench.say("/web on");
     bench.wait_told("Web search is on").await;
     assert!(bench.account().web_search);
     bench.say("/new");
     bench.wait_told("New conversation").await;
-    let before = bench.ollama.chat_requests().len();
+    let before = bench.chat_requests().len();
     bench.say("search the web");
     wait_until("requête avec outils", || {
-        bench.ollama.chat_requests().len() > before
+        bench.chat_requests().len() > before
     })
     .await;
     wait_until("réponse finie", || !bench.busy()).await;
-    assert!(bench.ollama.chat_requests()[before].get("tools").is_some());
+    assert!(bench.chat_requests()[before].get("tools").is_some());
 
     bench.say("/web maybe");
     bench.wait_told("/web on or /web off").await;
@@ -691,7 +1000,7 @@ async fn web_search_follows_the_account() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_message_delivered_long_after_is_not_served() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     let before = bench.told().len();
     // Remis dix minutes après leur envoi (l'app était fermée).
@@ -705,7 +1014,7 @@ async fn a_message_delivered_long_after_is_not_served() {
     bench.wait_told("was not running when you sent").await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(bench.told().len(), before + 1, "{:?}", bench.told());
-    assert!(bench.ollama.chat_requests().is_empty());
+    assert!(bench.chat_requests().is_empty());
 }
 
 /// L'horloge du PC avance : le code d'appairage paraît envoyé il y a dix
@@ -713,7 +1022,7 @@ async fn a_message_delivered_long_after_is_not_served() {
 /// compte lié).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_pairing_code_that_looks_old_still_links_the_account() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench
         .service
         .connect(Platform::Telegram, fake_telegram::TOKEN)
@@ -730,7 +1039,7 @@ async fn a_pairing_code_that_looks_old_still_links_the_account() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn unlinking_and_removing_the_bot_end_the_service() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     let account = bench.state().accounts[0].id;
     let state = bench.service.unlink(account).await.unwrap();
@@ -738,7 +1047,7 @@ async fn unlinking_and_removing_the_bot_end_the_service() {
     // Délié : de nouveau un inconnu.
     bench.say("hello");
     bench.wait_told("This bot is private").await;
-    assert!(bench.ollama.chat_requests().is_empty());
+    assert!(bench.chat_requests().is_empty());
 
     // Bot désactivé : plus d'écoute, plus de code.
     let state = bench
@@ -772,7 +1081,7 @@ async fn unlinking_and_removing_the_bot_end_the_service() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_refused_token_shows_why_the_bot_is_off() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     // Jeton enregistré puis révoqué chez la messagerie (base d'un lancement
     // précédent).
     bench
@@ -791,7 +1100,7 @@ async fn a_refused_token_shows_why_the_bot_is_off() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn discord_links_by_private_message_and_splits_a_long_answer() {
-    let bench = bench("chatonlm-markdown-long").await;
+    let bench = bench(LONG).await;
     let state = bench
         .service
         .connect(Platform::Discord, fake_discord::TOKEN)
@@ -836,10 +1145,7 @@ async fn discord_links_by_private_message_and_splits_a_long_answer() {
 
     let before = told().len();
     dm("write a long answer");
-    wait_until("requête au modèle", || {
-        !bench.ollama.chat_requests().is_empty()
-    })
-    .await;
+    wait_until("requête au modèle", || !bench.chat_requests().is_empty()).await;
     wait_until("réponse finie", || !bench.busy()).await;
     let listed = bench.store.blocking(|c| chats::list(c)).unwrap();
     assert_eq!(listed[0].source, Some(chats::ChatSource::Discord));
@@ -867,7 +1173,7 @@ async fn discord_links_by_private_message_and_splits_a_long_answer() {
 /// modifications suivantes attendent, et la dernière écriture insiste.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_rate_limit_while_writing_loses_nothing() {
-    let bench = bench("chatonlm-markdown-long").await;
+    let bench = bench(LONG).await;
     bench
         .service
         .connect(Platform::Discord, fake_discord::TOKEN)
@@ -892,10 +1198,7 @@ async fn a_rate_limit_while_writing_loses_nothing() {
         );
     }
     dm("write a long answer");
-    wait_until("requête au modèle", || {
-        !bench.ollama.chat_requests().is_empty()
-    })
-    .await;
+    wait_until("requête au modèle", || !bench.chat_requests().is_empty()).await;
     wait_until("réponse finie", || !bench.busy()).await;
     let listed = bench.store.blocking(|c| chats::list(c)).unwrap();
     let chat = bench
@@ -916,7 +1219,7 @@ async fn a_rate_limit_while_writing_loses_nothing() {
 /// vocal, avant que le moteur de chat ne connaisse le flux) n'est pas perdu.
 #[tokio::test(flavor = "multi_thread")]
 async fn stop_or_unlink_during_the_transcription_sends_nothing_to_the_model() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     *bench.heard.lock() = Ok("sent by mistake".into());
     let voice = || {
@@ -933,7 +1236,7 @@ async fn stop_or_unlink_during_the_transcription_sends_nothing_to_the_model() {
     bench.gate.send_replace(true);
     wait_until("libre", || !bench.busy()).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(bench.ollama.chat_requests().is_empty());
+    assert!(bench.chat_requests().is_empty());
     assert!(bench.store.blocking(|c| chats::list(c)).unwrap().is_empty());
 
     // Même chose quand le compte est délié dans l'app pendant la préparation.
@@ -945,7 +1248,7 @@ async fn stop_or_unlink_during_the_transcription_sends_nothing_to_the_model() {
     bench.gate.send_replace(true);
     wait_until("libre", || !bench.busy()).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(bench.ollama.chat_requests().is_empty());
+    assert!(bench.chat_requests().is_empty());
     assert!(bench.store.blocking(|c| chats::list(c)).unwrap().is_empty());
 }
 
@@ -953,7 +1256,7 @@ async fn stop_or_unlink_during_the_transcription_sends_nothing_to_the_model() {
 /// message vocal) n'envoie rien au modèle.
 #[tokio::test(flavor = "multi_thread")]
 async fn closing_the_app_during_the_transcription_sends_nothing_to_the_model() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     *bench.heard.lock() = Ok("sent while closing".into());
     bench.gate.send_replace(false);
@@ -965,7 +1268,7 @@ async fn closing_the_app_during_the_transcription_sends_nothing_to_the_model() {
     bench.gate.send_replace(true);
     wait_until("libre", || !bench.busy()).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(bench.ollama.chat_requests().is_empty());
+    assert!(bench.chat_requests().is_empty());
     assert!(bench.store.blocking(|c| chats::list(c)).unwrap().is_empty());
 }
 
@@ -974,7 +1277,7 @@ async fn closing_the_app_during_the_transcription_sends_nothing_to_the_model() {
 /// part au modèle, rien n'est écrit dans la messagerie.
 #[tokio::test(flavor = "multi_thread")]
 async fn stop_just_before_the_sending_starts_sends_nothing_to_the_model() {
-    let bench = bench("chatonlm-markdown-slow").await;
+    let bench = bench(STALL).await;
     bench.telegram_linked().await;
     let before = bench.told().len();
     let account = bench.state().accounts[0].id;
@@ -989,14 +1292,14 @@ async fn stop_just_before_the_sending_starts_sends_nothing_to_the_model() {
     bench.say("write slowly");
     wait_until("arrêt demandé", || bench.on_engine.lock().is_none()).await;
     wait_until("libre", || !bench.busy()).await;
-    assert!(bench.ollama.chat_requests().is_empty());
+    assert!(bench.chat_requests().is_empty());
     assert_eq!(bench.told().len(), before, "{:?}", bench.told());
 }
 
 /// Délier un compte arrête sa réponse en cours.
 #[tokio::test(flavor = "multi_thread")]
 async fn unlinking_stops_the_answer_being_written() {
-    let bench = bench("chatonlm-markdown-slow").await;
+    let bench = bench(STALL).await;
     bench.telegram_linked().await;
     let before = bench.told().len();
     bench.say("write slowly");
@@ -1005,7 +1308,7 @@ async fn unlinking_stops_the_answer_being_written() {
     let started = std::time::Instant::now();
     bench.service.unlink(account).await.unwrap();
     wait_until("réponse arrêtée", || !bench.busy()).await;
-    // Bien avant la fin naturelle de la réponse (8 s environ).
+    // Aussitôt (la réponse ne finirait jamais d'elle-même).
     assert!(started.elapsed() < Duration::from_secs(4));
 }
 
@@ -1014,11 +1317,15 @@ async fn unlinking_stops_the_answer_being_written() {
 /// message (l'envoi suivant compactera de lui-même).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reply_cut_by_a_full_context_asks_to_send_again() {
-    let bench = bench("chatonlm-context").await;
+    let bench = bench(LOOPING).await;
+    bench.fake.set(SettingsPatch {
+        context_length: Some(4096),
+        ..Default::default()
+    });
     bench.telegram_linked().await;
-    // 15 000 caractères : 3 750 jetons sur 4 096, la réponse n'a plus la
-    // place de ses 600 jetons.
-    bench.say(&"Tell me everything. ".repeat(750));
+    // 12 000 caractères : 3 000 jetons sur 4 096 (sous le seuil du
+    // compactage automatique) ; le modèle se répète jusqu'au contexte plein.
+    bench.say(&"Tell me everything. ".repeat(600));
     bench
         .wait_told("the conversation will be summarized first")
         .await;
@@ -1029,13 +1336,13 @@ async fn a_reply_cut_by_a_full_context_asks_to_send_again() {
 /// du bot (le moteur de chat, lui, télécharge un modèle absent).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_missing_model_is_not_downloaded_from_the_bot() {
-    let bench = bench("chatonlm-pull").await;
+    let bench = bench(MISSING).await;
     bench.telegram_linked().await;
     bench.say("hello");
     bench.wait_told("is not installed anymore").await;
     wait_until("libre", || !bench.busy()).await;
-    assert!(bench.ollama.pull_requests().is_empty());
-    assert!(bench.ollama.chat_requests().is_empty());
+    assert!(bench.fake.access.downloads().list().is_empty());
+    assert!(bench.loaded().is_empty());
     assert!(bench.store.blocking(|c| chats::list(c)).unwrap().is_empty());
 }
 
@@ -1043,7 +1350,7 @@ async fn a_missing_model_is_not_downloaded_from_the_bot() {
 /// premier : ses photos partent ensemble, sans invite « photo reçue ».
 #[tokio::test(flavor = "multi_thread")]
 async fn an_album_with_a_caption_goes_to_the_model_whole() {
-    let bench = bench("chatonlm-vision").await;
+    let bench = bench(SEER).await;
     bench.telegram_linked().await;
     bench.telegram.message(json!({
         "user": ANA, "name": "Ana", "text": "what are these?", "image": true
@@ -1054,11 +1361,8 @@ async fn an_album_with_a_caption_goes_to_the_model_whole() {
             .message(json!({ "user": ANA, "name": "Ana", "text": "", "image": true }));
     }
     bench.wait_answered(1).await;
-    let request = &bench.ollama.chat_requests()[0];
-    assert_eq!(
-        request["messages"][0]["images"].as_array().map(Vec::len),
-        Some(3)
-    );
+    let request = &bench.chat_requests()[0];
+    assert_eq!(images_of(&request["messages"][0]), 3);
     assert!(
         !bench
             .told()
@@ -1075,17 +1379,17 @@ async fn an_album_with_a_caption_goes_to_the_model_whole() {
 /// message suivant.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_photo_arriving_during_an_answer_is_announced_when_it_ends() {
-    let bench = bench("chatonlm-markdown-slow").await;
+    let bench = bench(DRAWL).await;
     bench.telegram_linked().await;
     let before = bench.told().len();
     bench.say("write slowly");
     wait_until("réponse commencée", || bench.told().len() > before).await;
-    // Le faux Ollama n'a pas de modèle lent qui voie : le compte passe à un
-    // modèle qui voit pendant la réponse, pour que la photo soit gardée.
+    // Le modèle lent ne voit pas : le compte passe à un modèle qui voit
+    // pendant la réponse, pour que la photo soit gardée.
     let account = bench.account().id;
     bench
         .store
-        .blocking(move |c| saved::set_model(c, account, "chatonlm-vision"))
+        .blocking(move |c| saved::set_model(c, account, SEER))
         .unwrap();
     bench
         .telegram
@@ -1100,17 +1404,23 @@ async fn a_photo_arriving_during_an_answer_is_announced_when_it_ends() {
 
     bench.say("what is this?");
     bench.wait_answered(2).await;
-    let request = &bench.ollama.chat_requests()[1];
+    // Les requêtes de plusieurs modèles ne sont pas dans l'ordre : celle du
+    // modèle qui voit.
+    let request = bench
+        .chat_requests()
+        .into_iter()
+        .find(|request| request["model"] == SEER)
+        .unwrap();
     let last = request["messages"].as_array().unwrap().last().unwrap();
-    assert_eq!(last["content"], "what is this?");
-    assert_eq!(last["images"].as_array().map(Vec::len), Some(1));
+    assert_eq!(text_of(last), "what is this?");
+    assert_eq!(images_of(last), 1);
 }
 
 /// La dernière écriture échoue (ici, chaque modification est refusée) : le
 /// bot dit que la réponse est incomplète dans la messagerie.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_last_write_is_told() {
-    let bench = bench("chatonlm-markdown-slow").await;
+    let bench = bench(DRAWL).await;
     bench
         .service
         .connect(Platform::Discord, fake_discord::TOKEN)
@@ -1133,10 +1443,7 @@ async fn a_failed_last_write_is_told() {
         );
     }
     dm("write slowly");
-    wait_until("requête au modèle", || {
-        !bench.ollama.chat_requests().is_empty()
-    })
-    .await;
+    wait_until("requête au modèle", || !bench.chat_requests().is_empty()).await;
     wait_until("réponse finie", || !bench.busy()).await;
     let told = shown(&bench.discord.sent());
     assert!(
@@ -1151,7 +1458,7 @@ async fn a_failed_last_write_is_told() {
 /// le nom du bot.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_announcements_of_a_replaced_listener_change_nothing() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     // Première écoute : le bot porte encore son ancien nom ; sa réception
     // marche, tombe, puis revient.
     let old_me = json!({
@@ -1226,7 +1533,7 @@ async fn the_announcements_of_a_replaced_listener_change_nothing() {
 /// modèle, et la photo jointe attend le message suivant.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_conversation_busy_in_the_app_refuses_the_message_and_keeps_its_photo() {
-    let bench = bench("chatonlm-vision").await;
+    let bench = bench(SEER).await;
     bench.telegram_linked().await;
     bench.say("hello");
     bench.wait_answered(1).await;
@@ -1236,14 +1543,12 @@ async fn a_conversation_busy_in_the_app_refuses_the_message_and_keeps_its_photo(
     let page = {
         let (service, store, chat_id) = (bench.service.clone(), bench.store.clone(), chat_id);
         tokio::spawn(async move {
-            let settings = crate::ollama::target::request_settings(&store)
-                .await
-                .unwrap();
+            let server = Server::current(&service.shared().access).await.unwrap();
             let request = SendRequest {
                 chat_id: Some(chat_id),
                 stream_id: "page".into(),
                 content: "from the page".into(),
-                model: "chatonlm-markdown-slow".into(),
+                model: STALL.into(),
                 think: None,
                 attachment_ids: None,
                 edit_message_id: None,
@@ -1257,7 +1562,7 @@ async fn a_conversation_busy_in_the_app_refuses_the_message_and_keeps_its_photo(
                 &store,
                 &service.shared().host.engine,
                 &Staging::default(),
-                Server::with_settings(service.shared().access.clone(), &settings),
+                server,
                 request,
                 Origin::Page,
                 &|_| {},
@@ -1266,7 +1571,7 @@ async fn a_conversation_busy_in_the_app_refuses_the_message_and_keeps_its_photo(
         })
     };
     wait_until("réponse de la page en cours", || {
-        bench.ollama.chat_requests().len() == 2
+        bench.chat_requests().len() == 2
     })
     .await;
 
@@ -1278,7 +1583,7 @@ async fn a_conversation_busy_in_the_app_refuses_the_message_and_keeps_its_photo(
         .await;
     bench.wait_told("Photo received").await;
     wait_until("libre", || !bench.busy()).await;
-    assert_eq!(bench.ollama.chat_requests().len(), 2);
+    assert_eq!(bench.chat_requests().len(), 2);
     let account = bench.account().id;
     assert_eq!(
         bench
@@ -1297,10 +1602,16 @@ async fn a_conversation_busy_in_the_app_refuses_the_message_and_keeps_its_photo(
     page.await.unwrap().unwrap();
     bench.say("and now?");
     bench.wait_answered(3).await;
-    let request = &bench.ollama.chat_requests()[2];
+    // Les requêtes de chaque modèle sont dans leur ordre ; celles de
+    // plusieurs modèles, non : la dernière du modèle qui voit.
+    let request = bench
+        .chat_requests()
+        .into_iter()
+        .rfind(|request| request["model"] == SEER)
+        .unwrap();
     let last = request["messages"].as_array().unwrap().last().unwrap();
-    assert_eq!(last["content"], "and now?");
-    assert_eq!(last["images"].as_array().map(Vec::len), Some(1));
+    assert_eq!(text_of(last), "and now?");
+    assert_eq!(images_of(last), 1);
     assert!(bench.service.shared().pending.lock().is_empty());
 }
 
@@ -1309,17 +1620,15 @@ async fn a_conversation_busy_in_the_app_refuses_the_message_and_keeps_its_photo(
 /// n'essaie plus d'écrire.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_recipient_who_blocks_the_bot_stops_the_answer_being_written() {
-    let bench = bench("chatonlm-markdown-slow").await;
+    let bench = bench(DRAWL).await;
     bench.telegram_linked().await;
     let before = bench.told().len();
     bench.say("write slowly");
     wait_until("réponse commencée", || bench.told().len() > before).await;
     let writes = || bench.telegram_calls(&["sendMessage", "editMessageText"]);
     bench.telegram.block(ANA);
-    let (blocked_at, started) = (writes(), std::time::Instant::now());
+    let blocked_at = writes();
     wait_until("réponse arrêtée", || !bench.busy()).await;
-    // Bien avant la fin naturelle de la réponse (8 s environ).
-    assert!(started.elapsed() < Duration::from_secs(4));
     tokio::time::sleep(Duration::from_millis(500)).await;
     // Une seule écriture refusée, qui a révélé le blocage, puis plus rien.
     assert_eq!(writes(), blocked_at + 1);
@@ -1331,6 +1640,12 @@ async fn a_recipient_who_blocks_the_bot_stops_the_answer_being_written() {
         .unwrap();
     assert_eq!(chat.messages.len(), 2);
     assert!(!chat.messages[1].content.is_empty());
+    // Arrêtée par le blocage, avant sa fin naturelle.
+    assert!(
+        !chat.messages[1].content.contains("Part 12"),
+        "{}",
+        chat.messages[1].content
+    );
 }
 
 /// Le destinataire bloque le bot juste après son message : la réponse (ici
@@ -1338,7 +1653,7 @@ async fn a_recipient_who_blocks_the_bot_stops_the_answer_being_written() {
 /// pas d'écrire la note qui dirait l'erreur.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_bot_blocked_before_its_answer_writes_no_final_note() {
-    let bench = bench("chatonlm-error").await;
+    let bench = bench(FAILING).await;
     bench.telegram_linked().await;
     let writes = || bench.telegram_calls(&["sendMessage", "editMessageText"]);
     let before = writes();
@@ -1356,7 +1671,7 @@ async fn a_bot_blocked_before_its_answer_writes_no_final_note() {
 /// message suivant.
 #[tokio::test(flavor = "multi_thread")]
 async fn photos_beyond_the_limit_are_refused_and_four_go_with_the_next_message() {
-    let bench = bench("chatonlm-vision").await;
+    let bench = bench(SEER).await;
     bench.telegram_linked().await;
     let downloads = || bench.telegram_calls(&["getFile"]);
     let kept = || {
@@ -1393,9 +1708,9 @@ async fn photos_beyond_the_limit_are_refused_and_four_go_with_the_next_message()
 
     bench.say("what are these?");
     bench.wait_answered(1).await;
-    let message = &bench.ollama.chat_requests()[0]["messages"][0];
-    assert_eq!(message["content"], "what are these?");
-    assert_eq!(message["images"].as_array().map(Vec::len), Some(4));
+    let message = &bench.chat_requests()[0]["messages"][0];
+    assert_eq!(text_of(message), "what are these?");
+    assert_eq!(images_of(message), 4);
     assert_eq!(kept(), 0);
 }
 
@@ -1405,17 +1720,17 @@ async fn photos_beyond_the_limit_are_refused_and_four_go_with_the_next_message()
 /// réponse n'est pas annoncée au moment de fermer.
 #[tokio::test(flavor = "multi_thread")]
 async fn closing_the_app_while_an_answer_is_written_stops_it() {
-    let bench = bench("chatonlm-markdown-slow").await;
+    let bench = bench(STALL).await;
     bench.telegram_linked().await;
     let before = bench.told().len();
     bench.say("write slowly");
     wait_until("réponse commencée", || bench.told().len() > before).await;
-    // Le faux Ollama n'a pas de modèle lent qui voie : le compte passe à un
-    // modèle qui voit pendant la réponse, pour que la photo soit gardée.
+    // Le modèle lent ne voit pas : le compte passe à un modèle qui voit
+    // pendant la réponse, pour que la photo soit gardée.
     let account = bench.account().id;
     bench
         .store
-        .blocking(move |c| saved::set_model(c, account, "chatonlm-vision"))
+        .blocking(move |c| saved::set_model(c, account, SEER))
         .unwrap();
     bench.photo();
     wait_until("photo gardée", || {
@@ -1434,7 +1749,7 @@ async fn closing_the_app_while_an_answer_is_written_stops_it() {
         .stop_all(Duration::from_secs(1))
         .await;
     wait_until("réponse arrêtée", || !bench.busy()).await;
-    // Bien avant la fin naturelle de la réponse (8 s environ).
+    // Aussitôt (la réponse ne finirait jamais d'elle-même).
     assert!(started.elapsed() < Duration::from_secs(4));
     // La partie reçue est enregistrée.
     let listed = bench.store.blocking(|c| chats::list(c)).unwrap();
@@ -1448,7 +1763,7 @@ async fn closing_the_app_while_an_answer_is_written_stops_it() {
     assert_eq!(bench.link_of(Platform::Telegram), EasyLinkLink::Off);
     bench.say("are you there?");
     tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(bench.ollama.chat_requests().len(), 1);
+    assert_eq!(bench.chat_requests().len(), 1);
     assert_eq!(bench.told_count("Photo received"), 0, "{:?}", bench.told());
 }
 
@@ -1457,7 +1772,7 @@ async fn closing_the_app_while_an_answer_is_written_stops_it() {
 /// recevra pas. Il est servi quand même.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_message_in_flight_when_the_same_bot_is_relinked_is_served() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     let release = bench
         .message_in_flight(json!({ "user": ANA, "name": "Ana", "text": "in flight" }))
@@ -1465,9 +1780,9 @@ async fn a_message_in_flight_when_the_same_bot_is_relinked_is_served() {
     bench.relink().await;
     release.send(()).unwrap();
     bench.wait_answered(1).await;
-    let request = &bench.ollama.chat_requests()[0];
+    let request = &bench.chat_requests()[0];
     let last = request["messages"].as_array().unwrap().last().unwrap();
-    assert_eq!(last["content"], "in flight");
+    assert_eq!(text_of(last), "in flight");
 }
 
 /// Un message remis à l'écoute remplacée, puis de nouveau à la suivante
@@ -1475,7 +1790,7 @@ async fn a_message_in_flight_when_the_same_bot_is_relinked_is_served() {
 /// fois.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_message_delivered_again_after_relinking_is_served_once() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     let message = json!({ "user": ANA, "name": "Ana", "text": "only once", "messageId": 9001 });
     let release = bench.message_in_flight(message.clone()).await;
@@ -1486,7 +1801,7 @@ async fn a_message_delivered_again_after_relinking_is_served_once() {
     release.send(()).unwrap();
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(!bench.busy());
-    assert_eq!(bench.ollama.chat_requests().len(), 1);
+    assert_eq!(bench.chat_requests().len(), 1);
 }
 
 // --- Images produites (outil `generate_image`) ---
@@ -1571,7 +1886,7 @@ impl Bench {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_image_goes_between_the_text_before_and_the_text_after() {
     for platform in [Platform::Telegram, Platform::Discord] {
-        let bench = bench("qwen3:0.6b").await;
+        let bench = bench(CHAT).await;
         let (messenger, channel) = bench.messenger(platform);
         let image = bench.generated();
         let mut relay = Relay::new(&messenger, channel);
@@ -1608,7 +1923,7 @@ async fn an_image_goes_between_the_text_before_and_the_text_after() {
 /// n'est pas « vide ».
 #[tokio::test(flavor = "multi_thread")]
 async fn an_image_alone_is_an_answer() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     let (messenger, channel) = bench.messenger(Platform::Telegram);
     let image = bench.generated();
     let mut relay = Relay::new(&messenger, channel);
@@ -1630,7 +1945,7 @@ async fn an_image_alone_is_an_answer() {
 async fn a_photo_that_cannot_be_sent_is_replaced_by_a_short_text() {
     let failed = crate::i18n::t!("easyLink.photoFailed");
     for platform in [Platform::Telegram, Platform::Discord] {
-        let bench = bench("qwen3:0.6b").await;
+        let bench = bench(CHAT).await;
         match platform {
             Platform::Telegram => bench.telegram.fail_next(
                 "sendPhoto",
@@ -1662,7 +1977,7 @@ async fn a_photo_that_cannot_be_sent_is_replaced_by_a_short_text() {
 /// « Trop de requêtes » sur la photo : attendue, puis envoyée une fois.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_rate_limited_photo_is_sent_after_the_wait() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     let limited = json!({"message": "You are being rate limited.", "retry_after": 0.2});
     bench.discord.fail_next("photo", 429, limited);
     let (messenger, channel) = bench.messenger(Platform::Discord);
@@ -1681,7 +1996,7 @@ async fn a_rate_limited_photo_is_sent_after_the_wait() {
 /// ni suite.
 #[tokio::test(flavor = "multi_thread")]
 async fn nothing_more_is_sent_to_a_recipient_who_blocked_the_bot() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram.block(ANA);
     let (messenger, channel) = bench.messenger(Platform::Telegram);
     let image = bench.generated();
@@ -1700,7 +2015,7 @@ async fn nothing_more_is_sent_to_a_recipient_who_blocked_the_bot() {
 /// la réponse incomplète).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_lost_text_before_an_image_makes_the_answer_incomplete() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench
         .discord
         .fail_next("send", 400, json!({"message": "nope"}));
@@ -1727,7 +2042,7 @@ async fn a_lost_text_before_an_image_makes_the_answer_incomplete() {
 /// d'un message reçu) n'est pas lue comme telle.
 #[tokio::test(flavor = "multi_thread")]
 async fn only_a_png_is_read_as_a_generated_image() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     let jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0, 0];
     let id = bench
         .store
@@ -1812,7 +2127,7 @@ impl chat::images::Painter for TestPainter {
 /// dans un nouveau message.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_image_asked_from_the_bot_arrives_as_a_photo() {
-    let bench = bench("chatonlm-image").await;
+    let bench = bench(PAINTER).await;
     let prompts = Arc::new(Mutex::new(Vec::new()));
     let (open, gate) = tokio::sync::watch::channel(false);
     bench
@@ -1843,7 +2158,7 @@ async fn an_image_asked_from_the_bot_arrives_as_a_photo() {
         told,
         [
             format!("[photo image-7.png {}]", PNG.len()),
-            "Here is your image.".to_owned(),
+            "Here is your picture.".to_owned(),
         ]
     );
 }
@@ -1852,7 +2167,7 @@ async fn an_image_asked_from_the_bot_arrives_as_a_photo() {
 /// la reçoive : la photo ne part pas.
 #[tokio::test(flavor = "multi_thread")]
 async fn no_photo_is_sent_once_the_answer_is_stopped() {
-    let bench = bench("chatonlm-image").await;
+    let bench = bench(PAINTER).await;
     let prompts = Arc::new(Mutex::new(Vec::new()));
     let (_open, gate) = tokio::sync::watch::channel(true);
     // Arrêt retenu par le bot seulement : le moteur, qui ne le sait pas
@@ -1896,7 +2211,7 @@ async fn a_long_rate_limit_holds_every_write() {
         "parameters": { "retry_after": 60 },
     });
     // Sur la photo : pas de texte de repli, ni la suite.
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram.fail_next("sendPhoto", 429, limited.clone());
     let (messenger, channel) = bench.messenger(Platform::Telegram);
     let image = bench.generated();
@@ -1913,7 +2228,7 @@ async fn a_long_rate_limit_holds_every_write() {
 
     // Sur le texte d'avant l'image : ni photo, ni texte de repli, ni la
     // suite.
-    let bench = self::bench("qwen3:0.6b").await;
+    let bench = self::bench(CHAT).await;
     bench.telegram.fail_next("sendMessage", 429, limited);
     let (messenger, channel) = bench.messenger(Platform::Telegram);
     let image = bench.generated();
@@ -1934,7 +2249,7 @@ async fn a_long_rate_limit_holds_every_write() {
 /// elle a pu arriver, le texte qui la remplace le dit avec prudence.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_photo_lost_on_the_network_is_told_with_caution() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     // Réponse illisible : `Problem::Network`, comme un délai dépassé.
     bench
         .telegram
@@ -1953,7 +2268,7 @@ async fn a_photo_lost_on_the_network_is_told_with_caution() {
 /// incomplète, mais le texte qui le dit n'est pas envoyé pendant la limite.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_final_note_waits_for_a_long_rate_limit() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     let before = bench.telegram_calls(&["sendMessage"]);
     let limited = json!({
@@ -2018,7 +2333,7 @@ impl Bench {
 /// ordinaire.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_ephemeral_mode_opens_conversations_that_are_erased_when_left() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     // L'accueil liste les deux commandes.
     assert!(
@@ -2047,7 +2362,7 @@ async fn the_ephemeral_mode_opens_conversations_that_are_erased_when_left() {
     bench.wait_answered(2).await;
     assert_eq!(bench.current_chat().as_deref(), Some(first.as_str()));
     assert_eq!(
-        bench.ollama.chat_requests()[1]["messages"]
+        bench.chat_requests()[1]["messages"]
             .as_array()
             .unwrap()
             .len(),
@@ -2099,7 +2414,7 @@ async fn the_ephemeral_mode_opens_conversations_that_are_erased_when_left() {
 /// l'historique, et le message suivant en ouvre une nouvelle, éphémère.
 #[tokio::test(flavor = "multi_thread")]
 async fn keep_puts_the_ephemeral_conversation_in_the_history() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     bench.say("/keep");
     bench.wait_told("no ephemeral conversation to keep").await;
@@ -2120,7 +2435,7 @@ async fn keep_puts_the_ephemeral_conversation_in_the_history() {
     assert!(bench.is_ephemeral(&secret));
     // Nouvelle conversation : seul le message envoyé part au modèle.
     assert_eq!(
-        bench.ollama.chat_requests()[1]["messages"]
+        bench.chat_requests()[1]["messages"]
             .as_array()
             .unwrap()
             .len(),
@@ -2155,7 +2470,7 @@ async fn keep_puts_the_ephemeral_conversation_in_the_history() {
 /// s'arrête et rien n'en reste.
 #[tokio::test(flavor = "multi_thread")]
 async fn new_during_an_ephemeral_answer_stops_it_and_leaves_nothing() {
-    let bench = bench("chatonlm-markdown-slow").await;
+    let bench = bench(STALL).await;
     bench.telegram_linked().await;
     bench.say("/ephemeral on");
     bench.wait_told("Ephemeral conversations are on").await;
@@ -2167,7 +2482,7 @@ async fn new_during_an_ephemeral_answer_stops_it_and_leaves_nothing() {
     bench.say("/new");
     bench.wait_told("New conversation").await;
     wait_until("réponse arrêtée", || !bench.busy()).await;
-    // Bien avant la fin naturelle de la réponse (8 s environ).
+    // Aussitôt (la réponse ne finirait jamais d'elle-même).
     assert!(started.elapsed() < Duration::from_secs(4));
     assert!(bench.erased(&chat));
     assert_eq!(bench.chat_count(), 0);
@@ -2178,7 +2493,7 @@ async fn new_during_an_ephemeral_answer_stops_it_and_leaves_nothing() {
 /// conversation éphémère ; une conversation ordinaire reste.
 #[tokio::test(flavor = "multi_thread")]
 async fn unlinking_erases_the_ephemeral_conversation() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     bench.say("/ephemeral on");
     bench.wait_told("Ephemeral conversations are on").await;
@@ -2230,7 +2545,7 @@ async fn unlinking_erases_the_ephemeral_conversation() {
 /// dans l'historique. Le message suivant suit le nouveau mode.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_mode_changed_while_a_conversation_opens_does_not_attach_it() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     bench.say("/ephemeral on");
     bench.wait_told("Ephemeral conversations are on").await;
@@ -2278,7 +2593,7 @@ async fn a_mode_changed_while_a_conversation_opens_does_not_attach_it() {
 /// ouvre une autre au lieu de partir dans celle-ci.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_ephemeral_chat_is_detached_before_it_is_erased() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     bench.say("/ephemeral on");
     bench.wait_told("Ephemeral conversations are on").await;
@@ -2343,7 +2658,7 @@ fn telegram_sends(bench: &Bench) -> Vec<Value> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_vscode_notice_needs_the_setting_and_a_linked_account() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     // Coupé par défaut.
     assert!(!bench.state().vscode_notify);
     let shared = bench.service.shared();
@@ -2385,7 +2700,7 @@ async fn a_vscode_notice_needs_the_setting_and_a_linked_account() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_vscode_notice_is_bounded_in_rate_and_content() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     bench.service.set_vscode_notify(true).await.unwrap();
     let shared = bench.service.shared();
@@ -2439,7 +2754,7 @@ async fn a_vscode_notice_is_bounded_in_rate_and_content() {
 /// compte n'est pas tenu 30 s pour autant.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_vscode_notice_does_not_hold_the_account_for_30_seconds() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     bench.service.set_vscode_notify(true).await.unwrap();
     let shared = bench.service.shared();
@@ -2451,7 +2766,7 @@ async fn a_failed_vscode_notice_does_not_hold_the_account_for_30_seconds() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_vscode_notice_opens_the_private_channel_on_discord() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench
         .service
         .connect(Platform::Discord, fake_discord::TOKEN)
@@ -2489,7 +2804,7 @@ async fn a_vscode_notice_opens_the_private_channel_on_discord() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn status_shows_the_vscode_tasks_running_or_finished_within_an_hour() {
-    let bench = bench("qwen3:0.6b").await;
+    let bench = bench(CHAT).await;
     bench.telegram_linked().await;
     bench.service.set_vscode_notify(true).await.unwrap();
     let shared = bench.service.shared();

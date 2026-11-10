@@ -9,9 +9,34 @@ import { WebDriver } from "./webdriver.mjs";
 /** Racine du dépôt. */
 export const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
+/**
+ * Faux `llama-server` (crate fake-llama, construit par scripts/e2e-build.sh) :
+ * moteur de texte imposé à l'app par défaut (`CHATONLM_LLAMA_SERVER_BIN`) ;
+ * un test du vrai moteur donne le sien (e2e/lib/fake.mjs, `startRealEngine`).
+ */
+export const FAKE_LLAMA = `${ROOT}.tools/e2e-target/debug/fake-llama`;
+
 /** Variables de l'environnement du développeur à ne pas transmettre. */
 const DROPPED_ENV = [
   "OLLAMA_HOST",
+  // Moteur de texte : binaire, modèles inscrits au démarrage et réglages du
+  // faux, donnés par le test (e2e/lib/fake.mjs, `startEngine`) ; variables
+  // de llama.cpp et des essais Rust du vrai moteur.
+  "CHATONLM_LLAMA_SERVER_BIN",
+  "CHATONLM_E2E_MODELS",
+  "FAKE_LLAMA_MODE",
+  "FAKE_LLAMA_LOAD_MS",
+  "FAKE_LLAMA_STOP_MS",
+  "FAKE_LLAMA_REGISTRY",
+  "LLAMA_CACHE",
+  "LLAMA_ARG_API_KEY_FILE",
+  "LLAMA_API_KEY",
+  "CHATONLM_LLAMA_TEST_BIN",
+  "CHATONLM_LLAMA_TEST_MODELS",
+  "CHATONLM_LLAMA_TEST_CPU",
+  // Processeur seulement (builds d'essai) : donné par `startRealEngine`
+  // quand `CHATONLM_LLAMA_TEST_CPU=1`.
+  "CHATONLM_LLAMA_CPU_ONLY",
   "CHATONLM_SEED_DEMO",
   "CHATONLM_E2E_HOST_FACTS",
   // Ollama intégré (binaire de .tools/runtimes) et adresse par défaut
@@ -44,6 +69,10 @@ const DROPPED_ENV = [
   "CHATONLM_DISCORD_URL",
   // Signaler un bug : service du site, donné par un test qui s'en sert.
   "CHATONLM_REPORT_URL",
+  // Relais de la recherche web, fournisseurs des modèles distants : donnés
+  // par un test qui s'en sert.
+  "CHATONLM_RELAY_URL",
+  "CHATONLM_REMOTE_URL",
 ];
 
 /**
@@ -185,9 +214,18 @@ export async function withApp(
   const app = spawn(binary, args, {
     env: {
       ...inherited,
-      // Adresse locale standard fermée : un Ollama de la machine n'est jamais
-      // proposé comme adresse de remplacement.
+      // Moteur de texte : le faux binaire, sans modèle ; un test qui envoie
+      // des messages inscrit les siens (`startEngine`, qui donne aussi
+      // `CHATONLM_E2E_MODELS`), ou donne le vrai moteur (`startRealEngine`).
+      CHATONLM_LLAMA_SERVER_BIN: FAKE_LLAMA,
+      // Adresse locale standard d'Ollama fermée (code d'Ollama gardé jusqu'à
+      // son retrait, sans appelant) : un Ollama de la machine n'est jamais
+      // proposé.
       CHATONLM_E2E_STANDARD_URL: "http://127.0.0.1:1",
+      // Reprise des modèles d'Ollama : aucun dossier de l'Ollama de la machine
+      // (ni service interrogé, ni ~/.ollama lu) ; un test de la reprise donne
+      // les siens (séparés comme PATH).
+      CHATONLM_OLLAMA_MACHINE_DIRS: "",
       // Registre fermé (ollama.com jamais contacté) ; un test qui cherche un
       // modèle au registre donne le faux serveur.
       CHATONLM_REGISTRY_URL: "http://127.0.0.1:1",
@@ -220,6 +258,11 @@ export async function withApp(
       // Signaler un bug : chatonlm.com fermé (aucun signalement d'essai ne
       // part vers la vraie boîte).
       CHATONLM_REPORT_URL: "http://127.0.0.1:1",
+      // Relais de la recherche web et fournisseurs des modèles distants
+      // fermés (relay.chatonlm.com, ollama.com, OpenRouter, Mistral jamais
+      // contactés) ; un test qui s'en sert donne ses faux (startFakeRelay).
+      CHATONLM_RELAY_URL: "http://127.0.0.1:1",
+      CHATONLM_REMOTE_URL: "http://127.0.0.1:1",
       // Interface en anglais (langue « System » des essais), quelle que soit
       // la langue du bureau du développeur ; un test des langues donne la
       // sienne (LANG, LANGUAGE).

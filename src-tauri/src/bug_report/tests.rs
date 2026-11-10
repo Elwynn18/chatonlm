@@ -12,8 +12,7 @@ fn facts() -> Facts {
         desktop: Some("KDE, wayland".into()),
         install: "AppImage".into(),
         language: "fr".into(),
-        ollama: "this computer, 0.40.13".into(),
-        builtin_ollama: Some("0.40.13, stopped".into()),
+        engine: "llama.cpp v0.9.0, Vulkan (RTX 3090)".into(),
         log: "2026-11-08T10:00:00Z chatonlm: started\n".into(),
     }
 }
@@ -32,8 +31,7 @@ fn the_diagnostic_lists_the_facts_then_the_end_of_the_log() {
     assert!(text.starts_with("ChatonLM: 1.0.0\nSystem: Arch Linux, kernel 7.2.11\n"));
     assert!(text.contains("Desktop: KDE, wayland\n"));
     assert!(text.contains("Installed as: AppImage\n"));
-    assert!(text.contains("Ollama: this computer, 0.40.13\n"));
-    assert!(text.contains("Built-in Ollama: 0.40.13, stopped\n"));
+    assert!(text.contains("Language: fr\nEngine: llama.cpp v0.9.0, Vulkan (RTX 3090)\n"));
     assert!(text.ends_with("--- chatonlm.log (end) ---\n2026-11-08T10:00:00Z chatonlm: started\n"));
     // Sans journal, pas de section vide.
     let empty = Facts {
@@ -41,6 +39,52 @@ fn the_diagnostic_lists_the_facts_then_the_end_of_the_log() {
         ..facts()
     };
     assert!(!diagnostic(&empty).contains("chatonlm.log"));
+}
+
+/// Ligne « Engine » : version, carte ou processeur, repli de la session,
+/// moteur absent.
+#[test]
+fn the_engine_line_says_what_runs_the_models() {
+    use crate::commands::engine::status_of;
+    use crate::hub::hardware::Machine;
+    use crate::hub::types::HubGpu;
+    let card = Machine {
+        gpus: vec![HubGpu {
+            name: "RTX 3090".into(),
+            vram_total: 24 << 30,
+            vram_free: None,
+        }],
+        ram_total: 64 << 30,
+        ram_available: 32 << 30,
+    };
+    let version = || Some("v0.9.0+chatonlm.1b94fcb0b0db".to_owned());
+    let line = |available, machine: Option<&Machine>, fallback| {
+        engine_line(&status_of(
+            available,
+            version(),
+            machine,
+            fallback,
+            "/l".into(),
+        ))
+    };
+    assert_eq!(
+        line(true, Some(&card), false),
+        "llama.cpp v0.9.0+chatonlm.1b94fcb0b0db, Vulkan (RTX 3090)"
+    );
+    assert_eq!(
+        line(true, Some(&card), true),
+        "llama.cpp v0.9.0+chatonlm.1b94fcb0b0db, processor (graphics card failed this session: RTX 3090)"
+    );
+    assert_eq!(
+        line(true, None, false),
+        "llama.cpp v0.9.0+chatonlm.1b94fcb0b0db, processor (no graphics card)"
+    );
+    assert_eq!(line(false, Some(&card), false), "missing");
+    let unknown = status_of(true, None, None, true, "/l".into());
+    assert_eq!(
+        engine_line(&unknown),
+        "llama.cpp unknown version, processor (graphics card failed this session)"
+    );
 }
 
 #[test]
@@ -71,7 +115,7 @@ fn a_long_diagnostic_keeps_its_facts_and_the_latest_lines() {
     assert!(text.ends_with("line 02999\n"));
     // Coupé au début d'une ligne.
     let after = text
-        .split_once("Built-in Ollama: 0.40.13, stopped\n\n")
+        .split_once("Engine: llama.cpp v0.9.0, Vulkan (RTX 3090)\n\n")
         .unwrap()
         .1;
     assert!(after.starts_with("line "), "{}", &after[..20]);

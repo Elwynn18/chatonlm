@@ -452,6 +452,9 @@ async fn a_download_can_be_paused_and_resumed() {
     .await;
     let slow = "chatonlm-dl/Turtle-slow-big-GGUF:Q4_K_M";
     let next = "chatonlm-dl/Next-stall-GGUF:Q4_K_M";
+    // Retenu passé sa moitié jusqu'à la reprise : la pause tombe toujours en
+    // plein téléchargement, même réveillé en retard (relecture L8, M7).
+    env.fake.hold("Turtle-Q4_K_M.gguf");
     env.ask(slow);
     env.ask(next);
     wait_until("some progress", WAIT, || {
@@ -480,6 +483,7 @@ async fn a_download_can_be_paused_and_resumed() {
     env.downloads.pause(slow);
     env.downloads.pause("chatonlm-dl/Nobody-GGUF:Q4_K_M");
 
+    env.fake.release();
     env.downloads.resume(slow).unwrap();
     assert_eq!(env.entry(slow).state, Queued);
     env.downloads.cancel(next);
@@ -579,47 +583,89 @@ async fn a_download_can_be_put_first() {
 /// Annulation en cours : requête fermée, puis ce qui a été reçu pour ce
 /// modèle est effacé (`.part`, fichiers déjà complets, dossiers vides) ; un
 /// fichier d'un modèle installé reste. En pause : effacé aussi.
+///
+/// Dépôts `stall` (la moitié du fichier, puis un octet toutes les 200 ms) :
+/// l'annulation tombe toujours en plein téléchargement. Avec `slow` (le
+/// fichier entier en 1,5 s environ), un essai réveillé en retard sous la
+/// charge d'une suite complète annulait parfois pendant l'écriture de la
+/// ligne, que l'annulation laisse faire (voir `cancel`) : le modèle
+/// s'installait et le ménage attendu ne venait jamais (1 échec sur 4 suites
+/// complètes, 9 nov. 2026).
 #[tokio::test]
 async fn a_cancelled_download_leaves_nothing_behind() {
     let env = Env::new(|options| options).await;
-    let vision = "chatonlm-dl/Shy-vision-slow-big-GGUF";
-    let installed = format!("{vision}:Q8_0");
-    env.ask(&installed);
-    assert_eq!(env.finished(&installed).await.state, Done);
+    // Q8_0 installée d'avance (fichiers et ligne, comme après un
+    // téléchargement) : un dépôt `stall` ne finirait jamais de la servir.
+    let repo = "chatonlm-dl/Shy-vision-stall-big-GGUF";
+    let installed = format!("{repo}:Q8_0");
+    let mut sha256 = std::collections::BTreeMap::new();
+    for file in ["Shy-Q8_0.gguf", "mmproj-Q8_0.gguf"] {
+        let bytes = content(repo, file);
+        let path = env.models().join(repo).join(file);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        sha256.insert(format!("{repo}/{file}"), sha_of(&bytes));
+    }
+    let row = StoredLocalModel {
+        id: installed.clone(),
+        source: crate::local_models::ModelSource::Hf,
+        repo: repo.to_owned(),
+        revision: None,
+        quant: "Q8_0".to_owned(),
+        files: vec![format!("{repo}/Shy-Q8_0.gguf")],
+        mmproj: Some(format!("{repo}/mmproj-Q8_0.gguf")),
+        size_bytes: size(repo, "Shy-Q8_0.gguf") + size(repo, "mmproj-Q8_0.gguf"),
+        sha256,
+        arch: None,
+        context_max: None,
+        params_label: None,
+        file_type: None,
+        capabilities: crate::local_models::ModelCapabilities::default(),
+        installed_at: 1,
+    };
+    env.store.blocking(|c| table::save(c, &row)).unwrap();
     let before = env.files();
 
-    // Q4_K_M annulé pendant ses poids : le projecteur de la Q8_0 installée
+    // Q4_K_M annulée pendant ses poids : le projecteur de la Q8_0 installée
     // (le même, mmproj-Q8_0) reste.
-    let sibling = format!("{vision}:Q4_K_M");
+    let sibling = format!("{repo}:Q4_K_M");
     env.ask(&sibling);
     wait_until("some progress", WAIT, || {
         env.entry(&sibling).completed > 10_000
     })
     .await;
     env.downloads.cancel(&sibling);
+    assert_eq!(env.entry(&sibling).state, Cancelled);
     wait_until("the cleanup", WAIT, || env.files() == before).await;
 
-    let slow = "chatonlm-dl/Gone-slow-big-GGUF:Q4_K_M";
-    env.ask(slow);
-    wait_until("some progress", WAIT, || env.entry(slow).completed > 10_000).await;
-    env.downloads.cancel(slow);
-    assert_eq!(env.entry(slow).state, Cancelled);
+    let gone = "chatonlm-dl/Gone-stall-big-GGUF:Q4_K_M";
+    env.ask(gone);
+    wait_until("some progress", WAIT, || env.entry(gone).completed > 10_000).await;
+    env.downloads.cancel(gone);
+    assert_eq!(env.entry(gone).state, Cancelled);
     wait_until("the cleanup", WAIT, || env.files() == before).await;
-    assert!(!env.models().join("chatonlm-dl/Gone-slow-big-GGUF").exists());
+    assert!(
+        !env.models()
+            .join("chatonlm-dl/Gone-stall-big-GGUF")
+            .exists()
+    );
 
     // En pause, puis annulé : les `.part` partent aussi (fiche relue).
-    let paused = "chatonlm-dl/Nap-slow-big-GGUF:Q4_K_M";
+    let paused = "chatonlm-dl/Nap-stall-big-GGUF:Q4_K_M";
     env.ask(paused);
     wait_until("some progress", WAIT, || {
         env.entry(paused).completed > 10_000
     })
     .await;
     env.downloads.pause(paused);
+    assert_eq!(env.entry(paused).state, Paused);
     wait_until("the kept part", WAIT, || env.files().len() > before.len()).await;
     env.downloads.cancel(paused);
+    assert_eq!(env.entry(paused).state, Cancelled);
     wait_until("the cleanup", WAIT, || env.files() == before).await;
-    assert!(env.files().contains(&format!("{vision}/mmproj-Q8_0.gguf")));
-    assert_eq!(env.installed().len(), 1);
+    assert!(env.files().contains(&format!("{repo}/mmproj-Q8_0.gguf")));
+    let ids: Vec<String> = env.installed().into_iter().map(|model| model.id).collect();
+    assert_eq!(ids, [installed]);
 }
 
 /// Échecs lisibles, sans rien installer.
@@ -960,14 +1006,18 @@ async fn a_resumed_download_keeps_its_revision() {
     let file = "Moving-Q4_K_M.gguf";
     let model = format!("{repo}:Q4_K_M");
     let old = Synth::parse(repo, 0).unwrap().sha();
+    // Retenu jusqu'à la reprise : la pause tombe en plein téléchargement.
+    env.fake.hold(file);
     env.ask(&model);
     wait_until("some progress", WAIT, || {
         env.entry(&model).completed > 20_000
     })
     .await;
     env.downloads.pause(&model);
+    assert_eq!(env.entry(&model).state, Paused);
     wait_until("the closed request", WAIT, || env.fake.disconnects() == 1).await;
     env.fake.publish(repo);
+    env.fake.release();
     env.downloads.resume(&model).unwrap();
     let done = env.finished(&model).await;
     assert_eq!(done.state, Done, "{done:?}");
@@ -1035,6 +1085,9 @@ async fn finished_parts_are_not_hashed_again() {
     let repo = "chatonlm-dl/Pair-sharded-slow-big-GGUF";
     let first = "Pair-Q8_0-00001-of-00002.gguf";
     let model = format!("{repo}:Q8_0");
+    // Second morceau retenu jusqu'à la reprise : la pause tombe en plein
+    // dedans.
+    env.fake.hold("Pair-Q8_0-00002-of-00002.gguf");
     env.ask(&model);
     let past = size(repo, first) + 20_000;
     wait_until("the second part", WAIT, || {
@@ -1042,7 +1095,9 @@ async fn finished_parts_are_not_hashed_again() {
     })
     .await;
     env.downloads.pause(&model);
+    assert_eq!(env.entry(&model).state, Paused);
     wait_until("the closed request", WAIT, || env.fake.disconnects() == 1).await;
+    env.fake.release();
     env.downloads.resume(&model).unwrap();
     assert_eq!(env.finished(&model).await.state, Done);
     let hashed = env.downloads.inner.hashed.lock().clone();
@@ -1247,12 +1302,15 @@ async fn a_paused_download_is_cleaned_from_its_plan() {
     let env = Env::new(|options| options).await;
     let repo = "chatonlm-dl/Offline-slow-big-GGUF";
     let model = format!("{repo}:Q4_K_M");
+    // Retenu : la pause tombe en plein téléchargement.
+    env.fake.hold("Offline-Q4_K_M.gguf");
     env.ask(&model);
     wait_until("some progress", WAIT, || {
         env.entry(&model).completed > 20_000
     })
     .await;
     env.downloads.pause(&model);
+    assert_eq!(env.entry(&model).state, Paused);
     wait_until("the closed request", WAIT, || env.fake.disconnects() == 1).await;
     let target = env.models().join(repo).join("Offline-Q4_K_M.gguf");
     assert!(part_path(&target).exists());

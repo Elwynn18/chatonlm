@@ -2,34 +2,35 @@
 //! contrat `.tools/research/81-context-contract.md`).
 //!
 //! - contexte occupé : ce que la conversation prendra dans la requête
-//!   suivante. Compté après une réponse finie (`prompt_eval_count`, le prompt
-//!   entier même en cache, plus ce que le modèle relira de la réponse : son
-//!   texte et ses appels, pas son raisonnement, que les gabarits retirent ;
-//!   vérifié sur Ollama 0.40), puis estimé pour les messages venus après
-//!   (réponse arrêtée, nouveau message, conversation d'avant cette version) ;
-//!   sur la taille du contexte du modèle de l'envoi (réglage borné par le
-//!   modèle, sinon `/api/ps` ; inconnue pour un modèle du cloud) ;
+//!   suivante. Compté après une réponse finie (`cache_n + prompt_n` des
+//!   temps de `llama-server`, le prompt entier, cache compris, plus ce que le
+//!   modèle relira de la réponse : son texte et ses appels, pas son
+//!   raisonnement, que les gabarits retirent), puis estimé pour les messages
+//!   venus après (réponse arrêtée, nouveau message, conversation d'avant
+//!   cette version), estimation corrigée d'après le dernier compte ; sur la
+//!   taille du contexte du processus de l'envoi (`-c`, [`Session::context`] ;
+//!   inconnue pour un modèle distant qui ne l'annonce pas) ;
 //! - compacter : le modèle résume le début de ce qu'une requête enverrait
 //!   (résumé précédent compris), autant qu'il en tient dans le contexte avec
 //!   la place du résumé ; une requête suivante n'envoie que ce résumé, en
 //!   message système, et les messages qui le suivent. Les messages restent
 //!   en base et affichés ;
 //! - automatiquement avant un envoi, quand la conversation a passé 80 % du
-//!   contexte ; la réponse d'un envoi est limitée (`num_predict`) à ce qui
-//!   reste du contexte, pour ne pas laisser Ollama décaler son contexte et
-//!   perdre le début sans rien dire ;
+//!   contexte ; la réponse d'un envoi est limitée (`max_tokens`) à ce qui
+//!   reste du contexte, pour finir en `contextFull` plutôt que sur un refus
+//!   du serveur au tour suivant (`llama-server` ne décale pas le contexte) ;
 //! - le message système fixe d'un envoi (pré-prompt, consigne vocale), que
-//!   le compte d'Ollama comprend, entre dans chaque estimation ; le compactage
+//!   le compte du moteur comprend, entre dans chaque estimation ; le compactage
 //!   ne le réduit pas : pas de compactage automatique quand, avec la place du
 //!   résumé, il tient déjà 80 % du contexte (il recommencerait à chaque envoi).
 
-use serde_json::json;
-use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
-use super::stream::{self, Line, LineBuffer, Think};
-use super::{ChatErrorKind, Opened, Outcome, Server, cancelled, open, with_system_message};
-use crate::hub::errors::connection_lost;
+use super::stream::{self, Think};
+use super::{ChatErrorKind, Outcome, call};
 use crate::i18n::t;
+use crate::inference;
+use crate::llm::Session;
 use crate::store::chats::{ContextUsage, Counted, Reply, Role, Sendable, Turn, TurnFile};
 
 /// Consigne du résumé, pour le modèle (pas un texte de l'interface).
@@ -53,9 +54,9 @@ const IMAGE_TOKENS: i64 = 1_000;
 const MESSAGE_TOKENS: i64 = 16;
 
 /// Correction de l'estimation (3 caractères par jeton) avant tout compte
-/// d'Ollama dans la conversation, pour limiter une réponse : 4 caractères par
-/// jeton, le cas courant (une limite trop basse couperait à tort une
-/// réponse ; trop haute, Ollama décale son contexte comme sans limite).
+/// du moteur dans la conversation, pour limiter une réponse : 4 caractères
+/// par jeton, le cas courant (une limite trop basse couperait à tort une
+/// réponse ; trop haute, le contexte se remplirait avant la fin).
 pub(super) const UNCALIBRATED: f64 = 0.75;
 
 /// `tokens` corrigés par `scale` (arrondis par excès).
@@ -197,7 +198,7 @@ pub(super) fn occupied_after(prompt: u64, eval: u64, reply: &Reply) -> i64 {
     prompt.saturating_add(eval.min(tokens(&reply.content) + calls + MESSAGE_TOKENS))
 }
 
-/// Limite de la réponse (`num_predict`) : ce qui reste du contexte après ce
+/// Limite de la réponse (`max_tokens`) : ce qui reste du contexte après ce
 /// qu'occupe la requête (`occupied`, estimé).
 pub(super) fn reply_limit(size: i64, occupied: i64) -> i64 {
     (size - occupied).max(MIN_REPLY)
@@ -211,7 +212,7 @@ fn summary_budget(size: Option<i64>) -> i64 {
     })
 }
 
-/// Rapport entre les jetons comptés par Ollama et l'estimation des mêmes
+/// Rapport entre les jetons comptés par le moteur et l'estimation des mêmes
 /// messages, message système fixe (`system`, estimé) compris (le tokenizer
 /// du modèle, la langue, le code), borné entre 0,3 et 3 ; `None` sans compte
 /// valable.
@@ -262,21 +263,20 @@ fn covered(sendable: &Sendable, size: Option<i64>, scale: f64) -> usize {
     count
 }
 
-/// Demande au modèle le résumé du début de `sendable` qui tient dans le
-/// contexte (raisonnement `think`, coupé si possible ; retiré si le modèle
-/// le refuse) : le résumé et le nombre de messages qu'il couvre (au moins
-/// un ; `sendable` n'est pas vide). Erreur : fin décidée.
-#[allow(clippy::too_many_arguments)]
+/// Demande au modèle de `session` le résumé du début de `sendable` qui
+/// tient dans le contexte (raisonnement `think`, coupé si le modèle le
+/// permet ; réflexion reçue à part, jamais dans le résumé) : le résumé et le
+/// nombre de messages qu'il couvre (au moins un ; `sendable` n'est pas vide).
+/// Réponse entière (sans flux) bornée à la place du résumé. Erreur : fin
+/// décidée (arrêt : `Cancelled`).
 pub(super) async fn summarize(
-    server: &Server,
-    model: &str,
+    session: &Session,
     sendable: &Sendable,
-    mut think: Option<Think>,
+    think: Option<Think>,
     images: bool,
     size: Option<i64>,
     scale: f64,
-    remote: bool,
-    cancel: &mut watch::Receiver<bool>,
+    cancel: &CancellationToken,
 ) -> Result<(String, usize), Outcome> {
     let count = covered(sendable, size, scale);
     let mut turns = sendable.turns[..count].to_vec();
@@ -287,81 +287,25 @@ pub(super) async fn summarize(
         files: Vec::new(),
         tool_calls: Vec::new(),
     });
-    loop {
-        let mut body = stream::request_body(
-            model,
-            &turns,
-            think.as_ref(),
-            server.context_length,
-            server.keep_alive,
-            images,
-            None,
-        );
-        if let Some(summary) = &sendable.summary {
-            with_system_message(&mut body, &summary_message(summary));
-        }
-        body["options"]["num_predict"] = json!(summary_budget(size));
-        match open(&server.url, &body, remote, cancel).await {
-            Opened::Stream(response) => {
-                return read_summary(response, cancel)
-                    .await
-                    .map(|summary| (summary, count));
-            }
-            Opened::ThinkingRefused(_) if think.is_some() => think = None,
-            Opened::ThinkingRefused(message) => {
-                return Err(Outcome::Failed(ChatErrorKind::Model, message));
-            }
-            Opened::Ended(outcome) => return Err(outcome),
-        }
+    let summary = sendable.summary.as_deref().map(summary_message);
+    let messages = call::with_system(stream::messages(&turns, images), summary.as_deref());
+    let mut request = session.request(messages);
+    request.think = call::think_request(think.as_ref());
+    request.max_tokens = u32::try_from(summary_budget(size)).ok();
+    let answered = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return Err(Outcome::Cancelled),
+        answered = inference::chat_once(&session.endpoint, &request, cancel.clone()) => answered,
+    };
+    let answer = answered.map_err(|error| super::failed(&session.error(error)))?;
+    let summary = answer.content.trim();
+    if summary.is_empty() {
+        return Err(Outcome::Failed(
+            ChatErrorKind::Model,
+            t!("chat.compactEmpty"),
+        ));
     }
-}
-
-/// Lit le résumé (texte seulement, le raisonnement est ignoré) jusqu'à
-/// `done`.
-async fn read_summary(
-    mut response: reqwest::Response,
-    cancel: &mut watch::Receiver<bool>,
-) -> Result<String, Outcome> {
-    let mut buffer = LineBuffer::default();
-    let mut summary = String::new();
-    let lost = || Outcome::Failed(ChatErrorKind::ConnectionLost, connection_lost(None));
-    loop {
-        let chunk = tokio::select! {
-            biased;
-            () = cancelled(cancel) => return Err(Outcome::Cancelled),
-            chunk = response.chunk() => chunk,
-        };
-        let lines = match chunk {
-            Ok(Some(bytes)) => buffer.push(&bytes),
-            Ok(None) => return Err(lost()),
-            Err(error) => {
-                return Err(Outcome::Failed(
-                    ChatErrorKind::ConnectionLost,
-                    connection_lost(Some(&error.without_url())),
-                ));
-            }
-        };
-        for line in lines {
-            match stream::parse_line(&line) {
-                Ok(Line::Fragment { content, done, .. }) => {
-                    summary.push_str(&content);
-                    if done {
-                        let summary = summary.trim();
-                        if summary.is_empty() {
-                            return Err(Outcome::Failed(
-                                ChatErrorKind::Model,
-                                t!("chat.compactEmpty"),
-                            ));
-                        }
-                        return Ok(summary.to_owned());
-                    }
-                }
-                Ok(Line::Error(message)) | Err(message) => {
-                    return Err(Outcome::Failed(ChatErrorKind::Model, message));
-                }
-            }
-        }
-    }
+    Ok((summary.to_owned(), count))
 }
 
 #[cfg(test)]
@@ -539,11 +483,11 @@ mod tests {
                 through,
             })
         };
-        // Messages 1 et 2 estimés à 232 jetons, comptés 116 par Ollama.
+        // Messages 1 et 2 estimés à 232 jetons, comptés 116 par le moteur.
         assert_eq!(calibration(counted(116, 2), &chat, 0), Some(0.5));
         assert_eq!(calibration(counted(10_000, 2), &chat, 0), Some(3.0));
         assert_eq!(calibration(None, &chat, 0), None);
-        // Le compte d'Ollama comprend le message système : l'estimation aussi.
+        // Le compte du moteur comprend le message système : l'estimation aussi.
         assert_eq!(calibration(counted(232, 2), &chat, 232), Some(0.5));
         assert_eq!(scaled(116, 0.75), 87);
     }

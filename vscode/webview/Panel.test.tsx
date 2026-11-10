@@ -29,7 +29,7 @@ const CONNECTED: PanelState = {
   ephemeral: false,
   chatId: null,
   busy: false,
-  cloudModels: [],
+  remoteModels: [],
   generation: 0,
   notice: null,
 };
@@ -433,15 +433,15 @@ describe("Panel", () => {
       expect(screen.queryByTestId("receipt-blocked")).toBeNull();
     });
 
-    it("says what goes to the cloud and what was removed, and why", () => {
+    it("says what goes to a provider and what was removed, and why", () => {
       renderPanel({ chatId: "c1" });
       sendWith(CLOUD);
       const toggle = screen.getByRole("button", {
-        name: "2 items · ~300 tokens · goes to the cloud",
+        name: "2 items · ~300 tokens · goes to the model's provider",
       });
       fireEvent.click(toggle);
       expect(screen.getByTestId("receipt").textContent).toContain(
-        "The model runs in the cloud: this text is sent over the network.",
+        "The model runs at an online provider: this text is sent over the network.",
       );
       const blocked = screen.getByTestId("receipt-blocked");
       expect(blocked.textContent).toBe(
@@ -480,7 +480,7 @@ describe("Panel", () => {
       );
       const receipt = screen.getByTestId("receipt");
       expect(receipt.textContent).toContain(
-        "The model runs on another computer (model location set in ChatonLM): this text is sent over the network.",
+        "The model runs on another computer: this text is sent over the network.",
       );
       expect(receipt.textContent).toContain(
         "Secrets are removed as best as possible",
@@ -577,16 +577,20 @@ describe("Panel", () => {
       expect(screen.queryByText("Old answer")).toBeNull();
     });
 
-    it("marks cloud models, and asks to choose one", () => {
+    it("marks remote models, and asks to choose one", () => {
       renderPanel({
-        models: [MODEL, "gpt-oss:20b-cloud"],
-        cloudModels: ["gpt-oss:20b-cloud"],
+        models: [MODEL, "@remote/openrouter/gpt-oss-20b"],
+        remoteModels: ["@remote/openrouter/gpt-oss-20b"],
         model: null,
       });
       const picker = screen.getByRole("combobox", { name: "Model" });
       expect(
         [...picker.querySelectorAll("option")].map((o) => o.textContent),
-      ).toEqual(["Choose a model", MODEL, "gpt-oss:20b-cloud (cloud)"]);
+      ).toEqual([
+        "Choose a model",
+        MODEL,
+        "@remote/openrouter/gpt-oss-20b (remote)",
+      ]);
     });
 
     it("shows the chosen model even when the server no longer lists it", () => {
@@ -644,7 +648,7 @@ describe("Panel", () => {
         "Cannot find name 'x'",
         ".env",
         "src/config.ts:4",
-        "gpt-oss:20b-cloud",
+        "@remote/openrouter/gpt-oss-20b",
         "Answer",
         "Socket closed",
         "Thinking text",
@@ -667,8 +671,8 @@ describe("Panel", () => {
       expect(untranslatedTexts(document.body, allow)).toEqual([]);
       cleanup();
       renderPanel({
-        models: [MODEL, "gpt-oss:20b-cloud"],
-        cloudModels: ["gpt-oss:20b-cloud"],
+        models: [MODEL, "@remote/openrouter/gpt-oss-20b"],
+        remoteModels: ["@remote/openrouter/gpt-oss-20b"],
         model: null,
         notice: "offMachineNewChat",
       });
@@ -696,7 +700,7 @@ describe("Panel", () => {
         { type: "done", messageId: 11 },
       );
       fireEvent.click(
-        screen.getByRole("button", { name: /goes to the cloud/ }),
+        screen.getByRole("button", { name: /goes to the model's provider/ }),
       );
       expect(untranslatedTexts(document.body, allow)).toEqual([]);
     });

@@ -1,84 +1,93 @@
-// Fin de l'app, réglage « Unload models when quitting » (onglet Models,
-// activé par défaut) : les modèles encore en mémoire dans l'Ollama de la
-// machine (ici le faux serveur) sont déchargés quand l'app quitte (Ctrl+Q,
-// « Quit ChatonLM »), et restent chargés quand le réglage est coupé.
-// Les modèles sont chargés directement sur le faux serveur, comme par un
-// autre programme ou par une conversation précédente (« Always »).
+// Fin de l'app : les modèles chargés sont des processus llama-server de l'app
+// (moteur intégré) ; quand l'app quitte (Ctrl+Q, « Quit ChatonLM »), tous
+// s'arrêtent proprement, sans processus laissé derrière elle (il garderait
+// sa mémoire et sa VRAM). L'ancien réglage « Unload models when quitting »
+// (Ollama de la machine, retiré de l'onglet Models) n'y change rien : coupé,
+// les processus s'arrêtent aussi.
 import assert from "node:assert/strict";
 import { withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 
 const binary = process.argv[2];
-const MODELS = ["qwen3:0.6b", "chatonlm-vision:latest"];
-const fake = await startFake("ollama");
+const MODELS = [fakeModel("simple"), fakeModel("vision")];
+const engine = startEngine(MODELS);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Charge `model` sur le faux serveur, sans échéance. */
-async function load(model) {
-  const response = await fetch(new URL("/api/generate", fake.url), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, keep_alive: -1 }),
-  });
-  assert.equal(response.status, 200, `chargement de ${model}`);
-}
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
-/** Noms des modèles en mémoire (`/api/ps`), triés. */
-async function loaded() {
-  const response = await fetch(new URL("/api/ps", fake.url));
-  return (await response.json()).models.map((model) => model.name).sort();
-}
-
-/** Déchargements (`keep_alive: 0`) reçus par le faux serveur. */
-async function unloads() {
-  const response = await fetch(new URL("/fake/loads", fake.url));
-  const body = await response.json();
-  return (Array.isArray(body) ? body : body.loads)
-    .filter((entry) => entry.kind === "unload")
-    .map((entry) => entry.model);
+/** Attend que `check()` soit vrai (8 s au plus). */
+async function waitUntil(check, what) {
+  const deadline = Date.now() + 8000;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error(`Délai dépassé : ${what}`);
+    await delay(100);
+  }
 }
 
 /**
- * Lance l'app avec les modèles chargés, règle `unloadOnQuit` s'il est donné,
- * la fait quitter (`quit_app`, comme Ctrl+Q) et attend sa fin.
+ * Lance l'app, charge les deux modèles (bouton Load de l'onglet Models),
+ * règle `unloadOnQuit` s'il est donné, la fait quitter (`quit_app`, comme
+ * Ctrl+Q) et rend les PID des faux llama-server qu'elle avait lancés.
  */
 async function quitWith(name, unloadOnQuit) {
-  for (const model of MODELS) await load(model);
-  assert.deepEqual(await loaded(), [...MODELS].sort());
-  const before = (await unloads()).length;
-  await withApp(
-    binary,
-    { name, env: { OLLAMA_HOST: fake.url } },
-    async (driver, app) => {
-      await driver.waitFor("[data-testid=new-chat]");
-      const settings = await driver.invoke("get_settings");
-      assert.equal(settings.unloadOnQuit, true, "activé par défaut");
-      if (unloadOnQuit !== undefined) {
-        await driver.invoke("update_settings", { patch: { unloadOnQuit } });
-      }
-      // Rien n'est déchargé avant la fin de l'app.
-      assert.deepEqual(await loaded(), [...MODELS].sort());
-      await driver
-        .execute("window.__TAURI_INTERNALS__.invoke('quit_app'); return true")
-        .catch(() => {});
-      const code = await Promise.race([app.exited, delay(15000)]);
-      assert.equal(code, 0, "l'app n'a pas quitté proprement");
-    },
-  );
-  return (await unloads()).slice(before);
+  let pids = [];
+  await withApp(binary, { name, env: engine.env }, async (driver, app) => {
+    await driver.waitFor("[data-testid=new-chat]");
+    if (unloadOnQuit !== undefined) {
+      await driver.invoke("update_settings", { patch: { unloadOnQuit } });
+    }
+    for (const model of MODELS) {
+      await driver.invoke("load_model", { model });
+    }
+    await waitUntil(async () => {
+      const running = await driver.invoke("running_models");
+      return MODELS.every((id) =>
+        running.some((model) => model.id === id && model.state === "ready"),
+      );
+    }, "les deux modèles prêts");
+    pids = MODELS.map((id) => engine.server(id)?.pid);
+    assert.ok(pids.every(Boolean), "instances absentes du registre");
+    assert.ok(pids.every(alive));
+    await driver
+      .execute("window.__TAURI_INTERNALS__.invoke('quit_app'); return true")
+      .catch(() => {});
+    const code = await Promise.race([app.exited, delay(15000)]);
+    assert.equal(code, 0, "l'app n'a pas quitté proprement");
+  });
+  return pids;
 }
 
-try {
-  const unloaded = await quitWith("unload-on-quit-default");
-  assert.deepEqual(await loaded(), [], "modèles encore en mémoire");
-  assert.deepEqual(unloaded.sort(), [...MODELS].sort());
-  console.log(`réglage par défaut : ${unloaded.join(", ")} déchargés`);
+const defaultPids = await quitWith("unload-on-quit-default");
+await waitUntil(
+  () => defaultPids.every((pid) => !alive(pid)),
+  "fin des llama-server",
+);
+// Arrêt propre (SIGTERM, pas SIGKILL) : chaque instance a retiré sa fiche.
+// Fiches brutes, vivantes ou non (`servers()` écarte les mortes : il serait
+// vide même après un SIGKILL).
+assert.deepEqual(
+  engine.registryFiles(),
+  [],
+  "fiche laissée : instance tuée au lieu d'être arrêtée",
+);
+console.log(`sortie : ${MODELS.length} processus du moteur arrêtés`);
 
-  const kept = await quitWith("unload-on-quit-off", false);
-  assert.deepEqual(kept, [], "déchargement malgré le réglage coupé");
-  assert.deepEqual(await loaded(), [...MODELS].sort());
-  console.log("réglage coupé : modèles gardés en mémoire");
-  console.log("unload-on-quit : OK");
-} finally {
-  await fake.stop();
-}
+const offPids = await quitWith("unload-on-quit-off", false);
+await waitUntil(
+  () => offPids.every((pid) => !alive(pid)),
+  "fin des llama-server (réglage coupé)",
+);
+assert.deepEqual(
+  engine.registryFiles(),
+  [],
+  "fiche laissée (réglage coupé) : instance tuée au lieu d'être arrêtée",
+);
+console.log("ancien réglage coupé : processus arrêtés aussi");
+console.log("unload-on-quit : OK");

@@ -13,9 +13,9 @@
 // ou avant Ctrl+Q. Ouverte pour elle (section=dictation, menu de la zone de
 // notification), la carte défile en vue et son titre prend le focus à chaque
 // demande, sauf si l'utilisateur a mis le focus ailleurs depuis. Listes pas
-// encore lues ou illisibles (Ollama injoignable) : ni « not installed » ni
-// téléchargement sur cette base. Serveur Ollama distant : la carte dit que
-// la transcription lui est envoyée ; modèles du cloud jamais proposés.
+// encore lues ou illisibles : ni « not installed » ni téléchargement sur
+// cette base. Modèles distants jamais proposés pour le nettoyage (le texte
+// dicté quitterait la machine).
 // Modèles que cette machine ne peut pas faire tourner (Whisper sans AVX2...,
 // Parakeet sans ONNX Runtime) : grisés dans la liste, jamais proposés en
 // activant la dictée, et expliqués sous la liste s'ils sont choisis.
@@ -67,20 +67,17 @@ import {
 } from "@/hooks/useDictation";
 import { useModels } from "@/hooks/useModels";
 import { useShortcutsStatus } from "@/hooks/useShortcuts";
-import { useSettings } from "@/hooks/useSettings";
 import { type TFunction, type TKey, useT } from "@/i18n";
 import { formatTimeAgo, languageName } from "@/i18n/format";
 import {
   addWord,
   AUTO_LANGUAGE,
-  isCloudModel,
-  isLocalAddress,
   MAX_PROMPT_CHARS,
   MAX_WORD_CHARS,
   phaseText,
 } from "@/lib/dictation";
 import { errorMessage } from "@/lib/ipc";
-import { sameModel } from "@/lib/modelNames";
+import { isRemoteModel, sameModel } from "@/lib/modelNames";
 import { isWindows } from "@/lib/platform";
 import { onBeforeQuit } from "@/lib/quit";
 
@@ -189,10 +186,6 @@ export function Dictation({
     polish: useId(),
     notifications: useId(),
   };
-
-  const { settings: app } = useSettings();
-  const server = app?.effectiveServerUrl ?? "";
-  const remote = server !== "" && !isLocalAddress(server);
 
   // Toutes les cartes de la dictée (défilement, focus déjà dedans).
   const cardRef = useRef<HTMLDivElement>(null);
@@ -317,19 +310,7 @@ export function Dictation({
           <Row
             icon={MicrophoneIcon}
             label={title}
-            description={
-              remote ? (
-                <>
-                  {/* Serveur Ollama distant : le nettoyage n'est plus local. */}
-                  {t("dictation.card.remoteDescription")}{" "}
-                  <span className="text-amber-700 dark:text-amber-400">
-                    {t("dictation.card.remoteNote", { server })}
-                  </span>
-                </>
-              ) : (
-                t("dictation.card.description")
-              )
-            }
+            description={t("dictation.card.description")}
             descriptionId={ids.description}
           >
             {noModel && (
@@ -944,15 +925,15 @@ function PolishModelRow({
   const read = models.data !== undefined;
   // Échec, même pendant les nouveaux essais de useModels.
   const unreachable = !read && (models.isError || models.failureCount > 0);
-  // Jamais le cloud : le texte dicté quitterait la machine.
+  // Jamais un modèle distant : le texte dicté quitterait la machine.
   const names = (models.data ?? [])
-    .map((model) => model.model)
-    .filter((name) => !isCloudModel(name));
+    .filter((model) => model.origin !== "remote")
+    .map((model) => model.id);
   const listed = value === "" || names.some((name) => sameModel(name, value));
   const unlisted = !read
     ? value
-    : isCloudModel(value)
-      ? t("dictation.polish.model.cloud", { name: value })
+    : isRemoteModel(value)
+      ? t("dictation.polish.model.remote", { name: value })
       : t("dictation.common.notInstalled", { name: value });
   return (
     <Row

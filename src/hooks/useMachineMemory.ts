@@ -1,5 +1,5 @@
-// Mémoire de la machine du serveur pour la jauge de VRAM de l'onglet Models
-// des réglages (propre à ChatonLM) : relue au rythme des modèles en mémoire
+// Mémoire de cette machine pour la jauge de VRAM de l'onglet Models
+// des réglages (propre à ChatonLM) : relue au rythme des modèles du moteur
 // tant que l'onglet est affiché, et après chaque chargement ou déchargement
 // (invalidation de machineMemoryKey).
 
@@ -14,7 +14,7 @@ export function useMachineMemory() {
     queryKey: machineMemoryKey,
     queryFn: machineMemory,
     refetchInterval: RUNNING_INTERVAL_MS,
-    // Onglet quitté : rien de gardé (autre serveur, autre moment).
+    // Onglet quitté : rien de gardé (autre moment).
     gcTime: 0,
     retry: false,
   });

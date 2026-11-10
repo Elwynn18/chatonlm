@@ -348,3 +348,90 @@ fn the_vulkan_failure_and_the_memory_lines_follow_the_real_server() {
     gpu.wait_line("offloaded 29/29 layers to GPU");
     gpu.wait_line("Vulkan0 KV buffer size =   896.00 MiB");
 }
+
+/// `FAKE_LLAMA_REGISTRY` : l'instance note son adresse et son alias une fois
+/// à l'écoute (les e2e y trouvent le port choisi par l'app), et retire sa
+/// fiche à l'arrêt propre.
+#[test]
+fn the_registry_gives_the_address_of_each_instance() {
+    let model = model("chatonlm-simple-registry.gguf");
+    let registry = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("fake-llama-registry");
+    let _ = std::fs::remove_dir_all(&registry);
+    let registry_text = registry.to_string_lossy().into_owned();
+    let server = launch(
+        &model,
+        &["--alias", "a/chatonlm-simple-GGUF:Q4_K_M"],
+        &[("FAKE_LLAMA_REGISTRY", &registry_text)],
+    );
+    let file = registry.join(format!("{}.json", server.child.id()));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !file.exists() {
+        assert!(Instant::now() < deadline, "pas de fiche dans le registre");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let entry: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(entry["url"], format!("http://127.0.0.1:{}", server.port));
+    assert_eq!(entry["alias"], "a/chatonlm-simple-GGUF:Q4_K_M");
+    assert_eq!(entry["pid"], server.child.id());
+    // Aucun fichier à moitié écrit ne reste.
+    let names: Vec<String> = std::fs::read_dir(&registry)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, [format!("{}.json", server.child.id())]);
+    #[cfg(unix)]
+    {
+        let mut server = server;
+        let term = Command::new("kill")
+            .args(["-TERM", &server.child.id().to_string()])
+            .status()
+            .unwrap();
+        assert!(term.success());
+        assert_eq!(server.wait_exit().code(), Some(0));
+        assert!(!file.exists(), "fiche restée après l'arrêt");
+    }
+}
+
+/// `fake-llama gguf` écrit un fichier GGUF (dossiers créés) ; une option
+/// inconnue est refusée (code 2) sans rien écrire.
+#[test]
+fn the_gguf_command_writes_a_test_model() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("fake-llama-gguf");
+    let _ = std::fs::remove_dir_all(&dir);
+    let out = dir.join("a/B-GGUF/B-Q4_K_M.gguf");
+    let status = Command::new(BIN)
+        .arg("gguf")
+        .arg(&out)
+        .args(["--fim", "--size", "5000"])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let bytes = std::fs::read(&out).unwrap();
+    assert_eq!(&bytes[..4], b"GGUF");
+    assert_eq!(bytes.len(), 5000);
+    let bad = dir.join("bad.gguf");
+    let refused = Command::new(BIN)
+        .arg("gguf")
+        .arg(&bad)
+        .arg("--nope")
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    assert_eq!(refused.code(), Some(2));
+    assert!(!bad.exists());
+}
+
+/// `chatonlm-split` (alias ou fichier) : sur la carte, 22 couches sur 29
+/// seulement (modèle à cheval, escargot de l'app) ; un autre modèle : 29.
+#[test]
+fn a_split_model_keeps_layers_on_the_processor() {
+    let split = launch(
+        &model("plain.gguf"),
+        &["--alias", "a/chatonlm-split-GGUF:Q4_K_M"],
+        &[],
+    );
+    split.wait_line("offloaded 22/29 layers to GPU");
+    let whole = launch(&model("chatonlm-simple-whole.gguf"), &[], &[]);
+    whole.wait_line("offloaded 29/29 layers to GPU");
+}

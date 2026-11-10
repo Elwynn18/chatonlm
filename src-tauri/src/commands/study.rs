@@ -18,10 +18,16 @@ use crate::study::{
 };
 use crate::tts::ReadAloud;
 
-/// Base et évènements `study-updated` vers la page.
+/// Accès aux modèles (base comprise) et évènements `study-updated` vers la
+/// page. L'accès est posé avec la base (`llm::setup`).
 fn ctx(app: &AppHandle, store: &Store) -> Ctx {
+    use tauri::Manager;
+    let access = app.try_state::<crate::llm::Access>().map_or_else(
+        || crate::llm::access_for(store),
+        |access| access.inner().clone(),
+    );
     let app = app.clone();
-    Ctx::new(store.clone(), move |updated| {
+    Ctx::with_access(access, move |updated| {
         let _ = app.emit(UPDATED_EVENT, updated);
     })
 }

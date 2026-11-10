@@ -65,10 +65,9 @@ pub fn child_process() -> Option<i32> {
     attachments::pdf_child::run_if_requested()
 }
 
-/// Ollama va s'arrêter (fermeture, intégré qui ne sert plus, changement de
-/// son dossier des modèles) : réponses du chat, cours (rien noté en échec)
-/// et corrections (page et raccourci global) s'arrêtent.
-fn stop_ollama_work(app: &tauri::AppHandle) {
+/// Fermeture de l'app : réponses du chat, cours (rien noté en échec) et
+/// corrections (page et raccourci global) s'arrêtent.
+fn stop_model_work(app: &tauri::AppHandle) {
     app.state::<ChatEngine>().cancel_all();
     app.state::<study::StudyEngine>().cancel_all();
     app.state::<proofread::Proofreader>().cancel_all();
@@ -158,43 +157,12 @@ pub fn run() {
                     store::chats::seed_demo_if_empty(connection, now)
                 })?;
             }
-            // Ollama intégré et cible de toutes les requêtes à Ollama
-            // (`ollama::target`) : un changement de cible ferme les
-            // téléchargements vers l'ancienne et prévient la page ; avant
-            // tout arrêt de l'intégré par la cible, chat, cours et
-            // corrections s'arrêtent. Démarré au plus tôt quand il sert
-            // (source `builtin`, ou rien d'installé).
-            let bin = ollama::builtin::locate(app.path().resource_dir().ok().as_deref());
-            let builtin =
-                ollama::builtin::Builtin::new(ollama::builtin::Config::new(bin, &data_dir));
-            let handle = app.handle().clone();
-            let stopping = app.handle().clone();
-            let targeting = Arc::new(
-                ollama::target::Targeting::new(builtin, move |target| {
-                    ollama::target::announce(
-                        target,
-                        handle.try_state::<HubDownloads>().as_deref(),
-                        |target| {
-                            let _ = handle.emit(ollama::target::TARGET_EVENT, target);
-                        },
-                    );
-                })
-                .before_builtin_stop(move || stop_ollama_work(&stopping)),
-            );
-            ollama::target::install(targeting.clone());
-            // Ménage d'un intégré laissé par une session précédente, puis
-            // premier choix de la cible (une requête précoce l'attend).
-            let store_for_target = store.clone();
-            tauri::async_runtime::spawn(async move {
-                let cleaning = targeting.clone();
-                let _ = tauri::async_runtime::spawn_blocking(move || {
-                    cleaning.builtin().clean_leftovers();
-                })
-                .await;
-                if let Some(store) = store_for_target {
-                    targeting.first_decision(&store).await;
-                }
-            });
+            // Modèles des e2e (`CHATONLM_E2E_MODELS`), inscrits avant que la
+            // page ou le moteur ne lisent la base.
+            #[cfg(any(debug_assertions, feature = "e2e"))]
+            if let Some(store) = &store {
+                local_models::e2e_seed::apply(store, &data_dir)?;
+            }
             // Moteur d'images (`sd-server`) : lancé à la première image,
             // arrêté après un temps sans image et à la fermeture.
             let sd_bin = image_gen::locate(app.path().resource_dir().ok().as_deref());
@@ -321,7 +289,7 @@ pub fn run() {
             // « Image ») : moteur, modèle choisi et base relus à chaque image.
             app.state::<ChatEngine>()
                 .set_painter(Arc::new(chat::images::AppPainter(app.handle().clone())));
-            // Travail sur Ollama hors des réponses (Correction, Étude,
+            // Travail du moteur hors des réponses (Correction, Étude,
             // polissage, chargements…) : l'autocomplétion de l'éditeur
             // attend pendant ce temps (lien VS Code).
             gpu::activity::install(app.state::<ChatEngine>().work());
@@ -337,7 +305,16 @@ pub fn run() {
             // lancement, même tant que la reprise automatique est coupée.
             if let Some(store) = store.clone() {
                 let (import, data_dir) = (model_import.clone(), data_dir.clone());
+                // Ollama intégré d'une 0.9.x resté en vie (plantage) : arrêté
+                // avant que la reprise ne déplace ses fichiers (sous Windows,
+                // un fichier ouvert ne se renomme pas). Il n'est plus jamais
+                // démarré.
+                let bin = ollama::builtin::locate(app.path().resource_dir().ok().as_deref());
+                let builtin =
+                    ollama::builtin::Builtin::new(ollama::builtin::Config::new(bin, &data_dir));
                 tauri::async_runtime::spawn(async move {
+                    let _ = tauri::async_runtime::spawn_blocking(move || builtin.clean_leftovers())
+                        .await;
                     if local_models::import::service::AUTO_AT_STARTUP {
                         local_models::import::service::at_startup(&import, store, data_dir).await;
                     } else {
@@ -351,6 +328,8 @@ pub fn run() {
                 // recherche web) pour les commandes, Easy Link et le pont.
                 llm::setup(app.handle(), store.clone())?;
                 app.manage(store);
+                // Recherche web déjà activée : inscription au relais.
+                commands::web_search::setup(app.handle());
             }
             app.manage(startup);
             // Mises à jour : moteur prêt avant la zone de notification (qui
@@ -432,10 +411,6 @@ pub fn run() {
         .manage(tts::ReadAloud::new())
         .manage(tts::selection::ReadSelection::new())
         .invoke_handler(tauri::generate_handler![
-            commands::account::account_sign_in,
-            commands::account::account_sign_out,
-            commands::account::account_status,
-            commands::account::cloud_status,
             commands::attachments::pick_files,
             commands::attachments::save_image,
             commands::attachments::stage_bytes,
@@ -592,6 +567,10 @@ pub fn run() {
             commands::study::study_skip,
             commands::study::study_start,
             commands::study::study_stream_cancel,
+            commands::remote::check_remote_provider,
+            commands::remote::delete_remote_provider,
+            commands::remote::remote_providers,
+            commands::remote::save_remote_provider,
             commands::report::bug_report_diagnostic,
             commands::report::send_bug_report,
             commands::report::open_app_logs,
@@ -617,6 +596,7 @@ pub fn run() {
             commands::voice_mode::voice_mode_state,
             commands::voice_mode::voice_mode_stop,
             commands::voice_mode::voice_mode_stop_editor,
+            commands::web_search::web_search_status,
             #[cfg(feature = "e2e")]
             context_menu::e2e::e2e_last_context_menu,
             startup::database_problem,
@@ -644,17 +624,14 @@ pub fn run() {
 /// suite ; puis les cours (partie en cours gardée « en cours », reprise au
 /// lancement suivant) et les corrections s'arrêtent ; les réponses en cours
 /// s'arrêtent et s'enregistrent ; les téléchargements du ModelHub ferment
-/// leur requête (Ollama garde les morceaux : un nouveau clic reprend), comme
+/// leur requête (fichiers partiels gardés : un nouveau clic reprend), comme
 /// ceux des modèles de transcription, des voix et des modèles d'images
 /// (`.part` gardés) ; la dictée en cours est abandonnée et son moteur libéré ;
 /// le moteur d'images s'arrête (image en cours abandonnée) ; les éphémères
-/// sont effacées de nouveau (une réponse a pu y écrire) ; puis les modèles
-/// encore en mémoire dans l'Ollama de la machine sont déchargés (réglage
-/// « Unload models when quitting ») ; puis l'Ollama intégré s'arrête pour de
-/// bon (SIGTERM à son groupe, SIGKILL après 5 s, attente bornée ; plus
-/// aucune relance : un .deb peut remplacer ses fichiers). Rien ne redémarre
-/// ensuite : l'app quitte ou se relance. Appelée deux fois de suite (mise à
-/// jour puis fermeture) : la seconde ne trouve plus rien à arrêter.
+/// sont effacées de nouveau (une réponse a pu y écrire) ; puis les processus
+/// `llama-server` de l'app s'arrêtent. Rien ne redémarre ensuite : l'app
+/// quitte ou se relance. Appelée deux fois de suite (mise à jour puis
+/// fermeture) : la seconde ne trouve plus rien à arrêter.
 pub async fn stop_services(app: &AppHandle) {
     shutdown::stop(&shutdown::AppSteps(app)).await;
 }
@@ -679,7 +656,7 @@ fn stop_intake(app: &AppHandle) {
 /// Travail en cours arrêté : réponses, cours, corrections, téléchargements,
 /// dictée, lecture à voix haute et images.
 async fn stop_work(app: &AppHandle) {
-    stop_ollama_work(app);
+    stop_model_work(app);
     let engine = app.state::<ChatEngine>();
     let downloads = app.try_state::<HubDownloads>();
     let speech_downloads = app.try_state::<SpeechDownloads>();
@@ -724,15 +701,13 @@ async fn stop_work(app: &AppHandle) {
     );
 }
 
-/// Fin de l'arrêt : moteur de texte arrêté, modèles de l'Ollama déchargés,
-/// puis l'Ollama intégré arrêté.
+/// Fin de l'arrêt : processus `llama-server` de l'app toujours arrêtés
+/// (quel que soit l'ancien réglage « Unload models when quitting » : ce sont
+/// des enfants de l'app).
 async fn release_models(app: &AppHandle) {
-    // Processus `llama-server` de l'app : toujours arrêtés.
     if let Some(engine) = app.try_state::<engine::Engine>() {
         engine.shutdown().await;
     }
-    unload_models(app).await;
-    ollama::builtin::shutdown(app).await;
 }
 
 /// Conversations éphémères (de la page et des bots) effacées ; un échec est
@@ -743,32 +718,5 @@ async fn forget_ephemeral_chats(app: &AppHandle) {
     };
     if let Err(error) = store.call(|c| store::chats::forget_all(c)).await {
         crate::app_log!("chatonlm: cannot erase the ephemeral chats: {error}");
-    }
-}
-
-/// Délai des déchargements de la fin de l'app : un Ollama lent ou injoignable
-/// ne la retient pas plus longtemps.
-const EXIT_UNLOAD_LIMIT: Duration = Duration::from_secs(5);
-
-/// Réglage « Unload models when quitting » (activé par défaut) : les modèles
-/// encore en mémoire dans l'Ollama de la machine sont déchargés, une fois
-/// les réponses arrêtées (voir `ollama::target::unload_url_at_exit`). Un
-/// échec est seulement journalisé : l'app quitte quand même.
-async fn unload_models(app: &AppHandle) {
-    let Some(store) = app.try_state::<Store>() else {
-        return;
-    };
-    let url = match ollama::target::unload_url_at_exit(&store).await {
-        Ok(Some(url)) => url,
-        Ok(None) => return,
-        Err(error) => {
-            crate::app_log!("chatonlm: cannot read the unload-on-quit setting: {error}");
-            return;
-        }
-    };
-    match tokio::time::timeout(EXIT_UNLOAD_LIMIT, ollama::running::unload_all(&url)).await {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => crate::app_log!("chatonlm: cannot unload the models: {error}"),
-        Err(_) => crate::app_log!("chatonlm: unloading the models took too long"),
     }
 }

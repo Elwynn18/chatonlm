@@ -442,7 +442,7 @@ async fn handle<H: Host>(
                     key: id.to_string(),
                 };
                 // Lâcher le futur arrête l'image (`sd-server`) ou la requête
-                // de correction (Ollama arrête).
+                // de correction (le modèle arrête).
                 tokio::select! {
                     () = async {
                         if image {
@@ -495,7 +495,7 @@ async fn handle<H: Host>(
                     running: &running,
                     key: id.to_string(),
                 };
-                // Abandonner le futur ferme la requête HTTP : Ollama arrête
+                // Abandonner le futur ferme la requête HTTP : le modèle arrête
                 // de générer.
                 tokio::select! {
                     () = tour_plan(&shared, &out, &id, params) => {}
@@ -544,7 +544,7 @@ async fn handle<H: Host>(
                     running: &running,
                     key: id.to_string(),
                 };
-                // Abandonner le futur ferme la requête HTTP : Ollama arrête.
+                // Abandonner le futur ferme la requête HTTP : le modèle arrête.
                 tokio::select! {
                     () = async {
                         if fim {
@@ -574,7 +574,9 @@ async fn handle<H: Host>(
             let method = method.to_owned();
             tauri::async_runtime::spawn(async move {
                 match method.as_str() {
-                    "completion.prepare" => super::gpu::prepare(&shared, &out, &id, params).await,
+                    "completion.prepare" => {
+                        super::gpu::prepare(&shared, connection, &out, &id, params).await;
+                    }
                     "completion.suggest" => super::gpu::suggest(&shared, &out, &id).await,
                     _ => super::gpu::offer_pull(&shared, &out, &id, params).await,
                 }
@@ -830,11 +832,18 @@ fn refused(out: &Outbox, id: &Value, error: &crate::error::AppError) {
     );
 }
 
-/// État de l'app, plus `local` : le serveur Ollama visé est sur cette
-/// machine (adresse de bouclage ; l'Ollama intégré en est une), et
-/// `contextLength` : contexte réglé (0 = défaut du serveur).
+/// Réglages de l'app, lus dans la base.
+pub(super) async fn app_settings(
+    store: &crate::store::Store,
+) -> crate::error::AppResult<crate::store::settings::Settings> {
+    store.call(|c| crate::store::settings::get(c, None)).await
+}
+
+/// État de l'app, plus `local` (toujours vrai : le moteur des modèles est
+/// celui de l'app, sur cette machine ; gardé pour l'extension 0.1.x, qui
+/// le lit) et `contextLength` : contexte réglé (0 = choisi par le moteur).
 async fn app_state<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value) {
-    match crate::ollama::target::request_settings(&shared.store).await {
+    match app_settings(&shared.store).await {
         Ok(settings) => out.result(
             id,
             json!({
@@ -842,7 +851,7 @@ async fn app_state<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value) {
                 "platform": platform(),
                 "selectedModel": settings.selected_model,
                 "language": crate::i18n::current().code(),
-                "local": is_local(&settings.effective_server_url),
+                "local": true,
                 "contextLength": settings.context_length,
             }),
         ),
@@ -850,23 +859,28 @@ async fn app_state<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value) {
     }
 }
 
-/// Adresse sur cette machine (illisible : non, par prudence).
-pub(super) fn is_local(url: &str) -> bool {
-    url::Url::parse(url).is_ok_and(|url| crate::ollama::client::is_local(&url))
+/// Modèle nommé par l'éditeur : un `@ollama/<nom>` sans étiquette (le
+/// panneau d'une extension 0.1.x retire `:latest`, comme pour un nom
+/// d'Ollama) reçoit `:latest`, l'étiquette par défaut d'Ollama, sous
+/// laquelle la reprise l'a rangé ; tout autre texte reste tel quel (espaces
+/// autour retirés).
+pub(super) fn editor_model(model: &str) -> String {
+    let model = model.trim();
+    match model.strip_prefix(crate::local_models::id::OLLAMA_PREFIX) {
+        Some(name)
+            if !name.is_empty() && !name.rsplit('/').next().unwrap_or(name).contains(':') =>
+        {
+            format!("{model}:latest")
+        }
+        _ => model.to_owned(),
+    }
 }
 
 /// Refus d'un travail qui doit rester sur cette machine (accès agents,
-/// `proofread.run` `localOnly`) : Ollama sur une autre machine, ou modèle
-/// qui tourne ailleurs (nom cloud, ou distant d'après `/api/show`, comme
-/// `chatonlm_ask`). `None` : rien ne part ailleurs.
-pub(super) async fn elsewhere(server_url: &str, model: &str) -> Option<String> {
-    if !is_local(server_url) {
-        return Some(t!("bridge.local.remoteServer"));
-    }
-    if !model.is_empty() && crate::proofread::selection::runs_elsewhere(server_url, model).await {
-        return Some(t!("bridge.local.cloudModel", model = model));
-    }
-    None
+/// `proofread.run` `localOnly`) : modèle distant (`@remote/…`, chez un
+/// fournisseur). `None` : rien ne part ailleurs.
+pub(super) fn elsewhere(model: &str) -> Option<String> {
+    crate::llm::ids::is_remote(model).then(|| t!("bridge.local.remoteModel", model = model))
 }
 
 /// Refus -32020 `{ message, code: "notLocal" }`.
@@ -942,15 +956,33 @@ async fn agents_access<H: Host>(
     }
 }
 
+/// `models.list {}` → modèles du sélecteur de l'app ([`crate::llm::models::ChatModel`] : locaux,
+/// puis distants si permis), chacun avec aussi les champs de l'ancien
+/// `ModelInfo` qu'une extension 0.1.x lit encore ([`with_legacy_fields`]).
 async fn models_list<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value) {
-    let listed = match crate::ollama::target::request_settings(&shared.store).await {
-        Ok(settings) => crate::ollama::models::list(&settings.effective_server_url).await,
-        Err(error) => Err(error),
-    };
-    match listed {
-        Ok(models) => out.result(id, json!(models)),
+    match crate::llm::models::list(&shared.access).await {
+        Ok(models) => out.result(
+            id,
+            Value::Array(models.iter().map(with_legacy_fields).collect()),
+        ),
         Err(error) => refused(out, id, &error),
     }
+}
+
+/// Un modèle de `models.list` : `ChatModel`, plus les champs de l'ancien
+/// `ModelInfo` (extension 0.1.x publiée, qui identifie un modèle par
+/// `model` et en tire sa version de `digest`) : `model` = `digest` =
+/// identifiant, `size`, `parameterSize`, `quantizationLevel`,
+/// `contextLength` (textes vides et 0 quand ils manquent, comme avant).
+pub(super) fn with_legacy_fields(model: &crate::llm::models::ChatModel) -> Value {
+    let mut entry = json!(model);
+    entry["model"] = json!(model.id);
+    entry["digest"] = json!(model.id);
+    entry["size"] = json!(model.size_bytes.unwrap_or(0));
+    entry["parameterSize"] = json!(model.params_label.clone().unwrap_or_default());
+    entry["quantizationLevel"] = json!(model.quant.clone().unwrap_or_default());
+    entry["contextLength"] = json!(model.context_max);
+    entry
 }
 
 #[derive(Deserialize)]
@@ -960,24 +992,25 @@ struct DetailsParams {
 }
 
 /// Détails d'un modèle, comme `model_details` de la page, plus `remote` :
-/// le modèle tourne ailleurs (cloud), ce que l'extension dit avant d'envoyer ;
-/// et `contextLength` : contexte que le moteur emploiera pour lui (même
-/// calcul que l'envoi : réglage borné par le maximum du modèle, sinon celui
-/// du modèle chargé ; `null` si inconnu, et pour un modèle du cloud).
+/// le modèle tourne ailleurs (distant, chez un fournisseur), ce que
+/// l'extension dit avant d'envoyer ; et `contextLength` : contexte que le
+/// moteur emploiera pour lui (celui de son processus s'il est chargé, sinon
+/// le réglage borné par le maximum du modèle ; `null` si inconnu, et pour un
+/// modèle distant).
 async fn models_details<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value, params: Value) {
-    let Ok(params) = serde_json::from_value::<DetailsParams>(params) else {
+    let Ok(mut params) = serde_json::from_value::<DetailsParams>(params) else {
         return invalid(out, id);
     };
-    let settings = match crate::ollama::target::request_settings(&shared.store).await {
-        Ok(settings) => settings,
+    params.model = editor_model(&params.model);
+    let server = match Server::current(&shared.access).await {
+        Ok(server) => server,
         Err(error) => return refused(out, id, &error),
     };
-    match crate::commands::models::details(&shared.store, &params.model).await {
+    match crate::llm::models::details(&shared.access, &params.model).await {
         Ok(details) => {
-            let server = Server::with_settings(shared.access.clone(), &settings);
-            let context = chat::context_size(&server, &params.model, Some(&details)).await;
+            let context = chat::context_size(&server, &params.model).await;
             let mut result = json!(details);
-            result["remote"] = json!(details.remote);
+            result["remote"] = json!(crate::llm::ids::is_remote(&params.model));
             result["contextLength"] = json!(context);
             out.result(id, result);
         }
@@ -1096,16 +1129,20 @@ async fn tour_plan<H: Host>(shared: &Arc<Shared<H>>, out: &Outbox, id: &Value, p
     let Ok(params) = serde_json::from_value::<super::tour::PlanParams>(params) else {
         return invalid(out, id);
     };
-    let settings = match crate::ollama::target::request_settings(&shared.store).await {
+    let settings = match app_settings(&shared.store).await {
         Ok(settings) => settings,
         Err(error) => return refused(out, id, &error),
     };
     let model = params
         .model
-        .clone()
-        .filter(|model| !model.trim().is_empty())
+        .as_deref()
+        .map(editor_model)
+        .filter(|model| !model.is_empty())
         .unwrap_or_else(|| settings.selected_model.clone());
-    let server = Server::with_settings(shared.access.clone(), &settings);
+    let server = match Server::current(&shared.access).await {
+        Ok(server) => server,
+        Err(error) => return refused(out, id, &error),
+    };
     // L'autocomplétion attend pendant ce temps (calcul partagé).
     let _working = shared.host.engine().hold();
     match super::tour::plan(&server, &model, &params).await {
@@ -1182,21 +1219,25 @@ async fn chat_send<H: Host>(
             Err(error) => return refused(out, id, &error),
         }
     }
-    let settings = match crate::ollama::target::request_settings(&shared.store).await {
+    let settings = match app_settings(&shared.store).await {
         Ok(settings) => settings,
         Err(error) => return refused(out, id, &error),
     };
     let model = params
         .model
-        .map(|model| model.trim().to_owned())
+        .map(|model| editor_model(&model))
         .filter(|model| !model.is_empty())
         .unwrap_or_else(|| settings.selected_model.clone());
-    // Accès agents : rien ne quitte la machine (Ollama distant, modèle cloud).
+    // Accès agents : rien ne quitte la machine (modèle distant).
     if sender.agents
-        && let Some(message) = elsewhere(&settings.effective_server_url, &model).await
+        && let Some(message) = elsewhere(&model)
     {
         return not_local(out, id, message);
     }
+    let server = match Server::current(&shared.access).await {
+        Ok(server) => server,
+        Err(error) => return refused(out, id, &error),
+    };
     let think = match params.think {
         Some(think) => Some(think),
         None => {
@@ -1209,8 +1250,8 @@ async fn chat_send<H: Host>(
                 .flatten()
         }
     };
-    // Arrêt demandé pendant la préparation (démarrage de l'Ollama intégré
-    // attendu par `request_settings`) : rien n'est envoyé ni écrit.
+    // Arrêt demandé pendant la préparation (lectures de la base) : rien
+    // n'est envoyé ni écrit.
     if registered.cancelled() {
         return out.result(
             id,
@@ -1244,7 +1285,7 @@ async fn chat_send<H: Host>(
             &shared.store,
             shared.host.engine(),
             &shared.staging,
-            Server::with_settings(shared.access.clone(), &settings),
+            server,
             request,
             Origin::Bridge,
             &sink,
