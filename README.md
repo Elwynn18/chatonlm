@@ -5,11 +5,11 @@
 ChatonLM is a free, open-source app for using large language models on your
 own computer. One window brings together chat, image generation, a model
 browser for Hugging Face, dictation, read aloud and voice conversations,
-proofreading and step-by-step courses. It is built on [Ollama](https://ollama.com) and
-includes it, so it works out of the box: no account, no subscription, no
-telemetry.
+proofreading and step-by-step courses. Models run in a built-in engine,
+[llama.cpp](https://github.com/ggml-org/llama.cpp), so it works out of the
+box: nothing else to install, no account, no subscription, no telemetry.
 
-ChatonLM is an independent project. Its layout and behavior follow the
+ChatonLM is an independent project. Its chat layout and behavior follow the
 official Ollama app for Windows and macOS; its look is its own.
 
 Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
@@ -17,7 +17,7 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
 ![ChatonLM chat window, with a conversation and the chat history](docs/screenshots/chat.webp)
 
 > [!NOTE]
-> ChatonLM 0.9 is a beta. Please report problems in
+> ChatonLM 0.10 is a beta. Please report problems in
 > [Issues](https://github.com/Elwynn18/chatonlm/issues).
 
 ## Features
@@ -42,22 +42,24 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
   (FLUX.2 klein, Z-Image and more), with what each one is good at, its speed,
   the graphics memory it needs and its license.
 - **ModelHub**: browse open models from Hugging Face, see which ones fit your
-  graphics card and memory, then download them into Ollama in one click.
+  graphics card and memory, then download them (GGUF files) in one click.
   Installed models and downloads have their own tabs. When a newer version of
   an installed model is published, ChatonLM says so and updates it in one
   click. An optional Uncensored section (off by default, in Settings >
   Models) lists popular community versions of official models with their
   refusals removed.
-- **Ollama account and web search**: sign in to your ollama.com account
-  through your Ollama server, then let models search the web, as in the
-  official app.
-- **Cloud models** (optional, off by default, in Settings > Models): use
-  Ollama's large cloud models, which run on ollama.com, from the same model
-  picker. They need an Ollama account; a few are free to try, the others
-  need a paid Ollama plan, shown next to their name.
+- **Models from Ollama**: if you used Ollama, or ChatonLM 0.9 and its
+  built-in Ollama, bring your models over in one click in Settings > Models,
+  without downloading them again (see [Engine and models](#engine-and-models)).
+- **Web search**: let models search the web, with no account, through
+  ChatonLM's own search service (results powered by Brave Search).
+- **Remote models** (optional, off by default, in Settings > Models): use
+  larger models that run elsewhere, with your own API key: Ollama Cloud,
+  OpenRouter, Mistral, or any server compatible with the OpenAI API. They
+  appear in the same model picker.
 - **Dictation**: press a global shortcut and speak in any app. Speech is
   transcribed on your computer by Parakeet (25 European languages) or Whisper
-  (99 languages), optionally cleaned up by an Ollama model, copied to the
+  (99 languages), optionally cleaned up by a local model, copied to the
   clipboard and pasted where your cursor is.
 - **Read aloud and voice mode**: answers can be read aloud by a natural voice
   (English, French or Spanish), and in [voice mode](#voice-mode) you talk
@@ -81,9 +83,9 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
   [Easy Link](#easy-link)).
 - **VS Code extension**: your local models in VS Code and VSCodium, through
   ChatonLM (see [VS Code](#vs-code)).
-- **Built-in Ollama**: no setup needed. ChatonLM uses the Ollama of your
-  computer when there is one, and its own copy otherwise (see
-  [Ollama](#ollama)).
+- **Built-in engine**: no setup needed. Models run in llama.cpp, on the
+  graphics card through Vulkan or on the processor, with optional NVIDIA
+  acceleration (see [Engine and models](#engine-and-models)).
 - **Updates** from Settings, signed and checked before they are installed.
 - **English, Spanish and French** interface: you choose the language on first
   launch (the one of your system is proposed) and can change it in Settings.
@@ -107,8 +109,9 @@ stop speaking, reads the answer aloud, then listens again. The conversation is
 written and saved as usual.
 
 - **100% local**: speech detection, transcription, echo cancellation and the
-  voice run on your computer. Only the transcribed text is sent, to your
-  Ollama server, like a typed message.
+  voice run on your computer. Only the transcribed text is sent to the
+  model, like a typed message: it stays on your computer unless you chose a
+  remote model.
 - **Interrupt by speaking**: echo cancellation removes ChatonLM's own voice
   from what the microphone hears, so you can cut an answer just by talking,
   even on speakers (headphones work best). Space or a click on the bar also
@@ -141,7 +144,7 @@ icon.
   Dictation, then sent as text.
 - **Pictures**: ask the bot for a picture, and if the model can use tools and
   an image model is chosen in ChatonLM, the image arrives as a photo.
-- **Web search**, with `/web on`, if your Ollama account is connected.
+- **Web search**, with `/web on`.
 - **Ephemeral mode**, with `/ephemeral on`: the bot's conversations stay out
   of ChatonLM's history and are erased by `/new`, `/ephemeral off` or when
   ChatonLM quits; `/keep` saves the current one.
@@ -223,12 +226,14 @@ sudo apt install ./chatonlm_*_amd64.deb
 
 ### Requirements
 
-- **Graphics card (optional).** The built-in Ollama runs models on the
-  processor, or on the graphics card through Vulkan when a Vulkan driver is
-  installed: your card's driver on Windows; on Linux, your card's driver and
-  the Vulkan loader (`libvulkan1` on Debian and Ubuntu). To use CUDA (NVIDIA)
-  or ROCm (AMD), [install Ollama](https://ollama.com/download) on your
-  computer: ChatonLM then uses it.
+- **Graphics card (optional).** The built-in engine runs models on the
+  graphics card through Vulkan when a Vulkan driver is installed (your
+  card's driver on Windows; on Linux, your card's driver and the Vulkan
+  loader, `libvulkan1` on Debian and Ubuntu), and on the processor otherwise.
+  On an NVIDIA GeForce RTX 20 series card or newer, with driver 580 or later,
+  you can also turn on NVIDIA acceleration: ChatonLM then downloads its CUDA 13
+  pack, after showing you NVIDIA's license (see
+  [Engine and models](#engine-and-models)).
 - **Dictation with Whisper** needs a processor with AVX2 (x86-64-v3). Without
   it, ChatonLM offers only Parakeet, which works on any x86-64 processor.
 - **Global shortcuts** (dictation, proofreading, reading the selection
@@ -250,37 +255,41 @@ sudo apt install ./chatonlm_*_amd64.deb
   system tray" in Settings › General to quit instead. Without a tray, closing
   the window quits ChatonLM.
 
-## Ollama
+## Engine and models
 
-ChatonLM talks to an Ollama server, and finds one on its own:
+ChatonLM runs models itself, with `llama-server` from
+[llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT), included in the
+packages. There is no server to install or start, and ChatonLM no longer
+connects to an Ollama server. The engine listens only on 127.0.0.1, on a
+private port, and stops when you quit ChatonLM. Settings › General › Engine
+shows its version and whether models run on the graphics card or on the
+processor.
 
-- **Ollama is installed and running on your computer**: ChatonLM uses it, with
-  your models and your GPU setup.
-- **Ollama is installed, but isn't running**: ChatonLM offers **Start
-  Ollama** (on Windows, it opens the Ollama app; on Linux, your system asks
-  for your password to start the service), or **Use the built-in Ollama
-  instead**. It never starts the built-in one silently in this case.
-- **Ollama isn't installed**: ChatonLM starts the copy it includes (Ollama
-  0.40.15, processor and Vulkan). It listens only on 127.0.0.1, on a private
-  port, so only apps on your computer can reach it, and it stops when you
-  quit ChatonLM.
-- **You entered a server address** (Settings › General › Server address, or
-  the `OLLAMA_HOST` environment variable), for example another computer on
-  your network: ChatonLM uses that server. If it doesn't answer, ChatonLM says
-  so and offers **Use the built-in Ollama**; it never switches on its own.
-
-You can change this at any time in Settings › General › Ollama.
-
-**Model folders.** Each Ollama keeps its own models:
-
-- The built-in Ollama stores them in the `ollama/models` folder of
-  [ChatonLM's data](#your-data). Choose another folder in Settings › General ›
-  Model location (no password needed).
-- For the Ollama service of a Linux system, Model location moves its models
-  to the folder you choose: ChatonLM asks for your password, adds a systemd
-  setting to the service, moves the models and restarts the service. On
-  Windows, and when Ollama runs some other way on Linux (a user service, or
-  started by hand), ChatonLM shows what to do instead.
+- **Graphics card**: Vulkan by default, on the processor when there is no
+  usable graphics card.
+- **NVIDIA acceleration** (optional): for NVIDIA GeForce RTX 20 series cards
+  and newer, with driver 580 or later, in Settings › General › Engine.
+  ChatonLM shows NVIDIA's license, then downloads its CUDA 13 pack: its own
+  build of llama.cpp's CUDA backend, from this repository's releases, and
+  NVIDIA's CUDA libraries, from NVIDIA. Nothing is downloaded until you ask.
+- **Models** come from Hugging Face, as GGUF files, through ModelHub. They are
+  stored in the `models` folder of [ChatonLM's data](#your-data); choose
+  another folder in Settings › General › Model location, which can move your
+  models there.
+- **Models from Ollama**: Settings › Models › Models from Ollama finds the
+  models of the Ollama installed on your computer and of the built-in Ollama
+  of ChatonLM 0.9, and copies them in one click, without downloading them
+  again. The installed Ollama is not changed: its models are copied, and
+  nothing in its folder is deleted. Ollama's cloud models have nothing to
+  import, and a model stored in a format of Ollama's own has to be downloaded
+  again from Hugging Face. Once the models of the built-in Ollama are
+  imported, ChatonLM offers to delete its old folder to free up space.
+- **Remote models** (off by default): in Settings › Models › Remote models,
+  add a provider with your own API key: Ollama Cloud, OpenRouter, Mistral, or
+  any server compatible with the OpenAI API (for example an Ollama on another
+  computer). Its models then appear in the model picker, marked as remote.
+  The keys are kept in ChatonLM's data folder, readable by your user only,
+  and never written to the logs. Dictation never uses a remote model.
 
 ## Updates
 
@@ -313,29 +322,31 @@ ChatonLM itself connects only to:
 - **Hugging Face** (huggingface.co and its status page), when you open
   ModelHub (model lists, model cards, file sizes; the first-launch tour opens
   it at its second step), when you browse or download image models, and when
-  you download a speech recognition model or a voice;
-- **ollama.com**, to check that a model name typed in the model picker exists,
-  and to show your account picture once you are signed in;
-- **ollama.com or Hugging Face**, whichever the model came from, to check
-  whether a newer version of an installed model is available: for the model
-  selected in a chat, and for all of them when you open the Installed tab of
-  ModelHub. Only the name of the model is sent;
+  you download a model, a speech recognition model or a voice. It is also
+  asked whether a newer version of an installed model is available: for the
+  model selected in a chat, and for all of them when you open the Installed
+  tab of ModelHub. Only the name of the model is sent;
 - **GitHub** (github.com), to check for and download updates, and to download
   the model files of a voice;
+- **GitHub and NVIDIA's servers**, only if you ask for NVIDIA acceleration,
+  to download the CUDA 13 pack: ChatonLM's part from this repository's
+  releases, NVIDIA's CUDA libraries from NVIDIA;
+- **ChatonLM's search service** (relay.chatonlm.com), only when a model
+  searches the web: it receives the search and returns results from Brave
+  Search. There is no account: your installation registers once with a key
+  of its own, made on your computer. Only the titles and links of the
+  results are kept in the chat;
+- **the providers of remote models** you add, only if remote models are
+  turned on (they are off by default): the messages and attachments you send
+  to one of their models are processed there, under their own terms;
 - **Telegram** (api.telegram.org) **or Discord** (discord.com and its file
   servers), only if you connect a bot in Settings › Easy Link, and only while
   it is turned on: the messages, photos and voice messages you send to your
   bot, and the answers and pictures of your model, go through that service. The token of
   your bot is stored in the database of ChatonLM, on your computer.
 
-Everything else goes through your Ollama server: chats, model downloads,
-your Ollama account and web search (handled by Ollama and ollama.com). With
-cloud models turned on in Settings > Models, the messages you send to a cloud
-model are processed on ollama.com; turned off (the default), nothing is sent
-to them. If
-your server is on another computer, your messages, attachments and the
-transcripts cleaned up by dictation are sent to it. Links open in your web
-browser.
+Chats with local models are processed by the built-in engine, on your
+computer. Links open in your web browser.
 
 ## Your data
 
@@ -345,9 +356,10 @@ AppImage):
 - Windows: `%LOCALAPPDATA%\com.chatonlm.chatonlm`
 - Linux: `~/.local/share/com.chatonlm.chatonlm`
 
-It holds the database (chats, attachments, settings), the models and log of
-the built-in Ollama, the speech recognition models, the voices, the ModelHub
-cache, logs and downloaded updates.
+It holds the database (chats, attachments, settings), the models (unless
+you chose another Model location), the NVIDIA acceleration pack if you
+downloaded it, the API keys of remote models, the speech recognition models,
+the voices, the ModelHub cache, logs and downloaded updates.
 
 To keep it elsewhere, set the `CHATONLM_DATA_DIR` environment variable to an
 absolute path before starting ChatonLM. On Linux, for example:
@@ -367,9 +379,9 @@ CHATONLM_DATA_DIR=/path/to/folder ./chatonlm_*_amd64.AppImage
      `~/.local/share/applications/com.chatonlm.chatonlm.desktop`.
    - **.deb**: `sudo apt remove chatonlm`.
 2. Delete the [data folder](#your-data) to remove your chats, settings and
-   the built-in Ollama's models.
+   models (and the folder chosen in Model location, if you chose one).
 3. On Linux, if you used Model location, or **Fix** for the Ollama service of
-   your system, ChatonLM added files named `zz-chatonlm-*.conf` to
+   your system, with ChatonLM 0.9, it added files named `zz-chatonlm-*.conf` to
    `/etc/systemd/system/ollama.service.d/`. They keep working without
    ChatonLM. To undo them, move your models back to Ollama's default folder,
    delete the files, then run
@@ -399,7 +411,10 @@ npm run tauri build -- --no-bundle
 
 The program is `src-tauri/target/release/chatonlm`. A copy built this way:
 
-- has no built-in Ollama: use the Ollama of your computer;
+- has no text engine: the packages include `llama-server`, built from
+  llama.cpp by `scripts/build-llama-server.sh` (pinned in
+  `packaging/llama.env`), whose output in `.tools/runtimes/llama-server` a
+  development build finds on its own;
 - needs ONNX Runtime 1.28 for Parakeet dictation: set `ORT_DYLIB_PATH` to its
   `libonnxruntime.so.1`, for example from Microsoft's
   `onnxruntime-linux-x64-1.28.3.tgz`. Without it, Whisper still works;
@@ -409,8 +424,9 @@ For development, `npm run tauri dev -- --config src-tauri/tauri.dev.conf.json`
 starts ChatonLM with hot reload, under its own identifier, so it doesn't share
 data with an installed copy.
 
-The release packages are built by GitHub Actions, which also fetches the
-pinned ONNX Runtime and Ollama and writes the license notices: on Ubuntu
+The release packages are built by GitHub Actions, which also builds the
+pinned llama.cpp, fetches the pinned ONNX Runtime and writes the license
+notices: on Ubuntu
 22.04 for Linux ([`packages.yml`](.github/workflows/packages.yml)), and with
 the MSVC toolchain for Windows
 ([`packages-windows.yml`](.github/workflows/packages-windows.yml), the
@@ -436,16 +452,23 @@ Elwynn18 and ChatonLM contributors.
 [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES) lists the third-party material it
 includes, with their notices. The packages also carry the licenses of every
 Rust crate and npm package built into ChatonLM, of ONNX Runtime and of the
-built-in Ollama: in `/usr/share/doc/chatonlm` on Linux, and in the `licenses`
+built-in engine: in `/usr/share/doc/chatonlm` on Linux, and in the `licenses`
 folder of the installation on Windows.
 
 - The interface follows, and partly adapts, the official
   [Ollama](https://github.com/ollama/ollama) app (MIT License, Copyright (c)
   Ollama); the adapted files are listed in THIRD_PARTY_LICENSES, part 1.
-- The packages include [Ollama](https://github.com/ollama/ollama) 0.40.15 (MIT)
-  and [ONNX Runtime](https://github.com/microsoft/onnxruntime) 1.28.3 (MIT),
-  unmodified. The built-in Ollama also contains the GNU OpenMP library
-  (libgomp), under the GPL 3 with the GCC Runtime Library Exception.
+- The packages include `llama-server`, the server of
+  [llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT), built by
+  ChatonLM with the CPU and Vulkan backends of ggml (THIRD_PARTY_LICENSES,
+  part 11), and [ONNX Runtime](https://github.com/microsoft/onnxruntime)
+  1.28.3 (MIT), unmodified.
+- The optional NVIDIA acceleration pack holds ChatonLM's build of the CUDA
+  backend of ggml (MIT), published with each release. NVIDIA's CUDA
+  libraries are not shipped by ChatonLM: they are downloaded from NVIDIA, on
+  demand, under NVIDIA's license, which ChatonLM shows first.
+- Models are downloaded on demand from Hugging Face, under their own
+  licenses. Models imported from Ollama are copied from your computer.
 - The Windows package also contains the Microsoft Visual C++ runtime
   libraries, under Microsoft's redistribution terms (THIRD_PARTY_LICENSES,
   part 9).
