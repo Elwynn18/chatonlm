@@ -743,7 +743,7 @@ async fn documents_become_sources_and_requests_are_checked() {
     assert_eq!(list[0].title, "the main subject of the source material");
 
     // Refus : image (remise dans la zone), document inconnu, limites.
-    let image = stage(&staging, "pic.png", &fake_ollama::AVATAR_PNG).await;
+    let image = stage(&staging, "pic.png", &fake_services::SAMPLE_PNG).await;
     let mut request = new_course("Plants", 10);
     request.document_ids = vec![image.clone()];
     let refused = bench

@@ -1,25 +1,24 @@
-// Réglages dans l'app réelle (faux serveur) :
+// Réglages dans l'app réelle (faux moteur : fake-llama, chatonlm-simple) :
 // - Ctrl+, (vraies touches), depuis la zone de saisie, ouvre la page ;
 // - thème Light puis Dark : classe « dark » de <html>, enregistré, « Saved »
 //   (captures claire et sombre de la page) ;
 // - longueur de contexte : clic sur « 8k » et glisser jusqu'à « 32k » (vrai
-//   pointeur de KWin), puis ← (vraie touche) : 16k ; la requête /api/chat
-//   suivante porte options.num_ctx 16384 et la limite num_predict de la
-//   réponse (GET /fake/requests) ;
-// - adresse : invalide refusée avec le message du moteur ; port fermé
-//   enregistré, la conversation signale alors qu'Ollama ne répond plus ;
-// - Reset : adresse, contexte et thème par défaut, modèle choisi gardé, la
-//   conversation joint de nouveau le serveur.
+//   pointeur de KWin), puis ← (vraie touche) : 16k ; le modèle est lancé
+//   avec `-c 16384` et la demande de chat suivante porte la limite
+//   max_tokens de la réponse (registre et /fake/requests du faux) ;
+// - ligne Engine (moteur intégré) à la place de l'adresse du serveur ;
+// - Reset : contexte et thème par défaut, modèle choisi gardé, la
+//   conversation répond toujours.
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
-import { freePort, withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { withApp } from "./lib/app.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { pressKeys } from "./lib/keyboard.mjs";
 import { pointerOffset } from "./lib/pointer.mjs";
 
 const binary = process.argv[2];
-const fake = await startFake("ollama");
-const closed = await freePort();
+const MODEL = fakeModel("simple");
+const engine = startEngine([MODEL]);
 
 async function waitUntil(check, what, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
@@ -77,6 +76,32 @@ async function toChat(driver) {
   await driver.waitFor("[data-testid=new-chat]");
 }
 
+/** Tape un message dans la zone de saisie et l'envoie (Entrée). */
+async function send(driver, text) {
+  await driver.type(
+    await driver.waitFor("textarea[aria-label='Message']"),
+    text,
+  );
+  await driver.execute(
+    `document.querySelector("textarea[aria-label='Message']").dispatchEvent(
+       new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));`,
+  );
+}
+
+/** Attend `count` réponses finies, la dernière contenant `text`. */
+async function waitReply(driver, text, count) {
+  await waitUntil(async () => {
+    const replies = await driver.execute(
+      "return [...document.querySelectorAll('[data-role=assistant]')].map((e) => e.textContent)",
+    );
+    return (
+      replies.length === count &&
+      replies.at(-1).includes(text) &&
+      !(await exists(driver, "[aria-label='Stop']"))
+    );
+  }, `réponse « ${text} »`);
+}
+
 const clickByText = (driver, css, text) =>
   driver.execute(
     `const found = [...document.querySelectorAll(arguments[0])]
@@ -96,179 +121,125 @@ const notch = (driver, label) =>
     [label],
   );
 
-try {
-  await withApp(
-    binary,
-    { name: "settings", env: { OLLAMA_HOST: fake.url } },
-    async (driver) => {
-      await driver.waitFor("[data-testid=new-chat]");
-      // Modèle de secours enregistré dès que la liste est lue.
-      const model = await waitUntil(
-        async () => (await driver.invoke("get_settings")).selectedModel,
-        "modèle choisi au départ",
-      );
-
-      // Ctrl+, depuis la zone de saisie.
-      await driver.click(
-        await driver.waitFor("textarea[aria-label='Message']"),
-      );
-      await openSettingsWithKeys(driver);
-      assert.equal(
-        await driver.execute("return document.querySelector('h1').textContent"),
-        "Settings",
-      );
-
-      // Thème.
-      assert.ok(await clickByText(driver, "label", "Light"));
-      await waitSettings(driver, { theme: "light" });
-      await waitSaved(driver);
-      assert.equal(await isDark(driver), false);
-      await delay(500); // transition-all (300 ms) de la zone principale
-      await driver.screenshot(".tools/shots/settings-light.png");
-      assert.ok(await clickByText(driver, "label", "Dark"));
-      await waitSettings(driver, { theme: "dark" });
-      assert.equal(await isDark(driver), true);
-      await delay(500); // transition-all (300 ms) de la zone principale
-      await driver.screenshot(".tools/shots/settings-dark.png");
-
-      // Longueur de contexte : clic, glisser, clavier.
-      const [dx, dy] = await pointerOffset(driver);
-      const [x8, y8] = await notch(driver, "8k");
-      await pressKeys(
-        [
-          `pointer:${x8 + dx},${y8 + dy}`,
-          "wait:100",
-          "button:down",
-          "wait:100",
-          "button:up",
-        ],
-        { settleMs: 300 },
-      );
-      await waitSettings(driver, { contextLength: 8192 });
-      const [x32] = await notch(driver, "32k");
-      const steps = [];
-      for (let i = 1; i <= 10; i++) {
-        const x = Math.round(x8 + ((x32 - x8) * i) / 10);
-        steps.push(`pointer:${x + dx},${y8 + dy}`, "wait:30");
-      }
-      await pressKeys(
-        [
-          `pointer:${x8 + dx},${y8 + dy}`,
-          "wait:100",
-          "button:down",
-          "wait:100",
-          ...steps,
-          "wait:200",
-          "button:up",
-        ],
-        { settleMs: 300 },
-      );
-      await waitSettings(driver, { contextLength: 32768 });
-      await driver.execute("document.querySelector('[role=slider]').focus()");
-      await pressKeys("left");
-      await waitSettings(driver, { contextLength: 16384 });
-      assert.equal(
-        await driver.execute(
-          "return document.querySelector('[role=slider]').getAttribute('aria-valuetext')",
-        ),
-        "16k",
-      );
-
-      // La requête suivante porte num_ctx.
-      await toChat(driver);
-      await driver.type(
-        await driver.waitFor("textarea[aria-label='Message']"),
-        "Hello",
-      );
-      await driver.execute(
-        `document.querySelector("textarea[aria-label='Message']").dispatchEvent(
-           new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));`,
-      );
-      const request = await waitUntil(async () => {
-        const response = await fetch(new URL("/fake/requests", fake.url));
-        return (await response.json()).at(-1);
-      }, "requête /api/chat");
-      // Avec la limite de la réponse à ce qui reste du contexte (propre à
-      // ChatonLM, compact.rs).
-      assert.equal(request.options.num_ctx, 16384);
-      assert.ok(
-        request.options.num_predict > 16000 &&
-          request.options.num_predict < 16384,
-        JSON.stringify(request.options),
-      );
-      await waitUntil(
-        async () => !(await exists(driver, "[aria-label='Stop']")),
-        "fin de la réponse",
-      );
-
-      // Adresse : refusée, puis port fermé.
-      await openSettingsWithKeys(driver);
-      const input = await driver.waitFor(
-        "[data-testid=settings] input[type=text], [data-testid=settings] input:not([type])",
-      );
-      const save = async () =>
-        assert.ok(
-          await clickByText(driver, "[data-testid=settings] button", "Save"),
-        );
-      await driver.clear(input);
-      await driver.type(input, "ftp://example.com");
-      await save();
-      const alert = await driver.waitFor("[data-testid=settings] [role=alert]");
-      assert.match(await driver.text(alert), /unsupported scheme ftp/);
-      const unreachable = `http://127.0.0.1:${closed}`;
-      await driver.clear(input);
-      await driver.type(input, unreachable);
-      await save();
-      await waitSettings(driver, { serverUrl: unreachable });
-      await waitSaved(driver);
-      await toChat(driver);
-      await waitUntil(
-        () =>
-          driver.execute(
-            "return [...document.querySelectorAll('[role=alert]')].some((e) => e.textContent.includes(\"Ollama isn't responding.\"))",
-          ),
-        "bannière « Ollama isn't responding. »",
-      );
-
-      // Reset.
-      await openSettingsWithKeys(driver);
-      assert.ok(
-        await clickByText(
-          driver,
-          "[data-testid=settings] button",
-          "Reset to defaults",
-        ),
-      );
-      const reset = await waitSettings(driver, {
-        serverUrl: "",
-        contextLength: 0,
-        theme: "system",
-      });
-      assert.equal(reset.effectiveServerUrl, fake.url);
-      assert.equal(reset.selectedModel, model);
-      await waitSaved(driver);
-      assert.equal(
-        await isDark(driver),
-        await driver.execute(
-          "return matchMedia('(prefers-color-scheme: dark)').matches",
-        ),
-      );
-      assert.equal(
-        await driver.execute(
-          "return document.querySelector('[data-testid=settings] input:not([type=radio])').value",
-        ),
-        "",
-      );
-      await toChat(driver);
-      await waitUntil(
-        async () =>
-          !(await driver.execute(
-            "return [...document.querySelectorAll('[role=alert]')].some((e) => e.textContent.includes(\"Ollama isn't responding.\"))",
-          )),
-        "bannière toujours là après le Reset",
-      );
-    },
+await withApp(binary, { name: "settings", env: engine.env }, async (driver) => {
+  await driver.waitFor("[data-testid=new-chat]");
+  // Modèle de secours enregistré dès que la liste est lue.
+  const model = await waitUntil(
+    async () => (await driver.invoke("get_settings")).selectedModel,
+    "modèle choisi au départ",
   );
-} finally {
-  await fake.stop();
-}
+
+  // Ctrl+, depuis la zone de saisie.
+  await driver.click(await driver.waitFor("textarea[aria-label='Message']"));
+  await openSettingsWithKeys(driver);
+  assert.equal(
+    await driver.execute("return document.querySelector('h1').textContent"),
+    "Settings",
+  );
+
+  // Thème.
+  assert.ok(await clickByText(driver, "label", "Light"));
+  await waitSettings(driver, { theme: "light" });
+  await waitSaved(driver);
+  assert.equal(await isDark(driver), false);
+  await delay(500); // transition-all (300 ms) de la zone principale
+  await driver.screenshot(".tools/shots/settings-light.png");
+  assert.ok(await clickByText(driver, "label", "Dark"));
+  await waitSettings(driver, { theme: "dark" });
+  assert.equal(await isDark(driver), true);
+  await delay(500); // transition-all (300 ms) de la zone principale
+  await driver.screenshot(".tools/shots/settings-dark.png");
+
+  // Longueur de contexte : clic, glisser, clavier.
+  const [dx, dy] = await pointerOffset(driver);
+  const [x8, y8] = await notch(driver, "8k");
+  await pressKeys(
+    [
+      `pointer:${x8 + dx},${y8 + dy}`,
+      "wait:100",
+      "button:down",
+      "wait:100",
+      "button:up",
+    ],
+    { settleMs: 300 },
+  );
+  await waitSettings(driver, { contextLength: 8192 });
+  const [x32] = await notch(driver, "32k");
+  const steps = [];
+  for (let i = 1; i <= 10; i++) {
+    const x = Math.round(x8 + ((x32 - x8) * i) / 10);
+    steps.push(`pointer:${x + dx},${y8 + dy}`, "wait:30");
+  }
+  await pressKeys(
+    [
+      `pointer:${x8 + dx},${y8 + dy}`,
+      "wait:100",
+      "button:down",
+      "wait:100",
+      ...steps,
+      "wait:200",
+      "button:up",
+    ],
+    { settleMs: 300 },
+  );
+  await waitSettings(driver, { contextLength: 32768 });
+  await driver.execute("document.querySelector('[role=slider]').focus()");
+  await pressKeys("left");
+  await waitSettings(driver, { contextLength: 16384 });
+  assert.equal(
+    await driver.execute(
+      "return document.querySelector('[role=slider]').getAttribute('aria-valuetext')",
+    ),
+    "16k",
+  );
+
+  // Le modèle est lancé avec ce contexte, et la demande suivante porte
+  // la limite de la réponse.
+  assert.equal(model, MODEL, "modèle choisi au départ");
+  await toChat(driver);
+  await send(driver, "Hello");
+  const request = await waitUntil(
+    async () => (await engine.chatRequests(MODEL)).at(-1),
+    "demande de chat",
+  );
+  const args = (await engine.args(MODEL)) ?? [];
+  assert.equal(args[args.indexOf("-c") + 1], "16384", JSON.stringify(args));
+  // Limite de la réponse à ce qui reste du contexte (propre à ChatonLM,
+  // compact.rs).
+  assert.ok(
+    request.max_tokens > 16000 && request.max_tokens < 16384,
+    `max_tokens ${request.max_tokens}`,
+  );
+  await waitReply(driver, "Hello! You said: Hello", 1);
+
+  // Moteur intégré : la ligne Engine (version, accélération) à la place
+  // de l'adresse du serveur d'Ollama.
+  await openSettingsWithKeys(driver);
+  await driver.waitFor(
+    "[data-testid=settings] [data-testid=engine-acceleration]",
+  );
+
+  // Reset.
+  assert.ok(
+    await clickByText(
+      driver,
+      "[data-testid=settings] button",
+      "Reset to defaults",
+    ),
+  );
+  const reset = await waitSettings(driver, {
+    contextLength: 0,
+    theme: "system",
+  });
+  assert.equal(reset.selectedModel, model);
+  await waitSaved(driver);
+  assert.equal(
+    await isDark(driver),
+    await driver.execute(
+      "return matchMedia('(prefers-color-scheme: dark)').matches",
+    ),
+  );
+  await toChat(driver);
+  await send(driver, "Hello again");
+  await waitReply(driver, "Hello! You said: Hello again", 1);
+});

@@ -1,12 +1,12 @@
 //! Essais des téléchargements du ModelHub, contre le faux Hugging Face
 //! (dépôts synthétisés `chatonlm-dl/…` au vrai contenu, voir
-//! `fake_ollama::hf_models`) : fichiers, empreintes, base locale, file.
+//! `fake_services::hf_models`) : fichiers, empreintes, base locale, file.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use fake_ollama::hf::{FakeHf, HfMode};
-use fake_ollama::hf_models::Synth;
+use fake_services::hf::{FakeHf, HfMode};
+use fake_services::hf_models::Synth;
 use parking_lot::Mutex;
 
 use super::*;

@@ -23,7 +23,7 @@ import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { poll } from "./lib/desktop.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { pressKeys } from "./lib/keyboard.mjs";
 
 const binary = process.argv[2];
@@ -157,70 +157,69 @@ async function checkStep(driver, lang, index) {
   );
 }
 
-const fake = await startFake("ollama");
-const env = { OLLAMA_HOST: fake.url };
+const engine = startEngine([fakeModel("simple")]);
+const env = { ...engine.env };
 const first = { ...env, ...FR, CHATONLM_ONBOARDING: "" };
 
-try {
-  // 1. Données neuves, bureau en français.
-  await withApp(
-    binary,
-    { name: "onboarding-first", env: first },
-    async (driver) => {
-      await driver.waitFor("[data-testid=onboarding-language]");
-      assert.equal(await exists(driver, "[data-testid=new-chat]"), false);
-      assert.equal(await exists(driver, "[data-testid=tour]"), false);
-      assert.equal(await htmlLang(driver), "fr");
-      assert.equal(await languageTitle(driver), text("fr", "language.title"));
-      assert.equal(await checked(driver), "fr");
-      assert.deepEqual(
-        await driver.execute(
-          "return [...document.querySelectorAll('[data-testid=onboarding-language] label')].map((l) => l.textContent)",
-        ),
-        ["English", "Español", "Français"],
-      );
-      const before = await settings(driver);
-      assert.equal(before.language, "system");
-      assert.equal(before.onboardingDone, false);
-      await shot(driver, "language-fr");
+// 1. Données neuves, bureau en français.
+await withApp(
+  binary,
+  { name: "onboarding-first", env: first },
+  async (driver) => {
+    await driver.waitFor("[data-testid=onboarding-language]");
+    assert.equal(await exists(driver, "[data-testid=new-chat]"), false);
+    assert.equal(await exists(driver, "[data-testid=tour]"), false);
+    assert.equal(await htmlLang(driver), "fr");
+    assert.equal(await languageTitle(driver), text("fr", "language.title"));
+    assert.equal(await checked(driver), "fr");
+    assert.deepEqual(
+      await driver.execute(
+        "return [...document.querySelectorAll('[data-testid=onboarding-language] label')].map((l) => l.textContent)",
+      ),
+      ["English", "Español", "Français"],
+    );
+    const before = await settings(driver);
+    assert.equal(before.language, "system");
+    assert.equal(before.onboardingDone, false);
+    await shot(driver, "language-fr");
 
-      // « Español » : même document, écran en espagnol, réglage enregistré.
-      await driver.execute("window.__sameDocument = true");
-      await driver.click(
-        await driver.find("[data-testid=onboarding-language] input[value=es]"),
-      );
-      await waitFor(
-        () => languageTitle(driver),
-        text("es", "language.title"),
-        "écran en espagnol",
-      );
-      assert.equal(await htmlLang(driver), "es");
-      assert.equal(await checked(driver), "es");
-      assert.equal((await settings(driver)).language, "es");
-      await shot(driver, "language-es");
+    // « Español » : même document, écran en espagnol, réglage enregistré.
+    await driver.execute("window.__sameDocument = true");
+    await driver.click(
+      await driver.find("[data-testid=onboarding-language] input[value=es]"),
+    );
+    await waitFor(
+      () => languageTitle(driver),
+      text("es", "language.title"),
+      "écran en espagnol",
+    );
+    assert.equal(await htmlLang(driver), "es");
+    assert.equal(await checked(driver), "es");
+    assert.equal((await settings(driver)).language, "es");
+    await shot(driver, "language-es");
 
-      // « Continuar » : l'app, avec la visite, barre latérale ouverte.
-      await press(driver, "onboarding-continue");
-      await driver.waitFor("[data-testid=tour]");
-      await driver.waitFor("[data-testid=new-chat]");
-      assert.equal(
-        await exists(driver, "[data-testid=onboarding-language]"),
-        false,
-      );
-      assert.equal((await settings(driver)).onboardingDone, false);
-      for (const [index, step] of STEPS.entries()) {
-        await checkStep(driver, "es", index);
-        const bubble = await textOf(driver, "[data-testid=tour] [role=dialog]");
-        assert.ok(bubble.includes(`Paso ${index + 1} de 4`), bubble);
-        await shot(driver, `tour-${index + 1}-${step.id}-es`);
-        if (index === 0) {
-          // L'app dessous ne répond pas : ce qui est sous le pointeur, à
-          // l'endroit de l'entrée Configuración comme de la zone de saisie,
-          // c'est le voile de la visite ; la zone de saisie ne prend pas le
-          // focus.
-          assert.deepEqual(
-            await driver.execute(
-              `return ['nav a[href="/settings"]', "textarea"].map((css) => {
+    // « Continuar » : l'app, avec la visite, barre latérale ouverte.
+    await press(driver, "onboarding-continue");
+    await driver.waitFor("[data-testid=tour]");
+    await driver.waitFor("[data-testid=new-chat]");
+    assert.equal(
+      await exists(driver, "[data-testid=onboarding-language]"),
+      false,
+    );
+    assert.equal((await settings(driver)).onboardingDone, false);
+    for (const [index, step] of STEPS.entries()) {
+      await checkStep(driver, "es", index);
+      const bubble = await textOf(driver, "[data-testid=tour] [role=dialog]");
+      assert.ok(bubble.includes(`Paso ${index + 1} de 4`), bubble);
+      await shot(driver, `tour-${index + 1}-${step.id}-es`);
+      if (index === 0) {
+        // L'app dessous ne répond pas : ce qui est sous le pointeur, à
+        // l'endroit de l'entrée Configuración comme de la zone de saisie,
+        // c'est le voile de la visite ; la zone de saisie ne prend pas le
+        // focus.
+        assert.deepEqual(
+          await driver.execute(
+            `return ['nav a[href="/settings"]', "textarea"].map((css) => {
                  const r = document.querySelector(css).getBoundingClientRect();
                  const hit = document.elementFromPoint(
                    r.left + r.width / 2,
@@ -228,184 +227,181 @@ try {
                  );
                  return hit?.closest("[data-testid=tour]") !== null;
                })`,
-            ),
-            [true, true],
-          );
-          await driver.execute("document.querySelector('textarea').focus()");
-          assert.notEqual(
-            await driver.execute("return document.activeElement?.tagName"),
-            "TEXTAREA",
-          );
-          assert.equal(await exists(driver, "[data-testid=tour-back]"), false);
-        }
-        if (index < STEPS.length - 1) await press(driver, "tour-next");
+          ),
+          [true, true],
+        );
+        await driver.execute("document.querySelector('textarea').focus()");
+        assert.notEqual(
+          await driver.execute("return document.activeElement?.tagName"),
+          "TEXTAREA",
+        );
+        assert.equal(await exists(driver, "[data-testid=tour-back]"), false);
       }
-      // Dernière étape : ni « Siguiente » ni « Omitir » ; retour, puis encore.
-      assert.equal(await exists(driver, "[data-testid=tour-next]"), false);
-      assert.equal(await exists(driver, "[data-testid=tour-skip]"), false);
-      await press(driver, "tour-back");
-      await checkStep(driver, "es", 2);
-      await press(driver, "tour-next");
-      await checkStep(driver, "es", 3);
+      if (index < STEPS.length - 1) await press(driver, "tour-next");
+    }
+    // Dernière étape : ni « Siguiente » ni « Omitir » ; retour, puis encore.
+    assert.equal(await exists(driver, "[data-testid=tour-next]"), false);
+    assert.equal(await exists(driver, "[data-testid=tour-skip]"), false);
+    await press(driver, "tour-back");
+    await checkStep(driver, "es", 2);
+    await press(driver, "tour-next");
+    await checkStep(driver, "es", 3);
 
-      await press(driver, "tour-start");
-      await poll(
-        () => exists(driver, "[data-testid=tour]"),
-        (shown) => !shown,
-        { what: "visite fermée" },
-      );
-      await driver.waitFor("[data-testid=new-chat]");
-      assert.equal(await path(driver), "/c/new");
-      assert.equal(await htmlLang(driver), "es");
-      const after = await settings(driver);
-      assert.equal(after.language, "es");
-      assert.equal(after.effectiveLanguage, "es");
-      assert.equal(after.onboardingDone, true);
-      assert.equal(await driver.execute("return window.__sameDocument"), true);
-      // L'app répond : la zone de saisie prend le focus.
-      await driver.execute("document.querySelector('textarea').focus()");
-      assert.equal(
-        await driver.execute("return document.activeElement?.tagName"),
-        "TEXTAREA",
-      );
-      await shot(driver, "after-es");
-    },
-  );
+    await press(driver, "tour-start");
+    await poll(
+      () => exists(driver, "[data-testid=tour]"),
+      (shown) => !shown,
+      { what: "visite fermée" },
+    );
+    await driver.waitFor("[data-testid=new-chat]");
+    assert.equal(await path(driver), "/c/new");
+    assert.equal(await htmlLang(driver), "es");
+    const after = await settings(driver);
+    assert.equal(after.language, "es");
+    assert.equal(after.effectiveLanguage, "es");
+    assert.equal(after.onboardingDone, true);
+    assert.equal(await driver.execute("return window.__sameDocument"), true);
+    // L'app répond : la zone de saisie prend le focus.
+    await driver.execute("document.querySelector('textarea').focus()");
+    assert.equal(
+      await driver.execute("return document.activeElement?.tagName"),
+      "TEXTAREA",
+    );
+    await shot(driver, "after-es");
+  },
+);
 
-  // 2. Relance : plus de premier démarrage, langue gardée.
-  await withApp(
-    binary,
-    { name: "onboarding-again", env: first },
-    async (driver) => {
-      await driver.waitFor("[data-testid=new-chat]");
-      await delay(500);
-      assert.equal(
-        await exists(driver, "[data-testid=onboarding-language]"),
-        false,
-      );
-      assert.equal(await exists(driver, "[data-testid=tour]"), false);
-      assert.equal(await htmlLang(driver), "es");
-      // Barre latérale fermée au lancement, comme toujours.
-      assert.equal(await exists(driver, "nav a[href='/hub']"), false);
-    },
-  );
+// 2. Relance : plus de premier démarrage, langue gardée.
+await withApp(
+  binary,
+  { name: "onboarding-again", env: first },
+  async (driver) => {
+    await driver.waitFor("[data-testid=new-chat]");
+    await delay(500);
+    assert.equal(
+      await exists(driver, "[data-testid=onboarding-language]"),
+      false,
+    );
+    assert.equal(await exists(driver, "[data-testid=tour]"), false);
+    assert.equal(await htmlLang(driver), "es");
+    // Barre latérale fermée au lancement, comme toujours.
+    assert.equal(await exists(driver, "nav a[href='/hub']"), false);
+  },
+);
 
-  // 3. Premier démarrage redemandé ; parcours au clavier.
-  await withApp(
-    binary,
-    {
-      name: "onboarding-show",
-      env: { ...env, ...FR, CHATONLM_ONBOARDING: "show" },
-    },
-    async (driver) => {
-      await driver.waitFor("[data-testid=onboarding-language]");
-      assert.equal(await languageTitle(driver), text("es", "language.title"));
-      assert.equal(await checked(driver), "es");
-      assert.equal((await settings(driver)).onboardingDone, false);
-      // Le titre a le focus à l'arrivée.
-      assert.equal(
-        await driver.execute("return document.activeElement?.tagName"),
-        "H1",
-      );
+// 3. Premier démarrage redemandé ; parcours au clavier.
+await withApp(
+  binary,
+  {
+    name: "onboarding-show",
+    env: { ...env, ...FR, CHATONLM_ONBOARDING: "show" },
+  },
+  async (driver) => {
+    await driver.waitFor("[data-testid=onboarding-language]");
+    assert.equal(await languageTitle(driver), text("es", "language.title"));
+    assert.equal(await checked(driver), "es");
+    assert.equal((await settings(driver)).onboardingDone, false);
+    // Le titre a le focus à l'arrivée.
+    assert.equal(
+      await driver.execute("return document.activeElement?.tagName"),
+      "H1",
+    );
 
-      // Tab : le choix coché ; flèche bas : « Français », enregistré.
-      await pressKeys("tab");
-      assert.equal(
-        await driver.execute("return document.activeElement?.value ?? null"),
-        "es",
-      );
-      await shot(driver, "language-focus");
-      await pressKeys("down", { settleMs: 400 });
-      await waitFor(
-        () => languageTitle(driver),
-        text("fr", "language.title"),
-        "écran en français",
-      );
-      assert.equal(await checked(driver), "fr");
-      assert.equal((await settings(driver)).language, "fr");
-      // Tab : « Continuer » ; Entrée : la visite, son bouton principal en main.
-      await pressKeys("tab");
-      assert.equal(await focused(driver), "onboarding-continue");
-      await pressKeys("enter", { settleMs: 400 });
-      await driver.waitFor("[data-testid=tour]");
-      await checkStep(driver, "fr", 0);
-      assert.equal(await focused(driver), "tour-next");
-      await shot(driver, "tour-1-chat-fr");
+    // Tab : le choix coché ; flèche bas : « Français », enregistré.
+    await pressKeys("tab");
+    assert.equal(
+      await driver.execute("return document.activeElement?.value ?? null"),
+      "es",
+    );
+    await shot(driver, "language-focus");
+    await pressKeys("down", { settleMs: 400 });
+    await waitFor(
+      () => languageTitle(driver),
+      text("fr", "language.title"),
+      "écran en français",
+    );
+    assert.equal(await checked(driver), "fr");
+    assert.equal((await settings(driver)).language, "fr");
+    // Tab : « Continuer » ; Entrée : la visite, son bouton principal en main.
+    await pressKeys("tab");
+    assert.equal(await focused(driver), "onboarding-continue");
+    await pressKeys("enter", { settleMs: 400 });
+    await driver.waitFor("[data-testid=tour]");
+    await checkStep(driver, "fr", 0);
+    assert.equal(await focused(driver), "tour-next");
+    await shot(driver, "tour-1-chat-fr");
 
-      // Entrée avance ; Tab et Maj+Tab ne sortent pas de la bulle.
-      await pressKeys("enter", { settleMs: 400 });
-      await checkStep(driver, "fr", 1);
-      assert.equal(await focused(driver), "tour-next");
-      await pressKeys("tab");
-      assert.equal(await focused(driver), "tour-skip");
-      await pressKeys("tab");
-      assert.equal(await focused(driver), "tour-back");
-      await pressKeys("shift+tab");
-      await pressKeys("shift+tab");
-      assert.equal(await focused(driver), "tour-next");
-      await shot(driver, "tour-2-hub-fr");
+    // Entrée avance ; Tab et Maj+Tab ne sortent pas de la bulle.
+    await pressKeys("enter", { settleMs: 400 });
+    await checkStep(driver, "fr", 1);
+    assert.equal(await focused(driver), "tour-next");
+    await pressKeys("tab");
+    assert.equal(await focused(driver), "tour-skip");
+    await pressKeys("tab");
+    assert.equal(await focused(driver), "tour-back");
+    await pressKeys("shift+tab");
+    await pressKeys("shift+tab");
+    assert.equal(await focused(driver), "tour-next");
+    await shot(driver, "tour-2-hub-fr");
 
-      // F5 ne recharge pas la page ; Ctrl+N n'ouvre pas de conversation.
-      await driver.execute("window.__sameDocument = true");
-      await pressKeys("f5", { settleMs: 500 });
-      assert.equal(await driver.execute("return window.__sameDocument"), true);
-      await pressKeys("ctrl+n", { settleMs: 400 });
-      assert.equal(await path(driver), "/hub");
-      assert.equal(await exists(driver, "[data-testid=tour]"), true);
+    // F5 ne recharge pas la page ; Ctrl+N n'ouvre pas de conversation.
+    await driver.execute("window.__sameDocument = true");
+    await pressKeys("f5", { settleMs: 500 });
+    assert.equal(await driver.execute("return window.__sameDocument"), true);
+    await pressKeys("ctrl+n", { settleMs: 400 });
+    assert.equal(await path(driver), "/hub");
+    assert.equal(await exists(driver, "[data-testid=tour]"), true);
 
-      // Échap ferme la visite, sur une nouvelle conversation.
-      await pressKeys("escape", { settleMs: 400 });
-      await poll(
-        () => exists(driver, "[data-testid=tour]"),
-        (shown) => !shown,
-        { what: "visite fermée par Échap" },
-      );
-      await waitFor(() => path(driver), "/c/new", "nouvelle conversation");
-      assert.equal(await htmlLang(driver), "fr");
-      assert.equal((await settings(driver)).onboardingDone, true);
-    },
-  );
+    // Échap ferme la visite, sur une nouvelle conversation.
+    await pressKeys("escape", { settleMs: 400 });
+    await poll(
+      () => exists(driver, "[data-testid=tour]"),
+      (shown) => !shown,
+      { what: "visite fermée par Échap" },
+    );
+    await waitFor(() => path(driver), "/c/new", "nouvelle conversation");
+    assert.equal(await htmlLang(driver), "fr");
+    assert.equal((await settings(driver)).onboardingDone, true);
+  },
+);
 
-  // 4. Visite quittée en cours : le lancement suivant reprend à la langue.
-  await withApp(
-    binary,
-    {
-      name: "onboarding-left",
-      env: { ...env, ...FR, CHATONLM_ONBOARDING: "show" },
-    },
-    async (driver) => {
-      await press(driver, "onboarding-continue");
-      await checkStep(driver, "fr", 0);
-      await press(driver, "tour-next");
-      await checkStep(driver, "fr", 1);
-      assert.equal((await settings(driver)).onboardingDone, false);
-    },
-  );
-  await withApp(
-    binary,
-    { name: "onboarding-resumed", env: first },
-    async (driver) => {
-      await driver.waitFor("[data-testid=onboarding-language]");
-      assert.equal(await checked(driver), "fr");
-      assert.equal(await exists(driver, "[data-testid=tour]"), false);
-    },
-  );
+// 4. Visite quittée en cours : le lancement suivant reprend à la langue.
+await withApp(
+  binary,
+  {
+    name: "onboarding-left",
+    env: { ...env, ...FR, CHATONLM_ONBOARDING: "show" },
+  },
+  async (driver) => {
+    await press(driver, "onboarding-continue");
+    await checkStep(driver, "fr", 0);
+    await press(driver, "tour-next");
+    await checkStep(driver, "fr", 1);
+    assert.equal((await settings(driver)).onboardingDone, false);
+  },
+);
+await withApp(
+  binary,
+  { name: "onboarding-resumed", env: first },
+  async (driver) => {
+    await driver.waitFor("[data-testid=onboarding-language]");
+    assert.equal(await checked(driver), "fr");
+    assert.equal(await exists(driver, "[data-testid=tour]"), false);
+  },
+);
 
-  // 5. Passé d'office (défaut de withApp), bien qu'il soit à refaire.
-  await withApp(
-    binary,
-    { name: "onboarding-skip", env: { ...env, ...FR } },
-    async (driver) => {
-      await driver.waitFor("[data-testid=new-chat]");
-      assert.equal(
-        await exists(driver, "[data-testid=onboarding-language]"),
-        false,
-      );
-      assert.equal(await exists(driver, "[data-testid=tour]"), false);
-      assert.equal((await settings(driver)).onboardingDone, true);
-    },
-  );
-  console.log("onboarding : OK");
-} finally {
-  await fake.stop();
-}
+// 5. Passé d'office (défaut de withApp), bien qu'il soit à refaire.
+await withApp(
+  binary,
+  { name: "onboarding-skip", env: { ...env, ...FR } },
+  async (driver) => {
+    await driver.waitFor("[data-testid=new-chat]");
+    assert.equal(
+      await exists(driver, "[data-testid=onboarding-language]"),
+      false,
+    );
+    assert.equal(await exists(driver, "[data-testid=tour]"), false);
+    assert.equal((await settings(driver)).onboardingDone, true);
+  },
+);
+console.log("onboarding : OK");

@@ -1,6 +1,6 @@
 //! Faux serveurs Telegram et Discord pour les e2e : `fake-messengers
 //! <telegram|discord> [port]` écrit son adresse sur la sortie standard, puis
-//! sert jusqu'à SIGINT ou SIGTERM (comme `fake-ollama`). L'adresse affichée se
+//! sert jusqu'à SIGINT ou SIGTERM (comme `fake-services`). L'adresse affichée se
 //! donne telle quelle à `CHATONLM_TELEGRAM_URL` ou `CHATONLM_DISCORD_URL` ;
 //! le pilotage (`/fake/message`, `/fake/sent`) est à la racine du même hôte.
 

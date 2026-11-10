@@ -1,5 +1,5 @@
 // Onglet Images du ModelHub dans l'app réelle (build e2e : frontend embarqué,
-// CSP de production), avec le faux Ollama et le faux Hugging Face, familles
+// CSP de production), avec le faux moteur et le faux Hugging Face, familles
 // d'essai à petites pièces (CHATONLM_IMAGE_FAMILIES ; contrat
 // .tools/research/83-image-models-contract.md § 7) :
 // - onglet Images après Voices ; « How it works », carte graphique d'essai
@@ -28,7 +28,7 @@
 //   vos modèles (Details ouvert), onglet Downloads, fiche non censurée ;
 // - aucune violation de la CSP ni erreur ou avertissement dans la console.
 //
-// Suppose du faux Hugging Face (crates/fake-ollama, fixtures/hf/) : le
+// Suppose du faux Hugging Face (crates/fake-services, fixtures/hf/) : le
 // fichier de familles d'essai `image-families.json`, qui reconnaît
 // chatonlm/klein-test-GGUF (au moins un fichier conseillé et une pièce
 // annexe) ; chatonlm/uncensored-image-GGUF (non censuré, famille reconnue),
@@ -40,7 +40,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ROOT, withApp } from "./lib/app.mjs";
-import { startFake, startFakeHf } from "./lib/fake.mjs";
+import { fakeModel, startEngine, startFakeHf } from "./lib/fake.mjs";
 
 const binary = process.argv[2];
 const SHOTS = ".tools/shots/image-models";
@@ -50,13 +50,13 @@ const KLEIN = "chatonlm/klein-test-GGUF";
 const UNCENSORED = "chatonlm/uncensored-image-GGUF";
 const UNKNOWN = "chatonlm/unknown-diffusion-GGUF";
 const GATED = "chatonlm/gated-image-GGUF";
-const FAMILIES = `${ROOT}src-tauri/crates/fake-ollama/fixtures/hf/image-families.json`;
+const FAMILIES = `${ROOT}src-tauri/crates/fake-services/fixtures/hf/image-families.json`;
 
-const fake = await startFake("ollama");
+const engine = startEngine([fakeModel("simple")]);
 const hf = await startFakeHf("hf");
 
 const env = {
-  OLLAMA_HOST: fake.url,
+  ...engine.env,
   CHATONLM_HF_URL: hf.url,
   CHATONLM_HF_STATUS_URL: hf.url,
   CHATONLM_IMAGE_FAMILIES: FAMILIES,
@@ -634,5 +634,5 @@ try {
   assert.deepEqual(consoleErrors, [], "erreurs dans la console");
   assert.deepEqual(consoleWarnings, [], "avertissements dans la console");
 } finally {
-  await Promise.all([hf.stop(), fake.stop()]);
+  await hf.stop();
 }

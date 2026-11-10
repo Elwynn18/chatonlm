@@ -1,8 +1,8 @@
 // Page Proofread et onglet « Keyboard shortcuts » dans l'app réelle (faux
-// serveur ; modèle de la correction choisi par le réglage `proofreadModel`) :
+// moteur ; modèle de la correction choisi par le réglage `proofreadModel`) :
 // - entrée « Proofread » de la barre latérale, entre Chat et Study,
 //   surlignée sur sa page ; volet vide, boutons désactivés (capture) ;
-// - Correct par Ctrl+Entrée (vraies touches) avec `chatonlm-proofread` : deux
+// - Correct par Ctrl+Entrée (vraies touches) avec `chatonlm-proofer` : deux
 //   passages, revue avec mots supprimés et ajoutés, « 3 corrections »
 //   (capture claire et sombre) ;
 // - Copy : le presse-papiers reçoit le texte final ;
@@ -15,10 +15,10 @@
 //   la revue (évènement de la page, après la garde de navigation) : édition
 //   du texte final, dernier caractère effacé ; Rephrase par Ctrl+Maj+Entrée :
 //   texte nouveau sans marques ;
-// - Stop par Échap avec `chatonlm-proofread-slow` : fin aussitôt, passages
+// - Stop par Échap avec `chatonlm-proofer-slow` : fin aussitôt, passages
 //   terminés gardés ou texte rendu ;
-// - garde-fou avec `chatonlm-proofread-off` : passage gardé, remarque ;
-// - modèle absent : erreur du moteur, « Choose a model » met le focus sur le
+// - garde-fou avec `chatonlm-proofer-off` : passage gardé, remarque ;
+// - modèle choisi qui n'est pas installé : erreur du moteur, « Choose a model » met le focus sur le
 //   sélecteur ;
 // - réglages, onglet « Keyboard shortcuts » : raccourcis de l'app listés
 //   (plusieurs combinaisons : « Ctrl+Shift+Z or Ctrl+Y »), interrupteur
@@ -30,12 +30,18 @@ import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { withApp } from "./lib/app.mjs";
 import { readClipboard } from "./lib/clipboard.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { pressKeys } from "./lib/keyboard.mjs";
 import { PENDING_CALLS } from "./lib/page.mjs";
 
 const binary = process.argv[2];
-const fake = await startFake("ollama");
+// Scénarios de fake-llama (scenarios/l5a/proof.rs) ; MISSING n'est pas
+// inscrit.
+const PROOFER = fakeModel("proofer");
+const SLOW = fakeModel("proofer-slow");
+const OFF = fakeModel("proofer-off");
+const MISSING = fakeModel("missing");
+const engine = startEngine([PROOFER, SLOW, OFF]);
 
 const FIRST = "I saw teh film.";
 const SECOND = "Je suis allez au cinema hier.";
@@ -181,361 +187,354 @@ const clickButton = (driver, name) =>
 const waitReview = (driver, timeoutMs = 10000) =>
   driver.waitFor("[data-testid=proofread-review]", { timeoutMs });
 
-try {
-  await withApp(
-    binary,
-    { name: "proofread", env: { OLLAMA_HOST: fake.url } },
-    async (driver) => {
-      await driver.waitFor("[data-testid=new-chat]");
-      await driver.execute(WATCH_PAGE);
-      await useModel(driver, "chatonlm-proofread");
-      await reload(driver);
-      await driver.waitFor("[data-testid=new-chat]");
+await withApp(
+  binary,
+  { name: "proofread", env: engine.env },
+  async (driver) => {
+    await driver.waitFor("[data-testid=new-chat]");
+    await driver.execute(WATCH_PAGE);
+    await useModel(driver, PROOFER);
+    await reload(driver);
+    await driver.waitFor("[data-testid=new-chat]");
 
-      // Barre latérale : Proofread entre Chat et Study.
-      if (await exists(driver, "button[aria-label='Show sidebar']")) {
-        await driver.click(
-          await driver.find("button[aria-label='Show sidebar']"),
-        );
-      }
-      const link = await driver.waitFor("nav a[href$='/proofread']");
-      assert.deepEqual(
-        await driver.execute(
-          `return [...document.querySelector("nav a[href$='/proofread']")
+    // Barre latérale : Proofread entre Chat et Study.
+    if (await exists(driver, "button[aria-label='Show sidebar']")) {
+      await driver.click(
+        await driver.find("button[aria-label='Show sidebar']"),
+      );
+    }
+    const link = await driver.waitFor("nav a[href$='/proofread']");
+    assert.deepEqual(
+      await driver.execute(
+        `return [...document.querySelector("nav a[href$='/proofread']")
              .parentElement.querySelectorAll(":scope > a")]
              .map((a) => a.textContent.trim()).slice(0, 5);`,
-        ),
-        ["Chat", "Proofread", "Study", "ModelHub", "Settings"],
-      );
-      await driver.click(link);
-      await driver.waitFor("[data-testid=proofread]");
-      assert.equal(
-        await driver.execute("return document.querySelector('h1').textContent"),
-        "Proofread",
-      );
-      assert.ok(
-        await driver.execute(
-          `return document.querySelector("nav a[href$='/proofread']")
+      ),
+      ["Chat", "Proofread", "Study", "ModelHub", "Settings"],
+    );
+    await driver.click(link);
+    await driver.waitFor("[data-testid=proofread]");
+    assert.equal(
+      await driver.execute("return document.querySelector('h1').textContent"),
+      "Proofread",
+    );
+    assert.ok(
+      await driver.execute(
+        `return document.querySelector("nav a[href$='/proofread']")
              .classList.contains("bg-accent")`,
-        ),
-        "entrée Proofread surlignée",
-      );
-      assert.deepEqual(
-        await driver.execute(
-          `return ["Correct", "Rephrase"].map((name) =>
+      ),
+      "entrée Proofread surlignée",
+    );
+    assert.deepEqual(
+      await driver.execute(
+        `return ["Correct", "Rephrase"].map((name) =>
              [...document.querySelectorAll("[data-testid=proofread] button")]
                .find((b) => b.textContent.trim() === name).disabled);`,
-        ),
-        [true, true],
-      );
-      await delay(400); // transition de la barre latérale
-      await driver.screenshot(".tools/shots/proofread-empty.png");
+      ),
+      [true, true],
+    );
+    await delay(400); // transition de la barre latérale
+    await driver.screenshot(".tools/shots/proofread-empty.png");
 
-      // Croix : vide la zone par l'édition native, Ctrl+Z (vraie touche)
-      // retrouve donc le texte.
-      const cross =
-        "[data-testid=proofread] button[aria-label='Clear the text']";
-      assert.equal(await exists(driver, cross), false, "croix sans texte");
-      await setText(driver, TEXT);
-      await driver.click(await driver.waitFor(cross));
-      await waitUntil(
-        async () => (await editorValue(driver)) === "",
-        "zone vidée par la croix",
-      );
-      assert.equal(await exists(driver, cross), false, "croix une fois vidé");
-      assert.equal(
-        await driver.execute(
-          "return document.activeElement === document.querySelector(arguments[0])",
-          [EDITOR],
-        ),
-        true,
-        "focus dans la zone après la croix",
-      );
-      await pressKeys("ctrl+z");
-      await waitUntil(
-        async () => (await editorValue(driver)) === TEXT,
-        "texte retrouvé par Ctrl+Z après la croix",
-      );
-
-      // Correct par Ctrl+Entrée (vraies touches), depuis la zone de texte.
-      await setText(driver, TEXT);
-      await pressKeys("ctrl+enter");
-      await waitReview(driver);
-      assert.equal(await reviewText(driver), CORRECTED);
-      assert.deepEqual(await marks(driver, "del"), ["teh", "allez", "cinema"]);
-      assert.deepEqual(await marks(driver, "ins"), ["the", "allé", "cinéma"]);
-      assert.equal(await statusText(driver), "3 correctionschatonlm-proofread");
-      await driver.screenshot(".tools/shots/proofread-review.png");
-      await driver.invoke("update_settings", { patch: { theme: "dark" } });
-      await reload(driver);
-      // L'état de la page ne survit pas au rechargement : nouvelle correction.
-      await driver.waitFor("[data-testid=proofread]");
-      await setText(driver, TEXT);
-      await pressKeys("ctrl+enter");
-      await waitReview(driver);
-      await delay(400);
-      await driver.screenshot(".tools/shots/proofread-review-dark.png");
-      await driver.invoke("update_settings", { patch: { theme: "light" } });
-
-      // Copy : texte final dans le presse-papiers.
-      assert.ok(await clickButton(driver, "Copy"));
-      await waitUntil(
-        () =>
-          driver.execute(
-            `return [...document.querySelectorAll("[data-testid=proofread] button")]
-             .some((b) => b.textContent.trim() === "Copied")`,
-          ),
-        "« Copied »",
-      );
-      const clipboard = await readClipboard();
-      assert.equal(clipboard.text, CORRECTED);
-
-      // Frappe dans la revue : édition du texte final, la touche à la fin ;
-      // Ctrl+Z natif retire la touche, puis revient au texte d'avant.
+    // Croix : vide la zone par l'édition native, Ctrl+Z (vraie touche)
+    // retrouve donc le texte.
+    const cross = "[data-testid=proofread] button[aria-label='Clear the text']";
+    assert.equal(await exists(driver, cross), false, "croix sans texte");
+    await setText(driver, TEXT);
+    await driver.click(await driver.waitFor(cross));
+    await waitUntil(
+      async () => (await editorValue(driver)) === "",
+      "zone vidée par la croix",
+    );
+    assert.equal(await exists(driver, cross), false, "croix une fois vidé");
+    assert.equal(
       await driver.execute(
-        "document.querySelector('[data-testid=proofread-review]').focus()",
-      );
-      await pressKeys("x");
-      await waitUntil(
-        async () => (await editorValue(driver)) === `${CORRECTED}x`,
-        "touche tapée à la fin du texte corrigé",
-      );
-      await pressKeys("ctrl+z");
-      await waitUntil(
-        async () => (await editorValue(driver)) === CORRECTED,
-        "Ctrl+Z : touche retirée",
-      );
-      await pressKeys("ctrl+z");
-      await waitUntil(
-        async () => (await editorValue(driver)) === TEXT,
-        () => "Ctrl+Z natif : texte d'avant la correction",
-      );
+        "return document.activeElement === document.querySelector(arguments[0])",
+        [EDITOR],
+      ),
+      true,
+      "focus dans la zone après la croix",
+    );
+    await pressKeys("ctrl+z");
+    await waitUntil(
+      async () => (await editorValue(driver)) === TEXT,
+      "texte retrouvé par Ctrl+Z après la croix",
+    );
 
-      // Undo par Ctrl+Z dans la revue : le focus y est arrivé (Stop, puis
-      // la revue) depuis la zone de texte cachée.
-      await pressKeys("ctrl+enter");
-      await waitReview(driver);
-      assert.equal(
-        await driver.execute(
-          "return document.activeElement?.dataset.testid ?? null",
+    // Correct par Ctrl+Entrée (vraies touches), depuis la zone de texte.
+    await setText(driver, TEXT);
+    await pressKeys("ctrl+enter");
+    await waitReview(driver);
+    assert.equal(await reviewText(driver), CORRECTED);
+    assert.deepEqual(await marks(driver, "del"), ["teh", "allez", "cinema"]);
+    assert.deepEqual(await marks(driver, "ins"), ["the", "allé", "cinéma"]);
+    assert.equal(await statusText(driver), `3 corrections${PROOFER}`);
+    await driver.screenshot(".tools/shots/proofread-review.png");
+    await driver.invoke("update_settings", { patch: { theme: "dark" } });
+    await reload(driver);
+    // L'état de la page ne survit pas au rechargement : nouvelle correction.
+    await driver.waitFor("[data-testid=proofread]");
+    await setText(driver, TEXT);
+    await pressKeys("ctrl+enter");
+    await waitReview(driver);
+    await delay(400);
+    await driver.screenshot(".tools/shots/proofread-review-dark.png");
+    await driver.invoke("update_settings", { patch: { theme: "light" } });
+
+    // Copy : texte final dans le presse-papiers.
+    assert.ok(await clickButton(driver, "Copy"));
+    await waitUntil(
+      () =>
+        driver.execute(
+          `return [...document.querySelectorAll("[data-testid=proofread] button")]
+             .some((b) => b.textContent.trim() === "Copied")`,
         ),
-        "proofread-review",
-      );
-      await pressKeys("ctrl+z");
-      await waitUntil(
-        async () => (await editorValue(driver)) === TEXT,
-        "Undo par Ctrl+Z",
-      );
-      // Redo depuis la zone de texte (Ctrl+Maj+Z), puis Ctrl+Z et Ctrl+Y.
-      await pressKeys("ctrl+shift+z");
-      await waitUntil(
-        async () => (await reviewText(driver)) === CORRECTED,
-        "Redo par Ctrl+Maj+Z",
-      );
-      await pressKeys("ctrl+z");
-      await waitUntil(
-        async () => (await editorValue(driver)) === TEXT,
-        "Undo après Redo",
-      );
-      await pressKeys("ctrl+y");
-      await waitUntil(
-        async () => (await reviewText(driver)) === CORRECTED,
-        "Redo par Ctrl+Y",
-      );
-      // Retour arrière dans la revue (touche synthétique : même chemin dans
-      // la page, après la garde de navigation) : édition, dernier caractère
-      // effacé par l'édition native.
-      assert.equal(
-        await driver.execute(
-          `const review = document.querySelector("[data-testid=proofread-review]");
+      "« Copied »",
+    );
+    const clipboard = await readClipboard();
+    assert.equal(clipboard.text, CORRECTED);
+
+    // Frappe dans la revue : édition du texte final, la touche à la fin ;
+    // Ctrl+Z natif retire la touche, puis revient au texte d'avant.
+    await driver.execute(
+      "document.querySelector('[data-testid=proofread-review]').focus()",
+    );
+    await pressKeys("x");
+    await waitUntil(
+      async () => (await editorValue(driver)) === `${CORRECTED}x`,
+      "touche tapée à la fin du texte corrigé",
+    );
+    await pressKeys("ctrl+z");
+    await waitUntil(
+      async () => (await editorValue(driver)) === CORRECTED,
+      "Ctrl+Z : touche retirée",
+    );
+    await pressKeys("ctrl+z");
+    await waitUntil(
+      async () => (await editorValue(driver)) === TEXT,
+      () => "Ctrl+Z natif : texte d'avant la correction",
+    );
+
+    // Undo par Ctrl+Z dans la revue : le focus y est arrivé (Stop, puis
+    // la revue) depuis la zone de texte cachée.
+    await pressKeys("ctrl+enter");
+    await waitReview(driver);
+    assert.equal(
+      await driver.execute(
+        "return document.activeElement?.dataset.testid ?? null",
+      ),
+      "proofread-review",
+    );
+    await pressKeys("ctrl+z");
+    await waitUntil(
+      async () => (await editorValue(driver)) === TEXT,
+      "Undo par Ctrl+Z",
+    );
+    // Redo depuis la zone de texte (Ctrl+Maj+Z), puis Ctrl+Z et Ctrl+Y.
+    await pressKeys("ctrl+shift+z");
+    await waitUntil(
+      async () => (await reviewText(driver)) === CORRECTED,
+      "Redo par Ctrl+Maj+Z",
+    );
+    await pressKeys("ctrl+z");
+    await waitUntil(
+      async () => (await editorValue(driver)) === TEXT,
+      "Undo après Redo",
+    );
+    await pressKeys("ctrl+y");
+    await waitUntil(
+      async () => (await reviewText(driver)) === CORRECTED,
+      "Redo par Ctrl+Y",
+    );
+    // Retour arrière dans la revue (touche synthétique : même chemin dans
+    // la page, après la garde de navigation) : édition, dernier caractère
+    // effacé par l'édition native.
+    assert.equal(
+      await driver.execute(
+        `const review = document.querySelector("[data-testid=proofread-review]");
            return review.dispatchEvent(new KeyboardEvent("keydown",
              { key: "Backspace", bubbles: true, cancelable: true }));`,
-        ),
-        false,
-      );
-      await waitUntil(
-        async () => (await editorValue(driver)) === CORRECTED.slice(0, -1),
-        "Retour arrière : dernier caractère effacé",
-      );
-      await setText(driver, TEXT);
+      ),
+      false,
+    );
+    await waitUntil(
+      async () => (await editorValue(driver)) === CORRECTED.slice(0, -1),
+      "Retour arrière : dernier caractère effacé",
+    );
+    await setText(driver, TEXT);
 
-      // Rephrase par Ctrl+Maj+Entrée : texte nouveau, sans marques.
-      await pressKeys("ctrl+shift+enter");
-      await waitUntil(
-        () =>
-          driver.execute(
-            `return document.querySelector(
+    // Rephrase par Ctrl+Maj+Entrée : texte nouveau, sans marques.
+    await pressKeys("ctrl+shift+enter");
+    await waitUntil(
+      () =>
+        driver.execute(
+          `return document.querySelector(
                "[data-testid=proofread-review][aria-label='Rephrased text']") !== null`,
-          ),
-        "revue de la reformulation",
-      );
-      assert.equal(
-        await driver.execute(
-          "return document.querySelectorAll('[data-testid=proofread-review] del, [data-testid=proofread-review] ins').length",
         ),
-        0,
-      );
-      assert.notEqual(await reviewText(driver), "");
-      assert.match(await statusText(driver), /^Text rephrased/);
+      "revue de la reformulation",
+    );
+    assert.equal(
+      await driver.execute(
+        "return document.querySelectorAll('[data-testid=proofread-review] del, [data-testid=proofread-review] ins').length",
+      ),
+      0,
+    );
+    assert.notEqual(await reviewText(driver), "");
+    assert.match(await statusText(driver), /^Text rephrased/);
+    assert.ok(await clickButton(driver, "Undo"));
+    await waitUntil(
+      async () => (await editorValue(driver)) === TEXT,
+      "Undo après Rephrase",
+    );
+
+    // Stop par Échap pendant un flux lent.
+    await useModel(driver, SLOW);
+    assert.ok(await clickButton(driver, "Correct"));
+    await driver.waitFor(
+      "[data-testid=proofread-running] [data-state=streaming]",
+      {
+        timeoutMs: 15000,
+      },
+    );
+    const stoppedAt = Date.now();
+    await pressKeys("escape");
+    await waitUntil(
+      async () => !(await exists(driver, "[data-testid=proofread-running]")),
+      "fin après Échap",
+      5000,
+    );
+    assert.ok(Date.now() - stoppedAt < 3000, "arrêt aussitôt");
+    if (await exists(driver, "[data-testid=proofread-review]")) {
+      assert.ok(await exists(driver, "[data-testid=proofread-note-partial]"));
       assert.ok(await clickButton(driver, "Undo"));
-      await waitUntil(
-        async () => (await editorValue(driver)) === TEXT,
-        "Undo après Rephrase",
-      );
+    }
+    await waitUntil(
+      async () => (await editorValue(driver)) === TEXT,
+      "texte d'avant après l'arrêt",
+    );
 
-      // Stop par Échap pendant un flux lent.
-      await useModel(driver, "chatonlm-proofread-slow");
-      assert.ok(await clickButton(driver, "Correct"));
-      await driver.waitFor(
-        "[data-testid=proofread-running] [data-state=streaming]",
-        {
-          timeoutMs: 15000,
-        },
-      );
-      const stoppedAt = Date.now();
-      await pressKeys("escape");
-      await waitUntil(
-        async () => !(await exists(driver, "[data-testid=proofread-running]")),
-        "fin après Échap",
-        5000,
-      );
-      assert.ok(Date.now() - stoppedAt < 3000, "arrêt aussitôt");
-      if (await exists(driver, "[data-testid=proofread-review]")) {
-        assert.ok(await exists(driver, "[data-testid=proofread-note-partial]"));
-        assert.ok(await clickButton(driver, "Undo"));
-      }
-      await waitUntil(
-        async () => (await editorValue(driver)) === TEXT,
-        "texte d'avant après l'arrêt",
-      );
+    // Garde-fou : réponse écartée, passage gardé tel quel.
+    await useModel(driver, OFF);
+    await setText(driver, FIRST);
+    await pressKeys("ctrl+enter");
+    await waitReview(driver);
+    assert.equal(await reviewText(driver), FIRST);
+    assert.ok(await exists(driver, "[data-testid=proofread-note-kept]"));
+    await driver.screenshot(".tools/shots/proofread-kept.png");
+    assert.ok(await clickButton(driver, "Undo"));
 
-      // Garde-fou : réponse écartée, passage gardé tel quel.
-      await useModel(driver, "chatonlm-proofread-off");
-      await setText(driver, FIRST);
-      await pressKeys("ctrl+enter");
-      await waitReview(driver);
-      assert.equal(await reviewText(driver), FIRST);
-      assert.ok(await exists(driver, "[data-testid=proofread-note-kept]"));
-      await driver.screenshot(".tools/shots/proofread-kept.png");
-      assert.ok(await clickButton(driver, "Undo"));
+    // Modèle absent : erreur du moteur, action vers le sélecteur.
+    await useModel(driver, MISSING);
+    await pressKeys("ctrl+enter");
+    await driver.waitFor("[data-testid=proofread] [role=alert]");
+    assert.match(
+      await driver.execute(
+        "return document.querySelector('[data-testid=proofread] [role=alert]').textContent",
+      ),
+      /chatonlm-missing/,
+    );
+    assert.equal(await editorValue(driver), FIRST);
+    assert.ok(await clickButton(driver, "Choose a model"));
+    assert.equal(
+      await driver.execute(
+        "return document.activeElement === document.querySelector('[data-testid=proofread] select')",
+      ),
+      true,
+    );
+    await driver.screenshot(".tools/shots/proofread-error.png");
 
-      // Modèle absent : erreur du moteur, action vers le sélecteur.
-      await useModel(driver, "chatonlm-missing");
-      await pressKeys("ctrl+enter");
-      await driver.waitFor("[data-testid=proofread] [role=alert]");
-      assert.match(
-        await driver.execute(
-          "return document.querySelector('[data-testid=proofread] [role=alert]').textContent",
-        ),
-        /chatonlm-missing/,
-      );
-      assert.equal(await editorValue(driver), FIRST);
-      assert.ok(await clickButton(driver, "Choose a model"));
-      assert.equal(
-        await driver.execute(
-          "return document.activeElement === document.querySelector('[data-testid=proofread] select')",
-        ),
-        true,
-      );
-      await driver.screenshot(".tools/shots/proofread-error.png");
-
-      // Réglages, onglet Keyboard shortcuts.
-      await pressKeys("ctrl+comma");
-      await driver.click(
-        await driver.waitFor("[data-testid=settings-tab-shortcuts]"),
-      );
-      await driver.waitFor("[data-testid=shortcuts]");
-      assert.deepEqual(
-        await driver.execute(
-          `return [...document.querySelectorAll("[data-testid=shortcut-group-proofread] dt")]
+    // Réglages, onglet Keyboard shortcuts.
+    await pressKeys("ctrl+comma");
+    await driver.click(
+      await driver.waitFor("[data-testid=settings-tab-shortcuts]"),
+    );
+    await driver.waitFor("[data-testid=shortcuts]");
+    assert.deepEqual(
+      await driver.execute(
+        `return [...document.querySelectorAll("[data-testid=shortcut-group-proofread] dt")]
              .map((dt) => [dt.textContent, dt.nextElementSibling.textContent]);`,
-        ),
-        [
-          ["Correct", "Ctrl+Enter"],
-          ["Rephrase", "Ctrl+Shift+Enter"],
-          ["Stop", "Esc"],
-          ["Undo the correction", "Ctrl+Z"],
-          ["Redo the correction", "Ctrl+Shift+Z or Ctrl+Y"],
-          ["Paste at the end of the corrected text", "Ctrl+V"],
-        ],
-      );
-      assert.equal(
-        await driver.execute(
-          `return document.querySelector("[role=switch][aria-label='Correct selected text']")
+      ),
+      [
+        ["Correct", "Ctrl+Enter"],
+        ["Rephrase", "Ctrl+Shift+Enter"],
+        ["Stop", "Esc"],
+        ["Undo the correction", "Ctrl+Z"],
+        ["Redo the correction", "Ctrl+Shift+Z or Ctrl+Y"],
+        ["Paste at the end of the corrected text", "Ctrl+V"],
+      ],
+    );
+    assert.equal(
+      await driver.execute(
+        `return document.querySelector("[role=switch][aria-label='Correct selected text']")
              .getAttribute("aria-checked")`,
-        ),
-        "false",
-      );
-      await driver.screenshot(".tools/shots/settings-shortcuts.png");
+      ),
+      "false",
+    );
+    await driver.screenshot(".tools/shots/settings-shortcuts.png");
 
-      // En français : retour à la page Proofread, langue réglée, page
-      // rechargée (le réglage passe par le moteur, pas par la page).
-      if (await exists(driver, "button[aria-label='Show sidebar']")) {
-        await driver.click(
-          await driver.find("button[aria-label='Show sidebar']"),
-        );
-      }
-      await driver.click(await driver.waitFor("nav a[href$='/proofread']"));
-      await driver.waitFor("[data-testid=proofread]");
-      await useModel(driver, "chatonlm-proofread");
-      await driver.invoke("update_settings", { patch: { language: "fr" } });
-      await reload(driver);
-      await waitUntil(
-        async () =>
-          (await driver.execute("return document.documentElement.lang")) ===
-          "fr",
-        "page en français",
-      );
-      await driver.waitFor("[data-testid=proofread]");
-      assert.equal(
-        await driver.execute("return document.querySelector('h1').textContent"),
-        "Correction",
-      );
-      await setText(driver, TEXT);
-      await pressKeys("ctrl+enter");
-      await waitReview(driver);
-      assert.equal(await reviewText(driver), CORRECTED);
-      assert.equal(await statusText(driver), "3 correctionschatonlm-proofread");
-      await delay(400);
-      await driver.screenshot(".tools/shots/proofread-fr.png");
-
-      await pressKeys("ctrl+comma");
+    // En français : retour à la page Proofread, langue réglée, page
+    // rechargée (le réglage passe par le moteur, pas par la page).
+    if (await exists(driver, "button[aria-label='Show sidebar']")) {
       await driver.click(
-        await driver.waitFor("[data-testid=settings-tab-shortcuts]"),
+        await driver.find("button[aria-label='Show sidebar']"),
       );
-      await driver.waitFor("[data-testid=shortcuts]");
-      assert.deepEqual(
-        await driver.execute(
-          `return [...document.querySelectorAll("[data-testid=shortcut-group-proofread] dt")]
+    }
+    await driver.click(await driver.waitFor("nav a[href$='/proofread']"));
+    await driver.waitFor("[data-testid=proofread]");
+    await useModel(driver, PROOFER);
+    await driver.invoke("update_settings", { patch: { language: "fr" } });
+    await reload(driver);
+    await waitUntil(
+      async () =>
+        (await driver.execute("return document.documentElement.lang")) === "fr",
+      "page en français",
+    );
+    await driver.waitFor("[data-testid=proofread]");
+    assert.equal(
+      await driver.execute("return document.querySelector('h1').textContent"),
+      "Correction",
+    );
+    await setText(driver, TEXT);
+    await pressKeys("ctrl+enter");
+    await waitReview(driver);
+    assert.equal(await reviewText(driver), CORRECTED);
+    assert.equal(await statusText(driver), `3 corrections${PROOFER}`);
+    await delay(400);
+    await driver.screenshot(".tools/shots/proofread-fr.png");
+
+    await pressKeys("ctrl+comma");
+    await driver.click(
+      await driver.waitFor("[data-testid=settings-tab-shortcuts]"),
+    );
+    await driver.waitFor("[data-testid=shortcuts]");
+    assert.deepEqual(
+      await driver.execute(
+        `return [...document.querySelectorAll("[data-testid=shortcut-group-proofread] dt")]
              .map((dt) => [dt.textContent, dt.nextElementSibling.textContent]);`,
-        ),
-        [
-          ["Corriger", "Ctrl+Entrée"],
-          ["Reformuler", "Ctrl+Maj+Entrée"],
-          ["Arrêter", "Échap"],
-          ["Annuler la correction", "Ctrl+Z"],
-          ["Rétablir la correction", "Ctrl+Maj+Z ou Ctrl+Y"],
-          ["Coller à la fin du texte corrigé", "Ctrl+V"],
-        ],
-      );
-      await delay(400);
-      await driver.screenshot(".tools/shots/shortcuts-fr.png");
+      ),
+      [
+        ["Corriger", "Ctrl+Entrée"],
+        ["Reformuler", "Ctrl+Maj+Entrée"],
+        ["Arrêter", "Échap"],
+        ["Annuler la correction", "Ctrl+Z"],
+        ["Rétablir la correction", "Ctrl+Maj+Z ou Ctrl+Y"],
+        ["Coller à la fin du texte corrigé", "Ctrl+V"],
+      ],
+    );
+    await delay(400);
+    await driver.screenshot(".tools/shots/shortcuts-fr.png");
 
-      await driver.invoke("update_settings", { patch: { language: "system" } });
-      await reload(driver);
-      await waitUntil(
-        async () =>
-          (await driver.execute("return document.documentElement.lang")) ===
-          "en",
-        "page de nouveau en anglais",
-      );
+    await driver.invoke("update_settings", { patch: { language: "system" } });
+    await reload(driver);
+    await waitUntil(
+      async () =>
+        (await driver.execute("return document.documentElement.lang")) === "en",
+      "page de nouveau en anglais",
+    );
 
-      await collect(driver);
-      assert.deepEqual(violations, [], "violations de la CSP");
-      assert.deepEqual(consoleErrors, [], "erreurs de la console");
-    },
-  );
-} finally {
-  await fake.stop();
-}
+    await collect(driver);
+    assert.deepEqual(violations, [], "violations de la CSP");
+    assert.deepEqual(consoleErrors, [], "erreurs de la console");
+  },
+);
 console.log("✓ proofread");

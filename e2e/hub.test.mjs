@@ -380,11 +380,12 @@ try {
         `return [...document.querySelectorAll("[data-testid=installed-model] [title]")]
            .filter((e) => e.matches("div")).map((e) => e.title)`,
       ),
-      ["qwen3:0.6b", "qwen3.5:0.8b"],
+      INSTALLED,
     );
+    // GGUF d'essai de quelques Kio : unité laissée libre.
     assert.match(
       await textOf(driver, "[data-testid=hub-scroll] h2"),
-      /^2 models · \d+(\.\d)? GB$/,
+      /^2 models · \d+(\.\d)? [KMG]?B$/,
     );
   });
 

@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 
 const binary = process.argv[2];
 const dataDir = process.env.CHATONLM_DATA_DIR;
@@ -43,42 +43,38 @@ await withApp(binary, { name: "database-newer" }, async (driver) => {
 rmSync(dbDir, { recursive: true, force: true });
 mkdirSync(dbDir, { recursive: true });
 writeFileSync(dbFile, Buffer.alloc(8192, 0x42));
-const fake = await startFake("ollama");
-try {
-  await withApp(
-    binary,
-    { name: "database-corrupt", env: { OLLAMA_HOST: fake.url } },
-    async (driver) => {
-      assert.equal(
-        await driver.text(await driver.waitFor("h1")),
-        "ChatonLM can't read its database",
-      );
-      assert.deepEqual(await buttons(driver), [
-        "Start with a new database",
-        "Retry",
-      ]);
-      await driver.screenshot(".tools/shots/database-corrupt.png");
-      await driver.execute(
-        "[...document.querySelectorAll('button')].find((b) => b.textContent === 'Start with a new database').click()",
-      );
-      await driver.waitFor("[data-testid=new-chat]", { timeoutMs: 10000 });
-      const settings = await driver.invoke("get_settings");
-      assert.equal(settings.theme, "system");
-      // Easy Link, qui n'avait pas pu démarrer sans base, démarre avec la
-      // base retrouvée, sans relancer l'app.
-      const easyLink = await driver.invoke("easy_link_state");
-      assert.deepEqual(
-        easyLink.bots.map((bot) => [bot.platform, bot.configured]),
-        [
-          ["telegram", false],
-          ["discord", false],
-        ],
-      );
-    },
-  );
-} finally {
-  await fake.stop();
-}
+const engine = startEngine([fakeModel("simple")]);
+await withApp(
+  binary,
+  { name: "database-corrupt", env: engine.env },
+  async (driver) => {
+    assert.equal(
+      await driver.text(await driver.waitFor("h1")),
+      "ChatonLM can't read its database",
+    );
+    assert.deepEqual(await buttons(driver), [
+      "Start with a new database",
+      "Retry",
+    ]);
+    await driver.screenshot(".tools/shots/database-corrupt.png");
+    await driver.execute(
+      "[...document.querySelectorAll('button')].find((b) => b.textContent === 'Start with a new database').click()",
+    );
+    await driver.waitFor("[data-testid=new-chat]", { timeoutMs: 10000 });
+    const settings = await driver.invoke("get_settings");
+    assert.equal(settings.theme, "system");
+    // Easy Link, qui n'avait pas pu démarrer sans base, démarre avec la
+    // base retrouvée, sans relancer l'app.
+    const easyLink = await driver.invoke("easy_link_state");
+    assert.deepEqual(
+      easyLink.bots.map((bot) => [bot.platform, bot.configured]),
+      [
+        ["telegram", false],
+        ["discord", false],
+      ],
+    );
+  },
+);
 const kept = readdirSync(dbDir).filter((name) =>
   /^chatonlm\.sqlite\.broken-\d+$/.test(name),
 );

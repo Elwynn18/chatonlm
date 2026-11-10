@@ -555,7 +555,7 @@ mod tests {
     fn page_marks_are_optional_in_the_json() {
         // Fichier d'essai sans les repères : aucune référence, aucun calcul,
         // aucun usage imposé.
-        let families = Families::parse(fake_ollama::hf::IMAGE_FAMILIES).unwrap();
+        let families = Families::parse(fake_services::hf::IMAGE_FAMILIES).unwrap();
         let klein = families.get("flux2-klein-4b").unwrap();
         assert_eq!(
             (

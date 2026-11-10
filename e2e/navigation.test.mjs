@@ -6,11 +6,11 @@
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { pressKeys } from "./lib/keyboard.mjs";
 
 const binary = process.argv[2];
-const fake = await startFake("ollama");
+const engine = startEngine([fakeModel("simple")]);
 
 async function waitUntil(check, what, timeoutMs = 10000) {
   const deadline = Date.now() + timeoutMs;
@@ -36,40 +36,36 @@ async function waitZoom(driver, base, level) {
   );
 }
 
-try {
-  await withApp(
-    binary,
-    { name: "navigation", env: { OLLAMA_HOST: fake.url } },
-    async (driver) => {
-      await driver.waitFor("[data-testid=new-chat]");
-      const base = await width(driver);
+await withApp(
+  binary,
+  { name: "navigation", env: engine.env },
+  async (driver) => {
+    await driver.waitFor("[data-testid=new-chat]");
+    const base = await width(driver);
 
-      // Zoom.
-      for (let i = 0; i < 4; i++) await pressKeys("ctrl+equal");
-      await waitZoom(driver, base, 1.2);
-      for (let i = 0; i < 5; i++) await pressKeys("ctrl+minus");
-      await waitZoom(driver, base, 0.9);
-      await pressKeys("ctrl+0");
-      await waitZoom(driver, base, 1);
+    // Zoom.
+    for (let i = 0; i < 4; i++) await pressKeys("ctrl+equal");
+    await waitZoom(driver, base, 1.2);
+    for (let i = 0; i < 5; i++) await pressKeys("ctrl+minus");
+    await waitZoom(driver, base, 0.9);
+    await pressKeys("ctrl+0");
+    await waitZoom(driver, base, 1);
 
-      // Ctrl+N depuis les réglages.
-      await pressKeys("ctrl+comma");
-      await driver.waitFor("[data-testid=settings]");
-      await pressKeys("ctrl+n");
-      await driver.waitFor("[data-testid=new-chat]");
+    // Ctrl+N depuis les réglages.
+    await pressKeys("ctrl+comma");
+    await driver.waitFor("[data-testid=settings]");
+    await pressKeys("ctrl+n");
+    await driver.waitFor("[data-testid=new-chat]");
 
-      // Pas de rechargement.
-      await driver.execute("window.__notReloaded = true");
-      for (const chord of ["f5", "ctrl+r", "ctrl+shift+r"]) {
-        await pressKeys(chord, { settleMs: 500 });
-        assert.equal(
-          await driver.execute("return window.__notReloaded === true"),
-          true,
-          `${chord} a rechargé la page`,
-        );
-      }
-    },
-  );
-} finally {
-  await fake.stop();
-}
+    // Pas de rechargement.
+    await driver.execute("window.__notReloaded = true");
+    for (const chord of ["f5", "ctrl+r", "ctrl+shift+r"]) {
+      await pressKeys(chord, { settleMs: 500 });
+      assert.equal(
+        await driver.execute("return window.__notReloaded === true"),
+        true,
+        `${chord} a rechargé la page`,
+      );
+    }
+  },
+);

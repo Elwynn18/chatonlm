@@ -15,13 +15,13 @@
 // - aucune violation de la CSP ni erreur ou avertissement dans la console.
 import assert from "node:assert/strict";
 import { withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { PENDING_CALLS } from "./lib/page.mjs";
 import { pressKeys } from "./lib/keyboard.mjs";
 import { centerOf, pointerOffset } from "./lib/pointer.mjs";
 
 const binary = process.argv[2];
-const fake = await startFake("ollama");
+const engine = startEngine([fakeModel("simple")]);
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -171,243 +171,235 @@ const highlightedRows = (driver) =>
        .map((row) => row.dataset.chatId);`,
   );
 
-try {
-  await withApp(
-    binary,
-    {
-      name: "sidebar",
-      env: { OLLAMA_HOST: fake.url, CHATONLM_SEED_DEMO: "1" },
-    },
-    async (driver) => {
-      await driver.waitFor("[data-testid=new-chat]");
-      await driver.execute(WATCH_PAGE);
-      await showSidebar(driver);
-      await driver.waitFor("[data-chat-id]");
-      const chats = await driver.invoke("list_chats");
-      assert.equal(chats.length, 6);
-      assert.ok(chats.every((chat) => chat.favorite === false));
-      const [first, second, third] = chats;
+await withApp(
+  binary,
+  {
+    name: "sidebar",
+    env: { ...engine.env, CHATONLM_SEED_DEMO: "1" },
+  },
+  async (driver) => {
+    await driver.waitFor("[data-testid=new-chat]");
+    await driver.execute(WATCH_PAGE);
+    await showSidebar(driver);
+    await driver.waitFor("[data-chat-id]");
+    const chats = await driver.invoke("list_chats");
+    assert.equal(chats.length, 6);
+    assert.ok(chats.every((chat) => chat.favorite === false));
+    const [first, second, third] = chats;
 
-      // --- Historique sur ModelHub et Settings.
-      for (const href of ["/hub", "/settings"]) {
-        await driver.click(await driver.waitFor(`nav a[href='${href}']`));
-        await waitUntil(
-          async () =>
-            ((await navClass(driver, href)) ?? "")
-              .split(/\s+/)
-              .includes("bg-accent"),
-          `entrée ${href} surlignée`,
-        );
-        const ids = (await shownGroups(driver)).flatMap(([, rows]) => rows);
-        assert.equal(ids.length, 6, `historique sur ${href}`);
-        assert.deepEqual(await highlightedRows(driver), []);
-      }
-      await driver.screenshot(".tools/shots/sidebar-settings.png");
-      // Une conversation s'ouvre depuis les réglages.
-      await driver.click(await driver.find(`${row(second.id)} a`));
-      await driver.waitFor("[data-testid=chat]");
-      assert.deepEqual(await highlightedRows(driver), [second.id]);
-
-      // --- Survol au vrai pointeur : étoile et poubelle.
-      await driver.click(await driver.find("nav a[href='/settings']"));
-      await driver.waitFor("[data-testid=settings]");
-      await delay(400); // transitions de la barre et de la page
-      const [dx, dy] = await pointerOffset(driver);
-      assert.equal(await visible(driver, star(third.id)), false);
-      assert.equal(await visible(driver, trash(third.id)), false);
-      const [x, y] = await centerOf(driver, row(third.id));
-      // Par petits pas (un saut unique ne met pas toujours à jour :hover
-      // sous WebKitGTK), depuis la droite de la ligne.
-      let at = [x + 300, y];
-      const moveTo = async (to) => {
-        const path = [];
-        for (let i = 1; i <= 10; i++) {
-          const px = Math.round(at[0] + ((to[0] - at[0]) * i) / 10);
-          const py = Math.round(at[1] + ((to[1] - at[1]) * i) / 10);
-          path.push(`pointer:${px + dx},${py + dy}`, "wait:30");
-        }
-        await pressKeys(path, { settleMs: 300 });
-        at = to;
-      };
-      await moveTo([x, y]);
-      let hoverState = null;
+    // --- Historique sur ModelHub et Settings.
+    for (const href of ["/hub", "/settings"]) {
+      await driver.click(await driver.waitFor(`nav a[href='${href}']`));
       await waitUntil(
         async () =>
-          (await visible(driver, star(third.id))) &&
-          (await visible(driver, trash(third.id))),
-        async () =>
-          `étoile et poubelle au survol (${JSON.stringify(hoverState)})`,
-      ).catch(async (error) => {
-        hoverState = await driver.execute(
-          `const row = document.querySelector(arguments[0]);
+          ((await navClass(driver, href)) ?? "")
+            .split(/\s+/)
+            .includes("bg-accent"),
+        `entrée ${href} surlignée`,
+      );
+      const ids = (await shownGroups(driver)).flatMap(([, rows]) => rows);
+      assert.equal(ids.length, 6, `historique sur ${href}`);
+      assert.deepEqual(await highlightedRows(driver), []);
+    }
+    await driver.screenshot(".tools/shots/sidebar-settings.png");
+    // Une conversation s'ouvre depuis les réglages.
+    await driver.click(await driver.find(`${row(second.id)} a`));
+    await driver.waitFor("[data-testid=chat]");
+    assert.deepEqual(await highlightedRows(driver), [second.id]);
+
+    // --- Survol au vrai pointeur : étoile et poubelle.
+    await driver.click(await driver.find("nav a[href='/settings']"));
+    await driver.waitFor("[data-testid=settings]");
+    await delay(400); // transitions de la barre et de la page
+    const [dx, dy] = await pointerOffset(driver);
+    assert.equal(await visible(driver, star(third.id)), false);
+    assert.equal(await visible(driver, trash(third.id)), false);
+    const [x, y] = await centerOf(driver, row(third.id));
+    // Par petits pas (un saut unique ne met pas toujours à jour :hover
+    // sous WebKitGTK), depuis la droite de la ligne.
+    let at = [x + 300, y];
+    const moveTo = async (to) => {
+      const path = [];
+      for (let i = 1; i <= 10; i++) {
+        const px = Math.round(at[0] + ((to[0] - at[0]) * i) / 10);
+        const py = Math.round(at[1] + ((to[1] - at[1]) * i) / 10);
+        path.push(`pointer:${px + dx},${py + dy}`, "wait:30");
+      }
+      await pressKeys(path, { settleMs: 300 });
+      at = to;
+    };
+    await moveTo([x, y]);
+    let hoverState = null;
+    await waitUntil(
+      async () =>
+        (await visible(driver, star(third.id))) &&
+        (await visible(driver, trash(third.id))),
+      async () =>
+        `étoile et poubelle au survol (${JSON.stringify(hoverState)})`,
+    ).catch(async (error) => {
+      hoverState = await driver.execute(
+        `const row = document.querySelector(arguments[0]);
            const button = row.querySelector("[data-testid=chat-delete]");
            return { hoverMedia: matchMedia("(hover: hover)").matches,
              anyHover: matchMedia("(any-hover: hover)").matches,
              rowHovered: row.matches(":hover"),
              under: document.elementFromPoint(arguments[1], arguments[2])?.outerHTML.slice(0, 120),
              opacity: getComputedStyle(button.parentElement).opacity + "/" + getComputedStyle(button).opacity };`,
-          [row(third.id), x, y],
-        );
-        await driver.screenshot(".tools/shots/sidebar-hover-fail.png");
-        throw new Error(`${error.message} ${JSON.stringify(hoverState)}`);
-      });
-      assert.equal(await visible(driver, star(first.id)), false);
-      await driver.screenshot(".tools/shots/sidebar-hover.png");
-      // Pointeur parti : cachées.
-      await moveTo(await centerOf(driver, "[data-testid=settings]"));
-      await waitUntil(
-        async () => !(await visible(driver, trash(third.id))),
-        "poubelle cachée hors survol",
+        [row(third.id), x, y],
       );
-      assert.equal(await visible(driver, star(third.id)), false);
-      // Focus clavier dans la ligne (vraie touche Tab, du lien à l'étoile) :
-      // visibles aussi. Un simple clic sur le lien ne les montre pas.
-      await driver.execute("document.querySelector(arguments[0]).focus()", [
-        `${row(first.id)} a`,
-      ]);
-      await pressKeys("tab");
-      await waitUntil(
-        async () =>
-          (await visible(driver, star(first.id))) &&
-          (await visible(driver, trash(first.id))),
-        "étoile et poubelle avec le focus clavier dans la ligne",
-      );
-      await driver.execute("document.activeElement.blur()");
+      await driver.screenshot(".tools/shots/sidebar-hover-fail.png");
+      throw new Error(`${error.message} ${JSON.stringify(hoverState)}`);
+    });
+    assert.equal(await visible(driver, star(first.id)), false);
+    await driver.screenshot(".tools/shots/sidebar-hover.png");
+    // Pointeur parti : cachées.
+    await moveTo(await centerOf(driver, "[data-testid=settings]"));
+    await waitUntil(
+      async () => !(await visible(driver, trash(third.id))),
+      "poubelle cachée hors survol",
+    );
+    assert.equal(await visible(driver, star(third.id)), false);
+    // Focus clavier dans la ligne (vraie touche Tab, du lien à l'étoile) :
+    // visibles aussi. Un simple clic sur le lien ne les montre pas.
+    await driver.execute("document.querySelector(arguments[0]).focus()", [
+      `${row(first.id)} a`,
+    ]);
+    await pressKeys("tab");
+    await waitUntil(
+      async () =>
+        (await visible(driver, star(first.id))) &&
+        (await visible(driver, trash(first.id))),
+      "étoile et poubelle avec le focus clavier dans la ligne",
+    );
+    await driver.execute("document.activeElement.blur()");
 
-      // --- Étoile, au vrai clic de souris : rubrique Favorites en tête, date
-      // inchangée ; nom fixe « Favorite » avec aria-pressed, infobulle
-      // variable.
-      const starState = (id) =>
-        driver.execute(
-          `const button = document.querySelector(arguments[0]);
+    // --- Étoile, au vrai clic de souris : rubrique Favorites en tête, date
+    // inchangée ; nom fixe « Favorite » avec aria-pressed, infobulle
+    // variable.
+    const starState = (id) =>
+      driver.execute(
+        `const button = document.querySelector(arguments[0]);
            return [button.getAttribute("aria-label"), button.getAttribute("aria-pressed"), button.title];`,
-          [star(id)],
-        );
-      assert.deepEqual(await starState(third.id), [
-        "Favorite",
-        "false",
-        "Add to favorites",
-      ]);
-      await moveTo(await centerOf(driver, row(third.id)));
-      await moveTo(await centerOf(driver, star(third.id)));
-      await driver.execute(
-        `window.__clicks = [];
+        [star(id)],
+      );
+    assert.deepEqual(await starState(third.id), [
+      "Favorite",
+      "false",
+      "Add to favorites",
+    ]);
+    await moveTo(await centerOf(driver, row(third.id)));
+    await moveTo(await centerOf(driver, star(third.id)));
+    await driver.execute(
+      `window.__clicks = [];
          document.addEventListener("click", (e) => window.__clicks.push(
            [e.target.outerHTML.slice(0, 80), e.detail, e.clientX, e.clientY]), true);`,
+    );
+    const starAt = await centerOf(driver, star(third.id));
+    // Bouton enfoncé dans le même envoi que le déplacement (sinon le clic
+    // n'arrive pas à la fenêtre).
+    await pressKeys(
+      [
+        `pointer:${starAt[0] + dx},${starAt[1] + dy}`,
+        "wait:100",
+        "button:down",
+        "wait:100",
+        "button:up",
+      ],
+      { settleMs: 300 },
+    );
+    await waitUntil(
+      async () => (await shownGroups(driver))[0]?.[0] === "Favorites",
+      "rubrique Favorites",
+    ).catch(async (error) => {
+      const clicks = await driver.execute("return window.__clicks");
+      throw new Error(
+        `${error.message} ${JSON.stringify({ starAt, at, clicks })}`,
       );
-      const starAt = await centerOf(driver, star(third.id));
-      // Bouton enfoncé dans le même envoi que le déplacement (sinon le clic
-      // n'arrive pas à la fenêtre).
-      await pressKeys(
-        [
-          `pointer:${starAt[0] + dx},${starAt[1] + dy}`,
-          "wait:100",
-          "button:down",
-          "wait:100",
-          "button:up",
-        ],
-        { settleMs: 300 },
+    });
+    assert.deepEqual((await shownGroups(driver))[0], ["Favorites", [third.id]]);
+    assert.deepEqual(await starState(third.id), [
+      "Favorite",
+      "true",
+      "Remove from favorites",
+    ]);
+    // Pointeur parti : pas de poubelle laissée visible par le clic (focus
+    // de souris, sans :focus-visible).
+    await moveTo(await centerOf(driver, "[data-testid=settings]"));
+    await waitUntil(
+      async () => !(await visible(driver, trash(third.id))),
+      "poubelle cachée après le clic",
+    );
+    // Étoile pleine gardée visible sans survol.
+    assert.equal(await visible(driver, star(third.id)), true);
+    assert.equal(await visible(driver, trash(third.id)), false);
+    const saved = (await driver.invoke("list_chats")).find(
+      (chat) => chat.id === third.id,
+    );
+    assert.equal(saved.favorite, true);
+    assert.equal(saved.updatedAt, third.updatedAt);
+    await reload(driver);
+    // Barre repliée au rechargement : attendre son bouton avant de l'ouvrir.
+    await driver.waitFor("[data-testid=settings]");
+    await driver.click(
+      await driver.waitFor("button[aria-label='Show sidebar']"),
+    );
+    let groups = null;
+    await waitUntil(
+      async () => (groups = await shownGroups(driver))[0]?.[0] === "Favorites",
+      () =>
+        `Favorites après rechargement (${JSON.stringify(groups)}, ${JSON.stringify(
+          saved,
+        )})`,
+    ).catch(async (error) => {
+      await driver.screenshot(".tools/shots/sidebar-reload-fail.png");
+      const listed = await driver.invoke("list_chats");
+      throw new Error(
+        `${error.message} ${JSON.stringify(listed.map((c) => [c.id, c.favorite]))} ${await driver.execute("return location.href")}`,
       );
-      await waitUntil(
-        async () => (await shownGroups(driver))[0]?.[0] === "Favorites",
-        "rubrique Favorites",
-      ).catch(async (error) => {
-        const clicks = await driver.execute("return window.__clicks");
-        throw new Error(
-          `${error.message} ${JSON.stringify({ starAt, at, clicks })}`,
-        );
-      });
-      assert.deepEqual((await shownGroups(driver))[0], [
-        "Favorites",
-        [third.id],
-      ]);
-      assert.deepEqual(await starState(third.id), [
-        "Favorite",
-        "true",
-        "Remove from favorites",
-      ]);
-      // Pointeur parti : pas de poubelle laissée visible par le clic (focus
-      // de souris, sans :focus-visible).
-      await moveTo(await centerOf(driver, "[data-testid=settings]"));
-      await waitUntil(
-        async () => !(await visible(driver, trash(third.id))),
-        "poubelle cachée après le clic",
-      );
-      // Étoile pleine gardée visible sans survol.
-      assert.equal(await visible(driver, star(third.id)), true);
-      assert.equal(await visible(driver, trash(third.id)), false);
-      const saved = (await driver.invoke("list_chats")).find(
-        (chat) => chat.id === third.id,
-      );
-      assert.equal(saved.favorite, true);
-      assert.equal(saved.updatedAt, third.updatedAt);
-      await reload(driver);
-      // Barre repliée au rechargement : attendre son bouton avant de l'ouvrir.
-      await driver.waitFor("[data-testid=settings]");
-      await driver.click(
-        await driver.waitFor("button[aria-label='Show sidebar']"),
-      );
-      let groups = null;
-      await waitUntil(
-        async () =>
-          (groups = await shownGroups(driver))[0]?.[0] === "Favorites",
-        () =>
-          `Favorites après rechargement (${JSON.stringify(groups)}, ${JSON.stringify(
-            saved,
-          )})`,
-      ).catch(async (error) => {
-        await driver.screenshot(".tools/shots/sidebar-reload-fail.png");
-        const listed = await driver.invoke("list_chats");
-        throw new Error(
-          `${error.message} ${JSON.stringify(listed.map((c) => [c.id, c.favorite]))} ${await driver.execute("return location.href")}`,
-        );
-      });
-      await delay(600); // animation d'ouverture de la barre (300 ms)
-      await driver.screenshot(".tools/shots/sidebar-favorites.png");
+    });
+    await delay(600); // animation d'ouverture de la barre (300 ms)
+    await driver.screenshot(".tools/shots/sidebar-favorites.png");
 
-      // Retirée par le menu contextuel.
-      await rightClick(driver, third.id);
-      await driver.waitFor("[role=menu]");
-      await clickText(driver, "[role=menuitem]", "Remove from favorites");
-      await waitUntil(
-        async () =>
-          !(await shownGroups(driver)).some(([name]) => name === "Favorites"),
-        "rubrique Favorites retirée",
-      );
-      assert.equal(
-        (await driver.invoke("list_chats")).find((c) => c.id === third.id)
-          .favorite,
-        false,
-      );
+    // Retirée par le menu contextuel.
+    await rightClick(driver, third.id);
+    await driver.waitFor("[role=menu]");
+    await clickText(driver, "[role=menuitem]", "Remove from favorites");
+    await waitUntil(
+      async () =>
+        !(await shownGroups(driver)).some(([name]) => name === "Favorites"),
+      "rubrique Favorites retirée",
+    );
+    assert.equal(
+      (await driver.invoke("list_chats")).find((c) => c.id === third.id)
+        .favorite,
+      false,
+    );
 
-      // --- Poubelle : confirmation, Cancel puis OK.
-      await driver.click(await driver.find(trash(first.id)));
-      const dialog = await driver.waitFor("[role=alertdialog]");
-      assert.match(await driver.text(dialog), /remove this chat/);
-      await clickText(driver, "[role=alertdialog] button", "Cancel");
-      await waitUntil(
-        async () => !(await exists(driver, "[role=alertdialog]")),
-        "confirmation fermée",
-      );
-      assert.equal((await driver.invoke("list_chats")).length, 6);
-      await driver.click(await driver.find(trash(first.id)));
-      await driver.waitFor("[role=alertdialog]");
-      await clickText(driver, "[role=alertdialog] button", "OK");
-      await waitUntil(
-        async () => !(await exists(driver, row(first.id))),
-        "conversation supprimée",
-      );
-      assert.equal((await driver.invoke("list_chats")).length, 5);
-      // Toujours sur les réglages.
-      assert.equal(await exists(driver, "[data-testid=settings]"), true);
+    // --- Poubelle : confirmation, Cancel puis OK.
+    await driver.click(await driver.find(trash(first.id)));
+    const dialog = await driver.waitFor("[role=alertdialog]");
+    assert.match(await driver.text(dialog), /remove this chat/);
+    await clickText(driver, "[role=alertdialog] button", "Cancel");
+    await waitUntil(
+      async () => !(await exists(driver, "[role=alertdialog]")),
+      "confirmation fermée",
+    );
+    assert.equal((await driver.invoke("list_chats")).length, 6);
+    await driver.click(await driver.find(trash(first.id)));
+    await driver.waitFor("[role=alertdialog]");
+    await clickText(driver, "[role=alertdialog] button", "OK");
+    await waitUntil(
+      async () => !(await exists(driver, row(first.id))),
+      "conversation supprimée",
+    );
+    assert.equal((await driver.invoke("list_chats")).length, 5);
+    // Toujours sur les réglages.
+    assert.equal(await exists(driver, "[data-testid=settings]"), true);
 
-      await collectViolations(driver);
-    },
-  );
-  assert.deepEqual(violations, [], "violations de la CSP");
-  assert.deepEqual(consoleErrors, [], "erreurs dans la console");
-  assert.deepEqual(consoleWarnings, [], "avertissements dans la console");
-  console.log("OK : barre latérale");
-} finally {
-  await fake.stop();
-}
+    await collectViolations(driver);
+  },
+);
+assert.deepEqual(violations, [], "violations de la CSP");
+assert.deepEqual(consoleErrors, [], "erreurs dans la console");
+assert.deepEqual(consoleWarnings, [], "avertissements dans la console");
+console.log("OK : barre latérale");

@@ -85,7 +85,6 @@ Files (ChatonLM path <- Ollama path : copied | adapted | translated to Rust):
   src/routes/c.$chatId.tsx <- app/ui/app/src/routes/c.$chatId.tsx : adapted
   src/routes/index.tsx <- app/ui/app/src/routes/index.tsx : adapted
   src/routes/settings.tsx <- app/ui/app/src/routes/settings.tsx : adapted
-  src-tauri/crates/fake-ollama/src/lib.rs <- server/model_recommendations.go : adapted
   src-tauri/src/attachments/mod.rs <- app/ui/app/src/utils/fileValidation.ts : translated to Rust
   src-tauri/src/attachments/mod.rs <- app/ui/extract.go : translated to Rust
   src-tauri/src/attachments/pdf.rs <- app/ui/extract.go : translated to Rust
@@ -182,9 +181,7 @@ Revision: 22d0f2ab0849 (2026-08-04)
 License:  MIT
 Used in:  src-tauri/src/hub/quant.rs. GGUF_QUANT_RE and parseGGUFQuantLabel
           (packages/tasks/src/gguf.ts), translated to Rust: the quantization
-          label that the Hugging Face registry reads from an Ollama tag. The
-          test server src-tauri/crates/fake-ollama/src/hf.rs lists the same
-          quantization names.
+          label that the Hugging Face registry reads from an Ollama tag.
 
 MIT License
 

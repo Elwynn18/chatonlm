@@ -1,6 +1,6 @@
 // Dictée tenue par l'extension VS Code (lot 4b) dans l'app réelle : micro
 // simulé par un WAV (CHATONLM_E2E_MICROPHONE), vrai Whisper tiny, nettoyage
-// par le faux modèle `chatonlm-polish`, et un client Node qui fait ce que fera
+// par le faux modèle `chatonlm-polisher` (faux moteur), et un client Node qui fait ce que fera
 // l'extension (e2e/lib/bridge.mjs) :
 // 1. `dictation.start` avec les noms du projet, interrupteur de la dictée
 //    coupé : `recording` puis la réponse ; bandeau « VS Code is using your
@@ -20,7 +20,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { BridgeClient, readDiscovery } from "./lib/bridge.mjs";
 import { holdClipboard, readClipboard } from "./lib/clipboard.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 
 const binary = process.argv[2];
 const DATA = process.env.CHATONLM_DATA_DIR;
@@ -54,9 +54,8 @@ const states = (client) =>
 
 mkdirSync(`${DATA}/speech-models/whisper-tiny`, { recursive: true });
 symlinkSync(TINY, `${DATA}/speech-models/whisper-tiny/ggml-tiny.bin`);
-const fake = await startFake("ollama");
-const requests = async () =>
-  (await fetch(new URL("/fake/requests", fake.url))).json();
+const POLISHER = fakeModel("polisher");
+const engine = startEngine([POLISHER]);
 
 try {
   await withApp(
@@ -64,7 +63,7 @@ try {
     {
       name: "vscode-dictation",
       env: {
-        OLLAMA_HOST: fake.url,
+        ...engine.env,
         CHATONLM_E2E_MICROPHONE: JFK,
         CHATONLM_NO_GLOBAL_SHORTCUTS: "1",
       },
@@ -75,7 +74,7 @@ try {
       const settings = await driver.invoke("update_dictation_settings", {
         patch: {
           speechModel: "whisper-tiny",
-          polishModel: "chatonlm-polish",
+          polishModel: POLISHER,
           dictionary: ["ChatonLM"],
         },
       });
@@ -156,9 +155,7 @@ try {
       assert.equal(order.at(-1), "dictation.state", "idle comes last");
       assert.equal(order.at(-2), "dictation.text");
       assert.equal(notes(client, "dictation.error").length, 0);
-      const polish = (await requests())
-        .filter((request) => request.model === "chatonlm-polish")
-        .at(-1);
+      const polish = (await engine.chatRequests(POLISHER)).at(-1);
       assert.match(
         polish.messages[0].content,
         /Spell these words exactly as written: ChatonLM, GpuChief, fellow_americans\./,
@@ -225,6 +222,6 @@ try {
     },
   );
 } finally {
-  await fake.stop();
+  // Rien à arrêter : le faux moteur est lancé et arrêté par l'app.
 }
 console.log("vscode-dictation : OK");

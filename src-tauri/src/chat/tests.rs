@@ -119,7 +119,7 @@ impl Bench {
     }
 
     /// Banc dont les téléchargements passent par `hf` (faux Hugging Face).
-    fn downloading(models: &[&str], hf: &fake_ollama::hf::FakeHf) -> Self {
+    fn downloading(models: &[&str], hf: &fake_services::hf::FakeHf) -> Self {
         let mut bench = Self::new(models);
         let (store, data_dir) = (
             bench.store().clone(),
@@ -1730,7 +1730,7 @@ fn downloads(events: &[Value]) -> Vec<(u64, u64, bool)> {
 /// chargé et la réponse.
 #[tokio::test]
 async fn a_missing_model_is_downloaded_then_answers() {
-    let hf = fake_ollama::hf::FakeHf::start(fake_ollama::hf::HfMode::Normal)
+    let hf = fake_services::hf::FakeHf::start(fake_services::hf::HfMode::Normal)
         .await
         .unwrap();
     let bench = Bench::downloading(&[], &hf);
@@ -1785,7 +1785,7 @@ async fn a_missing_model_is_downloaded_then_answers() {
 /// réponse ; dépôt inexistant, empreinte fausse, Hugging Face injoignable.
 #[tokio::test]
 async fn download_failures_are_told_apart() {
-    let hf = fake_ollama::hf::FakeHf::start(fake_ollama::hf::HfMode::Normal)
+    let hf = fake_services::hf::FakeHf::start(fake_services::hf::HfMode::Normal)
         .await
         .unwrap();
     let bench = Bench::downloading(&[], &hf);
@@ -1807,7 +1807,7 @@ async fn download_failures_are_told_apart() {
             "{model}"
         );
     }
-    let closed = fake_ollama::hf::FakeHf::start(fake_ollama::hf::HfMode::Normal)
+    let closed = fake_services::hf::FakeHf::start(fake_services::hf::HfMode::Normal)
         .await
         .unwrap();
     let offline = Bench::downloading(&[], &closed);
@@ -1827,7 +1827,7 @@ async fn download_failures_are_told_apart() {
 /// Mis en pause depuis le ModelHub : l'envoi s'arrête.
 #[tokio::test]
 async fn cancelling_while_downloading() {
-    let hf = fake_ollama::hf::FakeHf::start(fake_ollama::hf::HfMode::Normal)
+    let hf = fake_services::hf::FakeHf::start(fake_services::hf::HfMode::Normal)
         .await
         .unwrap();
     let bench = Bench::downloading(&[], &hf);
@@ -1893,7 +1893,7 @@ async fn cancelling_while_downloading() {
 /// venu d'ailleurs (bot, éditeur) : `modelMissing` d'emblée.
 #[tokio::test]
 async fn only_a_page_downloads_and_only_from_hugging_face() {
-    let hf = fake_ollama::hf::FakeHf::start(fake_ollama::hf::HfMode::Normal)
+    let hf = fake_services::hf::FakeHf::start(fake_services::hf::HfMode::Normal)
         .await
         .unwrap();
     let bench = Bench::downloading(&[], &hf);
@@ -4261,7 +4261,7 @@ async fn sequences_for_the_simulator() {
         for _ in 0..2 {
             // Faux Hugging Face (téléchargements) ; fermé pour
             // « download-offline ».
-            let hf = fake_ollama::hf::FakeHf::start(fake_ollama::hf::HfMode::Normal)
+            let hf = fake_services::hf::FakeHf::start(fake_services::hf::HfMode::Normal)
                 .await
                 .unwrap();
             let painter = match name {

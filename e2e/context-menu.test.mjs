@@ -8,12 +8,12 @@
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { chordsOf, pressKeys } from "./lib/keyboard.mjs";
 import { centerOf, pointerOffset } from "./lib/pointer.mjs";
 
 const binary = process.argv[2];
-const fake = await startFake("ollama");
+const engine = startEngine([fakeModel("simple")]);
 
 // Navigation, liens et entrées ajoutées par WebKit (Copy Link with Highlight).
 const NAVIGATION = [
@@ -58,92 +58,79 @@ async function rightClick(driver, offset, css) {
   return entries;
 }
 
-try {
-  await withApp(
-    binary,
-    { name: "context-menu", env: { OLLAMA_HOST: fake.url } },
-    async (driver) => {
-      await driver.waitFor("[data-testid=new-chat]");
-      // Une réponse à montrer.
-      await waitUntil(
-        () =>
-          driver.execute(
-            "return document.querySelector('[title=\"Select model\"]')?.textContent",
-          ),
-        "modèle affiché",
-      );
-      // Vraies touches : une Entrée simulée en JavaScript peut se perdre.
-      await driver.click(
-        await driver.waitFor("textarea[aria-label='Message']"),
-      );
-      await pressKeys([...chordsOf("Hello"), "enter"]);
-      await waitUntil(
-        () =>
-          driver.execute(
-            "return document.querySelector('[data-role=user]') !== null",
-          ),
-        async () =>
-          `message non envoyé : ${await driver.execute("return document.body.innerText.slice(0, 400)")}`,
-      );
-      await driver.waitFor("[data-role=assistant]", { timeoutMs: 20000 });
-      await waitUntil(
-        async () =>
-          !(await driver.execute(
-            "return document.querySelector(\"[aria-label='Stop']\") !== null",
-          )),
-        "fin de la réponse",
-      );
-      const offset = await pointerOffset(driver);
+await withApp(
+  binary,
+  { name: "context-menu", env: engine.env },
+  async (driver) => {
+    await driver.waitFor("[data-testid=new-chat]");
+    // Une réponse à montrer.
+    await waitUntil(
+      () =>
+        driver.execute(
+          "return document.querySelector('[title=\"Select model\"]')?.textContent",
+        ),
+      "modèle affiché",
+    );
+    // Vraies touches : une Entrée simulée en JavaScript peut se perdre.
+    await driver.click(await driver.waitFor("textarea[aria-label='Message']"));
+    await pressKeys([...chordsOf("Hello"), "enter"]);
+    await waitUntil(
+      () =>
+        driver.execute(
+          "return document.querySelector('[data-role=user]') !== null",
+        ),
+      async () =>
+        `message non envoyé : ${await driver.execute("return document.body.innerText.slice(0, 400)")}`,
+    );
+    await driver.waitFor("[data-role=assistant]", { timeoutMs: 20000 });
+    await waitUntil(
+      async () =>
+        !(await driver.execute(
+          "return document.querySelector(\"[aria-label='Stop']\") !== null",
+        )),
+      "fin de la réponse",
+    );
+    const offset = await pointerOffset(driver);
 
-      // Réponse, sans sélection : menu sans navigation.
-      const plain = await rightClick(driver, offset, "[data-role=assistant]");
-      for (const action of NAVIGATION) {
-        assert.ok(!plain.includes(action), `${action} dans ${plain}`);
-      }
+    // Réponse, sans sélection : menu sans navigation.
+    const plain = await rightClick(driver, offset, "[data-role=assistant]");
+    for (const action of NAVIGATION) {
+      assert.ok(!plain.includes(action), `${action} dans ${plain}`);
+    }
 
-      // Texte sélectionné : Copy.
-      await driver.execute(
-        `const node = document.querySelector("[data-role=assistant]");
+    // Texte sélectionné : Copy.
+    await driver.execute(
+      `const node = document.querySelector("[data-role=assistant]");
          const range = document.createRange();
          range.selectNodeContents(node);
          const selection = getSelection();
          selection.removeAllRanges();
          selection.addRange(range);`,
-      );
-      const selected = await rightClick(
-        driver,
-        offset,
-        "[data-role=assistant]",
-      );
-      assert.ok(selected.includes("Copy"), `Copy absent : ${selected}`);
-      for (const action of NAVIGATION) {
-        assert.ok(!selected.includes(action), `${action} dans ${selected}`);
-      }
+    );
+    const selected = await rightClick(driver, offset, "[data-role=assistant]");
+    assert.ok(selected.includes("Copy"), `Copy absent : ${selected}`);
+    for (const action of NAVIGATION) {
+      assert.ok(!selected.includes(action), `${action} dans ${selected}`);
+    }
 
-      // Zone de saisie : coller.
-      const composer = await rightClick(
-        driver,
-        offset,
-        "textarea[aria-label='Message']",
-      );
-      assert.ok(composer.includes("Paste"), `Paste absent : ${composer}`);
-      assert.ok(
-        composer.includes("SelectAll"),
-        `SelectAll absent : ${composer}`,
-      );
+    // Zone de saisie : coller.
+    const composer = await rightClick(
+      driver,
+      offset,
+      "textarea[aria-label='Message']",
+    );
+    assert.ok(composer.includes("Paste"), `Paste absent : ${composer}`);
+    assert.ok(composer.includes("SelectAll"), `SelectAll absent : ${composer}`);
 
-      // Hors des zones : aucun menu (pas même l'inspecteur du build de
-      // débogage).
-      await pressKeys("ctrl+comma");
-      await driver.waitFor("[data-testid=settings]");
-      const outside = await rightClick(driver, offset, "main h1");
-      console.log(
-        "MENUS",
-        JSON.stringify({ plain, selected, composer, outside }),
-      );
-      assert.deepEqual(outside, []);
-    },
-  );
-} finally {
-  await fake.stop();
-}
+    // Hors des zones : aucun menu (pas même l'inspecteur du build de
+    // débogage).
+    await pressKeys("ctrl+comma");
+    await driver.waitFor("[data-testid=settings]");
+    const outside = await rightClick(driver, offset, "main h1");
+    console.log(
+      "MENUS",
+      JSON.stringify({ plain, selected, composer, outside }),
+    );
+    assert.deepEqual(outside, []);
+  },
+);

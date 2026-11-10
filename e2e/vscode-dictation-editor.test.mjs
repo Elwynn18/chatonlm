@@ -6,7 +6,7 @@ import { mkdirSync, symlinkSync } from "node:fs";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { findDiscovery } from "./lib/bridge.mjs";
 import { holdClipboard } from "./lib/clipboard.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { chooseModel, prepare, shot, waitUntil } from "./lib/vscodium.mjs";
 
 const binary = process.argv[2];
@@ -20,7 +20,8 @@ const TINY = `${ROOT}.tools/speech-models/whisper/ggml-tiny.bin`;
 mkdirSync(`${DATA}/speech-models/whisper-tiny`, { recursive: true });
 symlinkSync(TINY, `${DATA}/speech-models/whisper-tiny/ggml-tiny.bin`);
 
-const fake = await startFake("ollama");
+const MODEL = fakeModel("simple");
+const engine = startEngine([MODEL]);
 const codium = prepare("vscode-dictation-editor", { "notes.md": "Quote: \n" });
 try {
   await withApp(
@@ -28,14 +29,14 @@ try {
     {
       name: "vscode-dictation-editor",
       env: {
-        OLLAMA_HOST: fake.url,
+        ...engine.env,
         CHATONLM_E2E_MICROPHONE: JFK,
         CHATONLM_NO_GLOBAL_SHORTCUTS: "1",
       },
     },
     async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
-      await chooseModel(driver, "qwen3:0.6b");
+      await chooseModel(driver, MODEL);
       // Modèle de la dictée : Whisper tiny (comme e2e/vscode-dictation.test.mjs).
       await driver.invoke("update_dictation_settings", {
         patch: { speechModel: "whisper-tiny", language: "en", polishModel: "" },
@@ -83,6 +84,5 @@ try {
   );
   console.log("✓ vscode-dictation-editor");
 } finally {
-  await fake.stop();
   codium.finish();
 }

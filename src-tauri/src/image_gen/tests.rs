@@ -1,7 +1,7 @@
 //! Essais du moteur d'images contre le faux `sd-server`
-//! (`fake_ollama::sdcpp`) : ce binaire d'essai lui-même, relancé sur le seul
+//! (`fake_services::sdcpp`) : ce binaire d'essai lui-même, relancé sur le seul
 //! essai [`fake_sd_server`] (arguments du serveur dans
-//! `fake_ollama::sdcpp::ARGS_ENV`). Délais raccourcis.
+//! `fake_services::sdcpp::ARGS_ENV`). Délais raccourcis.
 //!
 //! Essais contre le vrai `sd-server` (processeur seul, petites images) :
 //! module `real`, ignorés sauf demande explicite (voir son en-tête).
@@ -18,8 +18,8 @@ use super::*;
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "faux serveur lancé par les autres essais"]
 async fn fake_sd_server() {
-    if let Some(args) = fake_ollama::sdcpp::args_from_env() {
-        std::process::exit(fake_ollama::sdcpp::run(args).await);
+    if let Some(args) = fake_services::sdcpp::args_from_env() {
+        std::process::exit(fake_services::sdcpp::run(args).await);
     }
 }
 
@@ -43,7 +43,7 @@ pub(crate) fn fake_config(dir: &Path) -> Config {
     ]
     .map(OsString::from)
     .to_vec();
-    config.args_in_env = Some(fake_ollama::sdcpp::ARGS_ENV.into());
+    config.args_in_env = Some(fake_services::sdcpp::ARGS_ENV.into());
     config.timing = Timing {
         ready_timeout: Duration::from_secs(20),
         ready_poll: Duration::from_millis(50),
@@ -175,7 +175,7 @@ async fn an_image_is_made_with_every_setting_and_its_previews() {
     assert_eq!(api::png_size(&image.png), Some((64, 96)));
     assert_eq!(
         image.png,
-        fake_ollama::sdcpp::png(64, 96, fake_ollama::sdcpp::color(7))
+        fake_services::sdcpp::png(64, 96, fake_services::sdcpp::color(7))
     );
 
     let progress = seen.all();
@@ -245,7 +245,7 @@ async fn a_random_seed_is_drawn_and_given_back() {
     assert!(image.seed <= i32::MAX as u32);
     assert_eq!(
         image.png,
-        fake_ollama::sdcpp::png(64, 96, fake_ollama::sdcpp::color(i64::from(image.seed)))
+        fake_services::sdcpp::png(64, 96, fake_services::sdcpp::color(i64::from(image.seed)))
     );
     // Sans aperçu demandé, aucun n'est annoncé.
     assert!(seen.all().iter().all(|progress| !matches!(

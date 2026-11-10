@@ -22,7 +22,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { ROOT, withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { PARAKEET, barState, linkParakeet, linkVoice } from "./lib/voice.mjs";
 
 const binary = process.argv[2];
@@ -85,7 +85,7 @@ const clickLast = (driver, css) =>
     [css],
   );
 
-/** Choisit un modèle du faux serveur, puis recharge la page. */
+/** Choisit un modèle du faux moteur, puis recharge la page. */
 async function useModel(driver, model) {
   await driver.invoke("update_settings", { patch: { selectedModel: model } });
   await driver.execute("window.__oldPage = true; location.reload()");
@@ -130,9 +130,11 @@ writeFileSync(
   "pcm.!default { type hw card 99 }\nctl.!default { type hw card 99 }\n",
 );
 
-const fake = await startFake("ollama");
+/** Réponse lente (150 ms par mot) : « Hello! You said: … ». */
+const SLOW = fakeModel("slow");
+const engine = startEngine([SLOW]);
 const env = {
-  OLLAMA_HOST: fake.url,
+  ...engine.env,
   CHATONLM_NO_GLOBAL_SHORTCUTS: "1",
   ALSA_CONFIG_PATH: asound,
   // Vrais périphériques (ceux de la configuration ci-dessus : aucun).
@@ -150,7 +152,7 @@ try {
     await driver.invoke("update_dictation_settings", {
       patch: { speechModel: PARAKEET, language: "en" },
     });
-    await useModel(driver, "chatonlm-slow");
+    await useModel(driver, SLOW);
 
     // 1. Lecture à voix haute sans sortie audio.
     await shotOnFailure(driver, "no-audio-read-aloud", async () => {
@@ -219,6 +221,5 @@ try {
   assert.doesNotMatch(log, /Cannot access file/);
   assert.match(log, /cannot open the audio output/);
 } finally {
-  await fake.stop();
   rmSync(asound, { force: true });
 }

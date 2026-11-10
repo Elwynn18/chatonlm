@@ -11,8 +11,8 @@ package-lock.json
 test-results/
 playwright-report/
 blob-report/
-# Réponses enregistrées d'Ollama (scripts/record-fixtures.sh), gardées telles quelles.
-src-tauri/crates/fake-ollama/fixtures/
+# Réponses de Hugging Face (échantillons réels réduits) du faux, gardées telles quelles.
+src-tauri/crates/fake-services/fixtures/
 # Réponses enregistrées du vrai llama-server (scripts/record-fixtures.sh), gardées telles quelles.
 src-tauri/crates/fake-llama/fixtures/
 # Références de Pocket TTS écrites par scripts/tts/fixtures.py, gardées telles quelles.

@@ -13,6 +13,7 @@
 //! communes du faux (contexte dépassé, image sans projecteur, clé, file des
 //! emplacements) valent avant le script.
 
+pub mod e;
 pub mod l5a;
 pub mod l7;
 pub mod l8;
@@ -123,7 +124,17 @@ pub struct Custom {
 }
 
 /// Scénarios de tous les lots.
-pub static ALL: &[&[Custom]] = &[l5a::SCENARIOS, l7::SCENARIOS, l8::SCENARIOS, l9::SCENARIOS];
+pub static ALL: &[&[Custom]] = &[
+    l5a::SCENARIOS,
+    l7::SCENARIOS,
+    l8::SCENARIOS,
+    l9::SCENARIOS,
+    e::app::SCENARIOS,
+    e::chat::SCENARIOS,
+    e::ui::SCENARIOS,
+    e::voice::SCENARIOS,
+    e::vscode::SCENARIOS,
+];
 
 /// Scénario d'un lot d'après l'alias puis le nom du fichier (sans la
 /// casse), du nom le plus long au plus court ; à n'appeler qu'après les
@@ -145,6 +156,11 @@ fn all() -> &'static [&'static [Custom]] {
         l7::SCENARIOS,
         l8::SCENARIOS,
         l9::SCENARIOS,
+        e::app::SCENARIOS,
+        e::chat::SCENARIOS,
+        e::ui::SCENARIOS,
+        e::voice::SCENARIOS,
+        e::vscode::SCENARIOS,
         tests::LOT,
     ];
     WITH_TESTS

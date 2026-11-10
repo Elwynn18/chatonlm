@@ -2,17 +2,17 @@
 // system tray »), dans la session virtuelle avec une fausse zone de
 // notification (e2e/lib/desktop-services.py) :
 // - par défaut, la croix masque la fenêtre (l'app reste lancée) ;
-// - réglage coupé, la croix quitte l'app comme Ctrl+Q : fin commune, modèles
-//   en mémoire déchargés (réglage « Unload models when quitting ») ;
+// - réglage coupé, la croix quitte l'app comme Ctrl+Q : fin commune, modèle
+//   chargé arrêté (processus du faux llama-server, fin propre) ;
 // - le réglage est gardé : au lancement suivant, la croix quitte aussitôt.
 import assert from "node:assert/strict";
 import { withApp } from "./lib/app.mjs";
 import { poll, startDesktopServices } from "./lib/desktop.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { forWindows, runKWinScript } from "./lib/kwin.mjs";
 
 const binary = process.argv[2];
-const MODEL = "qwen3:0.6b";
+const MODEL = fakeModel("simple");
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const closeWindow = () =>
@@ -27,26 +27,30 @@ const waitVisible = (driver, expected) =>
   );
 const status = (driver) => driver.invoke("close_button_status");
 
-const fake = await startFake("ollama");
-const env = { OLLAMA_HOST: fake.url };
+const engine = startEngine([MODEL]);
+const env = engine.env;
 
-/** Charge `model` sur le faux serveur, sans échéance. */
-async function load(model) {
-  const response = await fetch(new URL("/api/generate", fake.url), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, keep_alive: -1 }),
-  });
-  assert.equal(response.status, 200, `chargement de ${model}`);
-}
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
-/** Déchargements (`keep_alive: 0`) reçus par le faux serveur. */
-async function unloads() {
-  const response = await fetch(new URL("/fake/loads", fake.url));
-  const body = await response.json();
-  return (Array.isArray(body) ? body : body.loads)
-    .filter((entry) => entry.kind === "unload")
-    .map((entry) => entry.model);
+/** Charge `model` dans l'app (comme Load de l'onglet Models) ; rend son PID. */
+async function load(driver, model) {
+  await driver.invoke("load_model", { model });
+  await poll(
+    () => driver.invoke("running_models"),
+    (running) =>
+      running.some((entry) => entry.id === model && entry.state === "ready"),
+    { what: `${model} prêt` },
+  );
+  const pid = engine.server(model)?.pid;
+  assert.ok(pid, "instance absente du registre");
+  return pid;
 }
 
 /** Croix pressée : l'app doit quitter seule, proprement. */
@@ -59,9 +63,10 @@ async function closeQuits(app) {
 const desk = await startDesktopServices({ notifications: true, watcher: true });
 try {
   // 1. Par défaut : masquée ; réglage coupé : la croix quitte.
-  await load(MODEL);
+  let pid;
   await withApp(binary, { name: "close-button", env }, async (driver, app) => {
     await driver.waitFor("[data-testid=new-chat]");
+    pid = await load(driver, MODEL);
     const first = await poll(
       () => status(driver),
       (s) => s.trayAvailable,
@@ -73,7 +78,7 @@ try {
     await waitVisible(driver, false);
     await desk.command("item-activate");
     await waitVisible(driver, true);
-    assert.deepEqual(await unloads(), [], "déchargé alors que l'app reste");
+    assert.ok(alive(pid), "modèle arrêté alors que l'app reste");
 
     assert.deepEqual(
       await driver.invoke("set_close_to_tray", { enabled: false }),
@@ -81,7 +86,16 @@ try {
     );
     await closeQuits(app);
   });
-  assert.deepEqual(await unloads(), [MODEL], "modèle gardé en mémoire");
+  await poll(
+    () => alive(pid),
+    (running) => !running,
+    { what: "fin du processus du modèle" },
+  );
+  assert.deepEqual(
+    engine.registryFiles(),
+    [],
+    "fiche laissée : instance tuée au lieu d'être arrêtée",
+  );
   console.log("croix : masque par défaut, quitte une fois le réglage coupé");
 
   // 2. Réglage gardé : la croix quitte dès le lancement suivant.
@@ -103,5 +117,4 @@ try {
   console.log("close-button : OK");
 } finally {
   await desk.stop();
-  await fake.stop();
 }

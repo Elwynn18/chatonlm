@@ -1,5 +1,5 @@
 // Mesure (pas un test de check.sh) : un long flux Markdown (bloc de 238 lignes
-// de TypeScript, modèle chatonlm-markdown-long du faux serveur), avec le rendu
+// de TypeScript, scénario chatonlm-markdown-long du faux moteur), avec le rendu
 // DMABUF de WebKitGTK (défaut) puis sans (WEBKIT_DISABLE_DMABUF_RENDERER=1,
 // le repli des pilotes qui affichent une fenêtre blanche). Pour chaque
 // configuration et chaque essai : durée de la réponse, pire écart entre deux
@@ -8,13 +8,16 @@
 // Variable PERF_RUNS : essais par configuration (3 par défaut).
 import { setTimeout as delay } from "node:timers/promises";
 import { withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { chordsOf, pressKeys } from "./lib/keyboard.mjs";
-import { PENDING_CALLS } from "./lib/page.mjs";
+import { PENDING_CALLS, shownModel } from "./lib/page.mjs";
 
 const binary = process.argv[2];
 const runs = Number(process.env.PERF_RUNS ?? 3);
-const MODEL = "chatonlm-markdown-long";
+/** Le premier : modèle choisi par défaut, remplacé par celui du flux long. */
+const DEFAULT = fakeModel("simple");
+const MODEL = fakeModel("markdown-long");
+const engine = startEngine([DEFAULT, MODEL]);
 
 async function waitUntil(check, what, timeoutMs = 20000) {
   const deadline = Date.now() + timeoutMs;
@@ -26,12 +29,7 @@ async function waitUntil(check, what, timeoutMs = 20000) {
   }
 }
 
-const shownModel = (driver) =>
-  driver.execute(
-    "return document.querySelector('[title=\"Select model\"]')?.textContent ?? null",
-  );
-
-/** Choisit le modèle du flux long (absent de la liste) puis recharge. */
+/** Choisit le modèle du flux long puis recharge. */
 async function useLongModel(driver) {
   await waitUntil(() => shownModel(driver), "modèle affiché");
   // Le modèle de secours est enregistré dès que la liste est lue : l'attendre,
@@ -99,47 +97,42 @@ const WATCH = `
   watch.observe(document.body, { childList: true, subtree: true });`;
 
 async function measure(label, env) {
-  const fake = await startFake("ollama");
   const results = [];
-  try {
-    await withApp(
-      binary,
-      { name: `perf-${label}`, env: { OLLAMA_HOST: fake.url, ...env } },
-      async (driver) => {
-        await driver.waitFor("[data-testid=new-chat]");
-        await useLongModel(driver);
-        for (let run = 0; run < runs; run++) {
-          if (run > 0) {
-            await pressKeys("ctrl+n");
-            await driver.waitFor("[data-testid=new-chat]");
-          }
-          await driver.execute(WATCH);
-          await driver.click(
-            await driver.waitFor("textarea[aria-label='Message']"),
-          );
-          await pressKeys([...chordsOf("Show me a long module."), "enter"]);
-          await waitUntil(
-            () => driver.execute("return window.__frames.doneAt !== null"),
-            "fin de la réponse",
-            60000,
-          );
-          await delay(1000);
-          const f = await driver.execute(
-            "window.__frames.running = false; return window.__frames",
-          );
-          results.push({
-            total: Math.round(f.doneAt - f.sentAt),
-            worstDuring: Math.round(f.worstDuring),
-            worst: Math.round(f.worst),
-            slow: f.slow,
-            frames: f.count,
-          });
+  await withApp(
+    binary,
+    { name: `perf-${label}`, env: { ...engine.env, ...env } },
+    async (driver) => {
+      await driver.waitFor("[data-testid=new-chat]");
+      await useLongModel(driver);
+      for (let run = 0; run < runs; run++) {
+        if (run > 0) {
+          await pressKeys("ctrl+n");
+          await driver.waitFor("[data-testid=new-chat]");
         }
-      },
-    );
-  } finally {
-    await fake.stop();
-  }
+        await driver.execute(WATCH);
+        await driver.click(
+          await driver.waitFor("textarea[aria-label='Message']"),
+        );
+        await pressKeys([...chordsOf("Show me a long module."), "enter"]);
+        await waitUntil(
+          () => driver.execute("return window.__frames.doneAt !== null"),
+          "fin de la réponse",
+          60000,
+        );
+        await delay(1000);
+        const f = await driver.execute(
+          "window.__frames.running = false; return window.__frames",
+        );
+        results.push({
+          total: Math.round(f.doneAt - f.sentAt),
+          worstDuring: Math.round(f.worstDuring),
+          worst: Math.round(f.worst),
+          slow: f.slow,
+          frames: f.count,
+        });
+      }
+    },
+  );
   return results;
 }
 

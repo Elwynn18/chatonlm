@@ -1,6 +1,7 @@
 // Recette pilotée pas à pas de l'extension VS Code : l'app réelle (build e2e)
-// et VSCodium dans la session virtuelle, face à l'instance Ollama de test
-// (scripts/test-ollama.sh, 127.0.0.1:11435) et à de vrais modèles, voix de
+// et VSCodium dans la session virtuelle, face au vrai moteur (llama-server
+// épinglé) et aux vrais modèles d'essai (scripts/test-llama.sh fetch, rôles
+// de models.json, verrou des vrais serveurs tenu jusqu'à la fin), voix de
 // lecture et modèles de transcription de .tools. Ce n'est pas un essai :
 // check.sh ne le lance pas. Rien n'est scénarisé ici : le banc attend des
 // commandes dans .tools/recipe/ctl, envoyées par e2e/lib/recipe-ctl.mjs :
@@ -11,10 +12,12 @@
 //     la session (pressKeys), KWin, le faux Telegram ;
 //   - `end` : fin de la recette.
 // Lancement (4 h au plus) :
-//   scripts/test-ollama.sh start
+//   scripts/test-llama.sh fetch
 //   E2E_TIMEOUT=14400 scripts/e2e-session.sh e2e/run.sh \
 //     e2e/vscode-recipe.mjs "$(scripts/e2e-build.sh)"
-// Variables : RECIPE_MODEL (modèle de conversation, qwen3:8b par défaut).
+// Variables : RECIPE_ROLES (rôles de models.json, séparés par des virgules ;
+// « text,fim » par défaut : conversation, puis autocomplétion). Un modèle plus
+// grand se donne au rôle « text » de models.json.
 // Prérequis : builds de l'extension (vscode/dist).
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -33,7 +36,7 @@ import { join } from "node:path";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { findDiscovery } from "./lib/bridge.mjs";
 import { holdClipboard, readClipboard } from "./lib/clipboard.mjs";
-import { startFake, startFakeHf } from "./lib/fake.mjs";
+import { holdRealLock, startFakeHf, startRealEngine } from "./lib/fake.mjs";
 import { pressKeys } from "./lib/keyboard.mjs";
 import { forWindows, runKWinScript, windowCaptions } from "./lib/kwin.mjs";
 import { FAKE_TOKENS, startFakeMessenger } from "./lib/messenger.mjs";
@@ -41,8 +44,6 @@ import { PHRASES, linkParakeet, linkVoice, writePhrase } from "./lib/voice.mjs";
 import { chooseModel, prepare, shot, waitUntil } from "./lib/vscodium.mjs";
 
 const binary = process.argv[2];
-const OLLAMA = "http://127.0.0.1:11435";
-const MODEL = process.env.RECIPE_MODEL || "qwen3:8b";
 const CTL = `${ROOT}.tools/recipe/ctl`;
 const DATA = process.env.CHATONLM_DATA_DIR;
 assert.ok(
@@ -51,14 +52,17 @@ assert.ok(
 );
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const tags = await fetch(`${OLLAMA}/api/tags`)
-  .then((response) => response.json())
-  .catch(() => null);
-if (!tags?.models.some((m) => m.name === MODEL)) {
+const releaseLock = await holdRealLock();
+const engine = startRealEngine(
+  (process.env.RECIPE_ROLES || "text,fim").split(",").map((r) => r.trim()),
+);
+if (!engine) {
+  releaseLock();
   throw new Error(
-    `${MODEL} absent ou instance arrêtée : scripts/test-ollama.sh start`,
+    "Vrai moteur ou modèles absents : scripts/build-llama-server.sh, scripts/test-llama.sh fetch",
   );
 }
+const [MODEL, COMPLETION = null] = engine.ids;
 
 rmSync(CTL, { recursive: true, force: true });
 mkdirSync(`${CTL}/codium`, { recursive: true });
@@ -234,7 +238,6 @@ async function serve(dir, run) {
   }
 }
 
-const fake = await startFake("ollama");
 const hf = await startFakeHf("hf");
 const telegram = await startFakeMessenger("telegram");
 
@@ -244,11 +247,11 @@ try {
     {
       name: "vscode-recipe",
       env: {
-        OLLAMA_HOST: OLLAMA,
+        ...engine.env,
         CHATONLM_TELEGRAM_URL: telegram.url,
         CHATONLM_HF_URL: hf.url,
         CHATONLM_HF_STATUS_URL: hf.url,
-        CHATONLM_IMAGE_FAMILIES: `${ROOT}src-tauri/crates/fake-ollama/fixtures/hf/image-families.json`,
+        CHATONLM_IMAGE_FAMILIES: `${ROOT}src-tauri/crates/fake-services/fixtures/hf/image-families.json`,
         CHATONLM_SD_SERVER_BIN: `${ROOT}.tools/e2e-target/debug/fake-sd-server`,
         CHATONLM_E2E_MICROPHONE: `${ROOT}.tools/speech-samples/jfk.wav`,
         CHATONLM_E2E_VOICE_MIC: JSON.stringify([
@@ -260,10 +263,8 @@ try {
     async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
       await chooseModel(driver, MODEL);
-      await fetch(`${OLLAMA}/api/generate`, {
-        method: "POST",
-        body: JSON.stringify({ model: MODEL, keep_alive: "60m" }),
-      }).then((response) => response.text());
+      // Modèle chargé d'avance (premier envoi sans attente).
+      await driver.invoke("load_model", { model: MODEL });
       await driver.invoke("update_dictation_settings", {
         patch: { speechModel: "whisper-tiny", language: "en", polishModel: "" },
       });
@@ -294,14 +295,14 @@ try {
         waitUntil,
         delay,
         fetch,
-        OLLAMA,
         MODEL,
+        COMPLETION,
+        engine,
         DATA,
         codium,
         workspace: codium.workspace,
         telegram,
         FAKE_TOKENS,
-        fakeOllama: fake,
         readClipboard,
         holdClipboard,
         readdirSync,
@@ -329,6 +330,8 @@ try {
   console.log("✓ vscode-recipe");
 } finally {
   codium.finish();
-  // Faux serveurs arrêtés : sinon Node reste vivant et la session aussi.
-  await Promise.all([fake.stop(), hf.stop(), telegram.stop()]);
+  // Faux serveurs arrêtés et verrou rendu : sinon Node reste vivant et la
+  // session aussi.
+  await Promise.all([hf.stop(), telegram.stop()]);
+  releaseLock();
 }

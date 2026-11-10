@@ -1,8 +1,8 @@
 import { Lexer } from "marked";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import longReply from "../../src-tauri/crates/fake-ollama/fixtures/markdown-long.md?raw";
-import streamReply from "../../src-tauri/crates/fake-ollama/fixtures/markdown-stream.md?raw";
-import fullReply from "../../src-tauri/crates/fake-ollama/fixtures/markdown.md?raw";
+import longReply from "../../src-tauri/crates/fake-llama/fixtures/markdown-long.md?raw";
+import streamReply from "../../src-tauri/crates/fake-llama/fixtures/markdown-stream.md?raw";
+import fullReply from "../../src-tauri/crates/fake-llama/fixtures/markdown.md?raw";
 import { INCOMPLETE_LINK, repairIncompleteMarkdown } from "./markdownRepair";
 
 afterEach(() => {

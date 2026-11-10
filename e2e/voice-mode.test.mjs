@@ -1,5 +1,6 @@
 // Mode conversation vocale (propre à ChatonLM) dans l'app réelle : faux
-// serveur Ollama, vrai Parakeet (lien vers .tools/speech-models), vraie voix
+// moteur (fake-llama, scénarios de scenarios/e/voice.rs), vrai Parakeet
+// (lien vers .tools/speech-models), vraie voix
 // française (.tools/voice-models), sortie audio factice
 // (CHATONLM_E2E_AUDIO_OUT=null, au rythme réel) et faux micro
 // (CHATONLM_E2E_VOICE_MIC : débuts de fr0.wav et fr1.wav, voir
@@ -11,8 +12,9 @@
 //    transcrite (mots de fr0) = message de l'utilisateur, conversation créée
 //    par l'envoi et gardée par la séance, réponse écrite puis lue (Speaking),
 //    retour à l'écoute, 2e tour, dont la lecture est coupée par Espace (vraie
-//    touche) ; requêtes reçues par le faux serveur : consigne vocale en
-//    premier message `system`, `think: false` ; historique sans consigne ;
+//    touche) ; requêtes reçues par le faux moteur : consigne vocale en
+//    premier message `system`, réflexion coupée (`enable_thinking:
+//    false`) ; historique sans consigne ;
 //    niveaux du micro et de la voix ; latence relevée (fin de la parole et du
 //    WAV → premier son, lignes chatonlm-voice-timing) ; micro coupé puis
 //    rouvert, Échap ; changement de conversation : séance arrêtée ; brouillon
@@ -26,7 +28,7 @@ import assert from "node:assert/strict";
 import { existsSync, rmSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { ROOT, withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { pressKeys } from "./lib/keyboard.mjs";
 import { watchLog } from "./lib/log.mjs";
 import {
@@ -64,12 +66,12 @@ const TMP = `${ROOT}.tools/tmp/voice-mode-${process.pid}`;
 const FRENCH = "pocket-tts-fr";
 const TEXTAREA = "textarea[aria-label='Message']";
 const DIALOG = ":is([role='alertdialog'], [role='dialog'])";
-/** Réponses du faux serveur (VOICE_REPLIES de fake-ollama). */
+/** Réponses du faux moteur (VOICE_REPLIES de fake-llama, scenarios/e/voice.rs). */
 const REPLIES = [
   "Je vous entends très bien. Que puis-je faire pour vous ?",
   "C'est une belle histoire, tirée des Mille et Une Nuits. Voulez-vous que je vous raconte ce que devient ensuite le pêcheur ?",
 ];
-/** Dernière phrase de la longue réponse (VOICE_LONG_END de fake-ollama). */
+/** Dernière phrase de la longue réponse (VOICE_LONG_END de fake-llama). */
 const LONG_END = "Fin de l'histoire.";
 
 async function waitUntil(check, what, timeoutMs = 10000) {
@@ -110,7 +112,7 @@ const texts = (driver, css) =>
     [css],
   );
 
-/** Choisit un modèle du faux serveur, puis recharge la page. */
+/** Choisit un modèle du faux moteur, puis recharge la page. */
 async function useModel(driver, model) {
   await driver.invoke("update_settings", { patch: { selectedModel: model } });
   await driver.execute("window.__oldPage = true; location.reload()");
@@ -196,13 +198,29 @@ async function shotOnFailure(driver, name, fn) {
   }
 }
 
-const fake = await startFake("ollama");
+// Modèles qui raisonnent par défaut (GGUF écrit avec `--think`, comme
+// qwen3) : un envoi vocal doit couper la réflexion.
+const VOICE = fakeModel("voice");
+const LONG = fakeModel("voice-long");
+const engine = startEngine([
+  { id: VOICE, think: true },
+  { id: LONG, think: true },
+]);
 const env = {
-  OLLAMA_HOST: fake.url,
+  ...engine.env,
   CHATONLM_NO_GLOBAL_SHORTCUTS: "1",
 };
-const requests = async () =>
-  (await fetch(new URL("/fake/requests", fake.url))).json();
+/** La requête coupe la réflexion (`think: false` d'Ollama avant). */
+const thinkOff = (request) =>
+  request.chat_template_kwargs?.enable_thinking === false;
+/** Texte d'un message (chaîne, ou parties `text`). */
+const textOf = (message) =>
+  typeof message.content === "string"
+    ? message.content
+    : message.content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join(" ");
 
 try {
   linkParakeet(DATA);
@@ -230,7 +248,7 @@ try {
       );
       assert.equal(await phase(driver), "off");
 
-      await useModel(driver, "chatonlm-voice");
+      await useModel(driver, VOICE);
       await driver.waitFor("[data-testid=new-chat]");
       await shotOnFailure(driver, "voice-mode-requirements", async () => {
         await driver.click(await driver.waitFor("[data-voice-mode-start]"));
@@ -285,7 +303,7 @@ try {
       try {
         await driver.waitFor("[data-testid=new-chat]");
         await frenchDictation(driver);
-        await useModel(driver, "chatonlm-voice");
+        await useModel(driver, VOICE);
         await driver.waitFor("[data-testid=new-chat]");
         await recordVoiceEvents(driver);
         // Réglages par défaut : mains libres, pause normale, interruption
@@ -330,14 +348,13 @@ try {
     async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
       await frenchDictation(driver);
-      await useModel(driver, "chatonlm-voice-long");
+      await useModel(driver, LONG);
       await driver.waitFor("[data-testid=new-chat]");
       await recordVoiceEvents(driver);
       await shotOnFailure(driver, "voice-mode-barge-in", () => bargeIn(driver));
     },
   );
 } finally {
-  await fake.stop();
   rmSync(TMP, { recursive: true, force: true });
 }
 console.log("✓ voice-mode");
@@ -476,21 +493,21 @@ async function turns(driver, log, { first, second, instructions }) {
   assert.ok(spokenLevels.output > 0.1, JSON.stringify(spokenLevels));
 
   // Requêtes reçues : consigne vocale en tête, think coupé, historique.
-  const voice = (await requests()).filter((r) => r.model === "chatonlm-voice");
+  const voice = await engine.chatRequests(VOICE);
   assert.equal(voice.length, 2, JSON.stringify(voice));
   for (const request of voice) {
-    assert.equal(request.think, false, JSON.stringify(request));
+    assert.ok(thinkOff(request), JSON.stringify(request));
     assert.equal(request.messages[0].role, "system");
-    assert.equal(request.messages[0].content, instructions);
+    assert.equal(textOf(request.messages[0]), instructions);
     assert.equal(request.messages.filter((m) => m.role === "system").length, 1);
   }
   assert.deepEqual(
     voice[1].messages.map((m) => m.role),
     ["system", "user", "assistant", "user"],
   );
-  assert.equal(voice[0].messages.at(-1).content.trim(), u1.text.trim());
-  assert.equal(voice[1].messages[2].content, REPLIES[0]);
-  assert.equal(voice[1].messages.at(-1).content.trim(), u2.text.trim());
+  assert.equal(textOf(voice[0].messages.at(-1)).trim(), u1.text.trim());
+  assert.equal(textOf(voice[1].messages[2]), REPLIES[0]);
+  assert.equal(textOf(voice[1].messages.at(-1)).trim(), u2.text.trim());
   // Historique : conversation normale, sans consigne ni raisonnement.
   const saved = await driver.invoke("get_chat", { id: chat });
   assert.deepEqual(
@@ -577,8 +594,8 @@ async function turns(driver, log, { first, second, instructions }) {
   await waitEnded(driver, "séance arrêtée au changement de conversation");
   assert.ok(await exists(driver, "[data-voice-mode-start]"));
   // Message tapé : sans consigne vocale.
-  const typed = (await requests()).filter(
-    (r) => r.messages.at(-1)?.content === "Hello there.",
+  const typed = (await engine.chatRequests(VOICE)).filter(
+    (r) => r.messages.at(-1) && textOf(r.messages.at(-1)) === "Hello there.",
   );
   assert.equal(typed.length, 1);
   assert.ok(typed[0].messages.every((m) => m.role !== "system"));
@@ -607,8 +624,9 @@ async function turns(driver, log, { first, second, instructions }) {
 
 /** Partie 3 : interruption en parlant, puis End pendant la lecture. */
 async function bargeIn(driver) {
-  const abandoned = await fake.disconnects();
-  const before = (await requests()).length;
+  // Instance du modèle lancée par cette app (0 avant son lancement).
+  const abandoned = await engine.disconnects(LONG);
+  const before = (await engine.chatRequests(LONG)).length;
   await driver.click(await driver.waitFor("[data-voice-mode-start]"));
   await waitBarListening(driver, "barre vocale à l'écoute");
 
@@ -639,7 +657,7 @@ async function bargeIn(driver) {
   );
   // Génération arrêtée : le flux de la 1re réponse est abandonné.
   await waitUntil(
-    async () => (await fake.disconnects()) === abandoned + 1,
+    async () => (await engine.disconnects(LONG)) === abandoned + 1,
     "flux de la 1re réponse abandonné",
     5000,
   );
@@ -686,7 +704,7 @@ async function bargeIn(driver) {
     "2e réponse écrite jusqu'au bout",
     20000,
   );
-  assert.equal(await fake.disconnects(), abandoned + 1);
+  assert.equal(await engine.disconnects(LONG), abandoned + 1);
   const [m1, r1, m2, r2] = saved.messages;
   assert.equal(m1.content.trim(), u1.text.trim());
   assert.equal(m2.content.trim(), u2.text.trim());
@@ -711,12 +729,10 @@ async function bargeIn(driver) {
     ]),
     describeStates(all.states),
   );
-  const sent = (await requests())
-    .slice(before)
-    .filter((r) => r.model === "chatonlm-voice-long");
+  const sent = (await engine.chatRequests(LONG)).slice(before);
   assert.equal(sent.length, 2);
   for (const request of sent) {
-    assert.equal(request.think, false);
+    assert.ok(thinkOff(request), JSON.stringify(request));
     assert.equal(request.messages[0].role, "system");
   }
 }

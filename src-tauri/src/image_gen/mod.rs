@@ -4,7 +4,7 @@
 //!
 //! - Binaire : `<ressources>/sd-server/sd-server` (`.exe` sous Windows) ;
 //!   builds de débogage et d'essai : `CHATONLM_SD_SERVER_BIN` le remplace
-//!   (faux `fake-sd-server` du crate fake-ollama). Journal :
+//!   (faux `fake-sd-server` du crate fake-services). Journal :
 //!   `<données>/logs/sd-server.log` (le précédent en `.1`).
 //! - Un serveur charge UN modèle (ses fichiers sont des arguments) : il est
 //!   lancé à la première image, gardé tant que le même modèle sert, relancé
@@ -239,7 +239,7 @@ pub struct Config {
     /// d'essai sur le faux).
     pub prefix_args: Vec<OsString>,
     /// Essais : les arguments du serveur passent par la variable
-    /// `fake_ollama::sdcpp::ARGS_ENV` (la ligne de commande est à libtest).
+    /// `fake_services::sdcpp::ARGS_ENV` (la ligne de commande est à libtest).
     pub args_in_env: Option<String>,
     /// `<données>/logs/sd-server.log`.
     pub log: PathBuf,

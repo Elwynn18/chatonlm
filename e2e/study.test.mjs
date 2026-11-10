@@ -1,5 +1,6 @@
-// Onglet Study dans l'app réelle (faux serveur, modèle des cours
-// `chatonlm-study` choisi par le réglage `studyModel`), avec de vraies touches
+// Onglet Study dans l'app réelle (faux moteur, modèle des cours au
+// scénario `chatonlm-study` de fake-llama, choisi par le réglage
+// `studyModel`), avec de vraies touches
 // et un vrai pointeur (e2e/lib/keyboard.mjs) :
 // - entrée « Study » de la barre latérale, entre Proofread et ModelHub,
 //   surlignée ; accueil vide (capture) ;
@@ -39,7 +40,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { readClipboard } from "./lib/clipboard.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { chordsOf, pressKeys } from "./lib/keyboard.mjs";
 import { PENDING_CALLS } from "./lib/page.mjs";
 import { centerOf, pointerOffset } from "./lib/pointer.mjs";
@@ -64,8 +65,8 @@ writeFileSync(
 const pick = (...names) =>
   writeFileSync(PICKS, `${names.map(file).join("\n")}\n`);
 
-const MODEL = "chatonlm-study";
-const fake = await startFake("ollama");
+const MODEL = fakeModel("study");
+const engine = startEngine([MODEL]);
 
 async function waitUntil(check, what, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
@@ -394,271 +395,267 @@ const waitNodeStatuses = (driver, expected) =>
       `parcours ${JSON.stringify(expected)} : ${JSON.stringify(await nodeStatuses(driver))}`,
   );
 
-try {
-  await withApp(
-    binary,
-    {
-      name: "study",
-      env: {
-        OLLAMA_HOST: fake.url,
-        CHATONLM_E2E_PICK_FILE: PICKS,
-        CHATONLM_E2E_SAVE_FILE: SAVED,
-      },
+await withApp(
+  binary,
+  {
+    name: "study",
+    env: {
+      ...engine.env,
+      CHATONLM_E2E_PICK_FILE: PICKS,
+      CHATONLM_E2E_SAVE_FILE: SAVED,
     },
-    async (driver) => {
-      await driver.waitFor("[data-testid=new-chat]");
-      await driver.execute(WATCH_PAGE);
-      await driver.invoke("update_settings", { patch: { studyModel: MODEL } });
-      await reload(driver);
-      await driver.waitFor("[data-testid=new-chat]");
+  },
+  async (driver) => {
+    await driver.waitFor("[data-testid=new-chat]");
+    await driver.execute(WATCH_PAGE);
+    await driver.invoke("update_settings", { patch: { studyModel: MODEL } });
+    await reload(driver);
+    await driver.waitFor("[data-testid=new-chat]");
 
-      // Barre latérale : Study entre Proofread et ModelHub.
-      if (await exists(driver, "button[aria-label='Show sidebar']")) {
-        await driver.click(
-          await driver.find("button[aria-label='Show sidebar']"),
-        );
-      }
-      const link = await driver.waitFor("nav a[href$='/study']");
-      assert.deepEqual(
-        await driver.execute(
-          `return [...document.querySelector("nav a[href$='/study']")
+    // Barre latérale : Study entre Proofread et ModelHub.
+    if (await exists(driver, "button[aria-label='Show sidebar']")) {
+      await driver.click(
+        await driver.find("button[aria-label='Show sidebar']"),
+      );
+    }
+    const link = await driver.waitFor("nav a[href$='/study']");
+    assert.deepEqual(
+      await driver.execute(
+        `return [...document.querySelector("nav a[href$='/study']")
              .parentElement.querySelectorAll(":scope > a")]
              .map((a) => a.textContent.trim()).slice(0, 5);`,
-        ),
-        ["Chat", "Proofread", "Study", "ModelHub", "Settings"],
-      );
-      await driver.click(link);
-      await driver.waitFor("[data-testid=study-home]");
-      await driver.waitFor("[data-testid=study-empty]");
-      assert.equal(
-        await driver.execute("return document.querySelector('h1').textContent"),
-        "Study",
-      );
-      assert.ok(
-        await driver.execute(
-          `return document.querySelector("nav a[href$='/study']")
+      ),
+      ["Chat", "Proofread", "Study", "ModelHub", "Settings"],
+    );
+    await driver.click(link);
+    await driver.waitFor("[data-testid=study-home]");
+    await driver.waitFor("[data-testid=study-empty]");
+    assert.equal(
+      await driver.execute("return document.querySelector('h1').textContent"),
+      "Study",
+    );
+    assert.ok(
+      await driver.execute(
+        `return document.querySelector("nav a[href$='/study']")
              .classList.contains("bg-accent")`,
-        ),
-        "entrée Study surlignée",
-      );
-      await delay(400); // transition de la barre latérale
-      await driver.screenshot(".tools/shots/study-home-empty.png");
+      ),
+      "entrée Study surlignée",
+    );
+    await delay(400); // transition de la barre latérale
+    await driver.screenshot(".tools/shots/study-home-empty.png");
 
-      // Nouveau cours : document, 10 min, sujet, Entrée.
-      pick("notes.md");
-      assert.ok(await clickButton(driver, "Add a document"));
-      await waitUntil(
-        () =>
-          driver.execute(
-            `return [...document.querySelectorAll("[data-testid=study-document]")]
+    // Nouveau cours : document, 10 min, sujet, Entrée.
+    pick("notes.md");
+    assert.ok(await clickButton(driver, "Add a document"));
+    await waitUntil(
+      () =>
+        driver.execute(
+          `return [...document.querySelectorAll("[data-testid=study-document]")]
                .map((chip) => chip.textContent).join(",") === "notes.md"`,
-          ),
-        "pastille notes.md",
-      );
-      await driver.execute(
-        `[...document.querySelectorAll("[data-testid=study-form] label")]
+        ),
+      "pastille notes.md",
+    );
+    await driver.execute(
+      `[...document.querySelectorAll("[data-testid=study-form] label")]
            .find((label) => label.textContent.trim() === "10 min").click();`,
-      );
+    );
+    await driver.execute(
+      "document.querySelector('[data-testid=study-form] textarea').focus()",
+    );
+    await pressKeys(chordsOf("Photosynthesis"), { settleMs: 200 });
+    await driver.screenshot(".tools/shots/study-form.png");
+    await pressKeys("enter");
+
+    // Plan : titre, deux paliers, document dans les sources.
+    await driver.waitFor("[data-testid=study-plan]", { timeoutMs: 20000 });
+    const plan = await driver.execute(
+      "return document.querySelector('[data-testid=study-plan]').textContent",
+    );
+    assert.match(plan, /Photosynthesis/);
+    assert.match(plan, /2 levels/);
+    assert.match(plan, /notes\.md/);
+    await delay(400);
+    await driver.screenshot(".tools/shots/study-plan.png");
+    await driver.invoke("update_settings", { patch: { theme: "dark" } });
+    await reload(driver);
+    await driver.waitFor("[data-testid=study-plan]");
+    await delay(400);
+    await driver.screenshot(".tools/shots/study-plan-dark.png");
+    await driver.invoke("update_settings", { patch: { theme: "light" } });
+    await reload(driver);
+    await driver.waitFor("[data-testid=study-plan]");
+
+    // Start : premier palier, accroche du tuteur.
+    assert.ok(await clickButton(driver, "Start"));
+    await waitCard(driver, "study-section");
+    assert.ok(await exists(driver, "[data-testid=study-hook]"));
+    assert.equal(
       await driver.execute(
-        "document.querySelector('[data-testid=study-form] textarea').focus()",
-      );
-      await pressKeys(chordsOf("Photosynthesis"), { settleMs: 200 });
-      await driver.screenshot(".tools/shots/study-form.png");
-      await pressKeys("enter");
+        "return document.querySelector('[data-testid=study-hook]').dataset.speaker",
+      ),
+      "tutor",
+    );
+    await delay(400);
+    await driver.screenshot(".tools/shots/study-lesson.png");
+    await readLesson(driver);
 
-      // Plan : titre, deux paliers, document dans les sources.
-      await driver.waitFor("[data-testid=study-plan]", { timeoutMs: 20000 });
-      const plan = await driver.execute(
-        "return document.querySelector('[data-testid=study-plan]').textContent",
-      );
-      assert.match(plan, /Photosynthesis/);
-      assert.match(plan, /2 levels/);
-      assert.match(plan, /notes\.md/);
-      await delay(400);
-      await driver.screenshot(".tools/shots/study-plan.png");
-      await driver.invoke("update_settings", { patch: { theme: "dark" } });
-      await reload(driver);
-      await driver.waitFor("[data-testid=study-plan]");
-      await delay(400);
-      await driver.screenshot(".tools/shots/study-plan-dark.png");
-      await driver.invoke("update_settings", { patch: { theme: "light" } });
-      await reload(driver);
-      await driver.waitFor("[data-testid=study-plan]");
+    // Entraînement juste (vrai pointeur pour une option), puis premier
+    // essai manqué.
+    await waitCard(driver, "study-question");
+    await answer(driver, true);
+    await enter();
+    await answerAttempt(driver, false);
+    assert.equal(await cardTitle(driver), "Not passed yet");
+    assert.ok(await exists(driver, "[data-testid=study-missed]"));
+    await driver.screenshot(".tools/shots/study-failed.png");
 
-      // Start : premier palier, accroche du tuteur.
-      assert.ok(await clickButton(driver, "Start"));
-      await waitCard(driver, "study-section");
-      assert.ok(await exists(driver, "[data-testid=study-hook]"));
-      assert.equal(
-        await driver.execute(
-          "return document.querySelector('[data-testid=study-hook]').dataset.speaker",
-        ),
-        "tutor",
-      );
-      await delay(400);
-      await driver.screenshot(".tools/shots/study-lesson.png");
-      await readLesson(driver);
-
-      // Entraînement juste (vrai pointeur pour une option), puis premier
-      // essai manqué.
-      await waitCard(driver, "study-question");
-      await answer(driver, true);
-      await enter();
-      await answerAttempt(driver, false);
-      assert.equal(await cardTitle(driver), "Not passed yet");
-      assert.ok(await exists(driver, "[data-testid=study-missed]"));
-      await driver.screenshot(".tools/shots/study-failed.png");
-
-      // Explain differently (Entrée), explication du tuteur, second essai.
-      await enter();
-      await waitUntil(
-        () =>
-          driver.execute(
-            `return [...document.querySelectorAll("main button")]
+    // Explain differently (Entrée), explication du tuteur, second essai.
+    await enter();
+    await waitUntil(
+      () =>
+        driver.execute(
+          `return [...document.querySelectorAll("main button")]
                .some((b) => b.textContent.trim() === "See the new explanation")`,
-          ),
-        "nouvel essai prêt",
-        30000,
-      );
-      assert.ok(await clickButton(driver, "See the new explanation"));
-      await waitCard(driver, "study-remedy");
-      assert.ok(await exists(driver, "[data-testid=study-remedy-text]"));
-      await driver.screenshot(".tools/shots/study-remedy.png");
-      await enter();
-      await answerAttempt(driver, false);
-      assert.ok(await clickButton(driver, "Continue anyway"));
-      await waitCard(driver, "study-section", 30000);
-      await waitNodeStatuses(driver, ["review"]);
+        ),
+      "nouvel essai prêt",
+      30000,
+    );
+    assert.ok(await clickButton(driver, "See the new explanation"));
+    await waitCard(driver, "study-remedy");
+    assert.ok(await exists(driver, "[data-testid=study-remedy-text]"));
+    await driver.screenshot(".tools/shots/study-remedy.png");
+    await enter();
+    await answerAttempt(driver, false);
+    assert.ok(await clickButton(driver, "Continue anyway"));
+    await waitCard(driver, "study-section", 30000);
+    await waitNodeStatuses(driver, ["review"]);
 
-      // Palier 2 : « I don't understand », puis « Ask a question ».
-      assert.ok(await clickButton(driver, "I don't understand"));
-      await waitUntil(
-        () =>
-          driver.execute(
-            `return document.querySelector("[data-testid=study-explain]")
+    // Palier 2 : « I don't understand », puis « Ask a question ».
+    assert.ok(await clickButton(driver, "I don't understand"));
+    await waitUntil(
+      () =>
+        driver.execute(
+          `return document.querySelector("[data-testid=study-explain]")
                ?.textContent.includes("Simpler:") ?? false`,
-          ),
-        "explication gardée",
-      );
-      assert.ok(await clickButton(driver, "Ask a question"));
-      await driver.waitFor("[data-testid=study-ask] textarea");
-      assert.ok(
-        await driver.execute(
-          "return document.activeElement === document.querySelector('[data-testid=study-ask] textarea')",
         ),
-        "champ de la question focalisé",
-      );
-      await pressKeys([...chordsOf("why"), "enter"]);
-      await waitUntil(
-        () =>
-          driver.execute(
-            `return document.querySelector("[data-testid=study-ask-answer]")
+      "explication gardée",
+    );
+    assert.ok(await clickButton(driver, "Ask a question"));
+    await driver.waitFor("[data-testid=study-ask] textarea");
+    assert.ok(
+      await driver.execute(
+        "return document.activeElement === document.querySelector('[data-testid=study-ask] textarea')",
+      ),
+      "champ de la question focalisé",
+    );
+    await pressKeys([...chordsOf("why"), "enter"]);
+    await waitUntil(
+      () =>
+        driver.execute(
+          `return document.querySelector("[data-testid=study-ask-answer]")
                ?.textContent.includes("Answer:") ?? false`,
-          ),
-        "réponse du tuteur gardée",
-      );
-      assert.equal(
-        await driver.execute(
-          `return [...document.querySelectorAll("[data-testid=study-ask] [data-speaker]")]
+        ),
+      "réponse du tuteur gardée",
+    );
+    assert.equal(
+      await driver.execute(
+        `return [...document.querySelectorAll("[data-testid=study-ask] [data-speaker]")]
              .map((bubble) => bubble.dataset.speaker).join(",")`,
-        ),
-        "learner,tutor",
-      );
-      await driver.screenshot(".tools/shots/study-tutor.png");
-      await pressKeys("escape", { settleMs: 300 });
-      assert.equal(await exists(driver, "[data-testid=study-ask]"), false);
-      // Le focus revient au bouton du panneau : Entrée le rouvrirait ; le
-      // titre de la carte le reprend.
+      ),
+      "learner,tutor",
+    );
+    await driver.screenshot(".tools/shots/study-tutor.png");
+    await pressKeys("escape", { settleMs: 300 });
+    assert.equal(await exists(driver, "[data-testid=study-ask]"), false);
+    // Le focus revient au bouton du panneau : Entrée le rouvrirait ; le
+    // titre de la carte le reprend.
+    await driver.execute(
+      "document.querySelector('[data-card-heading]').focus()",
+    );
+    await readLesson(driver);
+
+    // Essai réussi sans faute : célébration.
+    await waitCard(driver, "study-question");
+    await answer(driver, true);
+    await enter();
+    await answerAttempt(driver, true);
+    assert.equal(await cardTitle(driver), "Level complete!");
+    assert.equal(
       await driver.execute(
-        "document.querySelector('[data-card-heading]').focus()",
-      );
-      await readLesson(driver);
+        "return document.querySelector('[data-testid=study-result] [data-stars]').dataset.stars",
+      ),
+      "3",
+    );
+    assert.ok(await exists(driver, "[data-testid=study-confetti]"));
+    assert.ok(await exists(driver, "[data-testid=study-streak]"));
+    await delay(700); // étoiles apparues
+    await driver.screenshot(".tools/shots/study-passed.png");
+    await waitNodeStatuses(driver, ["review", "passed"]);
+    assert.equal((await nodeStatuses(driver)).length, 2);
 
-      // Essai réussi sans faute : célébration.
-      await waitCard(driver, "study-question");
-      await answer(driver, true);
-      await enter();
-      await answerAttempt(driver, true);
-      assert.equal(await cardTitle(driver), "Level complete!");
-      assert.equal(
-        await driver.execute(
-          "return document.querySelector('[data-testid=study-result] [data-stars]').dataset.stars",
-        ),
-        "3",
-      );
-      assert.ok(await exists(driver, "[data-testid=study-confetti]"));
-      assert.ok(await exists(driver, "[data-testid=study-streak]"));
-      await delay(700); // étoiles apparues
-      await driver.screenshot(".tools/shots/study-passed.png");
-      await waitNodeStatuses(driver, ["review", "passed"]);
-      assert.equal((await nodeStatuses(driver)).length, 2);
+    // Bilan final, puis la fin.
+    await enter();
+    await waitCard(driver, "study-question", 30000);
+    await answerFinal(driver);
+    assert.equal(await cardTitle(driver), "Course completed!");
+    assert.equal(
+      await driver.execute(
+        "return document.querySelector('[data-testid=study-final-score]').textContent",
+      ),
+      "3 / 3",
+    );
+    await delay(800);
+    await driver.screenshot(".tools/shots/study-end.png");
 
-      // Bilan final, puis la fin.
-      await enter();
-      await waitCard(driver, "study-question", 30000);
-      await answerFinal(driver);
-      assert.equal(await cardTitle(driver), "Course completed!");
-      assert.equal(
-        await driver.execute(
-          "return document.querySelector('[data-testid=study-final-score]').textContent",
-        ),
-        "3 / 3",
-      );
-      await delay(800);
-      await driver.screenshot(".tools/shots/study-end.png");
-
-      // Copy : la fiche dans le presse-papiers ; Save as Markdown.
-      await waitUntil(
-        () =>
-          driver.execute(
-            `return [...document.querySelectorAll("main button")]
+    // Copy : la fiche dans le presse-papiers ; Save as Markdown.
+    await waitUntil(
+      () =>
+        driver.execute(
+          `return [...document.querySelectorAll("main button")]
                .some((b) => b.textContent.trim() === "Copy" && !b.disabled)`,
-          ),
-        "fiche lue",
-      );
-      assert.ok(await clickButton(driver, "Copy"));
-      await waitUntil(
-        () =>
-          driver.execute(
-            `return [...document.querySelectorAll("main button")]
+        ),
+      "fiche lue",
+    );
+    assert.ok(await clickButton(driver, "Copy"));
+    await waitUntil(
+      () =>
+        driver.execute(
+          `return [...document.querySelectorAll("main button")]
                .some((b) => b.textContent.trim() === "Copied")`,
-          ),
-        "« Copied »",
-      );
-      const clipboard = await readClipboard();
-      assert.match(clipboard.text ?? "", /Key point of/);
-      assert.ok(await clickButton(driver, "Save as Markdown"));
-      await waitUntil(() => existsSync(SAVED), "fiche enregistrée");
-      assert.match(readFileSync(SAVED, "utf8"), /Key point of/);
-      await driver.waitFor("[data-testid=study-end]");
+        ),
+      "« Copied »",
+    );
+    const clipboard = await readClipboard();
+    assert.match(clipboard.text ?? "", /Key point of/);
+    assert.ok(await clickButton(driver, "Save as Markdown"));
+    await waitUntil(() => existsSync(SAVED), "fiche enregistrée");
+    assert.match(readFileSync(SAVED, "utf8"), /Key point of/);
+    await driver.waitFor("[data-testid=study-end]");
 
-      // Accueil : le cours terminé, puis supprimé. La barre latérale a pu
-      // revenir à son état par défaut (repliée) avec les rechargements.
-      if (await exists(driver, "button[aria-label='Show sidebar']")) {
-        await driver.click(
-          await driver.find("button[aria-label='Show sidebar']"),
-        );
-      }
-      await driver.click(await driver.waitFor("nav a[href$='/study']"));
-      await driver.waitFor("[data-testid=study-completed]");
-      await delay(300);
-      await driver.screenshot(".tools/shots/study-home.png");
-      await driver.execute(
-        `document.querySelector("[data-testid=study-completed] [data-testid=study-course] button").click()`,
+    // Accueil : le cours terminé, puis supprimé. La barre latérale a pu
+    // revenir à son état par défaut (repliée) avec les rechargements.
+    if (await exists(driver, "button[aria-label='Show sidebar']")) {
+      await driver.click(
+        await driver.find("button[aria-label='Show sidebar']"),
       );
-      await driver.waitFor("[role=alertdialog]");
-      await driver.execute(
-        `[...document.querySelectorAll("[role=alertdialog] button")]
+    }
+    await driver.click(await driver.waitFor("nav a[href$='/study']"));
+    await driver.waitFor("[data-testid=study-completed]");
+    await delay(300);
+    await driver.screenshot(".tools/shots/study-home.png");
+    await driver.execute(
+      `document.querySelector("[data-testid=study-completed] [data-testid=study-course] button").click()`,
+    );
+    await driver.waitFor("[role=alertdialog]");
+    await driver.execute(
+      `[...document.querySelectorAll("[role=alertdialog] button")]
            .find((b) => b.textContent.trim() === "Delete").click()`,
-      );
-      await driver.waitFor("[data-testid=study-empty]");
+    );
+    await driver.waitFor("[data-testid=study-empty]");
 
-      await collect(driver);
-      assert.deepEqual(violations, [], "violations de la CSP");
-      assert.deepEqual(consoleErrors, [], "erreurs de la console");
-    },
-  );
-} finally {
-  await fake.stop();
-}
+    await collect(driver);
+    assert.deepEqual(violations, [], "violations de la CSP");
+    assert.deepEqual(consoleErrors, [], "erreurs de la console");
+  },
+);
 console.log("✓ study");

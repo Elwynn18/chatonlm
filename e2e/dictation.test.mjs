@@ -12,7 +12,7 @@
 //   de réglage, refus puis nouvel essai (page de réglage du bureau ouverte),
 //   liaison en attente abandonnée quand la dictée est coupée ;
 // - dictée de bout en bout (micro simulé par un WAV, Whisper tiny, nettoyage
-//   par le faux modèle `chatonlm-polish`) : presse-papiers, collage là où se
+//   par le faux moteur, scénario `chatonlm-polisher`) : presse-papiers, collage là où se
 //   trouve le curseur (Ctrl+V par le portail RemoteDesktop, autorisation
 //   gardée ; refusée : copié seulement, et la raison ; jamais pour l'essai
 //   lancé depuis la page), notifications,
@@ -39,7 +39,7 @@ import {
 import { ROOT, freePort, withApp } from "./lib/app.mjs";
 import { holdClipboard, readClipboard } from "./lib/clipboard.mjs";
 import { poll, startDesktopServices } from "./lib/desktop.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { forWindows, runKWinScript } from "./lib/kwin.mjs";
 
 const binary = process.argv[2];
@@ -164,8 +164,9 @@ symlinkSync(TINY, `${DATA}/speech-models/whisper-tiny/ggml-tiny.bin`);
 mkdirSync(`${ROOT}.tools/tmp`, { recursive: true });
 writeFileSync(SILENCE, silenceWav(1.5));
 
-const fake = await startFake("ollama");
-const env = { OLLAMA_HOST: fake.url, CHATONLM_E2E_MICROPHONE: JFK };
+const POLISHER = fakeModel("polisher");
+const engine = startEngine([POLISHER]);
+const env = { ...engine.env, CHATONLM_E2E_MICROPHONE: JFK };
 
 /** Taille de la fenêtre au Quit du lancement 1, à retrouver ensuite. */
 let quitSize;
@@ -240,7 +241,7 @@ try {
             enabled: true,
             speechModel: "whisper-tiny",
             language: "en",
-            polishModel: "chatonlm-polish",
+            polishModel: POLISHER,
           },
         });
         const bind = await desk.waitFor((e) => e.event === "bind");
@@ -851,6 +852,5 @@ try {
     await early.stop();
   }
 } finally {
-  await fake.stop();
   rmSync(SILENCE, { force: true });
 }

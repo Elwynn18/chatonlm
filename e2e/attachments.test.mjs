@@ -1,5 +1,5 @@
 // Pièces jointes dans l'app réelle (build e2e : frontend embarqué, CSP de
-// production), avec le faux serveur et de vraies touches du clavier
+// production), avec le faux moteur et de vraies touches du clavier
 // (e2e/lib/keyboard.mjs). Fichiers créés par le test dans le dossier de
 // l'essai (.tools/e2e-runs/run.*/Test Files : chemin avec une espace et des
 // majuscules) :
@@ -14,15 +14,18 @@
 //   n'envoie rien (aucune requête, aucune conversation, texte gardé) ;
 //   « Remove <nom> » retire pastilles et erreurs (image retirée : plus
 //   servie par chatonlm://) ; sélecteur annulé : rien ;
-// - chatonlm-vision (capacité vision) : aucun avertissement ; envoi par une
-//   vraie touche Entrée ; requête /api/chat (GET /fake/requests) : texte de
+// - modèle à vision (projecteur inscrit ; scénario chatonlm-greeter, réponse
+//   fixe « Hi! ») : aucun avertissement ; envoi par une vraie touche Entrée ;
+//   requête au faux moteur (/fake/requests de l'instance) : texte de
 //   notes.txt et de brief.pdf encadré (« --- File: <nom> --- » … « --- End of
-//   <nom> --- ») dans content, red.png en base64 dans images ; message
+//   <nom> --- ») dans la partie texte, red.png en data URL base64 dans une
+//   partie image_url ; message
 //   envoyé : vignette de 64 px au-dessus de la bulle, chargée
 //   (chatonlm://localhost/attachment/<id> de la pièce jointe en base), pastilles
 //   des autres fichiers dans la bulle ; pièces jointes en base (get_chat) ;
 //   pareil après un rechargement de la page ;
-// - chatonlm-plain (capacité completion seule) : pastille de l'image en rouge
+// - modèle sans vision ni réflexion (scénario chatonlm-echothink) : pastille
+//   de l'image en rouge
 //   avec « This model does not support images », envoi permis ; à l'envoi,
 //   aucune image dans la requête, ni dans le message affiché ni en base, et
 //   l'image n'est plus servie (libérée) ; le fichier texte part ; après un
@@ -44,8 +47,8 @@ import {
 import path from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { ROOT, withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
-import { PENDING_CALLS } from "./lib/page.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
+import { PENDING_CALLS, shownModel } from "./lib/page.mjs";
 import { chordsOf, pressKeys } from "./lib/keyboard.mjs";
 import { windowCaptions } from "./lib/kwin.mjs";
 
@@ -144,7 +147,17 @@ const pick = (...names) =>
 /** Prochain clic sur « + » : sélecteur annulé. */
 const cancelPick = () => rmSync(PICKS, { force: true });
 
-const fake = await startFake("ollama");
+/** Le premier : modèle choisi par défaut. */
+const DEFAULT = fakeModel("simple");
+/** Vision (projecteur inscrit), réponse fixe « Hi! ». */
+const VISION = fakeModel("greeter-vision");
+/** Sans vision ni réflexion : cite le réglage de réflexion reçu. */
+const PLAIN = fakeModel("echothink-plain");
+const engine = startEngine([
+  DEFAULT,
+  { id: VISION, vision: true },
+  { id: PLAIN, think: false },
+]);
 
 /** `what` : texte, ou fonction appelée à l'échec (dernier état observé). */
 async function waitUntil(check, what, timeoutMs = 10000) {
@@ -161,11 +174,25 @@ async function waitUntil(check, what, timeoutMs = 10000) {
   }
 }
 
-/** Corps des /api/chat reçus par le faux serveur, d'un modèle. */
-async function requestsOf(model) {
-  const response = await fetch(new URL("/fake/requests", fake.url));
-  return (await response.json()).filter((request) => request.model === model);
-}
+/** Corps des demandes de chat reçues par l'instance du modèle `model`. */
+const requestsOf = (model) => engine.chatRequests(model);
+
+/** Texte d'un message envoyé au moteur (contenu simple ou parties). */
+const textOf = (message) =>
+  typeof message.content === "string"
+    ? message.content
+    : message.content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("");
+
+/** Images (base64) d'un message envoyé au moteur. */
+const imagesOf = (message) =>
+  typeof message.content === "string"
+    ? []
+    : message.content
+        .filter((part) => part.type === "image_url")
+        .map((part) => part.image_url.url.split(";base64,")[1]);
 
 const exists = (driver, css) =>
   driver.execute("return document.querySelector(arguments[0]) !== null", [css]);
@@ -233,12 +260,7 @@ async function reload(driver) {
   await driver.execute(WATCH_PAGE);
 }
 
-const shownModel = (driver) =>
-  driver.execute(
-    "return document.querySelector('[title=\"Select model\"]')?.textContent ?? null",
-  );
-
-/** Choisit un modèle (absent du serveur) par le réglage, puis recharge. */
+/** Choisit un modèle par le réglage, puis recharge. */
 async function useModel(driver, model) {
   assert.ok(await shownModel(driver), "aucun modèle affiché avant useModel");
   await driver.invoke("update_settings", { patch: { selectedModel: model } });
@@ -421,12 +443,12 @@ const shotOnFailure = (name, fn) => async (driver) => {
   }
 };
 
-/** Message envoyé à chatonlm-vision, et son texte attendu dans la requête. */
+/** Message envoyé au modèle à vision, et son texte attendu dans la requête. */
 const VISION_TEXT = "Describe these files.";
 const PLAIN_TEXT = "What is in the files?";
 const notesFrame = `\n--- File: notes.txt ---\n${NOTES}\n--- End of notes.txt ---`;
 
-/** Message envoyé à chatonlm-vision tel qu'affiché, avant et après relecture. */
+/** Message envoyé au modèle à vision tel qu'affiché, avant et après relecture. */
 function isVisionMessage(message) {
   return (
     message.text === VISION_TEXT &&
@@ -443,13 +465,13 @@ try {
     binary,
     {
       name: "attachments",
-      env: { OLLAMA_HOST: fake.url, CHATONLM_E2E_PICK_FILE: PICKS },
+      env: { ...engine.env, CHATONLM_E2E_PICK_FILE: PICKS },
     },
     shotOnFailure("attachments", async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
       // Modèle de secours écrit par la page (session neuve) avant tout choix.
       await waitUntil(
-        async () => (await shownModel(driver)) === "qwen3:0.6b",
+        async () => (await shownModel(driver)) === DEFAULT,
         "modèle par défaut",
       );
 
@@ -469,7 +491,7 @@ try {
       );
       await driver.execute("window.__csp = []");
 
-      await useModel(driver, "chatonlm-vision");
+      await useModel(driver, VISION);
 
       // Fichiers acceptés, en pastilles dans l'ordre du choix ; vignettes
       // chargées par chatonlm:// sous la CSP de production.
@@ -532,7 +554,7 @@ try {
       assert.equal(state.sendDisabled, true, "Send actif malgré une erreur");
       await focusTextarea(driver);
       await pressKeys("enter", { settleMs: 1000 });
-      assert.equal((await requestsOf("chatonlm-vision")).length, 0);
+      assert.equal((await requestsOf(VISION)).length, 0);
       assert.ok(await exists(driver, "[data-testid=new-chat]"));
       assert.deepEqual(await driver.invoke("list_chats"), []);
       assert.equal(await textareaValue(driver), VISION_TEXT);
@@ -593,22 +615,23 @@ try {
       await focusTextarea(driver);
       await pressKeys("enter");
       await driver.waitFor("[data-testid=chat]");
-      await waitReply(driver, '"Hi!"');
+      await waitReply(driver, "Hi!");
       const chatId = await currentChatId(driver);
       assert.ok(chatId, "conversation créée");
 
-      // Requête reçue par Ollama : texte des fichiers encadré dans content,
-      // image en base64 dans images.
-      const visionRequests = await requestsOf("chatonlm-vision");
+      // Requête reçue par le moteur : texte des fichiers encadré dans la
+      // partie texte, image en data URL base64 dans une partie image_url.
+      const visionRequests = await requestsOf(VISION);
       assert.equal(visionRequests.length, 1);
       const sent = visionRequests[0].messages.at(-1);
       assert.equal(sent.role, "user");
       const head = `${VISION_TEXT}${notesFrame}\n--- File: brief.pdf ---\n`;
+      const sentText = textOf(sent);
       assert.ok(
-        sent.content.startsWith(head),
+        sentText.startsWith(head),
         `content : ${JSON.stringify(sent.content)}`,
       );
-      const pdfText = sent.content.slice(head.length);
+      const pdfText = sentText.slice(head.length);
       assert.ok(
         pdfText.endsWith("\n--- End of brief.pdf ---"),
         `content : ${JSON.stringify(sent.content)}`,
@@ -617,7 +640,7 @@ try {
         pdfText.slice(0, -"\n--- End of brief.pdf ---".length).trim(),
         PDF_LINE,
       );
-      assert.deepEqual(sent.images, [RED.toString("base64")]);
+      assert.deepEqual(imagesOf(sent), [RED.toString("base64")]);
 
       // Message affiché : vignette chargée au-dessus de la bulle, pastilles
       // des autres fichiers dans la bulle ; pièces jointes en base.
@@ -676,7 +699,7 @@ try {
       // Modèle sans vision (capacité completion seule) : image en rouge avec
       // l'avertissement officiel ; l'envoi reste permis.
       await newChat(driver);
-      await useModel(driver, "chatonlm-plain");
+      await useModel(driver, PLAIN);
       pick("notes.txt", "red.png");
       await clickPlus(driver);
       state = await waitComposer(
@@ -703,11 +726,11 @@ try {
       );
       await driver.waitFor("[data-testid=chat]");
       await waitReply(driver, "Received think=absent.");
-      const plainRequests = await requestsOf("chatonlm-plain");
+      const plainRequests = await requestsOf(PLAIN);
       assert.equal(plainRequests.length, 1);
       const plainSent = plainRequests[0].messages.at(-1);
       assert.equal(plainSent.content, `${PLAIN_TEXT}${notesFrame}`);
-      assert.equal(plainSent.images, undefined, "image envoyée sans vision");
+      assert.deepEqual(imagesOf(plainSent), [], "image envoyée sans vision");
       message = await waitSent(
         driver,
         (m) =>
@@ -752,14 +775,15 @@ try {
     }),
   );
 
-  // Vrai sélecteur GTK : pas de crochet. Même base : chatonlm-plain relu.
+  // Vrai sélecteur GTK : pas de crochet. Même base : le modèle sans vision
+  // relu.
   await withApp(
     binary,
-    { name: "attachments-picker", env: { OLLAMA_HOST: fake.url } },
+    { name: "attachments-picker", env: engine.env },
     shotOnFailure("attachments-picker", async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
       await waitUntil(
-        async () => (await shownModel(driver)) === "chatonlm-plain",
+        async () => (await shownModel(driver)) === PLAIN,
         "modèle choisi relu",
       );
       await driver.execute(WATCH_PAGE);
@@ -823,7 +847,6 @@ try {
     }),
   );
 } finally {
-  await fake.stop();
   chmodSync(file("locked.txt"), 0o600);
 }
 

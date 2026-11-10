@@ -15,7 +15,7 @@ crate-type = ["rlib"]
 
 [workspace]
 # Outils de test ; src-tauri reste la racine (target/ et Cargo.lock ici).
-members = ["crates/easy-link", "crates/fake-llama", "crates/fake-ollama", "crates/relay-proto", "crates/relay-server", "crates/speech-text", "crates/windows-tray"]
+members = ["crates/easy-link", "crates/fake-llama", "crates/fake-services", "crates/relay-proto", "crates/relay-server", "crates/speech-text", "crates/windows-tray"]
 
 [features]
 # Essais de l'app réelle uniquement (scripts/e2e-build.sh) : embarque un serveur
@@ -126,7 +126,7 @@ tokio-util = "0.7.19"
 # Whisper (whisper.cpp compilé par cmake).
 transcribe-rs = { version = "0.3.12", features = ["onnx", "whisper-cpp"] }
 # « macros » pour tokio::select! (moteur de chat) : sans elle, seul un build de
-# tout l'espace de travail compilait, grâce aux fonctionnalités de fake-ollama.
+# tout l'espace de travail compilait, grâce aux fonctionnalités de fake-services.
 # « process » : extraction des PDF dans un processus enfant.
 tokio = { version = "1.53.2", features = ["io-util", "macros", "net", "process", "sync", "time"] }
 ts-rs = "12.0.1"
@@ -245,7 +245,7 @@ opt-level = 3
 
 [dev-dependencies]
 easy-link = { path = "crates/easy-link", features = ["fake"] }
-fake-ollama = { path = "crates/fake-ollama" }
+fake-services = { path = "crates/fake-services" }
 # Faux llama-server des essais du client d'inférence (et du moteur, L3).
 fake-llama = { path = "crates/fake-llama" }
 # Vrai relais avec de faux fournisseurs de recherche (essais du client).

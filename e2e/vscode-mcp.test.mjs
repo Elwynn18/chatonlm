@@ -5,7 +5,7 @@
 // client MCP minimal en Node lance vscode/dist/mcp.cjs avec une séance à lui :
 // sans fichier de fenêtre, tout outil est refusé ; ce fichier écrit comme le
 // ferait une fenêtre, `initialize`, `tools/list` (les cinq outils),
-// `tools/call chatonlm_models` (le modèle local, pas le cloud), journal
+// `tools/call chatonlm_models` (les modèles locaux seulement), journal
 // d'activité écrit. Couper le réglage retire l'accès dans l'app
 // (`agents.revoke`) puis efface le fichier : l'outil est refusé, et le même
 // accès remis sur le disque est refusé par l'app.
@@ -24,7 +24,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { findDiscovery } from "./lib/bridge.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { chooseModel, prepare, waitUntil } from "./lib/vscodium.mjs";
 
 const binary = process.argv[2];
@@ -70,7 +70,8 @@ function mcpClient(stateDir, session) {
   };
 }
 
-const fake = await startFake("ollama");
+const MODEL = fakeModel("simple");
+const engine = startEngine([MODEL]);
 const codium = prepare("vscode-mcp", { "sample.js": "// mcp\n" });
 const stateDir = join(
   codium.run,
@@ -80,10 +81,10 @@ const credentials = join(stateDir, "credentials.json");
 try {
   await withApp(
     binary,
-    { name: "vscode-mcp", env: { OLLAMA_HOST: fake.url } },
+    { name: "vscode-mcp", env: engine.env },
     async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
-      await chooseModel(driver, "qwen3:0.6b");
+      await chooseModel(driver, MODEL);
       await driver.invoke("bridge_set_enabled", { enabled: true });
       const { pairing } = await driver.invoke("bridge_pair");
       const found = await waitUntil(findDiscovery, "bridge.json");
@@ -150,8 +151,9 @@ try {
         });
         assert.ok(!models.result.isError, JSON.stringify(models));
         const listed = JSON.parse(models.result.content[0].text);
-        assert.ok(listed.models.some((m) => m.name === "qwen3:0.6b"));
-        assert.ok(listed.models.every((m) => !/cloud$/.test(m.name)));
+        assert.ok(listed.models.some((m) => m.name === MODEL));
+        // Aucun modèle distant : seulement ceux inscrits au moteur.
+        assert.ok(listed.models.every((m) => engine.ids.includes(m.name)));
         const log = readdirSync(stateDir).find(
           (f) => f === `activity-${session}.jsonl`,
         );
@@ -199,6 +201,5 @@ try {
   );
   console.log("✓ vscode-mcp");
 } finally {
-  await fake.stop();
   codium.finish();
 }

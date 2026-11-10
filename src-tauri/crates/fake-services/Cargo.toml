@@ -1,7 +1,7 @@
 [package]
-name = "fake-ollama"
+name = "fake-services"
 version = "0.1.0"
-description = "Faux serveur Ollama pour les tests de ChatonLM"
+description = "Faux services (Hugging Face, sd-server) pour les essais de ChatonLM"
 license = "MIT"
 edition = "2024"
 publish = false

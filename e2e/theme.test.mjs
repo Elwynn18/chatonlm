@@ -13,11 +13,11 @@ import {
   restoreTheme,
   unreadable,
 } from "./lib/contrast.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 
 const binary = process.argv[2];
-const fake = await startFake("ollama");
-const env = { OLLAMA_HOST: fake.url };
+const engine = startEngine([fakeModel("simple")]);
+const env = engine.env;
 
 const state = (driver) =>
   driver.execute(`return {
@@ -65,7 +65,6 @@ const SCREENS = [
   ["settings", "nav a[href$='/settings']", "[data-testid=settings]"],
   ...[
     "models",
-    "account",
     "dictation",
     "readAloud",
     "voiceMode",
@@ -119,20 +118,16 @@ async function checkContrast() {
   );
 }
 
-try {
-  await launchWith("dark", (s) => {
-    assert.equal(s.dark, true);
-    assert.equal(s.scheme, "dark");
-  });
-  await launchWith("light", (s) => {
-    assert.equal(s.dark, false);
-    assert.equal(s.scheme, "light");
-  });
-  await launchWith("system", (s) => {
-    assert.equal(s.dark, s.systemDark);
-    assert.equal(s.scheme, "light dark");
-  });
-  await checkContrast();
-} finally {
-  await fake.stop();
-}
+await launchWith("dark", (s) => {
+  assert.equal(s.dark, true);
+  assert.equal(s.scheme, "dark");
+});
+await launchWith("light", (s) => {
+  assert.equal(s.dark, false);
+  assert.equal(s.scheme, "light");
+});
+await launchWith("system", (s) => {
+  assert.equal(s.dark, s.systemDark);
+  assert.equal(s.scheme, "light dark");
+});
+await checkContrast();

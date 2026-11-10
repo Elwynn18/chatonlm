@@ -1,5 +1,5 @@
 // Chaton en caoutchouc dans un vrai éditeur (VSCodium, e2e/lib/vscodium.mjs)
-// face à l'app réelle (build e2e), au faux Ollama (chatonlm-voice), à la vraie
+// face à l'app réelle (build e2e), au faux moteur (chatonlm-voice), à la vraie
 // transcription (Parakeet) et au faux micro de l'app :
 // - « Talk it through » dans le panneau : l'app ouvre son micro pour VS Code
 //   (séance marquée « editor ») ; la phrase du faux micro est transcrite,
@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { withApp } from "./lib/app.mjs";
 import { findDiscovery } from "./lib/bridge.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import {
   PARAKEET,
   PHRASES,
@@ -41,7 +41,8 @@ assert.ok(
 );
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const fake = await startFake("ollama");
+const VOICE = fakeModel("voice");
+const engine = startEngine([{ id: VOICE, think: true }]);
 const codium = prepare("vscode-duck", {
   "sample.js": "function add(a, b) {\n  return a - b;\n}\n",
 });
@@ -60,7 +61,7 @@ try {
     {
       name: "vscode-duck",
       env: {
-        OLLAMA_HOST: fake.url,
+        ...engine.env,
         CHATONLM_NO_GLOBAL_SHORTCUTS: "1",
         CHATONLM_E2E_VOICE_MIC: JSON.stringify([
           { on: "listening", wav: phrase.wav, delayMs: 300 },
@@ -72,7 +73,7 @@ try {
       await driver.invoke("update_dictation_settings", {
         patch: { speechModel: PARAKEET, language: "fr" },
       });
-      await chooseModel(driver, "chatonlm-voice");
+      await chooseModel(driver, VOICE);
       await driver.invoke("bridge_set_enabled", { enabled: true });
       const { pairing } = await driver.invoke("bridge_pair");
       const found = await waitUntil(findDiscovery, "bridge.json");
@@ -112,11 +113,7 @@ try {
           90000,
         );
         assert.ok(read.messages[0].content.length > 0, "phrase transcrite");
-        const sent = (
-          await (await fetch(new URL("/fake/requests", fake.url))).json()
-        )
-          .filter((request) => request.model === "chatonlm-voice")
-          .at(-1);
+        const sent = (await engine.chatRequests(VOICE)).at(-1);
         assert.equal(sent.messages[0].role, "system");
         // Passage ouvert dans l'éditeur, joint en contexte.
         assert.match(sent.messages[0].content, /return a - b/);
@@ -139,6 +136,5 @@ try {
   );
   console.log("✓ vscode-duck");
 } finally {
-  await fake.stop();
   codium.finish();
 }

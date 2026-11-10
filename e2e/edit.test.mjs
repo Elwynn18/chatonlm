@@ -1,9 +1,10 @@
 // Modifier un message dans l'app réelle (build e2e : frontend embarqué, CSP de
-// production), avec le faux serveur et de vraies touches du clavier
+// production), avec le faux moteur et de vraies touches du clavier
 // (e2e/lib/keyboard.mjs : Maj+Tab, Entrée, Échap). Fichiers créés par le test
 // dans le dossier de l'essai (.tools/e2e-runs/run.*/Test Files), joints par
 // « + » sans dialogue (crochet CHATONLM_E2E_PICK_FILE). Vérifié :
-// - conversation à deux échanges avec chatonlm-vision : premier message avec
+// - conversation à deux échanges avec un modèle à vision (scénario
+//   chatonlm-greeter, réponse fixe « Hi! ») : premier message avec
 //   notes.txt et red.png (vraie image PNG), second message sans pièce jointe ;
 // - bouton « edit » : sous chaque message utilisateur, absent des réponses ;
 //   invisible (opacity 0) sans survol ni focus ; atteint par de vraies
@@ -20,9 +21,9 @@
 // - pastille de l'image gardée retirée, todo.md ajouté par « + », texte
 //   changé, vraie touche Entrée : dès l'envoi (MutationObserver sur la liste
 //   des messages), ni le second échange ni l'ancienne réponse ne sont jamais
-//   affichés ; requête /api/chat (GET /fake/requests) : le seul message
-//   modifié (texte nouveau, notes.txt puis todo.md encadrés « --- File: »),
-//   aucune image ; nouvelle réponse ; get_chat : deux messages (le modifié,
+//   affichés ; requête au faux moteur (/fake/requests de l'instance) : le
+//   seul message modifié (texte nouveau, notes.txt puis todo.md encadrés
+//   « --- File: »), aucune image ; nouvelle réponse ; get_chat : deux messages (le modifié,
 //   même id, pièces jointes [notes.txt (même id), todo.md], et la réponse) ;
 //   l'image retirée n'est plus servie ; même affichage après un rechargement ;
 // - pendant une réponse (chatonlm-markdown-slow, environ 8 s) : édition du
@@ -36,8 +37,8 @@ import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { ROOT, withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
-import { PENDING_CALLS } from "./lib/page.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
+import { PENDING_CALLS, shownModel } from "./lib/page.mjs";
 import { pressKeys } from "./lib/keyboard.mjs";
 
 const binary = process.argv[2];
@@ -94,12 +95,18 @@ const FIRST_TEXT = "Describe these files.";
 const SECOND_TEXT = "And a second question.";
 const EDITED_TEXT = "Only summarize the text files.";
 const SLOW_TEXT = "Write a long answer.";
-const REPLY = '"Hi!"';
+const REPLY = "Hi!";
 const HINT = "Press ESC to cancel editing";
 const frame = (name, text) =>
   `\n--- File: ${name} ---\n${text}\n--- End of ${name} ---`;
 
-const fake = await startFake("ollama");
+/** Le premier : modèle choisi par défaut. */
+const DEFAULT = fakeModel("simple");
+/** Vision (projecteur inscrit), réponse fixe « Hi! ». */
+const VISION = fakeModel("greeter-vision");
+/** Réponse Markdown écrite lentement (environ 8 s). */
+const SLOW = fakeModel("markdown-slow");
+const engine = startEngine([DEFAULT, { id: VISION, vision: true }, SLOW]);
 
 /** `what` : texte, ou fonction appelée à l'échec (dernier état observé). */
 async function waitUntil(check, what, timeoutMs = 10000) {
@@ -116,11 +123,25 @@ async function waitUntil(check, what, timeoutMs = 10000) {
   }
 }
 
-/** Corps des /api/chat reçus par le faux serveur, d'un modèle. */
-async function requestsOf(model) {
-  const response = await fetch(new URL("/fake/requests", fake.url));
-  return (await response.json()).filter((request) => request.model === model);
-}
+/** Corps des demandes de chat reçues par l'instance du modèle `model`. */
+const requestsOf = (model) => engine.chatRequests(model);
+
+/** Texte d'un message envoyé au moteur (contenu simple ou parties). */
+const textOf = (message) =>
+  typeof message.content === "string"
+    ? message.content
+    : message.content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("");
+
+/** Images (base64) d'un message envoyé au moteur. */
+const imagesOf = (message) =>
+  typeof message.content === "string"
+    ? []
+    : message.content
+        .filter((part) => part.type === "image_url")
+        .map((part) => part.image_url.url.split(";base64,")[1]);
 
 // Violations de la CSP, erreurs et avertissements de la console : notés par
 // la page (écouteurs reposés après chaque rechargement), relevés avant chaque
@@ -185,12 +206,7 @@ async function reload(driver) {
   await driver.execute(WATCH_PAGE);
 }
 
-const shownModel = (driver) =>
-  driver.execute(
-    "return document.querySelector('[title=\"Select model\"]')?.textContent ?? null",
-  );
-
-/** Choisit un modèle (absent du serveur) par le réglage, puis recharge. */
+/** Choisit un modèle par le réglage, puis recharge. */
 async function useModel(driver, model) {
   assert.ok(await shownModel(driver), "aucun modèle affiché avant useModel");
   await driver.invoke("update_settings", { patch: { selectedModel: model } });
@@ -422,422 +438,396 @@ const OBSERVE_LIST = `
   window.__listObserver = new MutationObserver(snapshot);
   window.__listObserver.observe(list, { childList: true, subtree: true, characterData: true });`;
 
-try {
-  await withApp(
-    binary,
-    {
-      name: "edit",
-      env: { OLLAMA_HOST: fake.url, CHATONLM_E2E_PICK_FILE: PICKS },
-    },
-    shotOnFailure("edit", async (driver) => {
-      await driver.waitFor("[data-testid=new-chat]");
-      await waitUntil(
-        async () => (await shownModel(driver)) === "qwen3:0.6b",
-        "modèle par défaut",
-      );
+await withApp(
+  binary,
+  {
+    name: "edit",
+    env: { ...engine.env, CHATONLM_E2E_PICK_FILE: PICKS },
+  },
+  shotOnFailure("edit", async (driver) => {
+    await driver.waitFor("[data-testid=new-chat]");
+    await waitUntil(
+      async () => (await shownModel(driver)) === DEFAULT,
+      "modèle par défaut",
+    );
 
-      // Écouteur de la CSP, vérifié sur un script en ligne refusé.
-      await driver.execute(WATCH_PAGE);
-      await driver.execute(`
+    // Écouteur de la CSP, vérifié sur un script en ligne refusé.
+    await driver.execute(WATCH_PAGE);
+    await driver.execute(`
         const script = document.createElement("script");
         script.textContent = "window.__inline = true";
         document.head.append(script);`);
-      await waitUntil(
-        async () => (await driver.execute("return window.__csp.length")) > 0,
-        "violation témoin de la CSP",
-      );
-      assert.equal(
-        await driver.execute("return typeof window.__inline"),
-        "undefined",
-      );
-      await driver.execute("window.__csp = []");
+    await waitUntil(
+      async () => (await driver.execute("return window.__csp.length")) > 0,
+      "violation témoin de la CSP",
+    );
+    assert.equal(
+      await driver.execute("return typeof window.__inline"),
+      "undefined",
+    );
+    await driver.execute("window.__csp = []");
 
-      await useModel(driver, "chatonlm-vision");
+    await useModel(driver, VISION);
 
-      // 1. Deux échanges : le premier avec notes.txt et red.png.
-      pick("notes.txt", "red.png");
-      await clickPlus(driver);
-      await waitComposer(
-        driver,
-        (s) =>
-          s.files.length === 2 && s.reading === 0 && s.files[1].image?.loaded,
-        "pastilles du premier message",
-      );
-      await driver.type(await driver.waitFor(TEXTAREA), FIRST_TEXT);
-      await focusTextarea(driver);
-      await pressKeys("enter");
-      await driver.waitFor("[data-testid=chat]");
-      await waitMessages(
-        driver,
-        (m) =>
-          m.length === 2 &&
-          m[1].text === REPLY &&
-          m[0].edit !== null &&
-          m[0].images[0]?.loaded,
-        "premier échange",
-      );
-      await waitComposer(
-        driver,
-        (s) => s.button === "Send message",
-        "fin de la première réponse",
-      );
-      const chatId = await currentChatId(driver);
-      assert.ok(chatId, "conversation créée");
-
-      await driver.type(await driver.waitFor(TEXTAREA), SECOND_TEXT);
-      await focusTextarea(driver);
-      await pressKeys("enter");
-      let messages = await waitMessages(
-        driver,
-        (m) =>
-          m.length === 4 &&
-          m[2].text === SECOND_TEXT &&
-          m[3].text === REPLY &&
-          m[2].edit !== null,
-        "second échange",
-      );
-      await waitComposer(
-        driver,
-        (s) => s.button === "Send message",
-        "fin de la seconde réponse",
-      );
-      let saved = (await driver.invoke("get_chat", { id: chatId })).messages;
-      assert.deepEqual(
-        saved.map((m) => [m.role, m.content]),
-        [
-          ["user", FIRST_TEXT],
-          ["assistant", REPLY],
-          ["user", SECOND_TEXT],
-          ["assistant", REPLY],
-        ],
-      );
-      const firstId = saved[0].id;
-      const [notes, red] = saved[0].attachments;
-      assert.deepEqual(
-        [notes.filename, red.filename],
-        ["notes.txt", "red.png"],
-      );
-      const redUrl = `chatonlm://localhost/attachment/${red.id}`;
-      assert.equal(messages[0].images[0].src, redUrl);
-      assert.equal((await requestsOf("chatonlm-vision")).length, 2);
-
-      // 2. Bouton « edit » : sous chaque message utilisateur, jamais sous une
-      // réponse ; invisible sans survol ni focus.
-      assert.deepEqual(
-        messages.map((m) => m.role),
-        ["user", "assistant", "user", "assistant"],
-      );
-      for (const message of messages) {
-        if (message.role === "assistant") {
-          assert.equal(message.edit, null, "bouton « edit » sous une réponse");
-          continue;
-        }
-        assert.equal(message.edit.text, "edit");
-        assert.equal(message.edit.hovered, false, "bulle survolée");
-        assert.equal(message.edit.focused, false);
-        assert.equal(message.edit.opacity, "0", "« edit » visible au repos");
-        assert.equal(message.opacity, "1");
-      }
-      assert.equal(
-        await driver.execute(
-          `return [...document.querySelectorAll(".edit-button")]
-             .filter((button) => !button.closest("[data-role=user]")).length`,
-        ),
-        0,
-        "bouton « edit » hors d'une bulle",
-      );
-
-      // Atteint au clavier : vraies touches Maj+Tab depuis la zone de saisie
-      // (copie de la seconde réponse, puis « edit » du second message) ;
-      // focus visible.
-      await shiftTabToEdit(driver, 2);
-      messages = await messagesState(driver);
-      assert.equal(messages[2].edit.focused, true);
-      assert.equal(messages[2].edit.focusVisible, true);
-      assert.equal(
-        messages[2].edit.opacity,
-        "1",
-        "« edit » invisible au focus",
-      );
-      assert.equal(messages[0].edit.opacity, "0");
-      // Puis celui du premier message.
-      await shiftTabToEdit(driver, 0);
-      messages = await messagesState(driver);
-      assert.equal(messages[0].edit.focused, true);
-      assert.equal(messages[0].edit.focusVisible, true);
-      assert.equal(
-        messages[0].edit.opacity,
-        "1",
-        "« edit » invisible au focus",
-      );
-      assert.equal(messages[2].edit.opacity, "0");
-      await driver.screenshot(".tools/shots/edit-focus.png");
-
-      // Clic (JS) sur « edit » du premier message : zone de saisie remplie et
-      // focalisée, indication, pastilles gardées avec la vignette de l'image
-      // enregistrée ; lui et tous les suivants estompés.
-      await driver.click(await editButton(driver, 0));
-      await waitEditingFirst(driver, redUrl);
-      messages = await waitMessages(
-        driver,
-        (m) =>
-          m.length === 4 && m.every((message) => message.opacity === "0.5"),
-        "messages estompés",
-      );
-      assert.equal(messages[0].edit.opacity, "0.3");
-      assert.equal(messages[2].edit.opacity, "0.3");
-      assert.equal(
-        messages[0].text,
-        FIRST_TEXT,
-        "message modifié avant l'envoi",
-      );
-      await driver.screenshot(".tools/shots/edit-editing.png");
-
-      // 3. Vraie touche Échap : édition annulée.
-      await pressKeys("escape");
-      let state = await waitComposer(
-        driver,
-        (s) => s.value === "" && s.hint === 0 && s.files.length === 0,
-        "édition annulée",
-      );
-      assert.equal(state.focused, true);
-      messages = await waitMessages(
-        driver,
-        (m) => m.length === 4 && m.every((message) => message.opacity === "1"),
-        "messages plus estompés",
-      );
-      assert.equal(messages[0].edit.opacity, "0");
-      assert.equal(messages[0].text, FIRST_TEXT);
-      // Rien n'a changé : l'image du message reste servie.
-      assert.equal(await imageLoads(driver, redUrl), true);
-      assert.equal((await requestsOf("chatonlm-vision")).length, 2);
-
-      // Édition reprise au clavier : Maj+Tab jusqu'au bouton, vraie Entrée.
-      await shiftTabToEdit(driver, 0);
-      await pressKeys("enter");
-      await waitEditingFirst(driver, redUrl);
-      await waitMessages(
-        driver,
-        (m) =>
-          m.length === 4 && m.every((message) => message.opacity === "0.5"),
-        "messages estompés (édition reprise)",
-      );
-
-      // 4. Image gardée retirée, todo.md ajouté, texte changé.
-      await driver.click(
-        await driver.find(
-          "[data-testid=composer-file] button[aria-label='Remove red.png']",
-        ),
-      );
-      await waitComposer(
-        driver,
-        (s) => s.files.length === 1 && s.files[0].name === "notes.txt",
-        "image gardée retirée",
-      );
-      pick("todo.md");
-      await clickPlus(driver);
-      state = await waitComposer(
-        driver,
-        (s) => s.files.length === 2 && s.reading === 0,
-        "todo.md ajouté",
-      );
-      assert.deepEqual(
-        state.files.map((f) => f.name),
-        ["notes.txt", "todo.md"],
-      );
-      assert.equal(state.hint, 1);
-      await driver.clear(await driver.find(TEXTAREA));
-      await driver.type(await driver.find(TEXTAREA), EDITED_TEXT);
-      state = await composerState(driver);
-      assert.equal(state.value, EDITED_TEXT);
-      assert.equal(state.button, "Send message");
-
-      // Envoi par une vraie touche Entrée, la liste des messages observée.
-      await driver.execute(OBSERVE_LIST);
-      await focusTextarea(driver);
-      await pressKeys("enter");
-      await waitMessages(
-        driver,
-        (m) =>
-          m.length === 2 &&
-          m[0].text === EDITED_TEXT &&
-          m[1].text === REPLY &&
-          m[0].edit !== null,
-        "message modifié et nouvelle réponse",
-      );
-      state = await waitComposer(
-        driver,
-        (s) => s.button === "Send message",
-        "fin de la réponse au message modifié",
-      );
-      assert.equal(state.value, "");
-      assert.equal(state.hint, 0, "indication d'édition après l'envoi");
-      assert.deepEqual(state.files, []);
-      const snapshots = await driver.execute(
-        "window.__listObserver.disconnect(); return window.__snapshots;",
-      );
-      assert.ok(snapshots.length > 0, "liste des messages jamais modifiée");
-      // Premier rendu après l'envoi, avant toute réponse : le message
-      // envoyé seul à la place des quatre.
-      assert.deepEqual(
-        snapshots[0],
-        { users: [EDITED_TEXT], replies: 0 },
-        `premier rendu après l'envoi : ${JSON.stringify(snapshots)}`,
-      );
-      for (const snapshot of snapshots) {
-        assert.ok(
-          !snapshot.users.includes(SECOND_TEXT) &&
-            !snapshot.users.includes(FIRST_TEXT) &&
-            snapshot.replies <= 1,
-          `messages remplacés encore affichés après l'envoi : ${JSON.stringify(snapshot)}`,
-        );
-      }
-      assert.ok(
-        snapshots.some((s) => s.users.includes(EDITED_TEXT)),
-        `message modifié jamais affiché : ${JSON.stringify(snapshots)}`,
-      );
-
-      // Requête : le seul message modifié, texte des fichiers encadré dans
-      // l'ordre (gardé puis nouveau), aucune image.
-      const visionRequests = await requestsOf("chatonlm-vision");
-      assert.equal(visionRequests.length, 3);
-      const request = visionRequests[2];
-      assert.equal(
-        request.messages.length,
-        1,
-        JSON.stringify(request.messages),
-      );
-      assert.equal(request.messages[0].role, "user");
-      assert.equal(
-        request.messages[0].content,
-        `${EDITED_TEXT}${frame("notes.txt", NOTES)}${frame("todo.md", TODO)}`,
-      );
-      assert.equal(request.messages[0].images, undefined, "image envoyée");
-      const raw = JSON.stringify(request);
-      assert.ok(!raw.includes(SECOND_TEXT), "second échange envoyé");
-      assert.ok(!raw.includes(RED.toString("base64")), "image envoyée");
-
-      // En base : le message modifié (même id, notes.txt gardé avec son id,
-      // puis todo.md) et la nouvelle réponse, rien d'autre.
-      saved = (await driver.invoke("get_chat", { id: chatId })).messages;
-      assert.deepEqual(
-        saved.map((m) => [m.role, m.content]),
-        [
-          ["user", EDITED_TEXT],
-          ["assistant", REPLY],
-        ],
-      );
-      assert.equal(saved[0].id, firstId, "message modifié : autre id");
-      assert.deepEqual(
-        saved[0].attachments.map((a) => a.filename),
-        ["notes.txt", "todo.md"],
-      );
-      assert.equal(saved[0].attachments[0].id, notes.id);
-      // L'image retirée n'est plus servie (supprimée de la base).
-      await waitUntil(
-        async () => !(await imageLoads(driver, redUrl)),
-        "image retirée toujours servie",
-      );
-
-      // Affichage : celui de la base, sans estompage.
-      const isEditedView = (m) =>
+    // 1. Deux échanges : le premier avec notes.txt et red.png.
+    pick("notes.txt", "red.png");
+    await clickPlus(driver);
+    await waitComposer(
+      driver,
+      (s) =>
+        s.files.length === 2 && s.reading === 0 && s.files[1].image?.loaded,
+      "pastilles du premier message",
+    );
+    await driver.type(await driver.waitFor(TEXTAREA), FIRST_TEXT);
+    await focusTextarea(driver);
+    await pressKeys("enter");
+    await driver.waitFor("[data-testid=chat]");
+    await waitMessages(
+      driver,
+      (m) =>
         m.length === 2 &&
-        m[0].role === "user" &&
-        m[0].text === EDITED_TEXT &&
-        JSON.stringify(m[0].files) ===
-          JSON.stringify(["notes.txt", "todo.md"]) &&
-        m[0].images.length === 0 &&
-        m[0].edit?.opacity === "0" &&
-        m[1].role === "assistant" &&
         m[1].text === REPLY &&
-        m[1].edit === null &&
-        m.every((message) => message.opacity === "1");
-      await waitMessages(driver, isEditedView, "conversation modifiée");
-      await driver.screenshot(".tools/shots/edit-sent.png");
+        m[0].edit !== null &&
+        m[0].images[0]?.loaded,
+      "premier échange",
+    );
+    await waitComposer(
+      driver,
+      (s) => s.button === "Send message",
+      "fin de la première réponse",
+    );
+    const chatId = await currentChatId(driver);
+    assert.ok(chatId, "conversation créée");
 
-      // Après un rechargement : même affichage.
-      await reload(driver);
-      await driver.waitFor("[data-testid=chat]");
-      assert.equal(await currentChatId(driver), chatId);
-      await waitMessages(driver, isEditedView, "conversation modifiée relue");
+    await driver.type(await driver.waitFor(TEXTAREA), SECOND_TEXT);
+    await focusTextarea(driver);
+    await pressKeys("enter");
+    let messages = await waitMessages(
+      driver,
+      (m) =>
+        m.length === 4 &&
+        m[2].text === SECOND_TEXT &&
+        m[3].text === REPLY &&
+        m[2].edit !== null,
+      "second échange",
+    );
+    await waitComposer(
+      driver,
+      (s) => s.button === "Send message",
+      "fin de la seconde réponse",
+    );
+    let saved = (await driver.invoke("get_chat", { id: chatId })).messages;
+    assert.deepEqual(
+      saved.map((m) => [m.role, m.content]),
+      [
+        ["user", FIRST_TEXT],
+        ["assistant", REPLY],
+        ["user", SECOND_TEXT],
+        ["assistant", REPLY],
+      ],
+    );
+    const firstId = saved[0].id;
+    const [notes, red] = saved[0].attachments;
+    assert.deepEqual([notes.filename, red.filename], ["notes.txt", "red.png"]);
+    const redUrl = `chatonlm://localhost/attachment/${red.id}`;
+    assert.equal(messages[0].images[0].src, redUrl);
+    assert.equal((await requestsOf(VISION)).length, 2);
 
-      // 5. Pendant une réponse (chatonlm-markdown-slow, environ 8 s).
-      const disconnectsBefore = await fake.disconnects();
-      await newChat(driver);
-      await useModel(driver, "chatonlm-markdown-slow");
-      await driver.type(await driver.waitFor(TEXTAREA), SLOW_TEXT);
-      await focusTextarea(driver);
-      await pressKeys("enter");
-      await driver.waitFor("[data-testid=chat]");
-      await waitMessages(
-        driver,
-        (m) =>
-          m.length === 2 &&
-          m[0].text === SLOW_TEXT &&
-          m[0].edit !== null &&
-          (m[1].text ?? "").length > 0,
-        "réponse lente commencée",
-      );
-      assert.equal((await composerState(driver)).button, "Stop");
+    // 2. Bouton « edit » : sous chaque message utilisateur, jamais sous une
+    // réponse ; invisible sans survol ni focus.
+    assert.deepEqual(
+      messages.map((m) => m.role),
+      ["user", "assistant", "user", "assistant"],
+    );
+    for (const message of messages) {
+      if (message.role === "assistant") {
+        assert.equal(message.edit, null, "bouton « edit » sous une réponse");
+        continue;
+      }
+      assert.equal(message.edit.text, "edit");
+      assert.equal(message.edit.hovered, false, "bulle survolée");
+      assert.equal(message.edit.focused, false);
+      assert.equal(message.edit.opacity, "0", "« edit » visible au repos");
+      assert.equal(message.opacity, "1");
+    }
+    assert.equal(
+      await driver.execute(
+        `return [...document.querySelectorAll(".edit-button")]
+             .filter((button) => !button.closest("[data-role=user]")).length`,
+      ),
+      0,
+      "bouton « edit » hors d'une bulle",
+    );
 
-      // Édition du message en cours de réponse.
-      await driver.click(await editButton(driver, 0));
-      state = await waitComposer(
-        driver,
-        (s) => s.value === SLOW_TEXT && s.hint === 1,
-        "mode édition pendant la réponse",
-      );
-      assert.equal(state.focused, true);
-      assert.equal(state.button, "Stop");
+    // Atteint au clavier : vraies touches Maj+Tab depuis la zone de saisie
+    // (copie de la seconde réponse, puis « edit » du second message) ;
+    // focus visible.
+    await shiftTabToEdit(driver, 2);
+    messages = await messagesState(driver);
+    assert.equal(messages[2].edit.focused, true);
+    assert.equal(messages[2].edit.focusVisible, true);
+    assert.equal(messages[2].edit.opacity, "1", "« edit » invisible au focus");
+    assert.equal(messages[0].edit.opacity, "0");
+    // Puis celui du premier message.
+    await shiftTabToEdit(driver, 0);
+    messages = await messagesState(driver);
+    assert.equal(messages[0].edit.focused, true);
+    assert.equal(messages[0].edit.focusVisible, true);
+    assert.equal(messages[0].edit.opacity, "1", "« edit » invisible au focus");
+    assert.equal(messages[2].edit.opacity, "0");
+    await driver.screenshot(".tools/shots/edit-focus.png");
 
-      // Vraie touche Entrée : rien n'est envoyé, l'édition reste.
-      await pressKeys("enter", { settleMs: 400 });
-      state = await composerState(driver);
-      assert.equal(state.value, SLOW_TEXT, "texte changé par Entrée");
-      assert.equal(state.hint, 1, "édition quittée par Entrée");
-      assert.equal(state.button, "Stop", "réponse finie trop tôt (Entrée)");
-      assert.equal((await requestsOf("chatonlm-markdown-slow")).length, 1);
-      messages = await messagesState(driver);
-      assert.equal(messages.length, 2);
-      assert.equal(messages[0].text, SLOW_TEXT);
+    // Clic (JS) sur « edit » du premier message : zone de saisie remplie et
+    // focalisée, indication, pastilles gardées avec la vignette de l'image
+    // enregistrée ; lui et tous les suivants estompés.
+    await driver.click(await editButton(driver, 0));
+    await waitEditingFirst(driver, redUrl);
+    messages = await waitMessages(
+      driver,
+      (m) => m.length === 4 && m.every((message) => message.opacity === "0.5"),
+      "messages estompés",
+    );
+    assert.equal(messages[0].edit.opacity, "0.3");
+    assert.equal(messages[2].edit.opacity, "0.3");
+    assert.equal(messages[0].text, FIRST_TEXT, "message modifié avant l'envoi");
+    await driver.screenshot(".tools/shots/edit-editing.png");
 
-      // Échap : édition annulée, la réponse continue.
-      const beforeEscape = (await lastReply(driver)).length;
-      await pressKeys("escape");
-      state = await waitComposer(
-        driver,
-        (s) => s.value === "" && s.hint === 0,
-        "édition annulée pendant la réponse",
-      );
-      assert.equal(state.button, "Stop", "réponse arrêtée par la 1re Échap");
-      await waitUntil(
-        async () => (await lastReply(driver)).length > beforeEscape,
-        "réponse figée après la 1re Échap",
-      );
-      assert.equal((await composerState(driver)).button, "Stop");
-      assert.equal(await fake.disconnects(), disconnectsBefore);
+    // 3. Vraie touche Échap : édition annulée.
+    await pressKeys("escape");
+    let state = await waitComposer(
+      driver,
+      (s) => s.value === "" && s.hint === 0 && s.files.length === 0,
+      "édition annulée",
+    );
+    assert.equal(state.focused, true);
+    messages = await waitMessages(
+      driver,
+      (m) => m.length === 4 && m.every((message) => message.opacity === "1"),
+      "messages plus estompés",
+    );
+    assert.equal(messages[0].edit.opacity, "0");
+    assert.equal(messages[0].text, FIRST_TEXT);
+    // Rien n'a changé : l'image du message reste servie.
+    assert.equal(await imageLoads(driver, redUrl), true);
+    assert.equal((await requestsOf(VISION)).length, 2);
 
-      // Seconde Échap : la réponse s'arrête (flux abandonné par l'app).
-      await pressKeys("escape");
-      await waitComposer(
-        driver,
-        (s) => s.button === "Send message",
-        "réponse pas arrêtée par la 2e Échap",
+    // Édition reprise au clavier : Maj+Tab jusqu'au bouton, vraie Entrée.
+    await shiftTabToEdit(driver, 0);
+    await pressKeys("enter");
+    await waitEditingFirst(driver, redUrl);
+    await waitMessages(
+      driver,
+      (m) => m.length === 4 && m.every((message) => message.opacity === "0.5"),
+      "messages estompés (édition reprise)",
+    );
+
+    // 4. Image gardée retirée, todo.md ajouté, texte changé.
+    await driver.click(
+      await driver.find(
+        "[data-testid=composer-file] button[aria-label='Remove red.png']",
+      ),
+    );
+    await waitComposer(
+      driver,
+      (s) => s.files.length === 1 && s.files[0].name === "notes.txt",
+      "image gardée retirée",
+    );
+    pick("todo.md");
+    await clickPlus(driver);
+    state = await waitComposer(
+      driver,
+      (s) => s.files.length === 2 && s.reading === 0,
+      "todo.md ajouté",
+    );
+    assert.deepEqual(
+      state.files.map((f) => f.name),
+      ["notes.txt", "todo.md"],
+    );
+    assert.equal(state.hint, 1);
+    await driver.clear(await driver.find(TEXTAREA));
+    await driver.type(await driver.find(TEXTAREA), EDITED_TEXT);
+    state = await composerState(driver);
+    assert.equal(state.value, EDITED_TEXT);
+    assert.equal(state.button, "Send message");
+
+    // Envoi par une vraie touche Entrée, la liste des messages observée.
+    await driver.execute(OBSERVE_LIST);
+    await focusTextarea(driver);
+    await pressKeys("enter");
+    await waitMessages(
+      driver,
+      (m) =>
+        m.length === 2 &&
+        m[0].text === EDITED_TEXT &&
+        m[1].text === REPLY &&
+        m[0].edit !== null,
+      "message modifié et nouvelle réponse",
+    );
+    state = await waitComposer(
+      driver,
+      (s) => s.button === "Send message",
+      "fin de la réponse au message modifié",
+    );
+    assert.equal(state.value, "");
+    assert.equal(state.hint, 0, "indication d'édition après l'envoi");
+    assert.deepEqual(state.files, []);
+    const snapshots = await driver.execute(
+      "window.__listObserver.disconnect(); return window.__snapshots;",
+    );
+    assert.ok(snapshots.length > 0, "liste des messages jamais modifiée");
+    // Premier rendu après l'envoi, avant toute réponse : le message
+    // envoyé seul à la place des quatre.
+    assert.deepEqual(
+      snapshots[0],
+      { users: [EDITED_TEXT], replies: 0 },
+      `premier rendu après l'envoi : ${JSON.stringify(snapshots)}`,
+    );
+    for (const snapshot of snapshots) {
+      assert.ok(
+        !snapshot.users.includes(SECOND_TEXT) &&
+          !snapshot.users.includes(FIRST_TEXT) &&
+          snapshot.replies <= 1,
+        `messages remplacés encore affichés après l'envoi : ${JSON.stringify(snapshot)}`,
       );
-      await waitUntil(
-        async () => (await fake.disconnects()) === disconnectsBefore + 1,
-        "flux pas abandonné après la 2e Échap",
-      );
-      const stopped = await lastReply(driver);
-      await delay(600);
-      assert.equal(await lastReply(driver), stopped, "réponse pas figée");
-      assert.equal((await requestsOf("chatonlm-markdown-slow")).length, 1);
-      await collectViolations(driver);
-    }),
-  );
-} finally {
-  await fake.stop();
-}
+    }
+    assert.ok(
+      snapshots.some((s) => s.users.includes(EDITED_TEXT)),
+      `message modifié jamais affiché : ${JSON.stringify(snapshots)}`,
+    );
+
+    // Requête : le seul message modifié, texte des fichiers encadré dans
+    // l'ordre (gardé puis nouveau), aucune image.
+    const visionRequests = await requestsOf(VISION);
+    assert.equal(visionRequests.length, 3);
+    const request = visionRequests[2];
+    assert.equal(request.messages.length, 1, JSON.stringify(request.messages));
+    assert.equal(request.messages[0].role, "user");
+    assert.equal(
+      textOf(request.messages[0]),
+      `${EDITED_TEXT}${frame("notes.txt", NOTES)}${frame("todo.md", TODO)}`,
+    );
+    assert.deepEqual(imagesOf(request.messages[0]), [], "image envoyée");
+    const raw = JSON.stringify(request);
+    assert.ok(!raw.includes(SECOND_TEXT), "second échange envoyé");
+    assert.ok(!raw.includes(RED.toString("base64")), "image envoyée");
+
+    // En base : le message modifié (même id, notes.txt gardé avec son id,
+    // puis todo.md) et la nouvelle réponse, rien d'autre.
+    saved = (await driver.invoke("get_chat", { id: chatId })).messages;
+    assert.deepEqual(
+      saved.map((m) => [m.role, m.content]),
+      [
+        ["user", EDITED_TEXT],
+        ["assistant", REPLY],
+      ],
+    );
+    assert.equal(saved[0].id, firstId, "message modifié : autre id");
+    assert.deepEqual(
+      saved[0].attachments.map((a) => a.filename),
+      ["notes.txt", "todo.md"],
+    );
+    assert.equal(saved[0].attachments[0].id, notes.id);
+    // L'image retirée n'est plus servie (supprimée de la base).
+    await waitUntil(
+      async () => !(await imageLoads(driver, redUrl)),
+      "image retirée toujours servie",
+    );
+
+    // Affichage : celui de la base, sans estompage.
+    const isEditedView = (m) =>
+      m.length === 2 &&
+      m[0].role === "user" &&
+      m[0].text === EDITED_TEXT &&
+      JSON.stringify(m[0].files) === JSON.stringify(["notes.txt", "todo.md"]) &&
+      m[0].images.length === 0 &&
+      m[0].edit?.opacity === "0" &&
+      m[1].role === "assistant" &&
+      m[1].text === REPLY &&
+      m[1].edit === null &&
+      m.every((message) => message.opacity === "1");
+    await waitMessages(driver, isEditedView, "conversation modifiée");
+    await driver.screenshot(".tools/shots/edit-sent.png");
+
+    // Après un rechargement : même affichage.
+    await reload(driver);
+    await driver.waitFor("[data-testid=chat]");
+    assert.equal(await currentChatId(driver), chatId);
+    await waitMessages(driver, isEditedView, "conversation modifiée relue");
+
+    // 5. Pendant une réponse (chatonlm-markdown-slow, environ 8 s).
+    const disconnectsBefore = await engine.disconnects(SLOW);
+    await newChat(driver);
+    await useModel(driver, SLOW);
+    await driver.type(await driver.waitFor(TEXTAREA), SLOW_TEXT);
+    await focusTextarea(driver);
+    await pressKeys("enter");
+    await driver.waitFor("[data-testid=chat]");
+    await waitMessages(
+      driver,
+      (m) =>
+        m.length === 2 &&
+        m[0].text === SLOW_TEXT &&
+        m[0].edit !== null &&
+        (m[1].text ?? "").length > 0,
+      "réponse lente commencée",
+    );
+    assert.equal((await composerState(driver)).button, "Stop");
+
+    // Édition du message en cours de réponse.
+    await driver.click(await editButton(driver, 0));
+    state = await waitComposer(
+      driver,
+      (s) => s.value === SLOW_TEXT && s.hint === 1,
+      "mode édition pendant la réponse",
+    );
+    assert.equal(state.focused, true);
+    assert.equal(state.button, "Stop");
+
+    // Vraie touche Entrée : rien n'est envoyé, l'édition reste.
+    await pressKeys("enter", { settleMs: 400 });
+    state = await composerState(driver);
+    assert.equal(state.value, SLOW_TEXT, "texte changé par Entrée");
+    assert.equal(state.hint, 1, "édition quittée par Entrée");
+    assert.equal(state.button, "Stop", "réponse finie trop tôt (Entrée)");
+    assert.equal((await requestsOf(SLOW)).length, 1);
+    messages = await messagesState(driver);
+    assert.equal(messages.length, 2);
+    assert.equal(messages[0].text, SLOW_TEXT);
+
+    // Échap : édition annulée, la réponse continue.
+    const beforeEscape = (await lastReply(driver)).length;
+    await pressKeys("escape");
+    state = await waitComposer(
+      driver,
+      (s) => s.value === "" && s.hint === 0,
+      "édition annulée pendant la réponse",
+    );
+    assert.equal(state.button, "Stop", "réponse arrêtée par la 1re Échap");
+    await waitUntil(
+      async () => (await lastReply(driver)).length > beforeEscape,
+      "réponse figée après la 1re Échap",
+    );
+    assert.equal((await composerState(driver)).button, "Stop");
+    assert.equal(await engine.disconnects(SLOW), disconnectsBefore);
+
+    // Seconde Échap : la réponse s'arrête (flux abandonné par l'app).
+    await pressKeys("escape");
+    await waitComposer(
+      driver,
+      (s) => s.button === "Send message",
+      "réponse pas arrêtée par la 2e Échap",
+    );
+    await waitUntil(
+      async () => (await engine.disconnects(SLOW)) === disconnectsBefore + 1,
+      "flux pas abandonné après la 2e Échap",
+    );
+    const stopped = await lastReply(driver);
+    await delay(600);
+    assert.equal(await lastReply(driver), stopped, "réponse pas figée");
+    assert.equal((await requestsOf(SLOW)).length, 1);
+    await collectViolations(driver);
+  }),
+);
 
 assert.deepEqual(violations, [], "violations de la CSP");
 assert.deepEqual(consoleErrors, [], "erreurs dans la console");
