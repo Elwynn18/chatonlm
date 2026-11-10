@@ -35,7 +35,7 @@ import {
 import path from "node:path";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { poll } from "./lib/desktop.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 
 const binary = process.argv[2];
 const IDENTIFIER = "com.chatonlm.chatonlm";
@@ -162,8 +162,8 @@ const switchState = (driver) =>
 const clickSwitch = async (driver) =>
   driver.click(await driver.waitFor("[data-testid=menu-entry] [role=switch]"));
 
-const fake = await startFake("ollama");
-const env = { OLLAMA_HOST: fake.url };
+const engine = startEngine([fakeModel("simple")]);
+const env = { ...engine.env };
 fakeAppImage(FIRST);
 
 try {
@@ -311,5 +311,4 @@ try {
   console.log("menu-entry : OK");
 } finally {
   rmSync(WORK, { recursive: true, force: true });
-  await fake.stop();
 }

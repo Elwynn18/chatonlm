@@ -777,10 +777,10 @@ mod tests {
             );
             assert_eq!(
                 painted.png,
-                fake_ollama::sdcpp::png(
+                fake_services::sdcpp::png(
                     256,
                     320,
-                    fake_ollama::sdcpp::color(i64::from(painted.seed))
+                    fake_services::sdcpp::color(i64::from(painted.seed))
                 )
             );
             let seen = seen.lock().unwrap().clone();

@@ -260,8 +260,8 @@ mod tests {
     use super::*;
 
     const DETAIL: &str =
-        include_str!("../../crates/fake-ollama/fixtures/hf/detail-unsloth-qwen3.5-9b.json");
-    const LIST: &str = include_str!("../../crates/fake-ollama/fixtures/hf/list-sample.json");
+        include_str!("../../crates/fake-services/fixtures/hf/detail-unsloth-qwen3.5-9b.json");
+    const LIST: &str = include_str!("../../crates/fake-services/fixtures/hf/list-sample.json");
 
     #[test]
     fn a_real_detail_is_normalized() {

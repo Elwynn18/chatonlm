@@ -193,7 +193,7 @@ async function pickModel(driver, model) {
     () =>
       driver.execute(
         `const option = [...document.querySelectorAll("[role=option]")]
-           .find((o) => o.title === arguments[0]);
+           .find((o) => o.dataset.modelId === arguments[0]);
          option?.click();
          return option !== undefined;`,
         [model],

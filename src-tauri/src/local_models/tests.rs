@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use fake_ollama::hf::{FakeHf, HfMode};
+use fake_services::hf::{FakeHf, HfMode};
 
 use super::*;
 use crate::hub::downloads::{HubDownloads, Options};

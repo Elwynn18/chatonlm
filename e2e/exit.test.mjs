@@ -14,13 +14,13 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { forWindows, runKWinScript } from "./lib/kwin.mjs";
 
 const binary = process.argv[2];
 const ROUNDS = Number(process.env.E2E_EXIT_ROUNDS ?? 3);
 const LIMIT_MS = 2000;
-const fake = await startFake("ollama");
+const engine = startEngine([fakeModel("simple")]);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Descendants vivants d'un processus (pid, nom), d'après /proc. */
@@ -75,35 +75,31 @@ async function measure(name, quit) {
   let survived;
   let outlived = [];
   let helpers = [];
-  await withApp(
-    binary,
-    { name, env: { OLLAMA_HOST: fake.url } },
-    async (driver, app) => {
-      await driver.waitFor("[data-testid=new-chat]");
-      helpers = descendants(app.pid).filter((helper) =>
-        helper.name.startsWith("WebKit"),
-      );
-      assert.ok(
-        helpers.some((helper) => helper.name === "WebKitWebProcess"),
-        `processus web absent : ${JSON.stringify(helpers)}`,
-      );
-      await quit(driver);
-      const code = await Promise.race([app.exited, delay(15000)]);
-      // Aussitôt la fin de l'app constatée : le processus web ne lui a pas
-      // survécu (sans arrêt explicite, il vit encore ~80 ms).
-      outlived = helpers
-        .filter((helper) => helper.name === "WebKitWebProcess")
-        .filter((helper) => alive(helper.pid))
-        .map((helper) => helper.pid);
-      assert.equal(code, 0, "l'app n'a pas quitté proprement");
-      const end = Date.now();
-      while (helpers.some((helper) => alive(helper.pid))) {
-        if (Date.now() - end > 20000) break;
-        await delay(20);
-      }
-      survived = Date.now() - end;
-    },
-  );
+  await withApp(binary, { name, env: engine.env }, async (driver, app) => {
+    await driver.waitFor("[data-testid=new-chat]");
+    helpers = descendants(app.pid).filter((helper) =>
+      helper.name.startsWith("WebKit"),
+    );
+    assert.ok(
+      helpers.some((helper) => helper.name === "WebKitWebProcess"),
+      `processus web absent : ${JSON.stringify(helpers)}`,
+    );
+    await quit(driver);
+    const code = await Promise.race([app.exited, delay(15000)]);
+    // Aussitôt la fin de l'app constatée : le processus web ne lui a pas
+    // survécu (sans arrêt explicite, il vit encore ~80 ms).
+    outlived = helpers
+      .filter((helper) => helper.name === "WebKitWebProcess")
+      .filter((helper) => alive(helper.pid))
+      .map((helper) => helper.pid);
+    assert.equal(code, 0, "l'app n'a pas quitté proprement");
+    const end = Date.now();
+    while (helpers.some((helper) => alive(helper.pid))) {
+      if (Date.now() - end > 20000) break;
+      await delay(20);
+    }
+    survived = Date.now() - end;
+  });
   const left = helpers.filter((helper) => alive(helper.pid));
   return {
     survived,
@@ -123,32 +119,28 @@ const byDesktop = () =>
   runKWinScript(forWindows("ChatonLM", "w.closeWindow();"), { settleMs: 0 });
 
 const results = [];
-try {
-  for (let round = 1; round <= ROUNDS; round++) {
-    for (const [kind, quit] of [
-      ["quit_app", byCommand],
-      ["fermeture", byDesktop],
-    ]) {
-      const result = await measure(`exit-${kind}-${round}`, quit);
-      console.log(
-        `${kind} ${round} : processus WebKit finis ${result.survived} ms après l'app (${result.helpers.join(", ")})${result.outlived.length > 0 ? " ; processus web vivant à sa fin" : ""}`,
-      );
-      results.push({ kind, round, ...result });
-    }
-  }
-  for (const { kind, round, survived, outlived, left } of results) {
-    assert.deepEqual(
-      outlived,
-      [],
-      `${kind} ${round} : processus web encore vivant à la fin de l'app`,
+for (let round = 1; round <= ROUNDS; round++) {
+  for (const [kind, quit] of [
+    ["quit_app", byCommand],
+    ["fermeture", byDesktop],
+  ]) {
+    const result = await measure(`exit-${kind}-${round}`, quit);
+    console.log(
+      `${kind} ${round} : processus WebKit finis ${result.survived} ms après l'app (${result.helpers.join(", ")})${result.outlived.length > 0 ? " ; processus web vivant à sa fin" : ""}`,
     );
-    assert.deepEqual(left, [], `${kind} ${round} : processus restés`);
-    assert.ok(
-      survived <= LIMIT_MS,
-      `${kind} ${round} : processus WebKit finis ${survived} ms après l'app`,
-    );
+    results.push({ kind, round, ...result });
   }
-  console.log("exit : OK");
-} finally {
-  await fake.stop();
 }
+for (const { kind, round, survived, outlived, left } of results) {
+  assert.deepEqual(
+    outlived,
+    [],
+    `${kind} ${round} : processus web encore vivant à la fin de l'app`,
+  );
+  assert.deepEqual(left, [], `${kind} ${round} : processus restés`);
+  assert.ok(
+    survived <= LIMIT_MS,
+    `${kind} ${round} : processus WebKit finis ${survived} ms après l'app`,
+  );
+}
+console.log("exit : OK");

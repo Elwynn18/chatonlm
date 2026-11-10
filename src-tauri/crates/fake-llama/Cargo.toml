@@ -7,7 +7,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-# Mêmes versions que fake-ollama (déjà dans l'arbre).
+# Mêmes versions que fake-services (déjà dans l'arbre).
 axum = "0.8.9"
 futures-util = { version = "0.3.34", default-features = false }
 serde_json = "1.0.151"

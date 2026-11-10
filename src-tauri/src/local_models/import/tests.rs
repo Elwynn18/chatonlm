@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use fake_ollama::hf::{FakeHf, HfMode};
-use fake_ollama::hf_models::Synth;
+use fake_services::hf::{FakeHf, HfMode};
+use fake_services::hf_models::Synth;
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 

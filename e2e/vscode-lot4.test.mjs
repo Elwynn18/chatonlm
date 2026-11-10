@@ -1,5 +1,5 @@
 // Lot 4a dans un vrai éditeur (VSCodium, e2e/lib/vscodium.mjs) face à l'app
-// réelle (build e2e), au faux Ollama, au faux Telegram, au faux Hugging Face
+// réelle (build e2e), au faux moteur de texte, au faux Telegram, au faux Hugging Face
 // et au faux moteur d'images :
 // - « notify » : une commande du terminal (intégration du shell de bash), avec
 //   des arguments dont un mot de passe, finit en échec ; le compte Telegram lié
@@ -17,13 +17,13 @@ import { chmodSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT as APP_ROOT, withApp } from "./lib/app.mjs";
 import { findDiscovery } from "./lib/bridge.mjs";
-import { startFake, startFakeHf } from "./lib/fake.mjs";
+import { fakeModel, startEngine, startFakeHf } from "./lib/fake.mjs";
 import { FAKE_TOKENS, startFakeMessenger } from "./lib/messenger.mjs";
 import { chooseModel, prepare, waitUntil } from "./lib/vscodium.mjs";
 
 const binary = process.argv[2];
 const KLEIN = "chatonlm/klein-test-GGUF";
-const FAMILIES = `${APP_ROOT}src-tauri/crates/fake-ollama/fixtures/hf/image-families.json`;
+const FAMILIES = `${APP_ROOT}src-tauri/crates/fake-services/fixtures/hf/image-families.json`;
 const SD_SERVER = `${APP_ROOT}.tools/e2e-target/debug/fake-sd-server`;
 assert.ok(existsSync(SD_SERVER), `faux moteur d'images absent : ${SD_SERVER}`);
 
@@ -97,7 +97,9 @@ async function scenario(driver, name, files, { settings = {}, check }) {
   }
 }
 
-const fake = await startFake("ollama");
+const MODEL = fakeModel("simple");
+const PROOFER = fakeModel("proofer");
+const engine = startEngine([MODEL, PROOFER]);
 const hf = await startFakeHf("hf");
 const telegram = await startFakeMessenger("telegram");
 
@@ -107,7 +109,7 @@ try {
     {
       name: "vscode-lot4",
       env: {
-        OLLAMA_HOST: fake.url,
+        ...engine.env,
         CHATONLM_TELEGRAM_URL: telegram.url,
         CHATONLM_HF_URL: hf.url,
         CHATONLM_HF_STATUS_URL: hf.url,
@@ -117,9 +119,9 @@ try {
     },
     async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
-      await chooseModel(driver, "qwen3:0.6b");
+      await chooseModel(driver, MODEL);
       await driver.invoke("update_settings", {
-        patch: { proofreadModel: "chatonlm-proofread" },
+        patch: { proofreadModel: PROOFER },
       });
       await driver.invoke("bridge_set_enabled", { enabled: true });
       await linkTelegram(driver, telegram, "1001");
@@ -179,13 +181,8 @@ try {
               "différences",
               90000,
             );
-            const sent = await (
-              await fetch(new URL("/fake/requests", fake.url))
-            ).json();
-            assert.ok(
-              sent.some((r) => r.model === "chatonlm-proofread"),
-              "correction demandée",
-            );
+            const sent = await engine.chatRequests(PROOFER);
+            assert.ok(sent.length > 0, "correction demandée");
             assert.doesNotMatch(JSON.stringify(sent), /teh-server/);
           },
         },
@@ -214,7 +211,6 @@ try {
   );
   console.log("✓ vscode-lot4");
 } finally {
-  await fake.stop();
   await hf.stop();
   await telegram.stop();
 }

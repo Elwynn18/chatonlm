@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn job_states_are_read_like_the_engine_writes_them() {
-        let png = fake_ollama::sdcpp::png(4, 2, [1, 2, 3]);
+        let png = fake_services::sdcpp::png(4, 2, [1, 2, 3]);
         let encoded = BASE64.encode(&png);
         assert!(matches!(
             parse_state(&json!({"status": "queued"})),
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn png_size_reads_the_header_only_of_a_png() {
-        let png = fake_ollama::sdcpp::png(48, 16, [0, 0, 0]);
+        let png = fake_services::sdcpp::png(48, 16, [0, 0, 0]);
         assert_eq!(png_size(&png), Some((48, 16)));
         assert_eq!(png_size(b"\xff\xd8\xff\xe0 not a png at all, a JPEG"), None);
         assert_eq!(png_size(&png[..20]), None);
@@ -341,7 +341,7 @@ mod tests {
     #[test]
     fn png_size_needs_the_png_signature() {
         // En-tête IHDR intact, signature abîmée : ce n'est pas un PNG.
-        let mut png = fake_ollama::sdcpp::png(48, 16, [0, 0, 0]);
+        let mut png = fake_services::sdcpp::png(48, 16, [0, 0, 0]);
         png[1] = b'J';
         assert_eq!(png_size(&png), None);
     }

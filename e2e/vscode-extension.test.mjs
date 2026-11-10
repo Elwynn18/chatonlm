@@ -1,5 +1,5 @@
 // L'extension dans un vrai éditeur (VSCodium, e2e/lib/vscodium.mjs) face à
-// l'app réelle (build e2e) et au faux Ollama :
+// l'app réelle (build e2e) et au faux moteur (modèle qui réfléchit) :
 // - l'app ouvre le pont et montre un code ; la commande « ChatonLM: Pair »
 //   l'emploie, l'éditeur apparaît connecté dans l'app ;
 // - « Explain » sur la sélection d'un fichier du dossier ouvert : la
@@ -10,14 +10,14 @@
 import assert from "node:assert/strict";
 import { withApp } from "./lib/app.mjs";
 import { findDiscovery } from "./lib/bridge.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { chooseModel, prepare, shot, waitUntil } from "./lib/vscodium.mjs";
 
 const binary = process.argv[2];
-const MODEL = "qwen3:0.6b";
+const MODEL = fakeModel("think");
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const fake = await startFake("ollama");
+const engine = startEngine([MODEL]);
 const codium = prepare("vscode-extension", {
   "sample.js": "function add(a, b) {\n  return a + b;\n}\n",
 });
@@ -25,7 +25,7 @@ const codium = prepare("vscode-extension", {
 try {
   await withApp(
     binary,
-    { name: "vscode-extension", env: { OLLAMA_HOST: fake.url } },
+    { name: "vscode-extension", env: engine.env },
     async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
       await chooseModel(driver, MODEL);
@@ -75,6 +75,5 @@ try {
   );
   console.log("✓ vscode-extension");
 } finally {
-  await fake.stop();
   codium.finish();
 }

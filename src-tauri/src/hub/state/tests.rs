@@ -1,10 +1,10 @@
-//! Essais du catalogue contre le faux Hugging Face (crate `fake-ollama`,
+//! Essais du catalogue contre le faux Hugging Face (crate `fake-services`,
 //! module `hf`) : requêtes exactes, cache, données anciennes servies,
 //! classement des échecs, quota, une seule requête en vol.
 
 use std::time::Duration;
 
-use fake_ollama::hf::{FakeHf, HfMode, HfRequest};
+use fake_services::hf::{FakeHf, HfMode, HfRequest};
 use tempfile::TempDir;
 
 use super::*;

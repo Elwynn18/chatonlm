@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(incident_in(&page("operational", "degraded")), Some(true));
         assert_eq!(incident_in(&serde_json::json!({})), None);
         let real: serde_json::Value = serde_json::from_str(include_str!(
-            "../../crates/fake-ollama/fixtures/hf/status-index.json"
+            "../../crates/fake-services/fixtures/hf/status-index.json"
         ))
         .unwrap();
         assert_eq!(incident_in(&real), Some(false));

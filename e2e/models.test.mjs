@@ -4,8 +4,9 @@
 // par défaut = le plus récemment installé, jamais un recommandé ; recherche,
 // choix mémorisé, modèle d'une conversation remis à son ouverture (même
 // absent de la base : en fin de liste, « Not downloaded »), aucun modèle
-// installé (recommandés seulement, aucun choisi). Lignes repérées par leur
-// identifiant (`title`).
+// installé (recommandés seulement, aucun choisi) ; mémoire demandée et
+// pastille des recommandés non téléchargés (ancien e2e cloud-models). Lignes
+// repérées par leur identifiant (`data-model-id`).
 import assert from "node:assert/strict";
 import { withApp } from "./lib/app.mjs";
 import { fakeModel, startEngine } from "./lib/fake.mjs";
@@ -32,6 +33,16 @@ const options = (driver) =>
 const missing = (driver) =>
   driver.execute(
     "return [...document.querySelectorAll('[role=option]')].map((o) => o.querySelector('[aria-label=\"Not downloaded\"]') !== null)",
+  );
+/**
+ * Identifiants des lignes qui montrent la mémoire demandée et une pastille
+ * d'adéquation (recommandés non téléchargés ; machine injectée par withApp).
+ */
+const needs = (driver) =>
+  driver.execute(
+    `return [...document.querySelectorAll("[role=option]")]
+       .filter((o) => o.querySelector("[title$=' of memory to run']") && o.querySelector("[data-fit]"))
+       .map((o) => o.dataset.modelId);`,
   );
 /** Identifiant de la ligne choisie. */
 const chosen = (driver) =>
@@ -117,6 +128,9 @@ await withApp(
       false,
     ]);
     assert.equal(await chosen(driver), NEWEST);
+    // Recommandés non téléchargés : mémoire demandée et pastille ; jamais
+    // pour un modèle installé.
+    assert.deepEqual(await needs(driver), RECOMMENDED);
     await driver.screenshot(".tools/shots/models-open.png");
 
     // Recherche sur l'identifiant et le nom montré.

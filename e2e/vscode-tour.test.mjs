@@ -1,6 +1,6 @@
 // Visite guidée parlée dans un vrai éditeur (VSCodium, e2e/lib/vscodium.mjs)
-// face à l'app réelle (build e2e), au faux Ollama (modèle chatonlm-tour : plan
-// en JSON) et à la vraie lecture à voix haute (voix de .tools/voice-models,
+// face à l'app réelle (build e2e), au faux moteur (modèle chatonlm-vstour :
+// plan en JSON) et à la vraie lecture à voix haute (voix de .tools/voice-models,
 // sortie factice au rythme réel) :
 // - « ChatonLM: Walk me through this » sur un fichier : l'app produit le plan,
 //   le lit segment par segment ; capture de la première partie (lignes
@@ -13,7 +13,7 @@
 import assert from "node:assert/strict";
 import { withApp } from "./lib/app.mjs";
 import { findDiscovery } from "./lib/bridge.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { linkVoice } from "./lib/voice.mjs";
 import { chooseModel, prepare, shot, waitUntil } from "./lib/vscodium.mjs";
 
@@ -25,7 +25,8 @@ assert.ok(
 );
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const fake = await startFake("ollama");
+const TOUR = fakeModel("vstour");
+const engine = startEngine([TOUR]);
 const codium = prepare("vscode-tour", {
   "sample.rs":
     'use std::io;\nfn main() {\n    println!("bonjour");\n    let mut line = String::new();\n    io::stdin().read_line(&mut line).unwrap();\n}\n',
@@ -37,10 +38,10 @@ for (const voice of ["pocket-tts-en", "pocket-tts-fr", "pocket-tts-es"]) {
 try {
   await withApp(
     binary,
-    { name: "vscode-tour", env: { OLLAMA_HOST: fake.url } },
+    { name: "vscode-tour", env: engine.env },
     async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
-      await chooseModel(driver, "chatonlm-tour");
+      await chooseModel(driver, TOUR);
       await driver.invoke("bridge_set_enabled", { enabled: true });
       const { pairing } = await driver.invoke("bridge_pair");
       const found = await waitUntil(findDiscovery, "bridge.json");
@@ -58,13 +59,14 @@ try {
           90000,
         );
         // Le plan est parti au modèle avec le code.
-        const requests = await (
-          await fetch(new URL("/fake/requests", fake.url))
-        ).json();
-        const plan = requests.find((r) => r.model === "chatonlm-tour");
+        const plan = (await engine.chatRequests(TOUR))[0];
         assert.ok(plan, "plan demandé au modèle");
         assert.match(JSON.stringify(plan.messages), /read_line/);
-        assert.ok(plan.format, "sortie JSON contrainte");
+        assert.equal(
+          plan.response_format?.type,
+          "json_schema",
+          "sortie JSON contrainte",
+        );
         // L'app lit la visite (première partie), puis pause.
         await waitUntil(
           async () =>
@@ -105,6 +107,5 @@ try {
   );
   console.log("✓ vscode-tour");
 } finally {
-  await fake.stop();
   codium.finish();
 }

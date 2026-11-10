@@ -39,7 +39,7 @@ const hf = await startFakeHf("hf");
 const telegram = await startFakeMessenger("telegram");
 const discord = await startFakeMessenger("discord");
 const KLEIN = "chatonlm/klein-test-GGUF";
-const FAMILIES = `${ROOT}src-tauri/crates/fake-ollama/fixtures/hf/image-families.json`;
+const FAMILIES = `${ROOT}src-tauri/crates/fake-services/fixtures/hf/image-families.json`;
 const SD_SERVER = `${ROOT}.tools/e2e-target/debug/fake-sd-server`;
 assert.ok(existsSync(SD_SERVER), `faux moteur d'images absent : ${SD_SERVER}`);
 const env = {

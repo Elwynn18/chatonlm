@@ -370,7 +370,7 @@ mod tests {
     async fn outdated_models_follow_hugging_face() {
         use crate::hub::downloads::{HubDownloads, Options};
         use crate::hub::types::{HubDownloadRequest, HubDownloadState};
-        use fake_ollama::hf::{FakeHf, HfMode};
+        use fake_services::hf::{FakeHf, HfMode};
         let fake = FakeHf::start(HfMode::Normal).await.unwrap();
         let store = Store::open_in_memory().unwrap();
         let data = tempfile::tempdir().unwrap();

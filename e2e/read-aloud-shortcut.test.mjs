@@ -28,7 +28,7 @@ import {
 import { ROOT, freePort, withApp } from "./lib/app.mjs";
 import { holdClipboard, holdSelection } from "./lib/clipboard.mjs";
 import { poll, startDesktopServices } from "./lib/desktop.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 
 const binary = process.argv[2];
 const DATA = process.env.CHATONLM_DATA_DIR;
@@ -104,149 +104,142 @@ async function runInstance(args, name) {
   });
 }
 
-const fake = await startFake("ollama");
-const env = { OLLAMA_HOST: fake.url };
+const engine = startEngine([fakeModel("simple")]);
+const env = { ...engine.env };
 linkVoice(ENGLISH);
 
+// 1. Raccourci lié par le portail, appuis.
+const desk = await startDesktopServices({
+  notifications: true,
+  watcher: true,
+  portal: { version: 2, triggers: { readAloud: "Ctrl+Alt+R" } },
+});
 try {
-  // 1. Raccourci lié par le portail, appuis.
-  const desk = await startDesktopServices({
-    notifications: true,
-    watcher: true,
-    portal: { version: 2, triggers: { readAloud: "Ctrl+Alt+R" } },
-  });
-  try {
-    await withApp(
-      binary,
-      { name: "read-aloud-shortcut", env, quit: "command" },
-      async (driver) => {
-        await driver.waitFor("[data-testid=new-chat]");
-        await desk.waitFor((e) => e.event === "item-registered");
+  await withApp(
+    binary,
+    { name: "read-aloud-shortcut", env, quit: "command" },
+    async (driver) => {
+      await driver.waitFor("[data-testid=new-chat]");
+      await desk.waitFor((e) => e.event === "item-registered");
 
-        // Coupé par défaut : rien de lié.
-        let s = await shortcuts(driver);
-        assert.deepEqual(s.readAloud, DISABLED);
-        assert.match(s.readAloudCommand, / --read-aloud$/);
-        assert.equal(
-          (await driver.invoke("get_settings")).readAloudShortcut,
-          false,
+      // Coupé par défaut : rien de lié.
+      let s = await shortcuts(driver);
+      assert.deepEqual(s.readAloud, DISABLED);
+      assert.match(s.readAloudCommand, / --read-aloud$/);
+      assert.equal(
+        (await driver.invoke("get_settings")).readAloudShortcut,
+        false,
+      );
+      assert.deepEqual(binds(desk), []);
+
+      // Activé : « readAloud » seul, touche proposée, description.
+      await settings(driver, { readAloudShortcut: true });
+      const bind = await desk.waitFor((e) => e.event === "bind");
+      assert.deepEqual(bind.shortcuts, [
+        [
+          "readAloud",
+          {
+            description: "Read selected text aloud",
+            preferred_trigger: "CTRL+ALT+R",
+          },
+        ],
+      ]);
+      s = await poll(
+        () => shortcuts(driver),
+        (x) => x.readAloud.state === "bound",
+        { what: "lecture liée" },
+      );
+      assert.deepEqual(s.readAloud, bound("Ctrl+Alt+R"));
+      assert.deepEqual(s.proofread, DISABLED);
+      assert.deepEqual(s.dictation, DISABLED);
+
+      // Appui : la sélection est lue ; nouvel appui : arrêt.
+      const notified = desk.notifications().length;
+      let held = await holdSelection(TEXT);
+      try {
+        await desk.command("tap", { id: "readAloud" });
+        await waitReadingSelection(driver, "sélection lue");
+        assert.ok(
+          held.requested.some((target) => /text|STRING/.test(target)),
+          JSON.stringify(held.requested),
         );
-        assert.deepEqual(binds(desk), []);
+        await desk.command("tap", { id: "readAloud" });
+        await waitIdle(driver, "lecture arrêtée par un nouvel appui");
+        // Pas relancée par le second appui.
+        await delay(1500);
+        assert.equal((await readState(driver)).phase, "idle");
+      } finally {
+        await held.release();
+      }
+      // Tout s'est bien passé : aucune notification.
+      assert.deepEqual(desk.notifications().slice(notified), []);
 
-        // Activé : « readAloud » seul, touche proposée, description.
-        await settings(driver, { readAloudShortcut: true });
-        const bind = await desk.waitFor((e) => e.event === "bind");
-        assert.deepEqual(bind.shortcuts, [
-          [
-            "readAloud",
-            {
-              description: "Read selected text aloud",
-              preferred_trigger: "CTRL+ALT+R",
-            },
-          ],
-        ]);
-        s = await poll(
-          () => shortcuts(driver),
-          (x) => x.readAloud.state === "bound",
-          { what: "lecture liée" },
-        );
-        assert.deepEqual(s.readAloud, bound("Ctrl+Alt+R"));
-        assert.deepEqual(s.proofread, DISABLED);
-        assert.deepEqual(s.dictation, DISABLED);
-
-        // Appui : la sélection est lue ; nouvel appui : arrêt.
-        const notified = desk.notifications().length;
-        let held = await holdSelection(TEXT);
-        try {
-          await desk.command("tap", { id: "readAloud" });
-          await waitReadingSelection(driver, "sélection lue");
-          assert.ok(
-            held.requested.some((target) => /text|STRING/.test(target)),
-            JSON.stringify(held.requested),
-          );
-          await desk.command("tap", { id: "readAloud" });
-          await waitIdle(driver, "lecture arrêtée par un nouvel appui");
-          // Pas relancée par le second appui.
-          await delay(1500);
-          assert.equal((await readState(driver)).phase, "idle");
-        } finally {
-          await held.release();
-        }
-        // Tout s'est bien passé : aucune notification.
-        assert.deepEqual(desk.notifications().slice(notified), []);
-
-        // Sans sélection : notifiée, rien n'est lu.
-        held = await holdClipboard({ text: OTHER });
-        try {
-          await desk.command("tap", { id: "readAloud" });
-          const none = await desk.waitFor(
-            (e) => e.event === "notify" && e.summary === "No text selected",
-            { timeoutMs: 15000 },
-          );
-          assert.equal(
-            none.body,
-            "Select some text in any app, then use the shortcut again.",
-          );
-          assert.equal((await readState(driver)).phase, "idle");
-        } finally {
-          await held.release();
-        }
-      },
-    );
-  } finally {
-    await desk.stop();
-  }
-
-  // 2. `--read-aloud` : premier lancement masqué, relance qui arrête ;
-  // voix absente.
-  const hidden = await startDesktopServices({
-    notifications: true,
-    watcher: true,
-    portal: { bind: "ok" },
-  });
-  const held = await holdSelection(TEXT);
-  try {
-    await withApp(
-      binary,
-      {
-        name: "read-aloud-cli",
-        env: { ...env, CHATONLM_NO_GLOBAL_SHORTCUTS: "1" },
-        args: ["--read-aloud"],
-        quit: "command",
-      },
-      async (driver) => {
-        await driver.waitFor("[data-testid=new-chat]");
-        await waitReadingSelection(driver, "sélection lue au lancement");
-        assert.equal(await visible(driver), false);
-
-        // Relance avec --read-aloud pendant la lecture : arrêt, fenêtre
-        // toujours masquée.
-        assert.equal(
-          await runInstance(["--read-aloud"], "read-aloud-second"),
-          0,
-        );
-        await waitIdle(driver, "lecture arrêtée par la relance");
-        assert.equal(await visible(driver), false);
-
-        // Voix absente : rien n'est lu, la notification le dit.
-        rmSync(`${DATA}/voice-models`, { recursive: true, force: true });
-        assert.equal(
-          await runInstance(["--read-aloud"], "read-aloud-novoice"),
-          0,
-        );
-        await hidden.waitFor(
-          (e) =>
-            e.event === "notify" &&
-            e.summary === "The English voice is not downloaded",
+      // Sans sélection : notifiée, rien n'est lu.
+      held = await holdClipboard({ text: OTHER });
+      try {
+        await desk.command("tap", { id: "readAloud" });
+        const none = await desk.waitFor(
+          (e) => e.event === "notify" && e.summary === "No text selected",
           { timeoutMs: 15000 },
         );
+        assert.equal(
+          none.body,
+          "Select some text in any app, then use the shortcut again.",
+        );
         assert.equal((await readState(driver)).phase, "idle");
-      },
-    );
-  } finally {
-    await held.release();
-    await hidden.stop();
-  }
+      } finally {
+        await held.release();
+      }
+    },
+  );
 } finally {
-  await fake.stop();
+  await desk.stop();
+}
+
+// 2. `--read-aloud` : premier lancement masqué, relance qui arrête ;
+// voix absente.
+const hidden = await startDesktopServices({
+  notifications: true,
+  watcher: true,
+  portal: { bind: "ok" },
+});
+const held = await holdSelection(TEXT);
+try {
+  await withApp(
+    binary,
+    {
+      name: "read-aloud-cli",
+      env: { ...env, CHATONLM_NO_GLOBAL_SHORTCUTS: "1" },
+      args: ["--read-aloud"],
+      quit: "command",
+    },
+    async (driver) => {
+      await driver.waitFor("[data-testid=new-chat]");
+      await waitReadingSelection(driver, "sélection lue au lancement");
+      assert.equal(await visible(driver), false);
+
+      // Relance avec --read-aloud pendant la lecture : arrêt, fenêtre
+      // toujours masquée.
+      assert.equal(await runInstance(["--read-aloud"], "read-aloud-second"), 0);
+      await waitIdle(driver, "lecture arrêtée par la relance");
+      assert.equal(await visible(driver), false);
+
+      // Voix absente : rien n'est lu, la notification le dit.
+      rmSync(`${DATA}/voice-models`, { recursive: true, force: true });
+      assert.equal(
+        await runInstance(["--read-aloud"], "read-aloud-novoice"),
+        0,
+      );
+      await hidden.waitFor(
+        (e) =>
+          e.event === "notify" &&
+          e.summary === "The English voice is not downloaded",
+        { timeoutMs: 15000 },
+      );
+      assert.equal((await readState(driver)).phase, "idle");
+    },
+  );
+} finally {
+  await held.release();
+  await hidden.stop();
 }

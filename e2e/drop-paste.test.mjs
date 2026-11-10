@@ -1,5 +1,5 @@
 // Glisser-déposer et collage de fichiers dans l'app réelle (build e2e :
-// frontend embarqué, CSP de production), avec le faux serveur, de vraies
+// frontend embarqué, CSP de production), avec le faux moteur, de vraies
 // touches du clavier (e2e/lib/keyboard.mjs) et un vrai presse-papiers de la
 // session (e2e/lib/clipboard-writer.py : une autre application GTK 3 qui
 // copie). Fichiers créés dans le dossier de l'essai (.tools/e2e-runs/run.*/
@@ -43,8 +43,10 @@
 //   comme celui d'un navigateur qui expose l'image) : image sans nom →
 //   pastille « image.png », vignette chargée, collage empêché ; fichier de
 //   10 Mio + 1 octet → « File too large » (octets non lus) ; envoi par une
-//   vraie touche Entrée à chatonlm-vision : l'image en base64 dans la requête
-//   (GET /fake/requests), vignette du message envoyé, pièce jointe en base.
+//   vraie touche Entrée à un modèle à vision (scénario chatonlm-greeter,
+//   réponse fixe « Hi! ») : l'image en data URL base64 dans la requête
+//   (/fake/requests de l'instance), vignette du message envoyé, pièce jointe
+//   en base.
 // - Aucune violation de la CSP ni erreur ou avertissement dans la console.
 import assert from "node:assert/strict";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
@@ -53,8 +55,8 @@ import { crc32, deflateSync } from "node:zlib";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { holdClipboard } from "./lib/clipboard.mjs";
 import { DRAG_SOURCE_CAPTION, startDragSource } from "./lib/drag.mjs";
-import { startFake } from "./lib/fake.mjs";
-import { PENDING_CALLS } from "./lib/page.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
+import { PENDING_CALLS, shownModel } from "./lib/page.mjs";
 import { pressKeys } from "./lib/keyboard.mjs";
 import { forWindows, runKWinScript } from "./lib/kwin.mjs";
 
@@ -114,7 +116,11 @@ const FOLDER_FILES = ["C.txt", "a.md", "b.txt"];
 const PASTED = png(3, 2, [0, 128, 255]);
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-const fake = await startFake("ollama");
+/** Le premier : modèle choisi par défaut. */
+const DEFAULT = fakeModel("simple");
+/** Vision (projecteur inscrit), réponse fixe « Hi! ». */
+const VISION = fakeModel("greeter-vision");
+const engine = startEngine([DEFAULT, { id: VISION, vision: true }]);
 
 /** `what` : texte, ou fonction appelée à l'échec (dernier état observé). */
 async function waitUntil(check, what, timeoutMs = 10000) {
@@ -131,11 +137,25 @@ async function waitUntil(check, what, timeoutMs = 10000) {
   }
 }
 
-/** Corps des /api/chat reçus par le faux serveur, d'un modèle. */
-async function requestsOf(model) {
-  const response = await fetch(new URL("/fake/requests", fake.url));
-  return (await response.json()).filter((request) => request.model === model);
-}
+/** Corps des demandes de chat reçues par l'instance du modèle `model`. */
+const requestsOf = (model) => engine.chatRequests(model);
+
+/** Images (base64) d'un message envoyé au moteur. */
+const imagesOf = (message) =>
+  typeof message.content === "string"
+    ? []
+    : message.content
+        .filter((part) => part.type === "image_url")
+        .map((part) => part.image_url.url.split(";base64,")[1]);
+
+/** Texte d'un message envoyé au moteur (contenu simple ou parties). */
+const textOf = (message) =>
+  typeof message.content === "string"
+    ? message.content
+    : message.content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("");
 
 // Violations de la CSP, erreurs et avertissements de la console : notés par
 // la page (écouteurs reposés après chaque rechargement), relevés avant chaque
@@ -224,11 +244,6 @@ async function reload(driver) {
   );
   await driver.execute(WATCH_PAGE);
 }
-
-const shownModel = (driver) =>
-  driver.execute(
-    "return document.querySelector('[title=\"Select model\"]')?.textContent ?? null",
-  );
 
 /** Choisit un modèle (absent du serveur) par le réglage, puis recharge. */
 async function useModel(driver, model) {
@@ -580,385 +595,381 @@ const MESSAGE = "What is in this screenshot?";
 /** Collages réels observés : rapportés à la fin. */
 const observed = {};
 
-try {
-  await withApp(
-    binary,
-    { name: "drop-paste", env: { OLLAMA_HOST: fake.url } },
-    shotOnFailure("drop-paste", async (driver) => {
-      await driver.waitFor("[data-testid=new-chat]");
-      // Modèle de secours écrit par la page (session neuve) avant tout choix.
-      await waitUntil(
-        async () => (await shownModel(driver)) === "qwen3:0.6b",
-        "modèle par défaut",
-      );
+await withApp(
+  binary,
+  { name: "drop-paste", env: engine.env },
+  shotOnFailure("drop-paste", async (driver) => {
+    await driver.waitFor("[data-testid=new-chat]");
+    // Modèle de secours écrit par la page (session neuve) avant tout choix.
+    await waitUntil(
+      async () => (await shownModel(driver)) === DEFAULT,
+      "modèle par défaut",
+    );
 
-      // Écouteur de la CSP, vérifié sur un script en ligne refusé.
-      await driver.execute(WATCH_PAGE);
-      await driver.execute(`
+    // Écouteur de la CSP, vérifié sur un script en ligne refusé.
+    await driver.execute(WATCH_PAGE);
+    await driver.execute(`
         const script = document.createElement("script");
         script.textContent = "window.__inline = true";
         document.head.append(script);`);
-      await waitUntil(
-        async () => (await driver.execute("return window.__csp.length")) > 0,
-        "violation témoin de la CSP",
-      );
-      assert.equal(
-        await driver.execute("return typeof window.__inline"),
-        "undefined",
-      );
-      await driver.execute("window.__csp = []");
+    await waitUntil(
+      async () => (await driver.execute("return window.__csp.length")) > 0,
+      "violation témoin de la CSP",
+    );
+    assert.equal(
+      await driver.execute("return typeof window.__inline"),
+      "undefined",
+    );
+    await driver.execute("window.__csp = []");
 
-      await useModel(driver, "chatonlm-vision");
-      // Barre latérale ouverte : le voile doit passer par-dessus.
-      await driver.click(
-        await driver.waitFor("button[aria-label='Show sidebar']"),
-      );
-      await driver.waitFor("nav a[href$='settings']");
-      await delay(400);
+    await useModel(driver, VISION);
+    // Barre latérale ouverte : le voile doit passer par-dessus.
+    await driver.click(
+      await driver.waitFor("button[aria-label='Show sidebar']"),
+    );
+    await driver.waitFor("nav a[href$='settings']");
+    await delay(400);
 
-      // Dépôt sur la page de nouvelle conversation ; voile capturé en clair
-      // et en sombre.
-      await dropFlow(
-        driver,
-        [file("notes.txt"), file("red.png"), FOLDER, file("report.docx")],
-        {
-          files: ["notes.txt", "red.png", ...FOLDER_FILES],
-          errors: [["report.docx", "• File type not supported"]],
-        },
-        async () => {
-          await setTheme(driver, "light");
-          const light = await expectOverlay(driver);
-          await driver.screenshot(".tools/shots/drop-overlay-light.png");
-          await setTheme(driver, "dark");
-          const dark = await expectOverlay(driver);
-          assert.notEqual(dark.panel, light.panel, "voile sombre = clair");
-          await driver.screenshot(".tools/shots/drop-overlay-dark.png");
-          await setTheme(driver, "light");
-        },
-      );
-      await driver.screenshot(".tools/shots/drop-composer.png");
+    // Dépôt sur la page de nouvelle conversation ; voile capturé en clair
+    // et en sombre.
+    await dropFlow(
+      driver,
+      [file("notes.txt"), file("red.png"), FOLDER, file("report.docx")],
+      {
+        files: ["notes.txt", "red.png", ...FOLDER_FILES],
+        errors: [["report.docx", "• File type not supported"]],
+      },
+      async () => {
+        await setTheme(driver, "light");
+        const light = await expectOverlay(driver);
+        await driver.screenshot(".tools/shots/drop-overlay-light.png");
+        await setTheme(driver, "dark");
+        const dark = await expectOverlay(driver);
+        assert.notEqual(dark.panel, light.panel, "voile sombre = clair");
+        await driver.screenshot(".tools/shots/drop-overlay-dark.png");
+        await setTheme(driver, "light");
+      },
+    );
+    await driver.screenshot(".tools/shots/drop-composer.png");
 
-      // Page Settings : pas de zone de saisie, pas de voile ; en quittant la
-      // conversation, les fichiers déposés sont libérés. Rien n'y est
-      // préparé : chemin non remis, sans quoi la remise inutilisée masquerait
-      // celle du dépôt natif de notes.txt plus bas.
-      await driver.click(await driver.find("nav a[href='/settings']"));
-      await driver.waitFor("[data-testid=settings]");
-      await dragEnter(driver, [file("notes.txt")]);
-      await expectNoOverlay(driver);
-      await dragDrop(driver, [file("notes.txt")], { allow: false });
-      await delay(300);
-      await driver.click((await driver.findAll("nav a"))[0]);
-      await driver.waitFor("[data-testid=new-chat]");
-      let state = await composerState(driver);
-      assert.deepEqual(state.files, []);
-      assert.deepEqual(state.errors, []);
+    // Page Settings : pas de zone de saisie, pas de voile ; en quittant la
+    // conversation, les fichiers déposés sont libérés. Rien n'y est
+    // préparé : chemin non remis, sans quoi la remise inutilisée masquerait
+    // celle du dépôt natif de notes.txt plus bas.
+    await driver.click(await driver.find("nav a[href='/settings']"));
+    await driver.waitFor("[data-testid=settings]");
+    await dragEnter(driver, [file("notes.txt")]);
+    await expectNoOverlay(driver);
+    await dragDrop(driver, [file("notes.txt")], { allow: false });
+    await delay(300);
+    await driver.click((await driver.findAll("nav a"))[0]);
+    await driver.waitFor("[data-testid=new-chat]");
+    let state = await composerState(driver);
+    assert.deepEqual(state.files, []);
+    assert.deepEqual(state.errors, []);
 
-      // Vrai collage de texte seul : collé dans la zone, aucune pastille.
-      let paste = await realPaste(driver, { text: PASTED_TEXT });
-      observed.text = paste;
-      assert.deepEqual(paste.seen.types, ["text/plain"]);
-      assert.equal(paste.seen.text, PASTED_TEXT);
-      assert.deepEqual(paste.seen.files, []);
-      assert.equal(await textareaValue(driver), PASTED_TEXT);
-      state = await composerState(driver);
-      assert.deepEqual(state, { files: [], errors: [], reading: 0 });
-      await driver.clear(await driver.find(TEXTAREA));
+    // Vrai collage de texte seul : collé dans la zone, aucune pastille.
+    let paste = await realPaste(driver, { text: PASTED_TEXT });
+    observed.text = paste;
+    assert.deepEqual(paste.seen.types, ["text/plain"]);
+    assert.equal(paste.seen.text, PASTED_TEXT);
+    assert.deepEqual(paste.seen.files, []);
+    assert.equal(await textareaValue(driver), PASTED_TEXT);
+    state = await composerState(driver);
+    assert.deepEqual(state, { files: [], errors: [], reading: 0 });
+    await driver.clear(await driver.find(TEXTAREA));
 
-      // Presse-papiers d'un gestionnaire de fichiers (fichier copié) :
-      // WebKitGTK n'expose que text/uri-list, sans données ni fichier, et
-      // colle le chemin (text/plain) : texte collé, aucune pastille.
-      const notesUri = `file://${encodeURI(file("notes.txt"))}`;
-      paste = await realPaste(driver, {
-        text: file("notes.txt"),
-        data: { "text/uri-list": Buffer.from(`${notesUri}\r\n`) },
-      });
-      observed.fileManager = paste;
-      assert.ok(paste.requested.includes("text/uri-list"));
-      assert.deepEqual(paste.seen.types, ["text/uri-list"]);
-      assert.deepEqual(paste.seen.files, []);
-      assert.ok(paste.seen.items.every((item) => item.kind === "string"));
-      assert.equal(await textareaValue(driver), file("notes.txt"));
-      state = await composerState(driver);
-      assert.deepEqual(state, { files: [], errors: [], reading: 0 });
-      await driver.clear(await driver.find(TEXTAREA));
+    // Presse-papiers d'un gestionnaire de fichiers (fichier copié) :
+    // WebKitGTK n'expose que text/uri-list, sans données ni fichier, et
+    // colle le chemin (text/plain) : texte collé, aucune pastille.
+    const notesUri = `file://${encodeURI(file("notes.txt"))}`;
+    paste = await realPaste(driver, {
+      text: file("notes.txt"),
+      data: { "text/uri-list": Buffer.from(`${notesUri}\r\n`) },
+    });
+    observed.fileManager = paste;
+    assert.ok(paste.requested.includes("text/uri-list"));
+    assert.deepEqual(paste.seen.types, ["text/uri-list"]);
+    assert.deepEqual(paste.seen.files, []);
+    assert.ok(paste.seen.items.every((item) => item.kind === "string"));
+    assert.equal(await textareaValue(driver), file("notes.txt"));
+    state = await composerState(driver);
+    assert.deepEqual(state, { files: [], errors: [], reading: 0 });
+    await driver.clear(await driver.find(TEXTAREA));
 
-      // Vraie image seule (capture d'écran copiée), par un type image/png
-      // brut puis par GtkClipboard.set_image. WebKitGTK 2.52 (et celui
-      // d'Ubuntu 22.04, embarqué dans l'AppImage) n'expose rien à la page : le
-      // backend lit l'image dans le presse-papiers GTK. WebKitGTK 2.54
-      // l'expose comme un fichier « image.png » : chemin des fichiers collés.
-      // Dans les deux cas, une seule pastille.
-      for (const [kind, content] of [
-        ["imagePng", { data: { "image/png": PASTED } }],
-        ["gtkSetImage", { image: PASTED }],
-      ]) {
-        paste = await realPaste(driver, content);
-        observed[kind] = paste;
-        assert.equal(paste.seen.target, "Message");
-        const seen = {
-          types: paste.seen.types,
-          items: paste.seen.items,
-          files: paste.seen.files,
-        };
-        if (seen.files.length === 0) {
-          assert.deepEqual(
-            seen,
-            { types: [], items: [], files: [] },
-            `${kind} : ni fichier ni rien d'autre exposé`,
-          );
-        } else {
-          assert.deepEqual(seen.types, ["Files"], `${kind} : types exposés`);
-          assert.deepEqual(
-            seen.files.map((f) => [f.name, f.type]),
-            [["image.png", "image/png"]],
-            `${kind} : fichier exposé`,
-          );
-        }
-        // set_image : GTK sert l'image lui-même, sans demande visible ici.
-        if (kind === "imagePng") {
-          assert.ok(
-            paste.requested.includes("image/png"),
-            `image jamais demandée au presse-papiers (${paste.requested})`,
-          );
-        }
-        assert.equal(await textareaValue(driver), "");
-        state = await waitComposer(
-          driver,
-          (s) => s.files.length === 1 && s.files[0].image?.loaded,
-          `${kind} : pastille de l'image collée`,
-        );
-        assert.deepEqual(names(state), ["image.png"]);
-        assert.deepEqual(state.errors, []);
-        assert.match(state.files[0].image.src, STAGED);
-        // Jamais les deux chemins à la fois (fichier exposé ET lecture GTK).
-        await delay(700);
+    // Vraie image seule (capture d'écran copiée), par un type image/png
+    // brut puis par GtkClipboard.set_image. WebKitGTK 2.52 (et celui
+    // d'Ubuntu 22.04, embarqué dans l'AppImage) n'expose rien à la page : le
+    // backend lit l'image dans le presse-papiers GTK. WebKitGTK 2.54
+    // l'expose comme un fichier « image.png » : chemin des fichiers collés.
+    // Dans les deux cas, une seule pastille.
+    for (const [kind, content] of [
+      ["imagePng", { data: { "image/png": PASTED } }],
+      ["gtkSetImage", { image: PASTED }],
+    ]) {
+      paste = await realPaste(driver, content);
+      observed[kind] = paste;
+      assert.equal(paste.seen.target, "Message");
+      const seen = {
+        types: paste.seen.types,
+        items: paste.seen.items,
+        files: paste.seen.files,
+      };
+      if (seen.files.length === 0) {
         assert.deepEqual(
-          names(await composerState(driver)),
-          ["image.png"],
-          `${kind} : une seule pastille`,
+          seen,
+          { types: [], items: [], files: [] },
+          `${kind} : ni fichier ni rien d'autre exposé`,
         );
-        await driver.click(
-          await driver.find(
-            "[data-testid=composer-file] button[aria-label='Remove image.png']",
-          ),
-        );
-        await waitComposer(
-          driver,
-          (s) => s.files.length === 0,
-          `${kind} : pastille retirée`,
+      } else {
+        assert.deepEqual(seen.types, ["Files"], `${kind} : types exposés`);
+        assert.deepEqual(
+          seen.files.map((f) => [f.name, f.type]),
+          [["image.png", "image/png"]],
+          `${kind} : fichier exposé`,
         );
       }
-
-      // Fichier collé tel qu'un navigateur l'expose : image sans nom →
-      // « image.png », collage empêché, vignette chargée.
-      assert.equal(
-        await pasteFile(driver, {
-          name: "",
-          type: "image/png",
-          base64: PASTED.toString("base64"),
-        }),
-        true,
-        "collage d'un fichier non empêché",
-      );
+      // set_image : GTK sert l'image lui-même, sans demande visible ici.
+      if (kind === "imagePng") {
+        assert.ok(
+          paste.requested.includes("image/png"),
+          `image jamais demandée au presse-papiers (${paste.requested})`,
+        );
+      }
+      assert.equal(await textareaValue(driver), "");
       state = await waitComposer(
         driver,
-        (s) => s.files.length === 1 && s.reading === 0 && s.files[0].image,
-        "pastille de l'image collée",
+        (s) => s.files.length === 1 && s.files[0].image?.loaded,
+        `${kind} : pastille de l'image collée`,
       );
       assert.deepEqual(names(state), ["image.png"]);
       assert.deepEqual(state.errors, []);
-      state = await waitComposer(
-        driver,
-        (s) => s.files[0].image.loaded,
-        "vignette de l'image collée",
-      );
       assert.match(state.files[0].image.src, STAGED);
-      assert.equal(await textareaValue(driver), "");
-
-      // Trop gros : refusé sans lire ses octets.
-      assert.equal(
-        await pasteFile(driver, {
-          name: "big.txt",
-          type: "text/plain",
-          size: MAX_FILE_SIZE + 1,
-        }),
-        true,
+      // Jamais les deux chemins à la fois (fichier exposé ET lecture GTK).
+      await delay(700);
+      assert.deepEqual(
+        names(await composerState(driver)),
+        ["image.png"],
+        `${kind} : une seule pastille`,
       );
-      state = await waitComposer(
-        driver,
-        (s) => s.errors.length === 1 && s.reading === 0,
-        "refus du gros fichier collé",
-      );
-      assert.deepEqual(state.errors, [["big.txt", "• File too large"]]);
       await driver.click(
         await driver.find(
-          "[data-testid=composer-file-error] button[aria-label='Remove big.txt']",
+          "[data-testid=composer-file] button[aria-label='Remove image.png']",
         ),
       );
-      await waitComposer(driver, (s) => s.errors.length === 0, "refus retiré");
-
-      // Envoi par une vraie touche Entrée : image en base64 dans la requête.
-      await driver.type(await driver.waitFor(TEXTAREA), MESSAGE);
-      await focusTextarea(driver);
-      await pressKeys("enter");
-      await driver.waitFor("[data-testid=chat]");
-      await waitUntil(
-        async () => (await lastReply(driver)) === '"Hi!"',
-        "réponse de chatonlm-vision",
-      );
-      await driver.waitFor("button[aria-label='Send message']");
-      const chatId = await currentChatId(driver);
-      assert.ok(chatId, "conversation créée");
-      const requests = await requestsOf("chatonlm-vision");
-      assert.equal(requests.length, 1);
-      const sent = requests[0].messages.at(-1);
-      assert.equal(sent.content, MESSAGE);
-      assert.deepEqual(sent.images, [PASTED.toString("base64")]);
-      let messages;
-      await waitUntil(
-        async () => {
-          messages = await sentMessages(driver);
-          const last = messages.at(-1);
-          return last?.text === MESSAGE && last.images[0]?.loaded;
-        },
-        () => `message envoyé : ${JSON.stringify(messages)}`,
-      );
-      assert.equal(messages.at(-1).images.length, 1);
-      assert.equal(messages.at(-1).images[0].alt, "image.png");
-      assert.match(messages.at(-1).images[0].src, ATTACHMENT);
-      const saved = (await driver.invoke("get_chat", { id: chatId })).messages;
-      assert.deepEqual(
-        saved[0].attachments.map(({ filename, kind, mime, size }) => ({
-          filename,
-          kind,
-          mime,
-          size,
-        })),
-        [
-          {
-            filename: "image.png",
-            kind: "image",
-            mime: "image/png",
-            size: PASTED.length,
-          },
-        ],
-      );
-
-      // Dépôt dans la conversation existante.
-      await dropFlow(driver, [file("red.png"), FOLDER, file("report.docx")], {
-        files: ["red.png", ...FOLDER_FILES],
-        errors: [["report.docx", "• File type not supported"]],
-      });
-      assert.equal(await currentChatId(driver), chatId);
-      await removeAll(driver);
-
-      // Dépôt simulé sans e2e_allow_paths (un tauri://drag-drop émis par la
-      // page n'autorise rien) : private.md, jamais remis, et red.png, déjà
-      // préparé (remise consommée). « Error reading file », rien de joint,
-      // fichiers pourtant lisibles.
-      await dragEnter(driver, [file("private.md"), file("red.png")]);
-      await expectOverlay(driver);
-      await dragDrop(driver, [file("private.md"), file("red.png")], {
-        allow: false,
-      });
-      state = await waitComposer(
+      await waitComposer(
         driver,
-        (s) => s.reading === 0 && s.errors.length === 2,
-        "refus du dépôt non remis",
+        (s) => s.files.length === 0,
+        `${kind} : pastille retirée`,
       );
-      assert.deepEqual(state.files, []);
-      assert.deepEqual(state.errors, [
-        ["private.md", "• Error reading file"],
-        ["red.png", "• Error reading file"],
-      ]);
-      // Un à un : retirer un refus redessine les autres (bouton périmé).
-      for (const name of ["private.md", "red.png"]) {
-        await driver.click(
-          await driver.find(
-            `[data-testid=composer-file-error] button[aria-label='Remove ${name}']`,
-          ),
-        );
-      }
-      await waitComposer(driver, (s) => s.errors.length === 0, "refus retirés");
+    }
 
-      // Vrai glisser-déposer natif : source GTK à gauche, app à droite,
-      // pointeur de KWin (bouton gauche appuyé sur la source, déplacé sur
-      // l'app, relâché). Voile pendant le survol, pastilles au dépôt.
-      const source = await startDragSource([file("notes.txt"), FOLDER]);
-      try {
-        // Fenêtre tout juste affichée : KWin ne la place pas encore. Placée
-        // deux fois (sans effet si elle l'est déjà).
-        const place = `${forWindows(
-          DRAG_SOURCE_CAPTION,
-          "w.frameGeometry = { x: 20, y: 380, width: 220, height: 200 };",
-        )}
+    // Fichier collé tel qu'un navigateur l'expose : image sans nom →
+    // « image.png », collage empêché, vignette chargée.
+    assert.equal(
+      await pasteFile(driver, {
+        name: "",
+        type: "image/png",
+        base64: PASTED.toString("base64"),
+      }),
+      true,
+      "collage d'un fichier non empêché",
+    );
+    state = await waitComposer(
+      driver,
+      (s) => s.files.length === 1 && s.reading === 0 && s.files[0].image,
+      "pastille de l'image collée",
+    );
+    assert.deepEqual(names(state), ["image.png"]);
+    assert.deepEqual(state.errors, []);
+    state = await waitComposer(
+      driver,
+      (s) => s.files[0].image.loaded,
+      "vignette de l'image collée",
+    );
+    assert.match(state.files[0].image.src, STAGED);
+    assert.equal(await textareaValue(driver), "");
+
+    // Trop gros : refusé sans lire ses octets.
+    assert.equal(
+      await pasteFile(driver, {
+        name: "big.txt",
+        type: "text/plain",
+        size: MAX_FILE_SIZE + 1,
+      }),
+      true,
+    );
+    state = await waitComposer(
+      driver,
+      (s) => s.errors.length === 1 && s.reading === 0,
+      "refus du gros fichier collé",
+    );
+    assert.deepEqual(state.errors, [["big.txt", "• File too large"]]);
+    await driver.click(
+      await driver.find(
+        "[data-testid=composer-file-error] button[aria-label='Remove big.txt']",
+      ),
+    );
+    await waitComposer(driver, (s) => s.errors.length === 0, "refus retiré");
+
+    // Envoi par une vraie touche Entrée : image en base64 dans la requête.
+    await driver.type(await driver.waitFor(TEXTAREA), MESSAGE);
+    await focusTextarea(driver);
+    await pressKeys("enter");
+    await driver.waitFor("[data-testid=chat]");
+    await waitUntil(
+      async () => (await lastReply(driver)) === "Hi!",
+      "réponse du modèle à vision",
+    );
+    await driver.waitFor("button[aria-label='Send message']");
+    const chatId = await currentChatId(driver);
+    assert.ok(chatId, "conversation créée");
+    const requests = await requestsOf(VISION);
+    assert.equal(requests.length, 1);
+    const sent = requests[0].messages.at(-1);
+    assert.equal(textOf(sent), MESSAGE);
+    assert.deepEqual(imagesOf(sent), [PASTED.toString("base64")]);
+    let messages;
+    await waitUntil(
+      async () => {
+        messages = await sentMessages(driver);
+        const last = messages.at(-1);
+        return last?.text === MESSAGE && last.images[0]?.loaded;
+      },
+      () => `message envoyé : ${JSON.stringify(messages)}`,
+    );
+    assert.equal(messages.at(-1).images.length, 1);
+    assert.equal(messages.at(-1).images[0].alt, "image.png");
+    assert.match(messages.at(-1).images[0].src, ATTACHMENT);
+    const saved = (await driver.invoke("get_chat", { id: chatId })).messages;
+    assert.deepEqual(
+      saved[0].attachments.map(({ filename, kind, mime, size }) => ({
+        filename,
+        kind,
+        mime,
+        size,
+      })),
+      [
+        {
+          filename: "image.png",
+          kind: "image",
+          mime: "image/png",
+          size: PASTED.length,
+        },
+      ],
+    );
+
+    // Dépôt dans la conversation existante.
+    await dropFlow(driver, [file("red.png"), FOLDER, file("report.docx")], {
+      files: ["red.png", ...FOLDER_FILES],
+      errors: [["report.docx", "• File type not supported"]],
+    });
+    assert.equal(await currentChatId(driver), chatId);
+    await removeAll(driver);
+
+    // Dépôt simulé sans e2e_allow_paths (un tauri://drag-drop émis par la
+    // page n'autorise rien) : private.md, jamais remis, et red.png, déjà
+    // préparé (remise consommée). « Error reading file », rien de joint,
+    // fichiers pourtant lisibles.
+    await dragEnter(driver, [file("private.md"), file("red.png")]);
+    await expectOverlay(driver);
+    await dragDrop(driver, [file("private.md"), file("red.png")], {
+      allow: false,
+    });
+    state = await waitComposer(
+      driver,
+      (s) => s.reading === 0 && s.errors.length === 2,
+      "refus du dépôt non remis",
+    );
+    assert.deepEqual(state.files, []);
+    assert.deepEqual(state.errors, [
+      ["private.md", "• Error reading file"],
+      ["red.png", "• Error reading file"],
+    ]);
+    // Un à un : retirer un refus redessine les autres (bouton périmé).
+    for (const name of ["private.md", "red.png"]) {
+      await driver.click(
+        await driver.find(
+          `[data-testid=composer-file-error] button[aria-label='Remove ${name}']`,
+        ),
+      );
+    }
+    await waitComposer(driver, (s) => s.errors.length === 0, "refus retirés");
+
+    // Vrai glisser-déposer natif : source GTK à gauche, app à droite,
+    // pointeur de KWin (bouton gauche appuyé sur la source, déplacé sur
+    // l'app, relâché). Voile pendant le survol, pastilles au dépôt.
+    const source = await startDragSource([file("notes.txt"), FOLDER]);
+    try {
+      // Fenêtre tout juste affichée : KWin ne la place pas encore. Placée
+      // deux fois (sans effet si elle l'est déjà).
+      const place = `${forWindows(
+        DRAG_SOURCE_CAPTION,
+        "w.frameGeometry = { x: 20, y: 380, width: 220, height: 200 };",
+      )}
           ${forWindows(
             "ChatonLM",
             "w.frameGeometry = { x: 300, y: 20, width: 1040, height: 900 };",
           )}`;
-        for (const wait of [500, 300]) {
-          await delay(wait);
-          await runKWinScript(place, { settleMs: 200 });
-        }
-        const [x0, y0] = [130, 480];
-        const [x1, y1] = [820, 470];
-        const path = [];
-        for (let i = 1; i <= 20; i++) {
-          const x = Math.round(x0 + ((x1 - x0) * i) / 20);
-          const y = Math.round(y0 + ((y1 - y0) * i) / 20);
-          path.push(`pointer:${x},${y}`, "wait:30");
-        }
-        let hovering = null;
-        let moved = false;
-        // Un seul appel : KWin relâche le bouton quand le pointeur EIS
-        // disparaît (fin de keyboard.py).
-        const gesture = pressKeys(
-          [
-            `pointer:${x0},${y0}`,
-            "wait:200",
-            "button:down",
-            "wait:100",
-            ...[3, 8, 15, 25].map((dx) => `pointer:${x0 + dx},${y0}`),
-            ...path,
-            "wait:1500",
-            "button:up",
-          ],
-          { settleMs: 300, timeoutMs: 30000 },
-        ).finally(() => (moved = true));
-        while (!moved && hovering === null) {
-          hovering = await overlayState(driver);
-          if (hovering === null) await delay(50);
-        }
-        await gesture;
-        assert.ok(
-          hovering,
-          `voile jamais vu (source : ${source.events} ${source.errors()})`,
-        );
-        assert.deepEqual(hovering.rect, hovering.window);
-        assert.equal(hovering.text, OVERLAY_TEXT);
-        await waitUntil(
-          async () => (await overlayState(driver)) === null,
-          "voile toujours là après le dépôt natif",
-        );
-        const dropped = await waitComposer(
-          driver,
-          (s) => s.reading === 0 && s.files.length === 1 + FOLDER_FILES.length,
-          "pastilles du dépôt natif",
-        );
-        assert.deepEqual(names(dropped), ["notes.txt", ...FOLDER_FILES]);
-        assert.deepEqual(dropped.errors, []);
-        assert.ok(source.events.includes("data-get"), `${source.events}`);
-        await driver.screenshot(".tools/shots/drop-native.png");
-      } finally {
-        await source.stop();
+      for (const wait of [500, 300]) {
+        await delay(wait);
+        await runKWinScript(place, { settleMs: 200 });
       }
-      await collectViolations(driver);
-    }),
-  );
-} finally {
-  await fake.stop();
-}
+      const [x0, y0] = [130, 480];
+      const [x1, y1] = [820, 470];
+      const path = [];
+      for (let i = 1; i <= 20; i++) {
+        const x = Math.round(x0 + ((x1 - x0) * i) / 20);
+        const y = Math.round(y0 + ((y1 - y0) * i) / 20);
+        path.push(`pointer:${x},${y}`, "wait:30");
+      }
+      let hovering = null;
+      let moved = false;
+      // Un seul appel : KWin relâche le bouton quand le pointeur EIS
+      // disparaît (fin de keyboard.py).
+      const gesture = pressKeys(
+        [
+          `pointer:${x0},${y0}`,
+          "wait:200",
+          "button:down",
+          "wait:100",
+          ...[3, 8, 15, 25].map((dx) => `pointer:${x0 + dx},${y0}`),
+          ...path,
+          "wait:1500",
+          "button:up",
+        ],
+        { settleMs: 300, timeoutMs: 30000 },
+      ).finally(() => (moved = true));
+      while (!moved && hovering === null) {
+        hovering = await overlayState(driver);
+        if (hovering === null) await delay(50);
+      }
+      await gesture;
+      assert.ok(
+        hovering,
+        `voile jamais vu (source : ${source.events} ${source.errors()})`,
+      );
+      assert.deepEqual(hovering.rect, hovering.window);
+      assert.equal(hovering.text, OVERLAY_TEXT);
+      await waitUntil(
+        async () => (await overlayState(driver)) === null,
+        "voile toujours là après le dépôt natif",
+      );
+      const dropped = await waitComposer(
+        driver,
+        (s) => s.reading === 0 && s.files.length === 1 + FOLDER_FILES.length,
+        "pastilles du dépôt natif",
+      );
+      assert.deepEqual(names(dropped), ["notes.txt", ...FOLDER_FILES]);
+      assert.deepEqual(dropped.errors, []);
+      assert.ok(source.events.includes("data-get"), `${source.events}`);
+      await driver.screenshot(".tools/shots/drop-native.png");
+    } finally {
+      await source.stop();
+    }
+    await collectViolations(driver);
+  }),
+);
 
 // Ce que WebKitGTK a exposé aux vrais collages (journal de l'essai).
 console.log(JSON.stringify({ pastes: observed }, null, 1));

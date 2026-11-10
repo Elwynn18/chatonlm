@@ -1,11 +1,11 @@
 //! Essais des modèles d'images contre le faux Hugging Face
-//! (`fake_ollama::hf` : dépôts d'images au vrai contenu, familles d'essai à
+//! (`fake_services::hf` : dépôts d'images au vrai contenu, familles d'essai à
 //! petites pièces `IMAGE_FAMILIES`) : recherche, fiche, téléchargement réel
 //! par la file, pièces partagées, suppression avec références, refus.
 
 use std::time::Duration;
 
-use fake_ollama::hf::{FakeHf, HfMode, IMAGE_FAMILIES, image_blob};
+use fake_services::hf::{FakeHf, HfMode, IMAGE_FAMILIES, image_blob};
 use tokio::time::Instant;
 
 use super::*;

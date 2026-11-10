@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, symlinkSync } from "node:fs";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { poll, startDesktopServices } from "./lib/desktop.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 
 const binary = process.argv[2];
 const DATA = process.env.CHATONLM_DATA_DIR;
@@ -54,7 +54,7 @@ async function openSettingsTab(driver, tab) {
 // Whisper Tiny « installé » (lien vers la copie de l'essai).
 mkdirSync(`${DATA}/speech-models/whisper-tiny`, { recursive: true });
 symlinkSync(TINY, `${DATA}/speech-models/whisper-tiny/ggml-tiny.bin`);
-const fake = await startFake("ollama");
+const engine = startEngine([fakeModel("simple")]);
 // Notifications seulement : ni zone de notification, ni portail.
 const desk = await startDesktopServices({
   notifications: true,
@@ -68,7 +68,7 @@ try {
     {
       name: "whisper-cpu",
       env: {
-        OLLAMA_HOST: fake.url,
+        ...engine.env,
         CHATONLM_E2E_MICROPHONE: JFK,
         CHATONLM_E2E_CPU_MISSING: "avx2,fma",
         // Pas de portail des raccourcis dans cette session.
@@ -159,5 +159,4 @@ try {
   console.log("whisper-cpu : OK");
 } finally {
   await desk.stop();
-  await fake.stop();
 }

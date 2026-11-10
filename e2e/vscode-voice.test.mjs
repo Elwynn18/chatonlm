@@ -1,9 +1,9 @@
 // Voix pilotée par l'extension VS Code (lot 2) dans l'app réelle : faux
-// serveur Ollama, vrai Parakeet et vraie voix française (liens vers .tools),
+// moteur, vrai Parakeet et vraie voix française (liens vers .tools),
 // sortie audio factice au rythme réel (CHATONLM_E2E_AUDIO_OUT=null), faux micro
 // (CHATONLM_E2E_VOICE_MIC), et un client Node qui fait ce que fera
 // l'extension (e2e/lib/bridge.mjs) :
-// 1. tour.plan (chatonlm-tour) : segments liés aux lignes du code donné ;
+// 1. tour.plan (chatonlm-vstour) : segments liés aux lignes du code donné ;
 // 2. speech.read : début et fin de chaque segment dans l'ordre, calés sur le
 //    son joué (la fin du dernier segment vient au moins le temps de dire les
 //    deux textes après le premier début) ; speech.stop : « stopped » ;
@@ -24,7 +24,7 @@ import { existsSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { BridgeClient, readDiscovery } from "./lib/bridge.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import {
   PARAKEET,
   PHRASES,
@@ -45,7 +45,7 @@ assert.ok(
   "ORT_DYLIB_PATH non transmis ou absent : scripts/fetch-onnxruntime.sh",
 );
 const TMP = `${ROOT}.tools/tmp/vscode-voice-${process.pid}`;
-/** Textes français de chatonlm-tour (TOUR_TEXTS de fake-ollama). */
+/** Textes français de chatonlm-vstour (TOUR_TEXTS de fake-llama, scenarios/e/vscode.rs). */
 const TOUR_TEXTS = [
   "Cette première ligne plante le décor.",
   "La suite du code fait le vrai travail.",
@@ -82,9 +82,10 @@ function record(client) {
       .map(({ at, message }) => ({ at, ...message.params }));
 }
 
-const fake = await startFake("ollama");
-const requests = async () =>
-  (await fetch(new URL("/fake/requests", fake.url))).json();
+const TOUR = fakeModel("vstour");
+// Modèle qui réfléchit (réflexion coupée par l'envoi vocal).
+const VOICE = fakeModel("voice");
+const engine = startEngine([{ id: VOICE, think: true }, TOUR]);
 
 try {
   linkParakeet(DATA);
@@ -95,7 +96,7 @@ try {
     {
       name: "vscode-voice",
       env: {
-        OLLAMA_HOST: fake.url,
+        ...engine.env,
         CHATONLM_NO_GLOBAL_SHORTCUTS: "1",
         CHATONLM_E2E_VOICE_MIC: JSON.stringify([
           { on: "listening", wav: phrase.wav, delayMs: 300 },
@@ -108,7 +109,7 @@ try {
         patch: { speechModel: PARAKEET, language: "fr" },
       });
       await driver.invoke("update_settings", {
-        patch: { selectedModel: "chatonlm-voice" },
+        patch: { selectedModel: VOICE },
       });
 
       // Pont ouvert, éditeur appairé (code demandé au moteur), connexion
@@ -127,7 +128,7 @@ try {
 
       // 1. Plan de la visite.
       const plan = await client.request("tour.plan", {
-        model: "chatonlm-tour",
+        model: TOUR,
         locale: "fr",
         path: "src/main.rs",
         language: "rust",
@@ -206,7 +207,7 @@ try {
       // 3. Séance « duck » tenue par VS Code.
       const started = await client.request("voice.start", {
         profile: "duck",
-        model: "chatonlm-voice",
+        model: VOICE,
         context: "src/main.rs\nfn main() { panic!() }",
       });
       assert.ok(started.result?.sessionId, JSON.stringify(started));
@@ -272,14 +273,12 @@ try {
         60000,
       );
       assert.ok(events("voice.level").length > 0, "niveaux du micro");
-      const sent = (await requests())
-        .filter((request) => request.model === "chatonlm-voice")
-        .at(-1);
+      const sent = (await engine.chatRequests(VOICE)).at(-1);
       const system = sent.messages[0];
       assert.equal(system.role, "system");
       assert.match(system.content, /one short question at a time/);
       assert.match(system.content, /panic!\(\)/);
-      assert.equal(sent.think, false);
+      assert.equal(sent.chat_template_kwargs?.enable_thinking, false);
       const listed = await client.request("chat.list");
       assert.ok(
         listed.result.some((chat) => chat.id === created.event.chatId),
@@ -329,7 +328,7 @@ try {
       // 5. Arrêt pendant le démarrage : rien ne s'ouvre.
       const starting = client.request("voice.start", {
         profile: "duck",
-        model: "chatonlm-voice",
+        model: VOICE,
       });
       const stopping = client.request("voice.stop", {});
       const cancelled = await starting;
@@ -341,7 +340,7 @@ try {
       const statesBefore = events("voice.state").length;
       const again = await client.request("voice.start", {
         profile: "duck",
-        model: "chatonlm-voice",
+        model: VOICE,
       });
       assert.ok(again.result?.sessionId, JSON.stringify(again));
       const restarted = events("voice.state")
@@ -361,5 +360,5 @@ try {
   );
   console.log("✓ voix pilotée par VS Code");
 } finally {
-  await fake.stop();
+  // Rien à arrêter : le faux moteur est lancé et arrêté par l'app.
 }

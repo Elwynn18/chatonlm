@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { poll, startDesktopServices } from "./lib/desktop.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 
 const binary = process.argv[2];
 const DATA = process.env.CHATONLM_DATA_DIR;
@@ -85,7 +85,7 @@ for (const file of [
     `${DATA}/speech-models/${PARAKEET}/${file}`,
   );
 }
-const fake = await startFake("ollama");
+const engine = startEngine([fakeModel("simple")]);
 // Notifications seulement : ni zone de notification, ni portail.
 const desk = await startDesktopServices({
   notifications: true,
@@ -93,7 +93,7 @@ const desk = await startDesktopServices({
   portal: null,
 });
 const env = {
-  OLLAMA_HOST: fake.url,
+  ...engine.env,
   CHATONLM_E2E_MICROPHONE: JFK,
   CHATONLM_NO_GLOBAL_SHORTCUTS: "1",
 };
@@ -236,5 +236,4 @@ try {
     force: true,
   });
   await desk.stop();
-  await fake.stop();
 }

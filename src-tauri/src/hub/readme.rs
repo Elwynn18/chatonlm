@@ -59,7 +59,8 @@ mod tests {
     use super::*;
 
     /// README réel de Qwen/Qwen3-8B-GGUF (`35-samples/readme-Qwen3-8B-GGUF.md`).
-    const QWEN3_8B: &str = include_str!("../../crates/fake-ollama/fixtures/hf/readme-qwen3-8b.md");
+    const QWEN3_8B: &str =
+        include_str!("../../crates/fake-services/fixtures/hf/readme-qwen3-8b.md");
 
     #[test]
     fn the_yaml_header_is_removed() {

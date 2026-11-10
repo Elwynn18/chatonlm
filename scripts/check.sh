@@ -200,7 +200,7 @@ step "Traductions (en, es, fr)" node scripts/check-i18n.mjs
 step "Tests TypeScript" bin vitest run
 step "Clippy" cargo clippy --manifest-path "$manifest" --workspace --all-targets --locked -- -D warnings
 # L'app seule, comme la compilent tauri build et l'empaquetage : sans les
-# fonctionnalités que les autres crates de l'espace de travail (fake-ollama...)
+# fonctionnalités que les autres crates de l'espace de travail (fake-services...)
 # activent dans leurs dépendances communes.
 step "App seule (hors espace de travail)" \
   cargo check --manifest-path "$manifest" --locked -p chatonlm --lib --bins

@@ -1,6 +1,0 @@
-{
-  "status": 404,
-  "body": {
-    "error": "model 'chatonlm-missing:latest' not found"
-  }
-}

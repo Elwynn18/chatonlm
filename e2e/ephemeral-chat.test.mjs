@@ -1,5 +1,5 @@
 // Conversations éphémères (propres à ChatonLM) dans l'app réelle, faux
-// serveur : le chaton-fantôme en haut à droite rend la nouvelle conversation
+// moteur (chatonlm-simple, qui cite le message reçu) : le chaton-fantôme en haut à droite rend la nouvelle conversation
 // éphémère (hors de l'historique, avis au-dessus de la zone de saisie) ;
 // « Keep » la met dans l'historique ; une conversation éphémère quittée pour
 // une nouvelle est effacée ; celle encore ouverte quand l'app quitte aussi, et
@@ -8,13 +8,14 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 
 const binary = process.argv[2];
 const dataDir = process.env.CHATONLM_DATA_DIR;
 assert.ok(dataDir, "CHATONLM_DATA_DIR manquant (session virtuelle ?)");
 const dbDir = join(dataDir, "db");
-const fake = await startFake("ollama");
+const MODEL = fakeModel("simple");
+const engine = startEngine([MODEL]);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /** Texte reconnaissable, cherché dans les fichiers de la base à la fin. */
 const SECRET = "zebra-violet-ephemeral-4729";
@@ -92,91 +93,78 @@ async function turnOn(driver) {
 
 let lastOpen = null;
 let kept = null;
-try {
-  await withApp(
-    binary,
-    { name: "ephemeral-chat", env: { OLLAMA_HOST: fake.url } },
-    async (driver, app) => {
-      await driver.waitFor("[data-testid=new-chat]");
-      await driver.invoke("update_settings", {
-        patch: { selectedModel: "qwen3:0.6b" },
-      });
+await withApp(
+  binary,
+  { name: "ephemeral-chat", env: engine.env },
+  async (driver, app) => {
+    await driver.waitFor("[data-testid=new-chat]");
+    await driver.invoke("update_settings", {
+      patch: { selectedModel: MODEL },
+    });
 
-      // 1. Conversation éphémère : hors de l'historique, avis et Keep.
-      await turnOn(driver);
-      await driver.screenshot(".tools/shots/ephemeral-new.png");
-      kept = await sendNew(driver, "Say hello in one word.");
-      assert.equal(
-        (await driver.invoke("get_chat", { id: kept })).ephemeral,
-        true,
-      );
-      assert.ok(!(await listed(driver)).includes(kept), "dans l'historique");
-      assert.ok(!(await exists(driver, `[data-chat-id='${kept}']`)));
-      await driver.waitFor(BANNER);
-      assert.equal(
-        await attribute(driver, GHOST, "aria-label"),
-        "Keep this chat",
-      );
-      await driver.screenshot(".tools/shots/ephemeral-chat.png");
-
-      // 2. Keep : dans l'historique, plus d'avis.
-      await click(driver, `${BANNER} button`);
-      await waitUntil(
-        async () => (await listed(driver)).includes(kept),
-        "Keep",
-      );
-      await waitUntil(
-        async () => !(await exists(driver, BANNER)),
-        "avis retiré",
-      );
-      console.log("conversation gardée par Keep");
-
-      // 3. Chaton-fantôme d'une conversation ordinaire : nouvelle éphémère,
-      // effacée en ouvrant une nouvelle conversation.
-      await click(driver, GHOST);
-      await waitUntil(
-        async () => (await path(driver)) === "/c/new",
-        "page new",
-      );
-      await turnOn(driver);
-      const left = await sendNew(driver, "Say hello in one word.");
-      await click(driver, "a[aria-label='New chat']");
-      await waitUntil(() => gone(driver, left), "conversation quittée effacée");
-      assert.ok(await exists(driver, "[data-testid=new-chat]"));
-      assert.equal(await attribute(driver, GHOST, "aria-pressed"), "false");
-      console.log("conversation éphémère quittée : effacée");
-
-      // 4. Conversation éphémère encore ouverte à la fin de l'app.
-      await turnOn(driver);
-      lastOpen = await sendNew(driver, `${SECRET} ${SECRET}`);
-      await driver
-        .execute("window.__TAURI_INTERNALS__.invoke('quit_app'); return true")
-        .catch(() => {});
-      const code = await Promise.race([app.exited, delay(15000)]);
-      assert.equal(code, 0, "l'app n'a pas quitté proprement");
-    },
-  );
-
-  // Après la fin : base relue hors de l'app.
-  const { DatabaseSync } = await import("node:sqlite");
-  const db = new DatabaseSync(join(dbDir, "chatonlm.sqlite"), {
-    readOnly: true,
-  });
-  const ids = db
-    .prepare("SELECT id, ephemeral FROM chats")
-    .all()
-    .map((row) => [row.id, row.ephemeral]);
-  db.close();
-  assert.deepEqual(ids, [[kept, 0]], "conversations restées en base");
-  for (const name of readdirSync(dbDir)) {
-    const bytes = readFileSync(join(dbDir, name));
-    assert.ok(
-      !bytes.includes(Buffer.from(SECRET)),
-      `texte de la conversation éphémère retrouvé dans ${name}`,
+    // 1. Conversation éphémère : hors de l'historique, avis et Keep.
+    await turnOn(driver);
+    await driver.screenshot(".tools/shots/ephemeral-new.png");
+    kept = await sendNew(driver, "Say hello in one word.");
+    assert.equal(
+      (await driver.invoke("get_chat", { id: kept })).ephemeral,
+      true,
     );
-  }
-  console.log(`fin de l'app : conversation ${lastOpen} effacée sans trace`);
-  console.log("ephemeral-chat : OK");
-} finally {
-  await fake.stop();
+    assert.ok(!(await listed(driver)).includes(kept), "dans l'historique");
+    assert.ok(!(await exists(driver, `[data-chat-id='${kept}']`)));
+    await driver.waitFor(BANNER);
+    assert.equal(
+      await attribute(driver, GHOST, "aria-label"),
+      "Keep this chat",
+    );
+    await driver.screenshot(".tools/shots/ephemeral-chat.png");
+
+    // 2. Keep : dans l'historique, plus d'avis.
+    await click(driver, `${BANNER} button`);
+    await waitUntil(async () => (await listed(driver)).includes(kept), "Keep");
+    await waitUntil(async () => !(await exists(driver, BANNER)), "avis retiré");
+    console.log("conversation gardée par Keep");
+
+    // 3. Chaton-fantôme d'une conversation ordinaire : nouvelle éphémère,
+    // effacée en ouvrant une nouvelle conversation.
+    await click(driver, GHOST);
+    await waitUntil(async () => (await path(driver)) === "/c/new", "page new");
+    await turnOn(driver);
+    const left = await sendNew(driver, "Say hello in one word.");
+    await click(driver, "a[aria-label='New chat']");
+    await waitUntil(() => gone(driver, left), "conversation quittée effacée");
+    assert.ok(await exists(driver, "[data-testid=new-chat]"));
+    assert.equal(await attribute(driver, GHOST, "aria-pressed"), "false");
+    console.log("conversation éphémère quittée : effacée");
+
+    // 4. Conversation éphémère encore ouverte à la fin de l'app.
+    await turnOn(driver);
+    lastOpen = await sendNew(driver, `${SECRET} ${SECRET}`);
+    await driver
+      .execute("window.__TAURI_INTERNALS__.invoke('quit_app'); return true")
+      .catch(() => {});
+    const code = await Promise.race([app.exited, delay(15000)]);
+    assert.equal(code, 0, "l'app n'a pas quitté proprement");
+  },
+);
+
+// Après la fin : base relue hors de l'app.
+const { DatabaseSync } = await import("node:sqlite");
+const db = new DatabaseSync(join(dbDir, "chatonlm.sqlite"), {
+  readOnly: true,
+});
+const ids = db
+  .prepare("SELECT id, ephemeral FROM chats")
+  .all()
+  .map((row) => [row.id, row.ephemeral]);
+db.close();
+assert.deepEqual(ids, [[kept, 0]], "conversations restées en base");
+for (const name of readdirSync(dbDir)) {
+  const bytes = readFileSync(join(dbDir, name));
+  assert.ok(
+    !bytes.includes(Buffer.from(SECRET)),
+    `texte de la conversation éphémère retrouvé dans ${name}`,
+  );
 }
+console.log(`fin de l'app : conversation ${lastOpen} effacée sans trace`);
+console.log("ephemeral-chat : OK");

@@ -1,4 +1,5 @@
-// Easy Link dans l'app réelle (build e2e), avec le faux Ollama et les faux
+// Easy Link dans l'app réelle (build e2e), avec le faux moteur (modèle qui
+// raisonne, comme qwen3 : seule la réponse part vers la messagerie) et les faux
 // Telegram et Discord (binaire fake-messengers) :
 // - Settings > Easy Link : un jeton refusé est dit, le bon relie le bot
 //   (nom, « Connected ») et ne reste nulle part dans la page ;
@@ -13,19 +14,19 @@
 // - aucune violation de la CSP ni erreur ou avertissement dans la console.
 import assert from "node:assert/strict";
 import { withApp } from "./lib/app.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { FAKE_TOKENS, startFakeMessenger } from "./lib/messenger.mjs";
 
 const binary = process.argv[2];
-const fake = await startFake("ollama");
+const MODEL = fakeModel("think");
+const engine = startEngine([MODEL]);
 const telegram = await startFakeMessenger("telegram");
 const discord = await startFakeMessenger("discord");
 const env = {
-  OLLAMA_HOST: fake.url,
+  ...engine.env,
   CHATONLM_TELEGRAM_URL: telegram.url,
   CHATONLM_DISCORD_URL: discord.url,
 };
-const MODEL = "qwen3:0.6b";
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -286,6 +287,12 @@ try {
       async () => (await telegram.shown()).at(-1).includes(firstWord),
       "réponse complète dans Telegram",
     );
+    // La réflexion du modèle (scénario `chatonlm-think` de fake-llama) ne
+    // part jamais vers la messagerie.
+    assert.ok(
+      !(await telegram.shown()).some((t) => t.includes("step by step")),
+      "réflexion envoyée dans Telegram",
+    );
 
     // Discord : même parcours par message privé.
     await navigate(driver, "/settings?section=easyLink");
@@ -338,7 +345,7 @@ try {
     await collectViolations(driver);
   });
 } finally {
-  await Promise.all([fake.stop(), telegram.stop(), discord.stop()]);
+  await Promise.all([telegram.stop(), discord.stop()]);
 }
 
 assert.deepEqual(violations, [], "violations de la CSP");

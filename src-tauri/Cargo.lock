@@ -727,7 +727,7 @@ dependencies = [
  "dunce",
  "easy-link",
  "fake-llama",
- "fake-ollama",
+ "fake-services",
  "futures-util",
  "gtk",
  "hound",
@@ -1584,7 +1584,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "fake-ollama"
+name = "fake-services"
 version = "0.1.0"
 dependencies = [
  "axum",

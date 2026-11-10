@@ -178,7 +178,7 @@ async function savedContents(driver, id) {
 const pickerRows = (driver) =>
   driver.execute(
     `return [...document.querySelectorAll("[role=option]")].map((o) => ({
-       model: o.title,
+       model: o.dataset.modelId,
        missing: o.querySelector("[aria-label='Not downloaded']") !== null,
      }))`,
   );

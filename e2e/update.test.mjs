@@ -43,7 +43,6 @@ import {
 import path from "node:path";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { poll, startDesktopServices } from "./lib/desktop.mjs";
-import { startFake } from "./lib/fake.mjs";
 import { startUpdateServer, updateManifest } from "./lib/update-server.mjs";
 
 const DIR = process.argv[2];
@@ -125,9 +124,6 @@ function prepare(name) {
 
 function envFor(place, server) {
   return {
-    // Faux serveur Ollama : l'app passe l'écran d'accueil sans dépendre de
-    // l'Ollama de la machine (relance comprise : environnement hérité).
-    OLLAMA_HOST: fake.url,
     CHATONLM_DATA_DIR: place.data,
     CHATONLM_UPDATE_URL: server.manifestUrl,
     CHATONLM_E2E_UPDATE_TAG: place.tag,
@@ -150,7 +146,6 @@ const kept = (place) => {
 };
 
 const server = await startUpdateServer();
-const fake = await startFake("ollama");
 const desk = await startDesktopServices({
   notifications: true,
   watcher: true,
@@ -245,7 +240,7 @@ try {
       place.appimage,
       { name: "update-auto", env: envFor(place, server) },
       async (driver, app) => {
-        // Ollama intégré (étape 18b) : présent ou non selon le paquet.
+        // Moteur llama.cpp : présent ou non selon le paquet (version non lue).
         assert.equal((await driver.invoke("app_versions")).chatonlm, "0.0.1");
         const ready = await waitState(
           driver,
@@ -627,7 +622,6 @@ try {
 } finally {
   await desk.stop();
   await server.stop();
-  await fake.stop();
   if (!process.env.E2E_KEEP) rmSync(WORK, { recursive: true, force: true });
 }
 console.log("update.test.mjs : OK");

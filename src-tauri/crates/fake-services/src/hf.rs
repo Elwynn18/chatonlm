@@ -3,12 +3,9 @@
 //! en-tête GGUF synthétique (`resolve/`, requêtes Range), dépôts d'images
 //! (`fixtures/hf/images.json` : fichiers au vrai contenu déterministe,
 //! `lfs.sha256` exact, Range ; filtres `pipeline_tag` et `filter=gguf`,
-//! fiche à une révision), registre d'Ollama
-//! (`/v2/<auteur>/<dépôt>/manifests/<étiquette>`, erreurs exactes du vrai) et
-//! page d'état (`/index.json`), et dépôts GGUF synthétisés au vrai contenu
+//! fiche à une révision) et page d'état (`/index.json`), et dépôts GGUF synthétisés au vrai contenu
 //! pour les téléchargements directs (`chatonlm-dl/…`, voir
-//! [`crate::hf_models`]). Serveur à part du faux Ollama, sur son propre
-//! port. Dépôts : `fixtures/hf/repos.json` (réduits des échantillons réels de
+//! [`crate::hf_models`]). Serveur à part, sur son propre port. Dépôts : `fixtures/hf/repos.json` (réduits des échantillons réels de
 //! `.tools/research/35-samples`). Ce que le serveur a reçu se lit sur
 //! `GET /fake/requests`.
 //!
@@ -518,7 +515,6 @@ async fn handle(
         ["api", "models", author, name, "revision", _revision] => {
             detail(&format!("{author}/{name}"), &headers)
         }
-        ["v2", author, name, "manifests", tag] => manifest(&format!("{author}/{name}"), tag),
         [author, name, "raw", _revision, "README.md"] => {
             readme(&format!("{author}/{name}"), &headers)
         }
@@ -695,7 +691,7 @@ fn api_repo(repo: &Value, detail: bool) -> Value {
     value
 }
 
-/// `GET /api/models` : `apps=ollama` (contexte connu), `search` (mots dans
+/// `GET /api/models` : `apps=llama.cpp` (contexte connu), `search` (mots dans
 /// l'identifiant, tous), `sort`, `limit` (50 par défaut, 1000 au plus),
 /// `cursor` (opaque) et lien `next`.
 fn list(shared: &Shared, query: &str, headers: &HeaderMap) -> Response {
@@ -711,14 +707,14 @@ fn list(shared: &Shared, query: &str, headers: &HeaderMap) -> Response {
         .split_whitespace()
         .map(str::to_lowercase)
         .collect();
-    // Filtre des applications de Hugging Face : `ollama` (avant) ou
-    // `llama.cpp` (ChatonLM 0.10), mêmes dépôts GGUF.
-    let ollama = matches!(get("apps"), Some("ollama" | "llama.cpp"));
+    // Filtre des applications de Hugging Face (`llama.cpp`) : dépôts GGUF
+    // dont le contexte est connu.
+    let gguf_app = get("apps") == Some("llama.cpp");
     let pipeline = get("pipeline_tag");
     let gguf_only = get("filter") == Some("gguf");
     let mut found: Vec<&Value> = repos()
         .iter()
-        .filter(|repo| !ollama || repo["context_length"].is_u64())
+        .filter(|repo| !gguf_app || repo["context_length"].is_u64())
         .filter(|repo| pipeline.is_none_or(|tag| repo["pipeline_tag"].as_str() == Some(tag)))
         .filter(|repo| {
             !gguf_only
@@ -988,206 +984,6 @@ fn resolve(id: &str, file: &str, headers: &HeaderMap) -> Response {
     }
 }
 
-/// Noms de l'énumération des quantifications de huggingface.js, pour juger
-/// une étiquette comme le registre.
-const QUANTS: &[&str] = &[
-    "F32",
-    "F16",
-    "Q4_0",
-    "Q4_1",
-    "Q4_1_SOME_F16",
-    "Q8_0",
-    "Q5_0",
-    "Q5_1",
-    "Q2_K",
-    "Q3_K_S",
-    "Q3_K_M",
-    "Q3_K_L",
-    "Q4_K_S",
-    "Q4_K_M",
-    "Q5_K_S",
-    "Q5_K_M",
-    "Q6_K",
-    "IQ2_XXS",
-    "IQ2_XS",
-    "Q2_K_S",
-    "IQ3_XS",
-    "IQ3_XXS",
-    "IQ1_S",
-    "IQ4_NL",
-    "IQ3_S",
-    "IQ3_M",
-    "IQ2_S",
-    "IQ2_M",
-    "IQ4_XS",
-    "IQ1_M",
-    "BF16",
-    "Q4_0_4_4",
-    "Q4_0_4_8",
-    "Q4_0_8_8",
-    "TQ1_0",
-    "TQ2_0",
-    "MXFP4_MOE",
-    "NVFP4",
-    "Q1_0",
-    "Q2_0",
-    "Q2_K_XL",
-    "Q3_K_XL",
-    "Q4_K_XL",
-    "Q5_K_XL",
-    "Q6_K_XL",
-    "Q8_K_XL",
-    "MXFP4",
-];
-
-fn valid_quant(tag: &str) -> bool {
-    let tag = tag.strip_prefix("UD-").unwrap_or(tag);
-    QUANTS.iter().any(|quant| {
-        tag == *quant
-            || tag
-                .strip_prefix(quant)
-                .and_then(|rest| rest.strip_prefix('_'))
-                .is_some_and(|rest| {
-                    !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_uppercase())
-                })
-    })
-}
-
-fn is_auxiliary(path: &str) -> bool {
-    let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
-    ["mmproj", "mtp", "eagle", "draft", "imatrix"]
-        .iter()
-        .any(|prefix| name.starts_with(prefix))
-        || name.contains("mmproj")
-        || name.contains("imatrix")
-}
-
-fn is_shard(path: &str) -> bool {
-    let lower = path.to_ascii_lowercase();
-    lower.ends_with(".gguf") && lower.contains("-of-0") && lower.contains("-0000")
-}
-
-/// Registre d'Ollama : `GET /v2/<id>/manifests/<étiquette>`, avec les
-/// réponses du vrai (35 § 2.4 et 34 § 2-3) ; l'étiquette est cherchée dans
-/// les noms de fichiers, comme le vrai (`f16` peut désigner un BF16).
-fn manifest(id: &str, tag: &str) -> Response {
-    const SHARDED_TAG: &str = "This tag is a sharded GGUF. Ollama does not yet support pulling sharded GGUF via the registry; please use a single-file quantization tag or \"latest\", or download the shards and merge them locally with `ollama create` (workaround detailed at https://github.com/ollama/ollama/issues/5245).";
-    const ONLY_SHARDED: &str = "This repository only contains sharded GGUF files. Ollama does not yet support pulling sharded GGUF via the registry; please download the shards and merge them locally with `ollama create` (workaround detailed at https://github.com/ollama/ollama/issues/5245), or use a repository with single-file quantizations.";
-    let Some(repo) = find(id) else {
-        return not_found();
-    };
-    if is_gated(repo) {
-        return restricted(repo["id"].as_str().unwrap_or(id), true);
-    }
-    let all = files(repo);
-    let mut models: Vec<(&str, u64)> = all
-        .iter()
-        .copied()
-        .filter(|(name, _)| name.to_ascii_lowercase().ends_with(".gguf") && !is_auxiliary(name))
-        .collect();
-    models.sort();
-    if models.is_empty() {
-        return error(
-            StatusCode::BAD_REQUEST,
-            "Repository is not GGUF or is not compatible with llama.cpp",
-        );
-    }
-    let single: Vec<(&str, u64)> = models
-        .iter()
-        .copied()
-        .filter(|(name, _)| !is_shard(name))
-        .collect();
-    if single.is_empty() {
-        return error(StatusCode::BAD_REQUEST, ONLY_SHARDED);
-    }
-    let not_available = "The specified tag is not available in the repository. Please use another tag or \"latest\"";
-    let chosen = if tag == "latest" {
-        single
-            .iter()
-            .find(|(name, _)| name.to_ascii_uppercase().contains("Q4_K_M"))
-            .or_else(|| single.first())
-            .copied()
-    } else if tag.to_ascii_lowercase().ends_with(".gguf") {
-        match single
-            .iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case(tag))
-        {
-            Some(found) => Some(*found),
-            None => return error(StatusCode::BAD_REQUEST, not_available),
-        }
-    } else {
-        let upper = tag.to_ascii_uppercase();
-        if !valid_quant(&upper) {
-            return error(
-                StatusCode::BAD_REQUEST,
-                "The specified tag is not a valid quantization scheme. Please use another tag or \"latest\"",
-            );
-        }
-        match models.iter().find(|(name, _)| {
-            name.rsplit('/')
-                .next()
-                .unwrap_or(name)
-                .to_ascii_uppercase()
-                .contains(&upper)
-        }) {
-            Some((name, _)) if is_shard(name) || name.contains('/') => {
-                return error(StatusCode::BAD_REQUEST, SHARDED_TAG);
-            }
-            Some(found) => Some(*found),
-            None => return error(StatusCode::BAD_REQUEST, not_available),
-        }
-    };
-    let Some((file, size)) = chosen else {
-        return error(StatusCode::BAD_REQUEST, not_available);
-    };
-    let repo_id = repo["id"].as_str().unwrap_or(id);
-    let mut layers = vec![json!({
-        "digest": digest(&format!("{repo_id}/{file}")),
-        "mediaType": "application/vnd.ollama.image.model",
-        "size": size,
-    })];
-    let projectors: Vec<(&str, u64)> = all
-        .iter()
-        .copied()
-        .filter(|(name, _)| name.to_ascii_lowercase().contains("mmproj"))
-        .collect();
-    let projector = ["f16", "bf16"]
-        .iter()
-        .find_map(|quant| {
-            projectors.iter().find(|(name, _)| {
-                let lower = name.to_ascii_lowercase();
-                lower.contains(&format!("-{quant}"))
-                    && !(*quant == "f16" && lower.contains("-bf16"))
-            })
-        })
-        .or_else(|| projectors.iter().min_by_key(|(_, size)| *size));
-    if let Some((name, size)) = projector {
-        layers.push(json!({
-            "digest": digest(&format!("{repo_id}/{name}")),
-            "mediaType": "application/vnd.ollama.image.projector",
-            "size": size,
-        }));
-    }
-    let body = json!({
-        "schemaVersion": 2,
-        "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
-        "config": {
-            "digest": digest(&format!("{repo_id}/{file}/config")),
-            "mediaType": "application/vnd.docker.container.image.v1+json",
-            "size": 481,
-        },
-        "layers": layers,
-    });
-    (
-        [(
-            header::CONTENT_TYPE,
-            "application/vnd.docker.distribution.manifest.v2+json",
-        )],
-        body.to_string(),
-    )
-        .into_response()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1293,8 +1089,12 @@ mod tests {
     #[tokio::test]
     async fn lists_search_sort_and_pages() {
         let fake = FakeHf::start(HfMode::Normal).await.unwrap();
-        let (status, head, body) =
-            get(&fake, "/api/models?apps=ollama&sort=downloads&limit=3", "").await;
+        let (status, head, body) = get(
+            &fake,
+            "/api/models?apps=llama.cpp&sort=downloads&limit=3",
+            "",
+        )
+        .await;
         assert_eq!(status, 200);
         let page = body_json(&body);
         assert_eq!(page.as_array().unwrap().len(), 3);
@@ -1305,21 +1105,21 @@ mod tests {
         // Recherche : tous les mots, dans l'identifiant.
         let (_, _, body) = get(
             &fake,
-            "/api/models?apps=ollama&search=qwen%20coder&limit=30",
+            "/api/models?apps=llama.cpp&search=qwen%20coder&limit=30",
             "",
         )
         .await;
         let found = body_json(&body);
         assert_eq!(found.as_array().unwrap().len(), 1);
-        // Sans contexte : écarté par apps=ollama.
-        let (_, _, body) = get(&fake, "/api/models?apps=ollama&search=minimax", "").await;
+        // Sans contexte : écarté par apps=llama.cpp.
+        let (_, _, body) = get(&fake, "/api/models?apps=llama.cpp&search=minimax", "").await;
         assert_eq!(body_json(&body), json!([]));
         let (_, _, body) = get(&fake, "/api/models?search=minimax", "").await;
         assert_eq!(body_json(&body).as_array().unwrap().len(), 1);
         // ETag.
         let (_, head, _) = get(
             &fake,
-            "/api/models?apps=ollama&sort=trendingScore&limit=200",
+            "/api/models?apps=llama.cpp&sort=trendingScore&limit=200",
             "",
         )
         .await;
@@ -1330,7 +1130,7 @@ mod tests {
             .to_owned();
         let (status, _, _) = get(
             &fake,
-            "/api/models?apps=ollama&sort=trendingScore&limit=200",
+            "/api/models?apps=llama.cpp&sort=trendingScore&limit=200",
             &format!("If-None-Match: {etag}\r\n"),
         )
         .await;
@@ -1373,63 +1173,6 @@ mod tests {
         assert!(head.contains("content-range: bytes 0-262143/"), "{head}");
         assert_eq!(&body[..4], b"GGUF");
     }
-
-    #[tokio::test]
-    async fn manifests_answer_like_the_registry() {
-        let fake = FakeHf::start(HfMode::Normal).await.unwrap();
-        let manifest = |path: &'static str| {
-            let fake = &fake;
-            async move {
-                let (status, _, body) = get(fake, path, "").await;
-                (status, body_json(&body))
-            }
-        };
-        let (status, body) = manifest("/v2/unsloth/Qwen3.5-9B-GGUF/manifests/UD-Q4_K_XL").await;
-        assert_eq!(status, 200);
-        assert_eq!(body["layers"][0]["size"], 5966095584u64);
-        assert_eq!(
-            body["layers"][1]["mediaType"],
-            "application/vnd.ollama.image.projector"
-        );
-        assert_eq!(body["layers"][1]["size"], 918166080u64);
-        let (status, body) =
-            manifest("/v2/bartowski/Qwen3.8-27B-GGUF/manifests/Qwen3.8-27B-Q4_K_L.gguf").await;
-        assert_eq!(status, 200);
-        assert_eq!(body["layers"][0]["size"], 18820703968u64);
-        let (status, body) = manifest("/v2/bartowski/Qwen3.8-27B-GGUF/manifests/Q4_K_L").await;
-        assert_eq!(status, 400);
-        assert!(
-            body["error"]
-                .as_str()
-                .unwrap()
-                .contains("not a valid quantization")
-        );
-        let (status, body) = manifest("/v2/bartowski/Qwen3.8-27B-GGUF/manifests/BF16").await;
-        assert_eq!(status, 400);
-        assert!(
-            body["error"]
-                .as_str()
-                .unwrap()
-                .contains("This tag is a sharded GGUF")
-        );
-        let (status, body) = manifest("/v2/chatonlm/Tiny-Sharded-GGUF/manifests/Q4_K_M").await;
-        assert_eq!(status, 400);
-        assert!(
-            body["error"]
-                .as_str()
-                .unwrap()
-                .contains("only contains sharded")
-        );
-        let (status, body) = manifest("/v2/chatonlm/Tiny-Chat-GGUF/manifests/Q5_K_M").await;
-        assert_eq!(status, 400);
-        assert!(body["error"].as_str().unwrap().contains("not available"));
-        let (status, _) = manifest("/v2/nobody/missing-GGUF/manifests/Q4_K_M").await;
-        assert_eq!(status, 401);
-        let (status, body) = manifest("/v2/chatonlm/Tiny-Restricted-GGUF/manifests/Q4_K_M").await;
-        assert_eq!(status, 401);
-        assert!(body["error"].as_str().unwrap().contains("is restricted"));
-    }
-
     #[tokio::test]
     async fn failure_modes() {
         let fake = FakeHf::start(HfMode::Status(503)).await.unwrap();
@@ -1458,7 +1201,7 @@ mod tests {
         assert_eq!(HfMode::parse("hf-html"), Some(HfMode::Html));
         assert_eq!(HfMode::parse("hf-silent"), Some(HfMode::Silent));
         assert_eq!(HfMode::parse("hf"), Some(HfMode::Normal));
-        assert_eq!(HfMode::parse("ollama"), None);
+        assert_eq!(HfMode::parse("other"), None);
         // Le journal se lit aussi en HTTP.
         let (_, _, body) = get(&fake, "/fake/requests", "").await;
         assert_eq!(body_json(&body).as_array().unwrap().len(), 2);
@@ -1495,9 +1238,9 @@ mod tests {
             ids(&body),
             ["chatonlm/Tiny-SDXL", "chatonlm/Tiny-SDXL-LoRA"]
         );
-        // Sans filtre d'images ni `apps=ollama` : rien ne change pour le
+        // Sans filtre d'images ni `apps=llama.cpp` : rien ne change pour le
         // ModelHub.
-        let (_, _, body) = get(&fake, "/api/models?apps=ollama&search=klein", "").await;
+        let (_, _, body) = get(&fake, "/api/models?apps=llama.cpp&search=klein", "").await;
         assert!(ids(&body).is_empty());
 
         let (status, _, body) = get(
@@ -1584,15 +1327,9 @@ mod tests {
     }
 
     #[test]
-    fn decoding_and_quantizations() {
+    fn decoding() {
         assert_eq!(decode("qwen%20coder"), "qwen coder");
         assert_eq!(decode("a+b"), "a b");
         assert_eq!(decode("100%"), "100%");
-        assert!(valid_quant("Q4_K_M"));
-        assert!(valid_quant("UD-Q4_K_XL"));
-        assert!(valid_quant("Q6_K_L"));
-        assert!(!valid_quant("Q4_K_L"));
-        assert!(!valid_quant("FP16"));
-        assert!(!valid_quant("Q9_K_Z"));
     }
 }

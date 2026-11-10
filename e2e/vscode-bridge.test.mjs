@@ -1,4 +1,4 @@
-// Lien VS Code dans l'app réelle (build e2e), avec le faux Ollama et un client
+// Lien VS Code dans l'app réelle (build e2e), avec le faux moteur et un client
 // Node qui fait ce que fera l'extension (e2e/lib/bridge.mjs) :
 // - coupé par défaut : aucun point d'accès, aucun fichier de découverte ;
 // - Settings > VS Code : la bascule ouvre le socket (dossier 0700, socket 0600)
@@ -10,7 +10,7 @@
 //   dans la barre latérale sans rechargement, marquée « VS Code » ;
 // - chat.get rend la conversation, chat.list les seules conversations de
 //   l'éditeur (pas celle écrite dans l'app), models.details dit où tourne le
-//   modèle et son contexte, app.state si le serveur est sur la machine ;
+//   modèle et son contexte, app.state (moteur toujours sur la machine) ;
 // - conversation éphémère de l'éditeur : hors de l'historique ; chat.keep la
 //   fait apparaître dans la barre latérale, chat.forget l'efface ;
 // - « Remove » ferme la connexion, efface l'éphémère restée de l'éditeur, et
@@ -21,11 +21,11 @@ import assert from "node:assert/strict";
 import { existsSync, statSync } from "node:fs";
 import { withApp } from "./lib/app.mjs";
 import { BridgeClient, findDiscovery, readDiscovery } from "./lib/bridge.mjs";
-import { startFake } from "./lib/fake.mjs";
+import { fakeModel, startEngine } from "./lib/fake.mjs";
 
 const binary = process.argv[2];
-const fake = await startFake("ollama");
-const MODEL = "qwen3:0.6b";
+const MODEL = fakeModel("simple");
+const engine = startEngine([MODEL]);
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -119,7 +119,7 @@ const sidebarTitles = (driver) =>
 try {
   await withApp(
     binary,
-    { name: "vscode-bridge", env: { OLLAMA_HOST: fake.url } },
+    { name: "vscode-bridge", env: engine.env },
     async (driver) => {
       await driver.waitFor("[data-testid=new-chat]");
       await driver.execute(WATCH_PAGE);
@@ -196,11 +196,15 @@ try {
       // Conversation par le pont.
       const state = await client.request("app.state");
       assert.equal(state.result.selectedModel, MODEL);
-      // Faux Ollama sur 127.0.0.1 : sur cette machine ; contexte du serveur.
+      // Moteur intégré : sur cette machine ; contexte choisi par le moteur.
       assert.equal(state.result.local, true, JSON.stringify(state));
       assert.equal(state.result.contextLength, 0);
       const models = await client.request("models.list");
       assert.ok(Array.isArray(models.result), JSON.stringify(models));
+      // Identifiant du moteur, et champs de l'ancien format (extension 0.1.x).
+      const entry = models.result.find((m) => m.id === MODEL);
+      assert.ok(entry, JSON.stringify(models));
+      assert.equal(entry.model, MODEL);
       // La page est sur une conversation vide : la barre latérale suit
       // l'évènement du moteur, sans rechargement.
       await navigate(driver, "/c/new");
@@ -278,7 +282,7 @@ try {
       );
       assert.ok(!listed.result.some((c) => c.id === own));
 
-      // models.details : modèle local, pas de cloud.
+      // models.details : modèle local, pas distant.
       const details = await client.request("models.details", { model: MODEL });
       assert.equal(details.result?.model, MODEL, JSON.stringify(details));
       assert.equal(details.result.remote, false);
@@ -373,5 +377,5 @@ try {
   );
   console.log("✓ vscode-bridge");
 } finally {
-  await fake.stop();
+  // Rien à arrêter : le faux moteur est lancé et arrêté par l'app.
 }

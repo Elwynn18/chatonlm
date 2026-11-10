@@ -18,7 +18,10 @@ export const FAKE_LLAMA = `${ROOT}.tools/e2e-target/debug/fake-llama`;
 
 /** Variables de l'environnement du développeur à ne pas transmettre. */
 const DROPPED_ENV = [
+  // Ollama de la machine (reprise de ses modèles) : jamais celui du
+  // développeur ; un test de la reprise donne ses dossiers.
   "OLLAMA_HOST",
+  "OLLAMA_MODELS",
   // Moteur de texte : binaire, modèles inscrits au démarrage et réglages du
   // faux, donnés par le test (e2e/lib/fake.mjs, `startEngine`) ; variables
   // de llama.cpp et des essais Rust du vrai moteur.
@@ -39,15 +42,9 @@ const DROPPED_ENV = [
   "CHATONLM_LLAMA_CPU_ONLY",
   "CHATONLM_SEED_DEMO",
   "CHATONLM_E2E_HOST_FACTS",
-  // Ollama intégré (binaire de .tools/runtimes) et adresse par défaut
-  // remplacée : un test qui s'en sert les donne lui-même.
-  "CHATONLM_OLLAMA_BIN",
   // Moteur d'images (binaire de .tools/runtimes ou faux fake-sd-server) :
   // de même, donné par le test qui s'en sert.
   "CHATONLM_SD_SERVER_BIN",
-  "CHATONLM_E2E_DEFAULT_URL",
-  "CHATONLM_REGISTRY_URL",
-  "CHATONLM_OLLAMA_COM_URL",
   "CHATONLM_HF_URL",
   "CHATONLM_HF_STATUS_URL",
   "CHATONLM_E2E_HARDWARE",
@@ -218,20 +215,10 @@ export async function withApp(
       // des messages inscrit les siens (`startEngine`, qui donne aussi
       // `CHATONLM_E2E_MODELS`), ou donne le vrai moteur (`startRealEngine`).
       CHATONLM_LLAMA_SERVER_BIN: FAKE_LLAMA,
-      // Adresse locale standard d'Ollama fermée (code d'Ollama gardé jusqu'à
-      // son retrait, sans appelant) : un Ollama de la machine n'est jamais
-      // proposé.
-      CHATONLM_E2E_STANDARD_URL: "http://127.0.0.1:1",
       // Reprise des modèles d'Ollama : aucun dossier de l'Ollama de la machine
       // (ni service interrogé, ni ~/.ollama lu) ; un test de la reprise donne
       // les siens (séparés comme PATH).
       CHATONLM_OLLAMA_MACHINE_DIRS: "",
-      // Registre fermé (ollama.com jamais contacté) ; un test qui cherche un
-      // modèle au registre donne le faux serveur.
-      CHATONLM_REGISTRY_URL: "http://127.0.0.1:1",
-      // ollama.com fermé (image du compte, page de connexion) ; un test du
-      // compte donne le faux serveur, qui joue aussi ollama.com.
-      CHATONLM_OLLAMA_COM_URL: "http://127.0.0.1:1",
       // Hugging Face et sa page d'état fermés (ModelHub hors ligne) ; un test
       // du ModelHub donne l'adresse du faux Hugging Face (startFakeHf) aux
       // deux.

@@ -1,6 +1,6 @@
 // Faux serveurs lancés depuis un test : moteur de texte (fake-llama, lancé par
-// l'app sur des modèles inscrits au démarrage), Ollama et Hugging Face
-// (fake-ollama).
+// l'app sur des modèles inscrits au démarrage) et Hugging Face
+// (fake-services).
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   copyFileSync,
@@ -15,7 +15,7 @@ import { createInterface } from "node:readline";
 import { FAKE_LLAMA, ROOT } from "./app.mjs";
 
 export { FAKE_LLAMA };
-export const FAKE_OLLAMA = `${ROOT}.tools/e2e-target/debug/fake-ollama`;
+export const FAKE_SERVICES = `${ROOT}.tools/e2e-target/debug/fake-services`;
 
 /**
  * Racine de l'arbre principal du dépôt git qui contient `dir` (`dir` lui-même
@@ -343,7 +343,28 @@ function engineHandle({ seeds, modelsDir, registry, env }) {
     disconnects: (id) => pilot(id, "disconnects", 0),
     /** Arguments de lancement de l'instance du modèle `id` (`-c`, `--mmproj`…). */
     args: (id) => pilot(id, "args", null),
+    /**
+     * Fige l'instance du modèle `id` (SIGSTOP) : ses connexions restent
+     * ouvertes mais rien ne répond, comme un moteur bloqué ; `resume` la
+     * relance. Faux si elle n'est pas en marche.
+     */
+    pause(id) {
+      return signal(id, "SIGSTOP");
+    },
+    resume(id) {
+      return signal(id, "SIGCONT");
+    },
   };
+  function signal(id, name) {
+    const entry = server(id);
+    if (!entry) return false;
+    try {
+      process.kill(entry.pid, name);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   async function pilot(id, route, fallback) {
     const entry = server(id);
     if (!entry) return fallback;
@@ -359,7 +380,7 @@ function engineHandle({ seeds, modelsDir, registry, env }) {
 
 /** Lance le binaire avec ce mode ; attend l'adresse qu'il affiche. */
 async function spawnFake(mode, port) {
-  const child = spawn(FAKE_OLLAMA, [mode, String(port)], {
+  const child = spawn(FAKE_SERVICES, [mode, String(port)], {
     stdio: ["ignore", "pipe", "inherit"],
   });
   const exited = new Promise((resolve) => {
@@ -371,97 +392,15 @@ async function spawnFake(mode, port) {
     lines.once("line", resolve);
     child.once("error", reject);
     child.once("exit", (code) =>
-      reject(new Error(`fake-ollama s'est arrêté (code ${code})`)),
+      reject(new Error(`fake-services s'est arrêté (code ${code})`)),
     );
   });
   return { child, exited, url };
 }
 
 /**
- * Démarre le faux serveur ; `port` 0 = port libre. Renvoie
- * { url, port, disconnects, pulls, deletes, manifests, install, publish,
- * pause, resume, stop }.
- */
-export async function startFake(mode = "ollama", port = 0) {
-  const { child, exited, url } = await spawnFake(mode, port);
-  return {
-    url,
-    port: Number(new URL(url).port),
-    /**
-     * Nombre de flux (chat, pull) abandonnés par le client avant leur fin.
-     */
-    async disconnects() {
-      const response = await fetch(new URL("/fake/disconnects", url));
-      return (await response.json()).disconnects;
-    },
-    /** Corps des requêtes /api/pull reçues, dans l'ordre. */
-    async pulls() {
-      const response = await fetch(new URL("/fake/pulls", url));
-      const body = await response.json();
-      return Array.isArray(body) ? body : body.pulls;
-    },
-    /** Noms reçus par DELETE /api/delete, dans l'ordre. */
-    async deletes() {
-      const response = await fetch(new URL("/fake/deletes", url));
-      return response.json();
-    },
-    /**
-     * Requêtes reçues par le registre, dans l'ordre :
-     * « HEAD /v2/library/gemma4/manifests/latest ».
-     */
-    async manifests() {
-      const response = await fetch(new URL("/fake/manifests", url));
-      return response.json();
-    },
-    /**
-     * Télécharge `model` sur le serveur, sans l'app (modèle installé avant
-     * le test) ; attend la fin du flux.
-     */
-    async install(model) {
-      const response = await fetch(new URL("/api/pull", url), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model }),
-      });
-      const lines = await response.text();
-      if (!lines.includes('"status":"success"')) {
-        throw new Error(`pull de ${model} sans succès : ${lines.slice(-300)}`);
-      }
-    },
-    /**
-     * Publie une nouvelle version de `model` au registre : le modèle installé
-     * devient périmé jusqu'à son prochain téléchargement.
-     */
-    async publish(model) {
-      const response = await fetch(new URL("/fake/publish", url), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model }),
-      });
-      if (!response.ok) throw new Error(`publication de ${model} refusée`);
-    },
-    /**
-     * Fige le serveur (SIGSTOP) : les connexions restent ouvertes mais rien
-     * ne répond, comme un Ollama bloqué ; `resume` le relance.
-     */
-    pause() {
-      child.kill("SIGSTOP");
-    },
-    resume() {
-      child.kill("SIGCONT");
-    },
-    async stop() {
-      child.kill("SIGTERM");
-      // Un serveur figé ne traiterait SIGTERM qu'une fois relancé.
-      child.kill("SIGCONT");
-      await exited;
-    },
-  };
-}
-
-/**
- * Démarre le faux Hugging Face (même binaire, serveur à part ; dépôts de
- * `src-tauri/crates/fake-ollama/fixtures/hf/repos.json`). `mode` : `hf`
+ * Démarre le faux Hugging Face (binaire fake-services ; dépôts de
+ * `src-tauri/crates/fake-services/fixtures/hf/repos.json`). `mode` : `hf`
  * (normal), `hf-status:<code>` (toutes les routes répondent ce code ; page
  * d'état « incident » pour un 5xx), `hf-ratelimit` (429, nouvel essai dans
  * 42 s), `hf-html` (page HTML). Donner `url` à l'app par `CHATONLM_HF_URL` et

@@ -340,7 +340,7 @@ mod fixtures;
 /// `fake-llama gguf <sortie> [options]` : fichier GGUF d'essai à l'en-tête
 /// lisible par l'app (`hub::gguf::meta`), pour les e2e qui inscrivent des
 /// modèles (`CHATONLM_E2E_MODELS`) ou les rangent dans un dossier. Reprise
-/// du synthétiseur de `fake-ollama` (`hf_models.rs`).
+/// du synthétiseur de `fake-services` (`hf_models.rs`).
 ///
 /// Options : `--arch <a>` (défaut `qwen3`), `--ctx <n>` (contexte
 /// d'entraînement, défaut 40 960), `--size-label <t>` (défaut « 0.6B »),
