@@ -29,8 +29,7 @@ afterEach(() => {
 });
 
 const settings = {
-  serverUrl: "",
-  effectiveServerUrl: "http://127.0.0.1:11434",
+  formerServerUrl: "",
   contextLength: 0,
   theme: "system",
   selectedModel: "qwen3:0.6b",

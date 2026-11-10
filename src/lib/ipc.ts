@@ -169,7 +169,7 @@ export function setMenuEntry(enabled: boolean): Promise<MenuEntryStatus> {
 
 /**
  * Diagnostic qui serait joint à un signalement de bug (versions, système,
- * Ollama utilisé, fin du journal de l'app ; dossier personnel masqué).
+ * moteur, fin du journal de l'app ; dossier personnel masqué).
  */
 export function bugReportDiagnostic(): Promise<string> {
   return invoke<string>("bug_report_diagnostic");
@@ -180,7 +180,7 @@ export function sendBugReport(report: BugReport): Promise<ReportOutcome> {
   return invoke<ReportOutcome>("send_bug_report", { report });
 }
 
-/** Ouvre le dossier des journaux (app et Ollama intégré). */
+/** Ouvre le dossier des journaux de l'app. */
 export function openAppLogs(): Promise<void> {
   return invoke<void>("open_app_logs");
 }
@@ -360,7 +360,7 @@ export function autoModel(): Promise<string | null> {
 
 /**
  * Charge un modèle avec le contexte et la durée des réglages ; résout une
- * fois le modèle chargé, rejette avec l'erreur d'Ollama (modèle absent,
+ * fois le modèle chargé, rejette avec l'erreur du moteur (modèle absent,
  * mémoire insuffisante...).
  */
 export function loadModel(model: string): Promise<void> {
@@ -412,7 +412,7 @@ export function sendMessage(
  * Compacte la conversation tout de suite (propre à ChatonLM) : le modèle
  * `model` (celui de la zone de saisie) résume tout ce qui suit le dernier
  * compactage. Rejette si la conversation répond, s'il n'y a rien à
- * compacter, ou si Ollama ou le modèle échoue (message du moteur traduit).
+ * compacter, ou si le moteur ou le modèle échoue (message du moteur traduit).
  */
 export function compactChat(
   chatId: string,
@@ -534,7 +534,7 @@ export function listenChatsUpdated(
 // ModelHub (src-tauri/src/commands/hub.rs). Les problèmes de Hugging Face
 // (hors ligne, panne, limite de requêtes...) arrivent dans `status.problem`
 // des réponses ; une commande ne rejette que pour une vraie panne interne,
-// un nom invalide ou une erreur d'Ollama.
+// ou un nom invalide.
 
 /** Accueil : rubriques (6 dépôts au plus) et familles, filtrées. */
 export function hubHome(filters: HubFilters): Promise<HubHome> {
@@ -591,8 +591,8 @@ export function hubCancelDownload(model: string): Promise<void> {
 }
 
 /**
- * Met en pause un téléchargement en file ou en cours : Ollama garde ce qui
- * est reçu, la reprise repart de là.
+ * Met en pause un téléchargement en file ou en cours : ce qui est reçu est
+ * gardé, la reprise repart de là.
  */
 export function hubPauseDownload(model: string): Promise<void> {
   return invoke<void>("hub_pause_download", { model });

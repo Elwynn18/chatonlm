@@ -744,7 +744,7 @@ fn plugin_error_text(error: &tauri_plugin_updater::Error) -> String {
         Error::Reqwest(error) if error.is_timeout() => t!("updates.errors.timeout"),
         Error::Reqwest(error) => t!(
             "updates.errors.unreachable",
-            error = crate::hub::manifest::error_text(error)
+            error = crate::http::error_text(error)
         ),
         // « Download request failed with status: 404 Not Found ».
         Error::Network(message) => match message.rsplit_once("status: ") {

@@ -74,21 +74,26 @@ impl ModelImport {
         }
     }
 
-    /// Lance la reprise `job` ; `before` est attendu d'abord (arrêt de
-    /// l'Ollama intégré dont les fichiers vont bouger) et ce qu'il rend est
-    /// gardé jusqu'à la fin (l'intégré reste arrêté). Refus si une reprise
-    /// est déjà en cours. Rend la tâche (attendue par les essais).
-    pub fn start<F, G>(
+    /// Lance la reprise `job`. Refus si une reprise est déjà en cours. Rend
+    /// la tâche (attendue par les essais).
+    pub fn start(
         &self,
         job: Job,
         store: Store,
         data_dir: PathBuf,
-        before: F,
-    ) -> AppResult<tauri::async_runtime::JoinHandle<ImportReport>>
-    where
-        F: std::future::Future<Output = G> + Send + 'static,
-        G: Send + 'static,
-    {
+    ) -> AppResult<tauri::async_runtime::JoinHandle<ImportReport>> {
+        self.start_after(job, store, data_dir, async {})
+    }
+
+    /// Comme [`Self::start`], la reprise ne commençant qu'une fois `before`
+    /// fini (essais : une reprise tenue en cours).
+    pub(crate) fn start_after(
+        &self,
+        job: Job,
+        store: Store,
+        data_dir: PathBuf,
+        before: impl std::future::Future<Output = ()> + Send + 'static,
+    ) -> AppResult<tauri::async_runtime::JoinHandle<ImportReport>> {
         let cancel = Arc::new(AtomicBool::new(false));
         {
             let mut slot = self.0.cancel.lock();
@@ -109,13 +114,12 @@ impl ModelImport {
             }),
         };
         Ok(tauri::async_runtime::spawn(async move {
-            let guard = before.await;
+            before.await;
             let progress = this.clone();
             let report = super::run(job, context, move |running| {
                 progress.update(|state| state.running = Some(running));
             })
             .await;
-            drop(guard);
             *this.0.cancel.lock() = None;
             this.update(|state| {
                 state.running = None;
@@ -134,17 +138,6 @@ pub async fn builtin_dir(store: &Store, data_dir: &Path) -> AppResult<PathBuf> {
         .await
 }
 
-/// Arrête l'Ollama intégré s'il tourne (ses fichiers vont bouger) : chat,
-/// cours et corrections en cours s'arrêtent d'abord ; il ne redémarre pas
-/// tant que le résultat vit.
-pub async fn stop_builtin() -> Option<crate::ollama::builtin::Paused> {
-    let targeting = crate::ollama::target::current()?;
-    targeting.stop_work();
-    let paused = targeting.builtin().pause();
-    targeting.builtin().stop().await;
-    Some(paused)
-}
-
 /// Dossiers de l'Ollama de la machine trouvés (voir [`super::sources`]),
 /// hors de `exclude`. Essais : jamais de détection réelle (aucun Ollama de la
 /// machine interrogé), dossiers donnés par [`TEST_MACHINE_DIRS`] ; app lancée
@@ -154,7 +147,7 @@ async fn machine_candidates(exclude: Vec<PathBuf>) -> Vec<PathBuf> {
     #[cfg(test)]
     {
         let dirs = TEST_MACHINE_DIRS.with(|dirs| dirs.borrow().clone());
-        super::sources::candidates(None, None, None, dirs, &exclude)
+        super::sources::candidates(None, Vec::new(), None, dirs, &exclude)
     }
     #[cfg(not(test))]
     {
@@ -167,15 +160,15 @@ async fn machine_candidates(exclude: Vec<PathBuf>) -> Vec<PathBuf> {
             .await
             .unwrap_or_default();
         }
+        // Bus figé, `/proc` lent : la recherche continue sans ces dossiers.
         let detected = tokio::time::timeout(
             DETECT_TIMEOUT,
-            crate::ollama::models_dir::detect("http://127.0.0.1:11434"),
+            tauri::async_runtime::spawn_blocking(super::sources::configured_dirs),
         )
         .await
         .ok()
-        .and_then(|detection| {
-            crate::ollama::models_dir::current_dir(&detection.location).map(PathBuf::from)
-        });
+        .and_then(Result::ok)
+        .unwrap_or_default();
         let env = std::env::var_os("OLLAMA_MODELS")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
@@ -239,9 +232,9 @@ pub async fn at_startup(import: &ModelImport, store: Store, data_dir: PathBuf) {
         return;
     };
     let configured = store
-        .call(|c| crate::store::builtin_ollama::get(c))
+        .call(|c| crate::store::model_import::builtin_models_dir(c))
         .await
-        .map(|settings| settings.models_dir.is_some())
+        .map(|dir| dir.is_some())
         .unwrap_or(true);
     match std::fs::read_dir(&dir) {
         Ok(_) => {}
@@ -275,7 +268,7 @@ pub async fn at_startup(import: &ModelImport, store: Store, data_dir: PathBuf) {
         shared,
         retry_failed: false,
     };
-    if let Ok(task) = import.start(job, store, data_dir, stop_builtin()) {
+    if let Ok(task) = import.start(job, store, data_dir) {
         let _ = task.await;
     }
 }
@@ -361,11 +354,7 @@ pub async fn clean(
     };
     let keep = kept_files(store, data_dir).await?;
     let root = data_dir.join("ollama");
-    let paused = stop_builtin().await;
-    let report =
-        tauri::async_runtime::spawn_blocking(move || cleanup::cleanup(&models, &root, &keep))
-            .await
-            .map_err(|error| AppError::Internal(error.to_string()));
-    drop(paused);
-    report
+    tauri::async_runtime::spawn_blocking(move || cleanup::cleanup(&models, &root, &keep))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))
 }

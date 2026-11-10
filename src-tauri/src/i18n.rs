@@ -212,7 +212,7 @@ pub fn set_current(lang: Lang) {
 /// Langue des réglages, celle du bureau si la base est illisible.
 pub fn saved(store: Option<&Store>) -> Lang {
     store
-        .and_then(|store| store.blocking(|c| settings::get(c, None)).ok())
+        .and_then(|store| store.blocking(|c| settings::get(c)).ok())
         .map(|saved| saved.language)
         .unwrap_or_default()
         .resolve(system_language())

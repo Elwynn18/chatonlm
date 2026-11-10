@@ -131,7 +131,7 @@ fn capabilities(entry: &Value) -> ModelCapabilities {
 /// connexion bornée, aucune redirection suivie (la clé ne part pas
 /// ailleurs).
 fn client() -> Result<reqwest::Client, Problem> {
-    crate::hub::hf::ensure_crypto_provider();
+    crate::http::ensure_crypto_provider();
     reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(REQUEST_TIMEOUT)

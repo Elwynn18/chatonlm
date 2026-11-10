@@ -2,7 +2,7 @@
 //! reconnaissance des familles. Même client que le ModelHub (`hub::hf` :
 //! délais, 429 partagé, page d'état, `HubProblem`), même cache disque
 //! (`hub::cache`, sous `modelhub/image-*`), une seule requête en vol par
-//! ressource (`hub::flight`) ; sans `apps=ollama`.
+//! ressource (`hub::flight`) ; sans filtre `apps`.
 
 use std::sync::Arc;
 use std::time::Duration;

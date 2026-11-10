@@ -4,8 +4,8 @@
 //
 // Inspired by Ollama (https://github.com/ollama/ollama), file
 // app/server/server.go (stop), commit 42e911bc3d05: SIGTERM then SIGKILL.
-// Moved out of ollama/builtin/unix.rs for ChatonLM, unchanged (see the header
-// of ollama/builtin.rs): own process group and PR_SET_PDEATHSIG, bounded wait
+// Moved out of the former built-in Ollama module for ChatonLM: own process
+// group and PR_SET_PDEATHSIG, bounded wait
 // after SIGKILL, environment cleaned like the one of the desktop's programs.
 
 //! Sous-processus, partie propre à Unix (Linux) : groupe de processus et
@@ -126,7 +126,7 @@ pub(crate) fn watch_exit(mut child: Child) -> oneshot::Receiver<Option<ExitStatu
     let (sender, receiver) = oneshot::channel();
     let pid = child.id();
     let watcher = std::thread::Builder::new()
-        .name("chatonlm-ollama-wait".into())
+        .name("chatonlm-process-wait".into())
         .spawn(move || {
             wait_without_reaping(pid);
             // Le meneur, pas encore récolté, réserve le numéro du groupe.

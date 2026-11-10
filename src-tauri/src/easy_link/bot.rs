@@ -270,7 +270,7 @@ async fn installed(access: &crate::llm::Access) -> crate::error::AppResult<Vec<C
 
 /// Réglages de l'app, lus dans la base.
 async fn app_settings(store: &Store) -> crate::error::AppResult<Settings> {
-    store.call(|c| crate::store::settings::get(c, None)).await
+    store.call(|c| crate::store::settings::get(c)).await
 }
 
 /// Modèle choisi pour une réponse, s'il peut servir ; sinon ce que le bot

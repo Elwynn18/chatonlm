@@ -1,20 +1,15 @@
 use rusqlite::Connection;
 use tauri::{AppHandle, Manager, State};
 
-use super::ollama_host_env;
 use crate::error::AppResult;
 use crate::i18n::{self, Lang};
 use crate::store::Store;
 use crate::store::settings::{self, Settings, SettingsPatch};
 
-/// Réglages enregistrés (`serverUrl` et `effectiveServerUrl` restent
-/// jusqu'au lot L10, plus lus par la page).
+/// Réglages enregistrés.
 #[tauri::command]
 pub async fn get_settings(store: State<'_, Store>) -> AppResult<Settings> {
-    let host = ollama_host_env();
-    store
-        .call(move |connection| settings::get(connection, host.as_deref()))
-        .await
+    store.call(|c| settings::get(c)).await
 }
 
 #[tauri::command]
@@ -23,14 +18,13 @@ pub async fn update_settings(
     store: State<'_, Store>,
     patch: SettingsPatch,
 ) -> AppResult<Settings> {
-    let host = ollama_host_env();
     let proofread_shortcut = patch.proofread_shortcut;
     let read_aloud_shortcut = patch.read_aloud_shortcut;
     let web_search_on = patch.web_search_enabled == Some(true);
     let settings = store
         .call(move |connection| {
             let patch = renamed_patch(connection, patch)?;
-            settings::update(connection, patch, host.as_deref())
+            settings::update(connection, patch)
         })
         .await?;
     i18n::apply(&app, settings.effective_language);
@@ -134,7 +128,7 @@ mod tests {
                         ..Default::default()
                     },
                 )?;
-                let saved = settings::update(c, patch, None)?;
+                let saved = settings::update(c, patch)?;
                 assert_eq!(saved.selected_model, "@ollama/qwen3:0.6b");
                 assert_eq!(saved.proofread_model, "@ollama/llama3.2:latest");
                 assert_eq!(saved.study_model, "unsloth/Qwen3-4B-GGUF:Q4_K_M");

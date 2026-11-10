@@ -18,7 +18,7 @@ const MAX_BODY: usize = 96 * 1024 * 1024;
 /// Client du serveur local (sans proxy).
 pub(super) fn client(base: &str) -> Result<reqwest::Client, String> {
     let url = reqwest::Url::parse(base).map_err(|error| error.to_string())?;
-    crate::ollama::client::builder(&url, Some(REQUEST_TIMEOUT))
+    crate::http::builder(&url, Some(REQUEST_TIMEOUT))
         .build()
         .map_err(|error| error.to_string())
 }

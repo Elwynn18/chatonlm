@@ -4,18 +4,18 @@
 //
 // Inspired by Ollama (https://github.com/ollama/ollama), file
 // app/server/server.go (openRotatingLog), commit 42e911bc3d05: one previous
-// log kept. Moved out of ollama/builtin.rs for ChatonLM, unchanged: the
-// process tools shared by every engine the app runs (built-in Ollama, image
-// engine, llama-server).
+// log kept. Moved out of the former built-in Ollama module for ChatonLM: the
+// process tools shared by every engine the app runs (image engine,
+// llama-server).
 
-//! Outils des sous-processus de l'app (Ollama intégré, moteur d'images,
-//! llama-server), communs aux deux systèmes : rien ne survit à ChatonLM,
+//! Outils des sous-processus de l'app (moteur d'images, llama-server), communs aux deux systèmes : rien ne survit à ChatonLM,
 //! arrêt borné.
 //!
 //! - [`Spawner`] / [`spawn_with`] : création depuis un fil dédié qui vit
 //!   autant que son propriétaire (`PR_SET_PDEATHSIG` suit le FIL qui a créé
 //!   l'enfant, pas seulement le processus).
-//! - [`pick_port`] : port libre de 127.0.0.1, jamais 11434 ni 11435.
+//! - [`pick_port`] : port libre de 127.0.0.1, jamais ceux de
+//!   [`RESERVED_PORTS`].
 //! - [`rotate_log`] : le journal précédent devient `.1`.
 //! - [`describe_exit`] : fin d'un processus, en clair (langue du moment).
 //! - Ce qui dépend du système, monté sous le nom `os` : `unix.rs` (groupe de
@@ -24,8 +24,6 @@
 //!   (Job Object fermé avec ChatonLM, `CREATE_NO_WINDOW`,
 //!   `TerminateJobObject`).
 
-use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::net::{Ipv4Addr, TcpListener};
@@ -44,6 +42,8 @@ mod os;
 #[path = "windows.rs"]
 mod os;
 
+#[cfg(windows)]
+pub(crate) use os::Owned;
 #[cfg(all(test, windows))]
 pub(crate) use os::alive;
 pub(crate) use os::{
@@ -51,9 +51,9 @@ pub(crate) use os::{
     watch_exit,
 };
 
-/// Ports jamais pris : celui d'Ollama, celui de son instance de test et
-/// celui du `llama-server` d'essai (`scripts/test-llama.sh`).
-pub(crate) const RESERVED_PORTS: [u16; 3] = [11434, 11435, 11436];
+/// Ports jamais pris : celui d'un Ollama de la machine (qui peut démarrer
+/// après nous) et celui du `llama-server` d'essai (`scripts/test-llama.sh`).
+pub(crate) const RESERVED_PORTS: [u16; 2] = [11434, 11436];
 
 /// Lance une tâche sur le moteur tokio en cours, sinon sur celui de Tauri.
 pub(crate) fn spawn_task(future: impl std::future::Future<Output = ()> + Send + 'static) {
@@ -90,11 +90,11 @@ pub(crate) fn pick_port(previous: Option<u16>) -> io::Result<u16> {
 pub(crate) fn describe_exit(status: Option<ExitStatus>) -> String {
     match status {
         Some(status) => match (status.code(), os::exit_signal(&status)) {
-            (Some(code), _) => t!("builtinOllama.exitCode", code = code),
-            (None, Some(signal)) => t!("builtinOllama.exitSignal", signal = signal),
+            (Some(code), _) => t!("process.exitCode", code = code),
+            (None, Some(signal)) => t!("process.exitSignal", signal = signal),
             _ => status.to_string(),
         },
-        None => t!("builtinOllama.exitUnknown"),
+        None => t!("process.exitUnknown"),
     }
 }
 
@@ -126,8 +126,7 @@ pub(crate) async fn spawn_with(
 
 type SpawnRequest = (Command, oneshot::Sender<io::Result<Child>>);
 
-/// Fil qui crée les processus d'un moteur (Ollama intégré, moteur d'images,
-/// llama-server) et vit autant que l'app (tant que son propriétaire existe) :
+/// Fil qui crée les processus d'un moteur (moteur d'images, llama-server) et vit autant que l'app (tant que son propriétaire existe) :
 /// `PR_SET_PDEATHSIG` envoie SIGTERM à l'enfant quand le FIL qui l'a créé se
 /// termine, pas seulement le processus.
 pub(crate) struct Spawner {
@@ -153,17 +152,6 @@ impl Spawner {
             })?;
         Ok(Spawner { requests })
     }
-}
-
-/// Retire les variables de ces noms, quelle que soit leur casse (sous
-/// Windows, `Ollama_Host` et `OLLAMA_HOST` sont la même variable : en
-/// laisser deux donnerait l'une ou l'autre au serveur).
-#[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) fn remove_ignoring_case(environment: &mut BTreeMap<OsString, OsString>, names: &[&str]) {
-    environment.retain(|key, _| {
-        let key = key.to_string_lossy();
-        !names.iter().any(|name| key.eq_ignore_ascii_case(name))
-    });
 }
 
 /// Journal du lancement : le précédent devient `.1`.

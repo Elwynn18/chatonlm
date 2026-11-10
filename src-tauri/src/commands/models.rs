@@ -11,8 +11,7 @@ use crate::hub::state::Catalog;
 use crate::hub::types::HubHardware;
 use crate::llm::Access;
 use crate::llm::models::{self as facade, ChatModel, ModelDetails, RecommendedModel};
-use crate::ollama::registry;
-use crate::store::settings::{self, Settings};
+use crate::store::settings;
 use crate::store::{Store, model_prefs};
 
 /// Modèles du sélecteur : installés (du plus récent), puis distants si le
@@ -109,7 +108,7 @@ pub async fn recommended_models(
     store: State<'_, Store>,
 ) -> AppResult<Vec<RecommendedModel>> {
     let hardware = crate::commands::hub::machine(&catalog, &store).await?;
-    let context = store.call(|c| settings::get(c, None)).await?.context_length;
+    let context = store.call(|c| settings::get(c)).await?.context_length;
     Ok(recommendations(hardware.as_ref(), context))
 }
 
@@ -125,13 +124,6 @@ fn with_fit(
         };
     }
     models
-}
-
-/// Vrai si le modèle existe au registre d'Ollama (retirée de la page ; code
-/// gardé jusqu'au lot L10).
-#[tauri::command]
-pub async fn model_exists_upstream(model: String) -> AppResult<bool> {
-    registry::model_exists(&registry::registry_url(), &model).await
 }
 
 /// Parmi `models`, les modèles installés dont Hugging Face a une version plus
@@ -210,7 +202,7 @@ pub async fn auto_model(
 ) -> AppResult<Option<String>> {
     let data_dir = crate::paths::data_dir(&app)?;
     let installed = crate::local_models::list(&store, &data_dir).await?;
-    let settings = store.call(|c| settings::get(c, None)).await?;
+    let settings = store.call(|c| settings::get(c)).await?;
     Ok(crate::engine::auto::model_of(
         &engine.running(),
         &installed,
@@ -258,19 +250,6 @@ pub async fn unload_all_models(
     drop(working);
     gpu.poke();
     Ok(())
-}
-
-/// Adresse du serveur auquel parler : celle de la cible (`ollama::target` :
-/// Ollama intégré, sinon adresse réglée, `OLLAMA_HOST` ou défaut). Transition
-/// (lots L5a, L9).
-pub(crate) async fn server_url(store: &Store) -> AppResult<String> {
-    Ok(app_settings(store).await?.effective_server_url)
-}
-
-/// Réglages de l'app, avec l'adresse de la cible (point unique de toutes les
-/// requêtes à Ollama). Transition (lots L5a, L9).
-pub(crate) async fn app_settings(store: &Store) -> AppResult<Settings> {
-    crate::ollama::target::request_settings(store).await
 }
 
 /// Chargement avec les options d'un envoi du chat (contexte et durée

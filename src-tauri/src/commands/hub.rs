@@ -26,7 +26,7 @@ async fn machine_and_uncensored(
     catalog: &Catalog,
     store: &Store,
 ) -> AppResult<(Option<HubHardware>, bool)> {
-    let settings = store.call(|c| settings::get(c, None)).await?;
+    let settings = store.call(|c| settings::get(c)).await?;
     let hardware = catalog.hardware(settings.context_length).await;
     Ok((hardware, settings.show_uncensored))
 }

@@ -70,7 +70,6 @@ Files (ChatonLM path <- Ollama path : copied | adapted | translated to Rust):
   src/hooks/useRenameChat.ts <- app/ui/app/src/hooks/useRenameChat.ts : adapted
   src/lib/chatGroups.ts <- app/ui/app/src/components/ChatSidebar.tsx : adapted
   src/lib/clipboard.test.ts <- app/ui/app/src/utils/clipboard.test.ts : adapted
-  src/lib/cloud.ts <- app/ui/app/src/components/Chat.tsx : adapted
   src/lib/contextMenu.ts <- app/ui/app/index.html : adapted
   src/lib/highlighter.ts <- app/ui/app/src/lib/highlighter.ts : adapted
   src/lib/highlighterCore.ts <- app/ui/app/src/lib/highlighter.ts : adapted
@@ -89,22 +88,13 @@ Files (ChatonLM path <- Ollama path : copied | adapted | translated to Rust):
   src-tauri/src/attachments/mod.rs <- app/ui/app/src/utils/fileValidation.ts : translated to Rust
   src-tauri/src/attachments/mod.rs <- app/ui/extract.go : translated to Rust
   src-tauri/src/attachments/pdf.rs <- app/ui/extract.go : translated to Rust
-  src-tauri/src/ollama/account.rs <- app/ui/app/src/api.ts : translated to Rust
-  src-tauri/src/ollama/account.rs <- app/ui/app/src/hooks/useUser.ts : translated to Rust
-  src-tauri/src/ollama/builtin.rs <- app/server/server.go : translated to Rust
-  src-tauri/src/ollama/builtin/unix.rs <- app/server/server.go : translated to Rust
-  src-tauri/src/ollama/builtin/windows.rs <- app/server/server_windows.go : translated to Rust
-  src-tauri/src/ollama/builtin/windows.rs <- app/server/server.go : translated to Rust
   src-tauri/src/process/mod.rs <- app/server/server.go : translated to Rust
   src-tauri/src/process/unix.rs <- app/server/server.go : translated to Rust
   src-tauri/src/process/windows.rs <- app/server/server_windows.go : translated to Rust
-  src-tauri/src/ollama/host/app.rs <- cmd/start_windows.go : translated to Rust
-  src-tauri/src/ollama/host/app.rs <- app/ollama.iss : translated to Rust
-  src-tauri/src/ollama/host/app.rs <- app/wintray/tray.go : translated to Rust
-  src-tauri/src/ollama/host/windows.rs <- cmd/start_windows.go : translated to Rust
-  src-tauri/src/ollama/host/windows.rs <- app/wintray/eventloop.go : translated to Rust
+  src-tauri/src/local_models/import/old_builtin/linux.rs <- app/server/server.go : translated to Rust
+  src-tauri/src/local_models/import/old_builtin/windows.rs <- app/server/server.go : translated to Rust
   src-tauri/src/commands/attachments.rs <- app/cmd/app/webview.go : translated to Rust
-  src-tauri/src/commands/models_dir.rs <- app/cmd/app/webview.go : translated to Rust
+  src-tauri/src/commands/models_import.rs <- app/cmd/app/webview.go : translated to Rust
   src-tauri/src/chat/pull.rs <- app/ui/ui.go : translated to Rust
   src-tauri/src/chat/stream.rs <- app/ui/ui.go : translated to Rust
   src-tauri/src/chat/tools.rs <- app/tools/web_search.go : translated to Rust

@@ -54,7 +54,7 @@ pub struct DictationSettings {
     pub speech_model: String,
     /// Code de langue ou « auto ».
     pub language: String,
-    /// Modèle Ollama du nettoyage ; vide = pas de nettoyage.
+    /// Modèle du nettoyage ; vide = pas de nettoyage.
     pub polish_model: String,
     /// Consignes du nettoyage ; vide = consignes par défaut.
     pub polish_prompt: String,

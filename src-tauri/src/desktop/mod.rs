@@ -705,7 +705,7 @@ pub fn setup(app: &AppHandle) {
                 .call(|connection| {
                     Ok((
                         crate::store::dictation::get(connection)?,
-                        crate::store::settings::get(connection, None)?,
+                        crate::store::settings::get(connection)?,
                         crate::store::desktop::menu_entry(connection)?,
                         crate::store::desktop::close_to_tray(connection)?,
                     ))

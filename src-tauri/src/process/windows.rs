@@ -5,10 +5,10 @@
 // Inspired by Ollama (https://github.com/ollama/ollama), file
 // app/server/server_windows.go (commandContext: hidden window and
 // CREATE_NEW_PROCESS_GROUP; terminated), commit 42e911bc3d05.
-// Moved out of ollama/builtin/windows.rs for ChatonLM, unchanged (see the
-// header of that file): the process and its children live in a Job Object
-// closed with ChatonLM (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE), so that nothing
-// outlives it even when it is killed; the stop ends the whole job at once
+// Moved out of the former built-in Ollama module for ChatonLM: the process
+// and its children live in a Job Object closed with ChatonLM
+// (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE), so that nothing outlives it even when
+// it is killed; the stop ends the whole job at once
 // (TerminateJobObject), never with taskkill.
 
 //! Sous-processus, partie propre à Windows. Voir `mod.rs` (partie commune) ;
@@ -16,8 +16,8 @@
 //!
 //! - Aucun processus orphelin : le processus est placé dès sa création dans
 //!   un Job Object dont ChatonLM garde le seul descripteur
-//!   (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`). Ses enfants, créés plus tard
-//!   (runners de l'Ollama intégré), en font partie. Quand ChatonLM se termine,
+//!   (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`). Ses enfants, créés plus tard,
+//!   en font partie. Quand ChatonLM se termine,
 //!   même tué, le noyau ferme le descripteur et tue tout le Job : c'est
 //!   l'équivalent du groupe de processus et de `PR_SET_PDEATHSIG` d'Unix.
 //! - Sans fenêtre : `CREATE_NO_WINDOW` (les moteurs sont des programmes en
@@ -38,7 +38,7 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use tokio::sync::oneshot;
-use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
@@ -50,12 +50,22 @@ use windows::Win32::System::Threading::{
 };
 use windows::core::PCWSTR;
 
-use crate::ollama::host::windows::Owned;
+/// Descripteur Win32 fermé à la fin.
+pub(crate) struct Owned(pub HANDLE);
 
-/// Variables posées par l'Ollama intégré (adresse, dossier des modèles,
-/// dossier personnel) : retirées de l'environnement hérité sous toutes leurs
-/// casses, pour tout moteur (aucun ne doit recevoir celles du bureau).
-const SET_VARS: [&str; 4] = ["OLLAMA_HOST", "OLLAMA_MODELS", "USERPROFILE", "HOME"];
+impl Drop for Owned {
+    fn drop(&mut self) {
+        // SAFETY : descripteur ouvert par ce module, fermé une seule fois.
+        unsafe {
+            let _ = CloseHandle(self.0);
+        }
+    }
+}
+
+// SAFETY : un descripteur du noyau s'emploie de n'importe quel fil.
+unsafe impl Send for Owned {}
+// SAFETY : idem ; les appels faits dessus sont sûrs entre fils.
+unsafe impl Sync for Owned {}
 
 /// Code de sortie donné aux processus arrêtés par ChatonLM.
 const STOPPED: u32 = 1;
@@ -69,14 +79,14 @@ pub(crate) fn desktop_changes() -> (Option<OsString>, bool) {
     (None, false)
 }
 
-/// Retire les variables que ChatonLM pose ensuite, quelle que soit leur
-/// casse (les noms de variables n'en tiennent pas compte sous Windows).
+/// Rien à retirer sous Windows : l'environnement du bureau passe tel quel
+/// (les variables de llama.cpp et de ggml sont ôtées par
+/// `engine::options::server_env`).
 pub(crate) fn scrub(
-    environment: &mut BTreeMap<OsString, OsString>,
+    _environment: &mut BTreeMap<OsString, OsString>,
     _appdir: Option<&OsStr>,
     _nvidia_workaround: bool,
 ) {
-    super::remove_ignoring_case(environment, &SET_VARS);
 }
 
 /// Sans fenêtre de console, et groupe de processus à lui (comme
@@ -129,8 +139,7 @@ fn job_for(child: &Child) -> windows::core::Result<Owned> {
 }
 
 /// Crée le processus et le place aussitôt dans son Job Object : ses enfants,
-/// lancés bien après (runners de l'Ollama intégré, au chargement d'un
-/// modèle), en font partie. Sans Job (refus du système), le processus démarre
+/// lancés plus tard, en font partie. Sans Job (refus du système), le processus démarre
 /// quand même : l'arrêt ne vise alors que lui.
 pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
     let child = command.spawn()?;
@@ -179,7 +188,7 @@ pub(crate) fn watch_exit(mut child: Child) -> oneshot::Receiver<Option<ExitStatu
     let (sender, receiver) = oneshot::channel();
     let pid = child.id();
     let watcher = std::thread::Builder::new()
-        .name("chatonlm-ollama-wait".into())
+        .name("chatonlm-process-wait".into())
         .spawn(move || {
             // Tant que `child` vit, son numéro n'est pas réattribué.
             let status = child.wait().ok();
@@ -222,7 +231,7 @@ fn terminate_process(pid: u32) {
 /// journalisé (le fil de surveillance finira plus tard). Vrai si le
 /// processus est fini. `_grace` (délai entre SIGTERM et SIGKILL sous Unix)
 /// ne sert pas : il n'y a pas d'arrêt demandé poliment ici (voir l'en-tête
-/// de `ollama/builtin/windows.rs`).
+/// du fichier).
 pub(crate) async fn terminate(
     pid: u32,
     exited: &mut oneshot::Receiver<Option<ExitStatus>>,

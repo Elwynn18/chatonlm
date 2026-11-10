@@ -1,8 +1,8 @@
 //! Choix « Auto » des pages Proofread et Study (propre à ChatonLM), sur le
-//! moteur de l'app (même règle que `ollama/auto.rs` sur `/api/ps`) : sans
-//! modèle choisi sur la page, le meilleur modèle prêt dans le moteur (le
-//! plus grand en paramètres, puis en mémoire, puis le plus récemment servi),
-//! sinon celui du chat (que le moteur charge alors à la première requête).
+//! moteur de l'app : sans modèle choisi sur la page, le meilleur modèle prêt
+//! dans le moteur (le plus grand en paramètres, puis en mémoire, puis le plus
+//! récemment servi), sinon celui du chat (que le moteur charge alors à la
+//! première requête).
 //!
 //! Un modèle chargé n'est retenu que s'il est encore installé et n'est pas un
 //! modèle de code d'autocomplétion (modèle de base à jetons FIM, ou famille

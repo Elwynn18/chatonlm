@@ -155,7 +155,7 @@ describe("remote models in Settings › Models", () => {
   it("an Ollama set up on another computer in 0.9 is offered as an OpenAI-compatible server", async () => {
     const simulator = installSimulator();
     const backend = fakeBackend(simulator);
-    backend.settings.serverUrl = "http://192.168.1.20:11434";
+    backend.settings.formerServerUrl = "http://192.168.1.20:11434";
     remoteOf(simulator);
     renderApp("/settings?section=models");
     const former = await screen.findByTestId("remote-former-server");
@@ -188,7 +188,7 @@ describe("remote models in Settings › Models", () => {
   it("an Ollama of this computer is not offered", async () => {
     const simulator = installSimulator();
     const backend = fakeBackend(simulator);
-    backend.settings.serverUrl = "http://127.0.0.1:11434";
+    backend.settings.formerServerUrl = "http://127.0.0.1:11434";
     remoteOf(simulator);
     renderApp("/settings?section=models");
     await screen.findByTestId("remote-models-settings");
@@ -427,7 +427,7 @@ describe("remote models in Settings › Models", () => {
   it("the former Ollama of another computer is said in the catalogs' words", async () => {
     const simulator = installSimulator();
     const backend = fakeBackend(simulator);
-    backend.settings.serverUrl = "http://192.168.1.20:11434";
+    backend.settings.formerServerUrl = "http://192.168.1.20:11434";
     remoteOf(simulator);
     renderApp("/settings?section=models");
     const former = await screen.findByTestId("remote-former-server");
@@ -440,7 +440,7 @@ describe("remote models in Settings › Models", () => {
   it("the former Ollama of another computer, in French", async () => {
     const simulator = installSimulator();
     const backend = fakeBackend(simulator);
-    backend.settings.serverUrl = "http://192.168.1.20:11434";
+    backend.settings.formerServerUrl = "http://192.168.1.20:11434";
     remoteOf(simulator);
     renderApp("/settings?section=models");
     const former = await screen.findByTestId("remote-former-server");

@@ -810,8 +810,7 @@ async fn suggestions_follow_the_machine() {
     gpu.shutdown().await;
 }
 
-/// Lot L3 : les modèles prêts du moteur deviennent les constats du plan
-/// (forme de `/api/ps`).
+/// Lot L3 : les modèles prêts du moteur deviennent les constats du plan.
 #[test]
 fn engine_models_become_the_facts_of_the_plan() {
     use crate::engine::{ModelState, RunningModel as EngineModel};
@@ -848,7 +847,7 @@ fn engine_models_become_the_facts_of_the_plan() {
             quantization_level: "Q8_0".into(),
         }]
     );
-    // Partiellement sur la carte : le plan le voit comme Ollama le disait.
+    // Partiellement sur la carte : le plan le voit.
     assert!(facts[0].size_vram < facts[0].size);
     // Toutes les couches sur la carte (tampons en mémoire vive comptés dans
     // la taille) : entièrement sur la carte.

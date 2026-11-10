@@ -66,7 +66,7 @@ function renderForm({
   /** Modèles du moteur (running_models). */
   running = [] as EngineRunningModel[],
 } = {}) {
-  const settings = { selectedModel, serverUrl: "", webSearchEnabled };
+  const settings = { selectedModel, formerServerUrl: "", webSearchEnabled };
   const saved: { model: string; think: Think }[] = [];
   const handle = createRef<ChatFormHandle>();
   /** Commandes reçues, dans l'ordre. */

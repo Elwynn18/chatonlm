@@ -836,7 +836,7 @@ fn refused(out: &Outbox, id: &Value, error: &crate::error::AppError) {
 pub(super) async fn app_settings(
     store: &crate::store::Store,
 ) -> crate::error::AppResult<crate::store::settings::Settings> {
-    store.call(|c| crate::store::settings::get(c, None)).await
+    store.call(|c| crate::store::settings::get(c)).await
 }
 
 /// État de l'app, plus `local` (toujours vrai : le moteur des modèles est

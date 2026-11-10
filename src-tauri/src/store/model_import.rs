@@ -341,6 +341,17 @@ pub fn set_builtin_shared(connection: &Connection) -> AppResult<()> {
     Ok(())
 }
 
+/// Dossier des modèles réglé de l'Ollama intégré de 0.9.x (table
+/// `builtin_ollama`, migration 0014) ; `None` : son dossier par défaut.
+pub fn builtin_models_dir(connection: &Connection) -> AppResult<Option<String>> {
+    let dir: Option<String> = connection.query_row(
+        "SELECT models_dir FROM builtin_ollama WHERE id = 1",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(dir.filter(|dir| !dir.is_empty()))
+}
+
 /// Dossier déplacé de l'intégré (0.9.x, Settings › Model location) repris
 /// comme dossier des modèles, à la première reprise d'un dossier propre à
 /// l'intégré : seulement s'il est réglé (`dir`), que la base locale est vide

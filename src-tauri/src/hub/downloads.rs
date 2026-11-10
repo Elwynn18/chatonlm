@@ -1,8 +1,7 @@
 //! Téléchargements du ModelHub (état Tauri `HubDownloads`), directement depuis
 //! Hugging Face depuis le passage à llama-server (contrat
 //! `100-llamacpp-lots-1-2-4-contract.md` § 3.3 ; file d'avant : contrat
-//! `37-step15a-contract.md` § 2 et § 8). Mêmes commandes et même événement
-//! qu'avec Ollama : la page ne change pas.
+//! `37-step15a-contract.md` § 2 et § 8).
 //!
 //! - File FIFO, deux téléchargements à la fois au plus (`Queued` pour les
 //!   autres).
@@ -74,11 +73,11 @@ use super::gguf::meta::{self, MetaError};
 use super::names;
 use super::types::{HubDownload, HubDownloadRequest, HubDownloadState};
 use crate::error::{AppError, AppResult};
+use crate::http;
 use crate::i18n::t;
 use crate::image_models::downloads::{needed_bytes, part_path, space_problem};
 use crate::local_models::id::{ModelId, same_model};
 use crate::local_models::{self, ModelCapabilities, ModelSource, Reserved, file_key};
-use crate::ollama::client;
 use crate::store::local_models::{self as table, StoredLocalModel};
 use crate::store::{Store, now_ms};
 
@@ -96,8 +95,8 @@ pub struct Options {
     /// Adresse de Hugging Face ; `None` : `names::hf_url()` au démarrage de
     /// chaque téléchargement.
     pub hf_url: Option<String>,
-    /// Vrai pendant un changement de Settings > Model location
-    /// (`commands::models_dir::location_changing`) : un nouveau
+    /// Vrai pendant un changement du dossier des modèles
+    /// (`local_models::import::folder::is_busy`) : un nouveau
     /// téléchargement est refusé.
     pub location_changing: fn() -> bool,
     /// Place libre pour un dossier (essais : disque plein simulé).
@@ -105,10 +104,6 @@ pub struct Options {
     /// Attente pendant `Finishing`, avant la revue des fichiers et
     /// l'écriture de la ligne (essais seulement : zéro sinon).
     pub finish_delay: Duration,
-}
-
-fn never() -> bool {
-    false
 }
 
 impl Default for Options {
@@ -119,7 +114,7 @@ impl Default for Options {
             progress_interval: Duration::from_millis(250),
             listing_timeout: Duration::from_secs(20),
             hf_url: None,
-            location_changing: never,
+            location_changing: crate::local_models::import::folder::is_busy,
             free_space: crate::disk::free_space_for,
             finish_delay: Duration::ZERO,
         }
@@ -280,12 +275,11 @@ fn same(a: &str, b: &str) -> bool {
 }
 
 impl Inner {
-    /// Un changement de dossier des modèles est en cours : celui d'Ollama
-    /// (`Options::location_changing`), ou celui de la base locale
-    /// (`local_models::import::folder`, lot L6) ; vu sous le verrou de la
-    /// file, que le changement prend avant de regarder la file.
+    /// Un changement du dossier des modèles est en cours
+    /// (`Options::location_changing`) ; vu sous le verrou de la file, que le
+    /// changement prend avant de regarder la file.
     fn location_changing(&self) -> bool {
-        (self.options.location_changing)() || crate::local_models::import::folder::is_busy()
+        (self.options.location_changing)()
     }
 }
 
@@ -537,10 +531,6 @@ impl HubDownloads {
             inner.emit_now(&mut state);
         }
     }
-
-    /// Sans effet depuis les téléchargements directs (ils ne passent plus
-    /// par un serveur Ollama) ; gardé tant que `ollama::target` l'appelle.
-    pub fn retarget(&self, _server: &str) {}
 
     /// Sortie de l'app : plus rien ne démarre, les téléchargements en cours
     /// sont fermés (`.part` gardés), attente de leur fin, `limit` au plus.
@@ -1208,7 +1198,7 @@ impl Task {
         let client = Url::parse(&url)
             .map_err(|error| error.to_string())
             .and_then(|parsed| {
-                client::builder(&parsed, None)
+                http::builder(&parsed, None)
                     .connect_timeout(Duration::from_secs(15))
                     .build()
                     .map_err(|error| error.to_string())

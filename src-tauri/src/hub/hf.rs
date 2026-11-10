@@ -9,8 +9,8 @@ use reqwest::{Client, Response, StatusCode};
 use url::Url;
 
 use super::types::HubProblem;
+use crate::http::is_local;
 use crate::i18n::t;
-use crate::ollama::client::is_local;
 
 /// Connexion.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -96,19 +96,10 @@ pub struct Hf {
     incident: tokio::sync::Mutex<Option<(Instant, bool)>>,
 }
 
-/// Installe une fois le moteur cryptographique de rustls (ring), comme le
-/// client d'Ollama.
-pub(crate) fn ensure_crypto_provider() {
-    static INSTALLED: std::sync::Once = std::sync::Once::new();
-    INSTALLED.call_once(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-    });
-}
-
 /// Client pour une adresse : gzip, agent ChatonLM, proxy du système sauf vers
 /// la machine locale.
 fn client_for(base: &str) -> Option<Client> {
-    ensure_crypto_provider();
+    crate::http::ensure_crypto_provider();
     let url = Url::parse(base).ok()?;
     let mut builder = Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
@@ -430,7 +421,7 @@ mod tests {
 
     #[test]
     fn the_next_cursor_is_read_from_the_link() {
-        let link = "<https://huggingface.co/api/models?apps=ollama&limit=30&cursor=eyIkb3Ii%3D%3D>; rel=\"next\"";
+        let link = "<https://huggingface.co/api/models?apps=llama.cpp&limit=30&cursor=eyIkb3Ii%3D%3D>; rel=\"next\"";
         assert_eq!(next_cursor(link).as_deref(), Some("eyIkb3Ii=="));
         assert_eq!(next_cursor("<https://x/?cursor=a>; rel=\"prev\""), None);
         assert_eq!(next_cursor("<https://x/?page=2>; rel=\"next\""), None);

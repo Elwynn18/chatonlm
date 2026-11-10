@@ -3127,7 +3127,7 @@ impl Bench {
             ..Default::default()
         };
         self.store
-            .call(move |c| settings::update(c, patch, None).map(drop))
+            .call(move |c| settings::update(c, patch).map(drop))
             .await
             .unwrap();
     }
@@ -4252,7 +4252,7 @@ async fn an_editor_unlinks_itself_like_the_page_would() {
 async fn patch_settings(bench: &Bench, patch: SettingsPatch) {
     bench
         .store
-        .call(move |c| settings::update(c, patch, None).map(drop))
+        .call(move |c| settings::update(c, patch).map(drop))
         .await
         .unwrap();
 }

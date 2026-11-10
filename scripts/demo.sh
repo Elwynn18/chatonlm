@@ -13,10 +13,9 @@
 # fonctionnalité d'essai) dans .tools/real-target, sans historique de
 # démonstration ni faux serveur ; l'app lance le vrai llama-server
 # (.tools/runtimes/llama-server, scripts/build-llama-server.sh) sur les modèles
-# de son dossier et contacte Hugging Face comme l'app installée. Aucun Ollama
-# n'est nécessaire. Seules ses données restent dans le projet :
-# .tools/real-data (ignoré par git), gardé d'un lancement à l'autre ; --reset
-# le vide avant de lancer.
+# de son dossier et contacte Hugging Face comme l'app installée. Seules ses
+# données restent dans le projet : .tools/real-data (ignoré par git), gardé
+# d'un lancement à l'autre ; --reset le vide avant de lancer.
 # --import-ollama <dossier> (avec --real) : pour essayer la reprise des modèles
 # d'un Ollama de ChatonLM 0.9.x, COPIE le dossier de modèles d'Ollama donné
 # (manifests/ et blobs/, par exemple celui de l'Ollama intégré d'une 0.9.x ou
@@ -161,7 +160,7 @@ fi
 # <binaire>/../lib/chatonlm s'il existe, puis /usr/lib/chatonlm (tauri-utils,
 # resource_dir_from). Les constructions locales (scripts/build-llama-server.sh,
 # scripts/build-sd-server.sh) sont liées dans le premier ; rien d'autre n'y est
-# lu ici (ONNX Runtime : ORT_DYLIB_PATH ; pas d'Ollama intégré).
+# lu ici (ONNX Runtime : ORT_DYLIB_PATH).
 if $real; then
   rm -f "$target/release/sd-server"
   mkdir -p "$target/lib/chatonlm"
@@ -241,7 +240,7 @@ if $real; then
     chatonlm_copy_ollama_models "$import_ollama" "$copy" || exit 1
     echo "Copie faite : la reprise des modèles de l'intégré démarre au lancement."
   fi
-  echo "Moteur : llama-server intégré ; aucun Ollama nécessaire."
+  echo "Moteur : llama-server intégré."
   # Mode conversation vocale : une ligne « chatonlm-voice-timing » par tour
   # dans ce terminal (millisecondes depuis la fin de parole détectée :
   # transcription, envoi, premier son).
@@ -272,9 +271,9 @@ if $real; then
   else
     machine_dirs=(CHATONLM_OLLAMA_MACHINE_DIRS=)
   fi
-  exec env -u CHATONLM_SEED_DEMO -u CHATONLM_REGISTRY_URL -u CHATONLM_OLLAMA_COM_URL \
+  exec env -u CHATONLM_SEED_DEMO \
     -u CHATONLM_TELEGRAM_URL -u CHATONLM_DISCORD_URL -u CHATONLM_HF_URL -u CHATONLM_HF_STATUS_URL \
-    -u CHATONLM_LLAMA_SERVER_BIN -u CHATONLM_E2E_MODELS -u OLLAMA_HOST \
+    -u CHATONLM_LLAMA_SERVER_BIN -u CHATONLM_E2E_MODELS \
     "${machine_dirs[@]}" \
     CHATONLM_ONBOARDING="$($onboarding && echo show || true)" \
     CHATONLM_DATA_DIR="$data" TMPDIR="$root/.tools/tmp" \

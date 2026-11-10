@@ -36,10 +36,12 @@ pub mod compat;
 pub mod folder;
 pub mod manifest;
 pub mod names;
+pub mod old_builtin;
 pub mod scan;
 pub mod service;
 pub mod sources;
 pub mod transfer;
+pub mod winpath;
 
 #[cfg(target_os = "linux")]
 #[path = "linux.rs"]
@@ -328,7 +330,7 @@ impl OllamaParams {
 /// Même volume Windows (lettre ou partage), logique pure essayée sous Linux.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn same_volume(a: &str, b: &str) -> bool {
-    use crate::ollama::models_dir::rules::volume;
+    use self::winpath::volume;
     volume(a).is_some() && volume(a) == volume(b)
 }
 
@@ -338,14 +340,13 @@ pub fn same_filesystem(a: &Path, b: &Path) -> bool {
 }
 
 /// Dossier des modèles de l'Ollama intégré : celui réglé
-/// (`builtin_ollama.models_dir`), sinon `<données>/ollama/models` (comme
-/// `ollama::builtin::Config::default_models_dir`).
+/// (`builtin_ollama.models_dir`), sinon `<données>/ollama/models` (son
+/// dossier par défaut).
 pub fn builtin_models_dir(
     connection: &rusqlite::Connection,
     data_dir: &Path,
 ) -> AppResult<PathBuf> {
-    Ok(crate::store::builtin_ollama::get(connection)?
-        .models_dir
+    Ok(crate::store::model_import::builtin_models_dir(connection)?
         .map(PathBuf::from)
         .unwrap_or_else(|| data_dir.join("ollama").join("models")))
 }

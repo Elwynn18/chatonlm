@@ -111,16 +111,16 @@ function isLocalHost(host: string): boolean {
 }
 
 /**
- * Ancien réglage `serverUrl` (adresse d'Ollama des versions 0.9, plus lu
- * depuis le moteur llama.cpp) quand il désignait une autre machine : son
+ * Adresse de l'Ollama des versions 0.9 (`formerServerUrl`, plus réglable)
+ * quand elle désignait une autre machine : son
  * adresse et celle de l'API compatible avec OpenAI qu'Ollama y sert (port
  * 11434 si l'adresse en http n'en donne pas, comme Ollama). Null : vide,
  * illisible, ou cette machine.
  */
 export function formerServer(
-  serverUrl: string | null | undefined,
+  formerServerUrl: string | null | undefined,
 ): FormerServer | null {
-  const address = serverUrl?.trim() ?? "";
+  const address = formerServerUrl?.trim() ?? "";
   if (!address) return null;
   let url: URL;
   try {

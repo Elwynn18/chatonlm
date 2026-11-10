@@ -51,8 +51,7 @@ struct Inner {
     downloads: HubDownloads,
 }
 
-/// Réglages de l'app qui comptent pour une requête, lus à chaque appel
-/// (remplace `ollama::target::request_settings`).
+/// Réglages de l'app qui comptent pour une requête, lus à chaque appel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Prefs {
     /// Contexte réglé (0 : défaut du modèle, puis du moteur).
@@ -262,7 +261,7 @@ impl Access {
     pub async fn prefs(&self) -> AppResult<Prefs> {
         self.store()
             .call(|connection| {
-                crate::store::settings::get(connection, None).map(|settings| Prefs::of(&settings))
+                crate::store::settings::get(connection).map(|settings| Prefs::of(&settings))
             })
             .await
     }

@@ -437,7 +437,7 @@ impl ImageModels {
     /// Réglage « Show uncensored models ».
     async fn show_uncensored(store: &Store) -> AppResult<bool> {
         store
-            .call(|connection| Ok(crate::store::settings::get(connection, None)?.show_uncensored))
+            .call(|connection| Ok(crate::store::settings::get(connection)?.show_uncensored))
             .await
     }
 

@@ -172,7 +172,7 @@ fn same_path(a: &Path, b: &Path) -> bool {
     let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     let (a, b) = (canonical(a), canonical(b));
     if cfg!(windows) {
-        crate::ollama::models_dir::rules::same(&a.to_string_lossy(), &b.to_string_lossy())
+        super::winpath::same(&a.to_string_lossy(), &b.to_string_lossy())
     } else {
         a == b
     }
@@ -182,7 +182,7 @@ fn same_path(a: &Path, b: &Path) -> bool {
 fn inside(path: &Path, root: &Path) -> bool {
     let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     if cfg!(windows) {
-        crate::ollama::models_dir::rules::within(
+        super::winpath::within(
             &canonical(path).to_string_lossy(),
             &canonical(root).to_string_lossy(),
         )

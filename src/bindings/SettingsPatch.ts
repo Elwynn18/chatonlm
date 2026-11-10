@@ -5,11 +5,7 @@ import type { Theme } from "./Theme";
 /**
  * Mise à jour partielle : seuls les champs présents changent.
  */
-export type SettingsPatch = { 
-/**
- * Chaîne vide = revenir à l'adresse automatique.
- */
-serverUrl?: string, contextLength?: number, theme?: Theme, selectedModel?: string, webSearchEnabled?: boolean, keepAlive?: number, preloadModel?: boolean, language?: LanguageChoice, 
+export type SettingsPatch = { contextLength?: number, theme?: Theme, selectedModel?: string, webSearchEnabled?: boolean, keepAlive?: number, preloadModel?: boolean, language?: LanguageChoice, 
 /**
  * Chaîne vide = modèle du chat.
  */
@@ -21,4 +17,4 @@ studyModel?: string, autoRead?: boolean, onboardingDone?: boolean, showUncensore
 /**
  * Chaîne vide = aucun pré-prompt.
  */
-systemPrompt?: string, unloadOnQuit?: boolean, remoteModels?: boolean, };
+systemPrompt?: string, remoteModels?: boolean, };

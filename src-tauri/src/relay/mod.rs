@@ -229,7 +229,7 @@ impl RelayClient {
     }
 
     pub fn with_url(base: String, data_dir: PathBuf) -> Self {
-        crate::hub::hf::ensure_crypto_provider();
+        crate::http::ensure_crypto_provider();
         let local = url::Url::parse(&base)
             .ok()
             .and_then(|url| {

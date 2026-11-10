@@ -50,7 +50,7 @@ pub fn create_main_window(app: &App, store: Option<&Store>) -> tauri::Result<()>
         .expect("main window missing from tauri.conf.json");
     let dev_origin = dev_origin(tauri::is_dev(), app.config().build.dev_url.clone());
     // Réglages illisibles : fenêtre par défaut, l'erreur réapparaîtra ailleurs.
-    let saved = store.and_then(|store| store.blocking(|c| settings::get(c, None)).ok());
+    let saved = store.and_then(|store| store.blocking(|c| settings::get(c)).ok());
 
     let mut builder = WebviewWindowBuilder::from_config(app.handle(), &config)?
         .on_navigation(move |url| is_app_url(url, dev_origin.as_ref(), cfg!(windows)))
@@ -286,8 +286,7 @@ mod tests {
 
     fn saved(width: Option<u32>, height: Option<u32>) -> settings::Settings {
         settings::Settings {
-            server_url: String::new(),
-            effective_server_url: String::new(),
+            former_server_url: String::new(),
             context_length: 0,
             theme: Theme::System,
             selected_model: String::new(),
@@ -310,7 +309,6 @@ mod tests {
             onboarding_done: true,
             show_uncensored: false,
             system_prompt: String::new(),
-            unload_on_quit: true,
             remote_models: false,
         }
     }

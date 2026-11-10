@@ -51,17 +51,15 @@ const MODELS: &[(&str, &str)] = &[
     (THINKER, "study-thinker"),
 ];
 
-/// Modèles du chat et des cours ; adresse d'Ollama fermée (port 9 : jamais
-/// celui de la machine, encore lu par la recherche web jusqu'au lot L7).
+/// Modèles du chat et des cours.
 fn set_models(store: &Store, chat: &str, study: &str) {
     let patch = SettingsPatch {
-        server_url: Some("http://127.0.0.1:9".into()),
         selected_model: Some(chat.into()),
         study_model: Some(study.into()),
         ..Default::default()
     };
     store
-        .blocking(|c| settings::update(c, patch, None).map(drop))
+        .blocking(|c| settings::update(c, patch).map(drop))
         .unwrap();
 }
 

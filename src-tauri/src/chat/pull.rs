@@ -3,13 +3,13 @@
 // SPDX-FileCopyrightText: 2026 Elwynn18 and ChatonLM contributors
 //
 // Translated to Rust from Ollama (https://github.com/ollama/ollama),
-// file app/ui/ui.go, commit 42e911bc3d05 (model download of the chat handler,
-// isNetworkError, getError).
+// file app/ui/ui.go, commit 42e911bc3d05 (model download of the chat
+// handler).
 // Modified for ChatonLM: the model is downloaded from Hugging Face by the
 // app's own download queue (the ModelHub's), not by a server pull; progress is
-// the sum of all its files (projector included) over their total; only the
-// offline case of getError is kept (no cloud errors); errors carry a ChatonLM
-// error kind; a model imported from Ollama is never downloaded.
+// the sum of all its files (projector included) over their total; errors
+// carry a ChatonLM error kind; a model imported from Ollama is never
+// downloaded.
 
 //! Téléchargement d'un modèle de Hugging Face absent de la base, avant
 //! l'envoi, comme l'app officielle qui tirait le modèle au premier envoi
@@ -31,34 +31,12 @@ use tokio::sync::watch;
 
 use super::{ChatErrorKind, ChatEvent, Outcome, cancelled};
 use crate::hub::types::{HubDownload, HubDownloadRequest, HubDownloadState};
-use crate::i18n::t;
 use crate::llm::Access;
 use crate::local_models::id::{ModelId, same_model};
 
 /// Intervalle de lecture de la file (elle émet sa progression au plus toutes
 /// les 250 ms).
 const POLL: Duration = Duration::from_millis(100);
-
-/// Texte officiel d'un téléchargement impossible faute de réseau
-/// (`app/ui/ui.go`, `getError`), dans la langue de l'interface.
-pub fn offline() -> String {
-    t!("downloads.offline")
-}
-
-/// Motifs d'une erreur réseau (`isNetworkError`, `app/ui/ui.go:594-615`).
-pub(crate) const NETWORK_ERRORS: [&str; 11] = [
-    "connection refused",
-    "no such host",
-    "timeout",
-    "network is unreachable",
-    "connection reset",
-    "connection timed out",
-    "temporary failure",
-    "dial tcp",
-    "i/o timeout",
-    "context deadline exceeded",
-    "broken pipe",
-];
 
 /// Identifiant d'une version de Hugging Face (`auteur/dépôt:QUANT`, ou la
 /// forme `hf.co/…` d'Ollama) : seul téléchargeable. Un modèle repris

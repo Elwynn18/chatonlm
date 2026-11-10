@@ -307,7 +307,7 @@ pub async fn send(body: &serde_json::Value) -> ReportOutcome {
 }
 
 async fn send_to(url: &str, body: &serde_json::Value) -> ReportOutcome {
-    crate::hub::hf::ensure_crypto_provider();
+    crate::http::ensure_crypto_provider();
     let Ok(client) = reqwest::Client::builder()
         .timeout(TIMEOUT)
         .user_agent(concat!("ChatonLM/", env!("CARGO_PKG_VERSION")))

@@ -38,8 +38,8 @@ use url::Url;
 
 use super::models::{self, CatalogModel, ModelFile};
 use crate::error::{AppError, AppResult};
+use crate::http;
 use crate::i18n::t;
-use crate::ollama::client;
 
 /// Événement envoyé à la page à chaque changement de la liste.
 pub const DOWNLOADS_EVENT: &str = "speech-downloads";
@@ -722,7 +722,7 @@ impl Task {
         let client = match Url::parse(base.as_deref().unwrap_or(DEFAULT_BASE_URL))
             .map_err(|error| error.to_string())
             .and_then(|url| {
-                client::builder(&url, None)
+                http::builder(&url, None)
                     .connect_timeout(Duration::from_secs(15))
                     .read_timeout(self.inner.options.read_timeout)
                     .build()

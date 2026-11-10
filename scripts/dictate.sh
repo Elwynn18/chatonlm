@@ -22,7 +22,7 @@ if [ ! -x "$binary" ]; then
   exit 1
 fi
 mkdir -p "$root/.tools/real-data" "$root/.tools/tmp"
-exec env -u CHATONLM_SEED_DEMO -u CHATONLM_REGISTRY_URL -u CHATONLM_OLLAMA_COM_URL \
+exec env -u CHATONLM_SEED_DEMO \
     -u CHATONLM_TELEGRAM_URL -u CHATONLM_DISCORD_URL \
   CHATONLM_DATA_DIR="$root/.tools/real-data" TMPDIR="$root/.tools/tmp" \
   CHATONLM_NO_GLOBAL_SHORTCUTS=1 "$binary" --dictate

@@ -109,11 +109,9 @@ vscode_extension() {
 # révision et sha256, models.json) servent aux contrats (RealBench :
 # CHATONLM_LLAMA_TEST_BIN, CHATONLM_LLAMA_TEST_MODELS) et aux e2e réels
 # (e2e/real-llama.test.mjs, e2e/real-voice-mode.test.mjs), lancés avec les
-# autres essais de l'app (real_app_checks). Aucun Ollama n'est lancé : les
-# contrats encore écrits contre Ollama (module ollama/, retiré avec L10) sont
-# sautés. Modèles d'essai et verrou : ceux de l'arbre PRINCIPAL
-# (scripts/lib/roots.sh), communs à tous les arbres de travail, là où
-# test-llama.sh fetch les range.
+# autres essais de l'app (real_app_checks). Modèles d'essai et verrou : ceux
+# de l'arbre PRINCIPAL (scripts/lib/roots.sh), communs à tous les arbres de
+# travail, là où test-llama.sh fetch les range.
 export CHATONLM_LLAMA_TEST_BIN="$root/.tools/runtimes/llama-server/llama-server"
 CHATONLM_LLAMA_TEST_MODELS="$(chatonlm_llama_test_home "$root")/models"
 export CHATONLM_LLAMA_TEST_MODELS
@@ -133,11 +131,11 @@ contracts() {
   mkdir -p "$(dirname "$lock")"
   if [ -d "$voices" ]; then
     CHATONLM_VOICE_MODELS_DIR="$voices" flock "$lock" \
-      cargo test --manifest-path "$manifest" --locked --lib contract -- --ignored --test-threads=1 --skip ollama::
+      cargo test --manifest-path "$manifest" --locked --lib contract -- --ignored --test-threads=1
   else
     echo "  (voix absentes : contrats de la lecture à voix haute sautés)"
     env -u CHATONLM_VOICE_MODELS_DIR flock "$lock" \
-      cargo test --manifest-path "$manifest" --locked --lib contract -- --ignored --test-threads=1 --skip ollama::
+      cargo test --manifest-path "$manifest" --locked --lib contract -- --ignored --test-threads=1
   fi
 }
 
@@ -240,9 +238,6 @@ step "Fichiers d'empaquetage (desktop, AppStream)" packaging_files
 if $full; then
   step "Clippy (fonctionnalité e2e)" \
     cargo clippy --manifest-path "$manifest" --all-targets --locked --features e2e -- -D warnings
-  # Ollama intégré : encore livré dans les paquets jusqu'au retrait d'Ollama
-  # (L10), plus lancé par l'app.
-  step "Ollama intégré épinglé" scripts/fetch-ollama.sh
   step "Moteur de texte épinglé (llama-server)" scripts/build-llama-server.sh
   step "Moteur d'images épinglé (sd-server)" scripts/build-sd-server.sh
   step "Contrats avec le moteur d'images (processeur)" sd_contracts

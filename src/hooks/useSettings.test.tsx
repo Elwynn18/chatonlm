@@ -7,7 +7,7 @@ import type { SettingsPatch } from "@/bindings/SettingsPatch";
 import { modelsKey, recommendedKey, upstreamKey } from "@/hooks/useModels";
 import { getLanguage } from "@/i18n";
 import { modelDetailsKey, thinkPrefKey } from "@/hooks/useThink";
-import { fakeBackend, SERVER_URL } from "@/test/backend";
+import { fakeBackend } from "@/test/backend";
 import { type Args, installSimulator } from "@/test/simulator";
 import { settingsKey, useSettings } from "./useSettings";
 
@@ -16,8 +16,7 @@ afterEach(() => {
 });
 
 const SAVED: Settings = {
-  serverUrl: "",
-  effectiveServerUrl: SERVER_URL,
+  formerServerUrl: "",
   contextLength: 0,
   theme: "system",
   selectedModel: "qwen3:0.6b",
@@ -40,7 +39,6 @@ const SAVED: Settings = {
   onboardingDone: true,
   showUncensored: false,
   systemPrompt: "",
-  unloadOnQuit: true,
   remoteModels: false,
 };
 

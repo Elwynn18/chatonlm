@@ -256,7 +256,7 @@ pub async fn model_for(access: &Access, settings: &Settings) -> Option<String> {
 /// Réglages de l'app lus dans la base.
 async fn settings_of(store: &Store) -> crate::error::AppResult<Settings> {
     store
-        .call(|connection| crate::store::settings::get(connection, None))
+        .call(|connection| crate::store::settings::get(connection))
         .await
 }
 

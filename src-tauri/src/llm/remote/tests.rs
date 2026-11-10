@@ -82,7 +82,6 @@ async fn allow_remote(store: &Store, on: bool) {
                     remote_models: Some(on),
                     ..Default::default()
                 },
-                None,
             )
         })
         .await
@@ -1200,7 +1199,7 @@ async fn the_key_never_leaves_its_file() {
     seen_by_page
         .push(serde_json::to_string(&crate::llm::models::list(&access).await.unwrap()).unwrap());
     let settings = store
-        .call(|c| crate::store::settings::get(c, None))
+        .call(|c| crate::store::settings::get(c))
         .await
         .unwrap();
     seen_by_page.push(serde_json::to_string(&settings).unwrap());

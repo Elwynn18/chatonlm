@@ -7,7 +7,6 @@
 
 pub mod backup;
 pub mod bridge;
-pub mod builtin_ollama;
 pub mod chats;
 pub mod desktop;
 pub mod dictation;
@@ -77,6 +76,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0041_remote_models.sql"),
     include_str!("../../migrations/0042_remote_providers.sql"),
     include_str!("../../migrations/0043_remote_retired_ids.sql"),
+    include_str!("../../migrations/0044_ollama_settings_removed.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.
@@ -502,7 +502,7 @@ mod tests {
 
         let store = Store::open(&path).unwrap();
         assert_eq!(version(&store), MIGRATIONS.len() as i64);
-        let saved = store.blocking(|c| settings::get(c, None)).unwrap();
+        let saved = store.blocking(|c| settings::get(c)).unwrap();
         assert_eq!(saved.selected_model, "qwen3:0.6b");
         assert_eq!(saved.context_length, 8192);
         assert!(saved.web_search_enabled);
@@ -579,7 +579,7 @@ mod tests {
         let store = Store::open(&path).unwrap();
         // Migrations suivantes comprises (0006 : dictée).
         assert_eq!(version(&store), MIGRATIONS.len() as i64);
-        let saved = store.blocking(|c| settings::get(c, None)).unwrap();
+        let saved = store.blocking(|c| settings::get(c)).unwrap();
         assert_eq!(saved.selected_model, "qwen3:0.6b");
         assert_eq!(saved.theme, settings::Theme::Dark);
         assert!(!saved.web_search_enabled);
@@ -704,12 +704,7 @@ mod tests {
 
         let store = Store::open(&path).unwrap();
         assert_eq!(version(&store), MIGRATIONS.len() as i64);
-        assert!(
-            store
-                .blocking(|c| settings::get(c, None))
-                .unwrap()
-                .auto_read
-        );
+        assert!(store.blocking(|c| settings::get(c)).unwrap().auto_read);
         assert_eq!(
             store.blocking(|c| dictation::get(c)).unwrap().language,
             "fr"
@@ -792,7 +787,7 @@ mod tests {
 
         let store = Store::open(&path).unwrap();
         assert_eq!(version(&store), MIGRATIONS.len() as i64);
-        let saved = store.blocking(|c| settings::get(c, None)).unwrap();
+        let saved = store.blocking(|c| settings::get(c)).unwrap();
         assert!(saved.proofread_paste);
         assert!(saved.proofread_shortcut);
         assert_eq!(saved.proofread_model, "gemma3:4b");
@@ -800,12 +795,10 @@ mod tests {
             proofread_paste: Some(false),
             ..settings::SettingsPatch::default()
         };
-        let updated = store
-            .blocking(move |c| settings::update(c, patch, None))
-            .unwrap();
+        let updated = store.blocking(move |c| settings::update(c, patch)).unwrap();
         assert!(!updated.proofread_paste);
         assert!(updated.proofread_shortcut);
-        let again = store.blocking(|c| settings::get(c, None)).unwrap();
+        let again = store.blocking(|c| settings::get(c)).unwrap();
         assert!(!again.proofread_paste);
     }
 
@@ -826,7 +819,7 @@ mod tests {
             drop(connection);
             let store = Store::open(&path).unwrap();
             assert_eq!(version(&store), MIGRATIONS.len() as i64);
-            store.blocking(|c| settings::get(c, None)).unwrap()
+            store.blocking(|c| settings::get(c)).unwrap()
         };
 
         assert!(!migrated("").onboarding_done);

@@ -234,7 +234,7 @@ impl FakeBench {
     /// Réglages de l'app (contexte, durée, distants, recherche web).
     pub fn set(&self, patch: crate::store::settings::SettingsPatch) {
         self.store()
-            .blocking(|c| crate::store::settings::update(c, patch, None).map(drop))
+            .blocking(|c| crate::store::settings::update(c, patch).map(drop))
             .unwrap();
     }
 

@@ -17,7 +17,6 @@ pub(crate) mod gguf;
 pub mod hardware;
 pub(crate) mod hf;
 pub mod installed;
-pub mod manifest;
 pub mod names;
 pub mod quant;
 mod readme;

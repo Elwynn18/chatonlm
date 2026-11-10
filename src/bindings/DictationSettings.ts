@@ -11,7 +11,7 @@ speechModel: string,
  */
 language: string, 
 /**
- * Modèle Ollama du nettoyage ; vide = pas de nettoyage.
+ * Modèle du nettoyage ; vide = pas de nettoyage.
  */
 polishModel: string, 
 /**

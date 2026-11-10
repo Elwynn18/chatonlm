@@ -2,16 +2,16 @@
 import type { Think } from "./Think";
 
 /**
- * Objet `thinking` de `/api/show`.
+ * Façons de raisonner d'un modèle (page et pont).
  */
 export type ThinkingOptions = { 
 /**
- * Valeurs acceptées pour `think`, dans l'ordre d'Ollama : booléens
- * (marche, arrêt) et niveaux nommés (« low », « medium »...). `[false]` :
- * le modèle ne sait pas raisonner.
+ * Valeurs acceptées pour `think` : booléens (marche, arrêt) et niveaux
+ * nommés (« low », « medium »...). `[false]` : le modèle ne sait pas
+ * raisonner.
  */
 values: Array<Think>, 
 /**
- * Valeur appliquée quand `think` est absent, si Ollama l'indique.
+ * Valeur appliquée quand `think` est absent, si elle est connue.
  */
 default: Think | null, };

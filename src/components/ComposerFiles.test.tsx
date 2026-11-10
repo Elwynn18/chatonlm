@@ -67,7 +67,7 @@ function renderForm({
     (command, args) => {
       switch (command) {
         case "get_settings":
-          return { selectedModel: MODEL, serverUrl: "" };
+          return { selectedModel: MODEL, formerServerUrl: "" };
         case "list_models":
           return [];
         case "model_details": {

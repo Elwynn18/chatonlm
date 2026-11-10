@@ -1,9 +1,8 @@
 //! Essais des outils du sous-processus (port, environnement, arrêt borné).
 //! Les essais de bout en bout (lancement, relance, PDEATHSIG, Job Object)
-//! sont ceux de l'Ollama intégré (`ollama/builtin/tests.rs`) et du moteur
-//! d'images (`image_gen/tests.rs`), qui s'en servent.
+//! sont ceux du moteur (`engine/tests.rs`) et du moteur d'images
+//! (`image_gen/tests.rs`), qui s'en servent.
 
-use std::ffi::OsString;
 use std::net::{Ipv4Addr, TcpListener};
 #[cfg(unix)]
 use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -15,10 +14,12 @@ use std::time::{Duration, Instant};
 use super::*;
 
 #[test]
-fn ports_avoid_ollama_and_the_test_instances() {
-    // 11436 : `llama-server` d'essai de `scripts/test-llama.sh`.
+fn ports_avoid_ollama_and_the_test_instance() {
+    // 11434 : Ollama de la machine ; 11436 : `llama-server` d'essai de
+    // `scripts/test-llama.sh`.
+    assert!(RESERVED_PORTS.contains(&11434));
     assert!(RESERVED_PORTS.contains(&11436));
-    for previous in [Some(11434), Some(11435), Some(11436), None] {
+    for previous in [Some(11434), Some(11436), None] {
         let port = pick_port(previous).unwrap();
         assert!(!RESERVED_PORTS.contains(&port), "{port}");
     }
@@ -32,29 +33,6 @@ fn ports_avoid_ollama_and_the_test_instances() {
     let held = TcpListener::bind((Ipv4Addr::LOCALHOST, free)).unwrap();
     assert_ne!(pick_port(Some(free)).unwrap(), free);
     drop(held);
-}
-
-#[test]
-fn variables_are_removed_whatever_their_case() {
-    let mut environment: BTreeMap<OsString, OsString> = [
-        ("Ollama_Host", "0.0.0.0"),
-        ("OLLAMA_MODELS", "D:\\Models"),
-        ("UserProfile", "C:\\Users\\me"),
-        ("OLLAMA_KEEP_ALIVE", "10m"),
-        ("Path", "C:\\Windows"),
-    ]
-    .map(|(key, value)| (OsString::from(key), OsString::from(value)))
-    .into_iter()
-    .collect();
-    remove_ignoring_case(
-        &mut environment,
-        &["OLLAMA_HOST", "OLLAMA_MODELS", "USERPROFILE", "HOME"],
-    );
-    let keys: Vec<_> = environment
-        .keys()
-        .map(|key| key.to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(keys, ["OLLAMA_KEEP_ALIVE", "Path"]);
 }
 
 /// Après SIGKILL, la récolte n'est attendue qu'un temps : un processus

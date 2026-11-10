@@ -219,7 +219,7 @@ async fn check(policy: &Policy, url: &Url) -> Result<SocketAddr, FetchError> {
 /// Client pour une seule requête : connexion à `addr` pour l'hôte de `url`,
 /// sans mandataire, sans redirection suivie.
 fn client(url: &Url, addr: SocketAddr) -> Result<reqwest::Client, FetchError> {
-    crate::hub::hf::ensure_crypto_provider();
+    crate::http::ensure_crypto_provider();
     let mut builder = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())

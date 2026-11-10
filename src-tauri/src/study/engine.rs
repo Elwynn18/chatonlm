@@ -196,10 +196,7 @@ fn checked(topic: &str, minutes: u32, documents: usize) -> AppResult<String> {
 /// Un modèle servira : celui des cours ou du chat réglé (rien à attendre
 /// du moteur), sinon « Auto », qui n'a que les modèles prêts.
 async fn any_model(ctx: &Ctx) -> AppResult<()> {
-    let settings = ctx
-        .store
-        .call(|c| crate::store::settings::get(c, None))
-        .await?;
+    let settings = ctx.store.call(|c| crate::store::settings::get(c)).await?;
     let configured = !settings.study_model.is_empty() || !settings.selected_model.is_empty();
     if !configured && super::model_of(&ctx.access, &settings).await.is_none() {
         return Err(AppError::Invalid(t!("study.noModel")));

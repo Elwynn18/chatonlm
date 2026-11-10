@@ -864,12 +864,11 @@ async fn finished_downloads_are_replaced_or_dismissed() {
     );
 }
 
-/// Verrou d'un changement de dossier propre à cet essai.
-static CHANGING: crate::ollama::models_dir::OperationLock =
-    crate::ollama::models_dir::OperationLock::new();
+/// Changement de dossier propre à cet essai.
+static CHANGING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn changing() -> bool {
-    CHANGING.is_held()
+    CHANGING.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 /// Pendant un changement du dossier des modèles, rien ne commence ni ne
@@ -884,7 +883,7 @@ async fn nothing_starts_while_the_model_location_changes() {
     let model = "chatonlm-dl/Held-stall-GGUF:Q4_K_M";
     env.ask(model);
     env.downloads.pause(model);
-    let guard = CHANGING.try_acquire().unwrap();
+    CHANGING.store(true, std::sync::atomic::Ordering::SeqCst);
     for refused in [
         env.downloads.download(ask("chatonlm-dl/Other-GGUF:Q4_K_M")),
         env.downloads.resume(model),
@@ -896,9 +895,7 @@ async fn nothing_starts_while_the_model_location_changes() {
         assert_eq!(message, LOCATION_CHANGING);
     }
     assert_eq!(env.entry(model).state, Paused);
-    drop(guard);
-    // Plus d'Ollama derrière : un changement de cible ne touche à rien.
-    env.downloads.retarget("http://127.0.0.1:9");
+    CHANGING.store(false, std::sync::atomic::Ordering::SeqCst);
     assert_eq!(env.entry(model).state, Paused);
     env.downloads.cancel(model);
 }

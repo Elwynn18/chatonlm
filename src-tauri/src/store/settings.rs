@@ -6,7 +6,6 @@ use ts_rs::TS;
 
 use crate::error::{AppError, AppResult};
 use crate::i18n::{self, Lang, LanguageChoice};
-use crate::ollama::address;
 
 /// Longueurs de contexte proposées (crans du réglage) ; 0 = défaut du serveur.
 pub const CONTEXT_LENGTHS: [u32; 8] = [0, 4096, 8192, 16384, 32768, 65536, 131072, 262144];
@@ -53,12 +52,11 @@ impl Theme {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct Settings {
-    /// Adresse réglée par l'utilisateur ; vide = automatique.
-    pub server_url: String,
-    /// Adresse réellement utilisée : celle du serveur qui sert (`get` y met
-    /// l'adresse réglée, sinon `OLLAMA_HOST`, sinon le défaut ; les commandes
-    /// celle de la cible, Ollama intégré compris : `ollama::target`).
-    pub effective_server_url: String,
+    /// Adresse de l'Ollama que ChatonLM 0.9.x utilisait (colonne
+    /// `server_url`, plus réglable) ; vide : l'automatique. Lue seulement par
+    /// Settings › Remote models, qui propose d'ajouter une autre machine comme
+    /// serveur compatible OpenAI.
+    pub former_server_url: String,
     /// 0 = défaut du serveur.
     pub context_length: u32,
     pub theme: Theme,
@@ -118,10 +116,6 @@ pub struct Settings {
     /// l'historique ; vide = aucun (celui du modèle). « Reset to defaults »
     /// n'y touche pas.
     pub system_prompt: String,
-    /// À la fin de l'app, décharger les modèles encore en mémoire dans
-    /// l'Ollama de la machine (`ollama::target::unload_url_at_exit`) ;
-    /// activé par défaut. « Reset to defaults » n'y touche pas.
-    pub unload_on_quit: bool,
     /// Modèles distants (fournisseurs compatibles OpenAI, clé de
     /// l'utilisateur) montrés dans le sélecteur et acceptés à l'envoi (chat,
     /// mode vocal, Easy Link, correction, étude) ; coupé par défaut : rien ne
@@ -136,9 +130,6 @@ pub struct Settings {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[ts(export)]
 pub struct SettingsPatch {
-    /// Chaîne vide = revenir à l'adresse automatique.
-    #[ts(optional)]
-    pub server_url: Option<String>,
     #[ts(optional)]
     pub context_length: Option<u32>,
     #[ts(optional)]
@@ -181,8 +172,6 @@ pub struct SettingsPatch {
     #[ts(optional)]
     pub system_prompt: Option<String>,
     #[ts(optional)]
-    pub unload_on_quit: Option<bool>,
-    #[ts(optional)]
     pub remote_models: Option<bool>,
 }
 
@@ -206,14 +195,14 @@ pub fn set_onboarding_done(connection: &Connection, done: bool) -> AppResult<()>
     Ok(())
 }
 
-pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Settings> {
+pub fn get(connection: &Connection) -> AppResult<Settings> {
     let row = connection
         .query_row(
             "SELECT server_url, context_length, theme, selected_model, window_width, window_height,
                     web_search_enabled, keep_alive, preload_model, language,
                     proofread_model, proofread_shortcut, study_model, auto_read,
                     proofread_paste, onboarding_done, show_uncensored, system_prompt,
-                    unload_on_quit, cloud_models, read_aloud_shortcut,
+                    cloud_models, read_aloud_shortcut,
                     proofread_keep_order, proofread_formatting, proofread_digits
              FROM settings WHERE id = 1",
             [],
@@ -242,14 +231,13 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
                     row.get::<_, bool>(20)?,
                     row.get::<_, bool>(21)?,
                     row.get::<_, bool>(22)?,
-                    row.get::<_, bool>(23)?,
                 ))
             },
         )
         .optional()?
         .ok_or_else(|| AppError::Internal("settings row missing".into()))?;
     let (
-        server_url,
+        former_server_url,
         context_length,
         theme,
         selected_model,
@@ -267,7 +255,6 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         onboarding_done,
         show_uncensored,
         system_prompt,
-        unload_on_quit,
         remote_models,
         read_aloud_shortcut,
         proofread_keep_order,
@@ -277,8 +264,7 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
     let language = LanguageChoice::parse(&language)
         .ok_or_else(|| AppError::Internal(format!("unknown language in database: {language}")))?;
     Ok(Settings {
-        effective_server_url: address::effective(&server_url, ollama_host),
-        server_url,
+        former_server_url,
         context_length,
         theme: Theme::parse(&theme)?,
         selected_model,
@@ -301,25 +287,12 @@ pub fn get(connection: &Connection, ollama_host: Option<&str>) -> AppResult<Sett
         onboarding_done,
         show_uncensored,
         system_prompt,
-        unload_on_quit,
         remote_models,
     })
 }
 
 /// Valide puis applique `patch` en une transaction ; renvoie les réglages à jour.
-pub fn update(
-    connection: &mut Connection,
-    patch: SettingsPatch,
-    ollama_host: Option<&str>,
-) -> AppResult<Settings> {
-    let server_url = match &patch.server_url {
-        Some(value) => Some(
-            address::normalize(value)
-                .map_err(AppError::Invalid)?
-                .unwrap_or_default(),
-        ),
-        None => None,
-    };
+pub fn update(connection: &mut Connection, patch: SettingsPatch) -> AppResult<Settings> {
     if let Some(length) = patch.context_length
         && !CONTEXT_LENGTHS.contains(&length)
     {
@@ -364,12 +337,6 @@ pub fn update(
     }
 
     let transaction = connection.transaction()?;
-    if let Some(url) = server_url {
-        transaction.execute(
-            "UPDATE settings SET server_url = ?1 WHERE id = 1",
-            params![url],
-        )?;
-    }
     if let Some(length) = patch.context_length {
         transaction.execute(
             "UPDATE settings SET context_length = ?1 WHERE id = 1",
@@ -478,12 +445,6 @@ pub fn update(
             params![model],
         )?;
     }
-    if let Some(enabled) = patch.unload_on_quit {
-        transaction.execute(
-            "UPDATE settings SET unload_on_quit = ?1 WHERE id = 1",
-            params![enabled],
-        )?;
-    }
     if let Some(enabled) = patch.remote_models {
         transaction.execute(
             "UPDATE settings SET cloud_models = ?1 WHERE id = 1",
@@ -491,7 +452,7 @@ pub fn update(
         )?;
     }
     transaction.commit()?;
-    get(connection, ollama_host)
+    get(connection)
 }
 
 /// Mémorise la taille de la fenêtre (en pixels logiques).
@@ -512,7 +473,7 @@ mod tests {
     fn window_size_is_saved() {
         let store = store();
         store.blocking(|c| save_window_size(c, 1200, 800)).unwrap();
-        let settings = store.blocking(|c| get(c, None)).unwrap();
+        let settings = store.blocking(|c| get(c)).unwrap();
         assert_eq!(
             (settings.window_width, settings.window_height),
             (Some(1200), Some(800))
@@ -525,12 +486,11 @@ mod tests {
 
     #[test]
     fn defaults() {
-        let settings = store().blocking(|c| get(c, None)).unwrap();
+        let settings = store().blocking(|c| get(c)).unwrap();
         assert_eq!(
             settings,
             Settings {
-                server_url: String::new(),
-                effective_server_url: address::DEFAULT_SERVER_URL.into(),
+                former_server_url: String::new(),
                 context_length: 0,
                 theme: Theme::System,
                 selected_model: String::new(),
@@ -553,43 +513,31 @@ mod tests {
                 onboarding_done: false,
                 show_uncensored: false,
                 system_prompt: String::new(),
-                unload_on_quit: true,
                 remote_models: false,
             }
         );
     }
 
     /// Modèles distants : coupés par défaut, enregistrés, et « Reset to
-    /// defaults » (adresse, contexte, thème) n'y touche pas.
+    /// defaults » (contexte, thème) n'y touche pas.
     #[test]
     fn remote_models_are_off_until_turned_on() {
         let store = store();
-        assert!(!store.blocking(|c| get(c, None)).unwrap().remote_models);
+        assert!(!store.blocking(|c| get(c)).unwrap().remote_models);
         let patch: SettingsPatch = serde_json::from_str(r#"{"remoteModels":true}"#).unwrap();
-        assert!(
-            store
-                .blocking(|c| update(c, patch, None))
-                .unwrap()
-                .remote_models
-        );
+        assert!(store.blocking(|c| update(c, patch)).unwrap().remote_models);
         let reset = SettingsPatch {
-            server_url: Some(String::new()),
             context_length: Some(0),
             theme: Some(Theme::System),
             ..Default::default()
         };
-        assert!(
-            store
-                .blocking(|c| update(c, reset, None))
-                .unwrap()
-                .remote_models
-        );
+        assert!(store.blocking(|c| update(c, reset)).unwrap().remote_models);
         let off = SettingsPatch {
             remote_models: Some(false),
             ..Default::default()
         };
-        store.blocking(|c| update(c, off, None)).unwrap();
-        assert!(!store.blocking(|c| get(c, None)).unwrap().remote_models);
+        store.blocking(|c| update(c, off)).unwrap();
+        assert!(!store.blocking(|c| get(c)).unwrap().remote_models);
     }
 
     /// Une base 0.9.x où les modèles cloud d'Ollama étaient permis : le
@@ -610,66 +558,31 @@ mod tests {
             .unwrap();
         drop(connection);
         let store = Store::open(&path).unwrap();
-        let settings = store.blocking(|c| get(c, None)).unwrap();
+        let settings = store.blocking(|c| get(c)).unwrap();
         assert!(!settings.remote_models);
-        assert!(!settings.unload_on_quit);
-    }
-
-    /// Déchargement des modèles en quittant : activé par défaut, enregistré,
-    /// et « Reset to defaults » (adresse, contexte, thème) n'y touche pas.
-    #[test]
-    fn unloading_on_quit_is_on_until_turned_off() {
-        let store = store();
-        assert!(store.blocking(|c| get(c, None)).unwrap().unload_on_quit);
-        let patch: SettingsPatch = serde_json::from_str(r#"{"unloadOnQuit":false}"#).unwrap();
-        assert!(
-            !store
-                .blocking(|c| update(c, patch, None))
-                .unwrap()
-                .unload_on_quit
-        );
-        let reset = SettingsPatch {
-            server_url: Some(String::new()),
-            context_length: Some(0),
-            theme: Some(Theme::System),
-            ..Default::default()
-        };
-        assert!(
-            !store
-                .blocking(|c| update(c, reset, None))
-                .unwrap()
-                .unload_on_quit
-        );
-        let on = SettingsPatch {
-            unload_on_quit: Some(true),
-            ..Default::default()
-        };
-        store.blocking(|c| update(c, on, None)).unwrap();
-        assert!(store.blocking(|c| get(c, None)).unwrap().unload_on_quit);
     }
 
     /// Rubrique « Uncensored » : masquée par défaut, enregistrée, et
-    /// « Reset to defaults » (adresse, contexte, thème) n'y touche pas.
+    /// « Reset to defaults » (contexte, thème) n'y touche pas.
     #[test]
     fn the_uncensored_section_is_hidden_until_asked() {
         let store = store();
-        assert!(!store.blocking(|c| get(c, None)).unwrap().show_uncensored);
+        assert!(!store.blocking(|c| get(c)).unwrap().show_uncensored);
         let patch: SettingsPatch = serde_json::from_str(r#"{"showUncensored":true}"#).unwrap();
         assert!(
             store
-                .blocking(|c| update(c, patch, None))
+                .blocking(|c| update(c, patch))
                 .unwrap()
                 .show_uncensored
         );
         let reset = SettingsPatch {
-            server_url: Some(String::new()),
             context_length: Some(0),
             theme: Some(Theme::System),
             ..Default::default()
         };
         assert!(
             store
-                .blocking(|c| update(c, reset, None))
+                .blocking(|c| update(c, reset))
                 .unwrap()
                 .show_uncensored
         );
@@ -677,47 +590,46 @@ mod tests {
             show_uncensored: Some(false),
             ..Default::default()
         };
-        store.blocking(|c| update(c, off, None)).unwrap();
-        assert!(!store.blocking(|c| get(c, None)).unwrap().show_uncensored);
+        store.blocking(|c| update(c, off)).unwrap();
+        assert!(!store.blocking(|c| get(c)).unwrap().show_uncensored);
     }
 
     /// Pré-prompt : vide par défaut, enregistré tel quel, borné, et « Reset to
-    /// defaults » (adresse, contexte, thème) n'y touche pas.
+    /// defaults » (contexte, thème) n'y touche pas.
     #[test]
     fn the_system_prompt_is_saved_and_bounded() {
         let store = store();
-        assert_eq!(store.blocking(|c| get(c, None)).unwrap().system_prompt, "");
+        assert_eq!(store.blocking(|c| get(c)).unwrap().system_prompt, "");
         let patch: SettingsPatch =
             serde_json::from_str(r#"{"systemPrompt":"  Answer in French.\n"}"#).unwrap();
-        let saved = store.blocking(|c| update(c, patch, None)).unwrap();
+        let saved = store.blocking(|c| update(c, patch)).unwrap();
         assert_eq!(saved.system_prompt, "  Answer in French.\n");
         let reset = SettingsPatch {
-            server_url: Some(String::new()),
             context_length: Some(0),
             theme: Some(Theme::System),
             ..Default::default()
         };
-        let after_reset = store.blocking(|c| update(c, reset, None)).unwrap();
+        let after_reset = store.blocking(|c| update(c, reset)).unwrap();
         assert_eq!(after_reset.system_prompt, "  Answer in French.\n");
         let too_long = SettingsPatch {
             system_prompt: Some("é".repeat(MAX_SYSTEM_PROMPT_CHARS + 1)),
             ..Default::default()
         };
         assert!(matches!(
-            store.blocking(|c| update(c, too_long, None)),
+            store.blocking(|c| update(c, too_long)),
             Err(AppError::Invalid(_))
         ));
         let longest = SettingsPatch {
             system_prompt: Some("é".repeat(MAX_SYSTEM_PROMPT_CHARS)),
             ..Default::default()
         };
-        store.blocking(|c| update(c, longest, None)).unwrap();
+        store.blocking(|c| update(c, longest)).unwrap();
         let cleared = SettingsPatch {
             system_prompt: Some(String::new()),
             ..Default::default()
         };
-        store.blocking(|c| update(c, cleared, None)).unwrap();
-        assert_eq!(store.blocking(|c| get(c, None)).unwrap().system_prompt, "");
+        store.blocking(|c| update(c, cleared)).unwrap();
+        assert_eq!(store.blocking(|c| get(c)).unwrap().system_prompt, "");
     }
 
     /// Premier démarrage : à faire sur une base neuve, enregistré une fois
@@ -725,14 +637,14 @@ mod tests {
     #[test]
     fn the_first_run_is_recorded_once_done() {
         let store = store();
-        assert!(!store.blocking(|c| get(c, None)).unwrap().onboarding_done);
+        assert!(!store.blocking(|c| get(c)).unwrap().onboarding_done);
         let patch = SettingsPatch {
             onboarding_done: Some(true),
             ..SettingsPatch::default()
         };
         assert!(
             store
-                .blocking(|c| update(c, patch, None))
+                .blocking(|c| update(c, patch))
                 .unwrap()
                 .onboarding_done
         );
@@ -742,11 +654,11 @@ mod tests {
         };
         assert!(
             store
-                .blocking(|c| update(c, patch, None))
+                .blocking(|c| update(c, patch))
                 .unwrap()
                 .onboarding_done
         );
-        assert!(store.blocking(|c| get(c, None)).unwrap().onboarding_done);
+        assert!(store.blocking(|c| get(c)).unwrap().onboarding_done);
     }
 
     #[test]
@@ -759,15 +671,15 @@ mod tests {
 
         let store = store();
         store.blocking(|c| set_onboarding_done(c, true)).unwrap();
-        assert!(store.blocking(|c| get(c, None)).unwrap().onboarding_done);
+        assert!(store.blocking(|c| get(c)).unwrap().onboarding_done);
         store.blocking(|c| set_onboarding_done(c, false)).unwrap();
-        assert!(!store.blocking(|c| get(c, None)).unwrap().onboarding_done);
+        assert!(!store.blocking(|c| get(c)).unwrap().onboarding_done);
     }
 
     #[test]
     fn proofread_options_are_saved_one_by_one() {
         let store = store();
-        let settings = store.blocking(|c| get(c, None)).unwrap();
+        let settings = store.blocking(|c| get(c)).unwrap();
         // Défauts : mise en forme activée, le reste coupé.
         assert_eq!(
             (
@@ -782,7 +694,7 @@ mod tests {
             proofread_formatting: Some(false),
             ..SettingsPatch::default()
         };
-        let settings = store.blocking(|c| update(c, patch, None)).unwrap();
+        let settings = store.blocking(|c| update(c, patch)).unwrap();
         assert_eq!(
             (
                 settings.proofread_keep_order,
@@ -795,7 +707,7 @@ mod tests {
             proofread_digits: Some(true),
             ..SettingsPatch::default()
         };
-        let settings = store.blocking(|c| update(c, patch, None)).unwrap();
+        let settings = store.blocking(|c| update(c, patch)).unwrap();
         assert_eq!(
             (
                 settings.proofread_keep_order,
@@ -814,7 +726,7 @@ mod tests {
             proofread_shortcut: Some(true),
             ..SettingsPatch::default()
         };
-        let settings = store.blocking(|c| update(c, patch, None)).unwrap();
+        let settings = store.blocking(|c| update(c, patch)).unwrap();
         assert_eq!(
             (
                 settings.proofread_model.as_str(),
@@ -827,7 +739,7 @@ mod tests {
             theme: Some(Theme::Dark),
             ..SettingsPatch::default()
         };
-        let settings = store.blocking(|c| update(c, patch, None)).unwrap();
+        let settings = store.blocking(|c| update(c, patch)).unwrap();
         assert_eq!(
             (
                 settings.proofread_model.as_str(),
@@ -839,7 +751,7 @@ mod tests {
             proofread_model: Some(" gemma3:4b".into()),
             ..SettingsPatch::default()
         };
-        assert!(store.blocking(|c| update(c, invalid, None)).is_err());
+        assert!(store.blocking(|c| update(c, invalid)).is_err());
     }
 
     #[test]
@@ -855,7 +767,7 @@ mod tests {
                 language: Some(choice),
                 ..SettingsPatch::default()
             };
-            let settings = store.blocking(|c| update(c, patch, None)).unwrap();
+            let settings = store.blocking(|c| update(c, patch)).unwrap();
             assert_eq!(
                 (settings.language, settings.effective_language),
                 (choice, effective)
@@ -878,32 +790,31 @@ mod tests {
         };
         assert!(
             store
-                .blocking(|c| update(c, on, None))
+                .blocking(|c| update(c, on))
                 .unwrap()
                 .web_search_enabled
         );
-        // Les champs de « Reset to defaults » (adresse, contexte, thème) ne la
+        // Les champs de « Reset to defaults » (contexte, thème) ne la
         // changent pas.
         let reset = SettingsPatch {
-            server_url: Some(String::new()),
             context_length: Some(0),
             theme: Some(Theme::System),
             ..Default::default()
         };
         assert!(
             store
-                .blocking(|c| update(c, reset, None))
+                .blocking(|c| update(c, reset))
                 .unwrap()
                 .web_search_enabled
         );
-        assert!(store.blocking(|c| get(c, None)).unwrap().web_search_enabled);
+        assert!(store.blocking(|c| get(c)).unwrap().web_search_enabled);
         let off = SettingsPatch {
             web_search_enabled: Some(false),
             ..Default::default()
         };
         assert!(
             !store
-                .blocking(|c| update(c, off, None))
+                .blocking(|c| update(c, off))
                 .unwrap()
                 .web_search_enabled
         );
@@ -912,7 +823,7 @@ mod tests {
     }
 
     /// Durée en mémoire : seulement les crans proposés ; préchargement ;
-    /// « Reset to defaults » (adresse, contexte, thème) n'y touche pas.
+    /// « Reset to defaults » (contexte, thème) n'y touche pas.
     #[test]
     fn model_loading_settings_are_kept_and_checked() {
         let store = store();
@@ -921,54 +832,40 @@ mod tests {
             ..Default::default()
         };
         for seconds in KEEP_ALIVES {
-            let saved = store.blocking(|c| update(c, keep(seconds), None)).unwrap();
+            let saved = store.blocking(|c| update(c, keep(seconds))).unwrap();
             assert_eq!(saved.keep_alive, seconds);
         }
-        assert_eq!(store.blocking(|c| get(c, None)).unwrap().keep_alive, -1);
+        assert_eq!(store.blocking(|c| get(c)).unwrap().keep_alive, -1);
         for refused in [1, 120, 86_400, -2] {
             let patch = SettingsPatch {
                 theme: Some(Theme::Dark),
                 ..keep(refused)
             };
-            let Err(AppError::Invalid(message)) = store.blocking(|c| update(c, patch, None)) else {
+            let Err(AppError::Invalid(message)) = store.blocking(|c| update(c, patch)) else {
                 panic!("{refused} accepted");
             };
             assert_eq!(message, format!("unsupported keep alive: {refused}"));
         }
         // Rien d'écrit avec un cran refusé.
-        let settings = store.blocking(|c| get(c, None)).unwrap();
+        let settings = store.blocking(|c| get(c)).unwrap();
         assert_eq!((settings.keep_alive, settings.theme), (-1, Theme::System));
 
         let preload: SettingsPatch =
             serde_json::from_str(r#"{"keepAlive":300,"preloadModel":true}"#).unwrap();
-        let saved = store.blocking(|c| update(c, preload, None)).unwrap();
+        let saved = store.blocking(|c| update(c, preload)).unwrap();
         assert_eq!((saved.keep_alive, saved.preload_model), (300, true));
         let reset = SettingsPatch {
-            server_url: Some(String::new()),
             context_length: Some(0),
             theme: Some(Theme::System),
             ..Default::default()
         };
-        let saved = store.blocking(|c| update(c, reset, None)).unwrap();
+        let saved = store.blocking(|c| update(c, reset)).unwrap();
         assert_eq!((saved.keep_alive, saved.preload_model), (300, true));
         let off = SettingsPatch {
             preload_model: Some(false),
             ..Default::default()
         };
-        assert!(
-            !store
-                .blocking(|c| update(c, off, None))
-                .unwrap()
-                .preload_model
-        );
-    }
-
-    #[test]
-    fn ollama_host_is_used_when_no_address_is_saved() {
-        let settings = store()
-            .blocking(|c| get(c, Some("127.0.0.1:11435")))
-            .unwrap();
-        assert_eq!(settings.effective_server_url, "http://127.0.0.1:11435");
+        assert!(!store.blocking(|c| update(c, off)).unwrap().preload_model);
     }
 
     #[test]
@@ -979,28 +876,10 @@ mod tests {
             context_length: Some(32768),
             ..Default::default()
         };
-        let settings = store.blocking(|c| update(c, patch, None)).unwrap();
+        let settings = store.blocking(|c| update(c, patch)).unwrap();
         assert_eq!(settings.theme, Theme::Dark);
         assert_eq!(settings.context_length, 32768);
-        assert_eq!(settings.server_url, "");
         assert_eq!(settings.selected_model, "");
-    }
-
-    #[test]
-    fn server_url_is_normalized_and_can_go_back_to_automatic() {
-        let store = store();
-        let set = |value: &str| SettingsPatch {
-            server_url: Some(value.into()),
-            ..Default::default()
-        };
-        let settings = store
-            .blocking(|c| update(c, set("192.168.1.20"), None))
-            .unwrap();
-        assert_eq!(settings.server_url, "http://192.168.1.20:11434");
-        assert_eq!(settings.effective_server_url, "http://192.168.1.20:11434");
-        let settings = store.blocking(|c| update(c, set(""), None)).unwrap();
-        assert_eq!(settings.server_url, "");
-        assert_eq!(settings.effective_server_url, address::DEFAULT_SERVER_URL);
     }
 
     #[test]
@@ -1012,19 +891,57 @@ mod tests {
             ..Default::default()
         };
         assert!(matches!(
-            store.blocking(|c| update(c, patch, None)),
+            store.blocking(|c| update(c, patch)),
             Err(AppError::Invalid(_))
         ));
-        let bad_url = SettingsPatch {
-            server_url: Some("ftp://example.com".into()),
-            ..Default::default()
-        };
-        assert!(matches!(
-            store.blocking(|c| update(c, bad_url, None)),
-            Err(AppError::Invalid(_))
-        ));
-        let settings = store.blocking(|c| get(c, None)).unwrap();
+        let settings = store.blocking(|c| get(c)).unwrap();
         assert_eq!(settings.theme, Theme::System);
+    }
+
+    /// Migration 0044 : une base 0.9.x (version 43) garde l'adresse de son
+    /// ancien Ollama (lue seulement, pour Settings › Remote models) et le
+    /// dossier des modèles de l'ancien intégré (reprise) ; les autres
+    /// réglages d'Ollama sont effacés et la page ne peut plus les changer.
+    #[test]
+    fn a_version_43_database_loses_the_settings_of_ollama() {
+        use crate::store::MIGRATIONS;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chatonlm.sqlite");
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        for sql in &MIGRATIONS[..43] {
+            connection.execute_batch(sql).unwrap();
+        }
+        connection.pragma_update(None, "user_version", 43).unwrap();
+        connection
+            .execute_batch(
+                "UPDATE settings SET server_url = 'http://192.168.1.20:11434', unload_on_quit = 0;
+                 UPDATE builtin_ollama SET source = 'builtin', models_dir = '/mnt/ollama';",
+            )
+            .unwrap();
+        drop(connection);
+        let store = Store::open(&path).unwrap();
+        store
+            .blocking(|c| {
+                assert_eq!(get(c)?.former_server_url, "http://192.168.1.20:11434");
+                assert_eq!(
+                    crate::store::model_import::builtin_models_dir(c)?.as_deref(),
+                    Some("/mnt/ollama")
+                );
+                for gone in [
+                    "SELECT unload_on_quit FROM settings",
+                    "SELECT source FROM builtin_ollama",
+                ] {
+                    assert!(c.prepare(gone).is_err(), "{gone}");
+                }
+                Ok(())
+            })
+            .unwrap();
+        for patch in [r#"{"serverUrl":""}"#, r#"{"unloadOnQuit":true}"#] {
+            assert!(
+                serde_json::from_str::<SettingsPatch>(patch).is_err(),
+                "{patch}"
+            );
+        }
     }
 
     #[test]

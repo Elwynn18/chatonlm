@@ -812,7 +812,7 @@ fn http_builder(base: &str) -> AppResult<reqwest::ClientBuilder> {
     let url = url::Url::parse(base)
         // i18n-ignore
         .map_err(|_| AppError::Invalid(format!("invalid address: {base}")))?;
-    crate::hub::hf::ensure_crypto_provider();
+    crate::http::ensure_crypto_provider();
     let builder = reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .user_agent(concat!("ChatonLM/", env!("CARGO_PKG_VERSION")));

@@ -29,7 +29,7 @@ tauri-build = { version = "2.7", features = [] }
 # Dictée : presse-papiers sans fenêtre au premier plan (Wayland par le
 # protocole data-control, X11 sinon), texte seulement.
 arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
-# Images des pièces jointes envoyées à Ollama (champ « images »).
+# Images des pièces jointes envoyées au modèle (encodées en base64).
 base64 = "0.22.1"
 # Dictée : capture du micro (ALSA, donc PipeWire par pipewire-alsa).
 cpal = "0.18.2"
@@ -45,7 +45,7 @@ futures-util = "0.3.34"
 # (llama-server ne lit WebP qu'avec un `ffmpeg` du PATH). Déjà dans l'arbre
 # par Tauri ; décodeurs en Rust pur (MIT/Apache-2.0).
 image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "png", "webp"] }
-# Relais de ChatonLM (recherche web sans Ollama) : protocole partagé avec le
+# Relais de ChatonLM (recherche web) : protocole partagé avec le
 # serveur (signatures Ed25519 par ring, preuve de travail Argon2id).
 relay-proto = { path = "crates/relay-proto" }
 # Mise à jour gardée sur disque (étape 18c) : sa signature minisign est
@@ -73,7 +73,7 @@ rand = "0.10.3"
 # Règles du catalogue du ModelHub (quantifications, capacités, familles) :
 # sans retour arrière, temps linéaire sur des noms venus du réseau.
 regex = "1.13.1"
-# Client HTTP d'Ollama. TLS par rustls avec le moteur ring (installé au
+# Client HTTP (moteur, Hugging Face, relais…). TLS par rustls avec le moteur ring (installé au
 # démarrage) plutôt qu'aws-lc-rs, bibliothèque C aux licences multiples.
 # « gzip » : listes de Hugging Face (ModelHub), environ 5 Mo non compressées.
 reqwest = { version = "0.13.5", default-features = false, features = ["gzip", "json", "rustls-no-provider", "stream", "system-proxy"] }
@@ -159,7 +159,8 @@ webkit2gtk = { version = "2.0.2", features = ["v2_34"] }
 # Signaux d'arrêt (SIGTERM, SIGINT, SIGHUP) : l'app se ferme comme par Ctrl+Q
 # (shutdown/linux.rs). Même crate que plus haut, fonctionnalité en plus.
 tokio = { version = "1.53.2", features = ["signal"] }
-# État du service systemd d'Ollama, lu par D-Bus (sans lancer systemctl).
+# Bus D-Bus : portail du bureau, notifications, service systemd d'un Ollama de
+# la machine (dossier de ses modèles, reprise) lu sans lancer systemctl.
 zbus = { version = "5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
 
 # Windows seulement. Versions déjà dans l'arbre par Tauri, wry et cpal.
@@ -185,17 +186,14 @@ windows = { version = "0.62.2", features = [
   "Win32_Globalization",                 # langue du bureau
   "Win32_Graphics_Dxgi",                 # cartes graphiques (ModelHub)
   "Win32_Graphics_Dxgi_Common",
-  "Win32_NetworkManagement_IpHelper",    # port local à l'écoute
-  "Win32_Networking_WinSock",
   "Win32_Security",                      # signature de CreateJobObjectW, jeton
   "Win32_Security_Authorization",        # liste d'accès du tube du lien VS Code
   "Win32_Storage_FileSystem",            # type d'un fichier, renommages
   "Win32_System_Com",                    # ShellExecuteW
-  "Win32_System_Console",                # arrêt d'Ollama, sorties de l'enfant PDF
+  "Win32_System_Console",                # sorties de l'enfant PDF
   "Win32_System_DataExchange",           # presse-papiers
   "Win32_System_Diagnostics_Debug",      # SetErrorMode
-  "Win32_System_Diagnostics_ToolHelp",   # processus restés d'une session
-  "Win32_System_JobObjects",             # Ollama intégré, enfant PDF
+  "Win32_System_JobObjects",             # moteurs, enfant PDF
   "Win32_System_ProcessStatus",
   "Win32_System_Registry",               # installation, variables d'utilisateur
   "Win32_System_SystemInformation",      # mémoire

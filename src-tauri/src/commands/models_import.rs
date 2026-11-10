@@ -1,3 +1,15 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Ollama
+// SPDX-FileCopyrightText: 2026 Elwynn18 and ChatonLM contributors
+//
+// pick_models_folder translated to Rust from Ollama
+// (https://github.com/ollama/ollama), file app/cmd/app/webview.go
+// (selectModelsDirectory), commit 42e911bc3d05 (dialog title, null when
+// cancelled).
+// Modified for ChatonLM: the chosen folder becomes the folder of the app's own
+// models (change_engine_models_dir), with progress and a full restore on
+// failure.
+
 //! Reprise des modèles des Ollama de ChatonLM 0.9.x et dossier des modèles
 //! de la base locale (lot L6 ; écran au lot L5). État de la reprise poussé
 //! par l'événement `model-import` (`ImportState` complet à chaque
@@ -8,7 +20,8 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::error::{AppError, AppResult};
 use crate::i18n::t;
@@ -85,10 +98,7 @@ pub async fn model_import_start(
         retry_failed: true,
     };
     let store = store.inner().clone();
-    match origin {
-        ImportOrigin::Builtin => import.start(job, store, data_dir, service::stop_builtin())?,
-        ImportOrigin::Machine => import.start(job, store, data_dir, async {})?,
-    };
+    import.start(job, store, data_dir)?;
     Ok(())
 }
 
@@ -120,6 +130,37 @@ pub async fn model_import_cleanup(
     import: State<'_, ModelImport>,
 ) -> AppResult<CleanupReport> {
     service::clean(&import, &store, &data_dir(&app)?).await
+}
+
+/// Sélecteur de dossier natif « Select Model Directory », au-dessus de la
+/// fenêtre ; `None` si l'utilisateur annule.
+#[tauri::command]
+pub async fn pick_models_folder(window: WebviewWindow) -> AppResult<Option<String>> {
+    // Essais de l'app réelle : le dossier « choisi » est lu dans le fichier
+    // désigné (première ligne ; vide : annulé), relu à chaque appel.
+    #[cfg(feature = "e2e")]
+    if let Some(file) = std::env::var_os("CHATONLM_E2E_PICK_FOLDER") {
+        return Ok(std::fs::read_to_string(file)
+            .ok()
+            .and_then(|text| text.lines().next().map(str::to_owned))
+            .filter(|line| !line.is_empty()));
+    }
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .set_title(t!("dialogs.selectModelDirectory"))
+        .pick_folder(move |path| {
+            let _ = sender.send(path);
+        });
+    // Rappel jamais fait (boucle d'événements arrêtée) : comme une annulation.
+    Ok(receiver
+        .await
+        .ok()
+        .flatten()
+        .and_then(|path| path.into_path().ok())
+        .map(|path| path.to_string_lossy().into_owned()))
 }
 
 /// Dossier des modèles de la base locale (un déplacement coupé est d'abord

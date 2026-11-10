@@ -143,7 +143,7 @@ mod tests {
         ModelDetails {
             model: "a/b-GGUF:Q4_K_M".into(),
             capabilities: capabilities.iter().map(|word| (*word).to_owned()).collect(),
-            thinking: thinking.map(|values| crate::ollama::models::ThinkingOptions {
+            thinking: thinking.map(|values| crate::llm::models::ThinkingOptions {
                 values,
                 default: None,
             }),

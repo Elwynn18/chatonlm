@@ -5,15 +5,12 @@ import type { Theme } from "./Theme";
 
 export type Settings = { 
 /**
- * Adresse réglée par l'utilisateur ; vide = automatique.
+ * Adresse de l'Ollama que ChatonLM 0.9.x utilisait (colonne
+ * `server_url`, plus réglable) ; vide : l'automatique. Lue seulement par
+ * Settings › Remote models, qui propose d'ajouter une autre machine comme
+ * serveur compatible OpenAI.
  */
-serverUrl: string, 
-/**
- * Adresse réellement utilisée : celle du serveur qui sert (`get` y met
- * l'adresse réglée, sinon `OLLAMA_HOST`, sinon le défaut ; les commandes
- * celle de la cible, Ollama intégré compris : `ollama::target`).
- */
-effectiveServerUrl: string, 
+formerServerUrl: string, 
 /**
  * 0 = défaut du serveur.
  */
@@ -108,12 +105,6 @@ showUncensored: boolean,
  * n'y touche pas.
  */
 systemPrompt: string, 
-/**
- * À la fin de l'app, décharger les modèles encore en mémoire dans
- * l'Ollama de la machine (`ollama::target::unload_url_at_exit`) ;
- * activé par défaut. « Reset to defaults » n'y touche pas.
- */
-unloadOnQuit: boolean, 
 /**
  * Modèles distants (fournisseurs compatibles OpenAI, clé de
  * l'utilisateur) montrés dans le sélecteur et acceptés à l'envoi (chat,

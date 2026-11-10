@@ -68,13 +68,12 @@ mod tests {
                 set_auto_download(connection, false)?;
                 set_notified_version(connection, "0.9.1")?;
                 let reset = SettingsPatch {
-                    server_url: Some(String::new()),
                     context_length: Some(0),
                     theme: Some(Theme::System),
                     language: Some(crate::i18n::LanguageChoice::System),
                     ..SettingsPatch::default()
                 };
-                settings::update(connection, reset, None)?;
+                settings::update(connection, reset)?;
                 assert_eq!(
                     get(connection)?,
                     UpdateSettings {

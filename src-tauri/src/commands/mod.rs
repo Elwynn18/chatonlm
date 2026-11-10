@@ -12,13 +12,11 @@ pub mod engine;
 pub mod hub;
 pub mod image_models;
 pub mod models;
-pub mod models_dir;
 pub mod models_import;
 pub mod platform;
 pub mod proofread;
 pub mod remote;
 pub mod report;
-pub mod server;
 pub mod settings;
 pub mod study;
 pub mod system;
@@ -26,8 +24,3 @@ pub mod tts;
 pub mod updates;
 pub mod voice_mode;
 pub mod web_search;
-
-/// Valeur de `OLLAMA_HOST` dans l'environnement de l'app.
-pub fn ollama_host_env() -> Option<String> {
-    std::env::var("OLLAMA_HOST").ok()
-}

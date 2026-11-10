@@ -80,7 +80,7 @@ export function RemoteModels({ onSaved }: { onSaved: () => void }) {
 
   const list = providers.data ?? [];
   // Ollama d'une autre machine réglé en 0.9, pas encore ajouté.
-  const former = formerServer(settings.serverUrl);
+  const former = formerServer(settings.formerServerUrl);
   const formerShown =
     former !== null &&
     providers.isSuccess &&

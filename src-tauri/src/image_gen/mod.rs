@@ -1,5 +1,5 @@
 //! Moteur d'images (propre à ChatonLM) : `sd-server` de stable-diffusion.cpp,
-//! lancé et piloté par l'app, comme l'Ollama intégré (choix et mesures :
+//! lancé et piloté par l'app, comme `llama-server` (choix et mesures :
 //! `.tools/research/82-image-generation-research.md`).
 //!
 //! - Binaire : `<ressources>/sd-server/sd-server` (`.exe` sous Windows) ;
@@ -9,7 +9,7 @@
 //! - Un serveur charge UN modèle (ses fichiers sont des arguments) : il est
 //!   lancé à la première image, gardé tant que le même modèle sert, relancé
 //!   pour un autre, arrêté après `Timing::idle_stop` sans image (la mémoire,
-//!   RAM et VRAM, revient alors au système et à Ollama).
+//!   RAM et VRAM, revient alors au système et au moteur de texte).
 //! - Une image à la fois : les demandes suivantes attendent leur tour.
 //!   Chaque demande donne tous ses réglages (le serveur accepte sans rien
 //!   dire des valeurs absentes ou fausses et prend alors les siennes) ; taille,

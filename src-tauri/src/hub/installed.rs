@@ -73,7 +73,7 @@ pub fn rfc3339(ms: i64) -> String {
     )
 }
 
-/// Date d'un nombre de jours depuis 1970 (inverse de [`days_from_civil`] ;
+/// Date d'un nombre de jours depuis 1970 (inverse de `days_from_civil` ;
 /// algorithme de Howard Hinnant, `civil_from_days`).
 fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let z = days + 719_468;
@@ -93,83 +93,84 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
-/// Date RFC 3339 d'Ollama (« 2026-10-04T12:00:00.123456789+02:00 », « …Z »)
-/// en nanosecondes depuis 1970 ; `None` si illisible. Aussi pour les
-/// échéances de `/api/ps` (`ollama::running`).
-pub(crate) fn timestamp(text: &str) -> Option<i128> {
-    let number = |start: usize, len: usize| -> Option<i64> {
-        let part = text.get(start..start + len)?;
-        part.bytes()
-            .all(|byte| byte.is_ascii_digit())
-            .then(|| part.parse().ok())?
-    };
-    let separators = [(4, b'-'), (7, b'-'), (13, b':'), (16, b':')];
-    let bytes = text.as_bytes();
-    if bytes.len() < 20
-        || separators.iter().any(|&(at, byte)| bytes[at] != byte)
-        || !matches!(bytes[10], b'T' | b't' | b' ')
-    {
-        return None;
-    }
-    let (year, month, day) = (number(0, 4)?, number(5, 2)?, number(8, 2)?);
-    let (hour, minute, second) = (number(11, 2)?, number(14, 2)?, number(17, 2)?);
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 {
-        return None;
-    }
-    if second > 60 {
-        return None;
-    }
-    let mut rest = &text[19..];
-    let mut nanos: i128 = 0;
-    if let Some(fraction) = rest.strip_prefix('.') {
-        let digits = fraction.bytes().take_while(u8::is_ascii_digit).count();
-        if digits == 0 {
-            return None;
-        }
-        for (index, byte) in fraction.bytes().take(digits).enumerate() {
-            if index < 9 {
-                nanos = nanos * 10 + i128::from(byte - b'0');
-            }
-        }
-        for _ in digits..9 {
-            nanos *= 10;
-        }
-        rest = &fraction[digits..];
-    }
-    let offset: i64 = match rest.as_bytes() {
-        [b'Z' | b'z'] => 0,
-        [sign @ (b'+' | b'-'), h1, h2, b':', m1, m2] => {
-            let digits = [*h1, *h2, *m1, *m2];
-            if !digits.iter().all(u8::is_ascii_digit) {
-                return None;
-            }
-            let value = |a: u8, b: u8| i64::from(a - b'0') * 10 + i64::from(b - b'0');
-            let minutes = value(*h1, *h2) * 60 + value(*m1, *m2);
-            if *sign == b'-' { -minutes } else { minutes }
-        }
-        _ => return None,
-    };
-    let seconds = days_from_civil(year, month, day) * 86_400 + hour * 3_600 + minute * 60 + second
-        - offset * 60;
-    Some(i128::from(seconds) * 1_000_000_000 + nanos)
-}
-
-/// Jours depuis le 1er janvier 1970 (calendrier grégorien proleptique ;
-/// algorithme de Howard Hinnant, `days_from_civil`).
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = year.div_euclid(400);
-    let year_of_era = year - era * 400;
-    let month_index = (month + 9) % 12;
-    let day_of_year = (153 * month_index + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - 719_468
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::store::local_models::tests::model;
+
+    /// Date RFC 3339 (« 2026-10-04T12:00:00.123456789+02:00 », « …Z ») en
+    /// nanosecondes depuis 1970 ; `None` si illisible (relit ce qu'écrit
+    /// [`rfc3339`]).
+    fn timestamp(text: &str) -> Option<i128> {
+        let number = |start: usize, len: usize| -> Option<i64> {
+            let part = text.get(start..start + len)?;
+            part.bytes()
+                .all(|byte| byte.is_ascii_digit())
+                .then(|| part.parse().ok())?
+        };
+        let separators = [(4, b'-'), (7, b'-'), (13, b':'), (16, b':')];
+        let bytes = text.as_bytes();
+        if bytes.len() < 20
+            || separators.iter().any(|&(at, byte)| bytes[at] != byte)
+            || !matches!(bytes[10], b'T' | b't' | b' ')
+        {
+            return None;
+        }
+        let (year, month, day) = (number(0, 4)?, number(5, 2)?, number(8, 2)?);
+        let (hour, minute, second) = (number(11, 2)?, number(14, 2)?, number(17, 2)?);
+        if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 {
+            return None;
+        }
+        if second > 60 {
+            return None;
+        }
+        let mut rest = &text[19..];
+        let mut nanos: i128 = 0;
+        if let Some(fraction) = rest.strip_prefix('.') {
+            let digits = fraction.bytes().take_while(u8::is_ascii_digit).count();
+            if digits == 0 {
+                return None;
+            }
+            for (index, byte) in fraction.bytes().take(digits).enumerate() {
+                if index < 9 {
+                    nanos = nanos * 10 + i128::from(byte - b'0');
+                }
+            }
+            for _ in digits..9 {
+                nanos *= 10;
+            }
+            rest = &fraction[digits..];
+        }
+        let offset: i64 = match rest.as_bytes() {
+            [b'Z' | b'z'] => 0,
+            [sign @ (b'+' | b'-'), h1, h2, b':', m1, m2] => {
+                let digits = [*h1, *h2, *m1, *m2];
+                if !digits.iter().all(u8::is_ascii_digit) {
+                    return None;
+                }
+                let value = |a: u8, b: u8| i64::from(a - b'0') * 10 + i64::from(b - b'0');
+                let minutes = value(*h1, *h2) * 60 + value(*m1, *m2);
+                if *sign == b'-' { -minutes } else { minutes }
+            }
+            _ => return None,
+        };
+        let seconds =
+            days_from_civil(year, month, day) * 86_400 + hour * 3_600 + minute * 60 + second
+                - offset * 60;
+        Some(i128::from(seconds) * 1_000_000_000 + nanos)
+    }
+
+    /// Jours depuis le 1er janvier 1970 (calendrier grégorien proleptique ;
+    /// algorithme de Howard Hinnant, `days_from_civil`).
+    fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+        let year = if month <= 2 { year - 1 } else { year };
+        let era = year.div_euclid(400);
+        let year_of_era = year - era * 400;
+        let month_index = (month + 9) % 12;
+        let day_of_year = (153 * month_index + 2) / 5 + day - 1;
+        let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+        era * 146_097 + day_of_era - 719_468
+    }
 
     #[test]
     fn dates_are_read_like_rfc_3339() {

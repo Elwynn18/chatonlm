@@ -1,5 +1,5 @@
-//! Fichiers d'un dépôt de Hugging Face pour un téléchargement direct (sans
-//! Ollama, contrat 100 § 3.3) : fiche `GET /api/models/<dépôt>?blobs=true`
+//! Fichiers d'un dépôt de Hugging Face pour un téléchargement direct
+//! (contrat 100 § 3.3) : fiche `GET /api/models/<dépôt>?blobs=true`
 //! (commit du dépôt, tailles et SHA-256 LFS de chaque fichier), puis choix des
 //! fichiers d'une version (morceaux dans l'ordre, projecteur de vision).
 //!
@@ -16,10 +16,10 @@ use url::Url;
 
 use super::errors;
 use super::quant::{self, FileEntry};
+use crate::http;
 use crate::i18n::t;
 use crate::image_models::downloads::safe_name;
 use crate::local_models::id::{ModelId, same_model};
-use crate::ollama::client;
 
 /// Taille lue au plus pour la fiche (la plus grosse relevée fait 1 Mo).
 const MAX_BODY: usize = 8 * 1024 * 1024;
@@ -67,7 +67,7 @@ pub async fn fetch(
         // i18n-ignore : adresse de débogage seulement (`CHATONLM_HF_URL`).
         return fail(format!("invalid Hugging Face address: {hf_url}"));
     };
-    let client = match client::client(&url, Some(timeout)) {
+    let client = match http::client(&url, Some(timeout)) {
         Ok(client) => client,
         Err(error) => return fail(unreachable(error)),
     };

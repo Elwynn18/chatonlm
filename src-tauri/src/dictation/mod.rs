@@ -1,6 +1,6 @@
 //! Dictée (étape 17, propre à ChatonLM, inspirée d'OpenWhispr) : micro →
-//! transcription locale (Parakeet ou Whisper) → nettoyage par un modèle
-//! Ollama → presse-papiers + notification.
+//! transcription locale (Parakeet ou Whisper) → nettoyage par un modèle de
+//! langage → presse-papiers + notification.
 //!
 //! [`Dictation`] tient l'état (phase, dernier résultat) ; elle est déclenchée
 //! par le raccourci global et la zone de notification (`crate::desktop`),
@@ -441,13 +441,12 @@ pub(crate) struct Prepared {
 
 /// L'app vue par la dictée (remplacée dans les tests).
 pub(crate) trait Host: Send + Sync + 'static {
-    /// Réglages de la dictée, sans rien attendre d'Ollama : le micro s'ouvre
+    /// Réglages de la dictée, sans rien attendre du moteur : le micro s'ouvre
     /// aussitôt.
     fn prepare(&self) -> BoxFuture<Result<Prepared, String>>;
-    /// Adresse effective d'Ollama, contexte et durée en mémoire réglés dans
-    /// l'app (envoyés avec le nettoyage, comme par le chat) : lus seulement
-    /// au moment du nettoyage (l'Ollama intégré peut démarrer pendant que
-    /// l'on parle).
+    /// Accès aux modèles, contexte et durée en mémoire réglés dans l'app
+    /// (envoyés avec le nettoyage, comme par le chat) : lus seulement au
+    /// moment du nettoyage.
     fn server(&self) -> BoxFuture<Result<Server, String>>;
     /// Phase ou dernier résultat changés.
     fn changed(&self, phase: DictationPhase);

@@ -156,7 +156,7 @@ impl<'a> Gen<'a> {
     ) -> Result<Self, Stop> {
         let settings = access
             .store()
-            .call(|c| crate::store::settings::get(c, None))
+            .call(|c| crate::store::settings::get(c))
             .await
             .map_err(|error| failed(&error))?;
         let Some(model) = model_of(access, &settings).await else {

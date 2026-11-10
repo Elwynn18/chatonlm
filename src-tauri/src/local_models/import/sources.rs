@@ -1,10 +1,10 @@
 //! Dossiers de l'Ollama de la machine (lecture seule) : `OLLAMA_MODELS` de
-//! l'app, dossier détecté du serveur qui tourne ou du service
-//! (`ollama::models_dir::detect`, qui lit l'environnement du processus ou de
-//! l'unité systemd), `~/.ollama/models` (`%USERPROFILE%\.ollama\models`
-//! sous Windows), dossiers des paquets Linux (`linux.rs`). Gardés : ceux qui
-//! existent, sans doublon, hors des dossiers de l'app (Ollama intégré,
-//! dossier des modèles).
+//! l'app, dossiers réglés pour le serveur (`linux.rs` : environnement des
+//! services systemd `ollama.service` et des processus `ollama` qui tournent ;
+//! `windows.rs` : variables `OLLAMA_MODELS` de l'utilisateur et du système),
+//! `~/.ollama/models` (`%USERPROFILE%\.ollama\models` sous Windows),
+//! dossiers des paquets Linux. Gardés : ceux qui existent, sans doublon, hors
+//! des dossiers de l'app (Ollama intégré, dossier des modèles).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,7 +20,7 @@ fn comparable(path: &Path) -> String {
     let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     let text = resolved.to_string_lossy().into_owned();
     if cfg!(windows) {
-        crate::ollama::models_dir::rules::plain(&text).to_lowercase()
+        super::winpath::plain(&text).to_lowercase()
     } else {
         text
     }
@@ -38,7 +38,7 @@ fn looks_like_ollama(dir: &Path) -> bool {
 /// `home`, puis `system` ; sans ceux de `exclude` ni les doublons.
 pub fn candidates(
     env: Option<PathBuf>,
-    detected: Option<PathBuf>,
+    detected: Vec<PathBuf>,
     home: Option<PathBuf>,
     system: Vec<PathBuf>,
     exclude: &[PathBuf],
@@ -92,6 +92,47 @@ pub fn system_dirs() -> Vec<PathBuf> {
     super::os::system_dirs()
 }
 
+/// Dossiers réglés pour l'Ollama de la machine (services, processus,
+/// variables du système). Bloquant.
+#[cfg_attr(test, allow(dead_code))]
+pub fn configured_dirs() -> Vec<PathBuf> {
+    super::os::configured_dirs()
+}
+
+/// Valeur d'une variable comme Ollama la lit (`envconfig.Var` : espaces et
+/// guillemets autour retirés).
+fn env_value(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .to_owned()
+}
+
+/// `OLLAMA_MODELS` parmi des affectations `NOM=valeur` (environnement d'un
+/// processus, `Environment=` d'une unité) ; la dernière l'emporte, une
+/// valeur vide n'en est pas une.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn env_models<'a>(items: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    items
+        .into_iter()
+        .filter_map(|item| item.strip_prefix("OLLAMA_MODELS="))
+        .map(env_value)
+        .last()
+        .filter(|value| !value.is_empty())
+}
+
+/// Dernière affectation de `OLLAMA_MODELS` d'un fichier de
+/// `EnvironmentFile=` (`export` admis).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn env_file_models(text: &str) -> Option<String> {
+    env_models(text.lines().map(|line| {
+        let line = line.trim_start();
+        line.strip_prefix("export")
+            .filter(|rest| rest.starts_with(char::is_whitespace))
+            .map_or(line, str::trim_start)
+    }))
+}
+
 /// Variable qui remplace la recherche des dossiers de l'Ollama de la machine
 /// (e2e, recette) : posée, ses dossiers (séparés comme `PATH`) sont les seuls
 /// regardés, sans détection du service ni lecture de `~/.ollama` ; vide :
@@ -117,7 +158,7 @@ pub fn chosen(
     discover: impl FnOnce() -> Vec<PathBuf>,
 ) -> Vec<PathBuf> {
     match forced {
-        Some(dirs) => candidates(None, None, None, dirs, exclude),
+        Some(dirs) => candidates(None, Vec::new(), None, dirs, exclude),
         None => discover(),
     }
 }
@@ -166,14 +207,20 @@ mod tests {
         let found = candidates(
             Some(env.clone()),
             // Détecté = le même que `OLLAMA_MODELS` : une seule fois.
-            Some(env.join(".").join("")),
+            vec![env.join(".").join("")],
             Some(home.clone()),
             vec![builtin.clone(), empty, root.path().join("missing")],
             &[builtin],
         );
         assert_eq!(found, vec![env, home_models]);
         assert_eq!(
-            candidates(Some(PathBuf::from("relative")), None, None, Vec::new(), &[]),
+            candidates(
+                Some(PathBuf::from("relative")),
+                Vec::new(),
+                None,
+                Vec::new(),
+                &[]
+            ),
             Vec::<PathBuf>::new()
         );
     }
@@ -186,7 +233,7 @@ mod tests {
         let home = root.path().join("home");
         let machine = home_dir(&home);
         fs::create_dir_all(machine.join("manifests")).unwrap();
-        let found = candidates(None, None, Some(home.clone()), Vec::new(), &[]);
+        let found = candidates(None, Vec::new(), Some(home.clone()), Vec::new(), &[]);
         assert_eq!(found, vec![machine.clone()]);
         assert!(shared_dir(&machine, &found));
         assert!(shared_dir(&machine.join(".").join("blobs"), &found));
@@ -203,5 +250,27 @@ mod tests {
         // `models` à côté de `models-old` : pas l'un dans l'autre.
         assert!(!shared_dir(&home.join(".ollama/models-old"), &found));
         assert!(!shared_dir(&own, &[]));
+    }
+
+    /// Dossier réglé pour le serveur : la dernière affectation de
+    /// `OLLAMA_MODELS` l'emporte (unité et drop-ins, fichier d'environnement),
+    /// lue comme Ollama (guillemets, espaces, `export`).
+    #[test]
+    fn the_configured_folder_is_read_like_ollama_does() {
+        assert_eq!(
+            env_models([
+                "HOME=/home/me",
+                "OLLAMA_MODELS=/a",
+                "OLLAMA_MODELS= \"/b\" "
+            ]),
+            Some("/b".into())
+        );
+        assert_eq!(env_models(["OLLAMA_MODELS=", "OLLAMA_HOST=x"]), None);
+        assert_eq!(env_models(["OLLAMA_MODELS_X=/c"]), None);
+        assert_eq!(
+            env_file_models("# x\nOLLAMA_MODELS=/a\nexport OLLAMA_MODELS='/srv/models'\n"),
+            Some("/srv/models".into())
+        );
+        assert_eq!(env_file_models("exportOLLAMA_MODELS=/a"), None);
     }
 }

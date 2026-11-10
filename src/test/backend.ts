@@ -103,9 +103,6 @@ import { type FakeTts, fakeTts } from "@/test/tts";
 import { type FakeVoiceMode, fakeVoiceMode } from "@/test/voiceMode";
 import { installWebSearch } from "@/test/webSearch";
 
-/** Adresse des séquences (normalisée par les tests Rust). */
-export const SERVER_URL = "http://127.0.0.1:11434";
-
 /** Crans de la longueur de contexte (CONTEXT_LENGTHS du moteur) ; 0 = défaut. */
 const CONTEXT_LENGTHS = [0, 4096, 8192, 16384, 32768, 65536, 131072, 262144];
 
@@ -479,8 +476,7 @@ export function fakeBackend(
     images?: FakeImages;
   } = {
     settings: {
-      serverUrl: "",
-      effectiveServerUrl: SERVER_URL,
+      formerServerUrl: "",
       contextLength: 0,
       theme: "system",
       selectedModel,
@@ -503,7 +499,6 @@ export function fakeBackend(
       onboardingDone: true,
       showUncensored: false,
       systemPrompt: "",
-      unloadOnQuit: true,
       remoteModels: false,
     },
     settingsErrors: { get: null, update: null },

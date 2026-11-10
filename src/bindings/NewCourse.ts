@@ -14,7 +14,7 @@ topic: string, level: StudyLevel,
  */
 minutes: number, 
 /**
- * Recherche web (compte Ollama relié au serveur).
+ * Recherche web (relais de ChatonLM).
  */
 web: boolean, 
 /**

@@ -242,14 +242,9 @@
     "database": "error de la base de datos: {error}",
     "file": "error de archivo: {error}",
     "internal": "error interno: {error}",
-    "newerDatabase": "la base de datos se creó con una versión más reciente de ChatonLM (esquema {found}, compatible: {supported})",
-    "connectionFailed": "falló la conexión",
-    "requestFailed": "falló la solicitud",
-    "unknown": "error"
+    "newerDatabase": "la base de datos se creó con una versión más reciente de ChatonLM (esquema {found}, compatible: {supported})"
   },
   "downloads": {
-    "offline": "No se pudo descargar el modelo. Revisa tu conexión a internet para descargar el modelo y usarlo sin conexión.",
-    "sharded": "Esta versión está dividida en varios archivos, que Ollama aún no puede descargar de Hugging Face. Elige otra versión.",
     "unavailableVersion": "Esta versión no está disponible en Hugging Face. Elige otra versión.",
     "notGguf": "Este repositorio no tiene ningún archivo de modelo que ChatonLM pueda usar.",
     "notFoundOrPrivate": "Este modelo no existe en Hugging Face, es privado o necesita una cuenta para descargarse.",
@@ -259,69 +254,10 @@
     "hfUnreachable": "no se puede conectar con Hugging Face: {error}",
     "hfStatus": "Hugging Face respondió con el estado {status}."
   },
-  "ollama": {
-    "unreachable": "no se puede conectar con Ollama",
-    "timeout": "Ollama no respondió a tiempo",
-    "requestFailed": "error en la solicitud a Ollama: {error}",
-    "http": "Ollama respondió con HTTP {status}: {message}",
-    "httpStatus": "Ollama respondió con HTTP {status}",
-    "unexpectedModels": "Ollama devolvió una lista de modelos inesperada: {error}",
-    "unexpectedDetails": "Ollama devolvió detalles del modelo inesperados: {error}",
-    "unexpectedRecommendations": "Ollama devolvió recomendaciones de modelos inesperadas: {error}",
-    "unexpectedLoaded": "Ollama devolvió una lista de modelos cargados inesperada: {error}",
-    "unexpectedAccount": "Ollama devolvió datos de la cuenta inesperados: {error}",
-    "modelNotFound": "no se encontró el modelo «{model}»",
-    "registryTimeout": "el registro de modelos no respondió a tiempo",
-    "registryUnreachable": "no se puede conectar con el registro de modelos: {error}"
-  },
-  "account": {
-    "noConnectUrl": "No se pudo obtener la URL de conexión"
-  },
-  "cloud": {
-    "signedOut": "Los modelos en la nube requieren una cuenta de Ollama",
-    "usageLimit": "Has alcanzado tu límite de uso; mejora tu plan para continuar",
-    "off": "Los modelos en la nube están desactivados: {model} se ejecuta en ollama.com. Actívalos en Configuración › Modelos para usarlo."
-  },
-  "server": {
-    "address": {
-      "invalid": "dirección del servidor no válida: {detail}",
-      "unsupportedScheme": "dirección del servidor no válida: esquema {scheme} no compatible",
-      "credentials": "dirección del servidor no válida: no se admiten credenciales",
-      "query": "dirección del servidor no válida: no se admiten parámetros de consulta",
-      "portOnly": "dirección del servidor no válida: {value} no es un host; para un puerto de este equipo, escribe localhost:{value}",
-      "invalidPort": "dirección del servidor no válida: puerto {port} no válido"
-    }
-  },
-  "modelLocation": {
-    "browseFirst": "elige primero la carpeta con Examinar",
-    "busy": "la ubicación de los modelos ya se está cambiando",
-    "downloadsRunning": "espera a que terminen las descargas de modelos y vuelve a intentarlo",
-    "systemServiceOnly": "ChatonLM solo puede cambiar la carpeta del servicio del sistema de Ollama",
-    "root": "el servicio de Ollama se ejecuta como root: cambia la ubicación de sus modelos en una terminal",
-    "noPkexec": "pkexec no está instalado",
-    "unusableFolder": "esta carpeta no puede contener modelos ({problem})",
-    "modelConflict": "la carpeta nueva ya contiene otra versión de {model}: ChatonLM no las combina (se perdería una de las dos). Elige otra carpeta o elimina antes una de las dos",
-    "specialFile": "{path} es un enlace simbólico o un archivo especial: ChatonLM no puede moverlo. Mueve los modelos tú mismo o elige otra carpeta"
-  },
-  "ollamaHome": {
-    "busy": "el servicio de Ollama ya se está modificando",
-    "root": "el servicio de Ollama se ejecuta como root: ChatonLM no lo modificará"
-  },
-  "builtinOllama": {
-    "unavailable": "esta versión de ChatonLM no incluye el Ollama integrado",
-    "noSystemd": "no se puede conectar con systemd",
-    "upgradeInProgress": "Ollama se está actualizando. Inténtalo de nuevo en un momento.",
-    "failed": {
-      "spawn": "no se puede iniciar el Ollama integrado: {error}",
-      "notReady": "el Ollama integrado no respondió en {seconds} segundos",
-      "crashed": "el Ollama integrado se detuvo inesperadamente varias veces seguidas ({status})"
-    },
+  "process": {
     "exitCode": "código de salida {code}",
     "exitSignal": "detenido por la señal {signal}",
-    "exitUnknown": "estado de salida desconocido",
-    "notRunning": "el Ollama integrado no se está ejecutando",
-    "notRunningBecause": "el Ollama integrado no se está ejecutando: {reason}",
-    "modelsDirMissing": "la carpeta de modelos {path} no existe"
+    "exitUnknown": "estado de salida desconocido"
   },
   "links": {
     "noXdgOpen": "xdg-open no está instalado, así que no se pueden abrir enlaces",

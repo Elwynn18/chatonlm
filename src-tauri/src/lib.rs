@@ -1,4 +1,4 @@
-//! ChatonLM : client desktop pour Ollama.
+//! ChatonLM : client desktop pour des modèles de langage locaux (moteur llama.cpp livré).
 
 pub mod attachments;
 mod bridge;
@@ -14,6 +14,7 @@ mod engine;
 mod error;
 mod gpu;
 mod graphics;
+mod http;
 mod hub;
 mod i18n;
 mod image_gen;
@@ -22,10 +23,6 @@ mod inference;
 mod llm;
 mod local_models;
 mod logging;
-// Code d'Ollama sans appelant depuis le passage à llama.cpp (contrat 102),
-// retiré au lot L10.
-#[allow(dead_code, reason = "code d'Ollama gardé jusqu'au lot L10")]
-mod ollama;
 mod os_util;
 mod paths;
 mod process;
@@ -119,10 +116,7 @@ pub fn run() {
                 move |downloads| {
                     let _ = handle.emit(hub::DOWNLOADS_EVENT, downloads);
                 },
-                hub::downloads::Options {
-                    location_changing: commands::models_dir::location_changing,
-                    ..hub::downloads::Options::default()
-                },
+                hub::downloads::Options::default(),
             ));
             #[cfg(debug_assertions)]
             // Permet aux essais de vérifier l'identifiant et le dossier de données.
@@ -257,8 +251,7 @@ pub fn run() {
                 let _ = handle.emit(tts::READ_ALOUD_EVENT, state);
             });
             if let Some(store) = &store
-                && let Ok(settings) =
-                    store.blocking(|connection| store::settings::get(connection, None))
+                && let Ok(settings) = store.blocking(|connection| store::settings::get(connection))
             {
                 read_aloud.set_auto_read(settings.auto_read);
             }
@@ -309,12 +302,12 @@ pub fn run() {
                 // avant que la reprise ne déplace ses fichiers (sous Windows,
                 // un fichier ouvert ne se renomme pas). Il n'est plus jamais
                 // démarré.
-                let bin = ollama::builtin::locate(app.path().resource_dir().ok().as_deref());
-                let builtin =
-                    ollama::builtin::Builtin::new(ollama::builtin::Config::new(bin, &data_dir));
+                let leftover_dir = data_dir.clone();
                 tauri::async_runtime::spawn(async move {
-                    let _ = tauri::async_runtime::spawn_blocking(move || builtin.clean_leftovers())
-                        .await;
+                    let _ = tauri::async_runtime::spawn_blocking(move || {
+                        local_models::import::old_builtin::stop_leftover(&leftover_dir)
+                    })
+                    .await;
                     if local_models::import::service::AUTO_AT_STARTUP {
                         local_models::import::service::at_startup(&import, store, data_dir).await;
                     } else {
@@ -505,20 +498,13 @@ pub fn run() {
             commands::models::list_models,
             commands::models::load_model,
             commands::models::model_details,
-            commands::models::model_exists_upstream,
             commands::models::outdated_models,
             commands::models::recommended_models,
             commands::models::running_models,
             commands::models::set_think_pref,
             commands::models::unload_all_models,
             commands::models::unload_model,
-            commands::models_dir::change_builtin_models_dir,
-            commands::models_dir::change_models_location,
-            commands::models_dir::check_models_folder,
-            commands::models_dir::fix_ollama_home,
-            commands::models_dir::get_models_location,
-            commands::models_dir::get_ollama_home,
-            commands::models_dir::pick_models_folder,
+            commands::models_import::pick_models_folder,
             commands::models_import::change_engine_models_dir,
             commands::models_import::engine_models_dir,
             commands::models_import::model_import_cancel,
@@ -538,13 +524,6 @@ pub fn run() {
             commands::proofread::shortcuts_reset_trigger,
             commands::proofread::shortcuts_set_trigger,
             commands::proofread::shortcuts_status,
-            commands::server::ollama_runtime,
-            commands::server::open_builtin_folder,
-            commands::server::open_builtin_log,
-            commands::server::restart_builtin_ollama,
-            commands::server::server_status,
-            commands::server::set_ollama_source,
-            commands::server::start_ollama_service,
             commands::settings::get_settings,
             commands::settings::ui_language,
             commands::settings::update_settings,

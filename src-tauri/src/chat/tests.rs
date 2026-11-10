@@ -4447,7 +4447,7 @@ impl RealChat {
 
     fn set(&self, patch: SettingsPatch) {
         self.store()
-            .blocking(|c| crate::store::settings::update(c, patch, None).map(drop))
+            .blocking(|c| crate::store::settings::update(c, patch).map(drop))
             .unwrap();
     }
 }

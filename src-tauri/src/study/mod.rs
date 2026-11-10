@@ -1,7 +1,7 @@
-//! Cours générés par un modèle Ollama (onglet Study, propre à ChatonLM).
+//! Cours générés par un modèle de langage (onglet Study, propre à ChatonLM).
 //!
 //! Un cours se prépare en plusieurs temps, chacun en JSON contraint par un
-//! schéma (`format` d'Ollama) : plan (titre, sorte de sujet, objectifs,
+//! schéma (`format`) : plan (titre, sorte de sujet, objectifs,
 //! paliers), puis pour chaque palier une leçon et ses questions, enfin un
 //! bilan. Le plan est montré avant de commencer ; le premier palier est
 //! préparé aussitôt, les suivants pendant que l'apprenant lit. Les questions
@@ -88,7 +88,7 @@ pub struct NewCourse {
     pub level: StudyLevel,
     /// Durée visée : 10, 20 ou 30 minutes.
     pub minutes: u32,
-    /// Recherche web (compte Ollama relié au serveur).
+    /// Recherche web (relais de ChatonLM).
     pub web: bool,
     /// Fichiers préparés (zone des pièces jointes : `pick_files` puis
     /// `stage_paths`), texte seulement, au plus [`MAX_DOCUMENTS`] ; repris
@@ -125,8 +125,8 @@ pub enum StudyErrorCode {
     NoModel,
     /// Modèle absent du serveur.
     ModelNotFound,
-    /// Le moteur n'a pas pu servir le modèle (jusqu'au lot L5a : Ollama
-    /// injoignable). Ancien code `unreachable`, réécrit dans les cours
+    /// Le moteur n'a pas pu servir le modèle. Ancien code `unreachable`
+    /// (serveur injoignable des versions 0.9), réécrit dans les cours
     /// enregistrés par la migration 0041.
     EngineFailed,
     /// Recherche web impossible (relais injoignable, quota, pause). Ancien

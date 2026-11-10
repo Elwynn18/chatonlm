@@ -569,8 +569,7 @@ impl ChatEngine {
         }
     }
 
-    /// Demande l'arrêt de tous les flux (fermeture de l'app ; commandes
-    /// de l'ancien dossier d'Ollama, sans appelant de la page, jusqu'à L10).
+    /// Demande l'arrêt de tous les flux (fermeture de l'app).
     pub fn cancel_all(&self) {
         for running in self.running.lock().values() {
             let _ = running.cancel.send(true);
@@ -669,7 +668,7 @@ impl Server {
     pub async fn current(access: &Access) -> AppResult<Server> {
         let settings = access
             .store()
-            .call(|connection| crate::store::settings::get(connection, None))
+            .call(|connection| crate::store::settings::get(connection))
             .await?;
         Ok(Self::with_settings(access.clone(), &settings))
     }
@@ -1969,7 +1968,7 @@ async fn voice_instructions(store: &Store) -> String {
 /// Pré-prompt réglé, `None` s'il est vide (fait d'espaces) ou illisible.
 async fn system_prompt(store: &Store) -> Option<String> {
     match store
-        .call(|connection| crate::store::settings::get(connection, None))
+        .call(|connection| crate::store::settings::get(connection))
         .await
     {
         Ok(settings) => Some(settings.system_prompt).filter(|text| !text.trim().is_empty()),
@@ -1985,27 +1984,6 @@ async fn system_prompt(store: &Store) -> Option<String> {
 fn joined_system(parts: impl IntoIterator<Item = Option<String>>) -> Option<String> {
     let parts: Vec<String> = parts.into_iter().flatten().collect();
     (!parts.is_empty()).then(|| parts.join("\n\n"))
-}
-
-/// Transition (module `ollama/`, sans appelant à l'exécution, retiré au lot
-/// L10) : message d'une réponse d'erreur d'Ollama, lu comme l'officiel
-/// (`api/client.go`, `stream`) : la première ligne du corps ; si c'est un
-/// objet JSON, son champ `error` (vide s'il manque), sinon la ligne elle-même
-/// (page d'un proxy), limitée à 200 caractères.
-pub(crate) fn error_line(body: &str) -> String {
-    let line = body
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .trim_end_matches('\r');
-    match serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(line) {
-        Ok(object) => object
-            .get("error")
-            .and_then(|error| error.as_str())
-            .unwrap_or_default()
-            .to_owned(),
-        Err(_) => line.chars().take(200).collect(),
-    }
 }
 
 #[cfg(test)]

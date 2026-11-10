@@ -1,16 +1,14 @@
-//! Plan du chef de la carte graphique (logique pure, essayée sans Ollama) :
+//! Plan du chef de la carte graphique (logique pure, essayée sans moteur) :
 //! où en sont le modèle de la conversation et celui de l'autocomplétion,
 //! s'ils tiennent ensemble, et pourquoi l'autocomplétion attend.
 //!
-//! Décision par CONSTAT d'abord (`/api/ps` : présents, `size_vram` contre
-//! `size`) ; l'estimation (`hub/fit.rs`) ne sert qu'à prévoir quand le
-//! constat manque (un modèle pas encore chargé). Rien ici ne lit les
-//! variables d'Ollama : la même logique vaut pour l'Ollama de la machine.
+//! Décision par CONSTAT d'abord (modèles chargés du moteur : présents,
+//! `size_vram` contre `size`) ; l'estimation (`hub/fit.rs`) ne sert qu'à
+//! prévoir quand le constat manque (un modèle pas encore chargé).
 
 use serde::Serialize;
 
 use crate::local_models::id::same_model;
-use crate::ollama::running::RunningModel;
 
 const GIB: u64 = 1024 * 1024 * 1024;
 
@@ -95,7 +93,7 @@ impl Memory {
 pub struct Slot {
     pub model: String,
     pub loaded: bool,
-    /// Taille en mémoire (`/api/ps`), 0 s'il n'est pas chargé.
+    /// Taille en mémoire (moteur), 0 s'il n'est pas chargé.
     pub size_bytes: u64,
     pub vram_bytes: u64,
     /// Estimation avant chargement (`hub/fit.rs`), si connue.
@@ -125,10 +123,32 @@ pub struct GpuPlan {
     pub reason: Option<Reason>,
 }
 
+/// Un modèle chargé, tel que le plan le voit (`super::engine_facts`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunningModel {
+    /// Identifiant du modèle.
+    pub name: String,
+    /// Mémoire occupée en octets (RAM + VRAM).
+    pub size: u64,
+    /// Part en VRAM, en octets.
+    pub size_vram: u64,
+    /// Contexte du modèle chargé.
+    pub context_length: Option<u32>,
+    /// Échéance du déchargement, en millisecondes depuis l'époque Unix ;
+    /// `None` : inconnue ou gardé chargé (`kept`).
+    pub expires_at: Option<i64>,
+    /// Gardé chargé jusqu'au déchargement.
+    pub kept: bool,
+    /// « 8.2B », vide si inconnu.
+    pub parameter_size: String,
+    /// « Q4_K_M », vide si inconnu.
+    pub quantization_level: String,
+}
+
 /// Ce que le chef sait au moment de décider.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Facts<'a> {
-    /// `/api/ps` ; `None` : illisible.
+    /// Modèles chargés ; `None` : illisible.
     pub running: Option<&'a [RunningModel]>,
     /// Modèle de la conversation (aucun pour un modèle du cloud).
     pub chat: Option<&'a str>,

@@ -82,7 +82,6 @@ impl Setup {
                         show_uncensored: Some(shown),
                         ..Default::default()
                     },
-                    None,
                 )
             })
             .unwrap();

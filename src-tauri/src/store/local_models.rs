@@ -425,7 +425,7 @@ pub(crate) mod tests {
                         c.query_row("SELECT selected_model FROM settings", [], |r| r.get(0))?;
                     assert_eq!(selected, "hf.co/u/A-GGUF:Q4_K_M");
                     assert_eq!(
-                        crate::store::builtin_ollama::get(c)?.models_dir.as_deref(),
+                        crate::store::model_import::builtin_models_dir(c)?.as_deref(),
                         Some("/mnt/ollama")
                     );
                     save(c, &model("u/A-GGUF:Q4_K_M", &["u/A-GGUF/A.gguf"], None))?;

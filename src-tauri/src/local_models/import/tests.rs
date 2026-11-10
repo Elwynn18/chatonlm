@@ -823,7 +823,7 @@ async fn one_import_at_a_time() {
     };
     let (release, wait) = tokio::sync::oneshot::channel::<()>();
     let first = import
-        .start(
+        .start_after(
             job.clone(),
             store.clone(),
             data.path().to_owned(),
@@ -835,7 +835,7 @@ async fn one_import_at_a_time() {
     assert!(import.is_running());
     assert!(
         import
-            .start(job, store.clone(), data.path().to_owned(), async {})
+            .start(job, store.clone(), data.path().to_owned())
             .is_err()
     );
     release.send(()).unwrap();
@@ -1547,7 +1547,6 @@ async fn nothing_starts_while_the_models_folder_moves() {
                 builtin_job(data.path(), None),
                 store.clone(),
                 data.path().to_owned(),
-                async {}
             )
             .is_err()
     );

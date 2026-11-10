@@ -1,9 +1,9 @@
-//! Travail de l'app sur Ollama hors des réponses de conversation (propre à
+//! Travail de l'app sur le moteur hors des réponses de conversation (propre à
 //! ChatonLM, lot 3 du lien VS Code) : Correction, Étude, polissage de la
 //! dictée, plan de la visite guidée (`tour.plan`), chargement et
 //! déchargement demandés par la page ou un bot. Tant qu'un travail est
 //! tenu, l'autocomplétion de l'éditeur attend (calcul partagé, et une
-//! proposition mise dans la file d'Ollama pendant un chargement le
+//! proposition mise dans la file du moteur pendant un chargement le
 //! rechargerait ensuite : rapport 92, M5 et M6).
 //!
 //! Le compteur appartient au moteur de chat ([`crate::chat::ChatEngine`],

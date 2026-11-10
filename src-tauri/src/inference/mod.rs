@@ -82,7 +82,7 @@ pub const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// Connexion : sous Windows, le refus d'un port local fermé n'arrive
-/// qu'après environ 2 s (voir `ollama::client`).
+/// qu'après environ 2 s (voir `crate::http`).
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(if cfg!(windows) { 3 } else { 2 });
 
 /// Connexion à un fournisseur distant (modèles distants, contrat 102
@@ -132,15 +132,6 @@ impl std::fmt::Debug for Endpoint {
     }
 }
 
-/// Installe une fois le moteur cryptographique de rustls (ring), exigé par
-/// reqwest avant de créer un client (même s'il ne sert pas en HTTP local).
-fn ensure_crypto_provider() {
-    static INSTALLED: std::sync::Once = std::sync::Once::new();
-    INSTALLED.call_once(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-    });
-}
-
 impl Endpoint {
     /// Adresse locale : jamais de proxy (un `HTTP_PROXY` d'entreprise ne doit
     /// pas intercepter 127.0.0.1).
@@ -148,7 +139,7 @@ impl Endpoint {
         base_url: impl Into<String>,
         api_key: impl Into<String>,
     ) -> Result<Self, InferenceError> {
-        ensure_crypto_provider();
+        crate::http::ensure_crypto_provider();
         let client = reqwest::Client::builder()
             .no_proxy()
             .connect_timeout(CONNECT_TIMEOUT)
@@ -172,7 +163,7 @@ impl Endpoint {
         base_url: impl Into<String>,
         api_key: impl Into<String>,
     ) -> Result<Self, InferenceError> {
-        ensure_crypto_provider();
+        crate::http::ensure_crypto_provider();
         let client = reqwest::Client::builder()
             .connect_timeout(REMOTE_CONNECT_TIMEOUT)
             .pool_idle_timeout(POOL_IDLE_TIMEOUT)

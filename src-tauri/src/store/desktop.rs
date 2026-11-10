@@ -98,13 +98,12 @@ mod tests {
                 assert!(!menu_entry(connection)?);
                 // Champs de « Reset to defaults » : rien ne change ici.
                 let reset = SettingsPatch {
-                    server_url: Some(String::new()),
                     context_length: Some(0),
                     theme: Some(Theme::System),
                     language: Some(crate::i18n::LanguageChoice::System),
                     ..SettingsPatch::default()
                 };
-                settings::update(connection, reset, None)?;
+                settings::update(connection, reset)?;
                 assert!(!menu_entry(connection)?);
                 set_menu_entry(connection, true)?;
                 assert!(menu_entry(connection)?);
@@ -123,11 +122,10 @@ mod tests {
                 assert!(!close_to_tray(connection)?);
                 // « Reset to defaults » n'y touche pas, ni l'entrée de menu.
                 let reset = SettingsPatch {
-                    server_url: Some(String::new()),
                     theme: Some(Theme::System),
                     ..SettingsPatch::default()
                 };
-                settings::update(connection, reset, None)?;
+                settings::update(connection, reset)?;
                 set_menu_entry(connection, true)?;
                 assert!(!close_to_tray(connection)?);
                 assert!(

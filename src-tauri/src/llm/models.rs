@@ -1,6 +1,5 @@
 //! Façade des modèles (contrat 102 § 1.2) : sélecteur, détails, onglet
-//! Models. Remplace pour tous les modules `ollama::models::{list, show,
-//! details}` et `ollama::running::*`.
+//! Models (modèles de la base locale, distants, modèles chargés du moteur).
 
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
@@ -13,8 +12,19 @@ use crate::engine::RunningModel as EngineRunningModel;
 use crate::error::{AppError, AppResult};
 use crate::i18n::t;
 use crate::local_models::{LocalModel, ModelCapabilities, ModelSource};
-use crate::ollama::models::ThinkingOptions;
 use crate::store::model_prefs;
+
+/// Façons de raisonner d'un modèle (page et pont).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct ThinkingOptions {
+    /// Valeurs acceptées pour `think` : booléens (marche, arrêt) et niveaux
+    /// nommés (« low », « medium »...). `[false]` : le modèle ne sait pas
+    /// raisonner.
+    pub values: Vec<Think>,
+    /// Valeur appliquée quand `think` est absent, si elle est connue.
+    pub default: Option<Think>,
+}
 
 /// Origine d'un modèle du sélecteur.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]

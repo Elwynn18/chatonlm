@@ -46,8 +46,7 @@ use crate::i18n::t;
 use crate::llm::Access;
 use crate::local_models::LocalModel;
 use crate::local_models::id::same_model;
-use crate::ollama::running::RunningModel;
-use plan::{GpuPlan, Loaded, Memory, Reason, Step};
+use plan::{GpuPlan, Loaded, Memory, Reason, RunningModel, Step};
 
 /// Contexte de l'autocomplétion (même valeur à chaque requête).
 pub const COMPLETION_CONTEXT: u32 = 4096;
@@ -737,11 +736,10 @@ impl GpuChief {
     }
 }
 
-/// Les modèles du moteur dans la forme des constats du plan (celle de
-/// `/api/ps` d'Ollama, gardée) : nom = identifiant, mémoire et VRAM lues
+/// Les modèles du moteur dans la forme des constats du plan : nom = identifiant, mémoire et VRAM lues
 /// dans le journal, contexte du processus, échéance ; les modèles en
 /// chargement n'y sont pas. Toutes les couches sur la carte : entièrement
-/// sur la carte (`size_vram` = `size`, comme Ollama le disait), même si
+/// sur la carte (`size_vram` = `size`), même si
 /// llama.cpp garde quelques tampons en mémoire vive ; sinon la VRAM lue (un
 /// partage se voit, `size_vram` < `size`).
 pub fn engine_facts(models: &[crate::engine::RunningModel]) -> Vec<RunningModel> {

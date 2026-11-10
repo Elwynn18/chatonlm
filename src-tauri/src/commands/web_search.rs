@@ -201,7 +201,6 @@ mod tests {
                         web_search_enabled: Some(true),
                         ..Default::default()
                     },
-                    None,
                 )
             })
             .await
