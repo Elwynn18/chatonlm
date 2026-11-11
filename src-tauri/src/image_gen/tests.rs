@@ -3,7 +3,7 @@
 //! essai [`fake_sd_server`] (arguments du serveur dans
 //! `fake_services::sdcpp::ARGS_ENV`). Délais raccourcis.
 //!
-//! Essais contre le vrai `sd-server` (processeur seul, petites images) :
+//! Essais contre le vrai `sd-server` (carte graphique, petites images) :
 //! module `real`, ignorés sauf demande explicite (voir son en-tête).
 
 use std::collections::BTreeMap;
@@ -944,8 +944,10 @@ async fn a_spawn_given_up_leaves_no_child() {
     assert!(left.is_empty(), "{left:?}");
 }
 
-/// Essais contre le vrai `sd-server`, sur le processeur seul (pilote Vulkan
-/// masqué), en images minuscules. Ignorés ; à lancer à la main :
+/// Essais contre le vrai `sd-server`, sur la carte graphique (Vulkan) comme
+/// les contrats du moteur de texte ; `CHATONLM_SD_TEST_CPU=1` masque le
+/// pilote Vulkan (processeur seul, plusieurs minutes). Images minuscules.
+/// Ignorés ; à lancer à la main :
 ///
 /// ```sh
 /// CHATONLM_SD_REAL_BIN=…/.tools/sdcpp/build-vulkan/bin/sd-server \
@@ -962,12 +964,14 @@ mod real {
         let bin = PathBuf::from(std::env::var_os("CHATONLM_SD_REAL_BIN")?);
         let models = PathBuf::from(std::env::var_os("CHATONLM_SD_REAL_MODELS")?);
         let mut config = Config::new(Some(bin), dir);
-        config.extra_env = [
-            ("VK_ICD_FILENAMES", "/nonexistent.json"),
-            ("VK_DRIVER_FILES", "/nonexistent.json"),
-        ]
-        .map(|(key, value)| (key.into(), value.into()))
-        .to_vec();
+        if std::env::var("CHATONLM_SD_TEST_CPU").as_deref() == Ok("1") {
+            config.extra_env = [
+                ("VK_ICD_FILENAMES", "/nonexistent.json"),
+                ("VK_DRIVER_FILES", "/nonexistent.json"),
+            ]
+            .map(|(key, value)| (key.into(), value.into()))
+            .to_vec();
+        }
         config.timing.poll = Duration::from_millis(100);
         let spec = ModelSpec {
             files: vec![

@@ -625,5 +625,7 @@ describe("dates de dernière modification", () => {
     );
     // Sans saveDates, le fichier des dates n'est pas récrit.
     expect(dates()["es/contact/"].hash).toBe("autre");
-  });
+    // Trois fabrications complètes : plus de 30 s pendant la suite entière
+    // (disque du projet saturé), moins d'une seconde seule.
+  }, 90_000);
 });

@@ -140,17 +140,22 @@ contracts() {
 }
 
 # Contrats avec le vrai moteur d'images (image_gen::tests::real) : le binaire
-# des paquets, sur le processeur seul (pilote Vulkan masqué), en petites
-# images. Il faut les modèles du premier essai (FLUX.2 klein 4B, voir l'en-tête
-# du module) : dossier CHATONLM_SD_REAL_MODELS, .tools/sdcpp/models par défaut ;
-# absents, l'étape le dit et passe.
+# des paquets, sur la carte graphique (Vulkan) comme ceux du moteur de texte,
+# sous le même verrou (un seul moteur sur la carte), en petites images ;
+# CHATONLM_SD_TEST_CPU=1 : processeur seul (pilote Vulkan masqué). Il faut
+# les modèles du premier essai (FLUX.2 klein 4B, voir l'en-tête du module) :
+# dossier CHATONLM_SD_REAL_MODELS, .tools/sdcpp/models par défaut ; absents,
+# l'étape le dit et passe.
 sd_contracts() {
-  local models="${CHATONLM_SD_REAL_MODELS:-$root/.tools/sdcpp/models}"
+  local lock models="${CHATONLM_SD_REAL_MODELS:-$root/.tools/sdcpp/models}"
   if [ ! -f "$models/flux-2-klein-4b-Q4_0.gguf" ]; then
     echo "Modèles d'images absents ($models) : contrats du moteur d'images non lancés."
     return 0
   fi
+  lock="$(chatonlm_real_lock "$root")"
+  mkdir -p "$(dirname "$lock")"
   CHATONLM_SD_REAL_BIN="$root/.tools/runtimes/sd-server/sd-server" CHATONLM_SD_REAL_MODELS="$models" \
+    flock "$lock" \
     cargo test --manifest-path "$manifest" --lib --locked image_gen::tests::real -- --ignored --test-threads=1
 }
 
@@ -240,7 +245,7 @@ if $full; then
     cargo clippy --manifest-path "$manifest" --all-targets --locked --features e2e -- -D warnings
   step "Moteur de texte épinglé (llama-server)" scripts/build-llama-server.sh
   step "Moteur d'images épinglé (sd-server)" scripts/build-sd-server.sh
-  step "Contrats avec le moteur d'images (processeur)" sd_contracts
+  step "Contrats avec le moteur d'images" sd_contracts
   step "Modèles d'essai épinglés (.tools/llama-test)" scripts/test-llama.sh fetch
   step "Contrats avec le vrai moteur et Hugging Face" contracts
   step "App réelle en session virtuelle" real_app_checks
