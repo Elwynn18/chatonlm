@@ -85,7 +85,7 @@ reqwest = { version = "0.13.5", default-features = false, features = ["gzip", "j
 # Lien VS Code : preuves HMAC-SHA256 et aléa du système. Déjà dans l'arbre
 # (moteur de rustls).
 ring = "0.17.14"
-rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 # Easy Link : racines du système pour la passerelle WebSocket de Discord,
 # comme reqwest les prend déjà pour HTTPS. Déjà dans l'arbre par reqwest.
