@@ -290,7 +290,7 @@ describe("formats", () => {
   it("reads desktop entries with localized keys", () => {
     const entry = parseDesktop(VISIBLE)["Desktop Entry"];
     expect(entry.Exec).toBe("chatonlm");
-    expect(entry["GenericName[fr]"]).toBe("Client de conversation IA");
+    expect(entry["GenericName[fr]"]).toBe("IA locale");
   });
 
   it("finds the end of an ELF file and the runtime commit", () => {
