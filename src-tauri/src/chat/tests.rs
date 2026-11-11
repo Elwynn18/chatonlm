@@ -133,31 +133,30 @@ impl Bench {
             },
         );
         downloads.attach(store.clone(), data_dir.clone());
-        let relay = Arc::new(crate::relay::RelayClient::with_url(
-            "http://127.0.0.1:9".into(),
-            data_dir.clone(),
-        ));
         bench.access = Access::new(
             bench.fake.engine().clone(),
             store,
             data_dir,
             Arc::new(crate::llm::remote::Unavailable),
-            relay,
             downloads,
         );
         bench
     }
 
-    /// Banc dont la recherche web passe par `relay` (faux relais, ou relais
-    /// fermé).
-    fn searching(models: &[&str], relay: Arc<crate::relay::RelayClient>) -> Self {
+    /// Banc dont la recherche web va vers ces moteurs (faux, ou fermés) ;
+    /// moteur personnel lu dans la base du banc.
+    fn searching(models: &[&str], endpoints: web_search::Endpoints) -> Self {
         let mut bench = Self::new(models);
-        bench.access = Access::new(
+        let search = Arc::new(crate::search::WebSearch::with_endpoints(
+            bench.store().clone(),
+            endpoints,
+        ));
+        bench.access = Access::with_web_search(
             bench.fake.engine().clone(),
             bench.store().clone(),
             bench.fake.access.data_dir().to_owned(),
             Arc::new(crate::llm::remote::Unavailable),
-            relay,
+            search,
             bench.fake.access.downloads().clone(),
         );
         bench
@@ -1187,13 +1186,16 @@ async fn keep_alive_follows_the_setting() {
     bench.shutdown().await;
 }
 
-/// Recherche web par le relais : le modèle reçoit les extraits des
-/// résultats de cet envoi ; l'historique (et la page) n'en garde que les
-/// titres et les liens.
+/// Recherche web (DuckDuckGo par défaut, faux moteur) : le modèle reçoit
+/// les extraits des résultats de cet envoi ; l'historique (et la page) n'en
+/// garde que les titres et les liens.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_web_search_gives_its_excerpts_to_the_model() {
-    let web = crate::chat::tools::fake_web(|_| {}).await;
-    let bench = Bench::searching(&[SEARCHER], web.web.relay.clone());
+    let web = crate::chat::tools::fake_web().await;
+    let bench = Bench::searching(
+        &[SEARCHER],
+        crate::chat::tools::fake_endpoints(&web.engines),
+    );
     let recorder = bench
         .send(SendRequest {
             web_search: Some(true),
@@ -1205,7 +1207,7 @@ async fn a_web_search_gives_its_excerpts_to_the_model() {
     assert!(answer.contains("Extrait 1"), "{answer}");
     let results = of_type(&recorder.events(), "toolResult");
     let stored = results[0]["result"].as_str().unwrap();
-    assert!(stored.contains("example.org/1"), "{stored}");
+    assert!(stored.contains("duckduckgo.example/1"), "{stored}");
     assert!(!stored.contains("Extrait"), "{stored}");
     bench.shutdown().await;
 }
@@ -1279,29 +1281,21 @@ async fn web_fetch_reads_only_urls_given_by_the_user() {
     bench.shutdown().await;
 }
 
-/// Recherche refusée par le relais (pause, version trop ancienne) ou relais
-/// injoignable à la première recherche : l'envoi s'arrête avec ce code
-/// (`Executed::Stop`), sans seconde réponse du modèle.
+/// Recherche refusée (DuckDuckGo bloque) ou moteurs injoignables à la
+/// première recherche : l'envoi s'arrête avec ce code (`Executed::Stop`),
+/// sans seconde réponse du modèle.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_refused_search_stops_the_send_with_its_code() {
-    type Tweak = Box<dyn FnOnce(&mut relay_server::config::Config)>;
-    let cases: Vec<(Option<Tweak>, &str)> = vec![
-        (Some(Box::new(|c| c.paused = true)), "webSearchPaused"),
-        (
-            Some(Box::new(|c| c.min_app_version = Some("99.0.0".into()))),
-            "webSearchOutdated",
-        ),
-        (None, "webSearchUnavailable"),
-    ];
-    for (tweak, kind) in cases {
-        let (relay, _web) = match tweak {
-            Some(tweak) => {
-                let web = crate::chat::tools::fake_web(tweak).await;
-                (web.web.relay.clone(), Some(web))
-            }
-            None => (crate::chat::tools::closed_web_tools().relay, None),
+    for (blocked, kind) in [(true, "webSearchRefused"), (false, "webSearchUnavailable")] {
+        let web = crate::chat::tools::fake_web().await;
+        let endpoints = if blocked {
+            web.engines
+                .set("duckduckgo", fake_services::search::Behavior::Blocked);
+            crate::chat::tools::fake_endpoints(&web.engines)
+        } else {
+            crate::search::closed_endpoints()
         };
-        let bench = Bench::searching(&[SEARCHER], relay);
+        let bench = Bench::searching(&[SEARCHER], endpoints);
         let recorder = bench
             .send(SendRequest {
                 web_search: Some(true),
@@ -4244,7 +4238,7 @@ async fn sequences_for_the_simulator() {
         ),
         (
             "web-search",
-            "Web search by ChatonLM's relay: a first answer made of a web_search call, its result (titles and links only), then a second answer that quotes what the model received (the excerpts too).",
+            "Web search from the computer (DuckDuckGo by default): a first answer made of a web_search call, its result (titles and links only), then a second answer that quotes what the model received (the excerpts too).",
             SendRequest {
                 web_search: Some(true),
                 ..ask("What is new in llama.cpp?", SEARCHER, None)
@@ -4314,27 +4308,24 @@ async fn sequences_for_the_simulator() {
                 _ if name.starts_with("download") => vec![],
                 _ => vec![model.as_str()],
             };
-            // Faux relais de la recherche web (lent pour l'arrêt pendant
-            // l'outil), gardé jusqu'à la fin de l'envoi.
+            // Faux moteurs de la recherche web (DuckDuckGo lent pour l'arrêt
+            // pendant l'outil), gardés jusqu'à la fin de l'envoi.
             let web = if name.starts_with("web-search") {
-                let web = crate::chat::tools::fake_web(|_| {}).await;
+                let web = crate::chat::tools::fake_web().await;
                 if name == "web-search-cancelled" {
-                    for provider in [
-                        relay_proto::api::Provider::Brave,
-                        relay_proto::api::Provider::Mojeek,
-                    ] {
-                        web.relay.fake.set(
-                            provider,
-                            relay_server::fake::Behavior::Slow(Duration::from_secs(30)),
-                        );
-                    }
+                    web.engines.set(
+                        "duckduckgo",
+                        fake_services::search::Behavior::Slow(Duration::from_secs(30)),
+                    );
                 }
                 Some(web)
             } else {
                 None
             };
             let mut bench = match &web {
-                Some(web) => Bench::searching(&models, web.web.relay.clone()),
+                Some(web) => {
+                    Bench::searching(&models, crate::chat::tools::fake_endpoints(&web.engines))
+                }
                 None => Bench::downloading(&models, &hf),
             };
             if let Some(painter) = painter {

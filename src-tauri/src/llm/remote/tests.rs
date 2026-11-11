@@ -59,18 +59,7 @@ fn access_with(store: &Store, dir: &Path, remote: Arc<dyn RemoteModels>) -> Acce
         )),
     );
     let downloads = crate::hub::downloads::HubDownloads::with_options(|_| {}, Default::default());
-    let relay = Arc::new(crate::relay::RelayClient::with_url(
-        "http://127.0.0.1:9".into(),
-        dir.to_path_buf(),
-    ));
-    Access::new(
-        engine,
-        store.clone(),
-        dir.to_path_buf(),
-        remote,
-        relay,
-        downloads,
-    )
+    Access::new(engine, store.clone(), dir.to_path_buf(), remote, downloads)
 }
 
 async fn allow_remote(store: &Store, on: bool) {

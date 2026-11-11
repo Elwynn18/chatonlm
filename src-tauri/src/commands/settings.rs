@@ -20,7 +20,6 @@ pub async fn update_settings(
 ) -> AppResult<Settings> {
     let proofread_shortcut = patch.proofread_shortcut;
     let read_aloud_shortcut = patch.read_aloud_shortcut;
-    let web_search_on = patch.web_search_enabled == Some(true);
     let settings = store
         .call(move |connection| {
             let patch = renamed_patch(connection, patch)?;
@@ -37,10 +36,6 @@ pub async fn update_settings(
     }
     if let Some(enabled) = read_aloud_shortcut {
         crate::desktop::apply_read_aloud_shortcut(&app, enabled);
-    }
-    // Recherche web activée : inscription au relais en tâche de fond.
-    if web_search_on && let Some(access) = app.try_state::<crate::llm::Access>() {
-        super::web_search::register_in_background(&access);
     }
     Ok(settings)
 }

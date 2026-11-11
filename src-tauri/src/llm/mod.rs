@@ -29,7 +29,7 @@ use crate::error::AppResult;
 use crate::hub::downloads::HubDownloads;
 use crate::inference::{self, ChatRequest, Endpoint, InferenceError, Message};
 use crate::local_models::ModelCapabilities;
-use crate::relay::RelayClient;
+use crate::search::WebSearch;
 use crate::store::Store;
 use crate::store::model_import::ModelDefaults;
 pub use errors::LlmError;
@@ -47,7 +47,7 @@ struct Inner {
     store: Store,
     data_dir: PathBuf,
     remote: Arc<dyn RemoteModels>,
-    relay: Arc<RelayClient>,
+    web_search: Arc<WebSearch>,
     downloads: HubDownloads,
 }
 
@@ -217,7 +217,20 @@ impl Access {
         store: Store,
         data_dir: PathBuf,
         remote: Arc<dyn RemoteModels>,
-        relay: Arc<RelayClient>,
+        downloads: HubDownloads,
+    ) -> Self {
+        let web_search = Arc::new(WebSearch::new(store.clone()));
+        Self::with_web_search(engine, store, data_dir, remote, web_search, downloads)
+    }
+
+    /// Comme [`Access::new`], avec une recherche web donnée (essais : faux
+    /// moteurs).
+    pub fn with_web_search(
+        engine: Engine,
+        store: Store,
+        data_dir: PathBuf,
+        remote: Arc<dyn RemoteModels>,
+        web_search: Arc<WebSearch>,
         downloads: HubDownloads,
     ) -> Self {
         Access {
@@ -226,7 +239,7 @@ impl Access {
                 store,
                 data_dir,
                 remote,
-                relay,
+                web_search,
                 downloads,
             }),
         }
@@ -245,8 +258,9 @@ impl Access {
         &self.inner.data_dir
     }
 
-    pub fn relay(&self) -> &Arc<RelayClient> {
-        &self.inner.relay
+    /// Recherche web (faite depuis cet ordinateur : `crate::search`).
+    pub fn web_search(&self) -> &Arc<WebSearch> {
+        &self.inner.web_search
     }
 
     pub fn downloads(&self) -> &HubDownloads {
@@ -377,16 +391,11 @@ impl Access {
         );
         let downloads = HubDownloads::with_options(|_| {}, Default::default());
         downloads.attach(store.clone(), data_dir.clone());
-        let relay = Arc::new(RelayClient::with_url(
-            CLOSED_RELAY.to_owned(),
-            data_dir.clone(),
-        ));
         Access::new(
             engine,
             store,
             data_dir,
             Arc::new(remote::Unavailable),
-            relay,
             downloads,
         )
     }
@@ -396,10 +405,6 @@ impl Access {
 fn store_error(error: crate::error::AppError) -> LlmError {
     LlmError::Engine(crate::engine::EngineError::StartFailed(error.to_string()))
 }
-
-/// Relais fermé (port 9, `discard`, jamais servi en local) des accès sans
-/// réseau.
-const CLOSED_RELAY: &str = "http://127.0.0.1:9";
 
 /// Pose l'accès de l'app une fois la base ouverte (démarrage, ou base
 /// récupérée) : état Tauri et accès global ([`access_for`]). Le moteur et
@@ -412,9 +417,10 @@ pub fn setup(app: &tauri::AppHandle, store: Store) -> AppResult<()> {
     let data_dir = crate::paths::data_dir(app)?;
     let engine = app.state::<Engine>().inner().clone();
     let downloads = app.state::<HubDownloads>().inner().clone();
-    let relay = Arc::new(RelayClient::new(data_dir.clone()));
     let remote = remote::for_app(&store, &data_dir);
-    let access = Access::new(engine, store, data_dir, remote, relay, downloads);
+    // Clé d'installation de l'ancien relais de recherche : plus utilisée.
+    crate::search::remove_relay_identity(&data_dir);
+    let access = Access::new(engine, store, data_dir, remote, downloads);
     install(access.clone());
     app.manage(access);
     Ok(())

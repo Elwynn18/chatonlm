@@ -15,7 +15,7 @@ crate-type = ["rlib"]
 
 [workspace]
 # Outils de test ; src-tauri reste la racine (target/ et Cargo.lock ici).
-members = ["crates/easy-link", "crates/fake-llama", "crates/fake-services", "crates/relay-proto", "crates/relay-server", "crates/speech-text", "crates/windows-tray"]
+members = ["crates/easy-link", "crates/fake-llama", "crates/fake-services", "crates/relay-proto", "crates/relay-server", "crates/speech-text", "crates/web-search", "crates/windows-tray"]
 
 [features]
 # Essais de l'app réelle uniquement (scripts/e2e-build.sh) : embarque un serveur
@@ -48,9 +48,6 @@ futures-util = "0.3.34"
 # (llama-server ne lit WebP qu'avec un `ffmpeg` du PATH). Déjà dans l'arbre
 # par Tauri ; décodeurs en Rust pur (MIT/Apache-2.0).
 image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "png", "webp"] }
-# Relais de ChatonLM (recherche web) : protocole partagé avec le
-# serveur (signatures Ed25519 par ring, preuve de travail Argon2id).
-relay-proto = { path = "crates/relay-proto" }
 # Pack CUDA (engine/cuda) : archives .tar.xz des bibliothèques de NVIDIA
 # (Linux). Déjà dans l'arbre (ort-sys) ; Rust pur, Apache-2.0.
 lzma-rust2 = { version = "0.15.8", default-features = false, features = ["std", "xz"] }
@@ -141,6 +138,9 @@ tokio = { version = "1.53.2", features = ["io-util", "macros", "net", "process",
 ts-rs = "12.0.1"
 url = "2.5.8"
 uuid = { version = "1.27.0", features = ["v7"] }
+# Recherche web faite depuis cet ordinateur (DuckDuckGo, Brave, Mojeek,
+# SearXNG) : crate sans Tauri, voir `src/search/`.
+web-search = { path = "crates/web-search" }
 # Même version que celle de transcribe-rs : seulement pour faire taire les
 # journaux de whisper.cpp (une cinquantaine de lignes par chargement).
 whisper-rs = { version = "0.16.0", default-features = false }
@@ -247,8 +247,9 @@ opt-level = 3
 # optimisé, près d'une seconde sinon).
 [profile.dev.package.opus-pure]
 opt-level = 3
-# Relais : preuve de travail de l'inscription (Argon2id, 32 Mio par hachage),
-# quelques secondes optimisée, une minute sinon.
+# Relais (crate relay-server, essais de l'espace de travail) : preuve de
+# travail de l'inscription (Argon2id, 32 Mio par hachage), quelques secondes
+# optimisée, une minute sinon.
 [profile.dev.package.argon2]
 opt-level = 3
 [profile.dev.package.blake2]
@@ -261,8 +262,6 @@ fake-services = { path = "crates/fake-services" }
 fake-llama = { path = "crates/fake-llama" }
 # Archives .tar.xz fabriquées par les essais du pack CUDA (engine/cuda).
 lzma-rust2 = { version = "0.15.8", default-features = false, features = ["encoder", "std", "xz"] }
-# Vrai relais avec de faux fournisseurs de recherche (essais du client).
-relay-server = { path = "crates/relay-server", features = ["fake"] }
 # « test » : app simulée (tauri::test) pour construire le greffon des mises à
 # jour dans les essais du module updater.
 tauri = { version = "2.12", features = ["image-png", "test"] }

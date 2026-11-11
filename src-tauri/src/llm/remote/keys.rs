@@ -3,8 +3,7 @@
 //!
 //! Écrit d'un coup (fichier temporaire renommé), lisible du seul
 //! utilisateur : mode 0600 sous Linux ; sous Windows, le dossier des données
-//! (`%LOCALAPPDATA%`) n'est ouvert qu'à son propriétaire, comme la clé du
-//! relais (`relay/identity.rs`). Une clé ne sort d'ici que vers l'en-tête
+//! (`%LOCALAPPDATA%`) n'est ouvert qu'à son propriétaire. Une clé ne sort d'ici que vers l'en-tête
 //! `Authorization` d'un fournisseur : la page n'en reçoit que l'indice
 //! ([`hint`]), le journal rien.
 

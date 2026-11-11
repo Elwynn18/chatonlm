@@ -174,19 +174,9 @@
     "disable": "Disable web search",
     "unavailable": "Web search isn't available: this model can't use tools.",
     "withoutWebSearch": "Generate without web search",
-    "checkUpdates": "Check for updates",
+    "openSettings": "Web search settings",
     "poweredByBrave": "Powered by Brave Search",
-    "about": "About web search",
-    "status": {
-      "remaining": {
-        "one": "Disable web search ({count} search left today)",
-        "other": "Disable web search ({count} searches left today)"
-      },
-      "limit": "Disable web search (today's searches are used up)",
-      "paused": "Disable web search (web search is paused for now)",
-      "outdated": "Disable web search (update ChatonLM to search again)",
-      "unavailable": "Disable web search (the search service can't be reached)"
-    }
+    "about": "About web search"
   },
   "remote": {
     "openSettings": "Open settings",

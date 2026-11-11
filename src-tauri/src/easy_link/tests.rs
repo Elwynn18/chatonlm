@@ -182,12 +182,12 @@ async fn bench_of(model: &str, models: &[(&str, &str)]) -> Bench {
         ..Default::default()
     });
     let remote = Arc::new(TestRemote::default());
-    let access = Access::new(
+    let access = Access::with_web_search(
         fake.engine().clone(),
         store.clone(),
         fake.access.data_dir().to_owned(),
         Arc::clone(&remote) as Arc<dyn RemoteModels>,
-        fake.access.relay().clone(),
+        fake.access.web_search().clone(),
         fake.access.downloads().clone(),
     );
     let engine = ChatEngine::default();

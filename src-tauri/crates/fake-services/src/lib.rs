@@ -1,8 +1,9 @@
 //! Faux services pour les essais de ChatonLM, sans réseau ni modèle : Hugging
 //! Face (catalogue du ModelHub, téléchargements directs, page d'état ; voir
-//! [`hf`] et [`hf_models`]) et `sd-server` (moteur d'images ; voir [`sdcpp`]
-//! et le binaire `fake-sd-server`). Le moteur de texte a son propre faux
-//! (crate `fake-llama`).
+//! [`hf`] et [`hf_models`]), `sd-server` (moteur d'images ; voir [`sdcpp`]
+//! et le binaire `fake-sd-server`) et moteurs de recherche web (DuckDuckGo,
+//! Brave, Mojeek, SearXNG ; voir [`search`] et le binaire `fake-search`). Le
+//! moteur de texte a son propre faux (crate `fake-llama`).
 
 /// Faux Hugging Face (serveur à part) : voir [`hf`].
 pub mod hf;
@@ -10,6 +11,9 @@ pub mod hf_models;
 
 /// Faux `sd-server` (moteur d'images de l'app) : voir [`sdcpp`].
 pub mod sdcpp;
+
+/// Faux moteurs de recherche web (crate `web-search`) : voir [`search`].
+pub mod search;
 
 /// Petite image PNG valide (1 × 1 pixel transparent) pour les essais.
 pub const SAMPLE_PNG: [u8; 68] = [

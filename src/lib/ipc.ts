@@ -44,7 +44,9 @@ import type { CleanupReport } from "@/bindings/CleanupReport";
 import type { RemoteProvider } from "@/bindings/RemoteProvider";
 import type { RemoteProviderInput } from "@/bindings/RemoteProviderInput";
 import type { RemoteCheck } from "@/bindings/RemoteCheck";
-import type { WebSearchStatus } from "@/bindings/WebSearchStatus";
+import type { WebSearchCheck } from "@/bindings/WebSearchCheck";
+import type { WebSearchEngine } from "@/bindings/WebSearchEngine";
+import type { WebSearchEngineChoice } from "@/bindings/WebSearchEngineChoice";
 import type { ProofreadEvent } from "@/bindings/ProofreadEvent";
 import type { ProofreadMode } from "@/bindings/ProofreadMode";
 import type { Lang } from "@/bindings/Lang";
@@ -385,9 +387,40 @@ export function checkRemoteProvider(id: string): Promise<RemoteCheck> {
   return invoke<RemoteCheck>("check_remote_provider", { id });
 }
 
-/** État de la recherche web par le relais (quota du jour, pause). */
-export function webSearchStatus(): Promise<WebSearchStatus> {
-  return invoke<WebSearchStatus>("web_search_status");
+/**
+ * Moteur de la recherche web (DuckDuckGo par défaut, ou moteur personnel) et
+ * secrets configurés (oui ou non : les clés ne reviennent jamais).
+ */
+export function webSearchEngine(): Promise<WebSearchEngineChoice> {
+  return invoke<WebSearchEngineChoice>("web_search_engine");
+}
+
+/**
+ * Choisit le moteur de la recherche web ; `secret` (clé, ou adresse de
+ * l'instance SearXNG) remplace celui de ce moteur s'il est donné.
+ */
+export function setWebSearchEngine(
+  engine: WebSearchEngine,
+  secret: string | null = null,
+): Promise<WebSearchEngineChoice> {
+  return invoke<WebSearchEngineChoice>("set_web_search_engine", {
+    engine,
+    secret,
+  });
+}
+
+/** Oublie la clé (ou l'adresse) d'un moteur ; choisi, DuckDuckGo le remplace. */
+export function forgetWebSearchSecret(
+  engine: WebSearchEngine,
+): Promise<WebSearchEngineChoice> {
+  return invoke<WebSearchEngineChoice>("forget_web_search_secret", { engine });
+}
+
+/** Essaie un moteur seul, tel qu'il est configuré. */
+export function checkWebSearchEngine(
+  engine: WebSearchEngine,
+): Promise<WebSearchCheck> {
+  return invoke<WebSearchCheck>("check_web_search_engine", { engine });
 }
 
 /**

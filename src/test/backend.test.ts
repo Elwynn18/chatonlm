@@ -529,7 +529,7 @@ describe("web search in the fake backend", () => {
     expect(call.error).toBeNull();
     // Historique : titres et liens seulement (les extraits ne vont qu'au
     // modèle) ; réponse dans le tour suivant.
-    expect(call.result).toContain("https://example.org/1");
+    expect(call.result).toContain("https://duckduckgo.example/1");
     expect(call.result).not.toContain("Extrait");
     expect(chat.messages[2].content).toMatch(/^Found: /);
     expect(chat.messages[2].toolCalls).toEqual([]);

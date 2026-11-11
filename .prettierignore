@@ -13,6 +13,8 @@ playwright-report/
 blob-report/
 # Réponses de Hugging Face (échantillons réels réduits) du faux, gardées telles quelles.
 src-tauri/crates/fake-services/fixtures/
+# Page réelle de DuckDuckGo (réduite), gardée telle quelle pour les essais de l'analyseur.
+src-tauri/crates/web-search/tests/fixtures/
 # Réponses enregistrées du vrai llama-server (scripts/record-fixtures.sh), gardées telles quelles.
 src-tauri/crates/fake-llama/fixtures/
 # Manifeste signé du pack CUDA (essais) : un octet changé casse sa signature.

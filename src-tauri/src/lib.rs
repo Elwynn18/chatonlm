@@ -27,7 +27,7 @@ mod os_util;
 mod paths;
 mod process;
 mod proofread;
-mod relay;
+mod search;
 mod shutdown;
 mod startup;
 mod store;
@@ -327,12 +327,10 @@ pub fn run() {
             }
             app.manage(model_import);
             if let Some(store) = store {
-                // Accès aux modèles (moteur, distants, relais de la
-                // recherche web) pour les commandes, Easy Link et le pont.
+                // Accès aux modèles (moteur, distants, recherche web) pour
+                // les commandes, Easy Link et le pont.
                 llm::setup(app.handle(), store.clone())?;
                 app.manage(store);
-                // Recherche web déjà activée : inscription au relais.
-                commands::web_search::setup(app.handle());
             }
             app.manage(startup);
             // Mises à jour : moteur prêt avant la zone de notification (qui
@@ -590,7 +588,10 @@ pub fn run() {
             commands::voice_mode::voice_mode_state,
             commands::voice_mode::voice_mode_stop,
             commands::voice_mode::voice_mode_stop_editor,
-            commands::web_search::web_search_status,
+            commands::web_search::web_search_engine,
+            commands::web_search::set_web_search_engine,
+            commands::web_search::forget_web_search_secret,
+            commands::web_search::check_web_search_engine,
             #[cfg(feature = "e2e")]
             context_menu::e2e::e2e_last_context_menu,
             startup::database_problem,

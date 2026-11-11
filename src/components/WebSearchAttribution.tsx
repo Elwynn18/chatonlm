@@ -1,19 +1,14 @@
 // Mention « Powered by Brave Search » sous les résultats d'une recherche web
-// faite par Brave (propre à ChatonLM : la recherche passe par son relais, qui
-// dit quel moteur a répondu ; le résultat enregistré n'a que les titres, les
-// liens et ce moteur). Discrète : une ligne sous le bloc des résultats, avec
-// le lien vers la page « Recherche web » du site (conditions du service et
-// données gardées), pour tout résultat du relais.
+// faite par Brave (propre à ChatonLM : la recherche est faite depuis cet
+// ordinateur, par DuckDuckGo ou le moteur personnel choisi ; le résultat
+// enregistré n'a que les titres, les liens et le moteur qui a répondu).
+// Discrète : une ligne sous le bloc des résultats, avec le lien vers la page
+// « Recherche web » du site, pour toute recherche qui dit son moteur.
 
 import type { ToolCall } from "@/bindings/ToolCall";
 import { useLanguage, useT } from "@/i18n";
 import { openLink } from "@/lib/openLink";
-import { searchProvider } from "@/lib/webSearch";
-
-/** Page « Recherche web » du site, dans la langue de l'app. */
-export function webSearchPageUrl(lang: string): string {
-  return `https://chatonlm.com/${lang}/web-search/`;
-}
+import { searchProvider, webSearchPageUrl } from "@/lib/webSearch";
 
 export function WebSearchAttribution({ call }: { call: ToolCall }) {
   const t = useT();

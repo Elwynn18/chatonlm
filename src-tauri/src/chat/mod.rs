@@ -295,14 +295,12 @@ pub enum ChatErrorKind {
     RemoteLimit,
     /// Fournisseur distant injoignable.
     RemoteUnreachable,
-    /// Recherche web impossible (relais injoignable, refus).
+    /// Recherche web impossible (pas de réseau, aucun moteur n'a répondu).
     WebSearchUnavailable,
-    /// Quota de recherches de l'installation atteint (relais).
-    WebSearchLimit,
-    /// Recherche web en pause (budget du relais épuisé, service suspendu).
-    WebSearchPaused,
-    /// Version de l'app trop ancienne pour le relais.
-    WebSearchOutdated,
+    /// Recherche web refusée : DuckDuckGo bloque les recherches de cet
+    /// ordinateur, ou le moteur personnel refuse sa clé ou son adresse (à
+    /// corriger dans Settings › Web search).
+    WebSearchRefused,
     /// Réponse arrêtée : le modèle répétait mot pour mot le même passage
     /// (propre à ChatonLM, voir `repetition.rs`).
     Loop,
@@ -684,7 +682,7 @@ impl Server {
     /// Outils web de l'envoi (recherche, lecture de page).
     pub fn web_tools(&self) -> WebTools {
         WebTools {
-            relay: self.access.relay().clone(),
+            search: self.access.web_search().clone(),
         }
     }
 
@@ -696,11 +694,12 @@ impl Server {
     }
 }
 
-/// Outils web d'un envoi (`chat::tools::execute`, Étude) : recherche par le
-/// relais de ChatonLM, lecture des pages par l'app (`tools.rs`).
+/// Outils web d'un envoi (`chat::tools::execute`, Étude) : recherche depuis
+/// cet ordinateur (`crate::search`), lecture des pages par l'app
+/// (`tools.rs`).
 #[derive(Clone)]
 pub struct WebTools {
-    pub relay: Arc<crate::relay::RelayClient>,
+    pub search: Arc<crate::search::WebSearch>,
 }
 
 /// D'où vient un envoi.

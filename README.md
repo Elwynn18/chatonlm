@@ -51,8 +51,10 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
 - **Models from Ollama**: if you used Ollama, or ChatonLM 0.9 and its
   built-in Ollama, bring your models over in one click in Settings > Models,
   without downloading them again (see [Engine and models](#engine-and-models)).
-- **Web search**: let models search the web, with no account, through
-  ChatonLM's own search service (results powered by Brave Search).
+- **Web search**: let models search the web, with no account. Searches go
+  straight from your computer to DuckDuckGo, or first to your own engine if
+  you set one in Settings > Web search (a Brave Search or Mojeek API key, or
+  your own SearXNG instance).
 - **Remote models** (optional, off by default, in Settings > Models): use
   larger models that run elsewhere, with your own API key: Ollama Cloud,
   OpenRouter, Mistral, or any server compatible with the OpenAI API. They
@@ -331,11 +333,13 @@ ChatonLM itself connects only to:
 - **GitHub and NVIDIA's servers**, only if you ask for NVIDIA acceleration,
   to download the CUDA 13 pack: ChatonLM's part from this repository's
   releases, NVIDIA's CUDA libraries from NVIDIA;
-- **ChatonLM's search service** (relay.chatonlm.com), only when a model
-  searches the web: it receives the search and returns results from Brave
-  Search. There is no account: your installation registers once with a key
-  of its own, made on your computer. Only the titles and links of the
-  results are kept in the chat;
+- **the search engine** of the web search, only when a model searches the
+  web: DuckDuckGo (html.duckduckgo.com) by default, without an account, or
+  first the engine you chose in Settings › Web search (Brave Search, Mojeek,
+  or your own SearXNG instance), with DuckDuckGo if it doesn't answer. The
+  search goes straight from your computer: ChatonLM sees none of it; the
+  engine sees the search and your IP address. Only the titles and links of
+  the results are kept in the chat;
 - **the providers of remote models** you add, only if remote models are
   turned on (they are off by default): the messages and attachments you send
   to one of their models are processed there, under their own terms;

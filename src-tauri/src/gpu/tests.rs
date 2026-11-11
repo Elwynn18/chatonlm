@@ -103,10 +103,6 @@ impl Gpu {
             bench.store().clone(),
             data_dir.clone(),
             Arc::new(crate::llm::remote::Unavailable),
-            Arc::new(crate::relay::RelayClient::with_url(
-                "http://127.0.0.1:9".into(),
-                data_dir,
-            )),
             bench.access.downloads().clone(),
         );
         Gpu {

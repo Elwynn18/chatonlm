@@ -7,7 +7,6 @@ use crate::engine::EngineError;
 use crate::error::AppError;
 use crate::i18n::t;
 use crate::inference::InferenceError;
-use crate::relay::RelayError;
 
 /// Échec d'une ouverture ou d'une requête.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -141,27 +140,6 @@ impl From<LlmError> for AppError {
     }
 }
 
-/// Code d'une erreur du relais (recherche web) dans une conversation ;
-/// `None` : un arrêt.
-pub fn relay_kind(error: &RelayError) -> Option<ChatErrorKind> {
-    Some(match error {
-        RelayError::QuotaExceeded { .. } | RelayError::RateLimited { .. } => {
-            ChatErrorKind::WebSearchLimit
-        }
-        RelayError::BudgetExhausted { .. } | RelayError::Paused => ChatErrorKind::WebSearchPaused,
-        RelayError::Outdated => ChatErrorKind::WebSearchOutdated,
-        RelayError::Cancelled => return None,
-        RelayError::Offline
-        | RelayError::Banned
-        | RelayError::ProviderUnavailable
-        | RelayError::Registration
-        | RelayError::Rejected(_)
-        | RelayError::InvalidQuery
-        | RelayError::Malformed
-        | RelayError::Storage(_) => ChatErrorKind::WebSearchUnavailable,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -265,48 +243,6 @@ mod tests {
             let message = error.message();
             assert!(!message.is_empty(), "{error:?}");
             assert!(!message.contains("cannot connect: x"), "{message}");
-        }
-    }
-
-    #[test]
-    fn relay_errors_have_their_kind() {
-        use ChatErrorKind as K;
-        let cases = [
-            (
-                RelayError::QuotaExceeded { retry_at: None },
-                Some(K::WebSearchLimit),
-            ),
-            (
-                RelayError::RateLimited { retry_at: Some(1) },
-                Some(K::WebSearchLimit),
-            ),
-            (
-                RelayError::BudgetExhausted { retry_at: None },
-                Some(K::WebSearchPaused),
-            ),
-            (RelayError::Paused, Some(K::WebSearchPaused)),
-            (RelayError::Outdated, Some(K::WebSearchOutdated)),
-            (RelayError::Cancelled, None),
-            (RelayError::Offline, Some(K::WebSearchUnavailable)),
-            (RelayError::Banned, Some(K::WebSearchUnavailable)),
-            (
-                RelayError::ProviderUnavailable,
-                Some(K::WebSearchUnavailable),
-            ),
-            (RelayError::Registration, Some(K::WebSearchUnavailable)),
-            (
-                RelayError::Rejected(relay_proto::api::ErrorCode::BadSignature),
-                Some(K::WebSearchUnavailable),
-            ),
-            (RelayError::InvalidQuery, Some(K::WebSearchUnavailable)),
-            (RelayError::Malformed, Some(K::WebSearchUnavailable)),
-            (
-                RelayError::Storage("x".into()),
-                Some(K::WebSearchUnavailable),
-            ),
-        ];
-        for (error, kind) in cases {
-            assert_eq!(relay_kind(&error), kind, "{error:?}");
         }
     }
 

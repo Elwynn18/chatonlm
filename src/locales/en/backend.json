@@ -412,9 +412,7 @@
       "webOff": "Web search is off.",
       "webUsage": "Send {p}web on or {p}web off.",
       "webUnavailable": "Web search isn't available right now. Send {p}web off to answer without it.",
-      "webLimit": "The web search limit is reached for now. Send {p}web off to answer without it.",
-      "webPaused": "Web search is paused for now. Send {p}web off to answer without it.",
-      "webOutdated": "Web search needs a newer version of ChatonLM on the computer. Send {p}web off to answer without it.",
+      "webRefused": "Web search was refused: DuckDuckGo is limiting searches from the computer, or the search engine key needs checking in ChatonLM's settings. Send {p}web off to answer without it.",
       "statusEphemeralOn": "Ephemeral conversations: on",
       "statusEphemeralOff": "Ephemeral conversations: off",
       "ephemeralOn": "Ephemeral conversations are on: they are not kept in ChatonLM's history, and are erased by {p}new, by {p}ephemeral off or when ChatonLM closes. Send {p}keep to keep the current one.",
@@ -568,22 +566,25 @@
     "sameId": "{name} would replace another model ({id}): it was not imported.",
     "sharedFolder": "This folder also belongs to the Ollama installed on this computer: ChatonLM never deletes anything in it."
   },
-  "relay": {
-    "offline": "ChatonLM's search service can't be reached. Check your internet connection, then try again.",
-    "quotaExceeded": "Today's web searches have all been used. More will be available tomorrow.",
-    "rateLimited": "Too many web searches right now. Try again later.",
-    "budgetExhausted": "Web search is paused until next month: this month's budget, paid for by donations, has been used up.",
-    "budgetExhaustedToday": "Web search is paused until tomorrow: today's share of the budget, paid for by donations, has been used up.",
-    "paused": "Web search is paused for maintenance. Try again later.",
-    "outdated": "This version of ChatonLM can no longer search the web. Update ChatonLM to search again.",
-    "banned": "Web search has been turned off for this installation.",
-    "providerUnavailable": "The search engine isn't responding right now. Try again in a moment.",
-    "registrationFailed": "ChatonLM couldn't register with its search service. Try again later.",
-    "rejected": "The search service refused the request. Try again later.",
+  "webSearch": {
+    "offline": "Web search can't reach the internet. Check your connection, then try again.",
+    "blocked": "DuckDuckGo is limiting searches from this computer for now. Try again in a few minutes, or add your own search engine in Settings › Web search.",
+    "blockedWithPersonal": "{engine} didn't answer, and DuckDuckGo is limiting searches from this computer for now. Try again in a few minutes.",
+    "unavailable": "No search engine answered. Try again in a moment.",
+    "keyRefused": "{engine} refused your key. Check it in Settings › Web search.",
+    "exhausted": "Your {engine} key has no searches left. Check your plan, or choose another engine in Settings › Web search.",
+    "jsonDisabled": "This SearXNG instance doesn't allow JSON results. Turn on the json format in its settings (search.formats), or choose another engine in Settings › Web search.",
+    "badAddress": "The SearXNG address isn't valid. Enter an address that starts with http:// or https://.",
+    "badKey": "This key isn't valid. Paste the whole key, without spaces.",
     "invalidQuery": "This search can't be sent: it's empty or too long.",
-    "malformed": "The search service sent an unreadable reply. Try again later.",
-    "storage": "ChatonLM couldn't save its search service key. Check that there is free space on the disk, then try again.",
-    "cancelled": "Web search canceled."
+    "cancelled": "Web search canceled.",
+    "check": {
+      "ok": "{engine} answered. Web search works.",
+      "notConfigured": "Enter a key or an address first.",
+      "blocked": "DuckDuckGo is limiting searches from this computer for now. Try again in a few minutes.",
+      "offline": "{engine} can't be reached. Check the address and your connection.",
+      "unavailable": "{engine} didn't answer properly. Try again in a moment."
+    }
   },
   "engine": {
     "unavailable": "this build of ChatonLM doesn't include the text engine",

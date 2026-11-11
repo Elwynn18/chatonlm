@@ -57,7 +57,7 @@ const pairButton = () =>
 const status = () => screen.getByTestId("vscode-status");
 
 describe("VS Code settings", () => {
-  it("is a tab of the settings, between Easy Link and Keyboard shortcuts", async () => {
+  it("is a tab of the settings, between Web search and Keyboard shortcuts", async () => {
     await setup();
     const tab = screen.getByTestId("settings-tab-vscode");
     expect(tab.textContent).toBe("VS Code");
@@ -67,7 +67,7 @@ describe("VS Code settings", () => {
       [...screen.getByTestId("settings-tabs").querySelectorAll("a")]
         .map((link) => link.textContent)
         .slice(-3),
-    ).toEqual(["Easy Link", "VS Code", "Keyboard shortcuts"]);
+    ).toEqual(["Web search", "VS Code", "Keyboard shortcuts"]);
   });
 
   it("off by default, with what the link is: local, never through the network", async () => {

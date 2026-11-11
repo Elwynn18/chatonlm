@@ -174,19 +174,9 @@
     "disable": "Desactivar la búsqueda web",
     "unavailable": "La búsqueda web no está disponible: este modelo no sabe usar herramientas.",
     "withoutWebSearch": "Generar sin búsqueda web",
-    "checkUpdates": "Buscar actualizaciones",
+    "openSettings": "Configuración de la búsqueda web",
     "poweredByBrave": "Resultados de Brave Search",
-    "about": "Acerca de la búsqueda web",
-    "status": {
-      "remaining": {
-        "one": "Desactivar la búsqueda web (queda {count} búsqueda hoy)",
-        "other": "Desactivar la búsqueda web (quedan {count} búsquedas hoy)"
-      },
-      "limit": "Desactivar la búsqueda web (se agotaron las búsquedas de hoy)",
-      "paused": "Desactivar la búsqueda web (la búsqueda web está en pausa por ahora)",
-      "outdated": "Desactivar la búsqueda web (actualiza ChatonLM para volver a buscar)",
-      "unavailable": "Desactivar la búsqueda web (no se puede contactar con el servicio de búsqueda)"
-    }
+    "about": "Acerca de la búsqueda web"
   },
   "remote": {
     "openSettings": "Abrir configuración",

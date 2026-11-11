@@ -482,7 +482,7 @@ describe("actions under a remote model error", () => {
     ] as ChatErrorKind[]) {
       expect(isRemoteError(kind)).toBe(true);
     }
-    for (const kind of ["webSearchLimit", "model", undefined] as (
+    for (const kind of ["webSearchRefused", "model", undefined] as (
       ChatErrorKind | undefined
     )[]) {
       expect(isRemoteError(kind)).toBe(false);

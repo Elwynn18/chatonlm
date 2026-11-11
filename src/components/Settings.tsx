@@ -7,7 +7,8 @@
  * file app/ui/app/src/components/Settings.tsx, commit 42e911bc3d05.
  * Modified for ChatonLM: tabs instead of one page (settings/SettingsTabs.tsx,
  * the "section" search parameter): General (default), Models, Dictation,
- * Read aloud, Voice mode, Easy Link, VS Code and Keyboard shortcuts;
+ * Read aloud, Voice mode, Easy Link, Web search, VS Code and Keyboard
+ * shortcuts;
  * changing tab replaces the history entry and leaves the focus on the tab.
  * General: one card with the interface language (ChatonLM's own row,
  * first: System, English, Español, Français, each language written in
@@ -56,6 +57,10 @@
  * defaults". Easy Link: ChatonLM's own cards (settings/EasyLink.tsx: the
  * Telegram and Discord bots that let one talk to the local models from a
  * messenger, their linked accounts, the commands of the bots), untouched by
+ * "Reset to defaults". Web search: ChatonLM's own cards
+ * (settings/WebSearch.tsx: the search is made from the user's computer,
+ * DuckDuckGo by default, or the user's own Brave Search, Mojeek or SearXNG
+ * engine first; the keys never come back to the page), untouched by
  * "Reset to defaults". VS Code: ChatonLM's own card (settings/VsCode.tsx:
  * the local bridge of the ChatonLM extension for VS Code, its pairing code
  * and the paired editors), untouched by "Reset to defaults".
@@ -87,6 +92,7 @@ import { ReadAloud } from "@/components/settings/ReadAloud";
 import { RemoteModels } from "@/components/settings/RemoteModels";
 import { VoiceMode } from "@/components/settings/VoiceMode";
 import { VsCode } from "@/components/settings/VsCode";
+import { WebSearch } from "@/components/settings/WebSearch";
 import { Shortcuts } from "@/components/settings/Shortcuts";
 import { Updates } from "@/components/settings/Updates";
 import {
@@ -141,6 +147,7 @@ function tabOf(section: unknown): SettingsTab {
     section === "readAloud" ||
     section === "voiceMode" ||
     section === "easyLink" ||
+    section === "webSearch" ||
     section === "vscode" ||
     section === "shortcuts"
     ? section
@@ -321,6 +328,13 @@ export function Settings({
           <div className="mx-auto max-w-4xl min-w-0">
             {/* Bots et comptes liés à part : Reset (General) n'y touche pas. */}
             <EasyLink onSaved={showSavedConfirmation} />
+          </div>
+        )}
+
+        {tab === "webSearch" && (
+          <div className="mx-auto max-w-4xl min-w-0">
+            {/* Moteur de recherche à part : Reset (General) n'y touche pas. */}
+            <WebSearch onSaved={showSavedConfirmation} />
           </div>
         )}
 

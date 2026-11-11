@@ -1,9 +1,12 @@
 // Actions sous une erreur de la recherche web (propre à ChatonLM ; la
-// recherche passe par le relais de ChatonLM) : relais injoignable, Retry
-// avec la recherche ; quota du jour atteint ou service en pause, relancer
-// sans recherche web ; app trop ancienne, Check for updates. Chaque fois que
-// l'envoi peut être refait, « Generate without web search » le relance sans
-// elle. Le texte de l'erreur, déjà traduit par le moteur, est au-dessus.
+// recherche est faite depuis cet ordinateur, DuckDuckGo par défaut) :
+// recherche impossible (pas de réseau, aucun moteur n'a répondu), Retry avec
+// la recherche ; recherche refusée (DuckDuckGo limite les recherches de cet
+// ordinateur, ou le moteur personnel refuse sa clé ou son adresse), Web
+// search settings pour choisir ou corriger un moteur, Retry en second.
+// Chaque fois que l'envoi peut être refait, « Generate without web search »
+// le relance sans elle. Le texte de l'erreur, déjà traduit par le moteur, est
+// au-dessus.
 
 import { useT } from "@/i18n";
 import type { WebSearchErrorKind } from "@/lib/webSearch";
@@ -16,35 +19,33 @@ const SECONDARY =
 export function WebSearchErrorActions({
   kind,
   onRetry,
-  onCheckUpdates,
+  onOpenSettings,
   retryDisabled = false,
 }: {
   kind: WebSearchErrorKind;
   /** Relance du message, avec ou sans recherche web ; absente : rien à
    * relancer (page d'une nouvelle conversation). */
   onRetry?: (webSearch: boolean) => void;
-  /** Ouvre la carte des mises à jour (Settings › General). */
-  onCheckUpdates?: () => void;
+  /** Ouvre l'onglet Web search des réglages. */
+  onOpenSettings?: () => void;
   /** Réponse en cours, moteur indisponible : pas de relance. */
   retryDisabled?: boolean;
 }) {
   const t = useT();
-  // Sans recherche : action principale quand la recherche ne reviendra pas
-  // tout de suite (quota, pause), secondaire sinon.
-  const withoutFirst = kind === "webSearchLimit" || kind === "webSearchPaused";
+  const refused = kind === "webSearchRefused";
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {kind === "webSearchOutdated" && onCheckUpdates && (
-        <button type="button" onClick={onCheckUpdates} className={PRIMARY}>
-          {t("chat.webSearch.checkUpdates")}
+      {refused && onOpenSettings && (
+        <button type="button" onClick={onOpenSettings} className={PRIMARY}>
+          {t("chat.webSearch.openSettings")}
         </button>
       )}
-      {kind === "webSearchUnavailable" && onRetry && (
+      {onRetry && (
         <button
           type="button"
           onClick={() => onRetry(true)}
           disabled={retryDisabled}
-          className={PRIMARY}
+          className={refused ? SECONDARY : PRIMARY}
         >
           {t("common.actions.retry")}
         </button>
@@ -54,7 +55,7 @@ export function WebSearchErrorActions({
           type="button"
           onClick={() => onRetry(false)}
           disabled={retryDisabled}
-          className={withoutFirst ? PRIMARY : SECONDARY}
+          className={SECONDARY}
         >
           {t("chat.webSearch.withoutWebSearch")}
         </button>

@@ -1,31 +1,21 @@
-// Recherche web par le relais de ChatonLM (propre à ChatonLM) : erreurs de
-// la recherche (WebSearchErrorActions.tsx), moteur qui a répondu
-// (WebSearchAttribution.tsx), bulle du bouton selon l'état du relais
-// (WebSearchButton.tsx).
+// Recherche web faite depuis cet ordinateur (propre à ChatonLM : DuckDuckGo
+// par défaut, ou le moteur personnel choisi dans Settings › Web search) :
+// erreurs de la recherche (WebSearchErrorActions.tsx), moteur qui a répondu
+// (WebSearchAttribution.tsx).
 
 import type { ChatErrorKind } from "@/bindings/ChatErrorKind";
 import type { ToolCall } from "@/bindings/ToolCall";
-import type { WebSearchStatus } from "@/bindings/WebSearchStatus";
-import type { TFunction } from "@/i18n";
 
 /** Erreurs de la recherche web. */
 export type WebSearchErrorKind = Extract<
   ChatErrorKind,
-  | "webSearchUnavailable"
-  | "webSearchLimit"
-  | "webSearchPaused"
-  | "webSearchOutdated"
+  "webSearchUnavailable" | "webSearchRefused"
 >;
 
 export function isWebSearchError(
   kind: ChatErrorKind | undefined,
 ): kind is WebSearchErrorKind {
-  return (
-    kind === "webSearchUnavailable" ||
-    kind === "webSearchLimit" ||
-    kind === "webSearchPaused" ||
-    kind === "webSearchOutdated"
-  );
+  return kind === "webSearchUnavailable" || kind === "webSearchRefused";
 }
 
 /** Moteur qui a répondu à une recherche (`provider` du résultat), s'il est dit. */
@@ -41,31 +31,7 @@ export function searchProvider(call: ToolCall): string | null {
   }
 }
 
-export const webSearchStatusKey = ["webSearchStatus"] as const;
-
-/** Bulle du bouton allumé : état du relais et recherches restantes. */
-export function statusTitle(
-  t: TFunction,
-  status: WebSearchStatus | undefined,
-): string {
-  switch (status?.state) {
-    case "limit":
-      return t("chat.webSearch.status.limit");
-    case "paused":
-    case "budgetExhausted":
-      return t("chat.webSearch.status.paused");
-    case "outdated":
-      return t("chat.webSearch.status.outdated");
-    case "unavailable":
-      return t("chat.webSearch.status.unavailable");
-    case "ok":
-      if (status.remainingToday !== null) {
-        return t("chat.webSearch.status.remaining", {
-          count: status.remainingToday,
-        });
-      }
-      return t("chat.webSearch.disable");
-    default:
-      return t("chat.webSearch.disable");
-  }
+/** Page « Recherche web » du site, dans la langue de l'app. */
+export function webSearchPageUrl(lang: string): string {
+  return `https://chatonlm.com/${lang}/web-search/`;
 }

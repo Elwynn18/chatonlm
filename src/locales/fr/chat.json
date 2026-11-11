@@ -174,19 +174,9 @@
     "disable": "Désactiver la recherche web",
     "unavailable": "Recherche web indisponible : ce modèle ne sait pas utiliser d'outils.",
     "withoutWebSearch": "Générer sans recherche web",
-    "checkUpdates": "Rechercher des mises à jour",
+    "openSettings": "Paramètres de la recherche web",
     "poweredByBrave": "Résultats fournis par Brave Search",
-    "about": "À propos de la recherche web",
-    "status": {
-      "remaining": {
-        "one": "Désactiver la recherche web (encore {count} recherche aujourd'hui)",
-        "other": "Désactiver la recherche web (encore {count} recherches aujourd'hui)"
-      },
-      "limit": "Désactiver la recherche web (les recherches du jour sont épuisées)",
-      "paused": "Désactiver la recherche web (la recherche web est en pause pour le moment)",
-      "outdated": "Désactiver la recherche web (mettez ChatonLM à jour pour chercher de nouveau)",
-      "unavailable": "Désactiver la recherche web (le service de recherche est injoignable)"
-    }
+    "about": "À propos de la recherche web"
   },
   "remote": {
     "openSettings": "Ouvrir les paramètres",

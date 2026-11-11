@@ -1,5 +1,5 @@
-//! Outils de la recherche web : recherche par le vrai relais (crate
-//! `relay-server`, lancé dans le processus avec de faux moteurs), lecture
+//! Outils de la recherche web : recherche par le crate `web-search` contre
+//! de faux moteurs (crate `fake-services`, lancés dans le processus), lecture
 //! des pages sur un faux site local, garde contre les adresses non publiques.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -7,8 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use relay_proto::api::Provider;
-use relay_server::fake::Behavior;
+use fake_services::search::{BAD_KEY, Behavior};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::fetch::{FetchError, is_public};
@@ -26,9 +25,19 @@ fn error(text: &str) -> Executed {
     Executed::Error(text.into())
 }
 
-/// Relais d'essai et outils qui s'y adressent.
-async fn bench(tweak: impl FnOnce(&mut relay_server::config::Config)) -> FakeWeb {
-    fake_web(tweak).await
+/// Faux moteurs et outils qui s'y adressent.
+async fn bench() -> FakeWeb {
+    fake_web().await
+}
+
+/// Choisit un moteur personnel et sa clé (ou adresse).
+async fn choose(bench: &FakeWeb, engine: crate::store::web_search::Engine, secret: &str) {
+    let secret = secret.to_owned();
+    bench
+        .store
+        .call(move |c| crate::store::web_search::choose(c, engine, Some(&secret)))
+        .await
+        .unwrap();
 }
 
 async fn run(
@@ -258,7 +267,7 @@ fn urls_written_by_the_user_are_allowed_as_written() {
 
 #[tokio::test]
 async fn arguments_are_checked_before_any_request() {
-    let bench = bench(|_| {}).await;
+    let bench = bench().await;
     let policy = Policy::public();
     let mut allowed = AllowedUrls::from_text("https://example.com/page");
     for (name, arguments, expected) in [
@@ -306,12 +315,12 @@ async fn arguments_are_checked_before_any_request() {
             "{name} {arguments}"
         );
     }
-    assert!(bench.relay.fake.requests().is_empty());
+    assert!(bench.engines.requests().is_empty());
 }
 
 #[tokio::test]
 async fn a_search_keeps_titles_and_links_only_and_gives_the_excerpts_to_the_model() {
-    let bench = bench(|_| {}).await;
+    let bench = bench().await;
     let policy = Policy::public();
     let mut allowed = AllowedUrls::default();
     let found = run(
@@ -327,7 +336,7 @@ async fn a_search_keeps_titles_and_links_only_and_gives_the_excerpts_to_the_mode
     };
     // Enregistré : titres, liens et moteur ; aucun extrait.
     let value: Value = serde_json::from_str(&stored).unwrap();
-    assert_eq!(value["provider"], "brave");
+    assert_eq!(value["provider"], "duckduckgo");
     let results = value["results"].as_array().unwrap();
     assert_eq!(results.len(), 3);
     for result in results {
@@ -337,12 +346,11 @@ async fn a_search_keeps_titles_and_links_only_and_gives_the_excerpts_to_the_mode
     assert!(!stored.contains("Extrait"), "{stored}");
     // Au modèle : les extraits, au format d'Ollama.
     let model: Value = serde_json::from_str(allowed.model_text(&stored)).unwrap();
-    assert_eq!(model["results"][0]["url"], "https://example.org/1");
-    assert!(
-        model["results"][0]["content"]
-            .as_str()
-            .unwrap()
-            .contains("chaton roux")
+    assert_eq!(model["results"][0]["url"], "https://duckduckgo.example/1");
+    assert_eq!(model["results"][0]["content"], "Extrait 1 (duckduckgo)");
+    assert_eq!(
+        model["results"][0]["title"],
+        "DuckDuckGo result 1 for chaton roux"
     );
     assert!(model.get("provider").is_none());
     // Un autre résultat est donné tel quel.
@@ -372,11 +380,12 @@ async fn a_search_keeps_titles_and_links_only_and_gives_the_excerpts_to_the_mode
     assert_eq!(texts[2], stored);
     assert_eq!(texts[3], old_search);
     // Les adresses des résultats peuvent être lues.
-    assert!(allowed.allows("https://example.org/1"));
-    assert!(allowed.allows("https://example.org/3"));
+    assert!(allowed.allows("https://duckduckgo.example/1"));
+    assert!(allowed.allows("https://duckduckgo.example/3"));
 
     // `max_results` : nombre > 0 tronqué, sinon 5, au plus 10 ; langue de la
-    // requête seulement si ses mots la disent.
+    // requête seulement si ses mots la disent (Brave dit le nombre demandé).
+    choose(&bench, crate::store::web_search::Engine::Brave, "BSA-key").await;
     for (given, sent) in [
         (json!(2.7), "2"),
         (json!(0), "5"),
@@ -386,80 +395,70 @@ async fn a_search_keeps_titles_and_links_only_and_gives_the_excerpts_to_the_mode
     ] {
         let arguments = json!({ "query": "chaton", "max_results": given });
         run(&bench.web, &policy, WEB_SEARCH, arguments, &mut allowed).await;
-        let last = bench.relay.fake.requests().pop().unwrap();
-        assert_eq!(last.params.get("count").map(String::as_str), Some(sent));
-        assert_eq!(last.params.get("search_lang"), None);
+        let last = bench.engines.requests().pop().unwrap();
+        assert_eq!((last.engine, last.count.as_str()), ("brave", sent));
+        assert_eq!(last.lang, "");
     }
     let french = json!({ "query": "les chats et les chiens de la ville" });
-    run(&bench.web, &policy, WEB_SEARCH, french, &mut allowed).await;
-    let last = bench.relay.fake.requests().pop().unwrap();
+    let Executed::Result(stored) = run(&bench.web, &policy, WEB_SEARCH, french, &mut allowed).await
+    else {
+        panic!("a result was expected");
+    };
+    let last = bench.engines.requests().pop().unwrap();
+    assert_eq!(last.lang, "fr");
+    // Le moteur qui a répondu est gardé (mention « Powered by Brave »).
     assert_eq!(
-        last.params.get("search_lang").map(String::as_str),
-        Some("fr")
+        serde_json::from_str::<Value>(&stored).unwrap()["provider"],
+        "brave"
     );
 }
 
-/// Arrêts voulus du contrat (§ 9.6) : quota, pause, budget, version, relais
-/// injoignable à la première recherche ; ensuite, une erreur au modèle.
+/// Recherche impossible à la première recherche de l'envoi : arrêt, avec
+/// son code (blocage de DuckDuckGo ou clé refusée : `webSearchRefused` ;
+/// pas de réseau, moteurs en panne : `webSearchUnavailable`) ; ensuite, une
+/// erreur au modèle.
 #[tokio::test]
-async fn relay_refusals_stop_the_send_with_their_code() {
+async fn failed_searches_stop_the_send_with_their_code() {
+    use crate::store::web_search::Engine;
     let policy = Policy::public();
     let search = || json!({ "query": "chaton" });
-    let stop_kind = |executed: &Executed| match executed {
-        Executed::Stop(kind, message) => {
-            assert!(!message.is_empty());
-            Some(*kind)
-        }
+    let stop = |executed: &Executed| match executed {
+        Executed::Stop(kind, message) => Some((*kind, message.clone())),
         _ => None,
     };
 
-    let quota = bench(|config| {
-        config.quota.daily_per_key = 1;
-        config.quota.new_key_daily = 1;
-    })
-    .await;
+    // DuckDuckGo bloque : refus, et le conseil d'un moteur personnel.
+    let bench = bench().await;
+    bench.engines.set("duckduckgo", Behavior::Blocked);
     let mut allowed = AllowedUrls::default();
+    let refused = run(&bench.web, &policy, WEB_SEARCH, search(), &mut allowed).await;
+    let (kind, message) = stop(&refused).expect("a stop");
+    assert_eq!(kind, ChatErrorKind::WebSearchRefused);
+    assert!(message.contains("Settings › Web search"), "{message}");
+
+    // Clé personnelle refusée, DuckDuckGo en panne : le message parle de la
+    // clé.
+    let bench = self::bench().await;
+    choose(&bench, Engine::Mojeek, BAD_KEY).await;
+    bench.engines.set("duckduckgo", Behavior::Status(500));
+    let mut allowed = AllowedUrls::default();
+    let refused = run(&bench.web, &policy, WEB_SEARCH, search(), &mut allowed).await;
+    let (kind, message) = stop(&refused).expect("a stop");
+    assert_eq!(kind, ChatErrorKind::WebSearchRefused);
+    assert!(message.contains("Mojeek"), "{message}");
+    // Clé refusée mais DuckDuckGo répond : la recherche aboutit.
+    bench.engines.set("duckduckgo", Behavior::Ok);
     assert!(matches!(
-        run(&quota.web, &policy, WEB_SEARCH, search(), &mut allowed).await,
+        run(&bench.web, &policy, WEB_SEARCH, search(), &mut allowed).await,
         Executed::Result(_)
     ));
-    let refused = run(&quota.web, &policy, WEB_SEARCH, search(), &mut allowed).await;
-    assert_eq!(
-        stop_kind(&refused),
-        Some(ChatErrorKind::WebSearchLimit),
-        "{refused:?}"
-    );
 
-    for (tweak, kind) in [
-        (
-            Box::new(|c: &mut relay_server::config::Config| c.paused = true)
-                as Box<dyn FnOnce(&mut relay_server::config::Config)>,
-            ChatErrorKind::WebSearchPaused,
-        ),
-        (
-            Box::new(|c: &mut relay_server::config::Config| c.budget.monthly_limit_eur = 0.0),
-            ChatErrorKind::WebSearchPaused,
-        ),
-        (
-            Box::new(|c: &mut relay_server::config::Config| {
-                c.min_app_version = Some("99.0.0".into());
-            }),
-            ChatErrorKind::WebSearchOutdated,
-        ),
-    ] {
-        let bench = bench(tweak).await;
-        let mut allowed = AllowedUrls::default();
-        let refused = run(&bench.web, &policy, WEB_SEARCH, search(), &mut allowed).await;
-        assert_eq!(stop_kind(&refused), Some(kind), "{refused:?}");
-    }
-
-    // Relais injoignable : arrêt à la première recherche de l'envoi…
-    let dir = tempfile::tempdir().unwrap();
-    let closed = web_tools_on("http://127.0.0.1:9", dir.path());
+    // Moteurs injoignables : arrêt à la première recherche de l'envoi…
+    let closed = closed_web_tools();
     let mut allowed = AllowedUrls::default();
     let refused = run(&closed, &policy, WEB_SEARCH, search(), &mut allowed).await;
     assert_eq!(
-        stop_kind(&refused),
+        stop(&refused).map(|(kind, _)| kind),
         Some(ChatErrorKind::WebSearchUnavailable)
     );
     // … une erreur au modèle après une recherche réussie.
@@ -468,27 +467,15 @@ async fn relay_refusals_stop_the_send_with_their_code() {
     else {
         panic!("an error for the model was expected");
     };
-    assert_eq!(text, "web search failed: offline");
-
-    // Aucun moteur ne répond à la première recherche : arrêt aussi.
-    let down = bench(|_| {}).await;
-    down.relay.fake.set(Provider::Brave, Behavior::Status(500));
-    down.relay.fake.set(Provider::Mojeek, Behavior::Status(500));
-    let mut allowed = AllowedUrls::default();
-    let refused = run(&down.web, &policy, WEB_SEARCH, search(), &mut allowed).await;
-    assert_eq!(
-        stop_kind(&refused),
-        Some(ChatErrorKind::WebSearchUnavailable)
-    );
+    assert_eq!(text, "web search failed: duckduckgo offline");
 }
 
 #[tokio::test]
 async fn a_stop_interrupts_the_search() {
-    let bench = bench(|_| {}).await;
+    let bench = bench().await;
     bench
-        .relay
-        .fake
-        .set(Provider::Brave, Behavior::Slow(Duration::from_secs(5)));
+        .engines
+        .set("duckduckgo", Behavior::Slow(Duration::from_secs(5)));
     let (stop, mut cancel) = watch::channel(false);
     let web = bench.web.clone();
     let task = tokio::spawn(async move {
@@ -503,7 +490,7 @@ async fn a_stop_interrupts_the_search() {
         .await
     });
     let polling = async {
-        while bench.relay.fake.requests().is_empty() {
+        while bench.engines.requests().is_empty() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
@@ -541,8 +528,7 @@ async fn a_page_is_read_by_the_app_and_allows_its_links() {
     let policy = site.policy();
     let page = site.url("/page");
     let next = site.url("/next");
-    let dir = tempfile::tempdir().unwrap();
-    let web = web_tools_on("http://127.0.0.1:9", dir.path());
+    let web = closed_web_tools();
     let mut allowed = AllowedUrls::from_text(&format!("Read {page}."));
     let refused = run(
         &web,
@@ -777,8 +763,7 @@ async fn the_guard_refuses_private_addresses_names_and_redirects() {
     );
 
     // Durée bornée, arrêt pendant la lecture.
-    let dir = tempfile::tempdir().unwrap();
-    let web = web_tools_on("http://127.0.0.1:9", dir.path());
+    let web = closed_web_tools();
     let mut allowed = AllowedUrls::from_text(&site.url("/slow"));
     let mut cancel = idle();
     let started = Instant::now();
@@ -882,8 +867,7 @@ async fn a_hostile_page_is_read_under_the_tool_delay_and_can_be_stopped() {
     let hostile = "<svg></svg>".repeat(380_000);
     let site = Site::start(move |_| Reply::html(&hostile)).await;
     let policy = site.policy();
-    let dir = tempfile::tempdir().unwrap();
-    let web = web_tools_on("http://127.0.0.1:9", dir.path());
+    let web = closed_web_tools();
     let url = site.url("/hostile");
     let mut allowed = AllowedUrls::from_text(&url);
     let mut cancel = idle();

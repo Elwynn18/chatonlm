@@ -1,70 +1,10 @@
-// Faux relais de la recherche web (binaire `fake-relay` du crate
-// relay-server, fonctionnalité `fake`) lancé depuis un test : le vrai relais
-// avec de faux moteurs (Brave, Mojeek) sur la boucle locale, preuve de
-// travail minuscule. L'app s'y adresse par CHATONLM_RELAY_URL (withApp la
-// ferme par défaut). Binaire construit par scripts/e2e-build.sh
-// (`cargo build -p relay-server --features fake --bin fake-relay`).
+// Faux fournisseur de modèles distants (API d'OpenAI) lancé depuis un test :
+// le faux llama-server (binaire `fake-llama`, construit par
+// scripts/e2e-build.sh), servi comme fournisseur « custom ».
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 import { ROOT } from "./app.mjs";
-
-export const FAKE_RELAY = `${ROOT}.tools/e2e-target/debug/fake-relay`;
-
-/**
- * Démarre le faux relais. Options : `daily` (recherches par jour et par
- * installation), `paused`, `budgetExhausted`, `minVersion` (version minimale
- * de l'app), `providersDown` (aucun moteur ne répond). Renvoie
- * { url, env, stop } ; `env` se passe à withApp.
- */
-export async function startFakeRelay({
-  daily,
-  paused = false,
-  budgetExhausted = false,
-  minVersion,
-  providersDown = false,
-} = {}) {
-  const dir = mkdtempSync(join(ROOT, ".tools/tmp/fake-relay-"));
-  const args = ["--dir", dir];
-  if (daily !== undefined) args.push("--daily", String(daily));
-  if (paused) args.push("--paused");
-  if (budgetExhausted) args.push("--budget-exhausted");
-  if (minVersion) args.push("--min-version", minVersion);
-  if (providersDown) args.push("--providers-down");
-  // Entrée standard tenue ouverte : sa fermeture arrête le relais (même si
-  // le test meurt).
-  const child = spawn(FAKE_RELAY, args, {
-    stdio: ["pipe", "pipe", "inherit"],
-  });
-  const exited = new Promise((resolve) => {
-    child.once("exit", resolve);
-    child.once("error", () => resolve(null));
-  });
-  const url = await new Promise((resolve, reject) => {
-    const lines = createInterface({ input: child.stdout });
-    lines.on("line", (line) => {
-      if (line.startsWith("FAKE_RELAY_URL=")) {
-        resolve(line.slice("FAKE_RELAY_URL=".length));
-      }
-    });
-    child.once("error", reject);
-    child.once("exit", (code) =>
-      reject(new Error(`fake-relay s'est arrêté (code ${code})`)),
-    );
-  });
-  return {
-    url,
-    env: { CHATONLM_RELAY_URL: url },
-    async stop() {
-      child.stdin.end();
-      const timer = setTimeout(() => child.kill("SIGKILL"), 3000);
-      await exited;
-      clearTimeout(timer);
-      rmSync(dir, { recursive: true, force: true });
-    },
-  };
-}
 
 export const FAKE_LLAMA = `${ROOT}.tools/e2e-target/debug/fake-llama`;
 

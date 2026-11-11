@@ -412,9 +412,7 @@
       "webOff": "La recherche web est désactivée.",
       "webUsage": "Envoyez {p}web on ou {p}web off.",
       "webUnavailable": "La recherche web n'est pas disponible pour le moment. Envoyez {p}web off pour répondre sans elle.",
-      "webLimit": "La limite de la recherche web est atteinte pour le moment. Envoyez {p}web off pour répondre sans elle.",
-      "webPaused": "La recherche web est en pause pour le moment. Envoyez {p}web off pour répondre sans elle.",
-      "webOutdated": "La recherche web demande une version plus récente de ChatonLM sur l'ordinateur. Envoyez {p}web off pour répondre sans elle.",
+      "webRefused": "La recherche web a été refusée : DuckDuckGo limite les recherches de l'ordinateur, ou la clé du moteur de recherche est à vérifier dans les paramètres de ChatonLM. Envoyez {p}web off pour répondre sans elle.",
       "statusEphemeralOn": "Conversations éphémères : activées",
       "statusEphemeralOff": "Conversations éphémères : désactivées",
       "ephemeralOn": "Les conversations éphémères sont activées : elles ne sont pas gardées dans l'historique de ChatonLM, et sont effacées par {p}new, par {p}ephemeral off ou à la fermeture de ChatonLM. Envoyez {p}keep pour garder celle en cours.",
@@ -568,22 +566,25 @@
     "sameId": "{name} remplacerait un autre modèle ({id}) : il n'a pas été repris.",
     "sharedFolder": "Ce dossier appartient aussi à l'Ollama installé sur cet ordinateur : ChatonLM n'y efface jamais rien."
   },
-  "relay": {
-    "offline": "Le service de recherche de ChatonLM est injoignable. Vérifiez votre connexion à Internet, puis réessayez.",
-    "quotaExceeded": "Les recherches web du jour sont épuisées. De nouvelles seront possibles demain.",
-    "rateLimited": "Trop de recherches web pour le moment. Réessayez plus tard.",
-    "budgetExhausted": "La recherche web est en pause jusqu'au mois prochain : le budget du mois, payé par les dons, est épuisé.",
-    "budgetExhaustedToday": "La recherche web est en pause jusqu'à demain : la part du budget de ce jour, payé par les dons, est épuisée.",
-    "paused": "La recherche web est en pause pour maintenance. Réessayez plus tard.",
-    "outdated": "Cette version de ChatonLM ne peut plus chercher sur le web. Mettez ChatonLM à jour pour chercher de nouveau.",
-    "banned": "La recherche web a été coupée pour cette installation.",
-    "providerUnavailable": "Le moteur de recherche ne répond pas pour le moment. Réessayez dans un instant.",
-    "registrationFailed": "ChatonLM n'a pas pu s'inscrire auprès de son service de recherche. Réessayez plus tard.",
-    "rejected": "Le service de recherche a refusé la requête. Réessayez plus tard.",
+  "webSearch": {
+    "offline": "La recherche web n'arrive pas à joindre Internet. Vérifiez votre connexion, puis réessayez.",
+    "blocked": "DuckDuckGo limite pour le moment les recherches de cet ordinateur. Réessayez dans quelques minutes, ou ajoutez votre propre moteur de recherche dans Paramètres › Recherche web.",
+    "blockedWithPersonal": "{engine} n'a pas répondu, et DuckDuckGo limite pour le moment les recherches de cet ordinateur. Réessayez dans quelques minutes.",
+    "unavailable": "Aucun moteur de recherche n'a répondu. Réessayez dans un instant.",
+    "keyRefused": "{engine} a refusé votre clé. Vérifiez-la dans Paramètres › Recherche web.",
+    "exhausted": "Votre clé {engine} n'a plus de recherches. Vérifiez votre forfait, ou choisissez un autre moteur dans Paramètres › Recherche web.",
+    "jsonDisabled": "Cette instance SearXNG ne permet pas les résultats en JSON. Activez le format json dans ses réglages (search.formats), ou choisissez un autre moteur dans Paramètres › Recherche web.",
+    "badAddress": "L'adresse SearXNG n'est pas valide. Entrez une adresse qui commence par http:// ou https://.",
+    "badKey": "Cette clé n'est pas valide. Collez la clé entière, sans espaces.",
     "invalidQuery": "Cette recherche ne peut pas être envoyée : elle est vide ou trop longue.",
-    "malformed": "Le service de recherche a envoyé une réponse illisible. Réessayez plus tard.",
-    "storage": "ChatonLM n'a pas pu enregistrer la clé de son service de recherche. Vérifiez qu'il reste de la place sur le disque, puis réessayez.",
-    "cancelled": "Recherche web annulée."
+    "cancelled": "Recherche web annulée.",
+    "check": {
+      "ok": "{engine} a répondu. La recherche web fonctionne.",
+      "notConfigured": "Entrez d'abord une clé ou une adresse.",
+      "blocked": "DuckDuckGo limite pour le moment les recherches de cet ordinateur. Réessayez dans quelques minutes.",
+      "offline": "{engine} est injoignable. Vérifiez l'adresse et votre connexion.",
+      "unavailable": "{engine} n'a pas répondu correctement. Réessayez dans un instant."
+    }
   },
   "engine": {
     "unavailable": "cette version de ChatonLM ne contient pas le moteur de texte",

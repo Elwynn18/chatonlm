@@ -1072,9 +1072,7 @@ async fn respond<H: Host>(
 pub(super) fn error_note(kind: ChatErrorKind, message: &str, p: &str) -> String {
     match kind {
         ChatErrorKind::WebSearchUnavailable => t!("easyLink.bot.webUnavailable", p = p),
-        ChatErrorKind::WebSearchLimit => t!("easyLink.bot.webLimit", p = p),
-        ChatErrorKind::WebSearchPaused => t!("easyLink.bot.webPaused", p = p),
-        ChatErrorKind::WebSearchOutdated => t!("easyLink.bot.webOutdated", p = p),
+        ChatErrorKind::WebSearchRefused => t!("easyLink.bot.webRefused", p = p),
         ChatErrorKind::EngineFailed => t!("easyLink.bot.engineDown"),
         // Le correspondant ne peut pas compacter : l'envoi suivant le fera de
         // lui-même.
@@ -1338,16 +1336,8 @@ mod unit {
             t!("easyLink.bot.webUnavailable", p = "/")
         );
         assert_eq!(
-            note(ChatErrorKind::WebSearchLimit),
-            t!("easyLink.bot.webLimit", p = "/")
-        );
-        assert_eq!(
-            note(ChatErrorKind::WebSearchPaused),
-            t!("easyLink.bot.webPaused", p = "/")
-        );
-        assert_eq!(
-            note(ChatErrorKind::WebSearchOutdated),
-            t!("easyLink.bot.webOutdated", p = "/")
+            note(ChatErrorKind::WebSearchRefused),
+            t!("easyLink.bot.webRefused", p = "/")
         );
         assert_eq!(
             note(ChatErrorKind::EngineFailed),
@@ -1366,13 +1356,11 @@ mod unit {
         ] {
             assert_eq!(note(kind), "⚠️ detail", "{kind:?}");
         }
-        // Les quatre conseils de la recherche sont distincts et disent
+        // Les deux conseils de la recherche sont distincts et disent
         // `/web off`.
         let web: Vec<String> = [
             ChatErrorKind::WebSearchUnavailable,
-            ChatErrorKind::WebSearchLimit,
-            ChatErrorKind::WebSearchPaused,
-            ChatErrorKind::WebSearchOutdated,
+            ChatErrorKind::WebSearchRefused,
         ]
         .into_iter()
         .map(note)
@@ -1381,7 +1369,7 @@ mod unit {
         let mut distinct = web.clone();
         distinct.sort();
         distinct.dedup();
-        assert_eq!(distinct.len(), 4);
+        assert_eq!(distinct.len(), 2);
         assert!(
             !web.iter()
                 .chain([&note(ChatErrorKind::EngineFailed)])

@@ -1,0 +1,22 @@
+[package]
+name = "web-search"
+version = "0.1.0"
+description = "Recherche web de ChatonLM depuis l'ordinateur de l'utilisateur : DuckDuckGo sans compte, Brave, Mojeek, SearXNG ; résultats normalisés"
+license = "MIT"
+edition = "2024"
+publish = false
+
+[dependencies]
+# Mêmes choix que l'app : rustls avec ring, sans fournisseur par défaut ;
+# `gzip` : réponses compressées ; `system-proxy` : mandataire du système.
+reqwest = { version = "0.13.5", default-features = false, features = ["gzip", "rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.2", features = ["macros", "sync", "time"] }
+tokio-util = "0.7.19"
+url = "2.5.8"
+
+[dev-dependencies]
+# Faux moteurs (DuckDuckGo, Brave, Mojeek, SearXNG) sur la boucle locale.
+fake-services = { path = "../fake-services" }
+tokio = { version = "1.53.2", features = ["macros", "net", "rt-multi-thread", "test-util"] }

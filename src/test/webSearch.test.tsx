@@ -1,11 +1,9 @@
 // Recherche web côté frontend : de bout en bout, l'app face au simulateur,
 // qui rejoue les séquences web-search*.json enregistrées par les tests du
-// moteur Rust ; puis les éléments propres à la recherche par le relais de
-// ChatonLM (actions sous ses erreurs, recherches restantes dans la bulle du
-// bouton, mention « Powered by Brave Search »), et leurs textes dans les
-// trois langues.
+// moteur Rust ; puis les éléments propres à la recherche de ChatonLM, faite
+// depuis cet ordinateur (actions sous ses erreurs, bulle du bouton, mention
+// « Powered by Brave Search »), et leurs textes dans les trois langues.
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
   cleanup,
@@ -16,7 +14,6 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatErrorKind } from "@/bindings/ChatErrorKind";
 import type { ToolCall } from "@/bindings/ToolCall";
@@ -35,7 +32,6 @@ import { fakeBackend } from "@/test/backend";
 import { untranslatedTexts, usePseudoLanguage } from "@/test/i18n";
 import { renderApp, texts } from "@/test/renderApp";
 import { installSimulator, sequence } from "@/test/simulator";
-import { installWebSearch, okStatus } from "@/test/webSearch";
 
 configure({ asyncUtilTimeout: 5000 });
 
@@ -44,7 +40,7 @@ afterEach(() => {
   cleanup();
 });
 
-/** Modèle et question des séquences enregistrées (recherche par le relais). */
+/** Modèle et question des séquences enregistrées (recherche web). */
 const MODEL = sequence("web-search").request.model;
 
 const LATEST = sequence("web-search").request.content;
@@ -132,8 +128,8 @@ describe("web search", () => {
     // Résultat montré : titres et liens, sans les extraits (donnés au seul
     // modèle).
     const shown = resultBlocks()[0].querySelector("pre")?.textContent ?? "";
-    expect(shown).toContain(`"title": "Résultat 1 pour ${LATEST}"`);
-    expect(shown).toContain('"url": "https://example.org/1"');
+    expect(shown).toContain(`"title": "DuckDuckGo result 1 for ${LATEST}"`);
+    expect(shown).toContain('"url": "https://duckduckgo.example/1"');
     expect(shown).not.toContain("Extrait");
   });
 
@@ -160,13 +156,12 @@ describe("web search", () => {
 });
 
 const GENERATE = "Generate without web search";
+const SETTINGS = "Web search settings";
 
 describe("actions under a web search error", () => {
   const kinds: WebSearchErrorKind[] = [
     "webSearchUnavailable",
-    "webSearchLimit",
-    "webSearchPaused",
-    "webSearchOutdated",
+    "webSearchRefused",
   ];
 
   it("knows its kinds", () => {
@@ -178,42 +173,39 @@ describe("actions under a web search error", () => {
     }
   });
 
-  it("relay unreachable: Retry with the search, or without it", async () => {
+  it("search unavailable: Retry with the search, or without it", async () => {
     const onRetry = vi.fn();
+    const onOpenSettings = vi.fn();
     render(
-      <WebSearchErrorActions kind="webSearchUnavailable" onRetry={onRetry} />,
+      <WebSearchErrorActions
+        kind="webSearchUnavailable"
+        onRetry={onRetry}
+        onOpenSettings={onOpenSettings}
+      />,
     );
+    // Rien à régler : pas de bouton des réglages.
+    expect(screen.queryByRole("button", { name: SETTINGS })).toBeNull();
+    const buttons = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(buttons).toEqual(["Retry", GENERATE]);
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     await userEvent.click(screen.getByRole("button", { name: GENERATE }));
     expect(onRetry.mock.calls).toEqual([[true], [false]]);
   });
 
-  it("quota or pause: only without web search", async () => {
-    for (const kind of ["webSearchLimit", "webSearchPaused"] as const) {
-      const onRetry = vi.fn();
-      render(<WebSearchErrorActions kind={kind} onRetry={onRetry} />);
-      expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-      await userEvent.click(screen.getByRole("button", { name: GENERATE }));
-      expect(onRetry).toHaveBeenCalledExactlyOnceWith(false);
-      cleanup();
-    }
-  });
-
-  it("outdated app: Check for updates, then without web search", async () => {
+  it("search refused: Web search settings first, then Retry or without", async () => {
     const onRetry = vi.fn();
-    const onCheckUpdates = vi.fn();
+    const onOpenSettings = vi.fn();
     render(
       <WebSearchErrorActions
-        kind="webSearchOutdated"
+        kind="webSearchRefused"
         onRetry={onRetry}
-        onCheckUpdates={onCheckUpdates}
+        onOpenSettings={onOpenSettings}
       />,
     );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Check for updates" }),
-    );
-    expect(onCheckUpdates).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    const buttons = screen.getAllByRole("button").map((b) => b.textContent);
+    expect(buttons).toEqual([SETTINGS, "Retry", GENERATE]);
+    await userEvent.click(screen.getByRole("button", { name: SETTINGS }));
+    expect(onOpenSettings).toHaveBeenCalledOnce();
     await userEvent.click(screen.getByRole("button", { name: GENERATE }));
     expect(onRetry).toHaveBeenCalledExactlyOnceWith(false);
   });
@@ -238,84 +230,20 @@ describe("actions under a web search error", () => {
   });
 });
 
-/** Bouton seul, dans un client de requêtes neuf, face au simulateur. */
-function renderButton(node: ReactNode) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return render(
-    <QueryClientProvider client={client}>{node}</QueryClientProvider>,
-  );
-}
-
 describe("the web search button", () => {
-  it("says the searches left today while on, and reads nothing while off", async () => {
+  it("says what a click does, and asks the engine nothing", () => {
     const simulator = installSimulator();
-    const fake = installWebSearch(simulator);
-    fake.status = okStatus(12);
-    const { rerender } = renderButton(
+    const { rerender } = render(
       <WebSearchButton isVisible isActive={false} onToggle={() => {}} />,
     );
-    const button = screen.getByRole("button", { name: "Web search" });
-    expect(button.title).toBe("Enable web search");
-    expect(fake.reads).toBe(0);
-    rerender(
-      <QueryClientProvider
-        client={
-          new QueryClient({ defaultOptions: { queries: { retry: false } } })
-        }
-      >
-        <WebSearchButton isVisible isActive onToggle={() => {}} />
-      </QueryClientProvider>,
+    expect(screen.getByRole("button", { name: "Web search" }).title).toBe(
+      "Enable web search",
     );
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Web search" }).title).toBe(
-        "Disable web search (12 searches left today)",
-      ),
+    rerender(<WebSearchButton isVisible isActive onToggle={() => {}} />);
+    expect(screen.getByRole("button", { name: "Web search" }).title).toBe(
+      "Disable web search",
     );
-    expect(fake.reads).toBe(1);
-  });
-
-  it("says why searching stopped", async () => {
-    for (const [status, title] of [
-      [okStatus(1), "Disable web search (1 search left today)"],
-      [okStatus(0), "Disable web search (today's searches are used up)"],
-      [
-        { ...okStatus(5), state: "paused" },
-        "Disable web search (web search is paused for now)",
-      ],
-      [
-        { ...okStatus(5), state: "budgetExhausted" },
-        "Disable web search (web search is paused for now)",
-      ],
-      [
-        { ...okStatus(5), state: "outdated" },
-        "Disable web search (update ChatonLM to search again)",
-      ],
-      [
-        { ...okStatus(5), state: "unavailable" },
-        "Disable web search (the search service can't be reached)",
-      ],
-    ] as const) {
-      const simulator = installSimulator();
-      installWebSearch(simulator).status = { ...status };
-      renderButton(<WebSearchButton isVisible isActive onToggle={() => {}} />);
-      await waitFor(() =>
-        expect(screen.getByRole("button", { name: "Web search" }).title).toBe(
-          title,
-        ),
-      );
-      cleanup();
-    }
-  });
-
-  it("a model without tools never asks the relay", () => {
-    const simulator = installSimulator();
-    const fake = installWebSearch(simulator);
-    renderButton(
-      <WebSearchButton isVisible isUnavailable isActive onToggle={() => {}} />,
-    );
-    expect(fake.reads).toBe(0);
+    expect(simulator.calls).toHaveLength(0);
   });
 });
 
@@ -340,10 +268,10 @@ describe("Powered by Brave Search", () => {
       "Powered by Brave Search · About web search",
     );
     cleanup();
-    // Autre fournisseur du relais : le lien seul.
+    // Autre moteur (DuckDuckGo, Mojeek…) : le lien seul.
     render(
       <WebSearchAttribution
-        call={searchCall('{"results":[],"provider":"mojeek"}')}
+        call={searchCall('{"results":[],"provider":"duckduckgo"}')}
       />,
     );
     expect(screen.getByTestId("web-search-attribution").textContent).toBe(
@@ -418,26 +346,22 @@ describe("Powered by Brave Search", () => {
   });
 });
 
-describe("texts of the web search by the relay", () => {
-  it("are translated", async () => {
+describe("texts of the web search", () => {
+  it("are translated", () => {
     usePseudoLanguage();
-    const simulator = installSimulator();
-    installWebSearch(simulator).status = okStatus(3);
-    renderButton(
+    installSimulator();
+    render(
       <>
         <WebSearchButton isVisible isActive onToggle={() => {}} />
         <WebSearchErrorActions
-          kind="webSearchOutdated"
+          kind="webSearchRefused"
           onRetry={() => {}}
-          onCheckUpdates={() => {}}
+          onOpenSettings={() => {}}
         />
         <WebSearchAttribution
           call={searchCall('{"results":[],"provider":"brave"}')}
         />
       </>,
-    );
-    await waitFor(() =>
-      expect(simulator.callsTo("web_search_status")).toHaveLength(1),
     );
     expect(untranslatedTexts(document.body)).toEqual([]);
   });
@@ -446,13 +370,13 @@ describe("texts of the web search by the relay", () => {
     act(() => setLanguage("fr"));
     render(
       <WebSearchErrorActions
-        kind="webSearchOutdated"
+        kind="webSearchRefused"
         onRetry={() => {}}
-        onCheckUpdates={() => {}}
+        onOpenSettings={() => {}}
       />,
     );
     expect(
-      screen.getByRole("button", { name: "Rechercher des mises à jour" }),
+      screen.getByRole("button", { name: "Paramètres de la recherche web" }),
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Générer sans recherche web" }),

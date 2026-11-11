@@ -20,6 +20,7 @@ pub mod settings;
 pub mod study;
 pub mod updates;
 pub mod voice_mode;
+pub mod web_search;
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::Path;
@@ -77,6 +78,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0042_remote_providers.sql"),
     include_str!("../../migrations/0043_remote_retired_ids.sql"),
     include_str!("../../migrations/0044_ollama_settings_removed.sql"),
+    include_str!("../../migrations/0045_web_search_engine.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.

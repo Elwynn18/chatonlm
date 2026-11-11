@@ -432,6 +432,7 @@ describe("Settings tabs", () => {
       ["Read aloud", "/settings?section=readAloud"],
       ["Voice mode", "/settings?section=voiceMode"],
       ["Easy Link", "/settings?section=easyLink"],
+      ["Web search", "/settings?section=webSearch"],
       ["VS Code", "/settings?section=vscode"],
       ["Keyboard shortcuts", "/settings?section=shortcuts"],
     ]);
@@ -446,6 +447,7 @@ describe("Settings tabs", () => {
     Models: () => screen.findByTestId("models-settings"),
     Dictation: () => screen.findByTestId("dictation"),
     "Easy Link": () => screen.findByTestId("easy-link-settings"),
+    "Web search": () => screen.findByTestId("web-search-settings"),
     "VS Code": () => screen.findByTestId("vscode-settings"),
   };
 
@@ -456,6 +458,7 @@ describe("Settings tabs", () => {
     ["/settings?section=account", "General"],
     ["/settings?section=dictation", "Dictation"],
     ["/settings?section=easyLink", "Easy Link"],
+    ["/settings?section=webSearch", "Web search"],
     ["/settings?section=vscode", "VS Code"],
     ["/settings?section=other", "General"],
   ] as const)("%s opens %s", async (path, name) => {
@@ -472,6 +475,7 @@ describe("Settings tabs", () => {
       "readAloud",
       "voiceMode",
       "easyLink",
+      "webSearch",
       "vscode",
       "shortcuts",
     ]) {
@@ -667,6 +671,7 @@ describe("Settings in other languages", () => {
       "Lecture à voix haute",
       "Mode vocal",
       "Easy Link",
+      "Recherche web",
       "VS Code",
       "Raccourcis clavier",
     ]);

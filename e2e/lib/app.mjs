@@ -70,9 +70,11 @@ const DROPPED_ENV = [
   "CHATONLM_DISCORD_URL",
   // Signaler un bug : service du site, donné par un test qui s'en sert.
   "CHATONLM_REPORT_URL",
-  // Relais de la recherche web, fournisseurs des modèles distants : donnés
+  // Moteurs de la recherche web, fournisseurs des modèles distants : donnés
   // par un test qui s'en sert.
-  "CHATONLM_RELAY_URL",
+  "CHATONLM_DUCKDUCKGO_URL",
+  "CHATONLM_BRAVE_URL",
+  "CHATONLM_MOJEEK_URL",
   "CHATONLM_REMOTE_URL",
 ];
 
@@ -249,10 +251,13 @@ export async function withApp(
       // Signaler un bug : chatonlm.com fermé (aucun signalement d'essai ne
       // part vers la vraie boîte).
       CHATONLM_REPORT_URL: "http://127.0.0.1:1",
-      // Relais de la recherche web et fournisseurs des modèles distants
-      // fermés (relay.chatonlm.com, ollama.com, OpenRouter, Mistral jamais
-      // contactés) ; un test qui s'en sert donne ses faux (startFakeRelay).
-      CHATONLM_RELAY_URL: "http://127.0.0.1:1",
+      // Moteurs de la recherche web (DuckDuckGo, Brave, Mojeek) fermés : la
+      // recherche part de la machine, jamais vers un vrai moteur ; un test
+      // qui s'en sert donne ses faux (startFakeSearch). Fournisseurs des
+      // modèles distants fermés aussi (ollama.com, OpenRouter, Mistral).
+      CHATONLM_DUCKDUCKGO_URL: "http://127.0.0.1:1",
+      CHATONLM_BRAVE_URL: "http://127.0.0.1:1",
+      CHATONLM_MOJEEK_URL: "http://127.0.0.1:1",
       // Pack NVIDIA (CUDA) : notre Release et les fichiers de NVIDIA fermés ;
       // clé du manifeste celle de l'app (variable retirée ci-dessus).
       CHATONLM_CUDA_PACK_URL: "http://127.0.0.1:1",

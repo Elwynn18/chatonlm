@@ -1,6 +1,6 @@
 // Onglets des réglages (propres à ChatonLM : l'officiel est une page unique) :
 // General, Models, Dictation, Read aloud, Voice mode, Easy Link,
-// VS Code, Keyboard shortcuts, portés par le
+// Web search, VS Code, Keyboard shortcuts, portés par le
 // paramètre `section` de l'adresse (General sans paramètre). Même style que
 // les onglets du ModelHub : vrais liens (Tab puis Entrée), onglet courant
 // annoncé par aria-current ; fenêtre étroite ou zoom fort : les onglets
@@ -28,6 +28,7 @@ export type SettingsTab =
   | "readAloud"
   | "voiceMode"
   | "easyLink"
+  | "webSearch"
   | "vscode"
   | "shortcuts";
 
@@ -38,6 +39,7 @@ const TABS: { name: SettingsTab; label: TKey }[] = [
   { name: "readAloud", label: "settings.tabs.readAloud" },
   { name: "voiceMode", label: "settings.tabs.voiceMode" },
   { name: "easyLink", label: "settings.tabs.easyLink" },
+  { name: "webSearch", label: "settings.tabs.webSearch" },
   { name: "vscode", label: "settings.tabs.vscode" },
   { name: "shortcuts", label: "settings.tabs.shortcuts" },
 ];
@@ -50,7 +52,7 @@ export function SettingsTabs({ current }: { current: SettingsTab }) {
       className="flex-none px-6 pt-4 select-none"
     >
       <div className="mx-auto max-w-4xl">
-        {/* Huit onglets, plus longs en espagnol et en français : à la ligne
+        {/* Neuf onglets, plus longs en espagnol et en français : à la ligne
             plutôt que de déborder. */}
         <div
           data-testid="settings-tabs"

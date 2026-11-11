@@ -12,13 +12,13 @@
 // - la clé n'est ni dans la page, ni dans le journal de l'app, ni dans la
 //   base ; elle est dans `remote/keys.json` (0600) ;
 // - aucune violation de la CSP ni erreur dans la console.
-// Écrit à l'étape 2 (lot L7), lancé à l'étape 3 : binaires fake-llama et
-// fake-relay construits par scripts/e2e-build.sh.
+// Écrit à l'étape 2 (lot L7), lancé à l'étape 3 : binaire fake-llama
+// construit par scripts/e2e-build.sh.
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT, withApp } from "./lib/app.mjs";
-import { startFakeProvider } from "./lib/relay.mjs";
+import { startFakeProvider } from "./lib/provider.mjs";
 
 const binary = process.argv[2];
 const dataDir = process.env.CHATONLM_DATA_DIR;

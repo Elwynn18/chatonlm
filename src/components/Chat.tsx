@@ -41,8 +41,9 @@
  * a provider with the user's key) are under the message, not in banners
  * above the composer (RemoteErrorActions.tsx): remote models turned off or
  * key refused, Open settings or Check the key (Settings > Models), Retry;
- * the errors of the web search by ChatonLM's relay are under the message too
- * (WebSearchErrorActions.tsx); so are the failures of ChatonLM's own engine
+ * the errors of the web search (made from the user's computer, ChatonLM's
+ * own) are under the message too (WebSearchErrorActions.tsx: Retry, Web
+ * search settings, Generate without web search); so are the failures of ChatonLM's own engine
  * (EngineErrorActions.tsx: Retry, Open logs, Engine settings); ChatonLM's own
  * ephemeral
  * chats: while the ghost kitten button is on, the new chat page says so above
@@ -107,11 +108,11 @@ export function Chat({ chatId }: { chatId: string }) {
   return <ChatView key={chatId} chatId={chatId} />;
 }
 
-/** Ouvre la carte des mises à jour (Settings › General). */
-function useOpenUpdates() {
+/** Ouvre l'onglet Web search des réglages (moteur de la recherche). */
+function useOpenWebSearchSettings() {
   const navigate = useNavigate();
   return useCallback(() => {
-    void navigate({ to: "/settings", search: { card: "updates" } });
+    void navigate({ to: "/settings", search: { section: "webSearch" } });
   }, [navigate]);
 }
 
@@ -200,7 +201,7 @@ function NewChat() {
   useEffect(() => () => clearError(NEW_CHAT), []);
   const { send, cancel } = useSendMessage();
   const sendVoice = useSendVoice();
-  const openUpdates = useOpenUpdates();
+  const openWebSearchSettings = useOpenWebSearchSettings();
   const openModelsSettings = useOpenModelsSettings();
   const openEngineSettings = useOpenEngineSettings();
   const ephemeral = useNewChatEphemeral();
@@ -212,7 +213,7 @@ function NewChat() {
         {isWebSearchError(error.kind) && (
           <WebSearchErrorActions
             kind={error.kind}
-            onCheckUpdates={openUpdates}
+            onOpenSettings={openWebSearchSettings}
           />
         )}
         {isRemoteError(error.kind) && (
@@ -347,7 +348,7 @@ function ChatView({ chatId }: { chatId: string }) {
     messages,
     isStreaming,
   });
-  const openUpdates = useOpenUpdates();
+  const openWebSearchSettings = useOpenWebSearchSettings();
   const openModelsSettings = useOpenModelsSettings();
   const openEngineSettings = useOpenEngineSettings();
   const webSearchError = isWebSearchError(error?.kind)
@@ -360,7 +361,7 @@ function ChatView({ chatId }: { chatId: string }) {
     webSearchError !== undefined ? (
       <WebSearchErrorActions
         kind={webSearchError}
-        onCheckUpdates={openUpdates}
+        onOpenSettings={openWebSearchSettings}
         onRetry={
           lastSent
             ? (webSearch) => formRef.current?.retry(lastSent, { webSearch })

@@ -88,7 +88,7 @@ pub struct NewCourse {
     pub level: StudyLevel,
     /// Durée visée : 10, 20 ou 30 minutes.
     pub minutes: u32,
-    /// Recherche web (relais de ChatonLM).
+    /// Recherche web (faite depuis cet ordinateur : `crate::search`).
     pub web: bool,
     /// Fichiers préparés (zone des pièces jointes : `pick_files` puis
     /// `stage_paths`), texte seulement, au plus [`MAX_DOCUMENTS`] ; repris
@@ -129,8 +129,8 @@ pub enum StudyErrorCode {
     /// (serveur injoignable des versions 0.9), réécrit dans les cours
     /// enregistrés par la migration 0041.
     EngineFailed,
-    /// Recherche web impossible (relais injoignable, quota, pause). Ancien
-    /// code `signedOut`, réécrit de même.
+    /// Recherche web impossible (pas de réseau, blocage, clé refusée).
+    /// Ancien code `signedOut`, réécrit de même.
     WebSearch,
     /// Réponses du modèle inutilisables après les essais prévus.
     Invalid,

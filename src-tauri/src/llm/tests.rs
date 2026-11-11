@@ -102,7 +102,6 @@ fn with_remote(bench: &FakeBench, remote: Arc<FakeRemote>) -> Access {
         bench.store().clone(),
         data_dir.clone(),
         remote,
-        Arc::new(RelayClient::with_url(CLOSED_RELAY.into(), data_dir)),
         HubDownloads::with_options(|_| {}, Default::default()),
     )
 }

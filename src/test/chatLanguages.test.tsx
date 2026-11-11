@@ -334,19 +334,12 @@ describe("pseudo-language: no text written in the code", () => {
     const ERROR = "web search is not available right now";
     render(
       <div>
-        {(
-          [
-            "webSearchUnavailable",
-            "webSearchLimit",
-            "webSearchPaused",
-            "webSearchOutdated",
-          ] as const
-        ).map((kind) => (
+        {(["webSearchUnavailable", "webSearchRefused"] as const).map((kind) => (
           <ErrorMessage key={kind} message={ERROR}>
             <WebSearchErrorActions
               kind={kind}
               onRetry={vi.fn()}
-              onCheckUpdates={vi.fn()}
+              onOpenSettings={vi.fn()}
             />
           </ErrorMessage>
         ))}

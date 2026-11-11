@@ -7,6 +7,7 @@
     "readAloud": "Read aloud",
     "voiceMode": "Voice mode",
     "easyLink": "Easy Link",
+    "webSearch": "Web search",
     "vscode": "VS Code",
     "shortcuts": "Keyboard shortcuts"
   },
@@ -622,6 +623,34 @@
       "label": "Let VS Code notify me through Easy Link",
       "description": "When a long task finishes in VS Code (a terminal command, a build, a long answer), the ChatonLM extension can send a short message to your linked accounts: the task's name, how long it took and whether it succeeded. Never your code or the terminal's output. The status command also lists the tasks in progress."
     }
+  },
+  "webSearch": {
+    "title": "Web search",
+    "privacy": "Searches go from this computer straight to the search engine below. ChatonLM sees none of them; the search engine sees what you search for and your IP address.",
+    "howTo": "Turn web search on with the globe button in the message box.",
+    "engine": "Search engine",
+    "engines": {
+      "duckDuckGo": "Default. No account or key needed.",
+      "brave": "With your own Brave Search API key.",
+      "mojeek": "With your own Mojeek API key.",
+      "searxng": "With your own SearXNG instance, its JSON format turned on."
+    },
+    "fallback": "If {engine} doesn't answer, DuckDuckGo takes over.",
+    "waitingKey": "Until a key is saved, DuckDuckGo is used.",
+    "waitingAddress": "Until an address is saved, DuckDuckGo is used.",
+    "keyLabel": "{engine} API key",
+    "addressLabel": "SearXNG address",
+    "keySaved": "A key is saved.",
+    "addressSaved": "An address is saved.",
+    "replaceKey": "Paste a new key to replace it",
+    "replaceAddress": "Enter a new address to replace it",
+    "save": "Save",
+    "test": "Test",
+    "testing": "Testing…",
+    "removeKey": "Remove key",
+    "removeAddress": "Remove address",
+    "getKey": "Get a {engine} API key",
+    "searxngHelp": "How to turn on SearXNG's JSON format"
   },
   "vscode": {
     "loadFailed": "Couldn't read the VS Code settings: {message}",

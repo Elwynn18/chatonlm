@@ -7,6 +7,7 @@
     "readAloud": "Lecture à voix haute",
     "voiceMode": "Mode vocal",
     "easyLink": "Easy Link",
+    "webSearch": "Recherche web",
     "vscode": "VS Code",
     "shortcuts": "Raccourcis clavier"
   },
@@ -622,6 +623,34 @@
       "label": "Laisser VS Code me prévenir par Easy Link",
       "description": "Quand une longue tâche se termine dans VS Code (commande du terminal, compilation, longue réponse), l'extension ChatonLM peut envoyer un court message à vos comptes liés : le nom de la tâche, sa durée et son issue. Jamais votre code ni la sortie du terminal. La commande status montre aussi les tâches en cours."
     }
+  },
+  "webSearch": {
+    "title": "Recherche web",
+    "privacy": "Les recherches partent de cet ordinateur directement vers le moteur de recherche ci-dessous. ChatonLM n'en voit aucune ; le moteur de recherche voit ce que vous cherchez et votre adresse IP.",
+    "howTo": "Activez la recherche web avec le bouton en forme de globe de la zone de saisie.",
+    "engine": "Moteur de recherche",
+    "engines": {
+      "duckDuckGo": "Par défaut. Ni compte ni clé.",
+      "brave": "Avec votre propre clé d'API Brave Search.",
+      "mojeek": "Avec votre propre clé d'API Mojeek.",
+      "searxng": "Avec votre propre instance SearXNG, format JSON activé."
+    },
+    "fallback": "Si {engine} ne répond pas, DuckDuckGo prend le relais.",
+    "waitingKey": "Tant qu'aucune clé n'est enregistrée, DuckDuckGo est utilisé.",
+    "waitingAddress": "Tant qu'aucune adresse n'est enregistrée, DuckDuckGo est utilisé.",
+    "keyLabel": "Clé d'API {engine}",
+    "addressLabel": "Adresse SearXNG",
+    "keySaved": "Une clé est enregistrée.",
+    "addressSaved": "Une adresse est enregistrée.",
+    "replaceKey": "Collez une nouvelle clé pour la remplacer",
+    "replaceAddress": "Entrez une nouvelle adresse pour la remplacer",
+    "save": "Enregistrer",
+    "test": "Tester",
+    "testing": "Test en cours…",
+    "removeKey": "Retirer la clé",
+    "removeAddress": "Retirer l'adresse",
+    "getKey": "Obtenir une clé d'API {engine}",
+    "searxngHelp": "Activer le format JSON de SearXNG"
   },
   "vscode": {
     "loadFailed": "Impossible de lire les réglages de VS Code : {message}",

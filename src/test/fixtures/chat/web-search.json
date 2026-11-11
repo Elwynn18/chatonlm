@@ -1,5 +1,5 @@
 {
-  "description": "Web search by ChatonLM's relay: a first answer made of a web_search call, its result (titles and links only), then a second answer that quotes what the model received (the excerpts too).",
+  "description": "Web search from the computer (DuckDuckGo by default): a first answer made of a web_search call, its result (titles and links only), then a second answer that quotes what the model received (the excerpts too).",
   "request": {
     "streamId": "stream-1",
     "content": "What is new in llama.cpp?",
@@ -59,7 +59,7 @@
       "type": "toolResult",
       "messageId": 2,
       "index": 0,
-      "result": "{\"results\":[{\"title\":\"Résultat 1 pour What is new in llama.cpp?\",\"url\":\"https://example.org/1\"},{\"title\":\"Résultat 2 pour What is new in llama.cpp?\",\"url\":\"https://example.org/2\"},{\"title\":\"Résultat 3 pour What is new in llama.cpp?\",\"url\":\"https://example.org/3\"},{\"title\":\"Résultat 4 pour What is new in llama.cpp?\",\"url\":\"https://example.org/4\"},{\"title\":\"Résultat 5 pour What is new in llama.cpp?\",\"url\":\"https://example.org/5\"}],\"provider\":\"brave\"}",
+      "result": "{\"results\":[{\"title\":\"DuckDuckGo result 1 for What is new in llama.cpp?\",\"url\":\"https://duckduckgo.example/1\"},{\"title\":\"DuckDuckGo result 2 for What is new in llama.cpp?\",\"url\":\"https://duckduckgo.example/2\"},{\"title\":\"DuckDuckGo result 3 for What is new in llama.cpp?\",\"url\":\"https://duckduckgo.example/3\"},{\"title\":\"DuckDuckGo result 4 for What is new in llama.cpp?\",\"url\":\"https://duckduckgo.example/4\"},{\"title\":\"DuckDuckGo result 5 for What is new in llama.cpp?\",\"url\":\"https://duckduckgo.example/5\"}],\"provider\":\"duckduckgo\"}",
       "error": null
     },
     {
@@ -69,11 +69,11 @@
     },
     {
       "type": "content",
-      "text": "Found: {\"results\":[{\"title\":\"Résultat 1 pour What is new in llama.cpp?\",\"url\":\"https://example.org/1\",\"content\":\"Extrait 1 & What is new in llama.cpp?\"},{\"title\":\"Résultat 2 pour What is new in llama.cpp?\",\"url\":\"https://example.org/2\",\"content\":\"Extrait 2 & What is new in llama.cpp?\"},{\"title\":\"Résultat 3 pour What is new in llama.cpp?\",\"url\":\"https://example.org/3\",\"content\":\"Extrait 3 & What is new in llama.cpp?\"},{\"title\":\"Résultat 4 pour What is new in llama.cpp?\",\"url\":\"https://example.org/4\",\"content\":\"Extrait 4 & What is new in llama.cpp?\"},{\"title\":\"Résultat 5 pour What is new in llama.cpp?\",\"url\":\"https://example.org/5\",\"content\":\"Extrait 5 & What is new in llama.cpp?\"}]}"
+      "text": "Found: {\"results\":[{\"title\":\"DuckDuckGo result 1 for What is new in llama.cpp?\",\"url\":\"https://duckduckgo.example/1\",\"content\":\"Extrait 1 (duckduckgo)\"},{\"title\":\"DuckDuckGo result 2 for What is new in llama.cpp?\",\"url\":\"https://duckduckgo.example/2\",\"content\":\"Extrait 2 (duckduckgo)\"},{\"title\":\"DuckDuckGo result 3 for What is new in llama.cpp?\",\"url\":\"https://duckduckgo.example/3\",\"content\":\"Extrait 3 (duckduckgo)\"},{\"title\":\"DuckDuckGo result 4 for What is new in llama.cpp?\",\"url\":\"https://duckduckgo.example/4\",\"content\":\"Extrait 4 (duckduckgo)\"},{\"title\":\"DuckDuckGo result 5 for What is new in llama.cpp?\",\"url\":\"https://duckduckgo.example/5\",\"content\":\"Extrait 5 (duckduckgo)\"}]}"
     },
     {
       "type": "context",
-      "used": 126,
+      "used": 106,
       "size": 32768
     },
     {

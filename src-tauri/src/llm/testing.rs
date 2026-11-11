@@ -3,7 +3,7 @@
 //! - [`FakeBench`] : base temporaire, lignes `local_models` vers des
 //!   fichiers `chatonlm-<scénario>.gguf` (en-tête GGUF lisible), moteur sur
 //!   le faux `llama-server` du banc de L3 (`engine::tests`), [`Access`]
-//!   complet (aucun modèle distant, relais fermé).
+//!   complet (aucun modèle distant, moteurs de recherche fermés).
 //! - [`RealBench`] : le vrai `llama-server` (`CHATONLM_LLAMA_TEST_BIN`) et
 //!   un vrai modèle par rôle ([`Role`]), lus dans
 //!   `$CHATONLM_LLAMA_TEST_MODELS/models.json` (écrit par `test-llama.sh
@@ -28,7 +28,6 @@ use crate::hub::hardware::{Detector, Machine};
 use crate::hub::types::HubGpu;
 use crate::local_models::id::ModelId;
 use crate::local_models::{LocalModel, ModelCapabilities, ModelSource};
-use crate::relay::RelayClient;
 use crate::store::Store;
 use crate::store::local_models::StoredLocalModel;
 
@@ -77,21 +76,16 @@ fn fake_machine() -> Machine {
     }
 }
 
-/// Accès complet sur ce moteur et cette base : aucun modèle distant, relais
-/// fermé.
+/// Accès complet sur ce moteur et cette base : aucun modèle distant,
+/// moteurs de recherche fermés (défaut des essais).
 fn access(engine: Engine, store: Store, data_dir: PathBuf) -> Access {
     let downloads = HubDownloads::with_options(|_| {}, Default::default());
     downloads.attach(store.clone(), data_dir.clone());
-    let relay = Arc::new(RelayClient::with_url(
-        super::CLOSED_RELAY.to_owned(),
-        data_dir.clone(),
-    ));
     Access::new(
         engine,
         store,
         data_dir,
         Arc::new(remote::Unavailable),
-        relay,
         downloads,
     )
 }

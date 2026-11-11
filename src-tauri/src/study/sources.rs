@@ -14,17 +14,15 @@
 use std::collections::{HashMap, HashSet};
 
 use parking_lot::Mutex;
-use relay_proto::api::SearchResult;
 use rusqlite::Connection;
+use web_search::{SearchError, SearchResult};
 
 use super::data::SourceRow;
 use super::{SourceKind, StudySource};
 use tokio_util::sync::CancellationToken;
 
 use crate::chat::WebTools;
-use crate::llm::errors::relay_kind;
 use crate::proofread::{guard, language};
-use crate::relay::RelayError;
 
 /// Taille visée d'un morceau.
 pub const CHUNK_CHARS: usize = 1_200;
@@ -271,8 +269,8 @@ pub fn documents(files: &[(String, String)]) -> (Vec<SourceRow>, bool) {
 #[derive(Debug, PartialEq, Eq)]
 pub enum WebOutcome {
     Found(Vec<SourceRow>),
-    /// Recherche impossible (relais injoignable, quota, pause, budget,
-    /// version) : le cours s'arrête avec ce texte.
+    /// Recherche impossible (pas de réseau, blocage de DuckDuckGo, clé
+    /// refusée) : le cours s'arrête avec ce texte.
     Stopped(String),
     /// Autre échec (requête refusée, arrêt) : le cours se prépare sans le
     /// web.
@@ -345,7 +343,7 @@ pub fn recall(course: &str, rows: &[SourceRow]) -> Vec<SourceRow> {
         .collect()
 }
 
-/// Une recherche par le relais de ChatonLM, comme l'outil du chat :
+/// Une recherche web depuis cet ordinateur, comme l'outil du chat :
 /// [`WEB_RESULTS`] résultats, extrait de chacun coupé à
 /// [`WEB_RESULT_CHARS`]. Les extraits servent à préparer le cours (texte
 /// donné au modèle), jamais enregistrés ([`record`]).
@@ -354,17 +352,13 @@ pub async fn web_search(web: &WebTools, query: &str, cancel: &CancellationToken)
     let reply = tokio::select! {
         biased;
         () = cancel.cancelled() => return WebOutcome::Failed("cancelled".into()),
-        reply = web.relay.search(query, Some(WEB_RESULTS), None, cancel) => reply,
+        reply = web.search.search(query, Some(WEB_RESULTS), None, cancel) => reply,
     };
     match reply {
         Ok(reply) => WebOutcome::Found(results(&reply.results)),
-        Err(error) => match relay_kind(&error) {
-            None => WebOutcome::Failed("cancelled".into()),
-            Some(_) if error == RelayError::InvalidQuery => {
-                WebOutcome::Failed(error.code().to_owned())
-            }
-            Some(_) => WebOutcome::Stopped(error.message()),
-        },
+        Err(SearchError::Cancelled) => WebOutcome::Failed("cancelled".into()),
+        Err(error @ SearchError::InvalidQuery) => WebOutcome::Failed(crate::search::code(&error)),
+        Err(error) => WebOutcome::Stopped(crate::search::message(&error)),
     }
 }
 
@@ -541,61 +535,60 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn web_results_come_from_the_relay() {
-        use relay_server::fake::{Behavior, TestRelay};
-        let dir = tempfile::tempdir().unwrap();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let relay = TestRelay::start(&dir.path().join("relay.sqlite"), now, |_| {}).await;
-        let web = crate::chat::tools::web_tools_on(&relay.url, &dir.path().join("data"));
+    async fn web_results_come_from_the_search_engines() {
+        use fake_services::search::Behavior;
+        let fake = crate::chat::tools::fake_web().await;
+        let web = &fake.web;
         let never = CancellationToken::new();
-        let WebOutcome::Found(rows) = web_search(&web, "photosynthesis", &never).await else {
+        let WebOutcome::Found(rows) = web_search(web, "photosynthesis", &never).await else {
             panic!()
         };
         assert_eq!(rows.len(), 5);
         assert_eq!(rows[0].source.kind, SourceKind::Web);
-        assert_eq!(rows[0].source.url, "https://example.org/1");
-        assert!(
-            rows[0].text.contains("photosynthesis"),
-            "{:?}",
-            rows[0].text
-        );
+        assert_eq!(rows[0].source.url, "https://duckduckgo.example/1");
+        assert_eq!(rows[0].text, "Extrait 1 (duckduckgo)");
+        // Brave choisi : cinq résultats demandés.
+        fake.store
+            .call(|c| {
+                crate::store::web_search::choose(
+                    c,
+                    crate::store::web_search::Engine::Brave,
+                    Some("BSA-key"),
+                )
+            })
+            .await
+            .unwrap();
+        web_search(web, "photosynthesis", &never).await;
+        let last = fake.engines.requests().pop().unwrap();
+        assert_eq!((last.engine, last.count.as_str()), ("brave", "5"));
+        // Aucun moteur ne répond : le cours s'arrête avec ce texte.
+        fake.engines.set("brave", Behavior::Status(500));
+        fake.engines.set("duckduckgo", Behavior::Status(500));
         assert_eq!(
-            relay.fake.requests()[0]
-                .params
-                .get("count")
-                .map(String::as_str),
-            Some("5")
-        );
-        // Aucun moteur ne répond : le cours s'arrête avec le texte du relais.
-        relay
-            .fake
-            .set(relay_proto::api::Provider::Brave, Behavior::Status(500));
-        relay
-            .fake
-            .set(relay_proto::api::Provider::Mojeek, Behavior::Status(500));
-        assert_eq!(
-            web_search(&web, "photosynthesis", &never).await,
-            WebOutcome::Stopped(RelayError::ProviderUnavailable.message())
+            web_search(web, "photosynthesis", &never).await,
+            WebOutcome::Stopped(crate::search::message(&SearchError::Failed {
+                personal: Some((
+                    web_search::Provider::Brave,
+                    web_search::EngineError::Unavailable
+                )),
+                duckduckgo: web_search::EngineError::Unavailable,
+            }))
         );
         // Requête refusée avant tout envoi : préparé sans le web.
         assert!(matches!(
-            web_search(&web, " ", &never).await,
+            web_search(web, " ", &never).await,
             WebOutcome::Failed(_)
         ));
         // Arrêt demandé : rien de trouvé.
         let stopped = CancellationToken::new();
         stopped.cancel();
         assert!(matches!(
-            web_search(&web, "photosynthesis", &stopped).await,
+            web_search(web, "photosynthesis", &stopped).await,
             WebOutcome::Failed(_)
         ));
-        relay.stop().await;
     }
 
-    /// Cours préparé avec le web (faux relais, faux moteur) : la base ne
+    /// Cours préparé avec le web (faux moteurs de recherche) : la base ne
     /// garde que titres et liens des résultats, jamais leurs extraits ; le
     /// modèle les a pourtant reçus pour le plan et pour le premier palier.
     #[tokio::test(flavor = "multi_thread")]
@@ -608,18 +601,22 @@ mod tests {
         use crate::study::{Ctx, NewCourse, StudyEngine, StudyLevel};
 
         const STUDY: &str = "test/Study-GGUF:Q4_K_M";
-        let web = crate::chat::tools::fake_web(|_| {}).await;
+        let web = crate::chat::tools::fake_web().await;
         let fake = FakeBench::new(&[(STUDY, "study")]);
         fake.set(crate::store::settings::SettingsPatch {
             study_model: Some(STUDY.into()),
             ..Default::default()
         });
-        let access = Access::new(
+        let search = Arc::new(crate::search::WebSearch::with_endpoints(
+            fake.store().clone(),
+            crate::chat::tools::fake_endpoints(&web.engines),
+        ));
+        let access = Access::with_web_search(
             fake.engine().clone(),
             fake.store().clone(),
             fake.access.data_dir().to_owned(),
             Arc::new(crate::llm::remote::Unavailable),
-            web.web.relay.clone(),
+            search,
             fake.access.downloads().clone(),
         );
         let ctx = Ctx::with_access(access, |_| {});

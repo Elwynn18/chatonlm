@@ -7,33 +7,35 @@
 // and app/ui/ui.go, commit 42e911bc3d05 (the web_search and web_fetch tools,
 // their arguments and errors, the URLs web_fetch may read, the tools as sent
 // by convertToOllamaTool).
-// Modified for ChatonLM: web_search goes through ChatonLM's own relay
-// (relay.chatonlm.com, no account: a key per installation) instead of
-// ollama.com, and its description no longer names ollama.com; web_fetch is
+// Modified for ChatonLM: web_search is run by the app itself, from the
+// user's computer (DuckDuckGo without an account, or the user's own Brave,
+// Mojeek or SearXNG engine first) instead of ollama.com, and its description
+// no longer names ollama.com; web_fetch is
 // run by the app itself, with a guard against requests to the machine or its
 // network (addresses checked after DNS, the connection made to the checked
 // address, redirects followed by hand and checked again); the history keeps
 // only the titles and links of the search results (the excerpts go to the
-// model during the send only, as the search provider's terms ask); a relay
-// that refuses (daily quota, pause, outdated app, unreachable at the first
-// search) stops the send with its own code instead of going to the model.
+// model during the send only, as the Brave Search terms ask); a search that
+// fails at the first search of a send (no network, DuckDuckGo blocking, key
+// refused) stops the send with its own code instead of going to the model.
 
 //! Outils de la recherche web, comme l'app officielle : `web_search` et
 //! `web_fetch`.
 //!
-//! - `web_search` passe par le relais de ChatonLM ([`crate::relay`]) ; le
-//!   résultat enregistré (historique, page) n'a que les titres, les liens et
-//!   le moteur qui a répondu (mention « Powered by Brave ») ; les extraits
-//!   vont au modèle pendant l'envoi seulement ([`AllowedUrls::model_text`]) ;
+//! - `web_search` est fait depuis cet ordinateur ([`crate::search`] :
+//!   DuckDuckGo, ou le moteur personnel d'abord) ; le résultat enregistré
+//!   (historique, page) n'a que les titres, les liens et le moteur qui a
+//!   répondu (mention « Powered by Brave ») ; les extraits vont au modèle
+//!   pendant l'envoi seulement ([`AllowedUrls::model_text`]) ;
 //! - `web_fetch` est fait par l'app ([`fetch`]) : http(s) seulement, adresses
 //!   publiques seulement, taille et durée bornées, pages texte ou HTML ;
 //! - `web_fetch` ne lit qu'une adresse écrite par l'utilisateur dans la
 //!   conversation, ou reçue d'un résultat de recherche ou d'une page lue
 //!   pendant l'envoi ([`AllowedUrls`], `url_policy.go`) ;
 //! - une erreur d'outil n'arrête pas l'envoi : elle est donnée au modèle
-//!   (page illisible, recherche vide) ; sauf un refus du relais (quota,
-//!   pause, budget, version trop ancienne, relais injoignable à la première
-//!   recherche), qui l'arrête avec son code ([`Executed::Stop`]) ;
+//!   (page illisible, recherche vide) ; sauf une recherche impossible à la
+//!   première recherche de l'envoi (pas de réseau, blocage de DuckDuckGo,
+//!   clé refusée), qui l'arrête avec son code ([`Executed::Stop`]) ;
 //! - l'arrêt de l'envoi interrompt la requête en cours.
 
 mod fetch;
@@ -50,8 +52,7 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use super::{ChatErrorKind, WebTools, cancelled};
-use crate::llm::errors::relay_kind;
-use crate::relay::RelayError;
+use web_search::SearchError;
 
 pub use fetch::Policy;
 
@@ -62,7 +63,7 @@ pub const WEB_FETCH: &str = "web_fetch";
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Nombre de résultats sans `max_results` utilisable.
-const DEFAULT_MAX_RESULTS: i64 = relay_proto::DEFAULT_RESULTS as i64;
+const DEFAULT_MAX_RESULTS: i64 = web_search::DEFAULT_RESULTS as i64;
 
 /// Les deux outils, tels que l'officiel les envoie dans `tools` :
 /// `convertToOllamaTool` ne garde de chaque propriété que son type et sa
@@ -193,9 +194,9 @@ pub enum Executed {
     Error(String),
     /// Arrêt demandé pendant l'appel : ni résultat ni erreur.
     Cancelled,
-    /// L'envoi s'arrête avec ce code (recherche impossible : relais
-    /// injoignable, quota, pause, version) ; l'appel reste sans résultat ni
-    /// erreur.
+    /// L'envoi s'arrête avec ce code (recherche impossible à la première
+    /// recherche : pas de réseau, blocage, clé refusée) ; l'appel reste sans
+    /// résultat ni erreur.
     Stop(ChatErrorKind, String),
 }
 
@@ -296,22 +297,22 @@ fn query_language(query: &str) -> Option<&'static str> {
     })
 }
 
-/// Refus du relais : arrêt de l'envoi (quota, pause, budget, version ;
-/// relais injoignable ou autre refus à la première recherche de l'envoi),
-/// sinon erreur donnée au modèle.
-fn refused(error: &RelayError, first_search: bool) -> Executed {
-    let Some(kind) = relay_kind(error) else {
+/// Recherche impossible : arrêt de l'envoi à la première recherche de
+/// l'envoi (le modèle n'a encore rien trouvé), sinon erreur donnée au modèle
+/// (il peut répondre avec ce qu'il a déjà).
+fn refused(error: &SearchError, first_search: bool) -> Executed {
+    let Some(kind) = crate::search::kind(error) else {
         return Executed::Cancelled;
     };
-    match (kind, error) {
+    match error {
         // La requête du modèle est en cause : à lui de la refaire.
-        (_, RelayError::InvalidQuery) => {
+        SearchError::InvalidQuery => {
             Executed::Error("the search query is empty or too long".into())
         }
-        (ChatErrorKind::WebSearchUnavailable, _) if !first_search => {
-            Executed::Error(format!("web search failed: {}", error.code()))
+        _ if !first_search => {
+            Executed::Error(format!("web search failed: {}", crate::search::code(error)))
         }
-        (kind, error) => Executed::Stop(kind, error.message()),
+        _ => Executed::Stop(kind, crate::search::message(error)),
     }
 }
 
@@ -331,18 +332,18 @@ async fn web_search(
         Err(error) => return error,
     };
     // Nombre JSON (float64 en Go) tronqué ; autre chose ou ≤ 0 : 5 ; au plus
-    // le maximum du relais.
+    // le maximum du crate de recherche.
     let max_results = arguments
         .get("max_results")
         .and_then(Value::as_f64)
         .map(|value| value as i64)
         .filter(|count| *count > 0)
         .unwrap_or(DEFAULT_MAX_RESULTS)
-        .min(i64::from(relay_proto::MAX_RESULTS));
-    let max_results = u8::try_from(max_results).unwrap_or(relay_proto::DEFAULT_RESULTS);
+        .min(i64::from(web_search::MAX_RESULTS));
+    let max_results = u8::try_from(max_results).unwrap_or(web_search::DEFAULT_RESULTS);
     let stop = CancellationToken::new();
     let searching = web
-        .relay
+        .search
         .search(query, Some(max_results), query_language(query), &stop);
     let reply = tokio::select! {
         biased;
@@ -355,7 +356,10 @@ async fn web_search(
     let reply = match reply {
         Ok(reply) => reply,
         Err(error) => {
-            crate::app_log!("chatonlm: web search refused: {}", error.code());
+            crate::app_log!(
+                "chatonlm: web search failed: {}",
+                crate::search::code(&error)
+            );
             return refused(&error, !allowed.searched);
         }
     };
@@ -450,50 +454,60 @@ async fn web_fetch(
     }
 }
 
-/// Outils d'essai sur un relais donné (essais du chat et de l'Étude).
+/// Outils d'essai sur ces moteurs de recherche (essais du chat et de
+/// l'Étude) ; moteur personnel lu dans `store`.
 #[cfg(test)]
-pub(crate) fn web_tools_on(relay_url: &str, data_dir: &std::path::Path) -> WebTools {
-    let relay = crate::relay::RelayClient::with_url(relay_url.to_owned(), data_dir.to_path_buf());
+pub(crate) fn web_tools_on(
+    store: &crate::store::Store,
+    endpoints: web_search::Endpoints,
+) -> WebTools {
     WebTools {
-        relay: std::sync::Arc::new(relay),
+        search: std::sync::Arc::new(crate::search::WebSearch::with_endpoints(
+            store.clone(),
+            endpoints,
+        )),
     }
 }
 
-/// Outils d'essai sur un relais fermé (aucune recherche ne répond :
+/// Outils d'essai sur des moteurs fermés (aucune recherche ne répond :
 /// `webSearchUnavailable` à la première) : essais qui n'en lancent pas.
 #[cfg(test)]
 pub(crate) fn closed_web_tools() -> WebTools {
-    // Dans le projet (`.tools/`, ignoré par git), comme les autres données
-    // d'essai : le client y écrit sa clé avant de tenter l'inscription.
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.tools/tmp/relay");
-    web_tools_on("http://127.0.0.1:9", &dir)
+    let store = crate::store::Store::open_in_memory().expect("store");
+    web_tools_on(&store, crate::search::closed_endpoints())
 }
 
-/// Faux relais complet (crate `relay-server`, faux moteurs Brave et Mojeek,
-/// lancé dans le processus) et outils qui s'y adressent : essais du chat
-/// (recherche de bout en bout, séquences du simulateur) et de l'Étude.
-/// `tweak` règle le relais (quota, pause, budget, version minimale…).
+/// Faux moteurs de recherche (crate `fake-services` : DuckDuckGo, Brave,
+/// Mojeek, SearXNG, lancés dans le processus) et outils qui s'y adressent :
+/// essais du chat (recherche de bout en bout, séquences du simulateur) et de
+/// l'Étude. Le moteur personnel se règle dans `store`.
 #[cfg(test)]
 pub(crate) struct FakeWeb {
-    pub relay: relay_server::fake::TestRelay,
+    pub engines: fake_services::search::FakeSearch,
     pub web: WebTools,
-    _dir: tempfile::TempDir,
+    pub store: crate::store::Store,
 }
 
 #[cfg(test)]
-pub(crate) async fn fake_web(tweak: impl FnOnce(&mut relay_server::config::Config)) -> FakeWeb {
-    let dir = tempfile::tempdir().expect("temporary dir");
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock")
-        .as_secs();
-    let relay =
-        relay_server::fake::TestRelay::start(&dir.path().join("relay.sqlite"), now, tweak).await;
-    let web = web_tools_on(&relay.url, &dir.path().join("data"));
+pub(crate) fn fake_endpoints(engines: &fake_services::search::FakeSearch) -> web_search::Endpoints {
+    web_search::Endpoints {
+        duckduckgo: engines.base("duckduckgo"),
+        brave: engines.base("brave"),
+        mojeek: engines.base("mojeek"),
+    }
+}
+
+#[cfg(test)]
+pub(crate) async fn fake_web() -> FakeWeb {
+    let engines = fake_services::search::FakeSearch::start()
+        .await
+        .expect("fake search engines");
+    let store = crate::store::Store::open_in_memory().expect("store");
+    let web = web_tools_on(&store, fake_endpoints(&engines));
     FakeWeb {
-        relay,
+        engines,
         web,
-        _dir: dir,
+        store,
     }
 }
 

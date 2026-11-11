@@ -412,9 +412,7 @@
       "webOff": "La búsqueda web está desactivada.",
       "webUsage": "Envía {p}web on o {p}web off.",
       "webUnavailable": "La búsqueda web no está disponible ahora mismo. Envía {p}web off para responder sin ella.",
-      "webLimit": "Se ha alcanzado el límite de la búsqueda web por ahora. Envía {p}web off para responder sin ella.",
-      "webPaused": "La búsqueda web está en pausa por ahora. Envía {p}web off para responder sin ella.",
-      "webOutdated": "La búsqueda web necesita una versión más reciente de ChatonLM en el ordenador. Envía {p}web off para responder sin ella.",
+      "webRefused": "La búsqueda web fue rechazada: DuckDuckGo está limitando las búsquedas del equipo, o hay que revisar la clave del buscador en la configuración de ChatonLM. Envía {p}web off para responder sin ella.",
       "statusEphemeralOn": "Chats efímeros: activados",
       "statusEphemeralOff": "Chats efímeros: desactivados",
       "ephemeralOn": "Los chats efímeros están activados: no se guardan en el historial de ChatonLM y se borran con {p}new, con {p}ephemeral off o al cerrar ChatonLM. Envía {p}keep para guardar el actual.",
@@ -568,22 +566,25 @@
     "sameId": "{name} sustituiría a otro modelo ({id}): no se importó.",
     "sharedFolder": "Esta carpeta también pertenece al Ollama instalado en este equipo: ChatonLM nunca elimina nada en ella."
   },
-  "relay": {
-    "offline": "No se puede acceder al servicio de búsqueda de ChatonLM. Comprueba tu conexión a internet y vuelve a intentarlo.",
-    "quotaExceeded": "Ya se han usado todas las búsquedas web de hoy. Mañana habrá más.",
-    "rateLimited": "Hay demasiadas búsquedas web en este momento. Vuelve a intentarlo más tarde.",
-    "budgetExhausted": "La búsqueda web está en pausa hasta el mes que viene: el presupuesto de este mes, pagado con donaciones, se ha agotado.",
-    "budgetExhaustedToday": "La búsqueda web está en pausa hasta mañana: la parte del presupuesto de hoy, pagado con donaciones, se ha agotado.",
-    "paused": "La búsqueda web está en pausa por mantenimiento. Vuelve a intentarlo más tarde.",
-    "outdated": "Esta versión de ChatonLM ya no puede buscar en la web. Actualiza ChatonLM para volver a buscar.",
-    "banned": "La búsqueda web se ha desactivado para esta instalación.",
-    "providerUnavailable": "El motor de búsqueda no responde en este momento. Inténtalo de nuevo en un momento.",
-    "registrationFailed": "ChatonLM no ha podido registrarse en su servicio de búsqueda. Vuelve a intentarlo más tarde.",
-    "rejected": "El servicio de búsqueda ha rechazado la solicitud. Vuelve a intentarlo más tarde.",
-    "invalidQuery": "Esta búsqueda no se puede enviar: está vacía o es demasiado larga.",
-    "malformed": "El servicio de búsqueda ha enviado una respuesta ilegible. Vuelve a intentarlo más tarde.",
-    "storage": "ChatonLM no ha podido guardar la clave de su servicio de búsqueda. Comprueba que queda espacio libre en el disco y vuelve a intentarlo.",
-    "cancelled": "Búsqueda web cancelada."
+  "webSearch": {
+    "offline": "La búsqueda web no puede conectarse a internet. Revisa tu conexión y vuelve a intentarlo.",
+    "blocked": "DuckDuckGo está limitando por ahora las búsquedas de este equipo. Vuelve a intentarlo en unos minutos o agrega tu propio buscador en Configuración › Búsqueda web.",
+    "blockedWithPersonal": "{engine} no respondió y DuckDuckGo está limitando por ahora las búsquedas de este equipo. Vuelve a intentarlo en unos minutos.",
+    "unavailable": "Ningún buscador respondió. Vuelve a intentarlo en un momento.",
+    "keyRefused": "{engine} rechazó tu clave. Revísala en Configuración › Búsqueda web.",
+    "exhausted": "Tu clave de {engine} ya no tiene búsquedas. Revisa tu plan o elige otro buscador en Configuración › Búsqueda web.",
+    "jsonDisabled": "Esta instancia de SearXNG no permite resultados en JSON. Activa el formato json en su configuración (search.formats) o elige otro buscador en Configuración › Búsqueda web.",
+    "badAddress": "La dirección de SearXNG no es válida. Escribe una dirección que empiece por http:// o https://.",
+    "badKey": "Esta clave no es válida. Pega la clave completa, sin espacios.",
+    "invalidQuery": "No se puede enviar esta búsqueda: está vacía o es demasiado larga.",
+    "cancelled": "Búsqueda web cancelada.",
+    "check": {
+      "ok": "{engine} respondió. La búsqueda web funciona.",
+      "notConfigured": "Primero escribe una clave o una dirección.",
+      "blocked": "DuckDuckGo está limitando por ahora las búsquedas de este equipo. Vuelve a intentarlo en unos minutos.",
+      "offline": "No se puede conectar con {engine}. Revisa la dirección y tu conexión.",
+      "unavailable": "{engine} no respondió correctamente. Vuelve a intentarlo en un momento."
+    }
   },
   "engine": {
     "unavailable": "esta versión de ChatonLM no incluye el motor de texto",

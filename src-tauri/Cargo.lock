@@ -750,8 +750,6 @@ dependencies = [
  "percent-encoding",
  "rand 0.10.3",
  "regex",
- "relay-proto",
- "relay-server",
  "reqwest",
  "ring",
  "rusqlite",
@@ -779,6 +777,7 @@ dependencies = [
  "ts-rs",
  "url",
  "uuid",
+ "web-search",
  "webkit2gtk",
  "webview2-com 0.39.1",
  "whisper-rs",
@@ -1613,6 +1612,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -4439,6 +4439,7 @@ dependencies = [
  "tokio",
  "toml 1.1.6+spec-1.1.0",
  "url",
+ "web-search",
 ]
 
 [[package]]
@@ -6739,6 +6740,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8eab23fefc9e41f8e841df4a9c707e8a8c4ed26e944ef69297184de2785e3be"
 dependencies = [
  "pkg-config",
+]
+
+[[package]]
+name = "web-search"
+version = "0.1.0"
+dependencies = [
+ "fake-services",
+ "reqwest",
+ "rustls",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "url",
 ]
 
 [[package]]

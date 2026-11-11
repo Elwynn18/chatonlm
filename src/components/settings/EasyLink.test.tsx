@@ -90,7 +90,7 @@ const connectButton = (platform: EasyLinkPlatform) =>
   inCard(platform).getByRole<HTMLButtonElement>("button", { name: "Connect" });
 
 describe("Easy Link settings", () => {
-  it("is a tab of the settings, between Voice mode and VS Code", async () => {
+  it("is a tab of the settings, between Voice mode and Web search", async () => {
     await setup();
     const tab = screen.getByTestId("settings-tab-easyLink");
     expect(tab.textContent).toBe("Easy Link");
@@ -107,6 +107,7 @@ describe("Easy Link settings", () => {
       "Read aloud",
       "Voice mode",
       "Easy Link",
+      "Web search",
       "VS Code",
       "Keyboard shortcuts",
     ]);
