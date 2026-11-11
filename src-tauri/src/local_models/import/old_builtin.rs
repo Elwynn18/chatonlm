@@ -109,7 +109,9 @@ mod tests {
         use std::process::{Child, Command};
         use std::time::{Duration, Instant};
 
-        use super::super::os::{OldBuiltin, is_builtin_binary, leftover_processes, stop_with};
+        use super::super::os::{
+            OldBuiltin, is_builtin_binary, is_builtin_runner, leftover_processes, stop_with,
+        };
         use super::*;
 
         fn alive(pid: u32) -> bool {
@@ -181,6 +183,20 @@ mod tests {
             assert!(!is_builtin_binary(Path::new(
                 "/usr/lib/chatonlm/llama-server"
             )));
+            // Runners de l'ancien intégré (Ollama 0.40.x) ; jamais le
+            // llama-server livré par ChatonLM 0.10.
+            assert!(is_builtin_runner(Path::new(
+                "/usr/lib/chatonlm/ollama/lib/ollama/llama-server"
+            )));
+            assert!(is_builtin_runner(Path::new(
+                "/tmp/.mount_ChatoX/usr/lib/chatonlm/ollama/lib/ollama/llama-quantize (deleted)"
+            )));
+            assert!(!is_builtin_runner(Path::new(
+                "/usr/lib/chatonlm/llama-server/llama-server"
+            )));
+            assert!(!is_builtin_runner(Path::new(
+                "/usr/lib/chatonlm/ollama/lib/ollama/other"
+            )));
         }
 
         /// Contrat 103 § 2.3 : l'ancien intégré resté en vie (son serveur
@@ -214,10 +230,12 @@ mod tests {
                 foreign.wait().unwrap();
             }
 
-            // L'ancien intégré et son runner.
+            // L'ancien intégré et son runner (lancé depuis la copie de ses
+            // runners, comme Ollama 0.40.x).
+            let runner_bin = binary(dir.path(), "res/ollama/lib/ollama/llama-server");
             let mut server = spawn(&bin, &home, 0, true);
             let group = i32::try_from(server.id()).unwrap();
-            let mut runner = spawn(&bin, &home, group, true);
+            let mut runner = spawn(&runner_bin, &home, group, true);
             assert!(eventually(Duration::from_secs(5), || {
                 leftover_processes(proc, server.id(), &ours).len() == 2
             }));

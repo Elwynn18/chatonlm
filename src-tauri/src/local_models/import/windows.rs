@@ -30,7 +30,7 @@ pub fn system_dirs() -> Vec<PathBuf> {
 /// l'utilisateur, puis du système (logique pure
 /// [`super::winpath::configured_dirs`]).
 #[cfg_attr(test, allow(dead_code))]
-pub fn configured_dirs() -> Vec<PathBuf> {
+pub fn configured_dirs(_data_dir: &Path) -> Vec<PathBuf> {
     let variable = |root: &windows_registry::Key, key: &str| {
         root.open(key)
             .and_then(|key| key.get_string("OLLAMA_MODELS"))

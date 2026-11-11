@@ -10,6 +10,10 @@ use super::Platform;
 const CUDA_ENV: &str = include_str!("../../../../packaging/cuda.env");
 const LLAMA_ENV: &str = include_str!("../../../../packaging/llama.env");
 
+/// Empreinte du pack CUDA de cette version de l'app (src-tauri/build.rs,
+/// même formule que scripts/build-llama-cuda.sh).
+pub const PACK_FINGERPRINT: &str = env!("CHATONLM_CUDA_PACK_FINGERPRINT");
+
 /// Archive de NVIDIA : chemin sous [`Pins::redist_url`], taille, SHA-256.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Redist {
@@ -44,6 +48,11 @@ pub struct Pins {
     pub llama_version: String,
     /// Build de llama.cpp (`b12110`) : nom du pack et de son dossier.
     pub llama_build: String,
+    /// `VERSION` du pack de cette version de l'app
+    /// (`<llama_version>+chatonlm.cuda.<empreinte>`) : un pack installé
+    /// d'une autre `VERSION` (même build, correctifs ou épingles changés)
+    /// est périmé.
+    pub pack_version: String,
 }
 
 /// Épingles de cette plateforme (`None` hors Linux et Windows).
@@ -118,6 +127,10 @@ pub fn parse(cuda_env: &str, llama_env: &str, platform: Platform) -> Result<Pins
         cudart: redist("CUDART")?,
         cublas: redist("CUBLAS")?,
         eula_url: get(&cuda, "CUDA_EULA_URL")?,
+        pack_version: format!(
+            "{}+chatonlm.cuda.{PACK_FINGERPRINT}",
+            get(&llama, "LLAMA_VERSION")?
+        ),
         llama_version: get(&llama, "LLAMA_VERSION")?,
         llama_build: get(&llama, "LLAMA_BUILD")?,
     })
@@ -153,6 +166,32 @@ mod tests {
             assert!(pins.cudart.file_name().starts_with("cuda_cudart-"));
             assert!(pins.cublas.file_name().starts_with("libcublas-"));
         }
+    }
+
+    /// La `VERSION` attendue est celle que le script du pack écrit (même
+    /// empreinte : build.rs et scripts/build-llama-cuda.sh ne divergent pas).
+    #[cfg(unix)]
+    #[test]
+    fn the_expected_pack_version_is_the_one_the_script_writes() {
+        let pins = parse(CUDA_ENV, LLAMA_ENV, Platform::Linux).unwrap();
+        assert_eq!(PACK_FINGERPRINT.len(), 12);
+        assert!(
+            PACK_FINGERPRINT
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+        );
+        let script =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/build-llama-cuda.sh");
+        let output = std::process::Command::new("bash")
+            .arg(script)
+            .arg("--version")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            pins.pack_version
+        );
     }
 
     #[test]

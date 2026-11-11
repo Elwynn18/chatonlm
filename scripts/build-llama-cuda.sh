@@ -25,7 +25,7 @@
 # l'invite de Visual Studio 2022, générateur Ninja), binutils (readelf,
 # objdump, strip). Variable : LLAMA_JOBS (parallélisme, 4 par défaut).
 # Affiche le chemin de l'archive. --check : code 0 si tout est à jour, 1
-# sinon, sans rien construire.
+# sinon, sans rien construire ; --version : VERSION du pack attendue.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -53,21 +53,32 @@ else
   archive="$runtimes/chatonlm-cuda-$LLAMA_BUILD-linux-x64.tar.gz"
 fi
 
+# Mode texte : « empreinte␠␠nom » sur les deux systèmes (le sha256sum de
+# Git pour Windows écrirait sinon « empreinte␠*nom »).
 sha256() {
-  sha256sum "$@"
+  sha256sum --text "$@"
 }
 
 shopt -s nullglob
+# Ordre des octets (comme build.rs), quelle que soit la langue.
+LC_COLLATE=C
 patches=("$patches_dir"/*.patch)
 shopt -u nullglob
 
-# Identité : version épinglée, toolkit, correctifs et ce script.
+# Identité : version épinglée, toolkit, correctifs et ce script, retours
+# chariot retirés. Même formule dans src-tauri/build.rs (VERSION attendue
+# par l'app : un pack d'une autre empreinte est à retélécharger).
 fingerprint="$({
   cat "$env_file" "$cuda_env_file"
   [ "${#patches[@]}" -eq 0 ] || cat "${patches[@]}"
   cat "${BASH_SOURCE[0]}"
-} | sha256 | cut -c1-12)"
+} | tr -d '\r' | sha256 | cut -c1-12)"
 version="$LLAMA_VERSION+chatonlm.cuda.$fingerprint"
+# --version : VERSION du pack, sans rien construire (essai de l'app).
+if [ "${1:-}" = "--version" ]; then
+  echo "$version"
+  exit 0
+fi
 
 if [ -f "$out/$lib" ] && [ -f "$archive" ] && [ "$(cat "$out/VERSION" 2>/dev/null)" = "$version" ] &&
   (cd "$out" && sha256 --check --quiet --strict SHA256SUMS >/dev/null 2>&1); then
@@ -186,14 +197,32 @@ chmod 0644 "$stage"/*
 # bibliothèques de NVIDIA, de l'app (posées à côté) ; libcuda / nvcuda, du
 # pilote.
 if $windows; then
-  imports="$(objdump -p "$stage/$lib" | awk '/DLL Name:/ { print tolower($3) }')"
-  grep -qx 'kernel32.dll' <<<"$imports" || fail "DLL importées illisibles (objdump)"
+  # DLL importées, chargement différé compris (/DELAYLOAD : objdump ne lit
+  # que la table des imports, d'où un « n'importe pas cudart64_13.dll »
+  # trompeur le 10 nov. 2026) : dumpbin de l'invite de Visual Studio, sinon
+  # objdump.
+  if command -v dumpbin >/dev/null; then
+    dependents="$(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
+      dumpbin /nologo /dependents "$(cygpath -w "$stage/$lib")" | tr -d '\r')" ||
+      fail "dumpbin en échec"
+    imports="$(awk '/^ +[^ ]+\.dll$/ { print tolower($1) }' <<<"$dependents")"
+  else
+    dependents="$(objdump -p "$stage/$lib")"
+    imports="$(awk '/DLL Name:/ { print tolower($3) }' <<<"$dependents")"
+  fi
+  echo "$lib : DLL importées : $(tr '\n' ' ' <<<"$imports")" >&2
+  grep -qx 'kernel32.dll' <<<"$imports" || fail "DLL importées illisibles : $dependents"
   allowed="^(ggml-base\.dll|cudart64_${CUDA_MAJOR}\.dll|cublas64_${CUDA_MAJOR}\.dll|cublaslt64_${CUDA_MAJOR}\.dll|nvcuda\.dll|kernel32\.dll|advapi32\.dll|msvcp140(_[0-9a-z]+)?\.dll|vcruntime140(_[0-9a-z]+)?\.dll|api-ms-win-crt-[a-z0-9-]+\.dll)$"
   outside="$(grep -Ev "$allowed" <<<"$imports" || true)"
   [ -z "$outside" ] || fail "$lib importe : $(tr '\n' ' ' <<<"$outside")"
   for required in ggml-base.dll "cudart64_${CUDA_MAJOR}.dll" "cublas64_${CUDA_MAJOR}.dll"; do
-    grep -qx "$required" <<<"$imports" ||
+    grep -qx "$required" <<<"$imports" || {
+      # Diagnostic : dépendances complètes et commande d'édition des liens.
+      echo "$dependents" >&2
+      grep -n -i -m 3 'ggml-cuda.dll' "$build/build.ninja" >&2 || true
+      grep -n -A4 -m 1 'build bin/ggml-cuda.dll' "$build/build.ninja" >&2 || true
       fail "$lib n'importe pas $required (liaison inattendue) ; DLL importées : $(tr '\n' ' ' <<<"$imports")"
+    }
   done
   objdump -p "$stage/$lib" | grep -q 'ggml_backend_init' || fail "ggml_backend_init non exporté"
 else

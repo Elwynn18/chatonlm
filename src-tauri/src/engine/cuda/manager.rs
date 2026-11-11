@@ -39,6 +39,8 @@ pub const PACK_ESTIMATE: u64 = 140 * 1024 * 1024;
 const INSTALLED_ESTIMATE: u64 = 1024 * 1024 * 1024;
 /// Délai des petites requêtes (manifeste, signature).
 const SMALL_TIMEOUT: Duration = Duration::from_secs(30);
+/// Attente au plus d'une installation en cours avant un retrait.
+const BUSY_WAIT: Duration = Duration::from_secs(120);
 
 /// Étape du pack.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -343,14 +345,28 @@ impl Cuda {
     }
 
     /// Retire le pack (toutes les builds), les archives et le cache de
-    /// compilation ; l'appelant a déchargé les modèles (Windows : fichiers
-    /// ouverts non supprimables).
+    /// compilation ; l'appelant a déchargé les modèles et gelé le moteur
+    /// (Windows : fichiers ouverts non supprimables). Pendant le retrait,
+    /// aucun lancement ne prend CUDA ; une installation en cours (extraction,
+    /// contrôle, renommage : tâche bloquante) est d'abord attendue.
     pub async fn remove(&self) -> AppResult<()> {
+        struct Removing<'a>(&'a Runtime);
+        impl Drop for Removing<'_> {
+            fn drop(&mut self) {
+                self.0.set_removing(false);
+            }
+        }
+        self.0.runtime.set_removing(true);
+        let _removing = Removing(&self.0.runtime);
         self.cancel();
         let _ = self
             .queue()
             .wait_idle(QUEUE_ID, Duration::from_secs(5))
             .await;
+        let deadline = std::time::Instant::now() + BUSY_WAIT;
+        while self.busy() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
         self.queue().dismiss(QUEUE_ID);
         let root = self.0.runtime.root().to_path_buf();
         let result = tauri::async_runtime::spawn_blocking(move || remove_all(&root))
@@ -367,6 +383,24 @@ impl Cuda {
         result.map_err(|error| {
             AppError::System(t!("engine.cuda.removeFailed", reason = error.to_string()))
         })
+    }
+
+    /// Lecture du manifeste ou assemblage en cours.
+    fn busy(&self) -> bool {
+        let state = self.0.state.lock();
+        state.installing.is_some() || state.fetching.is_some()
+    }
+
+    /// Essais : une installation en cours (tenue jusqu'à
+    /// [`Cuda::release_install`]).
+    #[cfg(test)]
+    pub(crate) fn hold_install(&self) {
+        self.0.state.lock().installing = Some(Arc::new(AtomicBool::new(false)));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn release_install(&self) {
+        self.0.state.lock().installing = None;
     }
 
     /// Sortie de l'app : téléchargement arrêté (archives gardées).
@@ -499,9 +533,12 @@ impl Inner {
                 pins.cudart.size + pins.cublas.size + PACK_ESTIMATE
             }),
             installed_bytes: installed.as_ref().map(|installed| installed.bytes),
+            // Autre build, ou même build d'une autre `VERSION` (pack refait) :
+            // l'écran le dit et propose de le retélécharger.
             stale: installed.is_none()
                 && pins.is_some_and(|pins| {
-                    !pack::stale_builds(runtime.root(), &pins.llama_build).is_empty()
+                    pack::outdated(runtime.root(), pins)
+                        || !pack::stale_builds(runtime.root(), &pins.llama_build).is_empty()
                 }),
             enabled,
             active: installed.is_some() && enabled && compatible && fallback.is_none(),
@@ -612,6 +649,60 @@ fn item_for(manifest: &Manifest, release: &str, nvidia: &str, pins: &Pins) -> Cu
     CudaItem { files }
 }
 
+/// Nouveaux essais d'un renommage ou d'un effacement refusé un instant
+/// (Windows : l'antivirus ouvre les DLL tout juste écrites).
+const BUSY_TRIES: u32 = 10;
+const BUSY_PAUSE: Duration = Duration::from_millis(500);
+
+/// Erreur passagère d'un fichier ouvert par un autre programme : sous
+/// Windows, accès refusé, partage ou verrou refusé (codes 5, 32, 33) ;
+/// jamais sous Linux (logique pure, essayée sur les deux systèmes).
+pub(crate) fn busy_error(error: &std::io::Error, windows: bool) -> bool {
+    const ERROR_ACCESS_DENIED: i32 = 5;
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    const ERROR_LOCK_VIOLATION: i32 = 33;
+    windows
+        && (error.kind() == std::io::ErrorKind::PermissionDenied
+            || matches!(
+                error.raw_os_error(),
+                Some(ERROR_ACCESS_DENIED | ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION)
+            ))
+}
+
+/// `op`, refait jusqu'à `tries` fois en tout (`pause` entre deux) tant que
+/// l'erreur est passagère ([`busy_error`]) ; comme les crochets NSIS
+/// (`CHATONLM_REMOVE_LLAMA`, dix essais de 500 ms).
+pub(crate) fn retry_busy<T>(
+    windows: bool,
+    tries: u32,
+    pause: Duration,
+    mut op: impl FnMut() -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    let mut done = 1;
+    loop {
+        match op() {
+            Err(error) if done < tries && busy_error(&error, windows) => {
+                done += 1;
+                std::thread::sleep(pause);
+            }
+            result => return result,
+        }
+    }
+}
+
+/// [`retry_busy`] de ce système.
+fn patiently<T>(op: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+    retry_busy(cfg!(windows), BUSY_TRIES, BUSY_PAUSE, op)
+}
+
+/// Efface un dossier, patiemment ; absent : fait.
+fn remove_dir_patiently(dir: &Path) -> std::io::Result<()> {
+    patiently(|| match std::fs::remove_dir_all(dir) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    })
+}
+
 /// Assemble `<build>.part/` depuis les archives reçues (pack vérifié par
 /// son `SHA256SUMS` et sa `VERSION`, trois bibliothèques de NVIDIA et leur
 /// licence), le renomme en `<build>/`, puis retire les archives et les
@@ -664,13 +755,11 @@ pub(crate) fn install_from(
                 return Err(format!("{file} missing"));
             }
         }
-        if target.exists() {
-            std::fs::remove_dir_all(&target).map_err(text)?;
-        }
-        std::fs::rename(&part, &target).map_err(text)
+        remove_dir_patiently(&target).map_err(text)?;
+        patiently(|| std::fs::rename(&part, &target)).map_err(text)
     })();
     if result.is_err() {
-        let _ = std::fs::remove_dir_all(&part);
+        let _ = remove_dir_patiently(&part);
         return result;
     }
     // Archives et builds périmées : un reste (fichier ouvert sous Windows)
@@ -685,8 +774,5 @@ pub(crate) fn install_from(
 /// Retire tout le dossier du pack : builds, `.part`, archives, cache de
 /// compilation, réglage.
 fn remove_all(root: &Path) -> std::io::Result<()> {
-    match std::fs::remove_dir_all(root) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
-        _ => Ok(()),
-    }
+    remove_dir_patiently(root)
 }

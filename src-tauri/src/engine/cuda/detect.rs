@@ -86,6 +86,28 @@ pub fn parse(text: &str) -> Vec<NvidiaGpu> {
         .collect()
 }
 
+/// Lignes « nom, uuid, pilote » de la seconde lecture (pilote trop ancien
+/// pour connaître `compute_cap`, d'avant 510) : capacité inconnue, notée
+/// (0, 0) ; le verdict s'arrête au pilote ([`assess`] : `DriverTooOld`).
+pub fn parse_without_compute(text: &str) -> Vec<NvidiaGpu> {
+    text.lines()
+        .filter_map(|line| {
+            let mut fields = line.rsplitn(3, ',').map(str::trim);
+            let driver = fields.next()?;
+            let uuid = fields.next()?;
+            let name = fields.next()?;
+            (!name.is_empty() && uuid.starts_with("GPU-") && driver_major(driver).is_some()).then(
+                || NvidiaGpu {
+                    name: name.to_owned(),
+                    uuid: uuid.to_owned(),
+                    compute: (0, 0),
+                    driver: driver.to_owned(),
+                },
+            )
+        })
+        .collect()
+}
+
 /// Verdict : pilote d'abord (le même pour toutes les cartes), puis capacité
 /// de calcul de chaque carte.
 pub fn assess(gpus: &[NvidiaGpu], pins: &Pins) -> Assessment {
@@ -120,23 +142,47 @@ pub fn assess(gpus: &[NvidiaGpu], pins: &Pins) -> Assessment {
 }
 
 /// Cartes NVIDIA de la machine ; aucune si `nvidia-smi` est absent, échoue
-/// ou dépasse [`TIMEOUT`].
+/// ou dépasse [`TIMEOUT`]. Un pilote trop ancien pour le champ
+/// `compute_cap` (refusé, ou « [N/A] ») est relu sans lui : la carte est
+/// alors vue, avec son pilote (l'écran dit « pilote trop ancien » au lieu de
+/// cacher la section).
 pub async fn query() -> Vec<NvidiaGpu> {
+    query_with(run).await
+}
+
+/// [`query`], `nvidia-smi` lancé par `run` (champs demandés → sortie).
+async fn query_with<F, Fut>(run: F) -> Vec<NvidiaGpu>
+where
+    F: Fn(&'static str) -> Fut,
+    Fut: std::future::Future<Output = Option<String>>,
+{
+    if let Some(text) = run("name,uuid,compute_cap,driver_version").await {
+        let gpus = parse(&text);
+        if !gpus.is_empty() {
+            return gpus;
+        }
+    }
+    run("name,uuid,driver_version")
+        .await
+        .map(|text| parse_without_compute(&text))
+        .unwrap_or_default()
+}
+
+/// Sortie de `nvidia-smi --query-gpu=<fields>`, si elle réussit à temps.
+async fn run(fields: &'static str) -> Option<String> {
     let mut command = Command::new(crate::hub::hardware::nvidia_smi());
     command
         .no_window()
-        .args([
-            "--query-gpu=name,uuid,compute_cap,driver_version",
-            "--format=csv,noheader",
-        ])
+        .arg(format!("--query-gpu={fields}"))
+        .arg("--format=csv,noheader")
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
     match tokio::time::timeout(TIMEOUT, command.output()).await {
         Ok(Ok(output)) if output.status.success() => {
-            parse(&String::from_utf8_lossy(&output.stdout))
+            Some(String::from_utf8_lossy(&output.stdout).into_owned())
         }
-        _ => Vec::new(),
+        _ => None,
     }
 }
 
@@ -169,6 +215,49 @@ mod tests {
         // Virgule dans le nom : les trois derniers champs sont pris à droite.
         assert_eq!(gpus[1].name, "Quadro, with comma");
         assert_eq!(gpus[1].driver, "581.57");
+    }
+
+    /// Pilote 470 (sans `compute_cap`) : relu sans la capacité, la carte
+    /// est vue et le verdict est « pilote trop ancien », pas « aucune
+    /// carte ».
+    #[test]
+    fn a_driver_too_old_for_compute_cap_is_told() {
+        let full = "Old card, GPU-bb, [N/A], 470.256.02\n";
+        assert!(parse(full).is_empty());
+        let gpus = parse_without_compute("NVIDIA GeForce GTX 1080, GPU-aa, 470.256.02\r\nbad\n");
+        assert_eq!(gpus.len(), 1);
+        assert_eq!(gpus[0].name, "NVIDIA GeForce GTX 1080");
+        assert_eq!(gpus[0].driver, "470.256.02");
+        let verdict = assess(&gpus, &pins());
+        assert_eq!(verdict.compat, Compat::DriverTooOld);
+        assert_eq!(verdict.shown.unwrap().name, "NVIDIA GeForce GTX 1080");
+    }
+
+    /// La seconde lecture n'est faite que si la première ne donne rien
+    /// (champ refusé par le pilote, ou capacité illisible).
+    #[tokio::test]
+    async fn nvidia_smi_is_asked_again_without_compute_cap() {
+        let old = |fields: &'static str| async move {
+            (!fields.contains("compute_cap")).then(|| "GTX 1080, GPU-aa, 470.256.02\n".to_owned())
+        };
+        let gpus = query_with(old).await;
+        assert_eq!(gpus.len(), 1);
+        assert_eq!(gpus[0].driver, "470.256.02");
+        let na = |fields: &'static str| async move {
+            Some(if fields.contains("compute_cap") {
+                "GTX 1080, GPU-aa, [N/A], 470.256.02\n".to_owned()
+            } else {
+                "GTX 1080, GPU-aa, 470.256.02\n".to_owned()
+            })
+        };
+        assert_eq!(query_with(na).await.len(), 1);
+        let recent = |fields: &'static str| async move {
+            assert!(fields.contains("compute_cap"), "asked twice");
+            Some("RTX 3090, GPU-cc, 8.6, 615.78.08\n".to_owned())
+        };
+        assert_eq!(query_with(recent).await[0].compute, (8, 6));
+        let none = |_: &'static str| async move { None };
+        assert!(query_with(none).await.is_empty());
     }
 
     fn gpu(name: &str, compute: (u32, u32), driver: &str) -> NvidiaGpu {

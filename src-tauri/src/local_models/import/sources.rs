@@ -92,15 +92,16 @@ pub fn system_dirs() -> Vec<PathBuf> {
 }
 
 /// Dossiers réglés pour l'Ollama de la machine (services, processus,
-/// variables du système). Bloquant.
+/// variables du système), jamais ceux de l'ancien intégré de ChatonLM
+/// (sous les données `data_dir`). Bloquant.
 #[cfg_attr(test, allow(dead_code))]
-pub fn configured_dirs() -> Vec<PathBuf> {
-    super::os::configured_dirs()
+pub fn configured_dirs(data_dir: &Path) -> Vec<PathBuf> {
+    super::os::configured_dirs(data_dir)
 }
 
 /// Valeur d'une variable comme Ollama la lit (`envconfig.Var` : espaces et
 /// guillemets autour retirés).
-fn env_value(value: &str) -> String {
+pub(crate) fn env_value(value: &str) -> String {
     value
         .trim()
         .trim_matches(|c| c == '"' || c == '\'')

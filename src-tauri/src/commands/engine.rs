@@ -131,11 +131,12 @@ pub async fn cuda_set_enabled(cuda: State<'_, Cuda>, enabled: bool) -> AppResult
     cuda.set_enabled(enabled)
 }
 
-/// Retire le pack ; les modèles chargés sont d'abord déchargés (ses
-/// bibliothèques peuvent être ouvertes par leurs processus).
+/// Retire le pack ; le moteur est gelé et ses modèles déchargés (ses
+/// bibliothèques peuvent être ouvertes par leurs processus) : aucun
+/// lancement ne commence pendant le retrait, une demande attend sa fin.
 #[tauri::command]
 pub async fn cuda_remove(engine: State<'_, Engine>, cuda: State<'_, Cuda>) -> AppResult<()> {
-    engine.unload_all().await;
+    let _frozen = engine.freeze().await;
     cuda.remove().await
 }
 

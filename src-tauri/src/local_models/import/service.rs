@@ -143,9 +143,10 @@ pub async fn builtin_dir(store: &Store, data_dir: &Path) -> AppResult<PathBuf> {
 /// machine interrogé), dossiers donnés par [`TEST_MACHINE_DIRS`] ; app lancée
 /// par les e2e ou la recette : dossiers de
 /// [`super::sources::MACHINE_DIRS_VAR`] s'il est posé.
-async fn machine_candidates(exclude: Vec<PathBuf>) -> Vec<PathBuf> {
+async fn machine_candidates(data_dir: &Path, exclude: Vec<PathBuf>) -> Vec<PathBuf> {
     #[cfg(test)]
     {
+        let _ = data_dir;
         let dirs = TEST_MACHINE_DIRS.with(|dirs| dirs.borrow().clone());
         super::sources::candidates(None, Vec::new(), None, dirs, &exclude)
     }
@@ -161,9 +162,12 @@ async fn machine_candidates(exclude: Vec<PathBuf>) -> Vec<PathBuf> {
             .unwrap_or_default();
         }
         // Bus figé, `/proc` lent : la recherche continue sans ces dossiers.
+        let data_dir = data_dir.to_owned();
         let detected = tokio::time::timeout(
             DETECT_TIMEOUT,
-            tauri::async_runtime::spawn_blocking(super::sources::configured_dirs),
+            tauri::async_runtime::spawn_blocking(move || {
+                super::sources::configured_dirs(&data_dir)
+            }),
         )
         .await
         .ok()
@@ -197,7 +201,7 @@ thread_local! {
 /// (déjà vu, ou parmi les dossiers trouvés maintenant) : copies seulement,
 /// ni lien, ni renommage, ni ménage (relecture L6, B1). Base illisible :
 /// vrai (dans le doute, copie).
-pub async fn builtin_shared(store: &Store, dir: &Path) -> bool {
+pub async fn builtin_shared(store: &Store, data_dir: &Path, dir: &Path) -> bool {
     if store
         .call(|c| records::builtin_shared(c))
         .await
@@ -205,7 +209,7 @@ pub async fn builtin_shared(store: &Store, dir: &Path) -> bool {
     {
         return true;
     }
-    let machine = machine_candidates(Vec::new()).await;
+    let machine = machine_candidates(data_dir, Vec::new()).await;
     let dir = dir.to_owned();
     tauri::async_runtime::spawn_blocking(move || super::sources::shared_dir(&dir, &machine))
         .await
@@ -260,7 +264,7 @@ pub async fn at_startup(import: &ModelImport, store: Store, data_dir: PathBuf) {
             .await;
         return;
     }
-    let shared = builtin_shared(&store, &dir).await;
+    let shared = builtin_shared(&store, &data_dir, &dir).await;
     let job = Job {
         origin: ImportOrigin::Builtin,
         dir,
@@ -278,7 +282,7 @@ pub async fn at_startup(import: &ModelImport, store: Store, data_dir: PathBuf) {
 pub async fn machine_dirs(store: &Store, data_dir: &Path) -> AppResult<Vec<PathBuf>> {
     let builtin = builtin_dir(store, data_dir).await?;
     let models = crate::local_models::models_dir(store, data_dir).await?;
-    Ok(machine_candidates(vec![builtin, models]).await)
+    Ok(machine_candidates(data_dir, vec![builtin, models]).await)
 }
 
 /// Chemins absolus des fichiers de la base locale (gardés par le ménage).
@@ -312,7 +316,7 @@ async fn cleanable(
         return Ok(Err(t!("modelImport.notImportedYet")));
     }
     let dir = builtin_dir(store, data_dir).await?;
-    if builtin_shared(store, &dir).await {
+    if builtin_shared(store, data_dir, &dir).await {
         return Ok(Err(t!("modelImport.sharedFolder")));
     }
     Ok(match super::builtin_left(store, data_dir, &dir).await? {

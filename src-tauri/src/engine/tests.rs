@@ -39,6 +39,19 @@ async fn fake_llama_server() {
         eprintln!("error: invalid device: CUDA0");
         std::process::exit(1);
     }
+    // Moteur marqué `OOM` : CUDA marche, mais la carte manque de mémoire
+    // pour ce modèle (avertissement de la mémoire épinglée compris).
+    if let Some(path) = std::env::var_os(super::cuda::BACKEND_PATH_ENV)
+        && std::fs::read(&path).is_ok_and(|bytes| bytes.starts_with(b"OOM"))
+    {
+        eprintln!(
+            "ggml_cuda_host_malloc: failed to allocate 512.00 MiB of pinned memory: out of memory"
+        );
+        eprintln!(
+            "ggml_backend_cuda_buffer_type_alloc_buffer: allocating 3584.00 MiB on device 0: cudaMalloc failed: out of memory"
+        );
+        std::process::exit(1);
+    }
     if let Some(args) = fake_llama::cli::args_from_env() {
         std::process::exit(fake_llama::cli::run(args).await);
     }
@@ -1412,11 +1425,13 @@ fn cuda_bench(engine: &[u8]) -> (Bench, super::cuda::Runtime) {
         let root = config.logs.parent().unwrap().join("engine").join("cuda");
         let dir = root.join("b12110");
         std::fs::create_dir_all(&dir).unwrap();
+        let fixed = super::cuda::Runtime::fixed(root, platform, vec![gpu]);
         for file in super::cuda::pack::installed_files(platform, 13) {
             std::fs::write(dir.join(&file), b"x").unwrap();
         }
         std::fs::write(dir.join(platform.engine_file()), engine).unwrap();
-        let fixed = super::cuda::Runtime::fixed(root, platform, vec![gpu]);
+        let version = &fixed.pins().unwrap().pack_version;
+        std::fs::write(dir.join("VERSION"), version).unwrap();
         config.cuda = fixed.clone();
         runtime = Some(fixed);
     });
@@ -1473,6 +1488,24 @@ async fn cuda_runs_the_model_and_falls_back_to_vulkan() {
     // Le journal du premier essai (CUDA) est gardé.
     let first = std::fs::read_to_string(bench.old_log_of(&id)).unwrap();
     assert!(first.contains("ggml-cuda"), "{first}");
+    drop(lease);
+    bench.engine.shutdown().await;
+}
+
+/// Un modèle qui manque de mémoire sur CUDA (CUDA marche) : repli de ce
+/// modèle seul sur le processeur, CUDA gardé pour la session (relecture
+/// L1b : toute mort sur CUDA le coupait pour tous les modèles).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_out_of_memory_on_cuda_does_not_cut_cuda() {
+    let (bench, runtime) = cuda_bench(b"OOM");
+    let id = bench.install("chatonlm-simple", GIB);
+    let lease = tokio::time::timeout(Duration::from_secs(20), bench.engine.ensure(&id, kept()))
+        .await
+        .expect("no endless relaunch")
+        .unwrap();
+    assert!(lease.cpu_fallback);
+    assert_eq!(runtime.failure(), None);
+    assert!(runtime.select().await.is_some());
     drop(lease);
     bench.engine.shutdown().await;
 }

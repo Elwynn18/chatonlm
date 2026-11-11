@@ -36,11 +36,25 @@ impl OldBuiltin {
         }
     }
 
-    /// Processus vivant de l'ancien intégré.
+    /// Processus vivant de l'ancien intégré : son serveur.
     pub(crate) fn owns(&self, proc: &Path, pid: u32) -> bool {
+        self.runs(proc, pid, is_builtin_binary)
+    }
+
+    /// Processus vivant de l'ancien intégré : son serveur ou l'un de ses
+    /// runners (`…/ollama/lib/ollama/llama-server`, `llama-quantize`),
+    /// lancés depuis sa copie (relecture L10 : un runner orphelin gardait
+    /// RAM, VRAM et blobs ouverts).
+    pub(crate) fn owns_member(&self, proc: &Path, pid: u32) -> bool {
+        self.runs(proc, pid, |exe| {
+            is_builtin_binary(exe) || is_builtin_runner(exe)
+        })
+    }
+
+    fn runs(&self, proc: &Path, pid: u32, program: impl Fn(&Path) -> bool) -> bool {
         let dir = proc.join(pid.to_string());
         std::fs::metadata(&dir).is_ok_and(|meta| meta.uid() == self.uid)
-            && std::fs::read_link(dir.join("exe")).is_ok_and(|exe| is_builtin_binary(&exe))
+            && std::fs::read_link(dir.join("exe")).is_ok_and(|exe| program(&exe))
             && self.private_home(&dir)
     }
 
@@ -57,18 +71,30 @@ impl OldBuiltin {
     }
 }
 
-/// `…/ollama/bin/ollama`, avec la marque « (deleted) » du noyau quand le
-/// fichier a été effacé depuis le lancement.
-pub(crate) fn is_builtin_binary(exe: &Path) -> bool {
+/// Derniers noms du chemin `exe`, du fichier vers la racine, sans la marque
+/// « (deleted) » du noyau (fichier effacé depuis le lancement).
+fn last_names(exe: &Path, count: usize) -> Vec<String> {
     let text = exe.to_string_lossy();
     let path = Path::new(text.strip_suffix(" (deleted)").unwrap_or(&text));
-    let names: Vec<_> = path
-        .components()
+    path.components()
         .rev()
-        .take(3)
+        .take(count)
         .map(|part| part.as_os_str().to_string_lossy().into_owned())
-        .collect();
-    names == ["ollama", "bin", "ollama"]
+        .collect()
+}
+
+/// `…/ollama/bin/ollama`, même effacé depuis le lancement.
+pub(crate) fn is_builtin_binary(exe: &Path) -> bool {
+    last_names(exe, 3) == ["ollama", "bin", "ollama"]
+}
+
+/// Runner de l'ancien intégré : `…/ollama/lib/ollama/llama-server` ou
+/// `llama-quantize` (Ollama 0.40.x livré en 0.9.x), même effacé.
+pub(crate) fn is_builtin_runner(exe: &Path) -> bool {
+    let names = last_names(exe, 4);
+    names.len() == 4
+        && ["llama-server", "llama-quantize"].contains(&names[0].as_str())
+        && names[1..] == ["ollama", "lib", "ollama"]
 }
 
 /// Processus du groupe `leader` qui sont l'ancien intégré ; vide si le
@@ -89,7 +115,7 @@ pub(crate) fn leftover_processes(proc: &Path, leader: u32, ours: &OldBuiltin) ->
     let mut found: Vec<u32> = entries
         .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse::<u32>().ok())
         .filter(|&pid| pid != own && group_of(proc, pid) == Some(leader))
-        .filter(|&pid| ours.owns(proc, pid))
+        .filter(|&pid| ours.owns_member(proc, pid))
         .collect();
     found.sort_unstable();
     found
@@ -134,7 +160,7 @@ pub(crate) fn stop_with(proc: &Path, leader: u32, ours: &OldBuiltin, grace: std:
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     for &pid in &found {
-        if alive(pid) && ours.owns(proc, pid) {
+        if alive(pid) && ours.owns_member(proc, pid) {
             signal_process(pid, libc::SIGKILL);
         }
     }

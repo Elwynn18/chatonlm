@@ -109,10 +109,11 @@ pub fn verify_signature(
 pub fn parse_manifest(bytes: &[u8], platform: Platform, pins: &Pins) -> Result<Manifest, String> {
     let manifest: Manifest = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
     let expected = pack_name(platform, &pins.llama_build);
-    let prefix = format!("{}+chatonlm.cuda.", pins.llama_version);
     let problems = [
         (manifest.build != pins.llama_build).then(|| format!("build {}", manifest.build)),
-        (!manifest.version.starts_with(&prefix)).then(|| format!("version {}", manifest.version)),
+        // Celle du pack de cette version de l'app : un autre serait périmé
+        // aussitôt installé.
+        (manifest.version != pins.pack_version).then(|| format!("version {}", manifest.version)),
         (manifest.file != expected).then(|| format!("file {}", manifest.file)),
         (manifest.sha256.len() != 64 || !manifest.sha256.bytes().all(|b| b.is_ascii_hexdigit()))
             .then(|| "sha256".to_owned()),
@@ -160,27 +161,39 @@ pub fn is_build(name: &str) -> bool {
     name.len() > 1 && name.starts_with('b') && name[1..].bytes().all(|byte| byte.is_ascii_digit())
 }
 
-/// Pack installé pour `build` sous `root` (dossier complet), sinon `None`.
-pub fn installed(root: &Path, build: &str, platform: Platform, major: u32) -> Option<Installed> {
+/// `VERSION` du pack de la build épinglée sous `root`, s'il y en a un.
+fn version_in(root: &Path, pins: &Pins) -> Option<String> {
+    std::fs::read_to_string(build_dir(root, &pins.llama_build).join("VERSION"))
+        .ok()
+        .map(|text| text.trim().to_owned())
+}
+
+/// Pack de la build épinglée sous `root`, complet et de la `VERSION`
+/// attendue ([`Pins::pack_version`]), sinon `None`.
+pub fn installed(root: &Path, pins: &Pins, platform: Platform) -> Option<Installed> {
+    let build = pins.llama_build.as_str();
     let dir = build_dir(root, build);
+    let version = version_in(root, pins).filter(|version| *version == pins.pack_version)?;
     let mut bytes = 0u64;
-    for file in installed_files(platform, major) {
+    for file in installed_files(platform, pins.cuda_major) {
         let meta = std::fs::metadata(dir.join(&file)).ok()?;
         if !meta.is_file() {
             return None;
         }
         bytes = bytes.saturating_add(meta.len());
     }
-    let version = std::fs::read_to_string(dir.join("VERSION"))
-        .ok()?
-        .trim()
-        .to_owned();
     Some(Installed {
         dir,
         build: build.to_owned(),
         version,
         bytes,
     })
+}
+
+/// Pack de la build épinglée d'une autre `VERSION` (pack refait : correctif,
+/// épingles de NVIDIA) : périmé, à retélécharger.
+pub fn outdated(root: &Path, pins: &Pins) -> bool {
+    version_in(root, pins).is_some_and(|version| version != pins.pack_version)
 }
 
 /// Autres builds présentes sous `root` (packs périmés), triées.
@@ -209,6 +222,16 @@ pub fn sha256_file(path: &Path) -> std::io::Result<String> {
         .collect())
 }
 
+/// Ligne de `sha256sum` : empreinte, une espace, puis « ␠ » (mode texte)
+/// ou « * » (mode binaire, celui du `sha256sum` de Git pour Windows) et le
+/// nom ; même règle que `parseSums` (scripts/inspect-packages.mjs).
+fn sum_line(line: &str) -> Option<(&str, &str)> {
+    let line = line.trim_end_matches('\r');
+    let (sum, rest) = line.trim_start().split_once(' ')?;
+    let name = rest.strip_prefix([' ', '*'])?.trim();
+    (sum.len() == 64 && !name.is_empty()).then_some((sum, name))
+}
+
 /// Contrôle `SHA256SUMS` du pack extrait dans `dir` : il couvre exactement
 /// les fichiers du pack (hors lui-même), chacun intact.
 pub fn check_sums(dir: &Path, platform: Platform) -> Result<(), String> {
@@ -216,11 +239,9 @@ pub fn check_sums(dir: &Path, platform: Platform) -> Result<(), String> {
         std::fs::read_to_string(dir.join("SHA256SUMS")).map_err(|error| error.to_string())?;
     let mut listed = HashSet::new();
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
-        let (sum, name) = line
-            .split_once("  ")
+        let (sum, name) = sum_line(line)
             // i18n-ignore : détail technique, dans un message traduit.
             .ok_or_else(|| format!("SHA256SUMS: {line}"))?;
-        let name = name.trim();
         if !pack_files(platform).contains(&name) || name == "SHA256SUMS" {
             // i18n-ignore : détail technique, dans un message traduit.
             return Err(format!("SHA256SUMS: unexpected {name}"));
@@ -336,6 +357,46 @@ mod tests {
         assert!(parse_manifest(good.to_string().as_bytes(), Platform::Windows, &pins).is_err());
     }
 
+    /// Les deux formes de `sha256sum` : texte (« ␠␠ ») et binaire
+    /// (« ␠* », Git pour Windows), fin de ligne CRLF comprise.
+    #[test]
+    fn sums_are_read_in_text_and_binary_modes() {
+        let sum = "ab".repeat(32);
+        assert_eq!(
+            sum_line(&format!("{sum}  ggml-cuda.dll")),
+            Some((sum.as_str(), "ggml-cuda.dll"))
+        );
+        assert_eq!(
+            sum_line(&format!("{sum} *ggml-cuda.dll\r")),
+            Some((sum.as_str(), "ggml-cuda.dll"))
+        );
+        assert_eq!(sum_line(&format!("{sum} ggml-cuda.dll")), None);
+        assert_eq!(sum_line("abc  ggml-cuda.dll"), None);
+        assert_eq!(sum_line(&format!("{sum}  ")), None);
+    }
+
+    /// Pack Windows dont le `SHA256SUMS` vient du `sha256sum` de Git pour
+    /// Windows (mode binaire, « * ») : accepté.
+    #[test]
+    fn a_windows_pack_summed_in_binary_mode_is_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in pack_files(Platform::Windows) {
+            std::fs::write(dir.path().join(name), name.as_bytes()).unwrap();
+        }
+        let sums: String = pack_files(Platform::Windows)
+            .into_iter()
+            .filter(|name| *name != "SHA256SUMS")
+            .map(|name| {
+                format!(
+                    "{} *{name}\r\n",
+                    sha256_file(&dir.path().join(name)).unwrap()
+                )
+            })
+            .collect();
+        std::fs::write(dir.path().join("SHA256SUMS"), sums).unwrap();
+        assert_eq!(check_sums(dir.path(), Platform::Windows), Ok(()));
+    }
+
     #[test]
     fn an_installed_pack_is_complete_and_its_sums_match() {
         let dir = tempfile::tempdir().unwrap();
@@ -346,7 +407,7 @@ mod tests {
         for file in &files {
             std::fs::write(build.join(file), file.as_bytes()).unwrap();
         }
-        std::fs::write(build.join("VERSION"), "v0.9.0+chatonlm.cuda.x\n").unwrap();
+        std::fs::write(build.join("VERSION"), format!("{}\n", pins().pack_version)).unwrap();
         let sums: String = pack_files(Platform::Linux)
             .into_iter()
             .filter(|name| *name != "SHA256SUMS")
@@ -354,15 +415,23 @@ mod tests {
             .collect();
         std::fs::write(build.join("SHA256SUMS"), &sums).unwrap();
         assert_eq!(check_sums(&build, Platform::Linux), Ok(()));
-        let found = installed(root, "b12110", Platform::Linux, 13).unwrap();
-        assert_eq!(found.version, "v0.9.0+chatonlm.cuda.x");
+        let found = installed(root, &pins(), Platform::Linux).unwrap();
+        assert!(!outdated(root, &pins()));
+        assert_eq!(found.version, pins().pack_version);
+        // Même build, pack refait (autre empreinte) : périmé, pas installé.
+        let mut newer = pins();
+        newer.pack_version = "v0.9.0+chatonlm.cuda.ffffffffffff".into();
+        assert!(installed(root, &newer, Platform::Linux).is_none());
+        assert!(outdated(root, &newer));
         assert!(found.bytes > 0);
         // Autre build : périmée ; dossiers étrangers ignorés.
         std::fs::create_dir_all(root.join("b11000")).unwrap();
         std::fs::create_dir_all(root.join("downloads")).unwrap();
         std::fs::create_dir_all(root.join("b12110.part")).unwrap();
         assert_eq!(stale_builds(root, "b12110"), vec!["b11000".to_owned()]);
-        assert!(installed(root, "b11000", Platform::Linux, 13).is_none());
+        let mut other = pins();
+        other.llama_build = "b11000".into();
+        assert!(installed(root, &other, Platform::Linux).is_none());
         // Fichier changé, ou manquant.
         std::fs::write(build.join("LICENSE-CCCL.txt"), "changed").unwrap();
         assert!(
@@ -384,6 +453,6 @@ mod tests {
                 .contains("missing")
         );
         std::fs::remove_file(build.join("libcublasLt.so.13")).unwrap();
-        assert!(installed(root, "b12110", Platform::Linux, 13).is_none());
+        assert!(installed(root, &pins(), Platform::Linux).is_none());
     }
 }

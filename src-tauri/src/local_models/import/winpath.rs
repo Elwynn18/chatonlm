@@ -68,16 +68,18 @@ pub fn within(path: &str, root: &str) -> bool {
 
 /// Dossiers des modèles réglés pour l'Ollama de la machine : la variable
 /// d'utilisateur `OLLAMA_MODELS`, puis celle du système (valeurs vides
-/// ignorées). Le réglage de l'app officielle d'Ollama, qui l'emporte quand
-/// il existe, n'est connu que d'elle ; `%USERPROFILE%\.ollama\models` est
-/// ajouté par l'appelant (commun aux deux systèmes).
+/// ignorées), lues comme Ollama (`envconfig.Var` : espaces puis guillemets
+/// retirés, [`super::sources::env_value`]). Le réglage de l'app officielle
+/// d'Ollama, qui l'emporte quand il existe, n'est connu que d'elle ;
+/// `%USERPROFILE%\.ollama\models` est ajouté par l'appelant (commun aux
+/// deux systèmes).
 pub fn configured_dirs(user_variable: Option<&str>, machine_variable: Option<&str>) -> Vec<String> {
     [user_variable, machine_variable]
         .into_iter()
         .flatten()
-        .map(str::trim)
+        .map(super::sources::env_value)
         .filter(|value| !value.is_empty())
-        .map(plain)
+        .map(|value| plain(&value))
         .collect()
 }
 
@@ -120,5 +122,12 @@ mod tests {
             [r"E:\Shared"]
         );
         assert!(configured_dirs(None, Some("")).is_empty());
+        // Guillemets saisis dans l'éditeur des variables : retirés, comme
+        // Ollama le fait.
+        assert_eq!(
+            configured_dirs(Some(r#" "D:\Models" "#), Some(r"'E:\Shared'")),
+            [r"D:\Models", r"E:\Shared"]
+        );
+        assert!(configured_dirs(Some(r#""""#), None).is_empty());
     }
 }

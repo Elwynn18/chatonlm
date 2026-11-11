@@ -15,7 +15,7 @@ use tokio::net::TcpListener;
 
 use super::archive::tests::{tar_bytes, zip_bytes};
 use super::detect::NvidiaGpu;
-use super::manager::{CudaPhase, CudaStatus, Sources, install_from};
+use super::manager::{CudaPhase, CudaStatus, Sources, install_from, retry_busy};
 use super::pack::{self, Manifest};
 use super::pins::{Pins, Redist};
 use super::*;
@@ -31,8 +31,12 @@ pub fn fixture_pins(platform: Platform) -> Pins {
     .unwrap();
     pins.llama_build = "b12110".into();
     pins.llama_version = "v0.9.0".into();
+    pins.pack_version = FIXTURE_VERSION.into();
     pins
 }
+
+/// `VERSION` des packs d'essai (`fixtures/`, [`windows_pack`]).
+pub const FIXTURE_VERSION: &str = "v0.9.0+chatonlm.cuda.0123456789ab";
 
 const TEST_PUBKEY: &str = include_str!("fixtures/test.key.pub");
 const PACK: &[u8] = include_bytes!("fixtures/chatonlm-cuda-b12110-linux-x64.tar.gz");
@@ -113,8 +117,28 @@ fn the_journal_accuses_cuda() {
         "CUDA error: the provided PTX was compiled with an unsupported toolchain.",
         "ggml_cuda_init: failed to initialize CUDA: no CUDA-capable device is detected",
         "cuBLAS error CUBLAS_STATUS_NOT_INITIALIZED",
+        "CUDA error: no kernel image is available for execution on the device",
+        "CUDA error: CUDA driver version is insufficient for CUDA runtime version",
     ] {
         assert!(journal_accuses_cuda(log), "{log}");
+        assert!(!journal_cuda_out_of_memory(log), "{log}");
+    }
+    // Mémoire et plantage du modèle : pas la faute du pack.
+    for log in [
+        "CUDA error: out of memory",
+        "ggml_backend_cuda_buffer_type_alloc_buffer: allocating 3584.00 MiB on device 0: cudaMalloc failed: out of memory",
+        "cuBLAS error CUBLAS_STATUS_ALLOC_FAILED",
+    ] {
+        assert!(!journal_accuses_cuda(log), "{log}");
+        assert!(journal_cuda_out_of_memory(log), "{log}");
+    }
+    for log in [
+        "ggml_cuda_host_malloc: failed to allocate 512.00 MiB of pinned memory: out of memory",
+        "/src/ggml/src/ggml-cuda/ggml-cuda.cu:100: GGML_ASSERT(ne00 % 2 == 0) failed",
+        "warning: ggml_cuda: failed to enable peer access",
+    ] {
+        assert!(!journal_accuses_cuda(log), "{log}");
+        assert!(!journal_cuda_out_of_memory(log), "{log}");
     }
     for log in [
         "ggml_cuda_init: found 1 CUDA devices:",
@@ -134,6 +158,7 @@ fn install_fake(root: &std::path::Path, platform: Platform) {
     for file in pack::installed_files(platform, pins.cuda_major) {
         std::fs::write(dir.join(file), b"x").unwrap();
     }
+    std::fs::write(dir.join("VERSION"), FIXTURE_VERSION).unwrap();
 }
 
 #[tokio::test]
@@ -180,6 +205,27 @@ async fn cuda_is_chosen_only_with_a_pack_a_card_the_setting_and_no_failure() {
     // Pack incomplet (bibliothèque de NVIDIA manquante) : jamais.
     std::fs::remove_file(root.join("b12110").join("libcublas.so.13")).unwrap();
     assert_eq!(runtime.select().await, None);
+}
+
+/// Pack de la même build mais d'une autre `VERSION` (refait : correctif,
+/// épingles) : pas choisi, montré périmé (à retélécharger).
+#[tokio::test]
+async fn a_pack_of_another_version_is_stale_and_not_chosen() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("cuda");
+    install_fake(&root, Platform::Linux);
+    std::fs::write(
+        root.join("b12110").join("VERSION"),
+        "v0.9.0+chatonlm.cuda.ffffffffffff\n",
+    )
+    .unwrap();
+    let runtime = Runtime::fixed(root.clone(), Platform::Linux, vec![rtx3090()]);
+    assert_eq!(runtime.select().await, None);
+    let cuda = Cuda::with_sources(runtime, "9.9.9", |_| {}, Sources::default());
+    let status = cuda.status(false).await;
+    assert_eq!(status.phase, CudaPhase::Absent);
+    assert!(status.stale);
+    assert!(!status.active);
 }
 
 /// Archive de NVIDIA fabriquée pour `platform` et ses épingles.
@@ -271,12 +317,14 @@ fn fake_nvidia(platform: Platform) -> (Pins, Vec<(String, Vec<u8>)>) {
     (pins, vec![(names.0, cudart.0), (names.1, cublas.0)])
 }
 
-/// Pack de Windows fabriqué (le pack de Linux est celui de `fixtures/`).
+/// Pack de Windows fabriqué (le pack de Linux est celui de `fixtures/`) ;
+/// `SHA256SUMS` en mode binaire (« * »), comme le `sha256sum` de Git pour
+/// Windows l'écrivait avant `--text`.
 fn windows_pack() -> (Vec<u8>, Manifest) {
     let engine: &[u8] = b"fake ggml-cuda.dll";
     let version: &[u8] = b"v0.9.0+chatonlm.cuda.0123456789ab\n";
     let sums = format!(
-        "{}  ggml-cuda.dll\n{}  VERSION\n{}  LICENSE-llama.cpp.txt\n{}  LICENSE-CCCL.txt\n",
+        "{} *ggml-cuda.dll\n{} *VERSION\n{} *LICENSE-llama.cpp.txt\n{} *LICENSE-CCCL.txt\n",
         sha256(engine),
         sha256(version),
         sha256(b"mit"),
@@ -322,7 +370,7 @@ fn archives_are_assembled_into_the_build_folder() {
         std::fs::create_dir_all(root.join("b11000")).unwrap();
         let cancel = AtomicBool::new(false);
         install_from(root, platform, &pins, &manifest, &cancel).unwrap();
-        let installed = pack::installed(root, "b12110", platform, 13).unwrap();
+        let installed = pack::installed(root, &pins, platform).unwrap();
         assert_eq!(installed.version, manifest.version);
         let read = |name: &str| std::fs::read(installed.dir.join(name)).unwrap();
         let (cudart, cublas_lt) = match platform {
@@ -371,7 +419,7 @@ fn a_pack_that_does_not_match_its_manifest_is_not_installed() {
     )
     .unwrap_err();
     assert!(error.contains("VERSION"), "{error}");
-    assert!(pack::installed(root, "b12110", Platform::Linux, 13).is_none());
+    assert!(pack::installed(root, &pins, Platform::Linux).is_none());
     assert!(!root.join("b12110.part").exists());
     // Archive de NVIDIA sans cuBLAS.
     let manifest = pack::parse_manifest(MANIFEST, Platform::Linux, &pins).unwrap();
@@ -386,7 +434,7 @@ fn a_pack_that_does_not_match_its_manifest_is_not_installed() {
     )
     .unwrap_err();
     assert!(error.contains("missing"), "{error}");
-    assert!(pack::installed(root, "b12110", Platform::Linux, 13).is_none());
+    assert!(pack::installed(root, &pins, Platform::Linux).is_none());
 }
 
 /// Serveur HTTP de fichiers (chemin → contenu), `Range` compris ; compte
@@ -702,4 +750,65 @@ async fn real_cuda_pack_runs_a_model_on_the_nvidia_card() {
     assert!(!log.contains("CUDA0"));
     eprintln!("throughput: CUDA {on_cuda:.1} tok/s, Vulkan {on_vulkan:.1} tok/s");
     bench.shutdown().await;
+}
+
+/// Windows : un renommage ou un effacement refusé un instant (antivirus sur
+/// une DLL tout juste écrite) est refait ; sous Linux, jamais ; une autre
+/// erreur n'est pas refaite ; au bout des essais, l'erreur reste.
+#[test]
+fn a_busy_file_is_tried_again_on_windows_only() {
+    // `busy` refus de `error`, puis la réussite : (réussi ?, appels).
+    let failing = |busy: u32, error: fn() -> std::io::Error| {
+        move |windows: bool| {
+            let calls = std::cell::Cell::new(0);
+            let outcome = retry_busy(windows, 10, Duration::ZERO, || {
+                calls.set(calls.get() + 1);
+                if calls.get() <= busy {
+                    Err(error())
+                } else {
+                    Ok(())
+                }
+            });
+            (outcome.is_ok(), calls.get())
+        }
+    };
+    let denied = || std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+    let sharing = || std::io::Error::from_raw_os_error(32);
+    let missing = || std::io::Error::from(std::io::ErrorKind::NotFound);
+    // Deux refus puis la réussite : trois appels.
+    assert_eq!(failing(2, denied)(true), (true, 3));
+    assert_eq!(failing(2, sharing)(true), (true, 3));
+    // Linux : pas de nouvel essai.
+    assert_eq!(failing(2, denied)(false), (false, 1));
+    // Autre erreur : pas de nouvel essai.
+    assert_eq!(failing(2, missing)(true), (false, 1));
+    // Toujours refusé : dix appels, puis l'erreur.
+    assert_eq!(failing(99, denied)(true), (false, 10));
+}
+
+/// Retrait pendant une installation : il attend la fin de l'assemblage, et
+/// aucun lancement ne prend CUDA pendant ce temps ; ensuite tout est parti
+/// et un nouveau pack est de nouveau choisi.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_removal_waits_for_the_installation_and_blocks_cuda() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("cuda");
+    install_fake(&root, Platform::Linux);
+    let runtime = Runtime::fixed(root.clone(), Platform::Linux, vec![rtx3090()]);
+    let cuda = Cuda::with_sources(runtime.clone(), "9.9.9", |_| {}, Sources::default());
+    assert!(runtime.select().await.is_some());
+    cuda.hold_install();
+    let removing = {
+        let cuda = cuda.clone();
+        tokio::spawn(async move { cuda.remove().await })
+    };
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!removing.is_finished(), "removed during the installation");
+    assert!(root.join("b12110").exists());
+    assert_eq!(runtime.select().await, None);
+    cuda.release_install();
+    removing.await.unwrap().unwrap();
+    assert!(!root.exists());
+    install_fake(&root, Platform::Linux);
+    assert!(runtime.select().await.is_some());
 }

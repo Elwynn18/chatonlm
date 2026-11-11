@@ -56,7 +56,8 @@ pub async fn model_import_scan(
     };
     let mut sources = Vec::new();
     for dir in dirs {
-        let shared = origin == ImportOrigin::Builtin && service::builtin_shared(&store, &dir).await;
+        let shared = origin == ImportOrigin::Builtin
+            && service::builtin_shared(&store, &data_dir, &dir).await;
         sources.push(import::source(&store, &data_dir, origin, &dir, shared).await?);
     }
     Ok(sources)
@@ -89,7 +90,8 @@ pub async fn model_import_start(
             error = std::io::Error::from(std::io::ErrorKind::NotFound)
         )));
     }
-    let shared = origin == ImportOrigin::Builtin && service::builtin_shared(&store, &dir).await;
+    let shared =
+        origin == ImportOrigin::Builtin && service::builtin_shared(&store, &data_dir, &dir).await;
     let job = Job {
         origin,
         dir,

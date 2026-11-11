@@ -142,20 +142,55 @@ pub fn device_args(cuda: &CudaRuntime) -> Vec<OsString> {
     vec!["--device".into(), devices.into()]
 }
 
-/// Le journal accuse CUDA : moteur qui ne se charge pas (`failed to load
-/// …ggml-cuda…`), carte refusée (`invalid device: CUDA0`), erreur de CUDA ou
-/// de cuBLAS (`CUDA error`, `ggml_cuda_…`, `CUBLAS_STATUS_…`).
+/// Le journal accuse CUDA lui-même (le pack ou la machine, pour tous les
+/// modèles) : moteur qui ne se charge pas (`failed to load …ggml-cuda…`),
+/// carte refusée (`invalid device: CUDA0`), CUDA qui ne démarre pas
+/// (`ggml_cuda_init: failed …`, `no CUDA-capable device`, pilote trop
+/// ancien), code absent pour la carte (`no kernel image`, PTX d'une autre
+/// chaîne), cuBLAS qui ne s'initialise pas ou ne connaît pas la carte. Le
+/// manque de mémoire, un avertissement (`ggml_cuda_host_malloc: failed to
+/// allocate … pinned memory`) ou un plantage du modèle ne disent rien du
+/// pack : repli pour ce modèle seulement ([`journal_cuda_out_of_memory`],
+/// plantage), CUDA gardé pour les autres.
 pub fn journal_accuses_cuda(log: &str) -> bool {
     log.lines().any(|line| {
         let lower = line.to_ascii_lowercase();
+        if lower.contains("warning") || lower.contains("host_malloc") || out_of_memory(&lower) {
+            return false;
+        }
         (lower.contains("failed to load") && lower.contains("ggml-cuda"))
             || lower.contains("invalid device: cuda")
-            || lower.contains("cuda error")
-            || lower.contains("cublas_status_")
-            || (lower.contains("ggml_cuda")
-                && ["error", "failed", "abort"]
-                    .iter()
-                    .any(|word| lower.contains(word)))
+            || (lower.contains("ggml_cuda_init") && lower.contains("failed"))
+            || [
+                "no cuda-capable device",
+                "no kernel image is available",
+                "unsupported toolchain",
+                "ptx jit compil",
+                "ptx was compiled",
+                "invalid device function",
+                "driver version is insufficient",
+                "cublas_status_not_initialized",
+                "cublas_status_arch_mismatch",
+                "cublas_status_not_supported",
+            ]
+            .iter()
+            .any(|cause| lower.contains(cause))
+    })
+}
+
+/// Ligne (en minuscules) qui dit un manque de mémoire de CUDA.
+fn out_of_memory(lower: &str) -> bool {
+    lower.contains("out of memory") || lower.contains("cublas_status_alloc_failed")
+}
+
+/// Le journal d'un lancement mort sur CUDA dit un manque de mémoire
+/// (`CUDA error: out of memory`, `cudaMalloc failed: out of memory`,
+/// `CUBLAS_STATUS_ALLOC_FAILED`), avertissement de la mémoire épinglée mis à
+/// part (non fatal) : nouvel essai de ce modèle sur le processeur.
+pub fn journal_cuda_out_of_memory(log: &str) -> bool {
+    log.lines().any(|line| {
+        let lower = line.to_ascii_lowercase();
+        out_of_memory(&lower) && !lower.contains("host_malloc") && !lower.contains("warning")
     })
 }
 
@@ -173,6 +208,8 @@ struct Inner {
     fixed: Option<Vec<NvidiaGpu>>,
     /// Raison de l'échec de CUDA dans cette session.
     failure: parking_lot::Mutex<Option<String>>,
+    /// Retrait du pack en cours : aucun lancement sur CUDA.
+    removing: std::sync::atomic::AtomicBool,
 }
 
 impl std::fmt::Debug for Runtime {
@@ -198,6 +235,7 @@ impl Runtime {
             gpus: tokio::sync::Mutex::new(None),
             fixed: None,
             failure: parking_lot::Mutex::new(None),
+            removing: std::sync::atomic::AtomicBool::new(false),
         }))
     }
 
@@ -222,6 +260,7 @@ impl Runtime {
             gpus: tokio::sync::Mutex::new(None),
             fixed: Some(gpus),
             failure: parking_lot::Mutex::new(None),
+            removing: std::sync::atomic::AtomicBool::new(false),
         }))
     }
 
@@ -240,7 +279,7 @@ impl Runtime {
     /// Pack de la build du serveur, installé.
     pub fn installed(&self) -> Option<pack::Installed> {
         let (platform, pins) = (self.0.platform?, self.0.pins.as_ref()?);
-        pack::installed(&self.0.root, &pins.llama_build, platform, pins.cuda_major)
+        pack::installed(&self.0.root, pins, platform)
     }
 
     /// Réglage « Accélération NVIDIA » (activé tant que la marque manque).
@@ -281,10 +320,11 @@ impl Runtime {
     }
 
     /// CUDA pour le prochain lancement, si tout y est : pack à jour installé,
-    /// réglage activé, carte compatible, aucun échec dans la session. Sans
+    /// réglage activé, carte compatible, aucun échec dans la session, pas de
+    /// retrait en cours. Sans
     /// pack, rien n'est détecté (pas de `nvidia-smi`).
     pub async fn select(&self) -> Option<CudaRuntime> {
-        if self.failure().is_some() || !self.enabled() {
+        if self.failure().is_some() || !self.enabled() || self.removing() {
             return None;
         }
         let installed = self.installed()?;
@@ -302,6 +342,17 @@ impl Runtime {
         // i18n-ignore : journal.
         crate::app_log!("chatonlm: CUDA failed ({reason}); using Vulkan for this session");
         *self.0.failure.lock() = Some(reason);
+    }
+
+    /// Retrait du pack en cours (voir [`Cuda::remove`]).
+    pub fn removing(&self) -> bool {
+        self.0.removing.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub(crate) fn set_removing(&self, removing: bool) {
+        self.0
+            .removing
+            .store(removing, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Raison de l'échec de CUDA dans la session.

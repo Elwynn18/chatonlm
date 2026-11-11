@@ -23,6 +23,8 @@ members = ["crates/easy-link", "crates/fake-llama", "crates/fake-services", "cra
 e2e = ["dep:tauri-plugin-webdriver"]
 
 [build-dependencies]
+# Empreinte attendue du pack CUDA (build.rs).
+sha2 = "0.10.9"
 tauri-build = { version = "2.7", features = [] }
 
 [dependencies]

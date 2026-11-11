@@ -1532,12 +1532,11 @@ impl Inner {
                         );
                         continue;
                     }
-                    // CUDA accusé (ou plantage sur CUDA) : coupé pour la
-                    // session, nouvel essai sur Vulkan.
-                    if on_cuda
-                        && (cuda::journal_accuses_cuda(&log)
-                            || journal::crashed(exited.facts, cfg!(windows)))
-                    {
+                    // CUDA lui-même accusé (pack, pilote, carte) : coupé
+                    // pour la session, nouvel essai sur Vulkan. Un manque de
+                    // mémoire ou un plantage du modèle sur CUDA : repli de ce
+                    // modèle seul sur le processeur (ci-dessous), CUDA gardé.
+                    if on_cuda && cuda::journal_accuses_cuda(&log) {
                         let reason = journal::errors(&log).unwrap_or_else(|| exited.text.clone());
                         self.config.cuda.fail(reason);
                         self.changed();
@@ -1545,7 +1544,8 @@ impl Inner {
                     }
                     if !retried
                         && !spec.cpu
-                        && journal::retry_on_cpu(&log, exited.facts, cfg!(windows))
+                        && (journal::retry_on_cpu(&log, exited.facts, cfg!(windows))
+                            || (on_cuda && cuda::journal_cuda_out_of_memory(&log)))
                     {
                         let reason = journal::errors(&log).unwrap_or_else(|| exited.text.clone());
                         // i18n-ignore : journal.

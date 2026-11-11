@@ -51,14 +51,15 @@ const BUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// processus `ollama` de ce compte. Bloquant ; un bus absent ou figé ne prive
 /// pas du reste.
 #[cfg_attr(test, allow(dead_code))]
-pub fn configured_dirs() -> Vec<PathBuf> {
+pub fn configured_dirs(data_dir: &Path) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     for system in [true, false] {
         if let Ok(Some(unit)) = read_unit(system) {
             dirs.extend(unit_dirs(&unit));
         }
     }
-    dirs.extend(process_dirs(Path::new("/proc")));
+    let old_home = super::old_builtin::root(data_dir).join("home");
+    dirs.extend(process_dirs(Path::new("/proc"), &old_home));
     dirs
 }
 
@@ -151,9 +152,12 @@ fn environ(proc: &Path, pid: u32) -> Option<Vec<String>> {
 }
 
 /// `OLLAMA_MODELS` des processus `ollama` lisibles (`ollama serve` lancé à
-/// la main, service de l'utilisateur), sauf l'ancien intégré de ChatonLM
-/// (`…/ollama/bin/ollama`).
-fn process_dirs(proc: &Path) -> Vec<PathBuf> {
+/// la main, service de l'utilisateur), sauf l'ancien intégré de ChatonLM,
+/// reconnu comme par `old_builtin` à son `HOME` privé (`old_home`), pas à
+/// son chemin : l'archive officielle d'Ollama extraite dans `/opt/ollama` ou
+/// `~/ollama` donne aussi `…/ollama/bin/ollama`.
+fn process_dirs(proc: &Path, old_home: &Path) -> Vec<PathBuf> {
+    let old_home = format!("HOME={}", old_home.display());
     let Ok(entries) = std::fs::read_dir(proc) else {
         return Vec::new();
     };
@@ -164,12 +168,16 @@ fn process_dirs(proc: &Path) -> Vec<PathBuf> {
         };
         let text = exe.to_string_lossy();
         let exe = Path::new(text.strip_suffix(" (deleted)").unwrap_or(&text));
-        if exe.file_name().is_none_or(|name| name != "ollama") || exe.ends_with("ollama/bin/ollama")
-        {
+        if exe.file_name().is_none_or(|name| name != "ollama") {
             continue;
         }
-        let found = environ(proc, pid)
-            .and_then(|items| super::sources::env_models(items.iter().map(String::as_str)));
+        let Some(items) = environ(proc, pid) else {
+            continue;
+        };
+        if items.contains(&old_home) {
+            continue;
+        }
+        let found = super::sources::env_models(items.iter().map(String::as_str));
         if let Some(dir) = found.map(PathBuf::from)
             && !dirs.contains(&dir)
         {
@@ -222,12 +230,23 @@ mod tests {
             root.path(),
             12,
             "/usr/lib/chatonlm/ollama/bin/ollama (deleted)",
-            "OLLAMA_MODELS=/data/chatonlm/ollama/models",
+            "HOME=/data/chatonlm/ollama/home;OLLAMA_MODELS=/data/chatonlm/ollama/models",
         );
         fake_proc(root.path(), 13, "/usr/bin/python3", "OLLAMA_MODELS=/srv/b");
         fake_proc(root.path(), 14, "/usr/local/bin/ollama", "HOME=/home/me");
+        // Archive officielle d'Ollama extraite dans /opt/ollama : gardée
+        // (même fin de chemin que l'ancien intégré, autre `HOME`).
+        fake_proc(
+            root.path(),
+            15,
+            "/opt/ollama/bin/ollama",
+            "HOME=/home/me;OLLAMA_MODELS=/data/llm",
+        );
         std::fs::create_dir_all(root.path().join("self")).unwrap();
-        assert_eq!(process_dirs(root.path()), [PathBuf::from("/srv/a")]);
+        let old_home = Path::new("/data/chatonlm/ollama/home");
+        let mut found = process_dirs(root.path(), old_home);
+        found.sort();
+        assert_eq!(found, [PathBuf::from("/data/llm"), PathBuf::from("/srv/a")]);
     }
 
     #[test]
