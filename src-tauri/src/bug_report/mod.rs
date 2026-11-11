@@ -149,6 +149,8 @@ pub fn engine_line(status: &EngineStatus) -> String {
     }
     let version = status.version.as_deref().unwrap_or("unknown version");
     let backend = match (status.backend, status.cpu_fallback, &status.gpu_name) {
+        (EngineBackend::Cuda, _, Some(gpu)) => format!("CUDA ({gpu})"),
+        (EngineBackend::Cuda, _, None) => "CUDA".to_owned(),
         (EngineBackend::Vulkan, _, Some(gpu)) => format!("Vulkan ({gpu})"),
         (EngineBackend::Vulkan, _, None) => "Vulkan".to_owned(),
         (EngineBackend::Cpu, true, Some(gpu)) => {

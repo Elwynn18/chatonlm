@@ -30,6 +30,10 @@
 //!   chargement en accusant Vulkan, ou qui plante, est refait une fois sans
 //!   carte (`-ngl 0`, aucune carte Vulkan visible) ; le modèle le garde pour
 //!   la session ([`RunningModel::cpu_fallback`]).
+//! - Pack CUDA ([`cuda`], facultatif) : avant Vulkan quand il est installé,
+//!   activé et la carte compatible ; un lancement sur CUDA qui meurt en
+//!   l'accusant, ou qui plante, coupe CUDA pour la session et est refait sur
+//!   Vulkan (puis, au besoin, sur le processeur).
 //! - Mort d'un processus : son modèle disparaît de la liste (un `Lease` en
 //!   cours voit ses requêtes échouer ; un nouvel `ensure` le relance).
 //! - Chaque changement (chargement, prêt, requête finie, déchargement, mort)
@@ -38,6 +42,7 @@
 
 pub mod auto;
 pub mod binary;
+pub mod cuda;
 pub mod journal;
 mod launch;
 pub mod options;
@@ -231,6 +236,8 @@ pub struct Config {
     /// `CHATONLM_LLAMA_CPU_ONLY=1` des essais de l'app
     /// ([`options::forced_cpu`]).
     pub force_cpu: bool,
+    /// Pack CUDA (`<données>/engine/cuda`).
+    pub cuda: cuda::Runtime,
 }
 
 impl Config {
@@ -246,6 +253,7 @@ impl Config {
             timing: Timing::default(),
             max_loaded: MAX_LOADED,
             force_cpu: options::forced_cpu(),
+            cuda: cuda::Runtime::new(data_dir.join("engine").join("cuda")),
         }
     }
 }
@@ -939,6 +947,11 @@ impl Engine {
         self.inner.config.bin.clone()
     }
 
+    /// Pack CUDA du moteur (écran du moteur, état Tauri [`cuda::Cuda`]).
+    pub fn cuda(&self) -> &cuda::Runtime {
+        &self.inner.config.cuda
+    }
+
     /// Dossier des journaux (`<données>/logs`).
     pub fn logs_dir(&self) -> PathBuf {
         self.inner.config.logs.clone()
@@ -1454,12 +1467,20 @@ impl Inner {
             // Processus en création jusqu'à ce qu'il soit noté (ou arrêté).
             creating.send_replace(true);
             let _created = Created(creating);
+            // CUDA choisi à chaque essai (un échec le coupe pour la session).
+            let cuda = if spec.cpu {
+                None
+            } else {
+                self.config.cuda.select().await
+            };
+            let on_cuda = cuda.is_some();
             let process = launch::spawn(
                 &launch::Launch {
                     config: &self.config,
                     spawner: &self.spawner,
                     stopping: &self.stopping,
                     cache_ram,
+                    cuda,
                 },
                 &spec,
                 &model.id,
@@ -1509,6 +1530,17 @@ impl Inner {
                             "chatonlm: port taken for {}; trying another one",
                             model.id
                         );
+                        continue;
+                    }
+                    // CUDA accusé (ou plantage sur CUDA) : coupé pour la
+                    // session, nouvel essai sur Vulkan.
+                    if on_cuda
+                        && (cuda::journal_accuses_cuda(&log)
+                            || journal::crashed(exited.facts, cfg!(windows)))
+                    {
+                        let reason = journal::errors(&log).unwrap_or_else(|| exited.text.clone());
+                        self.config.cuda.fail(reason);
+                        self.changed();
                         continue;
                     }
                     if !retried

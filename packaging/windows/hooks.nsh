@@ -4,13 +4,20 @@
 ;
 ; Le modèle ne surveille que l'exécutable principal. Avant de copier les
 ; fichiers (installation, mise à jour) et avant de les supprimer
-; (désinstallation), ces crochets arrêtent l'Ollama intégré de CETTE
-; installation, désigné par son chemin exact ($INSTDIR\ollama\...), puis
-; l'app, puis de nouveau l'intégré (l'app, encore en marche, a pu le relancer
-; entre-temps), et de même les moteurs que l'app lance ($INSTDIR\sd-server\,
-; $INSTDIR\llama-server\). Jamais d'arrêt par nom (« taskkill /im
-; ollama.exe » ou « llama-server.exe ») : il arrêterait l'Ollama ou le
-; llama.cpp que l'utilisateur a installé lui-même.
+; (désinstallation), ces crochets arrêtent l'app, puis les moteurs qu'elle
+; lance ($INSTDIR\sd-server\, $INSTDIR\llama-server\), désignés par leur
+; chemin exact. Jamais d'arrêt par nom (« taskkill /im llama-server.exe » ou
+; « ollama.exe ») : il arrêterait le llama.cpp ou l'Ollama que l'utilisateur a
+; installé lui-même.
+;
+; Ancien Ollama intégré : les versions 0.9.x livraient un Ollama dans
+; $INSTDIR\ollama\, que les paquets ne contiennent plus. Une mise à jour (ou
+; une désinstallation) depuis l'une d'elles arrête ses processus, désignés
+; par leur chemin exact sous $INSTDIR\ollama\, puis retire ses fichiers
+; (CHATONLM_CLEAN_OLD_OLLAMA) et ses notices (licenses\ollama\, écrites par
+; nous) : rien d'autre, ni les données de l'utilisateur (dossier des données
+; de l'app, dossier .ollama de son profil), ni un fichier qu'il aurait posé
+; dans ce dossier.
 ;
 ; Arrêt par le Restart Manager de Windows, avec les mêmes appels que la macro
 ; CheckIfAppIsRunning du modèle (utils.nsh), mais sans question ni étiquette :
@@ -113,13 +120,69 @@
   RMDir "$INSTDIR\llama-server"
 !macroend
 
-; L'Ollama intégré : le serveur, puis les programmes de llama.cpp qu'il lance ;
-; puis les moteurs d'images (sd-server) et de texte (llama-server), lancés
-; par l'app comme l'intégré.
-!macro CHATONLM_STOP_BUILTIN
+; $R1 = 1 si $INSTDIR\ollama\ est l'Ollama intégré d'une version 0.9.x
+; (ollama.exe et le fichier VERSION que ces versions y installaient,
+; absent de l'Ollama officiel), 0 sinon.
+!macro CHATONLM_OLD_OLLAMA
+  StrCpy $R1 0
+  ${If} ${FileExists} "$INSTDIR\ollama\ollama.exe"
+  ${AndIf} ${FileExists} "$INSTDIR\ollama\VERSION"
+    StrCpy $R1 1
+  ${EndIf}
+!macroend
+
+; Ancien Ollama intégré : le serveur, puis les programmes de llama.cpp qu'il
+; lançait, par leur chemin exact.
+!macro CHATONLM_STOP_OLD_OLLAMA
   !insertmacro CHATONLM_STOP_FILE "$INSTDIR\ollama\ollama.exe"
   !insertmacro CHATONLM_STOP_FILE "$INSTDIR\ollama\lib\ollama\llama-server.exe"
   !insertmacro CHATONLM_STOP_FILE "$INSTDIR\ollama\lib\ollama\llama-quantize.exe"
+!macroend
+
+; Retire les fichiers de l'ancien Ollama intégré : ollama.exe, VERSION et
+; lib\ollama\ (son runner et ses bibliothèques, tous livrés par nous), avec
+; jusqu'à dix nouveaux essais (cinq secondes) pour un fichier encore tenu un
+; instant ; puis lib\ et ollama\, seulement vides (sans « /r »). VERSION,
+; la marque, n'est retiré qu'avec ollama.exe : un reste encore tenu sera
+; reconnu et retiré à la désinstallation. Registre : $R3.
+!macro CHATONLM_REMOVE_OLD_OLLAMA
+  ${For} $R3 0 10
+    ${If} $R3 > 0
+      ${IfNot} ${FileExists} "$INSTDIR\ollama\ollama.exe"
+      ${AndIfNot} ${FileExists} "$INSTDIR\ollama\lib\ollama\*.*"
+        ${ExitFor}
+      ${EndIf}
+      Sleep 500
+    ${EndIf}
+    Delete "$INSTDIR\ollama\ollama.exe"
+    RMDir /r "$INSTDIR\ollama\lib\ollama"
+  ${Next}
+  ${IfNot} ${FileExists} "$INSTDIR\ollama\ollama.exe"
+    Delete "$INSTDIR\ollama\VERSION"
+  ${EndIf}
+  RMDir "$INSTDIR\ollama\lib"
+  RMDir "$INSTDIR\ollama"
+!macroend
+
+; Ancien Ollama intégré (mise à jour depuis une 0.9.x, ou reste qu'une mise à
+; jour n'a pas pu retirer) : ses fichiers s'il est le nôtre, et ses notices
+; (licenses\ollama\, dossier écrit par nous seuls). Ni la nouvelle version ni
+; son désinstalleur ne les connaissent : restés là, ils empêcheraient aussi
+; la désinstallation de retirer le dossier d'installation. Registres : $R1,
+; $R3. À appeler après CHATONLM_STOP_ALL.
+!macro CHATONLM_CLEAN_OLD_OLLAMA
+  !insertmacro CHATONLM_OLD_OLLAMA
+  ${If} $R1 = 1
+    !insertmacro CHATONLM_REMOVE_OLD_OLLAMA
+  ${EndIf}
+  ${If} ${FileExists} "$INSTDIR\licenses\ollama\*.*"
+    RMDir /r "$INSTDIR\licenses\ollama"
+  ${EndIf}
+!macroend
+
+; Les moteurs d'images (sd-server) et de texte (llama-server), lancés par
+; l'app, et l'ancien Ollama intégré s'il est encore là.
+!macro CHATONLM_STOP_ENGINES
   !insertmacro CHATONLM_STOP_FILE "$INSTDIR\sd-server\sd-server.exe"
   ; Seulement s'il est le nôtre : un dossier llama-server\ trouvé dans un
   ; dossier d'installation saisi à la main peut être le llama.cpp de
@@ -128,28 +191,28 @@
   ${If} $R1 = 1
     !insertmacro CHATONLM_STOP_FILE "$INSTDIR\llama-server\llama-server.exe"
   ${EndIf}
+  !insertmacro CHATONLM_OLD_OLLAMA
+  ${If} $R1 = 1
+    !insertmacro CHATONLM_STOP_OLD_OLLAMA
+  ${EndIf}
 !macroend
 
-; L'app d'abord : sa fin ferme le Job Object de l'intégré, que son
-; superviseur ne peut alors plus relancer ; puis l'intégré par son chemin,
-; pour un reste hors Job.
+; L'app d'abord : sa fin ferme le Job Object de ses moteurs, qu'elle ne peut
+; alors plus relancer ; puis les moteurs par leur chemin, pour un reste hors
+; Job.
 !macro CHATONLM_STOP_ALL
   !insertmacro CHATONLM_STOP_FILE "$INSTDIR\${MAINBINARYNAME}.exe"
-  !insertmacro CHATONLM_STOP_BUILTIN
+  !insertmacro CHATONLM_STOP_ENGINES
 !macroend
 
 ; Seulement dans une installation de ChatonLM déjà en place (son exécutable
 ; est là) : un dossier d'installation saisi à la main peut contenir un dossier
-; « ollama » qui n'est pas le nôtre (%LOCALAPPDATA%\Programs contient l'Ollama
-; officiel) ; rien n'y est arrêté ni effacé.
+; « ollama » ou « llama-server » qui n'est pas le nôtre (%LOCALAPPDATA%\Programs
+; contient l'Ollama officiel) ; rien n'y est arrêté ni effacé.
 !macro NSIS_HOOK_PREINSTALL
   ${If} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
     !insertmacro CHATONLM_STOP_ALL
-    ; Bibliothèques d'une version précédente de l'Ollama intégré : retirées
-    ; avant la copie (comme [InstallDelete] {app}\lib\ollama de l'officiel).
-    ${If} ${FileExists} "$INSTDIR\ollama\ollama.exe"
-      RMDir /r "$INSTDIR\ollama\lib\ollama"
-    ${EndIf}
+    !insertmacro CHATONLM_CLEAN_OLD_OLLAMA
     ; Moteur de texte d'une version précédente : ses fichiers sont retirés
     ; avant la copie. Il charge toutes les variantes ggml-cpu-*.dll de son
     ; dossier ; une variante laissée par une autre version (absente de la
@@ -166,6 +229,7 @@
 !macro NSIS_HOOK_PREUNINSTALL
   ${If} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
     !insertmacro CHATONLM_STOP_ALL
+    !insertmacro CHATONLM_CLEAN_OLD_OLLAMA
   ${EndIf}
 !macroend
 

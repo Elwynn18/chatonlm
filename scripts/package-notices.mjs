@@ -11,11 +11,8 @@
 // licenses/ : crates Rust (cargo-about, version épinglée ci-dessous, sortie
 // JSON mise en forme ici), paquets npm du bundle (dist/.vite/license.json),
 // notices d'ONNX Runtime (bibliothèque livrée à part, tirées de l'archive
-// officielle vérifiée par scripts/fetch-onnxruntime.sh), licences de
-// l'Ollama intégré (licenses/ollama/ : fichiers de lib/ollama de l'archive
-// officielle extraite par scripts/fetch-ollama.sh, notice, textes de la
-// GPL-3.0 et de la GCC Runtime Library Exception pour libgomp), licences
-// du moteur d'images (licenses/sd-server/ : notice, textes des parties
+// officielle vérifiée par scripts/fetch-onnxruntime.sh), licences du moteur
+// d'images (licenses/sd-server/ : notice, textes des parties
 // compilées dans sd-server, de packaging/sdcpp/licenses, et Apache-2.0 du
 // chargeur Vulkan de secours), licences du moteur de texte
 // (licenses/llama-server/ : notice, textes des parties compilées dans
@@ -65,112 +62,6 @@ export const CARGO_ABOUT_VERSION = "0.9.2";
  * .tools/runtimes/onnxruntime avec sa LICENSE et ses ThirdPartyNotices.txt.
  */
 export const ONNXRUNTIME_DIR = ".tools/runtimes/onnxruntime";
-
-/**
- * Ollama intégré (mode hybride) : archive officielle à la version de
- * packaging/ollama.env, extraite par scripts/fetch-ollama.sh dans
- * .tools/runtimes/ollama (bin/, lib/, licenses/, VERSION, SHA256SUMS).
- */
-export const OLLAMA_DIR = ".tools/runtimes/ollama";
-
-/**
- * Licences livrées par Ollama dans lib/ollama (archives 0.40.0 à 0.40.15), exigées :
- * nom du fichier → ce qu'il couvre. Un fichier de plus dans une autre
- * version est livré aussi, sans description.
- */
-export const OLLAMA_LICENSES = {
-  GO_LICENSE: "Ollama (MIT) and the Go modules it is built from",
-  LLAMA_CPP_LICENSE: "llama.cpp and ggml (MIT)",
-  LLAMA_CPP_VENDORS_LICENSE: "code vendored by llama.cpp (MIT and others)",
-  CPP_HTTPLIB_LICENSE: "cpp-httplib (MIT)",
-  FMT_LICENSE: "{fmt} (MIT)",
-  DLPACK_LICENSE: "DLPack (Apache-2.0)",
-  PICOJSON_LICENSE: "PicoJSON (BSD-2-Clause)",
-  XGRAMMAR_LICENSE: "XGrammar (Apache-2.0)",
-  XGRAMMAR_NOTICE: "NOTICE file of XGrammar",
-};
-
-/**
- * Licences du code que contient l'Ollama intégré, d'après ses fichiers de
- * licence (ollamaLicenseKinds) : résumé du fichier copyright, de
- * licenses/ollama/README.txt et de THIRD_PARTY_LICENSES (partie 5). Une
- * licence de plus dans une autre version arrête package-notices.mjs.
- */
-export const OLLAMA_LICENSE_KINDS = [
-  "Apache-2.0",
-  "BSD-2-Clause",
-  "BSD-3-Clause",
-  "ISC",
-  "MIT",
-  "public domain",
-];
-
-/** Résumé de OLLAMA_LICENSE_KINDS, en une phrase. */
-export const OLLAMA_LICENSE_SUMMARY =
-  "Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC and MIT licenses, and public-domain code";
-
-/**
- * Licences reconnues dans un fichier de licence de l'Ollama intégré : les
- * permissives de OLLAMA_LICENSE_KINDS, ou le nom d'une licence qui ne l'est
- * pas (à examiner avant de livrer).
- */
-export function ollamaLicenseKinds(text) {
-  const kinds = new Set();
-  const count = (pattern) => (text.match(pattern) ?? []).length;
-  if (/Apache License,?\s+Version 2\.0/i.test(text)) kinds.add("Apache-2.0");
-  const bsd = count(/Redistribution and use in source and binary forms/gi);
-  const bsd3 = count(/Neither the name/gi);
-  if (bsd3 > 0) kinds.add("BSD-3-Clause");
-  if (bsd > bsd3) kinds.add("BSD-2-Clause");
-  if (
-    /Permission to use, copy, modify, and(\/or)? distribute this software for\s+any/i.test(
-      text,
-    )
-  ) {
-    kinds.add("ISC");
-  }
-  if (/Permission is hereby granted, free of charge/i.test(text)) {
-    kinds.add("MIT");
-  }
-  if (/public domain/i.test(text)) kinds.add("public domain");
-  for (const [pattern, name] of [
-    [/GNU (Lesser |Library |Affero )?General Public License/i, "GNU GPL"],
-    [/Mozilla Public License/i, "MPL"],
-    [/Eclipse Public License/i, "EPL"],
-    [/Creative Commons/i, "Creative Commons"],
-    [/Server Side Public License|Business Source License/i, "SSPL or BSL"],
-  ]) {
-    if (pattern.test(text)) kinds.add(name);
-  }
-  return kinds;
-}
-
-/**
- * Erreurs si un fichier de licence de l'Ollama intégré (`texts` : nom →
- * texte) couvre une licence absente du résumé des notices.
- */
-export function ollamaLicenseKindErrors(texts) {
-  const errors = [];
-  for (const [file, text] of texts) {
-    for (const kind of ollamaLicenseKinds(text)) {
-      if (!OLLAMA_LICENSE_KINDS.includes(kind)) {
-        errors.push(
-          `Licence « ${kind} » dans ${OLLAMA_DIR}/licenses/${file}, absente ` +
-            "des notices : l'examiner, puis compléter OLLAMA_LICENSE_KINDS " +
-            "et THIRD_PARTY_LICENSES (partie 5).",
-        );
-      }
-    }
-  }
-  return errors;
-}
-
-/** Licences de libgomp (GCC), livrées avec celles d'Ollama. */
-export const LIBGOMP_TEXTS = {
-  "LIBGOMP_GPL-3.0.txt": "packaging/licenses/GPL-3.0.txt",
-  "LIBGOMP_GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt":
-    "packaging/licenses/GCC-exception-3.1.txt",
-};
 
 /**
  * Moteur d'images : sd-server de stable-diffusion.cpp, construit par
@@ -357,36 +248,6 @@ export function onnxRuntimeErrors(envText, fetchedVersion) {
   ];
 }
 
-/**
- * Erreurs si la copie de l'Ollama intégré (`VERSION` de
- * .tools/runtimes/ollama, ou null si absente) n'est pas la version épinglée
- * (texte de packaging/ollama.env), ou s'il manque une licence attendue
- * (`licenseFiles` : noms des fichiers de licenses/).
- */
-export function ollamaErrors(envText, fetchedVersion, licenseFiles = []) {
-  const env = parseEnv(envText);
-  const pinned = env.OLLAMA_VERSION;
-  if (!pinned) return ["OLLAMA_VERSION absent de packaging/ollama.env."];
-  // libgomp : sa construction et son paquet source, cités par les notices.
-  const libgomp = [
-    "OLLAMA_LIBGOMP_GCC",
-    "OLLAMA_LIBGOMP_BUILD",
-    "OLLAMA_LIBGOMP_SOURCE",
-  ].filter((key) => !env[key]);
-  if (libgomp.length > 0) {
-    return libgomp.map((key) => `${key} absent de packaging/ollama.env.`);
-  }
-  if (fetchedVersion !== pinned) {
-    return [
-      `Ollama ${fetchedVersion ?? "absent"} dans ${OLLAMA_DIR} au lieu ` +
-        `de ${pinned} : lancer scripts/fetch-ollama.sh.`,
-    ];
-  }
-  return Object.keys(OLLAMA_LICENSES)
-    .filter((file) => !licenseFiles.includes(file))
-    .map((file) => `Licence d'Ollama absente : ${OLLAMA_DIR}/licenses/${file}`);
-}
-
 /** Licence MIT du dépôt, indentée pour un paragraphe DEP-5. */
 function dep5Text(text) {
   return text
@@ -404,7 +265,6 @@ function dep5Text(text) {
 export function debCopyright({
   license,
   appimage = false,
-  ollama = null,
   sdServer = null,
   llamaServer = null,
 }) {
@@ -431,14 +291,12 @@ export function debCopyright({
     " .",
     " ChatonLM includes third-party code (Rust crates, npm packages, whisper.cpp,",
     " ONNX Runtime) and a model built into its executable (Silero VAD, MIT).",
-    " The packages also hold programs that ChatonLM runs separately: the",
-    " built-in Ollama, the text engine (llama-server of llama.cpp) and the",
+    " The packages also hold programs that ChatonLM runs separately:",
+    " the text engine (llama-server of llama.cpp) and the",
     " image engine (sd-server of stable-diffusion.cpp). Their notices are in",
     " THIRD_PARTY_LICENSES and in the licenses/ directory next to this file.",
     ...libraries,
     "",
-    ...(ollama ? ollamaCopyright({ ...ollama, appimage }) : []),
-    ...(ollama ? libgompLicense({ appimage }) : []),
     ...(llamaServer ? llamaServerCopyright({ ...llamaServer, appimage }) : []),
     ...(sdServer ? sdServerCopyright({ ...sdServer, appimage }) : []),
     ...(sdServer || llamaServer ? apacheLicense({ appimage }) : []),
@@ -446,75 +304,6 @@ export function debCopyright({
     dep5Text(license),
     "",
   ].join("\n");
-}
-
-/** Nom DEP-5 de la licence de libgomp (« <licence> with <mots-clés> exception »). */
-export const LIBGOMP_DEP5 = "GPL-3+ with GCC-3.1 exception";
-
-/**
- * Paragraphe License autonome de libgomp : texte de ses en-têtes, et renvoi
- * aux textes complets (dans le .deb, aussi à /usr/share/common-licenses).
- */
-function libgompLicense({ appimage }) {
-  return [
-    `License: ${LIBGOMP_DEP5}`,
-    " Libgomp is free software; you can redistribute it and/or modify it",
-    " under the terms of the GNU General Public License as published by the",
-    " Free Software Foundation; either version 3, or (at your option) any",
-    " later version.",
-    " .",
-    " Under Section 7 of GPL version 3, you are granted additional permissions",
-    " described in the GCC Runtime Library Exception, version 3.1, as",
-    " published by the Free Software Foundation.",
-    " .",
-    ...(appimage
-      ? []
-      : [
-          " On Debian systems, the complete text of the GNU General Public",
-          " License version 3 can be found in /usr/share/common-licenses/GPL-3.",
-        ]),
-    " The texts of the license and of the exception are in",
-    " licenses/ollama/LIBGOMP_GPL-3.0.txt and",
-    " licenses/ollama/LIBGOMP_GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt.",
-    "",
-  ];
-}
-
-/**
- * Paragraphes DEP-5 de l'Ollama intégré (`version` épinglée ; `gcc`,
- * `build` et `source` : version de GCC, construction AlmaLinux et paquet
- * source de libgomp ; dans l'AppImage, il est rangé dans usr/libexec).
- */
-function ollamaCopyright({ version, gcc, build, source, appimage }) {
-  const dir = appimage
-    ? "usr/libexec/chatonlm/ollama"
-    : "usr/lib/chatonlm/ollama";
-  return [
-    `Files: ${dir}/*`,
-    "Copyright: Ollama, the ggml and llama.cpp authors, and others",
-    "License: Expat",
-    `Comment: Built-in Ollama ${version}, official build for Linux`,
-    ...wrap(
-      "(https://github.com/ollama/ollama), shipped unmodified without its " +
-        "CUDA, ROCm and MLX libraries. It includes code under the " +
-        `${OLLAMA_LICENSE_SUMMARY}: see licenses/ollama/README.txt and the ` +
-        "license files next to it.",
-      " ",
-    ),
-    "",
-    `Files: ${dir}/lib/ollama/libgomp.so.1`,
-    "Copyright: Free Software Foundation, Inc.",
-    `License: ${LIBGOMP_DEP5}`,
-    `Comment: GNU OpenMP runtime library of GCC ${gcc}, built by AlmaLinux 8`,
-    ...wrap(
-      `(package libgomp ${build}) and shipped by Ollama. Its corresponding ` +
-        "source code is the AlmaLinux source package of GCC:",
-      " ",
-    ),
-    ` ${source}`,
-    " (see also licenses/ollama/README.txt).",
-    "",
-  ];
 }
 
 /**
@@ -814,80 +603,6 @@ https://huggingface.co/kyutai/tts-voices:
   alba (English)     Alba MacKenna, CC BY 4.0
                      (https://creativecommons.org/licenses/by/4.0/legalcode)
   lola (Spanish)     Mozilla Common Voice (Spanish), CC0 1.0
-`;
-}
-
-/**
- * licenses/ollama/README.txt : l'Ollama intégré, sa provenance, ce qui en
- * est livré, et ses licences (`env` : packaging/ollama.env ;
- * `licenseFiles` : fichiers de .tools/runtimes/ollama/licenses).
- */
-export function renderOllamaReadme({ env, licenseFiles }) {
-  const version = env.OLLAMA_VERSION;
-  const gcc = env.OLLAMA_LIBGOMP_GCC;
-  const build = env.OLLAMA_LIBGOMP_BUILD;
-  const files = [...licenseFiles, ...Object.keys(LIBGOMP_TEXTS)].sort();
-  // Nom puis description sur la même ligne, ou sur la suivante pour un nom
-  // trop long.
-  const row = (file) => {
-    const text = describe(file);
-    if (!text) return `  ${file}`;
-    return file.length < 26
-      ? `  ${file.padEnd(28)}${text}`
-      : `  ${file}\n  ${"".padEnd(28)}${text}`;
-  };
-  const describe = (file) =>
-    OLLAMA_LICENSES[file] ??
-    (file.startsWith("LIBGOMP_")
-      ? "libgomp (see below)"
-      : /^MLX/.test(file)
-        ? "MLX (MIT), whose library is not shipped"
-        : "");
-  return `ChatonLM - Built-in Ollama
-${RULE}
-
-ChatonLM includes a copy of Ollama ${version}, the official build for Linux
-(x86-64), used when no other Ollama server is available or when chosen in
-Settings. It is installed in /usr/lib/chatonlm/ollama (in the AppImage:
-usr/libexec/chatonlm/ollama, linked from usr/lib/chatonlm/ollama) and runs as
-a separate program.
-
-Release:      https://github.com/ollama/ollama/releases/tag/v${version}
-Archive:      ${env.OLLAMA_URL}
-SHA-256:      ${env.OLLAMA_SHA256}
-Source code:  https://github.com/ollama/ollama/tree/v${version}
-License:      MIT, Copyright (c) Ollama
-
-Only part of the archive is shipped: the server (bin/ollama), the llama.cpp
-runner (lib/ollama/llama-server, lib/ollama/llama-quantize) and the CPU and
-Vulkan libraries. The CUDA, ROCm and MLX libraries are left out: graphics
-cards are used through Vulkan. Library symbolic links are replaced by copies
-named after the library sonames; the files themselves are not modified.
-
-${heading("Licenses")}
-${wrap(
-  "The license files below are those of the lib/ollama directory of the " +
-    "archive, shipped unmodified in this directory, plus the texts that " +
-    "apply to libgomp. Besides Ollama itself, they cover code under the " +
-    `${OLLAMA_LICENSE_SUMMARY}.`,
-).join("\n")}
-
-${files.map(row).join("\n")}
-
-${heading("libgomp")}
-lib/ollama/libgomp.so.1 is the GNU OpenMP runtime library of GCC ${gcc}, as
-built by AlmaLinux 8 (package libgomp ${build}) and shipped
-by Ollama. It is under the GNU General Public License, version 3 or later,
-with the GCC Runtime Library Exception, version 3.1 (in this directory:
-LIBGOMP_GPL-3.0.txt and LIBGOMP_GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt).
-
-Its corresponding source code is the AlmaLinux source package of GCC
-${build}, which builds libgomp:
-${env.OLLAMA_LIBGOMP_SOURCE}
-That package is GCC ${gcc} with the changes of that distribution. The
-original GCC ${gcc} source code, whose libgomp directory holds the library,
-is at:
-https://ftp.gnu.org/gnu/gcc/gcc-${gcc}/gcc-${gcc}.tar.xz
 `;
 }
 
@@ -1194,34 +909,11 @@ function main() {
       ? readFileSync(ortVersionFile, "utf8").trim()
       : null,
   );
-  const ollamaLicenses = path.join(root, OLLAMA_DIR, "licenses");
-  const ollamaVersionFile = path.join(root, OLLAMA_DIR, "VERSION");
-  const licenseFiles = existsSync(ollamaLicenses)
-    ? readdirSync(ollamaLicenses).sort()
-    : [];
-  errors.push(
-    ...ollamaErrors(
-      read("packaging/ollama.env"),
-      existsSync(ollamaVersionFile)
-        ? readFileSync(ollamaVersionFile, "utf8").trim()
-        : null,
-      licenseFiles,
-    ),
-    ...ollamaLicenseKindErrors(
-      new Map(
-        licenseFiles.map((file) => [
-          file,
-          readFileSync(path.join(ollamaLicenses, file), "utf8"),
-        ]),
-      ),
-    ),
-  );
   const sdServer = readSdServer(root);
   errors.push(...sdServer.errors);
   const llamaServer = readLlamaServer(root);
   errors.push(...llamaServer.errors);
   if (errors.length > 0) fail(errors.join("\n"));
-  const ollamaEnv = parseEnv(read("packaging/ollama.env"));
   const installed = installedCargoAbout();
   if (installed !== CARGO_ABOUT_VERSION) {
     fail(
@@ -1274,17 +966,7 @@ function main() {
     "licenses/onnxruntime-ThirdPartyNotices.txt": read(
       `${ONNXRUNTIME_DIR}/ThirdPartyNotices.txt`,
     ),
-    "licenses/ollama/README.txt": renderOllamaReadme({
-      env: ollamaEnv,
-      licenseFiles,
-    }),
   };
-  for (const file of licenseFiles) {
-    common[`licenses/ollama/${file}`] = read(`${OLLAMA_DIR}/licenses/${file}`);
-  }
-  for (const [file, source] of Object.entries(LIBGOMP_TEXTS)) {
-    common[`licenses/ollama/${file}`] = read(source);
-  }
   common["licenses/sd-server/README.txt"] = renderSdServerReadme({
     env: sdServer.env,
     licenseFiles: sdServer.licenseFiles,
@@ -1299,12 +981,6 @@ function main() {
   for (const [file, text] of Object.entries(llamaServer.texts)) {
     common[`licenses/llama-server/${file}`] = text;
   }
-  const ollama = {
-    version: ollamaEnv.OLLAMA_VERSION,
-    gcc: ollamaEnv.OLLAMA_LIBGOMP_GCC,
-    build: ollamaEnv.OLLAMA_LIBGOMP_BUILD,
-    source: ollamaEnv.OLLAMA_LIBGOMP_SOURCE,
-  };
   const sd = {
     version: sdServer.env.SDCPP_VERSION,
     commit: sdServer.env.SDCPP_COMMIT,
@@ -1324,7 +1000,7 @@ function main() {
   write(
     deb,
     "copyright",
-    debCopyright({ license, ollama, sdServer: sd, llamaServer: llama }),
+    debCopyright({ license, sdServer: sd, llamaServer: llama }),
   );
   write(
     appimage,
@@ -1332,7 +1008,6 @@ function main() {
     debCopyright({
       license,
       appimage: true,
-      ollama,
       sdServer: sd,
       llamaServer: llama,
     }),

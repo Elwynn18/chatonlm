@@ -597,6 +597,14 @@
     "cpuFallback": "the graphics card couldn't run this model, so it runs on the processor (slower)",
     "detail": {
       "portTaken": "another program answered on the engine's port"
+    },
+    "cuda": {
+      "licenseRequired": "accept NVIDIA's license to download the NVIDIA pack",
+      "incompatible": "this computer can't use the NVIDIA pack",
+      "fetchFailed": "couldn't get the NVIDIA pack for this version of ChatonLM: {reason}",
+      "downloadFailed": "the download of the NVIDIA pack failed: {reason}",
+      "installFailed": "couldn't install the NVIDIA pack: {reason}",
+      "removeFailed": "couldn't remove the NVIDIA pack: {reason}"
     }
   }
 }

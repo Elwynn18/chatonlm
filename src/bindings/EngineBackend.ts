@@ -3,4 +3,4 @@
 /**
  * Accélération du moteur.
  */
-export type EngineBackend = "vulkan" | "cpu";
+export type EngineBackend = "cuda" | "vulkan" | "cpu";

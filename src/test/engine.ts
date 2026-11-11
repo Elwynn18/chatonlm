@@ -9,8 +9,13 @@
 // (`held` : arguments, canal, `finish`, `fail`). Une panne d'une commande se
 // force par `failures` (erreur du moteur, par nom de commande). Un
 // changement accepté décharge les modèles (`onAccepted`), comme le moteur.
+// Pack CUDA (lot L1b) : `cuda_status` rend `cuda` (sans carte NVIDIA par
+// défaut : section cachée) ; `cuda_install`, `cuda_cancel`,
+// `cuda_set_enabled` et `cuda_remove` ne font que répondre (l'essai change
+// `cuda` et émet `engine-cuda` lui-même).
 
 import type { AppError } from "@/bindings/AppError";
+import type { CudaStatus } from "@/bindings/CudaStatus";
 import type { EngineModelsDir } from "@/bindings/EngineModelsDir";
 import type { EngineStatus } from "@/bindings/EngineStatus";
 import type { FolderMoved } from "@/bindings/FolderMoved";
@@ -32,6 +37,29 @@ export const ENGINE_VERSION = "v0.9.0+chatonlm.1b94fcb0b0db";
 
 const GIB = 1024 ** 3;
 
+/** État du pack CUDA du faux moteur : aucune carte NVIDIA (section cachée). */
+export function noCuda(): CudaStatus {
+  return {
+    compat: "noNvidia",
+    gpuName: null,
+    driver: null,
+    driverMin: 580,
+    compute: null,
+    computeMin: "7.5",
+    phase: "absent",
+    completedBytes: 0,
+    totalBytes: 0,
+    downloadBytes: 1.1 * GIB,
+    installedBytes: null,
+    stale: false,
+    enabled: true,
+    active: false,
+    error: null,
+    fallback: null,
+    eulaUrl: "https://docs.nvidia.com/cuda/eula/index.html",
+  };
+}
+
 /** Changement du dossier retenu par l'essai (`hold`). */
 export interface HeldChange {
   args: { path: string; moveModels: boolean };
@@ -48,6 +76,8 @@ export interface FakeEngine {
   status: EngineStatus;
   /** Rendu par engine_models_dir ; changé par un changement réussi. */
   modelsDir: EngineModelsDir;
+  /** Rendu par cuda_status. */
+  cuda: CudaStatus;
   /** Prochains choix du sélecteur de dossier (vide : annulé). */
   picks: (string | null)[];
   /** Bilan d'un changement réussi, en plus de celui par défaut. */
@@ -99,6 +129,7 @@ export function fakeEngine(simulator: Simulator): FakeEngine {
       models: 3,
       bytes: 9.5 * GIB,
     },
+    cuda: noCuda(),
     picks: [],
     moved: {},
     hold: false,
@@ -131,6 +162,23 @@ export function fakeEngine(simulator: Simulator): FakeEngine {
     failure("open_engine_logs");
     return null;
   });
+
+  simulator.handle("cuda_status", () => {
+    failure("cuda_status");
+    return engine.cuda;
+  });
+
+  for (const command of [
+    "cuda_install",
+    "cuda_cancel",
+    "cuda_set_enabled",
+    "cuda_remove",
+  ]) {
+    simulator.handle(command, () => {
+      failure(command);
+      return null;
+    });
+  }
 
   simulator.handle("engine_models_dir", () => {
     failure("engine_models_dir");

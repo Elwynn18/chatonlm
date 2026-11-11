@@ -12,17 +12,19 @@
 #
 # Un seul job (chaque job est arrondi à la minute supérieure, et les minutes
 # d'un runner Windows coûtent plus cher que celles d'un runner Linux) :
-# - ONNX Runtime et Ollama intégré pour Windows, épinglés
-#   (scripts/fetch-onnxruntime.sh, scripts/fetch-ollama.sh) ;
+# - ONNX Runtime pour Windows, épinglé (scripts/fetch-onnxruntime.sh) ;
 # - `cargo test --workspace --locked` et la comparaison des fichiers générés
 #   (src/bindings, src/test/fixtures), qui doivent être les mêmes que sous
 #   Linux : un échec laisse construire l'installateur (diagnostic), puis fait
 #   échouer le job à la fin ;
 # - scripts/package-windows.sh (tauri build --bundles nsis) ;
-# - scripts/inspect-windows.mjs (contenu, imports PE, Ollama intégré intact) ;
-# - packaging/ci/smoke-windows.ps1 (installation /S, lancement, Ollama
-#   intégré, moteurs d'images et de texte, arrêt sans processus restant,
-#   réinstallation par-dessus une app en marche, désinstallation /S).
+# - scripts/inspect-windows.mjs (contenu, imports PE, moteurs livrés intacts,
+#   aucun fichier CUDA ni ROCm, aucun reste de l'ancien Ollama intégré) ;
+# - packaging/ci/smoke-windows.ps1 (installation /S, lancement, moteurs
+#   d'images et de texte, arrêt sans processus restant, réinstallation
+#   par-dessus une app en marche et une ancienne 0.9.x à Ollama intégré,
+#   désinstallation /S).
+# Job à part `cuda` : pack CUDA facultatif (ggml-cuda.dll), en parallèle.
 name: Packages Windows
 
 on:
@@ -90,8 +92,8 @@ jobs:
 
       # Restauration et sauvegarde séparées : le cache est gardé dès que la
       # construction a tourné, même en échec (sinon chaque nouvel essai
-      # recompile tout). Le dossier des runtimes évite de retélécharger
-      # l'archive d'Ollama (1,4 Go) à chaque passage.
+      # recompile tout). Le dossier des runtimes garde les moteurs construits
+      # et ONNX Runtime d'un passage à l'autre.
       - name: Cache Cargo (restauration)
         id: cargo-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -122,11 +124,10 @@ jobs:
 
       # Chemin Windows pour ORT_DYLIB_PATH : lu par l'app et ses essais, pas
       # par Git Bash.
-      - name: ONNX Runtime et Ollama intégré épinglés
+      - name: ONNX Runtime épinglé
         run: |
           scripts/fetch-onnxruntime.sh
-          scripts/fetch-ollama.sh
-          ls -l .tools/runtimes/onnxruntime .tools/runtimes/ollama
+          ls -l .tools/runtimes/onnxruntime
           echo "ORT_DYLIB_PATH=$(cygpath -w "$PWD/.tools/runtimes/onnxruntime/onnxruntime.dll")" >>"$GITHUB_ENV"
 
       # Moteurs d'images et de texte construits depuis leurs sources
@@ -267,7 +268,7 @@ jobs:
           exit "$status"
 
       # Même si l'inspection échoue : savoir si l'app installée démarre.
-      - name: Installation, lancement, Ollama intégré, désinstallation
+      - name: Installation, lancement, désinstallation
         id: smoke
         if: always() && steps.build.outcome == 'success'
         shell: pwsh
@@ -302,7 +303,7 @@ jobs:
             exit 1
           fi
 
-      # Un seul artefact par passage : installateur, rapport d'inspection,
+      # Un seul artefact par passage (hors pack CUDA) : installateur, rapport d'inspection,
       # journaux des essais et de la fumée.
       - name: Artefact
         if: always()
@@ -311,4 +312,100 @@ jobs:
           name: chatonlm-packages-windows
           path: out/
           if-no-files-found: warn
+          retention-days: 2
+
+  # Pack CUDA facultatif pour Windows (packaging/cuda.env) : ggml-cuda.dll
+  # seule, même commit que le moteur livré, MSVC (invite de Visual Studio
+  # 2022) et Ninja, toolkit monté depuis les archives redist de NVIDIA
+  # (scripts/fetch-cuda-toolkit.mjs : index épinglé, empreintes vérifiées).
+  # Job à part, en parallèle de l'installateur (CUDA à froid : 30 à 60 min).
+  # Jamais aucune bibliothèque de NVIDIA dans le pack.
+  cuda:
+    name: Pack CUDA (Windows)
+    runs-on: windows-2025
+    timeout-minutes: 330
+    steps:
+      - name: Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node (.nvmrc)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache du pack (restauration)
+        id: cuda-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/runtimes/llama-cuda
+            .tools/runtimes/chatonlm-cuda-*
+          key: llama-cuda-windows-${{ hashFiles('packaging/llama.env', 'packaging/cuda.env', 'packaging/llama/*.patch', 'scripts/build-llama-cuda.sh') }}
+
+      - name: Toolkit CUDA et Ninja
+        if: steps.cuda-cache.outputs.cache-hit != 'true'
+        run: |
+          toolkit="$RUNNER_TEMP/cuda"
+          node scripts/fetch-cuda-toolkit.mjs "$toolkit" windows-x86_64
+          test -x "$toolkit/bin/nvcc.exe"
+          echo "CUDA_PATH=$(cygpath -w "$toolkit")" >>"$GITHUB_ENV"
+          cygpath -w "$toolkit/bin" >>"$GITHUB_PATH"
+          if ! command -v ninja >/dev/null; then
+            choco install ninja -y --no-progress
+          fi
+
+      - name: Construction
+        if: steps.cuda-cache.outputs.cache-hit != 'true'
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VSDIR=%%i"
+          call "%VSDIR%\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
+          nvcc --version
+          set "LLAMA_JOBS=%NUMBER_OF_PROCESSORS%"
+          "C:\Program Files\Git\bin\bash.exe" -c "scripts/build-llama-server.sh --cuda || { tail -n 60 .tools/llama-cuda-build/configure.log .tools/llama-cuda-build/build.log 2>/dev/null; exit 1; }"
+
+      - name: Cache du pack (sauvegarde)
+        if: steps.cuda-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/runtimes/llama-cuda
+            .tools/runtimes/chatonlm-cuda-*
+          key: ${{ steps.cuda-cache.outputs.cache-primary-key }}
+
+      - name: Inspection du pack
+        run: |
+          archive="$(scripts/build-llama-server.sh --cuda --check)"
+          mkdir -p out
+          cp "$archive" out/
+          # Manifeste (taille, SHA-256), signé ensuite par release.yml.
+          scripts/cuda-pack-manifest.sh "out/$(basename "$archive")" .tools/runtimes/llama-cuda/VERSION
+          listing="$(unzip -Z1 "$archive" | LC_ALL=C sort | tr '\n' ' ')"
+          expected="LICENSE-CCCL.txt LICENSE-llama.cpp.txt SHA256SUMS VERSION ggml-cuda.dll "
+          if [ "$listing" != "$expected" ]; then
+            echo "Contenu inattendu : $listing" >&2
+            exit 1
+          fi
+          check="$(mktemp -d)"
+          unzip -q "$archive" -d "$check"
+          (cd "$check" && sha256sum --check --strict --quiet SHA256SUMS)
+          objdump -p "$check/ggml-cuda.dll" | awk '/DLL Name:/ { print $3 }'
+          {
+            echo "### Pack CUDA (Windows)"
+            echo
+            echo "| Fichier | Taille |"
+            echo "| --- | --- |"
+            echo "| $(basename "$archive") | $(du -h "$archive" | cut -f1) ($(stat -c %s "$archive") octets) |"
+            echo
+            echo "Version : $(cat "$check/VERSION")."
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Artefact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chatonlm-cuda-windows
+          path: out/
+          if-no-files-found: error
           retention-days: 2

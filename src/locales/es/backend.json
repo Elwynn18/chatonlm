@@ -597,6 +597,14 @@
     "cpuFallback": "la tarjeta gráfica no pudo ejecutar este modelo, así que se ejecuta en el procesador (más lento)",
     "detail": {
       "portTaken": "otro programa respondió en el puerto del motor"
+    },
+    "cuda": {
+      "licenseRequired": "acepta la licencia de NVIDIA para descargar el paquete de NVIDIA",
+      "incompatible": "este equipo no puede usar el paquete de NVIDIA",
+      "fetchFailed": "no se pudo obtener el paquete de NVIDIA para esta versión de ChatonLM: {reason}",
+      "downloadFailed": "la descarga del paquete de NVIDIA falló: {reason}",
+      "installFailed": "no se pudo instalar el paquete de NVIDIA: {reason}",
+      "removeFailed": "no se pudo quitar el paquete de NVIDIA: {reason}"
     }
   }
 }

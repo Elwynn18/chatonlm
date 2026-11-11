@@ -31,6 +31,7 @@ import type { MenuEntryStatus } from "@/bindings/MenuEntryStatus";
 import type { ModelDetails } from "@/bindings/ModelDetails";
 import type { ChatModel } from "@/bindings/ChatModel";
 import type { EngineRunningModel } from "@/bindings/EngineRunningModel";
+import type { CudaStatus } from "@/bindings/CudaStatus";
 import type { EngineStatus } from "@/bindings/EngineStatus";
 import type { EngineModelsDir } from "@/bindings/EngineModelsDir";
 import type { FolderEvent } from "@/bindings/FolderEvent";
@@ -255,6 +256,45 @@ export function engineStatus(): Promise<EngineStatus> {
 /** Ouvre le dossier des journaux du moteur (`llama-*.log`). */
 export function openEngineLogs(): Promise<void> {
   return invoke<void>("open_engine_logs");
+}
+
+/**
+ * Pack CUDA facultatif (cartes NVIDIA) : état, cartes détectées de nouveau
+ * si `fresh`.
+ */
+export function cudaStatus(fresh = false): Promise<CudaStatus> {
+  return invoke<CudaStatus>("cuda_status", { fresh });
+}
+
+/** Télécharge et installe le pack ; refusé sans la licence de NVIDIA acceptée. */
+export function cudaInstall(acceptLicense: boolean): Promise<void> {
+  return invoke<void>("cuda_install", { acceptLicense });
+}
+
+/** Arrête le téléchargement ou l'installation du pack. */
+export function cudaCancel(): Promise<void> {
+  return invoke<void>("cuda_cancel");
+}
+
+/** Réglage « utiliser CUDA » (prochains chargements). */
+export function cudaSetEnabled(enabled: boolean): Promise<void> {
+  return invoke<void>("cuda_set_enabled", { enabled });
+}
+
+/** Retire le pack (modèles chargés d'abord déchargés). */
+export function cudaRemove(): Promise<void> {
+  return invoke<void>("cuda_remove");
+}
+
+/** Événement du pack CUDA : son état complet à chaque changement. */
+export const CUDA_STATUS_EVENT = "engine-cuda";
+
+export function listenCudaStatus(
+  onChange: (status: CudaStatus) => void,
+): Promise<UnlistenFn> {
+  return listen<CudaStatus>(CUDA_STATUS_EVENT, (event) =>
+    onChange(event.payload),
+  );
 }
 
 /** Dossier des modèles du moteur (réglé, ou celui par défaut). */

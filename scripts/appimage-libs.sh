@@ -31,9 +31,9 @@ set -euo pipefail
 
 # Le binaire de ChatonLM, les lanceurs ajoutés par linuxdeploy (AppRun) et les
 # composants que ChatonLM livre lui-même dans son dossier des ressources
-# (usr/lib/chatonlm : ONNX Runtime officiel ; usr/libexec/chatonlm : l'Ollama
-# intégré, hors de portée de linuxdeploy ; licences dans THIRD_PARTY_LICENSES
-# et licenses/) ne viennent pas de paquets du système.
+# (usr/lib/chatonlm : ONNX Runtime officiel ; usr/libexec/chatonlm : les
+# moteurs d'images et de texte, hors de portée de linuxdeploy ; licences dans
+# THIRD_PARTY_LICENSES et licenses/) ne viennent pas de paquets du système.
 OWN_FILES_RE='^(usr/bin/chatonlm|AppRun(\.wrapped)?|usr/lib/chatonlm/.+|usr/libexec/chatonlm/.+)$'
 # Dossiers de Debian (remplacés seulement par les essais, avec un faux dpkg).
 DOC_ROOT="${APPIMAGE_LIBS_DOC_ROOT:-/usr/share/doc}"

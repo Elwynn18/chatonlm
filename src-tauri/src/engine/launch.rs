@@ -6,7 +6,9 @@
 //! dossier courant de l'app : ggml y chargerait tout `libggml-*.so` /
 //! `ggml-*.dll`), environnement nettoyé (`process::scrub`, puis les
 //! variables de llama.cpp et de ggml), isolation (groupe et PDEATHSIG sous
-//! Linux, Job Object sous Windows).
+//! Linux, Job Object sous Windows). Sur CUDA (pack installé,
+//! [`super::cuda`]) : moteur du pack par `GGML_BACKEND_PATH`, cartes de CUDA
+//! seules (`--device`), Vulkan caché.
 //!
 //! Chaque processus a sa tâche de surveillance : elle attend sa fin, ou la
 //! demande d'arrêt ([`Process::stop`], ou le dernier [`Process`] lâché),
@@ -99,6 +101,8 @@ pub(super) struct Launch<'a> {
     pub stopping: &'a Stopping,
     /// Plafond du cache des invites (`--cache-ram`, Mio).
     pub cache_ram: u32,
+    /// Lancement sur CUDA (pack installé, carte compatible).
+    pub cuda: Option<super::cuda::CudaRuntime>,
 }
 
 /// Lance `llama-server` sur `spec` (journal du modèle `alias`) sans attendre
@@ -125,8 +129,12 @@ pub(super) async fn spawn(
     let endpoint = Endpoint::new(format!("http://127.0.0.1:{port}"), key.clone())
         .map_err(|error| EngineError::StartFailed(error.to_string()))?;
     let log = config.logs.join(super::journal::file_name(alias));
-    let args = options::server_args(spec, alias, port, launch.cache_ram, cfg!(windows));
-    let (command, file) = prepare(config, &bin, spec, args, &key, &log).map_err(failed)?;
+    let mut args = options::server_args(spec, alias, port, launch.cache_ram, cfg!(windows));
+    if let Some(cuda) = &launch.cuda {
+        args.extend(super::cuda::device_args(cuda));
+    }
+    let (command, file) =
+        prepare(config, &bin, spec, args, launch.cuda.as_ref(), &key, &log).map_err(failed)?;
     let mut child = spawn_with(launch.spawner, "chatonlm-llama", command)
         .await
         .map_err(failed)?;
@@ -237,6 +245,7 @@ fn prepare(
     bin: &Path,
     spec: &Spec,
     server_args: Vec<OsString>,
+    cuda: Option<&super::cuda::CudaRuntime>,
     key: &str,
     log: &Path,
 ) -> std::io::Result<(Command, File)> {
@@ -263,6 +272,22 @@ fn prepare(
     // mécanisme que le moteur d'images).
     if let Some(fallback) = super::binary::fallback_dir(bin) {
         crate::image_gen::offer_vulkan_loader(&mut environment, &fallback);
+    }
+    if let Some(cuda) = cuda {
+        std::fs::create_dir_all(&cuda.jit_cache)?;
+        let path = environment
+            .iter()
+            .find(|(key, _)| key.to_string_lossy().eq_ignore_ascii_case("PATH"))
+            .map(|(_, value)| value.clone());
+        let added = super::cuda::runtime_env(cuda, path.as_deref());
+        // Sous Windows, une seule variable PATH quelle que soit sa casse.
+        environment.retain(|key, _| {
+            !added.iter().any(|(name, _)| {
+                name.to_string_lossy()
+                    .eq_ignore_ascii_case(&key.to_string_lossy())
+            })
+        });
+        environment.extend(added);
     }
     let mut command = Command::new(bin);
     command.args(&config.prefix_args);
@@ -384,7 +409,7 @@ mod tests {
         std::fs::create_dir_all(&config.logs).unwrap();
         std::fs::write(&log, "old").unwrap();
         let args = options::server_args(&spec, "a/b:Q4_K_M", 4321, 512, false);
-        let (command, _file) = prepare(&config, &bin, &spec, args, "s3cret", &log).unwrap();
+        let (command, _file) = prepare(&config, &bin, &spec, args, None, "s3cret", &log).unwrap();
         assert_eq!(command.get_current_dir(), Some(config.logs.as_path()));
         assert_ne!(
             command.get_current_dir(),
@@ -419,5 +444,53 @@ mod tests {
             "old"
         );
         assert_eq!(std::fs::read_to_string(&log).unwrap(), "");
+        assert!(!env.contains_key(super::super::cuda::BACKEND_PATH_ENV));
+    }
+
+    /// Sur CUDA : le moteur du pack, les cartes de CUDA, Vulkan caché, le
+    /// cache de compilation de NVIDIA sous les données (créé).
+    #[test]
+    fn a_cuda_launch_carries_the_pack() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("llama-server");
+        std::fs::write(&bin, b"").unwrap();
+        let config = Config::new(Some(bin.clone()), &dir.path().join("data"));
+        let spec = Spec {
+            model: dir.path().join("m.gguf"),
+            mmproj: None,
+            ctx: 4096,
+            cpu: false,
+        };
+        let cuda = super::super::cuda::CudaRuntime {
+            platform: super::super::cuda::Platform::Linux,
+            dir: dir.path().join("data/engine/cuda/b12110"),
+            uuids: vec!["GPU-1".into()],
+            jit_cache: dir.path().join("data/engine/cuda/jit-cache"),
+        };
+        let log = config.logs.join("llama-m.log");
+        let mut args = options::server_args(&spec, "m", 4321, 512, false);
+        args.extend(super::super::cuda::device_args(&cuda));
+        let (command, _file) = prepare(&config, &bin, &spec, args, Some(&cuda), "k", &log).unwrap();
+        let env: BTreeMap<_, _> = command
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        assert_eq!(
+            env[super::super::cuda::BACKEND_PATH_ENV].as_deref(),
+            Some(cuda.dir.join("libggml-cuda.so").to_string_lossy().as_ref())
+        );
+        assert_eq!(env["CUDA_VISIBLE_DEVICES"].as_deref(), Some("GPU-1"));
+        assert_eq!(env["GGML_VK_VISIBLE_DEVICES"].as_deref(), Some("none"));
+        assert!(cuda.jit_cache.is_dir());
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert!(args.windows(2).any(|w| w == ["--device", "CUDA0"]));
     }
 }
