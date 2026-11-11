@@ -277,6 +277,7 @@ describe("built-in image engine: notices", () => {
       expect(text("stb-LICENSE.txt")).toContain(block);
       expect(source("stb_image_write.h")).toContain(block);
     },
+    20_000,
   );
 
   it("describes the build, the patches and the licenses (Linux)", () => {

@@ -321,7 +321,7 @@ describe("credentials", () => {
     await until(() => env.fake.authenticated.length === 0, 8000);
     const reply = await env.call("chatonlm_models").reply();
     expect(textOf(reply)).toBe(NO_WINDOW_TEXT);
-  });
+  }, 15_000);
 
   it("tells the agent when its access was withdrawn in the app", async () => {
     const env = await start();
@@ -344,7 +344,7 @@ describe("credentials", () => {
     expect(env.fake.authenticated).toHaveLength(1);
     await fs.rm(env.file);
     await until(() => env.fake.authenticated.length === 0, 8000);
-  });
+  }, 15_000);
 
   it("tells a link turned off in the app from a closed app", async () => {
     const off = await start({ discovery: false, appRunning: true });

@@ -14,7 +14,7 @@ topic: string, level: StudyLevel,
  */
 minutes: number, 
 /**
- * Recherche web (relais de ChatonLM).
+ * Recherche web (faite depuis cet ordinateur : `crate::search`).
  */
 web: boolean, 
 /**
