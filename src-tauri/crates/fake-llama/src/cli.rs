@@ -149,13 +149,14 @@ fn memory_lines(gpu: bool, ctx: u32, split: bool) {
 /// pour lire ses requêtes (`/fake/requests`).
 pub const REGISTRY_ENV: &str = "FAKE_LLAMA_REGISTRY";
 
-/// Inscrit l'instance dans [`REGISTRY_ENV`] (écriture puis renommage : un
-/// lecteur ne voit jamais un fichier à moitié écrit) ; rend le fichier.
-fn register(server: &FakeLlama, alias: Option<&str>, model: &str) -> Option<std::path::PathBuf> {
+/// Inscrit l'instance d'adresse `url` dans [`REGISTRY_ENV`] (écriture puis
+/// renommage : un lecteur ne voit jamais un fichier à moitié écrit) ; rend
+/// le fichier.
+fn register(url: &str, alias: Option<&str>, model: &str) -> Option<std::path::PathBuf> {
     let dir = std::path::PathBuf::from(std::env::var_os(REGISTRY_ENV)?);
     let pid = std::process::id();
     let entry = serde_json::json!({
-        "url": server.url(),
+        "url": url,
         "alias": alias,
         "model": model,
         "pid": pid,
@@ -287,9 +288,20 @@ pub async fn run(argv: Vec<String>) -> i32 {
         .any(|name| name.to_ascii_lowercase().contains(SPLIT_NAME));
     memory_lines(gpu, config.ctx, split);
     let model = config.model.clone();
-    let server = match FakeLlama::start_on(SocketAddr::new(host, args.port), config).await {
+    // Port donné (l'app en donne toujours un) : inscrit AVANT d'écouter, donc
+    // avant d'être prêt. Inscrit après, un disque très chargé (écritures
+    // freinées) laissait l'app voir le modèle prêt sans que les essais
+    // trouvent son instance.
+    let address = SocketAddr::new(host, args.port);
+    let early = (args.port != 0)
+        .then(|| register(&format!("http://{address}"), args.alias.as_deref(), &model))
+        .flatten();
+    let server = match FakeLlama::start_on(address, config).await {
         Ok(server) => server,
         Err(error) => {
+            if let Some(file) = early {
+                let _ = std::fs::remove_file(file);
+            }
             eprintln!(
                 "E srv  init: couldn't bind HTTP server socket, hostname: {host}, port: {}: {error}",
                 args.port
@@ -297,7 +309,7 @@ pub async fn run(argv: Vec<String>) -> i32 {
             return 1;
         }
     };
-    let registered = register(&server, args.alias.as_deref(), &model);
+    let registered = early.or_else(|| register(&server.url(), args.alias.as_deref(), &model));
     let mut terminate = Terminate::listen();
     let exit = tokio::select! {
         _ = tokio::signal::ctrl_c() => None,

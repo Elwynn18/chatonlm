@@ -6,7 +6,7 @@
 //!
 //! | Nom | Comportement |
 //! |---|---|
-//! | `chatonlm-echothink` | raisonne si la réflexion n'est pas coupée, puis cite ce qu'il a reçu : « Received think=<true, false, absent ou "niveau">. » (voir [`think_received`]) |
+//! | `chatonlm-echothink` | raisonne si la réflexion n'est pas coupée, puis cite ce qu'il a reçu : « Received think=<true, false, absent ou "niveau">. » (voir [`think_received`]) ; variante `chatonlm-echothink-plain` (modèle sans réflexion) : ne raisonne jamais |
 //! | `chatonlm-stubborn` | raisonne MÊME réflexion coupée (comme LFM2.5), puis cite ce qu'il a reçu |
 //! | `chatonlm-dawdle` | raisonnement de 60 lignes, une toutes les 150 ms (environ 9 s), puis la réponse |
 //! | `chatonlm-ponder` | long raisonnement en 40 paragraphes numérotés (24 caractères toutes les 40 ms, environ 5 s), puis « Done thinking. » : il déborde de l'aperçu replié de l'app |
@@ -93,7 +93,10 @@ fn received(call: &ChatCall) -> Step {
 
 fn echothink(call: &ChatCall) -> Script {
     let mut script = Vec::new();
-    if think_received(call.body) != "false" {
+    // Variante `-plain` : modèle sans réflexion, qui ne raisonne jamais
+    // (comme un vrai modèle sans gabarit de raisonnement).
+    let plain = call.model.to_ascii_lowercase().contains("echothink-plain");
+    if !plain && think_received(call.body) != "false" {
         script.push(Step::Reasoning("Let me think about it.".into()));
     }
     script.push(received(call));
@@ -245,6 +248,16 @@ mod tests {
             );
             // Têtu : raisonne toujours.
             assert!(reasons(&stubborn(&call(&body))));
+            // Sans réflexion : ne raisonne jamais, cite ce qu'il a reçu.
+            let plain = ChatCall {
+                body: &body,
+                model: "chatonlm-e2e/chatonlm-echothink-plain-GGUF:Q4_K_M",
+            };
+            assert!(!reasons(&echothink(&plain)), "{body}");
+            assert_eq!(
+                contents(&echothink(&plain)),
+                format!("Received think={expected}.")
+            );
         }
     }
 

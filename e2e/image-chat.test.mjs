@@ -515,17 +515,35 @@ try {
       imageModelName,
       "sélecteur d'images de nouveau",
     );
+    // Instances du faux moteur avant l'image : l'app arrête les modèles de
+    // texte inactifs avant chaque image (VRAM rendue, `before_image` de
+    // lib.rs), et le journal d'une instance arrêtée disparaît avec elle.
+    const pidsBefore = new Map(
+      engine.servers().map((entry) => [entry.alias, entry.pid]),
+    );
     const requestsBefore = (await chatRequests()).length;
     const buttonPrompt = "A cream sofa in a sunny room";
     await send(driver, buttonPrompt);
     await waitIdle(driver);
     const [buttonImage] = await waitImages(driver, 1);
     assert.equal(buttonImage.alt, buttonPrompt);
-    assert.equal(
-      (await chatRequests()).length,
-      requestsBefore,
-      "aucune demande de chat pour le bouton Image",
-    );
+    const survived = engine
+      .servers()
+      .every((entry) => pidsBefore.get(entry.alias) === entry.pid);
+    if (survived && engine.servers().length === pidsBefore.size) {
+      assert.equal(
+        (await chatRequests()).length,
+        requestsBefore,
+        "aucune demande de chat pour le bouton Image",
+      );
+    } else {
+      // Instances arrêtées pour l'image : une demande de chat aurait relancé
+      // celle de son modèle, qui la garderait dans son journal.
+      const asked = (await chatRequests()).filter((request) =>
+        JSON.stringify(request.messages).includes(buttonPrompt),
+      );
+      assert.deepEqual(asked, [], "demande de chat pour le bouton Image");
+    }
     // Pas de bloc de texte vide pour cette réponse.
     assert.deepEqual(await textsOf(driver, "[data-role=assistant]"), []);
     assert.equal((await imageButton(driver)).pressed, "true");

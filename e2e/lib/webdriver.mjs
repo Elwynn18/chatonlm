@@ -49,15 +49,28 @@ export class WebDriver {
    * window »), et c'est le seul endroit où son existence s'observe. La demande
    * est donc refaite, pour cette seule erreur, jusqu'à `windowTimeoutMs` : une
    * app qui n'ouvre pas de fenêtre fait toujours échouer le démarrage.
+   *
+   * Le serveur lui-même peut tarder : le binaire de débogage (près de 1 Go,
+   * sur ntfs3) est relu du disque quand une compilation d'à côté l'a chassé
+   * du cache, et le démarrage a dépassé 20 s sous cette charge (série du
+   * 11 nov. 2026 : refus de connexion non expliqué). `timeoutMs` couvre ce
+   * cas, avec un message qui le nomme ; l'arrêt de l'app pendant l'attente
+   * reste signalé tout de suite par `withApp`.
    */
-  async start({ timeoutMs = 20000, windowTimeoutMs = 60000 } = {}) {
-    const deadline = Date.now() + timeoutMs;
+  async start({ timeoutMs = 60000, windowTimeoutMs = 60000 } = {}) {
+    const launched = Date.now();
     for (;;) {
       try {
         await this.request("GET", "/status");
         break;
       } catch (error) {
-        if (Date.now() > deadline) throw error;
+        const waited = Date.now() - launched;
+        if (waited > timeoutMs) {
+          throw new Error(
+            `Le serveur WebDriver de l'app ne répond pas ${Math.round(waited / 1000)} s après son lancement (${this.base})`,
+            { cause: error },
+          );
+        }
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
     }

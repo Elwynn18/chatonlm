@@ -58,6 +58,19 @@ mkdirSync(SHOTS, { recursive: true });
 const INSTALLED = [fakeModel("simple"), fakeModel("tools")];
 const engine = startEngine(INSTALLED);
 const hf = await startFakeHf("hf");
+
+/**
+ * Requêtes d'un faux Hugging Face sans la vérification des mises à jour des
+ * modèles installés (fiche `?blobs=true` de leur dépôt), que l'app lance
+ * d'elle-même pour le bandeau des modèles périmés : seules celles du
+ * catalogue sont comptées ici.
+ */
+async function catalogRequests(fake) {
+  const repos = INSTALLED.map((id) => id.slice(0, id.lastIndexOf(":")));
+  return (await fake.requests()).filter(
+    (r) => !repos.some((repo) => r.path.startsWith(`/api/models/${repo}?`)),
+  );
+}
 const hfDown = await startFakeHf("hf-status:503");
 const hfLimited = await startFakeHf("hf-ratelimit");
 
@@ -421,10 +434,13 @@ try {
        return [...section.querySelectorAll("li a")].map((a) =>
          [...a.querySelectorAll("span.relative")].map((s) => s.textContent).join(" | "))`,
     );
-    assert.equal(families[0], "Qwen | 4 models");
+    // Cinq modèles Qwen : le dépôt en morceaux seulement
+    // (unsloth/Qwen3.8-Flash-Next-GGUF) est téléchargeable depuis le moteur
+    // llama.cpp (Ollama ne savait pas les tirer).
+    assert.equal(families[0], "Qwen | 5 models");
     assert.ok(families.includes("Gemma | 1 model"), families.join(", "));
     // Deux listes lues (populaires, tendances), une fois chacune.
-    const listRequests = (await hf.requests()).map((r) => r.path);
+    const listRequests = (await catalogRequests(hf)).map((r) => r.path);
     assert.equal(listRequests.length, 2, listRequests.join("\n"));
     assert.ok(
       listRequests.some((p) => p.includes("sort=downloads&limit=500")) &&
@@ -441,14 +457,18 @@ try {
     await driver.waitFor("section[aria-label=Qwen]");
     assert.equal(await where(driver), "/hub?family=qwen");
     const qwen = await cards(driver);
-    assert.equal(qwen.length, 4, qwen.join(", "));
+    assert.equal(qwen.length, 5, qwen.join(", "));
+    assert.ok(
+      qwen.includes("unsloth/Qwen3.8-Flash-Next-GGUF"),
+      qwen.join(", "),
+    );
     assert.ok(
       qwen.every((id) => /qwen/i.test(id)),
       qwen.join(", "),
     );
     assert.ok(
       (await textsOf(driver, "section[aria-label=Qwen] > div span")).includes(
-        "4 models",
+        "5 models",
       ),
     );
     assert.ok(
@@ -508,7 +528,7 @@ try {
     await waitHome(driver);
     assert.equal(await where(driver), "/hub");
     assert.equal(
-      (await hf.requests()).length,
+      (await catalogRequests(hf)).length,
       2,
       "requête à Hugging Face pendant la navigation (cache du moteur)",
     );
@@ -553,8 +573,11 @@ try {
       `recherche partie trop tôt après la frappe : ${gaps.join(", ")} ms`,
     );
     const found = await cards(driver);
+    // Tiny-Sharded (en morceaux seulement) : téléchargeable par le moteur
+    // llama.cpp, donc trouvé.
     assert.deepEqual([...found].sort(), [
       "chatonlm/Tiny-Chat-GGUF",
+      "chatonlm/Tiny-Sharded-GGUF",
       "chatonlm/Tiny-Vision-GGUF",
       "ibm-granite/granite-4.2-tiny-GGUF",
     ]);
@@ -568,6 +591,7 @@ try {
     );
     assert.deepEqual(trust, {
       "Tiny-Chat-GGUF": UNVERIFIED_HINT,
+      "Tiny-Sharded-GGUF": UNVERIFIED_HINT,
       "Tiny-Vision-GGUF": UNVERIFIED_HINT,
       "granite-4.2-tiny-GGUF": "verified",
     });
@@ -586,7 +610,7 @@ try {
     );
     await clickText(driver, "[role=toolbar] button", "Verified only");
     await waitUntil(
-      async () => (await cards(driver)).length === 3,
+      async () => (await cards(driver)).length === 4,
       "Verified only retiré",
     );
 
@@ -655,25 +679,28 @@ try {
       "",
     );
 
-    // Dépôt mixte : version découpée grisée.
+    // Dépôt mixte : la version découpée (BF16 en deux morceaux, dans un
+    // sous-dossier) se télécharge depuis le moteur llama.cpp (morceaux dans
+    // l'ordre) ; elle n'est plus grisée comme du temps d'Ollama.
     await navigate(
       driver,
       "/hub/model/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
     );
     await waitRepo(driver, "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF");
     list = await versions(driver);
-    assert.equal(list[0].label, "BF16");
-    assert.equal(list[0].disabled, true);
-    assert.equal(list[0].checked, false);
-    assert.match(list[0].text, /Split into several files — not supported/);
-    assert.match(list[0].className, /opacity-50/);
+    const bf16 = list.find((v) => v.label === "BF16");
+    assert.ok(bf16, list.map((v) => v.label).join(", "));
+    assert.equal(bf16.disabled, false);
+    assert.equal(bf16.checked, false);
+    assert.doesNotMatch(bf16.text, /not supported/);
+    assert.doesNotMatch(bf16.className, /opacity-50/);
     const checked = list.filter((v) => v.checked);
     assert.deepEqual(
       checked.map((v) => v.label),
       ["Q4_K_M"],
     );
     assert.match(checked[0].text, /Recommended/);
-    assert.ok(list.slice(1).every((v) => !v.disabled));
+    assert.ok(list.every((v) => !v.disabled));
     await shoot(driver, "model-light");
 
     // Dépôt restreint : pas de téléchargement.
@@ -1159,7 +1186,7 @@ try {
     );
     await shoot(driver, "ratelimited");
     await waitUntil(async () => (await wait()) < first, "décompte", 3000);
-    const count = (await hfLimited.requests()).length;
+    const count = (await catalogRequests(hfLimited)).length;
     await driver.click(await driver.find("button[aria-label='Clear search']"));
     await waitUntil(
       async () => (await where(driver)) === "/hub",
@@ -1173,7 +1200,7 @@ try {
     await waitText(driver, "[data-testid=hub-empty] h3", "Too many requests");
     assert.ok((await wait()) <= 42);
     assert.equal(
-      (await hfLimited.requests()).length,
+      (await catalogRequests(hfLimited)).length,
       count,
       "requête à Hugging Face avant l'échéance",
     );

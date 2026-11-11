@@ -430,9 +430,11 @@ await withApp(
       await driver.click(await driver.find("[data-testid=load-model-button]"));
     };
     await loadFromList(OTHER);
+    // La ligne paraît dès le lancement (« Loading into memory… »), puis dit
+    // son échéance une fois le modèle prêt.
     await waitUntil(
-      async () => (await loadedRows(driver))[OTHER],
-      "chargé par Load",
+      async () => /Unloads in/.test((await loadedRows(driver))[OTHER] ?? ""),
+      () => "chargé par Load",
     );
     assert.match((await loadedRows(driver))[OTHER], /Unloads in 1[45] minutes/);
     assert.equal((await running(driver, OTHER)).kept, false);

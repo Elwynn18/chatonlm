@@ -349,9 +349,9 @@ fn the_vulkan_failure_and_the_memory_lines_follow_the_real_server() {
     gpu.wait_line("Vulkan0 KV buffer size =   896.00 MiB");
 }
 
-/// `FAKE_LLAMA_REGISTRY` : l'instance note son adresse et son alias une fois
-/// à l'écoute (les e2e y trouvent le port choisi par l'app), et retire sa
-/// fiche à l'arrêt propre.
+/// `FAKE_LLAMA_REGISTRY` : l'instance note son adresse et son alias (port
+/// 0 : une fois à l'écoute ; les e2e y trouvent le port choisi par l'app),
+/// et retire sa fiche à l'arrêt propre.
 #[test]
 fn the_registry_gives_the_address_of_each_instance() {
     let model = model("chatonlm-simple-registry.gguf");
@@ -391,6 +391,43 @@ fn the_registry_gives_the_address_of_each_instance() {
         assert_eq!(server.wait_exit().code(), Some(0));
         assert!(!file.exists(), "fiche restée après l'arrêt");
     }
+}
+
+/// Port donné (comme le donne l'app) : la fiche est écrite AVANT que le
+/// port n'accepte une connexion, donc avant que l'app voie le modèle prêt
+/// (sous un disque très chargé, une fiche écrite après manquait aux e2e).
+#[test]
+fn with_a_given_port_the_entry_exists_before_the_port_opens() {
+    let model = model("chatonlm-simple-early.gguf");
+    let registry = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("fake-llama-registry-early");
+    let _ = std::fs::remove_dir_all(&registry);
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut child = command()
+        .args(["--host", "127.0.0.1", "--port", &port.to_string(), "-m"])
+        .arg(&model)
+        .env_remove("FAKE_LLAMA_MODE")
+        .env("FAKE_LLAMA_REGISTRY", &registry)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let file = registry.join(format!("{}.json", child.id()));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while TcpStream::connect(("127.0.0.1", port)).is_err() {
+        assert!(Instant::now() < deadline, "le port ne s'ouvre pas");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let present = file.exists();
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(present, "port ouvert sans fiche dans le registre");
+    let entry: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(entry["url"], format!("http://127.0.0.1:{port}"));
 }
 
 /// `fake-llama gguf` écrit un fichier GGUF (dossiers créés) ; une option

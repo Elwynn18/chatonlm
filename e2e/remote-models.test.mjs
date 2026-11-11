@@ -119,8 +119,28 @@ try {
       JSON.stringify(listed),
     );
     await driver.invoke("update_settings", { patch: { selectedModel: ID } });
+    // Réglages changés hors de la page (commande directe) : elle ne les
+    // relit qu'au rechargement (src/hooks/useSettings.ts, ils ne changent
+    // que par `setSettings`), liste des modèles comprise.
+    await driver.execute("window.__oldPage = true; location.reload()");
+    await waitUntil(
+      async () =>
+        (await driver
+          .execute("return window.__oldPage === undefined")
+          .catch(() => false)) === true,
+      "rechargement",
+    );
     await driver.execute(
       "history.pushState({}, '', '/c/new'); dispatchEvent(new PopStateEvent('popstate'))",
+    );
+    await waitUntil(
+      async () =>
+        (
+          await driver.execute(
+            "return document.querySelector(\"[title='Select model']\")?.textContent ?? ''",
+          )
+        ).includes(MODEL),
+      "modèle distant au sélecteur",
     );
     const textarea = await driver.waitFor("textarea[aria-label='Message']");
     await driver.type(textarea, "Hello there");

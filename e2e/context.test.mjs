@@ -6,7 +6,7 @@
 // vraies touches du clavier (e2e/lib/keyboard.mjs : Échap). Réglage du
 // contexte : 4096 (le plus petit cran). Vérifié :
 // - page d'une nouvelle conversation : pas de jauge ;
-// - premier message long (environ 2 750 mots) : réponse limitée dès le
+// - premier message long (11 200 caractères, 2 800 mots) : réponse limitée dès le
 //   premier envoi (`max_tokens` sous la place qui reste), sans couper les 600
 //   jetons ; après la réponse, jauge « Context: N% used » au-dessus de 80 %
 //   (jetons comptés par le faux : prompt et réponse, sans raisonnement ;
@@ -83,11 +83,24 @@ async function waitUntil(check, what, timeoutMs = 15000) {
   }
 }
 
+/**
+ * Mots courts (4 caractères par mot, donc par jeton du faux) : l'estimation
+ * de l'app avant tout compte du moteur (3 caractères par jeton, corrigée de
+ * 0,75, soit 4) tombe juste, comme avec un vrai tokenizer sur de l'anglais.
+ * Avec des mots plus longs, le premier envoi serait limité sous les 600
+ * jetons de la réponse (estimation trop haute pour le faux, pas pour l'app).
+ */
+const SHORT_WORDS = "Read all of it, if you can. ";
+/**
+ * Mots longs (5,6 caractères par jeton du faux) : l'app estime ce message
+ * plus gros qu'il n'est, pour que la réponse soit coupée par sa limite
+ * (`max_tokens`) avant de l'être par le contexte du faux.
+ */
+const LONG_WORDS = "Please read this long note. ";
+
 /** Texte de `length` caractères (pas d'espace au bout, rien à rogner). */
-function note(length) {
-  const base = "Please read this long note. ".repeat(
-    Math.ceil(length / 28) + 1,
-  );
+function note(length, phrase = SHORT_WORDS) {
+  const base = phrase.repeat(Math.ceil(length / phrase.length) + 1);
   const text = base.slice(0, length - 1).replace(/ $/, "x");
   return `${text}.`;
 }
@@ -427,7 +440,7 @@ const notes = [];
       );
 
       // ---- 1. Premier message : passé 80 % après la réponse.
-      const long = note(15400);
+      const long = note(11200);
       await send(driver, long);
       await driver.waitFor("[data-testid=chat]");
       await waitIdle(driver, 2);
@@ -584,7 +597,7 @@ const notes = [];
 
       // ---- 3. Contexte plein : réponse coupée, « Compact now » sous l'erreur.
       await newChat(driver);
-      const long2 = note(14500);
+      const long2 = note(10400);
       await send(driver, long2);
       await driver.waitFor("[data-testid=chat]");
       await waitIdle(driver, 2);
@@ -599,7 +612,7 @@ const notes = [];
       );
       await waitGauge(driver, percentOf(used3)); // sous le seuil
       const before = sent.length;
-      const mid = note(1200);
+      const mid = note(2400, LONG_WORDS);
       await send(driver, mid);
       await waitIdle(driver, 4);
       sent = await requests();
@@ -607,7 +620,7 @@ const notes = [];
       const cut = sent.at(-1);
       assert.ok(!isSummaryRequest(cut));
       // Limite : taille − contexte compté − estimation du nouveau message
-      // (1200 caractères / 3 + 16, corrigée par le rapport compté/estimé) :
+      // (2400 caractères / 3 + 16, corrigée par le rapport compté/estimé) :
       // sous les 600 jetons de la réponse, au moins 256.
       const limit = cut.max_tokens;
       assert.ok(
@@ -626,7 +639,8 @@ const notes = [];
       );
       assert.equal(
         partial.trim(),
-        ANSWER.slice(0, limit * 4).trim(),
+        // Un jeton du faux par mot : les `limit` premiers mots.
+        ANSWER.split(" ").slice(0, limit).join(" "),
         "réponse coupée non gardée",
       );
       const used4 = promptTokens(cut) + limit;
@@ -675,7 +689,7 @@ const notes = [];
       assert.equal(chat.context.size, SIZE);
       assert.ok(chat.context.used >= estimate);
       const shownFull = await waitGauge(driver, percentOf(chat.context.used));
-      // Messages gardés après le résumé (le message de 1200 caractères et la
+      // Messages gardés après le résumé (le message de 2400 caractères et la
       // réponse coupée) : estimation de leur place, pour le rapport.
       const rest =
         Math.floor(mid.length / 3) + 16 + Math.floor(partial.length / 3) + 16;
@@ -698,7 +712,12 @@ const notes = [];
       );
       await waitGauge(driver, 14);
       opened = await openPanel(driver);
-      assert.equal(opened.lines[0], "601 / 4,096 tokens (14%)");
+      // « hello » (1 jeton), gabarit (4 + 3) et réponse (600) : 608.
+      assert.equal(
+        opened.lines[0],
+        `${formatInt(used5)} / 4,096 tokens (${percentOf(used5)}%)`,
+      );
+      assert.equal(used5, 608);
       assert.deepEqual(opened.action, { text: "Compact now", disabled: false });
       await driver.click(await driver.find("[role=dialog] button"));
       await waitUntil(
@@ -714,7 +733,7 @@ const notes = [];
         },
       ]);
       // Contexte enregistré : le résumé estimé, corrigé par le compte
-      // d'Ollama de la conversation (jamais plus que l'estimation brute).
+      // du moteur de la conversation (jamais plus que l'estimation brute).
       const compacted = (await driver.invoke("get_chat", { id: manual }))
         .context.used;
       assert.ok(compacted > 0 && compacted <= estimate, `${compacted}`);

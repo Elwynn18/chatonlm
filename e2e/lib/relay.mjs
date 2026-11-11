@@ -4,7 +4,7 @@
 // travail minuscule. L'app s'y adresse par CHATONLM_RELAY_URL (withApp la
 // ferme par défaut). Binaire construit par scripts/e2e-build.sh
 // (`cargo build -p relay-server --features fake --bin fake-relay`).
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -90,11 +90,22 @@ async function freePort() {
  */
 export async function startFakeProvider({ alias, key }) {
   const port = await freePort();
+  // Le faux refuse un fichier qui n'est pas un GGUF lisible, comme le vrai :
+  // en-tête d'essai écrit par `fake-llama gguf`, dans un dossier à part.
+  const dir = mkdtempSync(join(ROOT, ".tools/tmp/fake-provider-"));
+  const model = join(dir, `${alias}.gguf`);
+  const written = spawnSync(FAKE_LLAMA, ["gguf", model], { encoding: "utf8" });
+  if (written.status !== 0) {
+    rmSync(dir, { recursive: true, force: true });
+    throw new Error(
+      `fake-llama gguf ${model} : ${written.stderr || written.error}`,
+    );
+  }
   const child = spawn(
     FAKE_LLAMA,
     [
       "-m",
-      join(ROOT, ".tools/tmp", `${alias}.gguf`),
+      model,
       "--alias",
       alias,
       "--api-key",
@@ -118,7 +129,11 @@ export async function startFakeProvider({ alias, key }) {
     } catch {
       // Pas encore à l'écoute.
     }
-    if (Date.now() > deadline) throw new Error("fake-llama ne répond pas");
+    if (Date.now() > deadline) {
+      child.kill("SIGKILL");
+      rmSync(dir, { recursive: true, force: true });
+      throw new Error("fake-llama ne répond pas");
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   return {
@@ -132,6 +147,7 @@ export async function startFakeProvider({ alias, key }) {
       const timer = setTimeout(() => child.kill("SIGKILL"), 3000);
       await exited;
       clearTimeout(timer);
+      rmSync(dir, { recursive: true, force: true });
     },
   };
 }

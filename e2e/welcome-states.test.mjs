@@ -8,6 +8,7 @@
 // - Moteur présent et un modèle : la réponse arrive du faux llama-server
 //   (chaîne complète app → moteur → processus → flux → page).
 import assert from "node:assert/strict";
+import { dirname, join } from "node:path";
 import { withApp } from "./lib/app.mjs";
 import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { pressKeys } from "./lib/keyboard.mjs";
@@ -97,22 +98,31 @@ console.log(
   "moteur absent : erreur à l'envoi, réglages qui disent de réinstaller",
 );
 
-// Moteur présent, aucun modèle inscrit.
-await withApp(binary, { name: "welcome-no-model" }, async (driver) => {
-  await driver.waitFor("[data-testid=new-chat]");
-  const status = await driver.invoke("engine_status");
-  assert.equal(status.available, true);
-  assert.deepEqual(await driver.invoke("list_models"), []);
-  await engineRow(driver);
-  assert.ok(await driver.find("[data-testid=engine-acceleration]"));
-  assert.deepEqual(
-    (await texts(driver, "[data-testid=settings] [role=alert]")).filter(
-      Boolean,
-    ),
-    [],
-  );
-  await driver.screenshot(".tools/shots/welcome-no-model.png");
-});
+// Moteur présent, aucun modèle inscrit : dossier de données neuf (celui de
+// la session garde le modèle inscrit par le lancement précédent).
+const emptyData = join(
+  dirname(process.env.CHATONLM_DATA_DIR ?? "."),
+  "data-no-model",
+);
+await withApp(
+  binary,
+  { name: "welcome-no-model", env: { CHATONLM_DATA_DIR: emptyData } },
+  async (driver) => {
+    await driver.waitFor("[data-testid=new-chat]");
+    const status = await driver.invoke("engine_status");
+    assert.equal(status.available, true);
+    assert.deepEqual(await driver.invoke("list_models"), []);
+    await engineRow(driver);
+    assert.ok(await driver.find("[data-testid=engine-acceleration]"));
+    assert.deepEqual(
+      (await texts(driver, "[data-testid=settings] [role=alert]")).filter(
+        Boolean,
+      ),
+      [],
+    );
+    await driver.screenshot(".tools/shots/welcome-no-model.png");
+  },
+);
 console.log("moteur présent, aucun modèle : accélération dite, pas d'alerte");
 
 // Moteur présent et un modèle : réponse du faux llama-server.

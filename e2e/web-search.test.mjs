@@ -16,6 +16,7 @@
 // Écrit à l'étape 2 (lot L7), lancé à l'étape 3 : binaires fake-llama et
 // fake-relay construits par scripts/e2e-build.sh.
 import assert from "node:assert/strict";
+import { dirname, join } from "node:path";
 import { withApp } from "./lib/app.mjs";
 import { startFakeProvider, startFakeRelay } from "./lib/relay.mjs";
 
@@ -113,16 +114,26 @@ try {
     await relay.stop();
   }
 
-  // 2. Quota du jour épuisé, puis service en pause.
-  for (const [options, expected] of [
+  // 2. Quota du jour épuisé, puis service en pause. Chaque lancement a son
+  // dossier de données neuf : `prepare` ajoute le fournisseur, et le même
+  // fournisseur ajouté plusieurs fois dans une même base ferait plusieurs
+  // modèles du même nom.
+  for (const [index, [options, expected]] of [
     [{ daily: 0 }, "Today's web searches have all been used"],
     [{ paused: true }, "Web search is paused for maintenance"],
-  ]) {
+  ].entries()) {
     const refusing = await startFakeRelay(options);
+    const data = join(
+      dirname(process.env.CHATONLM_DATA_DIR ?? "."),
+      `data-refused-${index}`,
+    );
     try {
       await withApp(
         binary,
-        { name: "web-search-refused", env: refusing.env },
+        {
+          name: "web-search-refused",
+          env: { ...refusing.env, CHATONLM_DATA_DIR: data },
+        },
         async (driver) => {
           await prepare(driver, provider);
           await send(driver, "chaton roux");

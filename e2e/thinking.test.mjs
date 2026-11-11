@@ -439,11 +439,23 @@ const focusTextarea = (driver) =>
  * Ordre de Tab depuis la zone de saisie (texte tapé : Send actif) : « + »,
  * `think` (nom du bouton Think), globe de la recherche web (`webSearch` :
  * modèle dont les capacités sont connues, grisé sans « tools »), sélecteur,
- * mode vocal, Send, puis sortie de la zone ; Tab finit par
- * revenir à la zone de saisie en passant par le reste de la page. Maj+Tab
- * depuis la zone de saisie en sort aussi.
+ * jauge du contexte (`gauge` : conversation existante dont le moteur a
+ * compté le contexte, propre à ChatonLM), mode vocal, Send, puis sortie de
+ * la zone ; Tab finit par revenir à la zone de saisie en passant par le
+ * reste de la page. Maj+Tab depuis la zone de saisie en sort aussi.
  */
-async function checkTabOrder(driver, think, { webSearch = false } = {}) {
+async function checkTabOrder(
+  driver,
+  think,
+  { webSearch = false, gauge = false } = {},
+) {
+  // Nom de la jauge (« Context: N% used ») : son pourcentage dépend des
+  // jetons comptés par le faux.
+  const gaugeName = await driver.execute(
+    `return document.querySelector("button[aria-haspopup=dialog][aria-label^='Context: ']")
+       ?.getAttribute("aria-label") ?? null`,
+  );
+  assert.equal(gaugeName !== null, gauge, `jauge du contexte : ${gaugeName}`);
   await focusTextarea(driver);
   await recordFocus(driver);
   // Assez de Tab pour faire le tour : barre latérale, en-têtes de
@@ -456,6 +468,7 @@ async function checkTabOrder(driver, think, { webSearch = false } = {}) {
     think,
     ...(webSearch ? ["Web search"] : []),
     "Select model",
+    ...(gauge ? [gaugeName] : []),
     "Start voice mode",
     "Send message",
   ];
@@ -746,7 +759,12 @@ try {
       await typeMessage(driver, "Tab order.");
       // Modèle sans la capacité « tools » : le globe reste, grisé, et garde
       // le focus (sa raison se lit au clavier).
-      await checkTabOrder(driver, "Thinking level: High", { webSearch: true });
+      // Conversation déjà commencée : sa jauge du contexte, après le
+      // sélecteur.
+      await checkTabOrder(driver, "Thinking level: High", {
+        webSearch: true,
+        gauge: true,
+      });
       await driver.clear(await driver.find("textarea[aria-label='Message']"));
 
       // chatonlm-stubborn (LFM2.5 tiré de Hugging Face) : bascule tant qu'on
@@ -903,9 +921,14 @@ try {
       await waitReply(driver, "Thought it through.");
       let saved = (await driver.invoke("get_chat", { id: chats.slow }))
         .messages;
-      assert.equal(
-        thinking.title,
-        `Thought for ${savedSeconds(saved[1])} seconds`,
+      // Pendant le flux, la durée vient des événements reçus par la page ;
+      // une fois la réponse finie, celle enregistrée par le moteur (les deux
+      // diffèrent du retard de la livraison des événements, sensible sous
+      // une machine chargée).
+      await waitThinking(
+        driver,
+        { title: `Thought for ${savedSeconds(saved[1])} seconds` },
+        "durée enregistrée affichée une fois la réponse finie",
       );
       // Clic : déplié (tout le raisonnement), puis replié.
       const header = "[data-message-index] h3 > button";

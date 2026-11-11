@@ -202,12 +202,14 @@ try {
     }
 
     // Nouvelle révision sur Hugging Face : bandeau de la conversation.
-    const published = await fetch(new URL("/fake/publish-hf", hf.url), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repo: REPO }),
-    });
+    // Dépôt dans l'adresse (`?repo=`, voir fake-services hf.rs), pas dans
+    // le corps ; le faux rend le dépôt qu'il a lu.
+    const published = await fetch(
+      new URL(`/fake/publish-hf?repo=${encodeURIComponent(REPO)}`, hf.url),
+      { method: "POST" },
+    );
     assert.ok(published.ok, "publication refusée par le faux Hugging Face");
+    assert.equal((await published.json()).repo, REPO);
     await navigate(driver, "/c/new");
     await driver.waitFor("[data-testid=new-chat]");
     await reload(driver);

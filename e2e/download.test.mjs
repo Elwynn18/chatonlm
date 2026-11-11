@@ -13,7 +13,8 @@
 //   aucune réponse ni message vide en base ;
 // - dépôt lent (`slow`) : le bloc arrive à 100 %, s'efface en fondu (opacité
 //   et translation, 300 ms), puis la réponse du faux moteur arrive ;
-// - Hugging Face injoignable : message officiel, sans bloc ;
+// - Hugging Face injoignable : message de la file (« can't reach Hugging
+//   Face: … »), sans bloc ;
 // - aucune violation de la CSP ni erreur ou avertissement dans la console.
 import assert from "node:assert/strict";
 import { withApp } from "./lib/app.mjs";
@@ -45,10 +46,17 @@ const PULLED = "chatonlm-dl/Pull-slow-GGUF:Q4_K_M";
 const OFFLINE_MODEL = "chatonlm-dl/Away-GGUF:Q4_K_M";
 
 const HELLO = "Say hello in one word.";
-const OFFLINE =
-  "Unable to download model. Please check your internet connection to download the model for offline use.";
+/**
+ * Début du message d'un Hugging Face injoignable (backend.json,
+ * `downloads.hfUnreachable`), celui de la file du ModelHub, comme le fixe
+ * `chat/tests.rs` depuis le moteur llama.cpp : le texte officiel (« Unable to
+ * download model… ») venait du pull d'Ollama, qui n'existe plus.
+ */
+const OFFLINE = "can't reach Hugging Face: ";
 /** Progression de tous les fichiers du modèle : « x / y (n%) ». */
-const PROGRESS = /^([\d.]+ [kMG]?B) \/ ([\d.]+ [kMG]?B) \((\d+)%\)$/;
+// Unités de l'app (src/i18n/format.ts) : B, KB, MB, GB (les dépôts
+// synthétisés ne font que quelques centaines de Ko).
+const PROGRESS = /^([\d.]+ [KMGT]?B) \/ ([\d.]+ [KMGT]?B) \((\d+)%\)$/;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -458,7 +466,7 @@ try {
   );
 
   // Hugging Face injoignable (fermé, comme par défaut dans withApp) :
-  // message officiel, pas de bloc.
+  // message de la file, pas de bloc.
   await withApp(
     binary,
     { name: "download-offline", env: engine.env },

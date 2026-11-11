@@ -2,8 +2,9 @@
 // ChatonLM (hub/curation.json, identifiants de Hugging Face) en tête, puis
 // les modèles installés (base locale, du plus récent au plus ancien) ; modèle
 // par défaut = le plus récemment installé, jamais un recommandé ; recherche,
-// choix mémorisé, modèle d'une conversation remis à son ouverture (même
-// absent de la base : en fin de liste, « Not downloaded »), aucun modèle
+// choix mémorisé, conversation d'avant la 0.10 dont l'ancien nom d'Ollama
+// n'a pas été repris (src/lib/models.ts, `restoredModel` : « legacy ») : le
+// modèle choisi reste, l'ancien nom n'est pas proposé ; aucun modèle
 // installé (recommandés seulement, aucun choisi) ; mémoire demandée et
 // pastille des recommandés non téléchargés (ancien e2e cloud-models). Lignes
 // repérées par leur identifiant (`data-model-id`).
@@ -149,24 +150,26 @@ await withApp(
       "modèle choisi mémorisé",
     );
 
-    // Conversation de démonstration (réponses de qwen3:0.6b, nom d'Ollama
-    // absent de la base) : son modèle redevient celui du sélecteur, en fin
-    // de liste et non téléchargé.
+    // Conversation de démonstration (réponses de qwen3:0.6b, ancien nom
+    // d'Ollama, ni installé ni repris) : il ne désigne aucun modèle du moteur
+    // intégré (l'envoi échouerait) ; le modèle choisi reste, l'ancien nom
+    // n'est pas proposé.
     await driver.click(await driver.find("button[aria-label='Show sidebar']"));
     await driver.click(await driver.waitFor("[data-chat-id] a"));
     await driver.waitFor("[data-testid=chat]");
+    // Le temps que la remise du modèle de la conversation passe (elle
+    // enregistre l'ancien nom, puis remet le modèle d'avant).
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await waitUntil(
+      async () => (await driver.invoke("get_settings")).selectedModel === OLDER,
+      "modèle choisi gardé",
+    );
     await openPicker(driver);
     await waitUntil(
-      async () => (await chosen(driver)) === "qwen3:0.6b",
-      "modèle de la conversation",
+      async () => (await chosen(driver)) === OLDER,
+      "modèle choisi gardé dans le sélecteur",
     );
-    assert.deepEqual(await options(driver), [
-      ...RECOMMENDED,
-      NEWEST,
-      OLDER,
-      "qwen3:0.6b",
-    ]);
-    assert.deepEqual((await missing(driver)).at(-1), true);
+    assert.deepEqual(await options(driver), [...RECOMMENDED, NEWEST, OLDER]);
     await driver.screenshot(".tools/shots/models-missing.png");
     await closePicker(driver);
   },

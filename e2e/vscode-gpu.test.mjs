@@ -262,7 +262,22 @@ function start(client, method, params) {
         "reprise après le chargement",
       );
 
-      // Mesure et propositions.
+      // Mesure et propositions. Le moteur garde 3 modèles au plus
+      // (`MAX_LOADED`, src-tauri/src/engine/mod.rs) : FIM, le moins
+      // récemment servi, a laissé sa place au modèle de la conversation
+      // (HANG) ; une mesure ne charge jamais, « Préparer » le relance.
+      assert.ok(
+        !engine.servers().some((entry) => entry.alias === FIM),
+        "FIM toujours en mémoire après deux autres chargements",
+      );
+      assert.equal(
+        paused(await client.request("completion.measure", { model: FIM })),
+        "notLoaded",
+      );
+      assert.ok(
+        (await client.request("completion.prepare", { model: FIM })).result,
+        "FIM préparé de nouveau",
+      );
       const measure = await client.request("completion.measure", {
         model: FIM,
       });

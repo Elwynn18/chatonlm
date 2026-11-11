@@ -289,6 +289,18 @@ export async function withApp(
   try {
     await Promise.race([driver.start(), crashed]);
     await fn(driver, { exited, pid: app.pid });
+  } catch (error) {
+    // Une demande au pilote refusée (« fetch failed ») ne dit pas pourquoi :
+    // l'arrêt de l'app, s'il a eu lieu, est ajouté au message.
+    const code = await Promise.race([exited, delay(500).then(() => undefined)]);
+    if (
+      code !== undefined &&
+      error instanceof Error &&
+      !error.message.startsWith("L'app s'est arrêtée")
+    ) {
+      error.message += ` (l'app s'est arrêtée, code ${code} ; voir ${log})`;
+    }
+    throw error;
   } finally {
     await shutDown(app, exited, driver, quit, name);
   }
