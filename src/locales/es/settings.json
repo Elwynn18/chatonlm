@@ -183,7 +183,7 @@
   },
   "donate": {
     "title": "Apoyar ChatonLM",
-    "description": "Las donaciones permiten que ChatonLM siga creciendo. En particular, pagan sus propios servidores, como el de la búsqueda web.",
+    "description": "Las donaciones permiten que ChatonLM siga creciendo: nuevas funciones y el tiempo que requieren.",
     "button": "Donar"
   },
   "modelsFolder": {

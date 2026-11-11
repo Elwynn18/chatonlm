@@ -183,7 +183,7 @@
   },
   "donate": {
     "title": "Support ChatonLM",
-    "description": "Donations keep ChatonLM growing. In particular, they pay for its own servers, such as the one behind web search.",
+    "description": "Donations keep ChatonLM growing: new features, and the time they take.",
     "button": "Donate"
   },
   "modelsFolder": {

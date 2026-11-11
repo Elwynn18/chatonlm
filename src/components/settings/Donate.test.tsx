@@ -27,7 +27,7 @@ vi.setConfig({ testTimeout: 30_000 });
 afterEach(() => resetLinks());
 
 const DESCRIPTION =
-  "Donations keep ChatonLM growing. In particular, they pay for its own servers, such as the one behind web search.";
+  "Donations keep ChatonLM growing: new features, and the time they take.";
 
 function setup(path = "/settings") {
   const simulator = installSimulator();
