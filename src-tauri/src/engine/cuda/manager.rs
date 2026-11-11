@@ -548,7 +548,7 @@ async fn fetch(
     root: &Path,
     cancel: &AtomicBool,
 ) -> Result<(Manifest, CudaItem), String> {
-    crate::hub::hf::ensure_crypto_provider();
+    crate::http::ensure_crypto_provider();
     let client = reqwest::Client::builder()
         .connect_timeout(SMALL_TIMEOUT)
         .timeout(SMALL_TIMEOUT)

@@ -37,6 +37,10 @@ const DROPPED_ENV = [
   "CHATONLM_LLAMA_TEST_BIN",
   "CHATONLM_LLAMA_TEST_MODELS",
   "CHATONLM_LLAMA_TEST_CPU",
+  // Pack NVIDIA : clé de manifeste et preuves des essais Rust.
+  "CHATONLM_CUDA_PUBKEY",
+  "CHATONLM_CUDA_PROOF_DIR",
+  "CHATONLM_CUDA_PROOF_VERSION",
   // Processeur seulement (builds d'essai) : donné par `startRealEngine`
   // quand `CHATONLM_LLAMA_TEST_CPU=1`.
   "CHATONLM_LLAMA_CPU_ONLY",
@@ -249,6 +253,11 @@ export async function withApp(
       // fermés (relay.chatonlm.com, ollama.com, OpenRouter, Mistral jamais
       // contactés) ; un test qui s'en sert donne ses faux (startFakeRelay).
       CHATONLM_RELAY_URL: "http://127.0.0.1:1",
+      // Pack NVIDIA (CUDA) : notre Release et les fichiers de NVIDIA fermés ;
+      // clé du manifeste celle de l'app (variable retirée ci-dessus).
+      CHATONLM_CUDA_PACK_URL: "http://127.0.0.1:1",
+      CHATONLM_NVIDIA_REDIST_URL: "http://127.0.0.1:1",
+      CHATONLM_CUDA_QUEUE_URL: "http://127.0.0.1:1",
       CHATONLM_REMOTE_URL: "http://127.0.0.1:1",
       // Interface en anglais (langue « System » des essais), quelle que soit
       // la langue du bureau du développeur ; un test des langues donne la

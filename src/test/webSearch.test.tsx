@@ -337,11 +337,20 @@ describe("Powered by Brave Search", () => {
     expect(searchProvider(brave)).toBe("brave");
     render(<WebSearchAttribution call={brave} />);
     expect(screen.getByTestId("web-search-attribution").textContent).toBe(
-      "Powered by Brave Search",
+      "Powered by Brave Search · About web search",
+    );
+    cleanup();
+    // Autre fournisseur du relais : le lien seul.
+    render(
+      <WebSearchAttribution
+        call={searchCall('{"results":[],"provider":"mojeek"}')}
+      />,
+    );
+    expect(screen.getByTestId("web-search-attribution").textContent).toBe(
+      "About web search",
     );
     cleanup();
     for (const call of [
-      searchCall('{"results":[],"provider":"mojeek"}'),
       searchCall('{"results":[]}'),
       searchCall("not json"),
       searchCall(null),
@@ -373,10 +382,39 @@ describe("Powered by Brave Search", () => {
     await userEvent.click(header);
     expect(screen.getByTestId("web-search-attribution")).toBe(mention);
     cleanup();
-    render(
-      <ToolResult call={searchCall('{"results":[],"provider":"mojeek"}')} />,
-    );
+    render(<ToolResult call={searchCall('{"results":[]}')} />);
     expect(screen.queryByTestId("web-search-attribution")).toBeNull();
+  });
+
+  it("links to the web search page of the site, in the app's language", async () => {
+    const simulator = installSimulator();
+    simulator.handle("open_external", () => null);
+    render(
+      <WebSearchAttribution
+        call={searchCall('{"results":[],"provider":"brave"}')}
+      />,
+    );
+    const link = screen.getByRole("link", { name: "About web search" });
+    expect(link.getAttribute("href")).toBe(
+      "https://chatonlm.com/en/web-search/",
+    );
+    await userEvent.click(link);
+    await waitFor(() =>
+      expect(simulator.callsTo("open_external")).toHaveLength(1),
+    );
+    cleanup();
+    act(() => setLanguage("fr"));
+    render(
+      <WebSearchAttribution
+        call={searchCall('{"results":[],"provider":"brave"}')}
+      />,
+    );
+    expect(
+      screen
+        .getByRole("link", { name: "À propos de la recherche web" })
+        .getAttribute("href"),
+    ).toBe("https://chatonlm.com/fr/web-search/");
+    act(() => setLanguage("en"));
   });
 });
 

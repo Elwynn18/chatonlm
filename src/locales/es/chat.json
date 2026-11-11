@@ -176,6 +176,7 @@
     "withoutWebSearch": "Generar sin búsqueda web",
     "checkUpdates": "Buscar actualizaciones",
     "poweredByBrave": "Resultados de Brave Search",
+    "about": "Acerca de la búsqueda web",
     "status": {
       "remaining": {
         "one": "Desactivar la búsqueda web (queda {count} búsqueda hoy)",

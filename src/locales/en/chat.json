@@ -176,6 +176,7 @@
     "withoutWebSearch": "Generate without web search",
     "checkUpdates": "Check for updates",
     "poweredByBrave": "Powered by Brave Search",
+    "about": "About web search",
     "status": {
       "remaining": {
         "one": "Disable web search ({count} search left today)",

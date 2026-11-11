@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=ChatonLM
-Comment=Unofficial desktop chat client for Ollama
+Comment=Local AI desktop app: chat, images, voice and dictation
 Exec={{exec}}
 Icon={{icon}}
 Terminal=false

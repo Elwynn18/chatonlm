@@ -2,7 +2,7 @@
   "name": "chatonlm",
   "private": true,
   "version": "0.9.5",
-  "description": "Unofficial desktop chat client for Ollama",
+  "description": "Local AI desktop app: chat, images, voice and dictation",
   "license": "MIT",
   "author": "Elwynn18 and ChatonLM contributors",
   "type": "module",
