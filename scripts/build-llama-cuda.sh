@@ -54,7 +54,8 @@ else
 fi
 
 # Mode texte : « empreinte␠␠nom » sur les deux systèmes (le sha256sum de
-# Git pour Windows écrirait sinon « empreinte␠*nom »).
+# Git pour Windows écrirait sinon « empreinte␠*nom »). Jamais pour
+# `--check`, que `--text` fait échouer.
 sha256() {
   sha256sum --text "$@"
 }
@@ -81,7 +82,7 @@ if [ "${1:-}" = "--version" ]; then
 fi
 
 if [ -f "$out/$lib" ] && [ -f "$archive" ] && [ "$(cat "$out/VERSION" 2>/dev/null)" = "$version" ] &&
-  (cd "$out" && sha256 --check --quiet --strict SHA256SUMS >/dev/null 2>&1); then
+  (cd "$out" && sha256sum --check --quiet --strict SHA256SUMS >/dev/null 2>&1); then
   echo "$archive"
   exit 0
 fi

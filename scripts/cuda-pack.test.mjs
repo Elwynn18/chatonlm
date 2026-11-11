@@ -7,6 +7,7 @@
 import { spawnSync } from "node:child_process";
 import {
   copyFileSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -258,6 +259,49 @@ describe("build-llama-cuda.sh", () => {
       readFileSync(path.join(ROOT, "packaging/cuda.env"), "utf8"),
     );
     expect(workflow).toContain(`container: ${env.CUDA_CONTAINER}`);
+  });
+
+  it("--check reconnaît un pack à jour (SHA256SUMS écrit en --text) et un pack abîmé", () => {
+    // Copie du script et des épingles dans un dossier à part : rien n'est
+    // écrit dans le .tools du projet.
+    const root = temp();
+    mkdirSync(path.join(root, "scripts"));
+    mkdirSync(path.join(root, "packaging"));
+    copyFileSync(
+      path.join(ROOT, "scripts/build-llama-cuda.sh"),
+      path.join(root, "scripts/build-llama-cuda.sh"),
+    );
+    for (const file of ["llama.env", "cuda.env"]) {
+      copyFileSync(
+        path.join(ROOT, "packaging", file),
+        path.join(root, "packaging", file),
+      );
+    }
+    const script = path.join(root, "scripts/build-llama-cuda.sh");
+    const run = (arg) => spawnSync("bash", [script, arg], { encoding: "utf8" });
+    const version = run("--version").stdout.trim();
+    expect(version).toMatch(/^v[0-9.]+\+chatonlm\.cuda\.[0-9a-f]{12}$/);
+    const env = parseEnv(
+      readFileSync(path.join(ROOT, "packaging/llama.env"), "utf8"),
+    );
+    const runtimes = path.join(root, ".tools/runtimes");
+    const out = path.join(runtimes, "llama-cuda");
+    mkdirSync(out, { recursive: true });
+    writeFileSync(path.join(out, "libggml-cuda.so"), "engine");
+    writeFileSync(path.join(out, "VERSION"), `${version}\n`);
+    const sums = spawnSync(
+      "sha256sum",
+      ["--text", "libggml-cuda.so", "VERSION"],
+      { cwd: out, encoding: "utf8" },
+    );
+    writeFileSync(path.join(out, "SHA256SUMS"), sums.stdout);
+    writeFileSync(
+      path.join(runtimes, `chatonlm-cuda-${env.LLAMA_BUILD}-linux-x64.tar.gz`),
+      "archive",
+    );
+    expect(run("--check").status).toBe(0);
+    writeFileSync(path.join(out, "libggml-cuda.so"), "tampered");
+    expect(run("--check").status).toBe(1);
   });
 
   it("répond par build-llama-server.sh --cuda (vérification seule, rien à construire)", () => {
