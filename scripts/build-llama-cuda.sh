@@ -136,10 +136,10 @@ options=(
   -DGGML_VULKAN=OFF
   -DGGML_CUDA=ON
   -DGGML_CUDA_NCCL=OFF
-  # Runtime CUDA en bibliothèque partagée (cudart64_13.dll /
-  # libcudart.so.13, prise chez NVIDIA par l'app) : le défaut de CMake pour
-  # le langage CUDA est le runtime statique, qui mettrait du code de NVIDIA
-  # dans NOTRE pack (vu sous Windows le 10 nov. 2026).
+  # Runtime CUDA partagé (libcudart.so.13, prise chez NVIDIA par l'app) : le
+  # défaut de CMake pour le langage CUDA est le runtime statique. Sous
+  # Windows, CUDA 13 ne lie plus qu'un petit chargeur (cudart.lib), qui
+  # ouvre le runtime du pilote (voir le contrôle des dépendances).
   -DCMAKE_CUDA_RUNTIME_LIBRARY=Shared
   "-DGGML_CUDA_CCCL_VERSION=$CUDA_CCCL_VERSION"
   -DGGML_OPENMP=OFF
@@ -197,10 +197,8 @@ chmod 0644 "$stage"/*
 # bibliothèques de NVIDIA, de l'app (posées à côté) ; libcuda / nvcuda, du
 # pilote.
 if $windows; then
-  # DLL importées, chargement différé compris (/DELAYLOAD : objdump ne lit
-  # que la table des imports, d'où un « n'importe pas cudart64_13.dll »
-  # trompeur le 10 nov. 2026) : dumpbin de l'invite de Visual Studio, sinon
-  # objdump.
+  # DLL importées, chargement différé compris : dumpbin de l'invite de
+  # Visual Studio, sinon objdump (table des imports seule).
   if command -v dumpbin >/dev/null; then
     dependents="$(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
       dumpbin /nologo /dependents "$(cygpath -w "$stage/$lib")" | tr -d '\r')" ||
@@ -215,7 +213,15 @@ if $windows; then
   allowed="^(ggml-base\.dll|cudart64_${CUDA_MAJOR}\.dll|cublas64_${CUDA_MAJOR}\.dll|cublaslt64_${CUDA_MAJOR}\.dll|nvcuda\.dll|kernel32\.dll|advapi32\.dll|msvcp140(_[0-9a-z]+)?\.dll|vcruntime140(_[0-9a-z]+)?\.dll|api-ms-win-crt-[a-z0-9-]+\.dll)$"
   outside="$(grep -Ev "$allowed" <<<"$imports" || true)"
   [ -z "$outside" ] || fail "$lib importe : $(tr '\n' ' ' <<<"$outside")"
-  for required in ggml-base.dll "cudart64_${CUDA_MAJOR}.dll" "cublas64_${CUDA_MAJOR}.dll"; do
+  # CUDA 13 sous Windows : cudart.lib et cuda.lib ne sont plus des
+  # bibliothèques d'import mais des chargeurs (generated_cuda_runtime_api_loader,
+  # cuda_driverloader) qui ouvrent à l'exécution nvcudart_hybrid64.dll et
+  # nvcuda.dll, livrées avec le pilote : ni cudart64_13.dll ni nvcuda.dll
+  # n'apparaissent dans les imports (vu le 11 nov. 2026, run 42986693562).
+  # Le chargeur de NVIDIA doit donc être là, et le nom qu'il ouvre lisible.
+  grep -aq 'nvcudart_hybrid64.dll' "$stage/$lib" ||
+    fail "$lib ne contient pas le chargeur du runtime CUDA (nvcudart_hybrid64.dll) : liaison inattendue"
+  for required in ggml-base.dll "cublas64_${CUDA_MAJOR}.dll"; do
     grep -qx "$required" <<<"$imports" || {
       # Diagnostic : dépendances complètes et commande d'édition des liens.
       echo "$dependents" >&2
