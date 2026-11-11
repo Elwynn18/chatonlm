@@ -290,3 +290,63 @@ fn the_key_never_shows_in_debug_output() {
     };
     assert!(!format!("{personal:?}").contains("secret"));
 }
+
+/// Relais devant le faux moteur : coupe net (RST) la première connexion
+/// après avoir lu la requête, puis transmet les suivantes. Rend son adresse
+/// et le nombre de connexions reçues.
+async fn resetting_relay(
+    target: std::net::SocketAddr,
+) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::AsyncReadExt;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let seen = Arc::new(AtomicUsize::new(0));
+    let count = seen.clone();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            if count.fetch_add(1, Ordering::SeqCst) == 0 {
+                let mut buffer = [0u8; 4096];
+                let _ = stream.read(&mut buffer).await;
+                // Fermeture sans attente : le noyau envoie un RST.
+                stream.set_zero_linger().unwrap();
+                drop(stream);
+                continue;
+            }
+            tokio::spawn(async move {
+                let mut upstream = tokio::net::TcpStream::connect(target).await.unwrap();
+                let _ = tokio::io::copy_bidirectional(&mut stream, &mut upstream).await;
+            });
+        }
+    });
+    (format!("http://{addr}"), seen)
+}
+
+/// Connexion coupée par l'autre côté : une seconde tentative, qui aboutit
+/// (au lieu de « hors ligne »).
+#[tokio::test]
+async fn a_reset_connection_is_tried_again_once() {
+    let fake = FakeSearch::start().await.unwrap();
+    let target: std::net::SocketAddr = fake.url().trim_start_matches("http://").parse().unwrap();
+    let (relay, seen) = resetting_relay(target).await;
+    let client = Client::new(Options {
+        user_agent: "ChatonLM/test".into(),
+        endpoints: Endpoints {
+            duckduckgo: fake.base("duckduckgo").replace(&fake.url(), &relay),
+            brave: fake.base("brave"),
+            mojeek: fake.base("mojeek"),
+        },
+        duckduckgo_gap: Duration::ZERO,
+        duckduckgo_pause: Duration::from_secs(60),
+        timeout: Duration::from_secs(5),
+    });
+    let found = client
+        .search(None, &query("chat"), &CancellationToken::new())
+        .await
+        .unwrap();
+    assert!(!found.results.is_empty());
+    assert_eq!(seen.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(engines(&fake), ["duckduckgo"]);
+    fake.stop().await;
+}

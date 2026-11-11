@@ -496,39 +496,102 @@ fn searxng_status(status: u16) -> Option<EngineError> {
     }
 }
 
+/// Pause avant la seconde et dernière tentative d'une connexion coupée par
+/// l'autre côté (« connection reset ») : vu juste après beaucoup de trafic,
+/// la première connexion seule coupée, la suivante acceptée.
+const RESET_RETRY: Duration = Duration::from_millis(500);
+
 /// Envoie la requête et rend le corps d'une réponse acceptée par `status`,
-/// sinon la sorte d'échec ; `Err(None)` : annulé. Rien n'est lu de l'erreur
-/// de `reqwest` (elle contient l'adresse).
+/// sinon la sorte d'échec ; `Err(None)` : annulé. Une connexion coupée par
+/// l'autre côté est retentée une fois (une recherche se renvoie sans effet
+/// de bord). Rien n'est lu de l'erreur de `reqwest` (elle contient
+/// l'adresse), sauf sa sorte.
 async fn send(
     request: reqwest::RequestBuilder,
     cancel: &CancellationToken,
     status: fn(u16) -> Option<EngineError>,
 ) -> Result<Vec<u8>, Option<EngineError>> {
-    let exchange = async {
-        let mut response = request.send().await.map_err(|error| {
-            if error.is_connect() || error.is_builder() {
-                EngineError::Offline
-            } else {
-                EngineError::Timeout
-            }
-        })?;
-        let code = response.status().as_u16();
-        let mut body = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|_| EngineError::Timeout)? {
-            if body.len() + chunk.len() > MAX_BODY {
-                return Err(EngineError::Malformed);
-            }
-            body.extend_from_slice(&chunk);
-        }
-        match status(code) {
-            Some(error) => Err(error),
-            None => Ok(body),
-        }
+    let spare = request.try_clone();
+    let first = tokio::select! {
+        result = exchange(request, status) => result,
+        () = cancel.cancelled() => return Err(None),
+    };
+    let request = match (first, spare) {
+        (Err(Failure { reset: true, .. }), Some(request)) => request,
+        (result, _) => return result.map_err(|failure| Some(failure.error)),
     };
     tokio::select! {
-        result = exchange => result.map_err(Some),
+        () = tokio::time::sleep(RESET_RETRY) => {}
+        () = cancel.cancelled() => return Err(None),
+    }
+    tokio::select! {
+        result = exchange(request, status) => result.map_err(|failure| Some(failure.error)),
         () = cancel.cancelled() => Err(None),
     }
+}
+
+/// Échec d'un échange : sa sorte, et si la connexion a été coupée par
+/// l'autre côté.
+struct Failure {
+    error: EngineError,
+    reset: bool,
+}
+
+impl From<EngineError> for Failure {
+    fn from(error: EngineError) -> Self {
+        Failure {
+            error,
+            reset: false,
+        }
+    }
+}
+
+async fn exchange(
+    request: reqwest::RequestBuilder,
+    status: fn(u16) -> Option<EngineError>,
+) -> Result<Vec<u8>, Failure> {
+    let mut response = request.send().await.map_err(|error| Failure {
+        reset: is_reset(&error),
+        error: if error.is_connect() || error.is_builder() {
+            EngineError::Offline
+        } else {
+            EngineError::Timeout
+        },
+    })?;
+    let code = response.status().as_u16();
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| EngineError::Timeout)? {
+        if body.len() + chunk.len() > MAX_BODY {
+            return Err(EngineError::Malformed.into());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    match status(code) {
+        Some(error) => Err(error.into()),
+        None => Ok(body),
+    }
+}
+
+/// Connexion coupée par l'autre côté, à n'importe quel niveau de la chaîne
+/// d'erreurs (`hyper_util` l'enveloppe dans une erreur d'entrée-sortie).
+fn is_reset(error: &reqwest::Error) -> bool {
+    fn reset(io: &std::io::Error) -> bool {
+        matches!(
+            io.kind(),
+            std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+        ) || io
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<std::io::Error>())
+            .is_some_and(reset)
+    }
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(current) = source {
+        if current.downcast_ref::<std::io::Error>().is_some_and(reset) {
+            return true;
+        }
+        source = current.source();
+    }
+    false
 }
 
 #[cfg(test)]

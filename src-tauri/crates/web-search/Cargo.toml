@@ -19,4 +19,4 @@ url = "2.5.8"
 [dev-dependencies]
 # Faux moteurs (DuckDuckGo, Brave, Mojeek, SearXNG) sur la boucle locale.
 fake-services = { path = "../fake-services" }
-tokio = { version = "1.53.2", features = ["macros", "net", "rt-multi-thread", "test-util"] }
+tokio = { version = "1.53.2", features = ["io-util", "macros", "net", "rt-multi-thread", "test-util"] }
