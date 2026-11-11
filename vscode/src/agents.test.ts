@@ -188,11 +188,12 @@ describe("MCP server setting", () => {
     ]);
     expect(definition.env).toEqual({ ELECTRON_RUN_AS_NODE: "1" });
     const written = await env.access();
-    expect(JSON.stringify(definition)).not.toContain(written.secret);
-    expect(JSON.stringify(definition)).not.toContain(written.clientId);
-    expect(JSON.stringify(definition)).not.toContain(
-      env.state.credentials?.secret,
-    );
+    // Dossier de stockage retiré : son nom tiré au hasard peut contenir
+    // « agents-1 » (dossier « vscode-agents-1… »).
+    const declared = JSON.stringify(definition).replaceAll(env.storageDir, "");
+    expect(declared).not.toContain(written.secret);
+    expect(declared).not.toContain(written.clientId);
+    expect(declared).not.toContain(env.state.credentials?.secret);
   });
 
   it("writes an access of the agents' own, never the editor's credentials", async () => {
