@@ -39,6 +39,7 @@ const HANG: &str = "chat/Hang-GGUF:Q4_K_M";
 const CRASH: &str = "chat/Crash-GGUF:Q4_K_M";
 const FAILING: &str = "chat/Error-GGUF:Q4_K_M";
 const LOOPING: &str = "chat/Loop-GGUF:Q4_K_M";
+const LOOPING_TOO: &str = "chat/Looptoo-GGUF:Q4_K_M";
 /// Raisonnement qui boucle par paragraphes entiers (séquence du simulateur).
 const MULLING: &str = "chat/Mull-GGUF:Q4_K_M";
 const LONG: &str = "chat/Long-GGUF:Q4_K_M";
@@ -69,7 +70,7 @@ fn scenario(id: &str) -> &'static str {
         HANG => "hang",
         CRASH => "crash",
         FAILING => "error",
-        LOOPING => "loop",
+        LOOPING | LOOPING_TOO => "loop",
         MULLING => "mull-think",
         LONG => "long",
         STUBBORN => "stubborn-think",
@@ -2139,10 +2140,13 @@ async fn stopping_a_chat_waits_for_the_last_write() {
 #[tokio::test]
 async fn stopping_everything_saves_every_answer() {
     // Deux modèles : un processus n'a qu'un emplacement (une requête à la
-    // fois).
-    let bench = Bench::new(&[SLOW, SLOW_TOO]);
+    // fois). Réponses sans fin (boucle, arrêtée par la garde après une
+    // vingtaine de secondes seulement) : la première écrit encore pendant le
+    // chargement du second modèle, même lent (CI Windows) ; celle de
+    // `chatonlm-slow` (1,5 s) pouvait finir avant.
+    let bench = Bench::new(&[LOOPING, LOOPING_TOO]);
     let mut running = Vec::new();
-    for (stream, model) in [("stream-a", SLOW), ("stream-b", SLOW_TOO)] {
+    for (stream, model) in [("stream-a", LOOPING), ("stream-b", LOOPING_TOO)] {
         let mut ask = request(None, model, None);
         ask.stream_id = stream.into();
         let (task, recorder) = bench.spawn(ask).await;

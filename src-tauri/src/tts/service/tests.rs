@@ -1521,6 +1521,9 @@ fn a_failed_engine_ends_the_segments_with_an_error() {
 #[test]
 fn the_selection_is_read_and_only_its_reading_is_stopped_by_the_shortcut() {
     let (rig, events, sink) = segments_rig();
+    // Rien de joué (horloge à 0) : pas de début annoncé avant l'arrêt,
+    // quel que soit le pas des attentes (une quinzaine de ms sous Windows).
+    *rig.log.clock.lock() = Some(0);
     rig.hold.store(true, Ordering::Relaxed);
     rig.read_aloud
         .read_selection("Hello there.", sink.clone())
@@ -1552,6 +1555,8 @@ fn the_selection_is_read_and_only_its_reading_is_stopped_by_the_shortcut() {
 #[test]
 fn the_page_does_not_stop_the_selection_but_stops_a_reply() {
     let (rig, events, sink) = segments_rig();
+    // Rien de joué (horloge à 0) : aucun événement attendu avant l'arrêt.
+    *rig.log.clock.lock() = Some(0);
     rig.hold.store(true, Ordering::Relaxed);
     rig.read_aloud.read_selection("Hello there.", sink).unwrap();
     wait("speaking", || rig.spoken().len() == 1);
