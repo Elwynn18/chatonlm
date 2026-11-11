@@ -297,9 +297,11 @@ mod engine_tests {
         bench.shutdown().await;
     }
 
-    /// Le processus est fini AVANT que le fichier parte (le faux note, à son
-    /// arrêt, un fichier déjà effacé), et rien ne relance le modèle pendant
-    /// l'effacement.
+    /// Le processus est fini AVANT que le fichier parte, et rien ne relance
+    /// le modèle pendant l'effacement. Sous Unix, le faux, arrêté poliment
+    /// (SIGTERM), note aussi dans son journal un fichier déjà effacé ; sous
+    /// Windows, l'arrêt est un `TerminateJobObject` (le faux ne note rien) :
+    /// la preuve est le processus déjà fini au moment d'effacer.
     #[tokio::test(flavor = "multi_thread")]
     async fn the_model_stops_before_its_file_goes_and_stays_stopped() {
         let bench = crate::engine::tests::bench();
@@ -310,12 +312,17 @@ mod engine_tests {
             .preload(&id, crate::engine::LoadOptions::default())
             .await
             .unwrap();
+        let pid = bench.engine.pid_of(&id).expect("model running");
         let engine = bench.engine.clone();
         let relaunch = unload_then(&bench.engine, &id, async {
             let relaunch = engine
                 .ensure(&id, crate::engine::LoadOptions::default())
                 .await
                 .map(drop);
+            assert!(
+                !crate::engine::tests::alive(pid),
+                "the model still runs when its file goes"
+            );
             std::fs::remove_file(&path).unwrap();
             relaunch
         })
@@ -326,9 +333,12 @@ mod engine_tests {
             "no relaunch while deleting"
         );
         assert!(bench.engine.running().is_empty());
-        let log = std::fs::read_to_string(bench.log_of(&id)).unwrap();
-        assert!(log.contains("stopping on a termination signal"), "{log}");
-        assert!(!log.contains(fake_llama::cli::DELETED_BEFORE_STOP), "{log}");
+        #[cfg(unix)]
+        {
+            let log = std::fs::read_to_string(bench.log_of(&id)).unwrap();
+            assert!(log.contains("stopping on a termination signal"), "{log}");
+            assert!(!log.contains(fake_llama::cli::DELETED_BEFORE_STOP), "{log}");
+        }
         bench.engine.shutdown().await;
     }
 }

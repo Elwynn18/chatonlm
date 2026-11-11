@@ -643,12 +643,13 @@ async fn a_cancelled_download_leaves_nothing_behind() {
     wait_until("some progress", WAIT, || env.entry(gone).completed > 10_000).await;
     env.downloads.cancel(gone);
     assert_eq!(env.entry(gone).state, Cancelled);
-    wait_until("the cleanup", WAIT, || env.files() == before).await;
-    assert!(
-        !env.models()
-            .join("chatonlm-dl/Gone-stall-big-GGUF")
-            .exists()
-    );
+    // Les fichiers partent avant leur dossier (même nettoyage, en tâche de
+    // fond) : attendre les deux, pas seulement les fichiers.
+    let gone_dir = env.models().join("chatonlm-dl/Gone-stall-big-GGUF");
+    wait_until("the cleanup", WAIT, || {
+        env.files() == before && !gone_dir.exists()
+    })
+    .await;
 
     // En pause, puis annulé : les `.part` partent aussi (fiche relue).
     let paused = "chatonlm-dl/Nap-stall-big-GGUF:Q4_K_M";

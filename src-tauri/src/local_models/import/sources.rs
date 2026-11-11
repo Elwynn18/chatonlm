@@ -14,11 +14,10 @@ pub fn home_dir(home: &Path) -> PathBuf {
     home.join(".ollama").join("models")
 }
 
-/// Forme comparable d'un chemin : liens résolus s'il existe ; sous Windows,
-/// sans la casse.
+/// Forme comparable d'un chemin : liens résolus pour la partie existante
+/// ([`super::resolved`]) ; sous Windows, sans la casse.
 fn comparable(path: &Path) -> String {
-    let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-    let text = resolved.to_string_lossy().into_owned();
+    let text = super::resolved(path).to_string_lossy().into_owned();
     if cfg!(windows) {
         super::winpath::plain(&text).to_lowercase()
     } else {
@@ -243,6 +242,9 @@ mod tests {
             let link = root.path().join("link");
             std::os::unix::fs::symlink(&machine, &link).unwrap();
             assert!(shared_dir(&link, &found));
+            // Pas encore créé sous un lien : résolu par son parent (sous
+            // Windows, même cas avec un nom court `RUNNER~1`).
+            assert!(shared_dir(&link.join("blobs"), &found));
         }
         let own = root.path().join("data/ollama/models");
         fs::create_dir_all(own.join("manifests")).unwrap();

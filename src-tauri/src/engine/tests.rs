@@ -241,7 +241,7 @@ fn with_ctx(ctx: u32) -> LoadOptions {
 }
 
 /// Le processus `pid` vit encore (ni absent ni zombie).
-fn alive(pid: u32) -> bool {
+pub(crate) fn alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
         std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {

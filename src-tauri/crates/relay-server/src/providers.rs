@@ -96,9 +96,14 @@ pub struct ProviderClient {
 
 impl ProviderClient {
     pub fn new(provider: Provider, config: &ProviderConfig, key: Secret) -> Result<Self, String> {
+        let timeout = Duration::from_secs(config.timeout_secs.max(1));
         let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(config.timeout_secs.max(1)))
-            .connect_timeout(Duration::from_secs(5))
+            .timeout(timeout)
+            // Connexion bornée avant la fin du délai total : une connexion
+            // qui traîne (hôte muet, port fermé sous Windows qui répond par
+            // un délai) finit en erreur de connexion, donc non facturée,
+            // plutôt qu'en délai dépassé, compté comme une requête partie.
+            .connect_timeout(Duration::from_secs(5).min(timeout / 2))
             .gzip(true)
             // Aucune redirection : une réponse 3xx n'est pas suivie (la clé
             // de Brave est dans un en-tête, celle de Mojeek dans l'adresse).

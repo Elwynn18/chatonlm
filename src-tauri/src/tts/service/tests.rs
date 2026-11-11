@@ -1441,8 +1441,12 @@ fn a_new_reading_stops_the_segments() {
     std::thread::sleep(Duration::from_millis(60));
     assert_eq!(*events.lock(), [started("a"), SegmentEvent::Stopped]);
 
-    // Arrêt par son identifiant : seulement le sien.
+    // Arrêt par son identifiant : seulement le sien. Rien n'est joué
+    // (horloge à 0) : sans cela, le début du segment pourrait être annoncé
+    // avant l'arrêt, selon le pas des attentes (une quinzaine de ms sous
+    // Windows).
     let (rig, events, sink) = segments_rig();
+    *rig.log.clock.lock() = Some(0);
     rig.hold.store(true, Ordering::Relaxed);
     rig.read_aloud
         .read_segments("2-5".into(), vec![segment("a", "Long part.")], None, sink)

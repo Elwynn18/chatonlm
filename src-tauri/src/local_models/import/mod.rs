@@ -334,6 +334,31 @@ pub fn same_volume(a: &str, b: &str) -> bool {
     volume(a).is_some() && volume(a) == volume(b)
 }
 
+/// `path` aux liens résolus depuis son plus proche parent existant (le
+/// reste ajouté tel quel), tel quel si rien ne se résout. Un chemin pas
+/// encore créé se compare ainsi à un chemin résolu ; sous Windows, la
+/// résolution donne aussi les noms longs (`RUNNER~1` devient
+/// `runneradmin`).
+pub fn resolved(path: &Path) -> PathBuf {
+    let mut missing = Vec::new();
+    let mut current = path;
+    loop {
+        if let Ok(found) = std::fs::canonicalize(current) {
+            return missing
+                .iter()
+                .rev()
+                .fold(found, |path: PathBuf, name| path.join(name));
+        }
+        match (current.parent(), current.file_name()) {
+            (Some(parent), Some(name)) => {
+                missing.push(name.to_owned());
+                current = parent;
+            }
+            _ => return path.to_owned(),
+        }
+    }
+}
+
 /// Même système de fichiers (renommage possible).
 pub fn same_filesystem(a: &Path, b: &Path) -> bool {
     os::same_filesystem(a, b)

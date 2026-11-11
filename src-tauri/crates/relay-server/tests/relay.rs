@@ -494,6 +494,37 @@ async fn an_unreachable_provider_is_refunded() {
     assert_eq!(relay.relay.spent_this_month(), 2_500);
 }
 
+/// M5 : une connexion qui traîne (file d'attente pleine : la demande de
+/// connexion est ignorée, comme par un hôte muet) finit avant le délai total
+/// (2 s ici) en erreur de connexion : rendue au budget, pas facturée.
+#[tokio::test]
+async fn a_hanging_connection_is_refunded() {
+    let (_dir, path) = db();
+    let socket = tokio::net::TcpSocket::new_v4().unwrap();
+    socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let full = socket.listen(1).unwrap();
+    let address = full.local_addr().unwrap();
+    // File d'attente remplie sans rien accepter (Linux ignore ensuite les
+    // demandes ; Windows les refuse : rendu aussi).
+    let mut held = Vec::new();
+    for _ in 0..64 {
+        let connect = tokio::net::TcpStream::connect(address);
+        match tokio::time::timeout(std::time::Duration::from_millis(300), connect).await {
+            Ok(Ok(stream)) => held.push(stream),
+            _ => break,
+        }
+    }
+    let url = format!("http://{address}");
+    let relay = TestRelay::start(&path, T, |config| config.providers.brave.base_url = url).await;
+    let client = Client::new(&relay);
+    let id = Identity::generate();
+    client.register(&id, T).await;
+    let reply = client.search(&id, "x", T).await;
+    assert_eq!(reply.body["provider"], "mojeek", "{:?}", reply.body);
+    assert_eq!(relay.relay.spent_this_month(), 2_500);
+    drop(held);
+}
+
 #[tokio::test]
 async fn a_failing_provider_is_avoided_for_a_while() {
     let (_dir, path) = db();

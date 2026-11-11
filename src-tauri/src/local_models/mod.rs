@@ -145,12 +145,13 @@ pub fn file_key(path: &str) -> String {
     file_key_for(path, cfg!(windows))
 }
 
-/// Sous Windows, deux chemins qui ne diffèrent que par la casse désignent
-/// le même fichier (Hugging Face qui change la casse d'un dépôt) : clé en
-/// minuscules ; sous Linux, le chemin tel quel.
+/// Sous Windows, deux chemins qui ne diffèrent que par la casse ou par le
+/// séparateur (« / » ou « \ ») désignent le même fichier (Hugging Face
+/// qui change la casse d'un dépôt, chemin relatif joint d'un bloc) : clé en
+/// minuscules, séparateurs « \ » ; sous Linux, le chemin tel quel.
 pub fn file_key_for(path: &str, windows: bool) -> String {
     if windows {
-        path.to_lowercase()
+        path.replace('/', "\\").to_lowercase()
     } else {
         path.to_owned()
     }

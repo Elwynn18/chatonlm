@@ -88,7 +88,11 @@ fn shared_files_ignore_case_on_windows() {
         unshared_files(&a, others, false),
         ["u/v-gguf/V-Q4_K_M.gguf", "u/v-gguf/mmproj.gguf"]
     );
-    assert_eq!(file_key_for("A/B.gguf", true), "a/b.gguf");
+    assert_eq!(file_key_for("A/B.gguf", true), r"a\b.gguf");
+    assert_eq!(
+        file_key_for(r"C:\M\u/W-GGUF/mmproj.gguf", true),
+        file_key_for(r"c:\m\U\W-GGUF\MMPROJ.gguf", true)
+    );
     assert_eq!(file_key_for("A/B.gguf", false), "A/B.gguf");
 }
 

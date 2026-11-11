@@ -166,11 +166,10 @@ pub async fn current(store: &Store, data_dir: &Path) -> AppResult<EngineModelsDi
         .await
 }
 
-/// Même dossier (liens résolus quand les deux existent ; sous Windows, sans
-/// la casse).
+/// Même dossier (liens résolus pour la partie existante, voir
+/// [`super::resolved`] ; sous Windows, sans la casse).
 fn same_path(a: &Path, b: &Path) -> bool {
-    let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-    let (a, b) = (canonical(a), canonical(b));
+    let (a, b) = (super::resolved(a), super::resolved(b));
     if cfg!(windows) {
         super::winpath::same(&a.to_string_lossy(), &b.to_string_lossy())
     } else {
@@ -178,9 +177,10 @@ fn same_path(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// `path` est sous `root` (liens résolus pour la partie existante).
+/// `path` est sous `root` (liens résolus pour la partie existante, voir
+/// [`super::resolved`]).
 fn inside(path: &Path, root: &Path) -> bool {
-    let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let canonical = super::resolved;
     if cfg!(windows) {
         super::winpath::within(
             &canonical(path).to_string_lossy(),

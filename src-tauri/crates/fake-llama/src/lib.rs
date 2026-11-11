@@ -1120,22 +1120,38 @@ fn stream(
     sse(shared, slot, steps)
 }
 
+/// Retard au-delà duquel les attentes d'un flux ne sont plus rattrapées
+/// (lecteur lent : pas de rafale au-delà).
+const MAX_LAG: Duration = Duration::from_millis(100);
+
 /// Réponse SSE qui joue `steps`.
+///
+/// Les attentes sont des échéances cumulées, pas des durées : sous Windows,
+/// une attente de 5 ms en dure une quinzaine (pas de l'horloge du système),
+/// et le rythme moyen d'un flux (`chatonlm-loop`) doit rester celui demandé
+/// sur les deux systèmes.
 fn sse(shared: Arc<Shared>, slot: OwnedSemaphorePermit, steps: Vec<Step>) -> Response {
     let guard = Guard::new(shared, slot);
+    let due: Option<tokio::time::Instant> = None;
     let body = futures_util::stream::unfold(
-        (steps.into_iter(), guard),
-        |(mut steps, mut guard)| async move {
+        (steps.into_iter(), guard, due),
+        |(mut steps, mut guard, mut due)| async move {
             loop {
                 match steps.next() {
                     None => {
                         guard.finish();
                         return None;
                     }
-                    Some(Step::Wait(delay)) => tokio::time::sleep(delay).await,
+                    Some(Step::Wait(delay)) => {
+                        let now = tokio::time::Instant::now();
+                        let start = due.filter(|due| *due + MAX_LAG >= now).unwrap_or(now);
+                        let next = start + delay;
+                        due = Some(next);
+                        tokio::time::sleep_until(next).await;
+                    }
                     Some(Step::Hang) => std::future::pending::<()>().await,
                     Some(Step::Ping) => {
-                        return Some((Ok(":\n\n".to_owned()), (steps, guard)));
+                        return Some((Ok(":\n\n".to_owned()), (steps, guard, due)));
                     }
                     Some(Step::Crash) => {
                         guard.finish();
@@ -1146,19 +1162,19 @@ fn sse(shared: Arc<Shared>, slot: OwnedSemaphorePermit, steps: Vec<Step>) -> Res
                         guard.shared.request_exit(Exit::Abort);
                         let reset =
                             std::io::Error::new(std::io::ErrorKind::ConnectionReset, "fake crash");
-                        return Some((Err(reset), (steps, guard)));
+                        return Some((Err(reset), (steps, guard, due)));
                     }
                     Some(Step::Cut) => {
                         guard.finish();
                         let reset =
                             std::io::Error::new(std::io::ErrorKind::ConnectionReset, "fake cut");
-                        return Some((Err(reset), (steps, guard)));
+                        return Some((Err(reset), (steps, guard, due)));
                     }
                     Some(Step::Send(text)) => {
                         if steps.as_slice().is_empty() {
                             guard.finish();
                         }
-                        return Some((Ok::<_, std::io::Error>(text), (steps, guard)));
+                        return Some((Ok::<_, std::io::Error>(text), (steps, guard, due)));
                     }
                 }
             }

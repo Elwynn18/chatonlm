@@ -474,16 +474,14 @@ async fn the_builtin_ollama_is_taken_over() {
     let hf = get("chatonlm-dl/Tiny-vision-GGUF:Q4_K_M");
     assert_eq!(hf.source, ModelSource::Hf);
     assert_eq!(hf.repo, "chatonlm-dl/Tiny-vision-GGUF");
+    // Comparés en chemins (« \ » sous Windows).
     assert!(
-        hf.path
-            .ends_with("chatonlm-dl/Tiny-vision-GGUF/Tiny-Q4_K_M.gguf"),
+        Path::new(&hf.path).ends_with("chatonlm-dl/Tiny-vision-GGUF/Tiny-Q4_K_M.gguf"),
         "{}",
         hf.path
     );
     assert!(
-        hf.mmproj
-            .as_deref()
-            .unwrap()
+        Path::new(hf.mmproj.as_deref().unwrap())
             .ends_with("chatonlm-dl/Tiny-vision-GGUF/mmproj-Q8_0.gguf")
     );
     let stored = store
@@ -900,6 +898,28 @@ async fn the_models_folder_moves_with_its_models() {
         .await
         .is_err()
     );
+    // Dossier pas encore créé sous un lien vers l'actuel : refusé aussi (le
+    // lien est résolu par le parent qui existe ; sous Windows, même cas avec
+    // un nom court `RUNNER~1` du dossier temporaire).
+    #[cfg(unix)]
+    {
+        let link = data.path().join("link");
+        std::os::unix::fs::symlink(&current.path, &link).unwrap();
+        assert!(
+            folder::change(
+                &store,
+                data.path(),
+                link.join("sub"),
+                true,
+                cancel.clone(),
+                || Ok(()),
+                |_| {}
+            )
+            .await
+            .is_err()
+        );
+        fs::remove_file(&link).unwrap();
+    }
     let new = data.path().join("elsewhere").join("models");
     let moved = folder::change(
         &store,
@@ -1575,9 +1595,13 @@ async fn a_model_failing_twice_is_given_up_and_listed() {
     let store = database_0_9_5(data.path());
     let fixture = fixture(data.path().join("ollama").join("models"));
     // Fichier étranger à la place de qwen3 : jamais effacé, échec à chaque
-    // fois.
-    let target =
-        crate::local_models::default_models_dir(data.path()).join("@ollama/qwen3/0.6b/model.gguf");
+    // fois. Chemin joint comme l'app le fait (« \ » sous Windows : il est
+    // comparé au texte de l'échec).
+    let target = crate::local_models::absolute(
+        &crate::local_models::default_models_dir(data.path()),
+        "@ollama/qwen3/0.6b/model.gguf",
+    )
+    .unwrap();
     fs::create_dir_all(target.parent().unwrap()).unwrap();
     fs::write(&target, b"someone else's file").unwrap();
     let import = service::ModelImport::new(|_| {});
@@ -1716,10 +1740,9 @@ async fn a_cut_or_refused_folder_move_puts_everything_back() {
     let Err(AppError::System(text)) = refused else {
         panic!("expected a refusal: {refused:?}");
     };
-    assert!(
-        text.contains(&*new.join(&relative).to_string_lossy()),
-        "{text}"
-    );
+    // Chemin joint comme l'app le fait (« \ » sous Windows).
+    let foreign = crate::local_models::absolute(&new, &relative).unwrap();
+    assert!(text.contains(&*foreign.to_string_lossy()), "{text}");
     assert_eq!(fs::read(new.join(&relative)).unwrap(), b"not yours");
     assert!(present(&old));
     assert_eq!(

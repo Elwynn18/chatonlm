@@ -3797,9 +3797,44 @@ fn normalize(value: &mut Value, replace: &[(String, &str)]) {
                     *text = text.replace(from.as_str(), to);
                 }
             }
+            if text.contains(&format!("{BENCH_DIR}\\")) {
+                *text = forward_slashes(text);
+            }
         }
         _ => {}
     }
+}
+
+/// Dossier du banc dans les séquences écrites.
+const BENCH_DIR: &str = "/data";
+
+/// Chemins sous [`BENCH_DIR`] écrits avec « / » (sous Windows, le reste
+/// d'un chemin du banc garde ses « \ ») : séquences identiques sur les
+/// deux systèmes. Un chemin finit à une apostrophe, un guillemet ou un
+/// blanc.
+fn forward_slashes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(BENCH_DIR) {
+        let (before, path) = rest.split_at(start);
+        out.push_str(before);
+        let end = path
+            .find(|c: char| matches!(c, '\'' | '"' | '`') || c.is_whitespace())
+            .unwrap_or(path.len());
+        out.push_str(&path[..end].replace('\\', "/"));
+        rest = &path[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+#[test]
+fn bench_paths_are_written_with_slashes() {
+    assert_eq!(
+        forward_slashes(r"load '/data\models\a\b.gguf'; next \x"),
+        r"load '/data/models/a/b.gguf'; next \x"
+    );
+    assert_eq!(forward_slashes("no path"), "no path");
 }
 
 /// Progression d'un téléchargement ramenée à une forme fixe (la file la
@@ -4309,8 +4344,17 @@ async fn sequences_for_the_simulator() {
             if name == "download-offline" {
                 hf.stop().await;
             }
+            // Dossier du banc tel qu'écrit, et résolu (sous Windows, le
+            // moteur reçoit un chemin `\\?\` aux noms longs).
             let dir = bench.fake.dir().display().to_string();
-            let mut replace = vec![(dir, "/data")];
+            let mut replace = Vec::new();
+            if let Ok(resolved) = std::fs::canonicalize(bench.fake.dir()) {
+                let resolved = resolved.display().to_string();
+                if resolved != dir {
+                    replace.push((resolved, BENCH_DIR));
+                }
+            }
+            replace.push((dir, BENCH_DIR));
             if let Some(files) = &files {
                 let mut ids = Vec::new();
                 for (index, file) in files.iter().enumerate() {
