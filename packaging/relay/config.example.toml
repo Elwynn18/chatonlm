@@ -51,6 +51,11 @@ alert_ratio = 0.8
 # au-delà, « budget_exhausted » jusqu'à minuit UTC. Une vague d'abus coûte une
 # journée de recherche, pas le reste du mois.
 daily_share = 3.0
+# Part de l'enveloppe du jour qu'un seul réseau peut dépenser, en cascade comme
+# les quotas : IPv6 [/56, /48, /32], IPv4 [/24, /16, —] (0,30 €, 0,60 € et
+# 0,75 € par jour aux défauts). Au-delà, « rate_limited » pour ce réseau
+# jusqu'à minuit UTC ; 1 : sans effet.
+network_share = [0.1, 0.2, 0.25]
 
 [providers]
 # Ordre d'essai : le suivant sert de secours.
@@ -80,3 +85,6 @@ network_daily = 458752
 challenges = 114688
 keys = 229376
 replay = 114688
+# Clés inscrites gardées en mémoire (les plus récemment servies) ; les autres
+# restent dans la base et y sont relues au besoin.
+registered_keys = 57344

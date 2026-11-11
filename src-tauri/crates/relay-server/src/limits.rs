@@ -23,8 +23,19 @@
 //!   d'entrées), et rejouer une requête dont le nonce a été oublié revient à
 //!   en envoyer une nouvelle : mêmes quotas, même cadence.
 //!
+//! **Dépense par réseau** : chaque réseau, à chaque niveau, ne prend qu'une
+//! part de l'enveloppe du jour du budget (`budget.network_share`), comptée en
+//! micro-euros dans la table du jour ([`IpKind::Spend`]) : quelques clés d'un
+//! même réseau ne coupent plus la recherche de tout le monde jusqu'à minuit.
+//!
+//! **Clés inscrites** ([`KeyCache`]) : la base les garde toutes ; la mémoire
+//! n'en garde que les plus récemment servies (deux générations, comme les
+//! compteurs), relues dans la base au besoin. Leur nombre ne pèse donc pas
+//! sur la mémoire du relais.
+//!
 //! **Mémoire** ([`worst_case_bytes`], essayé) : aux bornes par défaut, toutes
-//! les tables pleines en même temps tiennent sous 64 Mio. Avec les preuves de
+//! les tables pleines en même temps (clés inscrites comprises) tiennent sous
+//! 64 Mio. Avec les preuves de
 //! travail vérifiées (64 Mio au plus, voir `server.rs`) et le reste du
 //! processus (runtime, connexions, clients TLS, SQLite : quelques dizaines de
 //! Mio), le relais reste sous le `MemoryHigh=192M` de son unité systemd, loin
@@ -33,6 +44,7 @@
 //! chaque changement de minute ou de jour.
 
 use crate::config::{TablesConfig, Tiers};
+use crate::store::KeyRecord;
 use relay_proto::CLOCK_TOLERANCE_SECS;
 use relay_proto::sign::PublicKey;
 use relay_proto::time::{day_index, next_day_start};
@@ -137,8 +149,13 @@ impl<K: Hash + Eq + Copy> Counters<K> {
     }
 
     pub fn add(&mut self, key: K) {
+        self.add_by(key, 1);
+    }
+
+    /// Ajoute `amount` au compteur de `key`.
+    pub fn add_by(&mut self, key: K, amount: u32) {
         if let Some(count) = self.current.get_mut(&key) {
-            *count = count.saturating_add(1);
+            *count = count.saturating_add(amount);
             return;
         }
         let count = self.previous.remove(&key).unwrap_or(0);
@@ -149,16 +166,21 @@ impl<K: Hash + Eq + Copy> Counters<K> {
             // La plus ancienne génération est oubliée (sa mémoire rendue).
             self.previous = std::mem::take(&mut self.current);
         }
-        self.current.insert(key, count.saturating_add(1));
+        self.current.insert(key, count.saturating_add(amount));
     }
 
     pub fn sub(&mut self, key: &K) {
+        self.sub_by(key, 1);
+    }
+
+    /// Retire `amount` au compteur de `key` (jamais sous zéro).
+    pub fn sub_by(&mut self, key: &K, amount: u32) {
         if let Some(count) = self
             .current
             .get_mut(key)
             .or_else(|| self.previous.get_mut(key))
         {
-            *count = count.saturating_sub(1);
+            *count = count.saturating_sub(amount);
         }
     }
 
@@ -183,19 +205,20 @@ impl<K: Hash + Eq + Copy> Counters<K> {
     }
 }
 
-/// Prend une unité à chaque niveau, ou rien si un niveau est à son plafond
-/// (ou si la table refuse de nouvelles entrées). `take` faux : regarde
+/// Prend `amount` à chaque niveau, ou rien si un niveau dépasserait son
+/// plafond (ou si la table refuse de nouvelles entrées). `take` faux : regarde
 /// seulement.
 fn cascade<K: Hash + Eq + Copy>(
     table: &mut Counters<K>,
     keys: [Option<K>; LEVELS],
-    limits: &Tiers,
+    limits: [u64; LEVELS],
+    amount: u32,
     take: bool,
 ) -> bool {
     let mut new = 0;
-    for (key, limit) in keys.iter().zip(limits.0) {
+    for (key, limit) in keys.iter().zip(limits) {
         let Some(key) = key else { continue };
-        if table.get(key) >= limit {
+        if u64::from(table.get(key)) + u64::from(amount) > limit {
             return false;
         }
         if !table.contains(key) {
@@ -207,16 +230,23 @@ fn cascade<K: Hash + Eq + Copy>(
     }
     if take {
         for key in keys.into_iter().flatten() {
-            table.add(key);
+            table.add_by(key, amount);
         }
     }
     true
+}
+
+/// Plafonds d'un compteur par réseau, une unité à la fois.
+fn units(limits: &Tiers) -> [u64; LEVELS] {
+    limits.0.map(u64::from)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IpKind {
     Search,
     Register,
+    /// Dépense du jour chez les fournisseurs, en micro-euros.
+    Spend,
 }
 
 /// Compteurs par réseau : par minute (toutes requêtes), par jour (recherches
@@ -255,7 +285,13 @@ impl IpLimits {
     /// Une requête de plus dans la minute ; `Err(retry_at)` au-delà.
     pub fn hit_minute(&mut self, ip: IpAddr, now: u64, limits: &Tiers) -> Result<(), u64> {
         self.roll(now);
-        if cascade(&mut self.per_minute, networks_of(ip), limits, true) {
+        if cascade(
+            &mut self.per_minute,
+            networks_of(ip),
+            units(limits),
+            1,
+            true,
+        ) {
             Ok(())
         } else {
             Err((now / 60 + 1) * 60)
@@ -275,7 +311,13 @@ impl IpLimits {
         limits: &Tiers,
     ) -> Result<(), u64> {
         self.roll(now);
-        if cascade(&mut self.daily, Self::daily_keys(ip, kind), limits, true) {
+        if cascade(
+            &mut self.daily,
+            Self::daily_keys(ip, kind),
+            units(limits),
+            1,
+            true,
+        ) {
             Ok(())
         } else {
             Err(next_day_start(now))
@@ -291,7 +333,13 @@ impl IpLimits {
         limits: &Tiers,
     ) -> Result<(), u64> {
         self.roll(now);
-        if cascade(&mut self.daily, Self::daily_keys(ip, kind), limits, false) {
+        if cascade(
+            &mut self.daily,
+            Self::daily_keys(ip, kind),
+            units(limits),
+            1,
+            false,
+        ) {
             Ok(())
         } else {
             Err(next_day_start(now))
@@ -310,10 +358,50 @@ impl IpLimits {
     /// Un défi de plus ce jour-là ; pleine, la table ne refuse que les défis.
     pub fn take_challenge(&mut self, ip: IpAddr, now: u64, limits: &Tiers) -> Result<(), u64> {
         self.roll(now);
-        if cascade(&mut self.challenges, networks_of(ip), limits, true) {
+        if cascade(
+            &mut self.challenges,
+            networks_of(ip),
+            units(limits),
+            1,
+            true,
+        ) {
             Ok(())
         } else {
             Err(next_day_start(now))
+        }
+    }
+
+    /// Réserve `cost` micro-euros de dépense du jour pour le réseau de `ip`, à
+    /// chaque niveau sous son plafond `caps` (part de l'enveloppe du jour) ;
+    /// `take` faux : regarde seulement. `Err(retry_at)` au-delà (minuit UTC).
+    pub fn spend(
+        &mut self,
+        ip: IpAddr,
+        now: u64,
+        cost: u64,
+        caps: [u64; LEVELS],
+        take: bool,
+    ) -> Result<(), u64> {
+        self.roll(now);
+        let cost = u32::try_from(cost).unwrap_or(u32::MAX);
+        let keys = Self::daily_keys(ip, IpKind::Spend);
+        if cascade(&mut self.daily, keys, caps, cost, take) {
+            Ok(())
+        } else {
+            Err(next_day_start(now))
+        }
+    }
+
+    /// Rend une dépense non facturée, prise le jour `day` (une dépense d'un
+    /// jour écoulé ne touche pas au nouveau).
+    pub fn refund_spend(&mut self, ip: IpAddr, now: u64, day: u64, cost: u64) {
+        self.roll(now);
+        if day != self.day {
+            return;
+        }
+        let cost = u32::try_from(cost).unwrap_or(u32::MAX);
+        for key in Self::daily_keys(ip, IpKind::Spend).into_iter().flatten() {
+            self.daily.sub_by(&key, cost);
         }
     }
 
@@ -389,6 +477,62 @@ impl KeyQuotas {
         }
         self.per_minute.add(*key);
         Ok(())
+    }
+}
+
+/// Clés inscrites gardées en mémoire : les plus récemment servies, en deux
+/// générations (la plus ancienne oubliée quand la récente est pleine). La
+/// base reste la référence : une clé absente d'ici y est cherchée.
+pub struct KeyCache {
+    current: HashMap<PublicKey, KeyRecord>,
+    previous: HashMap<PublicKey, KeyRecord>,
+    /// Entrées au plus par génération.
+    generation: usize,
+}
+
+impl KeyCache {
+    /// `capacity` : entrées au plus en tout.
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            current: HashMap::new(),
+            previous: HashMap::new(),
+            generation: (capacity / 2).max(1),
+        }
+    }
+
+    /// La fiche de `key`, remise dans la génération récente.
+    pub fn get(&mut self, key: &PublicKey) -> Option<KeyRecord> {
+        if let Some(record) = self.current.get(key) {
+            return Some(*record);
+        }
+        let record = self.previous.remove(key)?;
+        self.insert(*key, record);
+        Some(record)
+    }
+
+    pub fn insert(&mut self, key: PublicKey, record: KeyRecord) {
+        if !self.current.contains_key(&key) {
+            self.previous.remove(&key);
+            if self.current.len() >= self.generation {
+                // La plus ancienne génération est oubliée (sa mémoire rendue).
+                self.previous = std::mem::take(&mut self.current);
+            }
+        }
+        self.current.insert(key, record);
+    }
+
+    /// Garde les fiches pour lesquelles `keep` est vrai.
+    pub fn retain(&mut self, mut keep: impl FnMut(&KeyRecord) -> bool) {
+        self.current.retain(|_, record| keep(record));
+        self.previous.retain(|_, record| keep(record));
+    }
+
+    pub fn len(&self) -> usize {
+        self.current.len() + self.previous.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -483,13 +627,15 @@ pub fn worst_case_bytes(tables: &TablesConfig) -> usize {
     let daily = 2 * hash_table_bytes::<(Net, IpKind), u32>(generations(tables.network_daily));
     let challenges = hash_table_bytes::<Net, u32>(tables.challenges);
     let keys = 2 * 2 * hash_table_bytes::<PublicKey, u32>(generations(tables.keys));
+    let registered =
+        2 * hash_table_bytes::<PublicKey, KeyRecord>(generations(tables.registered_keys));
     // Index des expirations : chaque nonce une fois dans un vecteur (deux
     // fois sa place au pire, par la croissance des vecteurs), et un vecteur
     // par seconde d'expiration possible (10 min et demie).
     let replay = hash_table_bytes::<Seen, u64>(tables.replay)
         + 2 * tables.replay * std::mem::size_of::<Seen>()
         + (2 * CLOCK_TOLERANCE_SECS as usize + 61) * 128;
-    per_minute + daily + challenges + keys + replay
+    per_minute + daily + challenges + keys + registered + replay
 }
 
 #[cfg(test)]
@@ -647,6 +793,7 @@ mod tests {
             challenges: 6,
             keys: 4,
             replay: 4,
+            registered_keys: 4,
         };
         let mut limits = IpLimits::new(&small);
         let wide = tiers(1_000, 1_000, 1_000);
@@ -790,12 +937,85 @@ mod tests {
         assert_eq!(sum, cache.len());
     }
 
+    /// Dépense par réseau : chaque niveau sous sa part de l'enveloppe ; un
+    /// refus ne prend rien ; une dépense rendue rouvre la place, sauf si elle
+    /// date d'un autre jour ; minuit remet tout à zéro.
+    #[test]
+    fn spending_per_network_stays_under_its_share() {
+        let mut limits = IpLimits::new(&tables());
+        // /56 : 10 000, /48 : 20 000, /32 : 25 000 micro-euros.
+        let caps = [10_000, 20_000, 25_000];
+        let a = ip("2001:db8:0:100::1");
+        limits.spend(a, T, 5_000, caps, true).unwrap();
+        limits.spend(a, T, 5_000, caps, true).unwrap();
+        assert_eq!(limits.spend(a, T, 1, caps, true), Err(next_day_start(T)));
+        // Un autre /56 du même /48 : jusqu'au plafond du /48.
+        let b = ip("2001:db8:0:200::1");
+        limits.spend(b, T, 5_000, caps, true).unwrap();
+        limits.spend(b, T, 5_000, caps, true).unwrap();
+        assert!(limits.spend(b, T, 2_500, caps, false).is_err());
+        // Un autre /48 du même /32 : ce qui reste au /32.
+        let c = ip("2001:db8:1::1");
+        limits.spend(c, T, 2_500, caps, true).unwrap();
+        limits.spend(c, T, 2_500, caps, true).unwrap();
+        assert!(limits.spend(c, T, 1, caps, true).is_err());
+        // Un autre réseau n'en souffre pas, et l'IPv4 n'a que deux niveaux.
+        let v4 = ip("198.51.100.7");
+        limits.spend(v4, T, 10_000, caps, true).unwrap();
+        // Rendue le même jour : la place revient ; d'un autre jour : rien.
+        limits.refund_spend(c, T, day_index(T), 2_500);
+        limits.spend(c, T, 2_500, caps, true).unwrap();
+        limits.refund_spend(c, T, day_index(T) - 1, 2_500);
+        assert!(limits.spend(c, T, 1, caps, true).is_err());
+        // Les recherches comptées par réseau restent à part.
+        limits
+            .take_daily(a, IpKind::Search, T, &tiers(1, 1, 1))
+            .unwrap();
+        // Minuit.
+        limits
+            .spend(a, next_day_start(T), 10_000, caps, true)
+            .unwrap();
+    }
+
+    /// Les clés inscrites gardées en mémoire restent sous leur borne ; une
+    /// clé servie récemment y reste.
+    #[test]
+    fn the_key_cache_is_bounded() {
+        let record = |day| KeyRecord {
+            created_day: day,
+            last_seen_day: day,
+        };
+        let mut cache = KeyCache::new(4);
+        let active = PublicKey([200; 32]);
+        cache.insert(active, record(7));
+        for n in 0..100u8 {
+            cache.insert(PublicKey([n; 32]), record(u64::from(n)));
+            assert_eq!(cache.get(&active), Some(record(7)), "{n}");
+            assert!(cache.len() <= 4, "{}", cache.len());
+        }
+        assert_eq!(cache.get(&PublicKey([0; 32])), None);
+        assert_eq!(cache.get(&PublicKey([99; 32])), Some(record(99)));
+        cache.retain(|record| record.last_seen_day != 99);
+        assert_eq!(cache.get(&PublicKey([99; 32])), None);
+        assert!(!cache.is_empty());
+    }
+
     /// Aux bornes par défaut, toutes les tables pleines tiennent sous 64 Mio
     /// (calcul détaillé en tête du module).
     #[test]
     fn default_tables_fit_the_memory_budget() {
         let bytes = worst_case_bytes(&tables());
         assert!(bytes <= 64 << 20, "{} Mio", bytes >> 20);
+        // Les clés inscrites gardées en mémoire y comptent (constat de la
+        // relecture : la table entière était chargée, hors de ce calcul).
+        let few = TablesConfig {
+            registered_keys: 2,
+            ..tables()
+        };
+        assert!(
+            bytes - worst_case_bytes(&few)
+                >= tables().registered_keys * std::mem::size_of::<(PublicKey, KeyRecord)>()
+        );
         // Les bornes par défaut remplissent exactement leurs tables (7/8
         // d'une puissance de deux par génération) : aucune case perdue.
         for (capacity, evict) in [
@@ -803,6 +1023,7 @@ mod tests {
             (tables().network_daily, true),
             (tables().challenges, false),
             (tables().keys, true),
+            (tables().registered_keys, true),
             (tables().replay, false),
         ] {
             let generation = if evict { capacity / 2 } else { capacity };
@@ -846,12 +1067,23 @@ mod tests {
             let _ = quotas.reserve(&key, T, u32::MAX);
             let _ = quotas.hit_minute(&key, T, u32::MAX);
         }
+        let mut registered = KeyCache::new(defaults.registered_keys);
+        for n in 0..(defaults.registered_keys as u32) {
+            let mut bytes = [0u8; 32];
+            bytes[..4].copy_from_slice(&n.to_le_bytes());
+            let record = KeyRecord {
+                created_day: 1,
+                last_seen_day: 1,
+            };
+            registered.insert(PublicKey(bytes), record);
+        }
         for n in 0..(defaults.replay as u64) {
             let mut nonce = [0u8; 16];
             nonce[..8].copy_from_slice(&n.to_le_bytes());
             replay.check(&PublicKey([1; 32]), nonce, T + n % 600, T);
         }
         let after = rss_kib();
+        assert!(registered.len() <= defaults.registered_keys);
         println!(
             "tables pleines : {} Mio mesurés, {} Mio calculés",
             (after - before) / 1024,

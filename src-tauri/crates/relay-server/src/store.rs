@@ -107,28 +107,21 @@ impl Store {
         })
     }
 
-    pub fn all_keys(&self) -> rusqlite::Result<Vec<(PublicKey, KeyRecord)>> {
-        let mut statement = self
-            .connection
-            .prepare("SELECT public_key, created_day, last_seen_day FROM keys")?;
-        let rows = statement.query_map([], |row| {
-            let bytes: Vec<u8> = row.get(0)?;
-            Ok((
-                bytes,
-                KeyRecord {
-                    created_day: unsql(row, 1)?,
-                    last_seen_day: unsql(row, 2)?,
+    /// Fiche d'une clé inscrite (jamais toute la table en mémoire : le relais
+    /// ne garde que les clés servies récemment, voir `limits::KeyCache`).
+    pub fn key(&self, key: &PublicKey) -> rusqlite::Result<Option<KeyRecord>> {
+        self.connection
+            .query_row(
+                "SELECT created_day, last_seen_day FROM keys WHERE public_key = ?1",
+                params![key.0.as_slice()],
+                |row| {
+                    Ok(KeyRecord {
+                        created_day: unsql(row, 0)?,
+                        last_seen_day: unsql(row, 1)?,
+                    })
                 },
-            ))
-        })?;
-        let mut keys = Vec::new();
-        for row in rows {
-            let (bytes, record) = row?;
-            if let Ok(bytes) = <[u8; 32]>::try_from(bytes) {
-                keys.push((PublicKey(bytes), record));
-            }
-        }
-        Ok(keys)
+            )
+            .optional()
     }
 
     pub fn insert_key(&self, key: &PublicKey, day: u64) -> rusqlite::Result<()> {
@@ -337,6 +330,14 @@ mod tests {
         assert_eq!(store.purge_keys(20).unwrap(), 1);
         assert!(!contains(&key), "clé oubliée encore dans un fichier");
         assert_eq!(store.key_count().unwrap(), 1);
+        assert_eq!(store.key(&PublicKey(key)).unwrap(), None);
+        assert_eq!(
+            store.key(&PublicKey([7; 32])).unwrap(),
+            Some(KeyRecord {
+                created_day: 30,
+                last_seen_day: 30
+            })
+        );
         drop(store);
     }
 

@@ -249,7 +249,9 @@ un redémarrage ne les perd pas. Les quotas du jour par installation et par rés
 - Seuils du budget : une ligne au journal à 80 % du plafond, puis une au plafond (`budget_exhausted` jusqu'au
   1er du mois suivant, UTC). Enveloppe du jour (`daily_share`, 3 jours moyens : 3 € par jour pour 30 €) : une
   ligne au journal quand elle est atteinte, `budget_exhausted` jusqu'à minuit UTC. Une vague d'abus coûte ainsi
-  une journée de recherche, pas le reste du mois.
+  une journée de recherche, pas le reste du mois. Part de cette enveloppe qu'un seul réseau peut dépenser
+  (`network_share`, en cascade : 10 % par /56 ou /24, 20 % par /48 ou /16, 25 % par /32) : au-delà, ce réseau
+  reçoit `rate_limited` jusqu'à minuit, les autres cherchent toujours.
 - Limites par réseau en cascade (`[quota]`, `[étroit, moyen, large]` : IPv6 /56, /48, /32 ; IPv4 /24, /16).
   L'adresse du client est lue dans `X-Real-IP`, posé par nginx, seulement pour une connexion venue de
   `127.0.0.1` : tout processus local du serveur (le service du site, l'autre site) peut donc se dire n'importe

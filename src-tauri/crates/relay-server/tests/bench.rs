@@ -52,13 +52,19 @@ fn defaults(url: &str) -> BenchDefaults {
 }
 
 async fn run(fake: &FakeProviders, keys: [bool; 4], queries: usize) -> Report {
+    run_paced(fake, keys, queries, Duration::ZERO).await
+}
+
+async fn run_paced(
+    fake: &FakeProviders,
+    keys: [bool; 4],
+    queries: usize,
+    pace: Duration,
+) -> Report {
     relay_server::install_crypto_provider();
     let targets = bench::targets(&providers(&fake.url), &secrets(keys), &defaults(&fake.url))
         .expect("targets");
-    let options = Options {
-        pace: Duration::ZERO,
-        show: false,
-    };
+    let options = Options { pace, show: false };
     bench::run(targets, &QUERIES[..queries], &options).await
 }
 
@@ -156,6 +162,29 @@ async fn brave_without_extra_snippets_in_its_plan_is_measured_without() {
         .filter(|r| r.params.contains_key("extra_snippets"))
         .count();
     assert_eq!(asked, 1);
+}
+
+/// Constat de relecture : la nouvelle tentative de Brave sans
+/// `extra_snippets` attend `pace` (une offre à 1 requête par seconde lui
+/// répondrait sinon 429).
+#[tokio::test]
+async fn the_brave_retry_waits_for_the_pace() {
+    let fake = FakeProviders::start().await;
+    fake.set_bench(BenchProvider::Brave, Behavior::NoExtraSnippets);
+    let pace = Duration::from_millis(300);
+    let report = run_paced(&fake, [true, false, false, false], 1, pace).await;
+    assert!(report.brave_extra_snippets_refused);
+    let brave: Vec<_> = fake
+        .requests()
+        .into_iter()
+        .filter(|r| r.provider == relay_proto::api::Provider::Brave)
+        .collect();
+    assert_eq!(brave.len(), 2);
+    assert!(
+        brave[1].at - brave[0].at >= pace,
+        "{:?}",
+        brave[1].at - brave[0].at
+    );
 }
 
 #[tokio::test]

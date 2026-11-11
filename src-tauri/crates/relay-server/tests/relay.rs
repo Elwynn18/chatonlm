@@ -6,7 +6,7 @@ use relay_proto::api::{PATH_CHALLENGE, PATH_REGISTER, PATH_SEARCH, PATH_STATUS, 
 use relay_proto::pow::{self, Challenge};
 use relay_proto::sign::Identity;
 use relay_proto::time::{next_day_start, next_month_start};
-use relay_server::config::Tiers;
+use relay_server::config::{BudgetConfig, Config, Tiers};
 use relay_server::fake::{BRAVE_TEST_KEY, Behavior, MOJEEK_TEST_KEY, TestRelay, UNICODE_TITLES};
 use serde_json::{Value, json};
 use std::sync::atomic::AtomicBool;
@@ -1044,4 +1044,100 @@ async fn brave_receives_its_own_language_codes() {
             "{lang}"
         );
     }
+}
+
+/// Constat de relecture : quelques clés d'un même réseau ne vident plus
+/// l'enveloppe du jour de tout le service ; seul ce réseau attend minuit.
+#[tokio::test]
+async fn one_network_cannot_empty_the_daily_envelope() {
+    let (_dir, path) = db();
+    // 3 € par mois en novembre : 0,30 € par jour, 60 recherches Brave. Parts
+    // par défaut : 6 recherches par /56, 12 par /48, 15 par /32.
+    let relay = TestRelay::start(&path, T, |config| {
+        config.budget.monthly_limit_eur = 3.0;
+        config.budget.network_share = BudgetConfig::default().network_share;
+    })
+    .await;
+    let ids: Vec<Identity> = (0..4).map(|_| Identity::generate()).collect();
+    for id in &ids {
+        assert_eq!(Client::new(&relay).register(id, T).await.status, 200);
+    }
+    // Dix /56 d'un même /48, quatre clés chacun : douze recherches en tout.
+    let mut served = 0;
+    for n in 1..=10u32 {
+        let client = Client::from_ip(&relay, &format!("2001:db8:0:{n:x}00::1"));
+        for id in &ids {
+            let reply = client.search(id, "x", T).await;
+            if reply.status == 200 {
+                served += 1;
+            } else {
+                assert_eq!((reply.status, reply.code()), (429, "rate_limited"));
+                assert_eq!(reply.body["error"]["retryAt"], next_day_start(T));
+            }
+        }
+    }
+    assert_eq!(served, 12, "un /48");
+    // Un autre /48 du même /32 : ce qui reste au /32.
+    let neighbour = Client::from_ip(&relay, "2001:db8:1::1");
+    let mut served = 0;
+    for id in &ids {
+        for _ in 0..2 {
+            if neighbour.search(id, "x", T).await.status == 200 {
+                served += 1;
+            }
+        }
+    }
+    assert_eq!(served, 3, "un /32");
+    // Tout le monde ailleurs cherche toujours : l'enveloppe n'est pas vide.
+    let user = Client::from_ip(&relay, "198.51.100.7");
+    let reply = user.search(&ids[0], "x", T).await;
+    assert_eq!(reply.status, 200, "{:?}", reply.body);
+    let status = user
+        .signed(&ids[1], "GET", PATH_STATUS, Value::Null, T)
+        .await;
+    assert_eq!(status.body["service"], "ok");
+    assert_eq!(relay.relay.spent_this_month(), 16 * 5_000);
+    // Le lendemain, le réseau a de nouveau sa part.
+    let tomorrow = next_day_start(T) + 5;
+    relay.set_time(tomorrow);
+    assert_eq!(neighbour.search(&ids[0], "x", tomorrow).await.status, 200);
+}
+
+/// Constat de relecture : les clés inscrites ne sont plus toutes gardées en
+/// mémoire ; au-delà de la borne, elles sont relues dans la base, et rien
+/// n'est chargé au démarrage.
+#[tokio::test]
+async fn registered_keys_in_memory_are_bounded() {
+    let (_dir, path) = db();
+    let small = |config: &mut Config| config.tables.registered_keys = 2;
+    let relay = TestRelay::start(&path, T, small).await;
+    let client = Client::new(&relay);
+    let ids: Vec<Identity> = (0..6).map(|_| Identity::generate()).collect();
+    for id in &ids {
+        assert_eq!(client.register(id, T).await.status, 200);
+        assert!(relay.relay.keys_in_memory() <= 2);
+    }
+    for id in &ids {
+        let reply = client.search(id, "x", T).await;
+        assert_eq!(
+            reply.body["quota"]["remainingToday"], 49,
+            "{:?}",
+            reply.body
+        );
+        assert!(relay.relay.keys_in_memory() <= 2);
+    }
+    // Déjà inscrite, sortie de la mémoire : reconnue (relue dans la base).
+    assert_eq!(client.register(&ids[0], T).await.status, 200);
+    // Redémarrage : rien n'est chargé, chaque clé est relue au besoin.
+    let fake = relay.stop().await;
+    let relay = TestRelay::start_with(&path, T + 60, fake, small).await;
+    assert_eq!(relay.relay.keys_in_memory(), 0);
+    let client = Client::new(&relay);
+    assert_eq!(client.search(&ids[5], "x", T + 60).await.status, 200);
+    assert_eq!(relay.relay.keys_in_memory(), 1);
+    let stranger = Identity::generate();
+    assert_eq!(
+        client.search(&stranger, "x", T + 60).await.code(),
+        "unknown_key"
+    );
 }

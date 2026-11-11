@@ -6,8 +6,13 @@
 //! (seulement pour une clé inscrite : une clé neuve ne coûte rien à créer ;
 //! et après la cadence, pour qu'une clé n'y mette que quelques centaines de
 //! nonces) ; puis, pour une recherche : pause, requête valable, budget (mois
-//! et jour), quota du jour de la clé, quota du jour du réseau, et enfin les
-//! fournisseurs l'un après l'autre.
+//! et jour), part du réseau dans l'enveloppe du jour, quota du jour de la clé,
+//! quota du jour du réseau, et enfin les fournisseurs l'un après l'autre.
+//!
+//! Une requête abandonnée (client parti, nginx qui coupe) arrête son
+//! gestionnaire où il en est : ce qui doit tenir jusqu'au bout tient sans lui
+//! (le jeton d'une vérification de preuve vit dans sa tâche bloquante), et ce
+//! qui n'a rien coûté est rendu (garde [`Held`] d'une recherche).
 //!
 //! Adresse du client : celle de la connexion, ou `X-Real-IP` quand la
 //! connexion vient de 127.0.0.1 et que `trust_proxy` est vrai (nginx sur la
@@ -16,7 +21,7 @@
 
 use crate::budget::{Budget, Exhausted, Notice, Reservation};
 use crate::config::{Config, Secrets};
-use crate::limits::{IpKind, IpLimits, KeyQuotas, Replay, ReplayCache};
+use crate::limits::{IpKind, IpLimits, KeyCache, KeyQuotas, Replay, ReplayCache};
 use crate::log::{Clock, Log};
 use crate::providers::ProviderClient;
 use crate::store::{KeyRecord, Store};
@@ -34,12 +39,13 @@ use relay_proto::api::{
 };
 use relay_proto::pow::{self, Challenge};
 use relay_proto::sign::{self, PublicKey, SignatureError, SignedHeaders, Verified};
-use relay_proto::time::day_index;
+use relay_proto::time::{day_index, next_day_start};
 use relay_proto::version::AppVersion;
 use relay_proto::{CLOCK_TOLERANCE_SECS, MAX_REQUEST_BODY};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::Semaphore;
 
 /// Mémoire des vérifications de preuve de travail menées en même temps : deux
@@ -50,6 +56,12 @@ const POW_MEMORY_KIB: u32 = 64 * 1024;
 const POW_RETRY_SECS: u64 = 10;
 /// Recherches en cours chez les fournisseurs.
 const SEARCH_SLOTS: usize = 32;
+/// Attente d'une place au plus, sous le délai de l'app (30 s) et de nginx
+/// (40 s) : au-delà, `rate_limited` (l'unité du jour est rendue) plutôt
+/// qu'une réponse que personne n'attend plus.
+const SEARCH_WAIT: Duration = Duration::from_secs(20);
+/// Nouvel essai conseillé après une attente trop longue.
+const SEARCH_RETRY_SECS: u64 = 30;
 
 pub struct Relay {
     config: Config,
@@ -57,15 +69,19 @@ pub struct Relay {
     log: Log,
     challenge_key: [u8; 32],
     store: Arc<Mutex<Store>>,
-    keys: Mutex<HashMap<PublicKey, KeyRecord>>,
+    /// Clés servies récemment ; la base garde les autres (mémoire bornée).
+    keys: Mutex<KeyCache>,
     banned: HashSet<PublicKey>,
     limits: Mutex<IpLimits>,
     quotas: Mutex<KeyQuotas>,
     replay: Mutex<ReplayCache>,
     budget: Arc<Mutex<Budget>>,
     providers: Vec<ProviderClient>,
-    pow_slots: Semaphore,
+    /// Partagé avec les tâches bloquantes : le jeton d'une vérification est
+    /// rendu à la fin du hachage, même si la requête a été abandonnée.
+    pow_slots: Arc<Semaphore>,
     search_slots: Semaphore,
+    search_wait: Duration,
     min_version: Option<AppVersion>,
 }
 
@@ -77,7 +93,8 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl Relay {
-    /// Ouvre la base, recharge les clés et le budget du mois.
+    /// Ouvre la base, oublie les clés périmées, recharge le budget du mois
+    /// (les clés sont lues une à une, au besoin).
     pub fn new(
         config: Config,
         secrets: Secrets,
@@ -91,11 +108,9 @@ impl Relay {
         let purged = store
             .purge_keys(day_index(now).saturating_sub(config.key_retention_days))
             .map_err(|error| format!("database: {error}"))?;
-        let keys: HashMap<_, _> = store
-            .all_keys()
-            .map_err(|error| format!("database: {error}"))?
-            .into_iter()
-            .collect();
+        let registered = store
+            .key_count()
+            .map_err(|error| format!("database: {error}"))?;
         let month = relay_proto::time::month_key(now);
         let record = store
             .month(&month)
@@ -155,7 +170,7 @@ impl Relay {
         log.info(&format!(
             "chatonlm-relay {}: {} registered keys ({} forgotten), providers: {}",
             env!("CARGO_PKG_VERSION"),
-            keys.len(),
+            registered,
             purged,
             providers
                 .iter()
@@ -170,17 +185,18 @@ impl Relay {
             limits: Mutex::new(IpLimits::new(&config.tables)),
             quotas: Mutex::new(KeyQuotas::new(&config.tables)),
             replay: Mutex::new(ReplayCache::new(config.tables.replay)),
-            pow_slots: Semaphore::new(pow_slots),
+            pow_slots: Arc::new(Semaphore::new(pow_slots)),
+            keys: Mutex::new(KeyCache::new(config.tables.registered_keys)),
             config,
             clock,
             log,
             challenge_key,
             store: Arc::new(Mutex::new(store)),
-            keys: Mutex::new(keys),
             banned,
             budget: Arc::new(Mutex::new(budget)),
             providers,
             search_slots: Semaphore::new(SEARCH_SLOTS),
+            search_wait: SEARCH_WAIT,
             min_version,
         }))
     }
@@ -197,6 +213,11 @@ impl Relay {
     /// Dépense du mois en cours, en micro-euros (essais).
     pub fn spent_this_month(&self) -> u64 {
         lock(&self.budget).record().spent_micro_eur
+    }
+
+    /// Clés inscrites gardées en mémoire (essais).
+    pub fn keys_in_memory(&self) -> usize {
+        lock(&self.keys).len()
     }
 
     /// Entrées des tables par réseau : minute, jour, défis (essais).
@@ -216,7 +237,7 @@ impl Relay {
         let before = day_index(self.clock.now()).saturating_sub(self.config.key_retention_days);
         let store = self.store.clone();
         let purged = tokio::task::spawn_blocking(move || lock(&store).purge_keys(before)).await;
-        lock(&self.keys).retain(|_, record| record.last_seen_day >= before);
+        lock(&self.keys).retain(|record| record.last_seen_day >= before);
         if let Ok(Ok(count)) = purged
             && count > 0
         {
@@ -244,19 +265,35 @@ impl Relay {
         }
     }
 
-    fn daily_limit(&self, key: &PublicKey, now: u64) -> u32 {
-        let new = lock(&self.keys)
-            .get(key)
-            .is_some_and(|record| record.created_day == day_index(now));
-        if new {
+    /// Fiche d'une clé inscrite : en mémoire, sinon dans la base (gardée
+    /// ensuite en mémoire). `Err` : base illisible.
+    async fn find_key(&self, key: &PublicKey) -> Result<Option<KeyRecord>, ApiError> {
+        if let Some(record) = lock(&self.keys).get(key) {
+            return Ok(Some(record));
+        }
+        let store = self.store.clone();
+        let wanted = *key;
+        let found = tokio::task::spawn_blocking(move || lock(&store).key(&wanted)).await;
+        let Ok(Ok(found)) = found else {
+            self.log.error("keys: cannot be read from the database");
+            return Err(ApiError::new(ErrorCode::Internal));
+        };
+        if let Some(record) = found {
+            lock(&self.keys).insert(*key, record);
+        }
+        Ok(found)
+    }
+
+    fn daily_limit(&self, record: &KeyRecord, now: u64) -> u32 {
+        if record.created_day == day_index(now) {
             self.config.quota.new_key_daily
         } else {
             self.config.quota.daily_per_key
         }
     }
 
-    fn quota(&self, key: &PublicKey, now: u64) -> Quota {
-        let limit = self.daily_limit(key, now);
+    fn quota(&self, key: &PublicKey, record: &KeyRecord, now: u64) -> Quota {
+        let limit = self.daily_limit(record, now);
         let used = lock(&self.quotas).used(key, now);
         Quota {
             daily_limit: limit,
@@ -267,6 +304,13 @@ impl Relay {
 
     fn cheapest_cost(&self) -> u64 {
         self.providers.iter().map(|p| p.cost).min().unwrap_or(0)
+    }
+
+    /// Dépense du jour permise à un réseau, à chaque niveau : sa part de
+    /// l'enveloppe du jour.
+    fn network_caps(&self, now: u64) -> [u64; crate::limits::LEVELS] {
+        let envelope = lock(&self.budget).day_limit(now);
+        self.config.budget.network_share.of(envelope)
     }
 
     fn service_state(&self, now: u64) -> ServiceState {
@@ -446,8 +490,8 @@ fn signed_headers(headers: &HeaderMap) -> SignedHeaders {
     }
 }
 
-/// Vérifie la signature ; `registered` : la clé doit être inscrite (et le
-/// nonce est alors retenu contre le rejeu).
+/// Vérifie la signature ; `registered` : la clé doit être inscrite (sa fiche
+/// est rendue, et le nonce est alors retenu contre le rejeu).
 async fn authenticate(
     relay: &Arc<Relay>,
     method: &str,
@@ -456,7 +500,7 @@ async fn authenticate(
     body: &[u8],
     now: u64,
     registered: bool,
-) -> Result<Verified, ApiError> {
+) -> Result<(Verified, Option<KeyRecord>), ApiError> {
     let verified = sign::verify_request(method, path, &signed_headers(headers), body, now)
         .map_err(|error| match error {
             SignatureError::ClockSkew => ApiError::new(ErrorCode::ClockSkew).server_time(now),
@@ -468,18 +512,18 @@ async fn authenticate(
         return Err(ApiError::new(ErrorCode::Banned));
     }
     if !registered {
-        return Ok(verified);
+        return Ok((verified, None));
     }
-    let touch = {
-        let mut keys = lock(&relay.keys);
-        let record = keys
-            .get_mut(&verified.key)
-            .ok_or_else(|| ApiError::new(ErrorCode::UnknownKey))?;
-        let today = day_index(now);
-        let stale = record.last_seen_day != today;
+    let mut record = relay
+        .find_key(&verified.key)
+        .await?
+        .ok_or_else(|| ApiError::new(ErrorCode::UnknownKey))?;
+    let today = day_index(now);
+    let touch = record.last_seen_day != today;
+    if touch {
         record.last_seen_day = today;
-        stale
-    };
+        lock(&relay.keys).insert(verified.key, record);
+    }
     // Cadence d'abord : une requête refusée ne laisse pas son nonce dans la
     // table (une clé y met au plus `per_key_per_minute` nonces par minute).
     lock(&relay.quotas)
@@ -498,7 +542,7 @@ async fn authenticate(
             let _ = lock(&store).touch_key(&key, day);
         });
     }
-    Ok(verified)
+    Ok((verified, Some(record)))
 }
 
 fn body_of(body: Result<Bytes, BytesRejection>) -> Result<Bytes, ApiError> {
@@ -556,12 +600,13 @@ async fn register(
     let ip = client_ip(&relay, peer, &headers);
     admit(&relay, ip, &headers, now)?;
     let body = body_of(body)?;
-    let verified = authenticate(&relay, "POST", PATH_REGISTER, &headers, &body, now, false).await?;
+    let (verified, _) =
+        authenticate(&relay, "POST", PATH_REGISTER, &headers, &body, now, false).await?;
     let request: RegisterRequest = json_of(&body)?;
-    if lock(&relay.keys).contains_key(&verified.key) {
+    if let Some(record) = relay.find_key(&verified.key).await? {
         // Déjà inscrite (réponse perdue, nouvel essai) : rien à refaire.
         return Ok(Json(RegisterResponse {
-            quota: relay.quota(&verified.key, now),
+            quota: relay.quota(&verified.key, &record, now),
         }));
     }
     let challenge = Challenge::open(&request.challenge, &relay.challenge_key)
@@ -585,15 +630,22 @@ async fn register(
     let valid = {
         // Pas de file d'attente : vérifications toutes prises, l'app revient
         // dans quelques secondes (son unité d'inscription lui est rendue).
-        let Ok(_slot) = relay.pow_slots.try_acquire() else {
+        let Ok(slot) = relay.pow_slots.clone().try_acquire_owned() else {
             lock(&relay.limits).give_back_daily(ip, IpKind::Register, now);
             return Err(ApiError::new(ErrorCode::RateLimited).retry_at(now + POW_RETRY_SECS));
         };
         let key = verified.key;
         let nonces = request.nonces;
-        tokio::task::spawn_blocking(move || pow::verify(&challenge, &key, &nonces))
-            .await
-            .unwrap_or(false)
+        // Le jeton part avec le hachage : une requête abandonnée (client
+        // parti) ne le rend pas avant la fin du calcul, qui continue sans
+        // elle. Sinon, des inscriptions coupées aussitôt envoyées feraient
+        // tourner des dizaines de hachages de 32 Mio en même temps.
+        tokio::task::spawn_blocking(move || {
+            let _slot = slot;
+            pow::verify(&challenge, &key, &nonces)
+        })
+        .await
+        .unwrap_or(false)
     };
     if !valid {
         return Err(ApiError::new(ErrorCode::PowInvalid));
@@ -608,15 +660,13 @@ async fn register(
             .error("registration: cannot be saved to the database");
         return Err(ApiError::new(ErrorCode::Internal));
     }
-    lock(&relay.keys).insert(
-        verified.key,
-        KeyRecord {
-            created_day: day,
-            last_seen_day: day,
-        },
-    );
+    let record = KeyRecord {
+        created_day: day,
+        last_seen_day: day,
+    };
+    lock(&relay.keys).insert(verified.key, record);
     Ok(Json(RegisterResponse {
-        quota: relay.quota(&verified.key, now),
+        quota: relay.quota(&verified.key, &record, now),
     }))
 }
 
@@ -628,13 +678,37 @@ async fn status(
     let now = relay.clock.now();
     let ip = client_ip(&relay, peer, &headers);
     admit(&relay, ip, &headers, now)?;
-    let verified = authenticate(&relay, "GET", PATH_STATUS, &headers, b"", now, true).await?;
+    let (verified, record) =
+        authenticate(&relay, "GET", PATH_STATUS, &headers, b"", now, true).await?;
+    let record = record.ok_or_else(|| ApiError::new(ErrorCode::UnknownKey))?;
     Ok(Json(StatusResponse {
         service: relay.service_state(now),
-        quota: relay.quota(&verified.key, now),
+        quota: relay.quota(&verified.key, &record, now),
         min_app_version: relay.config.min_app_version.clone(),
         server_time: now,
     }))
+}
+
+/// Unités du jour prises par une recherche (quota de la clé, unité du
+/// réseau) : rendues si la recherche s'arrête sans avoir rien coûté, même
+/// abandonnée en route (client parti pendant l'attente d'une place). Gardées
+/// pendant l'appel à un fournisseur (il peut facturer) et après un succès.
+struct Held<'a> {
+    relay: &'a Relay,
+    key: PublicKey,
+    ip: IpAddr,
+    keep: bool,
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        if self.keep {
+            return;
+        }
+        let now = self.relay.clock.now();
+        lock(&self.relay.quotas).release(&self.key, now);
+        lock(&self.relay.limits).give_back_daily(self.ip, IpKind::Search, now);
+    }
 }
 
 async fn search(
@@ -647,7 +721,9 @@ async fn search(
     let ip = client_ip(&relay, peer, &headers);
     admit(&relay, ip, &headers, now)?;
     let body = body_of(body)?;
-    let verified = authenticate(&relay, "POST", PATH_SEARCH, &headers, &body, now, true).await?;
+    let (verified, record) =
+        authenticate(&relay, "POST", PATH_SEARCH, &headers, &body, now, true).await?;
+    let record = record.ok_or_else(|| ApiError::new(ErrorCode::UnknownKey))?;
     if relay.config.paused {
         return Err(ApiError::new(ErrorCode::Paused));
     }
@@ -663,7 +739,12 @@ async fn search(
     if let Some(exhausted) = exhausted {
         return Err(budget_exhausted(&relay, exhausted));
     }
-    let limit = relay.daily_limit(&key, now);
+    // Ce réseau a dépensé sa part de l'enveloppe du jour : lui seul attend.
+    let caps = relay.network_caps(now);
+    lock(&relay.limits)
+        .spend(ip, now, relay.cheapest_cost(), caps, false)
+        .map_err(|at| ApiError::new(ErrorCode::RateLimited).retry_at(at))?;
+    let limit = relay.daily_limit(&record, now);
     lock(&relay.quotas)
         .reserve(&key, now, limit)
         .map_err(|at| ApiError::new(ErrorCode::QuotaExceeded).retry_at(at))?;
@@ -676,19 +757,34 @@ async fn search(
         lock(&relay.quotas).release(&key, now);
         return Err(ApiError::new(ErrorCode::RateLimited).retry_at(at));
     }
-    let give_back = |relay: &Relay| {
-        let now = relay.clock.now();
-        lock(&relay.quotas).release(&key, now);
-        lock(&relay.limits).give_back_daily(ip, IpKind::Search, now);
+    let mut held = Held {
+        relay: &relay,
+        key,
+        ip,
+        keep: false,
     };
-    let Ok(_slot) = relay.search_slots.acquire().await else {
-        give_back(&relay);
-        return Err(ApiError::new(ErrorCode::Internal));
+    let _slot = match tokio::time::timeout(relay.search_wait, relay.search_slots.acquire()).await {
+        Ok(Ok(slot)) => slot,
+        Ok(Err(_)) => return Err(ApiError::new(ErrorCode::Internal)),
+        Err(_) => {
+            return Err(ApiError::new(ErrorCode::RateLimited)
+                .retry_at(relay.clock.now() + SEARCH_RETRY_SECS));
+        }
     };
     let mut over_budget = false;
+    let mut over_network = false;
     for provider in &relay.providers {
         let now = relay.clock.now();
         if provider.is_down(now) {
+            continue;
+        }
+        let caps = relay.network_caps(now);
+        let day = day_index(now);
+        if lock(&relay.limits)
+            .spend(ip, now, provider.cost, caps, true)
+            .is_err()
+        {
+            over_network = true;
             continue;
         }
         let reservation: Reservation = match lock(&relay.budget).reserve(now, provider.cost) {
@@ -702,10 +798,14 @@ async fn search(
                 reservation
             }
             Err(_) => {
+                lock(&relay.limits).refund_spend(ip, now, day, provider.cost);
                 over_budget = true;
                 continue;
             }
         };
+        // La requête part : abandonnée pendant l'appel, elle garde ses unités
+        // (le fournisseur a pu la facturer).
+        held.keep = true;
         match provider.search(&search).await {
             Ok(results) => {
                 lock(&relay.budget).count(relay.clock.now(), provider.provider);
@@ -713,13 +813,15 @@ async fn search(
                 return Ok(Json(SearchResponse {
                     results,
                     provider: provider.provider,
-                    quota: relay.quota(&key, relay.clock.now()),
+                    quota: relay.quota(&key, &record, relay.clock.now()),
                 }));
             }
             Err(error) => {
+                held.keep = false;
                 let now = relay.clock.now();
                 if !error.billed() {
                     lock(&relay.budget).refund(now, reservation);
+                    lock(&relay.limits).refund_spend(ip, now, day, provider.cost);
                 }
                 provider.mark_failure(error, now);
                 relay.save_budget().await;
@@ -731,13 +833,17 @@ async fn search(
             }
         }
     }
-    give_back(&relay);
+    // Aucun fournisseur n'a répondu : les unités du jour sont rendues.
+    drop(held);
     let now = relay.clock.now();
     if over_budget {
         let exhausted = lock(&relay.budget).exhausted(now, relay.cheapest_cost());
         if let Some(exhausted) = exhausted {
             return Err(budget_exhausted(&relay, exhausted));
         }
+    }
+    if over_network {
+        return Err(ApiError::new(ErrorCode::RateLimited).retry_at(next_day_start(now)));
     }
     Err(ApiError::new(ErrorCode::ProviderUnavailable))
 }
@@ -757,6 +863,168 @@ fn budget_exhausted(relay: &Relay, exhausted: Exhausted) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{MAX_SERVER_POW_MEMORY_KIB, Secret, Tiers};
+    use relay_proto::sign::Identity;
+    use std::future::Future;
+
+    /// 8 nov. 2026, 12 h UTC.
+    const T: u64 = 1_794_139_200;
+
+    /// Relais à l'heure `T`, Brave seul (jamais appelé ici).
+    fn relay(dir: &std::path::Path, tweak: impl FnOnce(&mut Config)) -> Arc<Relay> {
+        let database = dir.join("relay.sqlite");
+        let mut config: Config =
+            toml::from_str(&format!("database = {:?}", database.to_string_lossy())).unwrap();
+        config.providers.brave.base_url = "http://127.0.0.1:9".into();
+        tweak(&mut config);
+        let secrets = Secrets {
+            brave_api_key: Secret::new("BSA-essai"),
+            ..Secrets::default()
+        };
+        let (clock, _) = Clock::manual(T);
+        let (log, _) = Log::capturing();
+        Relay::new(config, secrets, clock, log).unwrap()
+    }
+
+    fn peer() -> SocketAddr {
+        "127.0.0.1:4000".parse().unwrap()
+    }
+
+    fn signed(id: &Identity, method: &str, path: &str, body: &[u8]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for (name, value) in id.sign_request(method, path, T, body).pairs() {
+            headers.insert(name, HeaderValue::from_str(value).unwrap());
+        }
+        headers
+    }
+
+    /// Clé inscrite la veille (dans la base seulement).
+    fn registered(relay: &Relay) -> Identity {
+        let id = Identity::generate();
+        lock(&relay.store)
+            .insert_key(&id.public_key(), day_index(T) - 1)
+            .unwrap();
+        id
+    }
+
+    /// Fait avancer `request` jusqu'à ce que `reached` soit vrai (sans qu'il
+    /// se termine), puis l'abandonne, comme hyper quand le client coupe.
+    async fn abandon_once<F: Future + Unpin>(mut request: F, reached: impl Fn() -> bool) {
+        while !reached() {
+            tokio::select! {
+                _ = &mut request => panic!("requête finie avant d'être abandonnée"),
+                () = tokio::time::sleep(Duration::from_millis(1)) => {}
+            }
+        }
+        drop(request);
+    }
+
+    /// Constat de relecture (haute) : un client qui coupe pendant la
+    /// vérification de sa preuve ne rend pas le jeton avant la fin du hachage
+    /// (sinon, des inscriptions coupées aussitôt envoyées feraient tourner des
+    /// hachages de 32 Mio sans limite, jusqu'à la mise à mort du relais).
+    #[tokio::test]
+    async fn an_abandoned_registration_keeps_its_proof_slot_until_the_hash_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        // Un hachage lent (64 Mio, 4 passes : une centaine de ms), une place.
+        let relay = relay(dir.path(), |config| {
+            config.pow.memory_kib = MAX_SERVER_POW_MEMORY_KIB;
+            config.pow.iterations = 4;
+            config.pow.bits = 0;
+            config.pow.count = 1;
+        });
+        assert_eq!(relay.pow_slots.available_permits(), 1);
+        let id = Identity::generate();
+        let (_, token) = Challenge::issue(&relay.challenge_key, T, relay.config.pow.params());
+        let body = serde_json::to_vec(&RegisterRequest {
+            challenge: token,
+            nonces: vec![0],
+        })
+        .unwrap();
+        let request = Box::pin(register(
+            State(relay.clone()),
+            ConnectInfo(peer()),
+            signed(&id, "POST", PATH_REGISTER, &body),
+            Ok(Bytes::from(body)),
+        ));
+        abandon_once(request, || relay.pow_slots.available_permits() == 0).await;
+        assert_eq!(
+            relay.pow_slots.available_permits(),
+            0,
+            "jeton rendu avant la fin du hachage"
+        );
+        // Rendu à la fin du calcul.
+        let freed = async {
+            while relay.pow_slots.available_permits() == 0 {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(60), freed)
+            .await
+            .expect("jeton jamais rendu");
+    }
+
+    /// Constat de relecture (basse) : une recherche abandonnée avant d'avoir
+    /// rien coûté (client parti pendant l'attente d'une place) rend le quota
+    /// de la clé et l'unité du réseau.
+    #[tokio::test]
+    async fn an_abandoned_search_gives_its_units_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let relay = relay(dir.path(), |_| {});
+        let id = registered(&relay);
+        let key = id.public_key();
+        let busy = relay
+            .search_slots
+            .try_acquire_many(SEARCH_SLOTS as u32)
+            .unwrap();
+        let body = serde_json::to_vec(&serde_json::json!({ "query": "x" })).unwrap();
+        let request = Box::pin(search(
+            State(relay.clone()),
+            ConnectInfo(peer()),
+            signed(&id, "POST", PATH_SEARCH, &body),
+            Ok(Bytes::from(body)),
+        ));
+        abandon_once(request, || lock(&relay.quotas).used(&key, T) == 1).await;
+        assert_eq!(lock(&relay.quotas).used(&key, T), 0, "quota de la clé");
+        let one = Tiers([1, 1, 1]);
+        assert!(
+            lock(&relay.limits)
+                .can_take_daily(peer().ip(), IpKind::Search, T, &one)
+                .is_ok(),
+            "unité du réseau"
+        );
+        drop(busy);
+    }
+
+    /// Attente d'une place bornée : `rate_limited`, et rien n'est gardé.
+    #[tokio::test]
+    async fn a_search_waits_for_a_slot_a_bounded_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut relay = relay(dir.path(), |_| {});
+        Arc::get_mut(&mut relay).unwrap().search_wait = Duration::from_millis(50);
+        let id = registered(&relay);
+        let busy = relay
+            .search_slots
+            .try_acquire_many(SEARCH_SLOTS as u32)
+            .unwrap();
+        let body = serde_json::to_vec(&serde_json::json!({ "query": "x" })).unwrap();
+        let request = search(
+            State(relay.clone()),
+            ConnectInfo(peer()),
+            signed(&id, "POST", PATH_SEARCH, &body),
+            Ok(Bytes::from(body)),
+        );
+        let reply = tokio::time::timeout(Duration::from_secs(10), request)
+            .await
+            .expect("attente sans fin");
+        let Err(error) = reply else {
+            panic!("aucune place, aucune réponse attendue");
+        };
+        assert_eq!(error.detail.code, ErrorCode::RateLimited);
+        assert_eq!(error.detail.retry_at, Some(T + SEARCH_RETRY_SECS));
+        assert_eq!(lock(&relay.quotas).used(&id.public_key(), T), 0);
+        drop(busy);
+    }
 
     /// M8 : `X-Real-IP` n'est cru que de 127.0.0.1, et seulement avec
     /// `trust_proxy`.

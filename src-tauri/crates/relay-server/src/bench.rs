@@ -478,17 +478,22 @@ pub async fn run(targets: Vec<Target>, queries: &[BenchQuery], options: &Options
             let target = target.clone();
             let query = *query;
             let extra_off = extra_off.clone();
+            let pace = options.pace;
             tasks.spawn(async move {
                 let off = extra_off.load(std::sync::atomic::Ordering::SeqCst);
-                let started = Instant::now();
+                let mut started = Instant::now();
                 let mut outcome = target.search(&query, off).await;
                 let mut refused = false;
                 // Un refus de Brave avec `extra_snippets` : une fois sans, et
-                // sans pour la suite si cela passe.
+                // sans pour la suite si cela passe. Après `pace` (une offre à
+                // 1 requête par seconde refuserait sinon la seconde par un
+                // 429) ; seule la seconde est chronométrée.
                 if target.provider == BenchProvider::Brave
                     && !off
                     && outcome == Err(ProviderError::Rejected)
                 {
+                    tokio::time::sleep(pace).await;
+                    started = Instant::now();
                     let retry = target.search(&query, true).await;
                     if retry.is_ok() {
                         extra_off.store(true, std::sync::atomic::Ordering::SeqCst);

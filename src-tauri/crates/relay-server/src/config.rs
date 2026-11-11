@@ -147,6 +147,32 @@ pub struct BudgetConfig {
     /// jusqu'à minuit UTC. 1 au moins ; le nombre de jours du mois (31) ou
     /// plus : sans effet.
     pub daily_share: f64,
+    /// Part de l'enveloppe du jour qu'un réseau peut dépenser, en cascade
+    /// comme les quotas par réseau : IPv6 [/56, /48, /32], IPv4 [/24, /16, —].
+    /// Une douzaine de clés d'un même réseau ne coupent plus la recherche de
+    /// tout le monde jusqu'à minuit (au-delà : `rate_limited` pour ce réseau
+    /// seulement). Entre 0 et 1, jamais décroissant ; 1 : sans effet.
+    pub network_share: Shares,
+}
+
+/// Parts d'un plafond par réseau, du plus étroit au plus large (comme
+/// [`Tiers`]).
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(transparent)]
+pub struct Shares(pub [f64; 3]);
+
+impl Shares {
+    fn is_valid(&self) -> bool {
+        self.0
+            .iter()
+            .all(|share| share.is_finite() && *share > 0.0 && *share <= 1.0)
+            && self.0.windows(2).all(|w| w[0] <= w[1])
+    }
+
+    /// Plafonds de chaque niveau pour une enveloppe de `envelope`.
+    pub fn of(&self, envelope: u64) -> [u64; 3] {
+        self.0.map(|share| (envelope as f64 * share).floor() as u64)
+    }
 }
 
 impl Default for BudgetConfig {
@@ -155,6 +181,11 @@ impl Default for BudgetConfig {
             monthly_limit_eur: 30.0,
             alert_ratio: 0.8,
             daily_share: 3.0,
+            // 3 € par jour (défauts) : 0,30 € par /56 ou /24 (60 recherches
+            // Brave, plus que le quota d'une installation), 0,60 € par /48 ou
+            // /16, 0,75 € par /32. Vider l'enveloppe demande au moins quatre
+            // /32 IPv6 ou cinq /16 IPv4 distincts.
+            network_share: Shares([0.1, 0.2, 0.25]),
         }
     }
 }
@@ -176,6 +207,9 @@ pub struct TablesConfig {
     pub keys: usize,
     /// Nonces retenus contre le rejeu.
     pub replay: usize,
+    /// Clés inscrites gardées en mémoire (deux générations ; les autres sont
+    /// relues dans la base au besoin).
+    pub registered_keys: usize,
 }
 
 impl Default for TablesConfig {
@@ -186,6 +220,7 @@ impl Default for TablesConfig {
             challenges: 114_688,
             keys: 229_376,
             replay: 114_688,
+            registered_keys: 57_344,
         }
     }
 }
@@ -299,6 +334,11 @@ impl Config {
         if !(self.budget.daily_share.is_finite() && self.budget.daily_share >= 1.0) {
             return Err("budget.daily_share: 1 or more".into());
         }
+        if !self.budget.network_share.is_valid() {
+            return Err(
+                "budget.network_share: three shares above 0 and up to 1, never decreasing".into(),
+            );
+        }
         let most = TablesConfig::default();
         for (name, value, max, min) in [
             (
@@ -316,6 +356,12 @@ impl Config {
             ("challenges", self.tables.challenges, most.challenges, 1),
             ("keys", self.tables.keys, most.keys, 2),
             ("replay", self.tables.replay, most.replay, 1),
+            (
+                "registered_keys",
+                self.tables.registered_keys,
+                most.registered_keys,
+                2,
+            ),
         ] {
             if !(min..=max).contains(&value) {
                 return Err(format!("tables.{name}: between {min} and {max}"));
@@ -471,6 +517,12 @@ mod tests {
             "quota.per_ip_per_minute = [0, 10, 10]",
             "quota.per_ip_daily_searches = 1000",
             "budget.daily_share = 0.5",
+            "budget.network_share = [0.1, 0.2, 1.5]",
+            "budget.network_share = [0.0, 0.2, 0.25]",
+            "budget.network_share = [0.3, 0.2, 0.25]",
+            "budget.network_share = 0.2",
+            "tables.registered_keys = 1",
+            "tables.registered_keys = 10000000",
             "tables.replay = 10000000",
             "tables.keys = 1",
             "budget.monthly_limit_eur = -1.0",
@@ -531,6 +583,10 @@ mod tests {
         assert_eq!(config.quota.daily_per_key, 50);
         assert_eq!(config.budget.monthly_limit_eur, 30.0);
         assert_eq!(config.budget.daily_share, 3.0);
+        assert_eq!(
+            config.budget.network_share,
+            BudgetConfig::default().network_share
+        );
         assert_eq!(config.quota.per_ip_daily_registrations, Tiers([3, 10, 50]));
         assert_eq!(config.pow.params(), PowConfig::default().params());
         assert_eq!(config.tables, TablesConfig::default());

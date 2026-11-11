@@ -4,7 +4,7 @@
 //! aucune vraie clé, aucun appel réseau.
 
 use crate::bench::BenchProvider;
-use crate::config::{Config, Secret, Secrets, Tiers};
+use crate::config::{Config, Secret, Secrets, Shares, Tiers};
 use crate::log::{Clock, Log};
 use crate::server::{self, Relay};
 use axum::extract::{Query, State};
@@ -57,6 +57,8 @@ pub struct FakeRequest {
     pub provider: Provider,
     pub params: HashMap<String, String>,
     pub token: Option<String>,
+    /// Arrivée (cadence du banc).
+    pub at: std::time::Instant,
 }
 
 /// Requête reçue par le faux Ceramic ou le faux Linkup (banc R0).
@@ -216,6 +218,7 @@ async fn brave(
         provider: Provider::Brave,
         params: params.clone(),
         token: token.clone(),
+        at: std::time::Instant::now(),
     });
     let behavior = behavior(&state.brave);
     if let Some(response) = misbehave(behavior, token.as_deref().unwrap_or_default()).await {
@@ -261,6 +264,7 @@ async fn mojeek(
         provider: Provider::Mojeek,
         params: params.clone(),
         token: key.clone(),
+        at: std::time::Instant::now(),
     });
     let behavior = behavior(&state.mojeek);
     if let Some(response) = misbehave(behavior, key.as_deref().unwrap_or_default()).await {
@@ -423,6 +427,8 @@ pub fn test_config(database: &Path, providers_url: &str) -> Config {
     config.quota.per_key_per_minute = 10_000;
     config.quota.per_ip_daily_registrations = Tiers([100; 3]);
     config.quota.per_ip_daily_challenges = Tiers([100; 3]);
+    // Tous les essais viennent du même réseau : pas de part par réseau.
+    config.budget.network_share = Shares([1.0; 3]);
     config
 }
 
