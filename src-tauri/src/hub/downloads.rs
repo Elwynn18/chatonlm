@@ -185,6 +185,11 @@ struct Inner {
     /// Fichiers dont le SHA-256 a été calculé, dans l'ordre (essais).
     #[cfg(test)]
     hashed: Mutex<Vec<PathBuf>>,
+    /// Essais : une tâche arrêtée pendant la réception attend que ce feu
+    /// passe à `true` avant de rendre ses fichiers (fin lente, machine
+    /// chargée).
+    #[cfg(test)]
+    stop_gate: Mutex<Option<watch::Receiver<bool>>>,
 }
 
 /// Fichier complet vérifié : taille, date et empreinte d'alors.
@@ -209,6 +214,11 @@ struct State {
     /// après une pause ou une annulation, la suivante attend la vraie fin de
     /// la précédente (mêmes `.part`).
     tasks: HashSet<String>,
+    /// Annulations d'un modèle en pause dont la tâche arrêtée n'a pas encore
+    /// fini (clé de `tasks`, plan figé de l'entrée) : faites par cette tâche,
+    /// à sa fin. Faites tout de suite, elles laissaient ses `.part`, encore
+    /// réservés (sautés par `discard_files`), puis gardés par sa fin.
+    discard_at_end: HashMap<String, Option<Pinned>>,
 }
 
 /// Clé d'un modèle dans `State::tasks`.
@@ -302,6 +312,8 @@ impl HubDownloads {
                 next_id: AtomicU64::new(1),
                 #[cfg(test)]
                 hashed: Mutex::new(Vec::new()),
+                #[cfg(test)]
+                stop_gate: Mutex::new(None),
             }),
         }
     }
@@ -409,9 +421,16 @@ impl HubDownloads {
         };
         let paused = entry.download.state == HubDownloadState::Paused;
         finish_entry(entry, End::Cancelled, Stop::Discard);
-        // En pause : aucune tâche ne le fera.
+        let (model, plan) = (entry.download.model.clone(), entry.plan.clone());
+        // En pause : aucune tâche ne le fera, sauf celle que la pause a
+        // arrêtée si elle n'a pas encore fini (fichiers encore réservés).
         if paused {
-            inner.discard_later(&entry.download.model, entry.plan.clone());
+            let key = task_key(&model);
+            if state.tasks.contains(&key) {
+                state.discard_at_end.insert(key, plan);
+            } else {
+                inner.discard_later(&model, plan);
+            }
         }
         inner.pump(&mut state);
         inner.emit_now(&mut state);
@@ -727,13 +746,28 @@ impl Inner {
         let model = model.to_owned();
         self.live.send_modify(|count| *count += 1);
         tauri::async_runtime::spawn(async move {
-            if let Some(pinned) = plan {
-                inner.discard(&pinned.0, &pinned.1).await;
-            } else if let Some((plan, dir)) = inner.plan_of(&model).await {
-                inner.discard(&plan, &dir).await;
-            }
+            inner.discard_cancelled(&model, plan).await;
             inner.live.send_modify(|count| *count -= 1);
         });
+    }
+
+    /// Essais : attend le feu de [`Inner::stop_gate`] s'il y en a un.
+    #[cfg(test)]
+    async fn stop_gate(&self) {
+        let gate = self.stop_gate.lock().clone();
+        if let Some(mut gate) = gate {
+            let _ = gate.wait_for(|open| *open).await;
+        }
+    }
+
+    /// Fichiers reçus d'un modèle annulé en pause supprimés, d'après son plan
+    /// figé (sans plan : fiche relue).
+    async fn discard_cancelled(&self, model: &str, plan: Option<Pinned>) {
+        if let Some(pinned) = plan {
+            self.discard(&pinned.0, &pinned.1).await;
+        } else if let Some((plan, dir)) = self.plan_of(model).await {
+            self.discard(&plan, &dir).await;
+        }
     }
 
     /// Attache le plan de la tâche `id` à son entrée (encore active).
@@ -935,6 +969,18 @@ impl Task {
         let received = self.received.lock().take();
         if discard && let Some((plan, dir)) = received {
             self.inner.discard(&plan, &dir).await;
+        }
+        // Annulé pendant sa pause, avant que cette tâche ait fini : ses
+        // réservations sont rendues (fin de `download`), la suppression se
+        // fait maintenant, avant qu'une suivante du même modèle démarre.
+        let pending = self
+            .inner
+            .state
+            .lock()
+            .discard_at_end
+            .remove(&task_key(&self.model));
+        if let Some(plan) = pending {
+            self.inner.discard_cancelled(&self.model, plan).await;
         }
         self.inner.task_ended(&self.model);
         self.inner.live.send_modify(|count| *count -= 1);
@@ -1250,6 +1296,8 @@ impl Task {
                 biased;
                 () = cancelled(cancel) => {
                     let _ = output.flush().await;
+                    #[cfg(test)]
+                    self.inner.stop_gate().await;
                     return Err(End::Cancelled);
                 }
                 chunk = tokio::time::timeout(idle, response.chunk()) => chunk,
@@ -1426,6 +1474,14 @@ fn read_outcome(
         Err(MetaError::NotGguf) => Err((
             End::Failed(t!("localModels.notGgufFile", file = file.path)),
             true,
+        )),
+        // Supprimé (autre programme) avant la lecture des en-têtes : même
+        // message que s'il disparaît juste après (revue des fichiers), au
+        // lieu de « impossible de vérifier : os error 2 ». L'un ou l'autre
+        // selon l'instant de la suppression (machine chargée).
+        Err(MetaError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => Err((
+            End::Failed(t!("localModels.fileMissing", file = file.path)),
+            false,
         )),
         Err(MetaError::Io(error)) => Err((
             End::Failed(t!(

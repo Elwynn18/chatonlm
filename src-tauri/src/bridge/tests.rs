@@ -844,6 +844,13 @@ async fn unknown_methods_are_refused_after_authentication() {
 #[tokio::test]
 async fn pairing_needs_the_right_code_and_ten_wrong_codes_cancel_it() {
     let bench = bench().await;
+    // Pont activé AVANT d'ouvrir la connexion : l'activation écrit sur le
+    // disque (réglage en base, fichiers de découverte synchronisés), et une
+    // connexion non authentifiée n'a que `AUTH_TIMEOUT` (5 s). Sur un disque
+    // lent (TMPDIR de check.sh sur ntfs3, 16 essais en parallèle), ces
+    // écritures ont suffi à la faire fermer (BrokenPipe) ; la fenêtre ne
+    // contient plus que des requêtes en mémoire.
+    bench.bridge.set_enabled(true).await.unwrap();
     let mut client = bench.connect();
     client.initialize().await;
     // Aucun code demandé dans l'app.

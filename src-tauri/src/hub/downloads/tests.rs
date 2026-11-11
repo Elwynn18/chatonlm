@@ -17,8 +17,15 @@ use crate::hub::errors::english::{
 
 use HubDownloadState::{Cancelled, Done, Downloading, Failed, Finishing, Paused, Queued, Starting};
 
-/// Attente maximale d'un état, sur le faux serveur.
-const WAIT: Duration = Duration::from_secs(10);
+/// Attente maximale d'un état, sur le faux serveur. Seulement une borne :
+/// `wait_until` rend la main dès que l'état est vu. Les états attendus
+/// suivent des écritures et des suppressions de fichiers dans TMPDIR ; sous
+/// `check.sh`, TMPDIR est sur le disque du projet (ntfs3, métadonnées
+/// écrites de façon synchrone, ~200 ms par fichier créé et synchronisé sur
+/// cette machine, bien plus avec seize essais à la fois) : 10 s n'y
+/// suffisaient pas toujours (nettoyage d'une annulation, fin d'un modèle
+/// découpé).
+const WAIT: Duration = Duration::from_secs(60);
 
 /// Liste émise, datée.
 type Emitted = (Instant, Vec<HubDownload>);
@@ -669,6 +676,38 @@ async fn a_cancelled_download_leaves_nothing_behind() {
     assert_eq!(ids, [installed]);
 }
 
+/// Annulé en pause pendant que la tâche arrêtée par la pause tient encore
+/// ses fichiers (fin lente : machine chargée) : ses `.part` partent quand
+/// même, à sa fin. Avant, la suppression les sautait (réservés), puis la
+/// tâche les gardait (arrêt « pause »).
+#[tokio::test]
+async fn a_cancel_during_the_end_of_a_paused_task_leaves_nothing() {
+    let env = Env::new(|options| options).await;
+    let (open, gate) = watch::channel(false);
+    *env.downloads.inner.stop_gate.lock() = Some(gate);
+    let model = "chatonlm-dl/Nap-stall-big-GGUF:Q4_K_M";
+    env.ask(model);
+    wait_until("some progress", WAIT, || {
+        env.entry(model).completed > 10_000
+    })
+    .await;
+    env.downloads.pause(model);
+    env.downloads.cancel(model);
+    assert_eq!(env.entry(model).state, Cancelled);
+    // Une suppression lancée tout de suite (compteur à 2) a eu le temps de
+    // finir avant que la tâche arrêtée rende ses fichiers.
+    wait_until("the immediate discard", WAIT, || {
+        *env.downloads.inner.live.borrow() == 1
+    })
+    .await;
+    assert!(!env.files().is_empty());
+    open.send_replace(true);
+    wait_until("the cleanup", WAIT, || {
+        env.files().is_empty() && *env.downloads.inner.live.borrow() == 0
+    })
+    .await;
+}
+
 /// Échecs lisibles, sans rien installer.
 #[tokio::test]
 async fn failures_are_readable() {
@@ -950,9 +989,12 @@ async fn leaving_closes_running_downloads() {
         env.entry(&a).completed > 0 && env.entry(&b).completed > 0
     })
     .await;
-    let asked = Instant::now();
-    env.downloads.stop_all(Duration::from_secs(2)).await;
-    assert!(asked.elapsed() < Duration::from_secs(1));
+    // `stop_all` rend la main parce que les tâches sont finies (compteur à
+    // zéro), pas parce que sa limite est passée. Pas de mesure de durée :
+    // une tâche arrêtée ferme son `.part` sur le disque, dont la lenteur
+    // (TMPDIR sur ntfs3 sous check.sh) dépassait la seconde exigée.
+    env.downloads.stop_all(WAIT).await;
+    assert_eq!(*env.downloads.inner.live.borrow(), 0);
     wait_until("the closed requests", WAIT, || env.fake.disconnects() == 2).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(env.entry(&c).state, Queued);
@@ -1151,6 +1193,16 @@ fn only_a_file_that_is_not_gguf_is_thrown_away() {
     assert!(
         message.starts_with("Could not check mmproj-F16.gguf"),
         "{message}"
+    );
+    // Supprimé avant la lecture des en-têtes : « manquant », comme s'il
+    // disparaissait juste après (rien d'effacé non plus).
+    let gone = || MetaError::Io(std::io::Error::from(std::io::ErrorKind::NotFound));
+    let Err((End::Failed(message), false)) = read_outcome(&plan, ok(), Some(Err(gone()))) else {
+        panic!("expected a failure that keeps the files");
+    };
+    assert_eq!(
+        message,
+        "mmproj-F16.gguf is missing: download the model again."
     );
     assert!(read_outcome(&plan, ok(), Some(ok())).is_ok());
 }

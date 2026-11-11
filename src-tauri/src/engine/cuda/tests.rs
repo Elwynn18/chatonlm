@@ -507,11 +507,17 @@ async fn serve(files: HashMap<String, Vec<u8>>) -> (String, Arc<parking_lot::Mut
     (url, requests)
 }
 
+/// Dernier état émis, dès qu'il convient (borne de 60 s). L'installation
+/// extrait et synchronise (`sync_all`) chaque fichier du paquet dans TMPDIR ;
+/// sous `check.sh`, TMPDIR est sur le disque du projet (ntfs3, ~200 ms par
+/// fichier créé et synchronisé sur cette machine, bien plus avec seize
+/// essais à la fois) : l'ancienne borne de 10 s y a été dépassée (phase
+/// `Installing` encore affichée).
 async fn wait_for(
     statuses: &Arc<parking_lot::Mutex<Vec<CudaStatus>>>,
     ready: impl Fn(&CudaStatus) -> bool,
 ) -> CudaStatus {
-    for _ in 0..500 {
+    for _ in 0..3000 {
         if let Some(status) = statuses.lock().last().filter(|status| ready(status)) {
             return status.clone();
         }
