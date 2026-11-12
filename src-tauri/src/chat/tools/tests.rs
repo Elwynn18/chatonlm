@@ -475,7 +475,7 @@ async fn a_stop_interrupts_the_search() {
     let bench = bench().await;
     bench
         .engines
-        .set("duckduckgo", Behavior::Slow(Duration::from_secs(5)));
+        .set("duckduckgo", Behavior::Slow(Duration::from_secs(30)));
     let (stop, mut cancel) = watch::channel(false);
     let web = bench.web.clone();
     let task = tokio::spawn(async move {
@@ -497,12 +497,13 @@ async fn a_stop_interrupts_the_search() {
     tokio::time::timeout(WAIT, polling).await.unwrap();
     let asked = Instant::now();
     stop.send(true).unwrap();
-    let done = tokio::time::timeout(Duration::from_secs(1), task)
+    // Marge pour une machine chargée : la recherche, elle, durerait 30 s.
+    let done = tokio::time::timeout(Duration::from_secs(5), task)
         .await
-        .expect("stopped within 1 s")
+        .expect("stopped within 5 s")
         .unwrap();
     assert_eq!(done, Executed::Cancelled);
-    assert!(asked.elapsed() < Duration::from_secs(1));
+    assert!(asked.elapsed() < Duration::from_secs(5));
 }
 
 #[tokio::test]

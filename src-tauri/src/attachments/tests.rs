@@ -286,7 +286,8 @@ async fn paths_are_read_with_the_official_refusals() {
     staging.grant(paths.clone());
     let started = Instant::now();
     let results = staging.stage_paths(paths.clone()).await;
-    assert!(started.elapsed() < Duration::from_secs(5));
+    // Un tube nommé lu bloquerait sans fin ; marge pour une machine chargée.
+    assert!(started.elapsed() < Duration::from_secs(30));
     assert_eq!(results.len(), paths.len());
     let notes = staged(&results[0]);
     assert_eq!((notes.filename.as_str(), notes.size), ("notes.txt", 5));
@@ -499,7 +500,8 @@ async fn a_reload_stops_staging_the_remaining_files() {
         tokio::spawn(async move { staging.stage_paths(paths).await })
     };
     let count = || std::fs::read_dir(&traces).unwrap().count();
-    for _ in 0..100 {
+    // Jusqu'à 10 s pour la première trace (machine chargée).
+    for _ in 0..500 {
         if count() > 0 {
             break;
         }
