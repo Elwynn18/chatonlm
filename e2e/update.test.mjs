@@ -246,6 +246,8 @@ try {
           driver,
           (s) => s.state === "ready",
           "mise à jour prête",
+          // 168 Mo écrits sur le disque : lent quand il est chargé.
+          180000,
         );
         assert.equal(ready.state.version, "0.0.2");
         assert.equal(ready.installer, "appImage");
@@ -489,6 +491,8 @@ try {
           driver,
           (card) => card.state === "ChatonLM version 0.0.2 is ready to install",
           "prête dans la carte",
+          // 168 Mo écrits sur le disque : lent quand il est chargé.
+          180000,
         );
         assert.ok(ready.buttons.includes("Restart to update"), ready.buttons);
         assert.equal((await status(driver)).state.state, "ready");
