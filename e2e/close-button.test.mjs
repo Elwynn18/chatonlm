@@ -25,6 +25,28 @@ const waitVisible = (driver, expected) =>
     (value) => value === expected,
     { what: `fenêtre ${expected ? "visible" : "masquée"}` },
   );
+
+/**
+ * Presse la croix jusqu'à ce que `done()` se vérifie (trois appuis au plus,
+ * 5 s chacun). Sous charge disque, KWin peut décharger le script avant de
+ * l'avoir exécuté : la croix n'est alors jamais pressée et l'app n'en sait
+ * rien. Un appui de plus est noté dans le journal.
+ */
+async function pressClose(done, what) {
+  for (let attempt = 1; ; attempt++) {
+    await closeWindow();
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (await done()) return;
+      await delay(100);
+    }
+    if (attempt === 3) throw new Error(`Attente vaine ${what} après 3 appuis`);
+    console.log(`croix pressée de nouveau (${what}, appui ${attempt + 1})`);
+  }
+}
+
+const hideByClose = (driver) =>
+  pressClose(async () => (await visible(driver)) === false, "fenêtre masquée");
 const status = (driver) => driver.invoke("close_button_status");
 
 const engine = startEngine([MODEL]);
@@ -53,9 +75,24 @@ async function load(driver, model) {
   return pid;
 }
 
-/** Croix pressée : l'app doit quitter seule, proprement. */
-async function closeQuits(app) {
-  await closeWindow();
+/**
+ * Croix pressée : l'app doit quitter seule, proprement. Elle a reçu la croix
+ * dès qu'elle est sortie ou que sa page ne répond plus (processus web arrêté
+ * au début de la fin commune).
+ */
+async function closeQuits(driver, app) {
+  let exited = false;
+  app.exited.then(() => {
+    exited = true;
+  });
+  await pressClose(async () => {
+    if (exited) return true;
+    try {
+      return (await visible(driver)) === false;
+    } catch {
+      return true;
+    }
+  }, "début de la fermeture");
   const code = await Promise.race([app.exited, delay(15000)]);
   assert.equal(code, 0, "la croix n'a pas fait quitter l'app");
 }
@@ -74,8 +111,7 @@ try {
     );
     assert.equal(first.closeToTray, true, "masquer par défaut");
 
-    await closeWindow();
-    await waitVisible(driver, false);
+    await hideByClose(driver);
     await desk.command("item-activate");
     await waitVisible(driver, true);
     assert.ok(alive(pid), "modèle arrêté alors que l'app reste");
@@ -84,7 +120,7 @@ try {
       await driver.invoke("set_close_to_tray", { enabled: false }),
       { trayAvailable: true, closeToTray: false },
     );
-    await closeQuits(app);
+    await closeQuits(driver, app);
   });
   await poll(
     () => alive(pid),
@@ -110,7 +146,7 @@ try {
         { what: "zone de notification" },
       );
       assert.equal(kept.closeToTray, false, "réglage perdu");
-      await closeQuits(app);
+      await closeQuits(driver, app);
     },
   );
   console.log("croix : réglage gardé au lancement suivant");
