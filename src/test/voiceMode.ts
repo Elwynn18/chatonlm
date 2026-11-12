@@ -12,7 +12,7 @@
 // Listening ; end_turn (Hearing) passe à Transcribing ; hold(true) à
 // Hearing, hold(false) à Transcribing ; reply_failed pose l'avis `failed`
 // et revient à Listening. Le test fait parler l'utilisateur par utter()
-// (phrase transcrite, puis Responding), avance la séance par setState() et
+// (Responding, puis phrase transcrite), avance la séance par setState() et
 // envoie des niveaux par level(). Une panne d'une commande se force par
 // `failures` ; `unavailable` rend la machine incapable.
 
@@ -68,8 +68,8 @@ export interface FakeVoiceMode {
   /** Change l'état puis émet « voice-mode ». */
   setState(patch: Partial<VoiceModeState>): Promise<void>;
   /**
-   * Phrase transcrite : tour suivant, « voice-mode-utterance », puis
-   * Responding (avis effacé).
+   * Phrase transcrite : tour suivant, Responding (avis effacé), puis
+   * « voice-mode-utterance ».
    */
   utter(text: string, language?: VoiceLanguage | null): Promise<void>;
   /** Émet des niveaux (« voice-mode-level »). */
@@ -127,12 +127,15 @@ export function fakeVoiceMode(
     async utter(text, language = null) {
       const turn = voice.state.turn + 1;
       voice.state = { ...voice.state, turn };
+      // Comme le moteur (session.rs) : Responding d'abord, puis la phrase.
+      // Dans l'autre ordre, un envoi refusé aussitôt rendait son avis avant
+      // Responding, qui l'effaçait.
+      await voice.setState({ phase: "responding", notice: null });
       await simulator.emitEvent("voice-mode-utterance", {
         turn,
         text,
         language,
       });
-      await voice.setState({ phase: "responding", notice: null });
     },
     level: (input, output = 0) =>
       simulator.emitEvent("voice-mode-level", { input, output }),
