@@ -60,7 +60,9 @@ await withApp(
     await driver.execute(
       "[...document.querySelectorAll('button')].find((b) => b.textContent === 'Start with a new database').click()",
     );
-    await driver.waitFor("[data-testid=new-chat]", { timeoutMs: 10000 });
+    // Base neuve : toutes les migrations en écritures synchrones, lentes
+    // sur un disque chargé.
+    await driver.waitFor("[data-testid=new-chat]", { timeoutMs: 30000 });
     const settings = await driver.invoke("get_settings");
     assert.equal(settings.theme, "system");
     // Easy Link, qui n'avait pas pu démarrer sans base, démarre avec la
