@@ -38,6 +38,19 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.10.0" date="2026-11-14" type="development">
+      <description>
+        <p>What's new:</p>
+        <ul>
+          <li>ChatonLM no longer needs Ollama: models run in its own built-in engine, llama.cpp, on the graphics card through Vulkan or on the processor.</li>
+          <li>Optional NVIDIA acceleration: after showing NVIDIA's license, ChatonLM can download its CUDA pack for faster replies on recent NVIDIA cards.</li>
+          <li>Models come from Hugging Face. The models of an installed Ollama, and those of the built-in Ollama of ChatonLM 0.9, are brought over in Settings › Models without downloading them again.</li>
+          <li>Web search works with no account: searches go straight from your computer to DuckDuckGo, or first to your own engine (a Brave Search or Mojeek API key, or your own SearXNG instance) in Settings › Web search.</li>
+          <li>Remote models, off by default: add a provider with your own API key (Ollama Cloud, OpenRouter, Mistral, or any server compatible with the OpenAI API) in Settings › Models.</li>
+          <li>A clearer message when Hugging Face can't be reached.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.9.5" date="2026-11-08" type="development">
       <description>
         <p>What's new:</p>

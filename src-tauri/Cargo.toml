@@ -1,6 +1,6 @@
 [package]
 name = "chatonlm"
-version = "0.9.5"
+version = "0.10.0"
 description = "Local AI desktop app: chat, images, voice and dictation"
 authors = ["Elwynn18 <216957512+Elwynn18@users.noreply.github.com>"]
 license = "MIT"
