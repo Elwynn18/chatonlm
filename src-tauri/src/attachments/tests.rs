@@ -806,11 +806,12 @@ async fn a_reader_that_hangs_is_killed_and_reaped() {
         "echo $$ > \"$0\"; exec sleep 30",
         pid_file.to_str().unwrap(),
     );
-    hanging.timeout = Duration::from_millis(500);
+    // 2 s : sous charge, le shell doit avoir écrit son PID avant d'être tué.
+    hanging.timeout = Duration::from_secs(2);
     let started = Instant::now();
     let failure = hanging.extract(b"%PDF").await.unwrap_err();
-    assert_eq!(failure, "the PDF reader took more than 0.5 s");
-    assert!(started.elapsed() < Duration::from_secs(3));
+    assert_eq!(failure, "the PDF reader took more than 2 s");
+    assert!(started.elapsed() < Duration::from_secs(10));
     // Tué et attendu : ni vivant ni zombie.
     let pid = std::fs::read_to_string(&pid_file).unwrap();
     assert!(!alive(&pid), "process {pid} is still there");
