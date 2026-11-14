@@ -24,7 +24,9 @@
 //!
 //! Contenu des « binaires » : par défaut un script `sh` qui répond à
 //! `--version` comme le vrai (la version publiée) ; un e2e donne les faux
-//! binaires compilés ([`Binaries`]).
+//! binaires compilés ([`Binaries`] : `fake-yt-dlp`, `fake-deno`), et
+//! l'archive porte alors aussi la version publiée dans un fichier
+//! ([`crate::ytdlp::VERSION_FILE`]) que ces faux annoncent.
 
 use std::collections::HashMap;
 use std::io::{Cursor, Write};
@@ -295,11 +297,12 @@ pub fn archive(
         (Tool::Deno, false) => "deno",
         (Tool::Deno, true) => "deno.exe",
     };
-    let content = match tool {
+    let given = match tool {
         Tool::YtDlp => binaries.yt_dlp.clone(),
         Tool::Deno => binaries.deno.clone(),
-    }
-    .unwrap_or_else(|| version_script(tool, version));
+    };
+    let binary_given = given.is_some();
+    let content = given.unwrap_or_else(|| version_script(tool, version));
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let file = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
@@ -321,6 +324,16 @@ pub fn archive(
     }
     zip.start_file(binary, executable).unwrap();
     zip.write_all(&content).unwrap();
+    // Faux binaire compilé (e2e) : la version publiée, qu'il annonce à
+    // `--version` (module `ytdlp`).
+    if binary_given {
+        let version_file = match tool {
+            Tool::YtDlp => format!("_internal/{}", crate::ytdlp::VERSION_FILE),
+            Tool::Deno => crate::ytdlp::VERSION_FILE.to_owned(),
+        };
+        zip.start_file(version_file, file).unwrap();
+        zip.write_all(version.as_bytes()).unwrap();
+    }
     match fault {
         Some(Fault::ZipSlip) => {
             zip.start_file("../evil.txt", file).unwrap();

@@ -27,3 +27,5 @@ site/src/partials/
 site/src/root.html
 # Fixtures audio et vidéo du décodeur (binaires ; refused.ts est un flux MPEG-TS).
 src-tauri/crates/media-audio/tests/data/
+# Sorties réelles de yt-dlp enregistrées (scripts/record-ytdlp-fixtures.sh) : gardées telles quelles.
+src-tauri/src/transcription/ytdlp/fixtures/

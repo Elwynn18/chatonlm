@@ -55,7 +55,6 @@ mod os {
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-#[allow(unused_imports)] // ToolPaths, ToolsLease : lot 4.
 pub use manager::{STATUS_EVENT, ToolPaths, Tools, ToolsLease};
 
 /// Système des archives.

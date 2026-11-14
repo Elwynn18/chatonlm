@@ -4,8 +4,8 @@
 //! et le binaire `fake-sd-server`) et moteurs de recherche web (DuckDuckGo,
 //! Brave, Mojeek, SearXNG ; voir [`search`] et le binaire `fake-search`) et
 //! GitHub « Releases » des outils de la Transcription (yt-dlp, Deno ; voir
-//! [`github`], mode `github` du binaire). Le moteur de texte a son propre
-//! faux (crate `fake-llama`).
+//! [`github`], mode `github` du binaire ; faux yt-dlp et Deno : [`ytdlp`]).
+//! Le moteur de texte a son propre faux (crate `fake-llama`).
 
 /// Faux Hugging Face (serveur à part) : voir [`hf`].
 pub mod hf;
@@ -20,6 +20,10 @@ pub mod search;
 /// Faux GitHub « Releases » (yt-dlp et Deno, outils de la Transcription) :
 /// voir [`github`].
 pub mod github;
+
+/// Faux yt-dlp et faux Deno (binaires `fake-yt-dlp` et `fake-deno`) : voir
+/// [`ytdlp`].
+pub mod ytdlp;
 
 /// Petite image PNG valide (1 × 1 pixel transparent) pour les essais.
 pub const SAMPLE_PNG: [u8; 68] = [

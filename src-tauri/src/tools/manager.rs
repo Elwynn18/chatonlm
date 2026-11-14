@@ -119,8 +119,6 @@ pub struct Tools(Arc<Inner>);
 
 /// Chemins des outils installés et vérifiés, et dossiers de travail de
 /// yt-dlp sous les données de l'app (créés).
-// Servi par le lot 4 (lancement de yt-dlp).
-#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolPaths {
     /// Programme yt-dlp (onedir : `_internal/` à côté).
@@ -137,7 +135,6 @@ pub struct ToolPaths {
     pub no_ffmpeg: PathBuf,
 }
 
-#[allow(dead_code)]
 impl ToolPaths {
     /// Environnement complet du lancement de yt-dlp (hérité par Deno) :
     /// voir [`install::tool_environment`] ; à passer après `env_clear()`.
@@ -147,7 +144,6 @@ impl ToolPaths {
 }
 
 /// Bail d'une transcription : les outils ne bougent pas tant qu'il vit.
-#[allow(dead_code)]
 pub struct ToolsLease {
     inner: Arc<Inner>,
     pub paths: ToolPaths,
@@ -743,8 +739,6 @@ impl Tools {
         self.queue().stop_all(limit).await;
     }
 
-    // Servi par le lot 4 (lancement de yt-dlp).
-    #[allow(dead_code)]
     /// Chemins des deux outils installés, relus sur le disque (programme
     /// présent : un antivirus a pu le retirer), sans bail ni réseau.
     pub fn installed_paths(&self) -> Option<ToolPaths> {
@@ -762,8 +756,6 @@ impl Tools {
         })
     }
 
-    // Servi par le lot 4 (lancement de yt-dlp).
-    #[allow(dead_code)]
     /// Pour une transcription (lot 4) : mises à jour dues relevées et
     /// installées d'abord (attendues ; un échec garde la version en
     /// service), puis un bail sur les chemins vérifiés. Outils absents (ou
@@ -806,8 +798,6 @@ impl Tools {
         }
     }
 
-    // Servi par le lot 4 (lancement de yt-dlp).
-    #[allow(dead_code)]
     /// Après une erreur de version périmée (lot 4, aucun bail tenu) :
     /// relevé immédiat et installation des versions plus récentes,
     /// attendus. Vrai si une version plus récente est maintenant en

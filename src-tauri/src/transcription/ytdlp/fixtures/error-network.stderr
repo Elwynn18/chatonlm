@@ -1,0 +1,2 @@
+ERROR: [generic] video: Unable to download webpage: HTTPSConnection(host='chatonlm-fixture.invalid', port=443): Failed to resolve 'chatonlm-fixture.invalid' ([Errno -2] Name or service not known) (caused by TransportError("HTTPSConnection(host='chatonlm-fixture.invalid', port=443): Failed to resolve 'chatonlm-fixture.invalid' ([Errno -2] Name or service not known)"))
+exit=1
