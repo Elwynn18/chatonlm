@@ -15,7 +15,7 @@ crate-type = ["rlib"]
 
 [workspace]
 # Outils de test ; src-tauri reste la racine (target/ et Cargo.lock ici).
-members = ["crates/easy-link", "crates/fake-llama", "crates/fake-services", "crates/relay-proto", "crates/relay-server", "crates/speech-text", "crates/web-search", "crates/windows-tray"]
+members = ["crates/easy-link", "crates/fake-llama", "crates/fake-services", "crates/media-audio", "crates/relay-proto", "crates/relay-server", "crates/speech-text", "crates/web-search", "crates/windows-tray"]
 
 [features]
 # Essais de l'app réelle uniquement (scripts/e2e-build.sh) : embarque un serveur
@@ -53,6 +53,9 @@ image = { version = "0.25.10", default-features = false, features = ["bmp", "gif
 # Pack CUDA (engine/cuda) : archives .tar.xz des bibliothèques de NVIDIA
 # (Linux). Déjà dans l'arbre (ort-sys) ; Rust pur, Apache-2.0.
 lzma-rust2 = { version = "0.15.8", default-features = false, features = ["std", "xz"] }
+# Transcription : fichiers audio et vidéo décodés en 16 kHz mono (crate du
+# dépôt, sans Tauri) ; rééchantillonnage de la dictée.
+media-audio = { path = "crates/media-audio" }
 # Mise à jour gardée sur disque (étape 18c) : sa signature minisign est
 # revérifiée à chaque démarrage et avant l'installation, comme le fait
 # tauri-plugin-updater après un téléchargement (fonction qu'il n'expose pas).
@@ -248,6 +251,18 @@ opt-level = 3
 # Easy Link : décodage d'un message vocal (une minute en moins de 0,1 s
 # optimisé, près d'une seconde sinon).
 [profile.dev.package.opus-pure]
+opt-level = 3
+# Transcription : décodage et rééchantillonnage (essais de media-audio sur
+# des milliers de fichiers abîmés, quelques secondes optimisés).
+[profile.dev.package.media-audio]
+opt-level = 3
+[profile.dev.package.symphonia-core]
+opt-level = 3
+[profile.dev.package.symphonia-codec-aac]
+opt-level = 3
+[profile.dev.package.symphonia-format-isomp4]
+opt-level = 3
+[profile.dev.package.symphonia-format-mkv]
 opt-level = 3
 # Relais (crate relay-server, essais de l'espace de travail) : preuve de
 # travail de l'inscription (Argon2id, 32 Mio par hachage), quelques secondes

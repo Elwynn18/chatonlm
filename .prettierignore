@@ -25,3 +25,5 @@ src-tauri/src/tts/fixtures/
 site/src/pages/
 site/src/partials/
 site/src/root.html
+# Fixtures audio et vidéo du décodeur (binaires ; refused.ts est un flux MPEG-TS).
+src-tauri/crates/media-audio/tests/data/

@@ -1,0 +1,30 @@
+[package]
+name = "media-audio"
+version = "0.1.0"
+description = "Décodage des fichiers audio et vidéo de ChatonLM vers du 16 kHz mono f32 (outil Transcription), en Rust pur"
+license = "MIT"
+edition = "2024"
+publish = false
+
+[dependencies]
+# Démuxeurs et décodeurs en Rust pur (MPL-2.0, accepté par deny.toml), même
+# code sous Linux et Windows : ni ffmpeg, ni code C. Choix et mesures :
+# .tools/research/105-transcription-research.md § 3. Pas d'Opus ni de
+# HE-AAC dans symphonia : voir `src/opus.rs` et `src/heaac.rs`.
+symphonia = { version = "0.6.1", default-features = false, features = [
+  "opt-simd",
+  # Conteneurs : MP4/M4A/MOV (fragmenté compris), MKV/WebM, OGG, WAV, AIFF, CAF.
+  "isomp4", "mkv", "ogg", "wav", "aiff", "caf",
+  # Codecs (l'AAC apporte aussi le lecteur ADTS).
+  "aac", "mp3", "flac", "vorbis", "pcm", "adpcm", "alac",
+  # Étiquettes ID3v2 en tête des MP3 (pochettes comprises).
+  "id3v2",
+] }
+# Opus : même décodeur qu'Easy Link (choisi contre libopus, voir
+# easy-link/src/voice.rs), BSD-3-Clause.
+opus-pure = "0.2.2"
+# Codes d'erreur et métadonnées envoyés plus tard au frontend.
+serde = { version = "1.0.229", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0.151"

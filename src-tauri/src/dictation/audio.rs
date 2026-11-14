@@ -335,85 +335,12 @@ where
     }
 }
 
-/// Demi-largeur du filtre, en passages par zéro du sinus cardinal.
-const ZEROS: f64 = 16.0;
-
-/// Pas de la table du noyau : 512 points par échantillon d'entrée.
-const TABLE_STEP: f64 = 512.0;
-
 /// Rééchantillonne `samples` de `from` Hz vers `to` Hz : interpolation par
 /// sinus cardinal fenêtré (Blackman), coupé à 90 % de la plus basse des deux
 /// fréquences de Nyquist (pas de repliement quand la fréquence baisse).
-pub fn resample(samples: &[f32], from: u32, to: u32) -> Vec<f32> {
-    if from == to || from == 0 || to == 0 || samples.is_empty() {
-        return samples.to_vec();
-    }
-    // Pas, en échantillons d'entrée, entre deux échantillons de sortie.
-    let step = f64::from(from) / f64::from(to);
-    // Fréquence de coupure, en fraction de la fréquence de Nyquist d'entrée.
-    let cutoff = (1.0 / step).min(1.0) * 0.9;
-    // Demi-largeur du noyau, en échantillons d'entrée.
-    let width = ZEROS / cutoff;
-    let table = kernel_table(cutoff, width);
-    let length = (samples.len() as f64 / step).floor() as usize;
-    let last_input = samples.len() - 1;
-    let mut output = Vec::with_capacity(length);
-    for index in 0..length {
-        let center = index as f64 * step;
-        let first = (center - width).ceil().max(0.0) as usize;
-        let last = ((center + width).floor() as usize).min(last_input);
-        let (mut sum, mut weights) = (0.0f64, 0.0f64);
-        for (offset, &sample) in samples[first..=last].iter().enumerate() {
-            let weight = lookup(&table, center - (first + offset) as f64 + width);
-            sum += weight * f64::from(sample);
-            weights += weight;
-        }
-        // Normalisé : gain 1 pour un signal constant, bords compris.
-        output.push(if weights.abs() > 1e-9 {
-            (sum / weights) as f32
-        } else {
-            0.0
-        });
-    }
-    output
-}
-
-/// Noyau échantillonné sur [-width, width], `TABLE_STEP` points par
-/// échantillon d'entrée.
-fn kernel_table(cutoff: f64, width: f64) -> Vec<f64> {
-    use std::f64::consts::PI;
-    let points = (2.0 * width * TABLE_STEP).ceil() as usize + 2;
-    (0..points)
-        .map(|point| {
-            let t = point as f64 / TABLE_STEP - width;
-            let x = t / width;
-            if x.abs() >= 1.0 {
-                return 0.0;
-            }
-            let window = 0.42 + 0.5 * (PI * x).cos() + 0.08 * (2.0 * PI * x).cos();
-            let phase = PI * cutoff * t;
-            let sinc = if phase.abs() < 1e-12 {
-                1.0
-            } else {
-                phase.sin() / phase
-            };
-            sinc * window
-        })
-        .collect()
-}
-
-/// Valeur du noyau en `position` (décalage + demi-largeur), interpolée.
-fn lookup(table: &[f64], position: f64) -> f64 {
-    let scaled = position * TABLE_STEP;
-    let index = scaled.floor();
-    let fraction = scaled - index;
-    let index = index as usize;
-    match (table.get(index), table.get(index + 1)) {
-        (Some(a), Some(b)) => a + (b - a) * fraction,
-        (Some(a), None) => *a,
-        _ => 0.0,
-    }
-}
+/// Fonction du crate `media-audio`, qui la mène aussi par blocs pour les
+/// fichiers de la transcription (même résultat au bit près).
+pub use media_audio::resample;
 
 /// Durée de `samples` à 16 kHz.
 pub fn duration(samples: &[f32]) -> Duration {
