@@ -6,6 +6,14 @@
     "saveImage": "Enregistrer l'image",
     "pngImages": "Images PNG"
   },
+  "documents": {
+    "save": "Enregistrer le document",
+    "markdownFiles": "Fichiers Markdown",
+    "wordFiles": "Documents Word",
+    "pdfFiles": "Documents PDF",
+    "defaultName": "Document",
+    "tooLarge": "Ce document est trop gros pour être enregistré : 64 Mo au plus."
+  },
   "tray": {
     "show": "Afficher ChatonLM",
     "startDictation": "Commencer la dictée",
@@ -607,5 +615,22 @@
       "installFailed": "impossible d'installer le pack NVIDIA : {reason}",
       "removeFailed": "impossible de retirer le pack NVIDIA : {reason}"
     }
+  },
+  "tools": {
+    "licenseRequired": "acceptez les licences de yt-dlp et de Deno pour les télécharger",
+    "unsupported": "yt-dlp et Deno ne sont pas disponibles pour ce système",
+    "removing": "yt-dlp et Deno sont en cours de retrait",
+    "inUse": "une transcription utilise yt-dlp et Deno : réessayez quand elle sera finie",
+    "notInstalled": "yt-dlp et Deno ne sont pas installés",
+    "network": "impossible de joindre GitHub pour obtenir {tool} : {reason}",
+    "release": "la dernière version de {tool} n'est pas celle attendue ({reason}) : mettez ChatonLM à jour si cela dure",
+    "otherKey": "la dernière version de yt-dlp est signée par une clé inconnue : rien n'a été installé, mettez ChatonLM à jour",
+    "signature": "la signature de la dernière version de yt-dlp n'est pas valide ({reason}) : rien n'a été installé",
+    "downloadFailed": "le téléchargement de {tool} a échoué : {reason}",
+    "archive": "l'archive de {tool} est abîmée ou dangereuse ({reason}) : rien n'a été installé",
+    "launch": "{tool} ne démarre pas (un antivirus l'a peut-être bloqué) : {reason}",
+    "version": "{tool} indique une version inattendue : {reason}",
+    "io": "impossible d'écrire {tool} sur le disque : {reason}",
+    "removeFailed": "impossible de retirer yt-dlp et Deno : {reason}"
   }
 }

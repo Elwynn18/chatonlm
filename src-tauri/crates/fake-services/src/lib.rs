@@ -2,8 +2,10 @@
 //! Face (catalogue du ModelHub, téléchargements directs, page d'état ; voir
 //! [`hf`] et [`hf_models`]), `sd-server` (moteur d'images ; voir [`sdcpp`]
 //! et le binaire `fake-sd-server`) et moteurs de recherche web (DuckDuckGo,
-//! Brave, Mojeek, SearXNG ; voir [`search`] et le binaire `fake-search`). Le
-//! moteur de texte a son propre faux (crate `fake-llama`).
+//! Brave, Mojeek, SearXNG ; voir [`search`] et le binaire `fake-search`) et
+//! GitHub « Releases » des outils de la Transcription (yt-dlp, Deno ; voir
+//! [`github`], mode `github` du binaire). Le moteur de texte a son propre
+//! faux (crate `fake-llama`).
 
 /// Faux Hugging Face (serveur à part) : voir [`hf`].
 pub mod hf;
@@ -14,6 +16,10 @@ pub mod sdcpp;
 
 /// Faux moteurs de recherche web (crate `web-search`) : voir [`search`].
 pub mod search;
+
+/// Faux GitHub « Releases » (yt-dlp et Deno, outils de la Transcription) :
+/// voir [`github`].
+pub mod github;
 
 /// Petite image PNG valide (1 × 1 pixel transparent) pour les essais.
 pub const SAMPLE_PNG: [u8; 68] = [

@@ -32,6 +32,7 @@ import type { ModelDetails } from "@/bindings/ModelDetails";
 import type { ChatModel } from "@/bindings/ChatModel";
 import type { EngineRunningModel } from "@/bindings/EngineRunningModel";
 import type { CudaStatus } from "@/bindings/CudaStatus";
+import type { ToolsStatus } from "@/bindings/ToolsStatus";
 import type { EngineStatus } from "@/bindings/EngineStatus";
 import type { EngineModelsDir } from "@/bindings/EngineModelsDir";
 import type { FolderEvent } from "@/bindings/FolderEvent";
@@ -295,6 +296,50 @@ export function listenCudaStatus(
   onChange: (status: CudaStatus) => void,
 ): Promise<UnlistenFn> {
   return listen<CudaStatus>(CUDA_STATUS_EVENT, (event) =>
+    onChange(event.payload),
+  );
+}
+
+/**
+ * Outils de la Transcription téléchargés à la demande (yt-dlp et Deno) :
+ * état ; `check` relève la dernière version si le relevé est dû (au plus une
+ * fois par jour pour yt-dlp, par semaine pour Deno ; jamais pendant une
+ * transcription), résultat par l'événement.
+ */
+export function toolsStatus(check = false): Promise<ToolsStatus> {
+  return invoke<ToolsStatus>("tools_status", { check });
+}
+
+/**
+ * Télécharge et installe les outils absents ; refusé sans les licences de
+ * yt-dlp (et de ses composants) et de Deno acceptées.
+ */
+export function toolsInstall(acceptLicenses: boolean): Promise<void> {
+  return invoke<void>("tools_install", { acceptLicenses });
+}
+
+/** Relève la dernière version et installe les plus récentes. */
+export function toolsUpdate(): Promise<void> {
+  return invoke<void>("tools_update");
+}
+
+/** Arrête les téléchargements et installations des outils en cours. */
+export function toolsCancel(): Promise<void> {
+  return invoke<void>("tools_cancel");
+}
+
+/** Retire les deux outils, leurs archives et leurs caches. */
+export function toolsRemove(): Promise<void> {
+  return invoke<void>("tools_remove");
+}
+
+/** Événement des outils : leur état complet à chaque changement. */
+export const TOOLS_STATUS_EVENT = "tools-status";
+
+export function listenToolsStatus(
+  onChange: (status: ToolsStatus) => void,
+): Promise<UnlistenFn> {
+  return listen<ToolsStatus>(TOOLS_STATUS_EVENT, (event) =>
     onChange(event.payload),
   );
 }
@@ -1616,4 +1661,26 @@ export function errorMessage(error: unknown): string {
   if (isAppError(error)) return error.message;
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+/** Format d'un document exporté (src/lib/export). */
+export type ExportKind = "md" | "docx" | "pdf";
+
+/**
+ * Enregistre un document exporté (src/lib/export) : boîte « Enregistrer
+ * sous » native, filtrée sur le format, nom proposé `name` (sans extension,
+ * nettoyé par le moteur, qui ajoute l'extension) ; le contenu part en octets
+ * bruts. Chemin écrit, ou null si l'utilisateur annule.
+ */
+export function saveExport(
+  data: Uint8Array,
+  kind: ExportKind,
+  name: string,
+): Promise<string | null> {
+  return invoke<string | null>("save_document", data, {
+    headers: {
+      "x-filename": encodeURIComponent(name),
+      "x-kind": kind,
+    },
+  });
 }

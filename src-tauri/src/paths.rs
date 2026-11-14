@@ -59,6 +59,12 @@ pub fn voice_models_dir<R: Runtime>(app: &tauri::AppHandle<R>) -> crate::error::
     Ok(data_dir(app)?.join("voice-models"))
 }
 
+/// Outils de la Transcription téléchargés à la demande (yt-dlp, Deno) :
+/// `data_dir()/tools/` (voir le module `tools`).
+pub fn tools_dir<R: Runtime>(app: &tauri::AppHandle<R>) -> crate::error::AppResult<PathBuf> {
+    Ok(data_dir(app)?.join("tools"))
+}
+
 /// Icône de l'app écrite sur le disque pour les notifications de la dictée.
 pub fn notification_icon<R: Runtime>(
     app: &tauri::AppHandle<R>,

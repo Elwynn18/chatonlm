@@ -32,6 +32,7 @@ mod shutdown;
 mod startup;
 mod store;
 mod study;
+mod tools;
 mod tts;
 mod updater;
 mod voice_mode;
@@ -199,6 +200,16 @@ pub fn run() {
                 },
             ));
             app.manage(text_engine);
+            // Outils de la Transcription téléchargés à la demande (yt-dlp,
+            // Deno) : état vers la page à chaque changement (événement
+            // `tools-status`) ; anciennes versions effacées au lancement.
+            let handle = app.handle().clone();
+            app.manage(tools::Tools::new(
+                paths::tools_dir(app.handle())?,
+                move |status| {
+                    let _ = handle.emit(tools::STATUS_EVENT, status);
+                },
+            ));
             // Catalogue du ModelHub : cache disque sous le dossier des données.
             app.manage(hub::state::Catalog::new(data_dir.join("modelhub")));
             // Modèles d'images : file des téléchargements (liste complète vers
@@ -434,6 +445,7 @@ pub fn run() {
             commands::desktop::menu_entry_status,
             commands::desktop::set_close_to_tray,
             commands::desktop::set_menu_entry,
+            commands::documents::save_document,
             commands::dictation::dictation_bind_shortcut,
             commands::dictation::dictation_cancel,
             commands::dictation::dictation_stop_editor,
@@ -450,6 +462,11 @@ pub fn run() {
             commands::dictation::speech_downloads,
             commands::dictation::speech_models,
             commands::dictation::update_dictation_settings,
+            commands::tools::tools_cancel,
+            commands::tools::tools_install,
+            commands::tools::tools_remove,
+            commands::tools::tools_status,
+            commands::tools::tools_update,
             commands::tts::read_aloud,
             commands::tts::read_aloud_state,
             commands::tts::read_aloud_stop,
@@ -658,6 +675,7 @@ async fn stop_work(app: &AppHandle) {
     let voice_downloads = app.try_state::<tts::VoiceDownloads>();
     let image_downloads = app.try_state::<image_models::ImageDownloads>();
     let cuda = app.try_state::<engine::cuda::Cuda>();
+    let tools = app.try_state::<tools::Tools>();
     let dictation = app.state::<Dictation>();
     let downloads = async {
         if let Some(downloads) = downloads {
@@ -684,6 +702,11 @@ async fn stop_work(app: &AppHandle) {
             cuda.stop_all(EXIT_GRACE).await;
         }
     };
+    let tools = async {
+        if let Some(tools) = tools {
+            tools.stop_all(EXIT_GRACE).await;
+        }
+    };
     let images = app.try_state::<image_gen::ImageGen>();
     let images = async {
         if let Some(images) = images {
@@ -698,6 +721,7 @@ async fn stop_work(app: &AppHandle) {
         voice_downloads,
         image_downloads,
         cuda,
+        tools,
         dictation.shutdown(),
         images
     );

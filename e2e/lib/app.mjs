@@ -41,6 +41,9 @@ const DROPPED_ENV = [
   "CHATONLM_CUDA_PUBKEY",
   "CHATONLM_CUDA_PROOF_DIR",
   "CHATONLM_CUDA_PROOF_VERSION",
+  // Outils de la Transcription (yt-dlp, Deno) : clé d'essai des sommes,
+  // donnée par un test qui se sert du faux GitHub (fake-services github).
+  "CHATONLM_TOOLS_PUBKEY",
   // Processeur seulement (builds d'essai) : donné par `startRealEngine`
   // quand `CHATONLM_LLAMA_TEST_CPU=1`.
   "CHATONLM_LLAMA_CPU_ONLY",
@@ -263,6 +266,12 @@ export async function withApp(
       CHATONLM_CUDA_PACK_URL: "http://127.0.0.1:1",
       CHATONLM_NVIDIA_REDIST_URL: "http://127.0.0.1:1",
       CHATONLM_CUDA_QUEUE_URL: "http://127.0.0.1:1",
+      // Outils de la Transcription : Releases de yt-dlp et de Deno fermées
+      // (rien n'est téléchargé de GitHub) ; un test de la Transcription
+      // donne le faux GitHub (fake-services github).
+      CHATONLM_YTDLP_RELEASES_URL: "http://127.0.0.1:1",
+      CHATONLM_DENO_RELEASES_URL: "http://127.0.0.1:1",
+      CHATONLM_TOOLS_QUEUE_URL: "http://127.0.0.1:1",
       CHATONLM_REMOTE_URL: "http://127.0.0.1:1",
       // Interface en anglais (langue « System » des essais), quelle que soit
       // la langue du bureau du développeur ; un test des langues donne la

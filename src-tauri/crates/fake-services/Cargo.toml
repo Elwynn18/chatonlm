@@ -12,8 +12,14 @@ base64 = "0.22.1"
 futures-util = { version = "0.3.34", default-features = false }
 # Faux moteur d'images : images PNG (déjà dans l'arbre par tauri).
 png = "0.18.1"
+# Faux GitHub des outils de la Transcription : signatures OpenPGP d'essai
+# (RSA, SHA-512). Déjà dans l'arbre (moteur de rustls).
+ring = "0.17.14"
 serde_json = "1.0.151"
 sha2 = "0.10.9"
 tokio = { version = "1.53.2", features = ["io-std", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 # Faux moteurs de recherche : formulaires et requêtes décodés.
 url = "2.5.8"
+# Faux GitHub : archives onedir de yt-dlp et de Deno fabriquées à la volée.
+# Déjà dans l'arbre (pack CUDA de l'app).
+zip = { version = "9.5.0", default-features = false, features = ["deflate-flate2"] }
