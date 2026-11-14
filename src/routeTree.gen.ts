@@ -14,6 +14,7 @@ import { Route as HubRouteImport } from "./routes/hub"
 import { Route as ProofreadRouteImport } from "./routes/proofread"
 import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as StudyRouteImport } from "./routes/study"
+import { Route as ToolsRouteImport } from "./routes/tools"
 import { Route as CChatIdRouteImport } from "./routes/c.$chatId"
 import { Route as HubIndexRouteImport } from "./routes/hub.index"
 import { Route as HubDownloadsRouteImport } from "./routes/hub.downloads"
@@ -52,6 +53,11 @@ const StudyRoute = StudyRouteImport.update({
   path: "/study",
   getParentRoute: () => rootRouteImport,
 } as any)
+const ToolsRoute = ToolsRouteImport.update({
+  id: "/tools",
+  path: "/tools",
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import("./routes/tools.lazy").then((d) => d.Route))
 const CChatIdRoute = CChatIdRouteImport.update({
   id: "/c/$chatId",
   path: "/c/$chatId",
@@ -129,6 +135,7 @@ export interface FileRoutesByFullPath {
   "/proofread": typeof ProofreadRoute
   "/settings": typeof SettingsRoute
   "/study": typeof StudyRouteWithChildren
+  "/tools": typeof ToolsRoute
   "/c/$chatId": typeof CChatIdRoute
   "/hub/downloads": typeof HubDownloadsRoute
   "/hub/installed": typeof HubInstalledRoute
@@ -146,6 +153,7 @@ export interface FileRoutesByTo {
   "/": typeof IndexRoute
   "/proofread": typeof ProofreadRoute
   "/settings": typeof SettingsRoute
+  "/tools": typeof ToolsRoute
   "/c/$chatId": typeof CChatIdRoute
   "/hub/downloads": typeof HubDownloadsRoute
   "/hub/installed": typeof HubInstalledRoute
@@ -166,6 +174,7 @@ export interface FileRoutesById {
   "/proofread": typeof ProofreadRoute
   "/settings": typeof SettingsRoute
   "/study": typeof StudyRouteWithChildren
+  "/tools": typeof ToolsRoute
   "/c/$chatId": typeof CChatIdRoute
   "/hub/downloads": typeof HubDownloadsRoute
   "/hub/installed": typeof HubInstalledRoute
@@ -187,6 +196,7 @@ export interface FileRouteTypes {
     | "/proofread"
     | "/settings"
     | "/study"
+    | "/tools"
     | "/c/$chatId"
     | "/hub/downloads"
     | "/hub/installed"
@@ -204,6 +214,7 @@ export interface FileRouteTypes {
     | "/"
     | "/proofread"
     | "/settings"
+    | "/tools"
     | "/c/$chatId"
     | "/hub/downloads"
     | "/hub/installed"
@@ -223,6 +234,7 @@ export interface FileRouteTypes {
     | "/proofread"
     | "/settings"
     | "/study"
+    | "/tools"
     | "/c/$chatId"
     | "/hub/downloads"
     | "/hub/installed"
@@ -243,6 +255,7 @@ export interface RootRouteChildren {
   ProofreadRoute: typeof ProofreadRoute
   SettingsRoute: typeof SettingsRoute
   StudyRoute: typeof StudyRouteWithChildren
+  ToolsRoute: typeof ToolsRoute
   CChatIdRoute: typeof CChatIdRoute
 }
 
@@ -281,6 +294,13 @@ declare module "@tanstack/react-router" {
       path: "/study"
       fullPath: "/study"
       preLoaderRoute: typeof StudyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/tools": {
+      id: "/tools"
+      path: "/tools"
+      fullPath: "/tools"
+      preLoaderRoute: typeof ToolsRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/c/$chatId": {
@@ -414,6 +434,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProofreadRoute: ProofreadRoute,
   SettingsRoute: SettingsRoute,
   StudyRoute: StudyRouteWithChildren,
+  ToolsRoute: ToolsRoute,
   CChatIdRoute: CChatIdRoute,
 }
 export const routeTree = rootRouteImport

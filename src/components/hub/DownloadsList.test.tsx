@@ -518,7 +518,7 @@ describe("Sidebar", () => {
     await screen.findByRole("link", { name: "ModelHub" });
   }
 
-  it("has a ModelHub entry between Study and Settings, current on its pages", async () => {
+  it("has a ModelHub entry between Tools and Settings, current on its pages", async () => {
     renderHub("/hub/installed");
     await openSidebar();
     const nav = screen.getByRole("link", { name: "ModelHub" }).closest("nav")!;
@@ -526,7 +526,7 @@ describe("Sidebar", () => {
       within(nav)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Chat", "Proofread", "Study", "ModelHub", "Settings"]);
+    ).toEqual(["Chat", "Tools", "ModelHub", "Settings"]);
     const hub = within(nav).getByRole("link", { name: "ModelHub" });
     expect(hub.getAttribute("href")).toBe("/hub");
     const classes = (link: HTMLElement) => link.className.split(" ");

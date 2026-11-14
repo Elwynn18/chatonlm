@@ -164,7 +164,10 @@ await withApp(
     await shot(driver, "chat-light", 1500);
 
     // Proofread (clair) : corrections d'un vrai modèle, deux langues.
-    await sidebar(driver, "Proofread");
+    await sidebar(driver, "Tools");
+    await driver.click(
+      await driver.waitFor("[data-testid=tool-card-proofread]"),
+    );
     await driver.waitFor("[data-testid=proofread]");
     await insertText(
       driver,
@@ -180,7 +183,8 @@ await withApp(
 
     // Study (clair) : le formulaire (un modèle de 0,6 milliard voit ses
     // questions écartées par la vérification : pas de cours à montrer).
-    await sidebar(driver, "Study");
+    await sidebar(driver, "Tools");
+    await driver.click(await driver.waitFor("[data-testid=tool-card-study]"));
     await driver.waitFor("[data-testid=study-form]");
     await insertText(
       driver,

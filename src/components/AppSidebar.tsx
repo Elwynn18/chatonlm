@@ -11,18 +11,16 @@
  * while downloads are active (link to the Downloads tab); no AppSidebar
  * component: every page shows the chat history (ChatSidebar), which includes
  * this navigation; texts translated into English, Spanish and French
- * (src/i18n); a "Proofread" entry (ChatonLM's own text correction page)
- * between Chat and ModelHub; a "Study" entry (ChatonLM's own generated
- * courses) between Proofread and ModelHub; the orange pill of the current
- * entry slides to the new one (SlidingPill).
+ * (src/i18n); a "Tools" entry between Chat and ModelHub (ChatonLM's own
+ * page of tools: Study, Proofread), highlighted on the tools' pages too; the
+ * orange pill of the current entry slides to the new one (SlidingPill).
  */
 
 import {
-  AcademicCapIcon,
   Cog6ToothIcon,
   CubeIcon,
-  DocumentCheckIcon,
   PencilSquareIcon,
+  WrenchScrewdriverIcon,
 } from "@heroicons/react/24/outline";
 import { Link } from "@tanstack/react-router";
 import { SlidingPill } from "@/components/SlidingPill";
@@ -31,8 +29,11 @@ import { useT } from "@/i18n";
 import { formatPercent } from "@/i18n/format";
 import { downloadPercent, isActiveDownload } from "@/lib/hub";
 
-/** Page de l'app dont l'entrée est surlignée. */
-export type AppSection = "chat" | "proofread" | "study" | "hub" | "settings";
+/**
+ * Page de l'app dont l'entrée est surlignée ; « tools » : la page des outils
+ * et celle de chaque outil (Study, Proofread).
+ */
+export type AppSection = "chat" | "tools" | "hub" | "settings";
 
 export function AppNavigation({ current }: { current: AppSection }) {
   const t = useT();
@@ -59,22 +60,13 @@ export function AppNavigation({ current }: { current: AppSection }) {
         <span className="truncate">{t("chat.nav.chat")}</span>
       </Link>
       <Link
-        to="/proofread"
-        className={itemClass("proofread")}
-        data-pill="proofread"
+        to="/tools"
+        className={itemClass("tools")}
+        data-pill="tools"
         draggable={false}
       >
-        <DocumentCheckIcon className="h-5 w-5" />
-        <span className="truncate">{t("chat.nav.proofread")}</span>
-      </Link>
-      <Link
-        to="/study"
-        className={itemClass("study")}
-        data-pill="study"
-        draggable={false}
-      >
-        <AcademicCapIcon className="h-5 w-5" />
-        <span className="truncate">{t("chat.nav.study")}</span>
+        <WrenchScrewdriverIcon className="h-5 w-5" />
+        <span className="truncate">{t("chat.nav.tools")}</span>
       </Link>
       <Link
         to="/hub"

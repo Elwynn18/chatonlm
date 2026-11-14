@@ -33,11 +33,7 @@ import {
 const STEPS = [
   { id: "chat", href: "/c/new", targets: ['[data-tour="composer"]'] },
   { id: "hub", href: "/hub", targets: ['nav a[href="/hub"]'] },
-  {
-    id: "tools",
-    href: "/proofread",
-    targets: ['nav a[href="/proofread"]', 'nav a[href="/study"]'],
-  },
+  { id: "tools", href: "/tools", targets: ['nav a[href="/tools"]'] },
   { id: "settings", href: "/settings", targets: ['nav a[href="/settings"]'] },
 ] as const;
 

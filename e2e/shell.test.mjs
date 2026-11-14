@@ -28,13 +28,7 @@ await withApp(binary, { name: "shell", env: engine.env }, async (driver) => {
   const links = await driver.execute(
     "return [...document.querySelectorAll('nav a')].map((a) => a.textContent.trim())",
   );
-  assert.deepEqual(links, [
-    "Chat",
-    "Proofread",
-    "Study",
-    "ModelHub",
-    "Settings",
-  ]);
+  assert.deepEqual(links, ["Chat", "Tools", "ModelHub", "Settings"]);
   // Barre ouverte : « New chat » s'efface (fondu de 375 ms).
   await new Promise((resolve) => setTimeout(resolve, 600));
   assert.equal(await opacity(driver, "a[title='New chat']"), "0");

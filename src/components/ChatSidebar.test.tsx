@@ -197,6 +197,48 @@ describe("history on every page", () => {
     expect(highlighted(link("Settings"))).toBe(false);
   });
 
+  it("has one Tools entry, highlighted on the Tools page and on each tool's page", async () => {
+    const { app } = setup("/c/new");
+    await openHistory();
+    const nav = () => rowOf("today").closest("nav")!;
+    const entries = () =>
+      within(nav())
+        .getAllByRole("link")
+        .slice(0, 4)
+        .map((element) => [
+          element.textContent,
+          element.getAttribute("href"),
+          element.getAttribute("data-pill"),
+        ]);
+    const current = () =>
+      within(nav())
+        .getAllByRole("link")
+        .slice(0, 4)
+        .filter((element) => classes(element).includes("bg-accent"))
+        .map((element) => element.textContent);
+
+    expect(entries()).toEqual([
+      ["Chat", "/c/new", "chat"],
+      ["Tools", "/tools", "tools"],
+      ["ModelHub", "/hub", "hub"],
+      ["Settings", "/settings", "settings"],
+    ]);
+    expect(within(nav()).queryByRole("link", { name: "Proofread" })).toBeNull();
+    expect(within(nav()).queryByRole("link", { name: "Study" })).toBeNull();
+    expect(current()).toEqual(["Chat"]);
+
+    for (const [to, testId] of [
+      ["/tools", "tools"],
+      ["/proofread", "proofread"],
+      ["/study", "study-home"],
+    ] as const) {
+      await act(() => app.router.navigate({ to }));
+      await screen.findByTestId(testId);
+      await waitFor(() => expect(row("today")).toBeTruthy());
+      expect(current()).toEqual(["Tools"]);
+    }
+  });
+
   it("a chat clicked in the settings opens; one deleted there leaves the page as is", async () => {
     const { app, simulator } = setup("/settings");
     await openHistory();

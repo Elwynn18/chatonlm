@@ -45,11 +45,7 @@ function text(lang, key) {
 const STEPS = [
   { id: "chat", path: "/c/new", targets: ['[data-tour="composer"]'] },
   { id: "hub", path: "/hub", targets: ['nav a[href="/hub"]'] },
-  {
-    id: "tools",
-    path: "/proofread",
-    targets: ['nav a[href="/proofread"]', 'nav a[href="/study"]'],
-  },
+  { id: "tools", path: "/tools", targets: ['nav a[href="/tools"]'] },
   { id: "settings", path: "/settings", targets: ['nav a[href="/settings"]'] },
 ];
 /** Bureau en français (withApp impose sinon l'anglais). */

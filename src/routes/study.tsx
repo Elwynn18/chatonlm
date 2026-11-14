@@ -1,6 +1,6 @@
 // Onglet Study (propre à ChatonLM) : gabarit commun de l'accueil (/study) et
 // d'un cours (/study/$courseId). Barre latérale du chat, historique compris
-// (entrée Study surlignée ; les cours ne vont jamais dans l'historique), titre
+// (entrée Tools surlignée ; les cours ne vont jamais dans l'historique), titre
 // « Study », puis la page. Les changements des cours (« study-updated ») sont
 // écoutés ici, pour les deux pages.
 
@@ -20,7 +20,7 @@ function StudyLayout() {
   return (
     <SidebarLayout
       title={t("study.title")}
-      sidebar={<ChatSidebar current="study" />}
+      sidebar={<ChatSidebar current="tools" />}
     >
       <Outlet />
     </SidebarLayout>

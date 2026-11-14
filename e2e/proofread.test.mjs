@@ -197,22 +197,26 @@ await withApp(
     await reload(driver);
     await driver.waitFor("[data-testid=new-chat]");
 
-    // Barre latérale : Proofread entre Chat et Study.
+    // Barre latérale : une entrée Tools entre Chat et ModelHub ; Proofread
+    // s'ouvre par sa carte de la page Tools.
     if (await exists(driver, "button[aria-label='Show sidebar']")) {
       await driver.click(
         await driver.find("button[aria-label='Show sidebar']"),
       );
     }
-    const link = await driver.waitFor("nav a[href$='/proofread']");
+    const link = await driver.waitFor("nav a[href$='/tools']");
     assert.deepEqual(
       await driver.execute(
-        `return [...document.querySelector("nav a[href$='/proofread']")
+        `return [...document.querySelector("nav a[href$='/tools']")
              .parentElement.querySelectorAll(":scope > a")]
-             .map((a) => a.textContent.trim()).slice(0, 5);`,
+             .map((a) => a.textContent.trim()).slice(0, 4);`,
       ),
-      ["Chat", "Proofread", "Study", "ModelHub", "Settings"],
+      ["Chat", "Tools", "ModelHub", "Settings"],
     );
     await driver.click(link);
+    await driver.click(
+      await driver.waitFor("[data-testid=tool-card-proofread]"),
+    );
     await driver.waitFor("[data-testid=proofread]");
     assert.equal(
       await driver.execute("return document.querySelector('h1').textContent"),
@@ -220,10 +224,10 @@ await withApp(
     );
     assert.ok(
       await driver.execute(
-        `return document.querySelector("nav a[href$='/proofread']")
+        `return document.querySelector("nav a[href$='/tools']")
              .classList.contains("bg-accent")`,
       ),
-      "entrée Proofread surlignée",
+      "entrée Tools surlignée",
     );
     assert.deepEqual(
       await driver.execute(
@@ -479,7 +483,10 @@ await withApp(
         await driver.find("button[aria-label='Show sidebar']"),
       );
     }
-    await driver.click(await driver.waitFor("nav a[href$='/proofread']"));
+    await driver.click(await driver.waitFor("nav a[href$='/tools']"));
+    await driver.click(
+      await driver.waitFor("[data-testid=tool-card-proofread]"),
+    );
     await driver.waitFor("[data-testid=proofread]");
     await useModel(driver, PROOFER);
     await driver.invoke("update_settings", { patch: { language: "fr" } });

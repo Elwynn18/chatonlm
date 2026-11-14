@@ -1,5 +1,5 @@
 // Page Proofread (propre à ChatonLM), chargée à la première visite : barre
-// latérale du chat, historique compris (entrée Proofread surlignée), puis
+// latérale du chat, historique compris (entrée Tools surlignée), puis
 // le volet de correction. Avec `selection`, la dernière correction du
 // raccourci global est lue et montrée en revue, une fois par demande : une
 // nouvelle action « Show » (état `navigateRequest`) la redemande, un retour
@@ -50,7 +50,7 @@ function ProofreadRoute() {
   return (
     <SidebarLayout
       title={t("proofread.title")}
-      sidebar={<ChatSidebar current="proofread" />}
+      sidebar={<ChatSidebar current="tools" />}
     >
       <Proofread />
     </SidebarLayout>

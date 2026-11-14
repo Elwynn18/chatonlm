@@ -1,0 +1,8 @@
+{
+  "title": "Herramientas",
+  "description": "Cada herramienta pone tus modelos a trabajar en una tarea.",
+  "cards": {
+    "study": "Convierte cualquier tema en un curso breve, con lecciones y preguntas.",
+    "proofread": "Corrige o reformula un texto y ve cada cambio."
+  }
+}

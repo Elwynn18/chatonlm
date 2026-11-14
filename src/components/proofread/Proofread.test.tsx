@@ -133,7 +133,7 @@ async function corrected(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("Proofread page", () => {
-  it("is in the sidebar between Chat and Study, highlighted on its page", async () => {
+  it("highlights the Tools entry of the sidebar on its page", async () => {
     const user = userEvent.setup();
     setup();
     await screen.findByTestId("proofread");
@@ -143,16 +143,16 @@ describe("Proofread page", () => {
     if (toggle.getAttribute("aria-label") === "Show sidebar") {
       await user.click(toggle);
     }
-    const link = await screen.findByRole("link", { name: "Proofread" });
-    expect(link.getAttribute("href")).toBe("/proofread");
+    const link = await screen.findByRole("link", { name: "Tools" });
+    expect(link.getAttribute("href")).toBe("/tools");
     expect(link.className.split(" ")).toContain("bg-accent");
     const nav = link.closest("nav")!;
     expect(
       within(nav)
         .getAllByRole("link")
-        .slice(0, 5)
+        .slice(0, 4)
         .map((element) => element.textContent),
-    ).toEqual(["Chat", "Proofread", "Study", "ModelHub", "Settings"]);
+    ).toEqual(["Chat", "Tools", "ModelHub", "Settings"]);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
       "Proofread",
     );

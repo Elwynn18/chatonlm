@@ -12,8 +12,7 @@
   },
   "nav": {
     "chat": "Chat",
-    "proofread": "Proofread",
-    "study": "Study",
+    "tools": "Tools",
     "hub": "ModelHub",
     "downloading": {
       "one": "Downloading {count}",

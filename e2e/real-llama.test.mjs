@@ -221,7 +221,10 @@ await withApp(
         await driver.find("button[aria-label='Show sidebar']"),
       );
     }
-    await driver.click(await driver.waitFor("nav a[href$='/proofread']"));
+    await driver.click(await driver.waitFor("nav a[href$='/tools']"));
+    await driver.click(
+      await driver.waitFor("[data-testid=tool-card-proofread]"),
+    );
     await driver.waitFor("[data-testid=proofread]");
     const PROOFREAD_TEXT =
       "Je suis allez au cinema hier soir avec mes ami.\n\nI recieve the letter yesterday and I was very happy.";
@@ -271,7 +274,8 @@ await withApp(
         await driver.find("button[aria-label='Show sidebar']"),
       );
     }
-    await driver.click(await driver.waitFor("nav a[href$='/study']"));
+    await driver.click(await driver.waitFor("nav a[href$='/tools']"));
+    await driver.click(await driver.waitFor("[data-testid=tool-card-study]"));
     await driver.waitFor("[data-testid=study-form] textarea");
     await driver.execute(
       `const area = document.querySelector("[data-testid=study-form] textarea");

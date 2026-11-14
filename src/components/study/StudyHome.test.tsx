@@ -71,7 +71,7 @@ async function home() {
 }
 
 describe("Study home", () => {
-  it("is in the sidebar between Proofread and ModelHub, highlighted on its pages", async () => {
+  it("highlights the Tools entry of the sidebar on its pages", async () => {
     const user = userEvent.setup();
     setup();
     await home();
@@ -81,15 +81,15 @@ describe("Study home", () => {
     if (toggle.getAttribute("aria-label") === "Show sidebar") {
       await user.click(toggle);
     }
-    const link = await screen.findByRole("link", { name: "Study" });
-    expect(link.getAttribute("href")).toBe("/study");
+    const link = await screen.findByRole("link", { name: "Tools" });
+    expect(link.getAttribute("href")).toBe("/tools");
     expect(link.className.split(" ")).toContain("bg-accent");
     expect(
       within(link.closest("nav")!)
         .getAllByRole("link")
-        .slice(0, 5)
+        .slice(0, 4)
         .map((element) => element.textContent),
-    ).toEqual(["Chat", "Proofread", "Study", "ModelHub", "Settings"]);
+    ).toEqual(["Chat", "Tools", "ModelHub", "Settings"]);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Study");
   });
 

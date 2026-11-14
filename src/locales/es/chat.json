@@ -12,8 +12,7 @@
   },
   "nav": {
     "chat": "Chat",
-    "proofread": "Corrección",
-    "study": "Estudiar",
+    "tools": "Herramientas",
     "hub": "ModelHub",
     "downloading": {
       "one": "Descargando {count}",

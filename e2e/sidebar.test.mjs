@@ -187,8 +187,8 @@ await withApp(
     assert.ok(chats.every((chat) => chat.favorite === false));
     const [first, second, third] = chats;
 
-    // --- Historique sur ModelHub et Settings.
-    for (const href of ["/hub", "/settings"]) {
+    // --- Historique sur Tools, ModelHub et Settings.
+    for (const href of ["/tools", "/hub", "/settings"]) {
       await driver.click(await driver.waitFor(`nav a[href='${href}']`));
       await waitUntil(
         async () =>

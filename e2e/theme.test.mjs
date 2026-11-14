@@ -50,14 +50,22 @@ const settingsTab = (name) => [
   `[data-testid=settings-tab-${name}][aria-current=page]`,
 ];
 
+/** Outil ouvert par sa carte de la page Tools. */
+const tool = (name, shown) => [
+  name,
+  ["nav a[href$='/tools']", `[data-testid=tool-card-${name}]`],
+  shown,
+];
+
 /**
- * Écrans de l'app : nom, lien à cliquer (barre latérale ou onglet), élément
- * attendu.
+ * Écrans de l'app : nom, lien à cliquer (barre latérale, onglet, carte ; une
+ * liste : cliqués l'un après l'autre), élément attendu.
  */
 const SCREENS = [
   ["chat", "[data-chat-id] a", "[data-role=assistant]"],
-  ["proofread", "nav a[href$='/proofread']", "[data-testid=proofread]"],
-  ["study", "nav a[href$='/study']", "[data-testid=study-form]"],
+  ["tools", "nav a[href$='/tools']", "[data-testid=tools]"],
+  tool("proofread", "[data-testid=proofread]"),
+  tool("study", "[data-testid=study-form]"),
   ["hub", "nav a[href$='/hub']", "nav[aria-label=ModelHub]"],
   ...["transcription", "polish", "voices", "installed", "downloads"].map(
     hubTab,
@@ -74,6 +82,12 @@ const SCREENS = [
 ];
 
 /**
+ * Textes de styles différents attendus au moins par écran (10 par défaut) :
+ * la page Tools n'a que des cartes de même style.
+ */
+const MIN_TEXTS = { tools: 7 };
+
+/**
  * Chaque écran de l'app, barre latérale ouverte, en clair puis en sombre
  * (classe « dark » imposée, comme le fait useTheme) : tout texte à lire y a
  * un contraste d'au moins 4,5:1 avec le fond peint dessous.
@@ -87,8 +101,10 @@ async function checkContrast() {
       await driver.click(
         await driver.waitFor("button[aria-label='Show sidebar']"),
       );
-      for (const [name, link, shown] of SCREENS) {
-        await driver.click(await driver.waitFor(link));
+      for (const [name, links, shown] of SCREENS) {
+        for (const link of [links].flat()) {
+          await driver.click(await driver.waitFor(link));
+        }
         await driver.waitFor(shown);
         // Contenu chargé après la navigation (réglages, catalogue fermé).
         await delay(800);
@@ -97,7 +113,7 @@ async function checkContrast() {
           try {
             const entries = await measureContrast(driver);
             assert.ok(
-              entries.length >= 10,
+              entries.length >= (MIN_TEXTS[name] ?? 10),
               `${name} (${theme}) : ${entries.length} textes mesurés seulement`,
             );
             assert.deepEqual(

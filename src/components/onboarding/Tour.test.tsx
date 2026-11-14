@@ -51,7 +51,7 @@ const composerArea = () => document.querySelector('[data-tour="composer"]');
 const STEPS = [
   { title: "Start a conversation here", path: "/c/new" },
   { title: "Get models in the ModelHub", path: "/hub" },
-  { title: "Proofread and Study", path: "/proofread" },
+  { title: "Find Proofread and Study in Tools", path: "/tools" },
   { title: "Make it yours in Settings", path: "/settings" },
 ];
 
@@ -97,7 +97,7 @@ describe("Tour", () => {
 
     await userEvent.click(button("Back"));
     await waitFor(() => expect(title()).toBe(STEPS[2].title));
-    await waitFor(() => expect(app.path()).toBe("/proofread"));
+    await waitFor(() => expect(app.path()).toBe("/tools"));
     expect(names()).toEqual(["Skip", "Back", "Next"]);
     await userEvent.click(button("Next"));
     await waitFor(() => expect(app.path()).toBe("/settings"));
@@ -208,6 +208,36 @@ describe("Tour", () => {
       timeout: 3000,
     });
     expect(dialog.style.left).toBe("50%");
+  });
+
+  it("lights up the Tools entry on the Tools page", async () => {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: Element) {
+        const shown = this.matches('nav a[href="/tools"]');
+        return (
+          shown
+            ? {
+                left: 16,
+                top: 110,
+                right: 176,
+                bottom: 146,
+                width: 160,
+                height: 36,
+              }
+            : { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }
+        ) as DOMRect;
+      },
+    );
+    const { app } = renderFirstRun();
+    await bubble();
+    await userEvent.click(button("Next"));
+    await waitFor(() => expect(app.path()).toBe("/hub"));
+    await userEvent.click(button("Next"));
+    await waitFor(() => expect(title()).toBe(STEPS[2].title));
+    await waitFor(() => expect(app.path()).toBe("/tools"));
+    const spot = await screen.findByTestId("tour-spot");
+    await waitFor(() => expect(spot.style.top).toBe("104px"));
+    expect(spot.style.height).toBe("48px");
   });
 
   it("says why when it cannot be closed, and stays", async () => {
