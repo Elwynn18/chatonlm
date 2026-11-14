@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { dep5Errors } from "./inspect-packages.mjs";
 import {
   LLAMA_SERVER_DIR,
@@ -30,6 +30,9 @@ import {
   vulkanPins,
 } from "./package-notices-llama.mjs";
 import { debCopyright, parseEnv } from "./package-notices.mjs";
+
+// Essais qui lisent et écrivent des dossiers : délai explicite (disque lent sous charge).
+vi.setConfig({ testTimeout: 30_000 });
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const ENV = readFileSync(path.join(ROOT, "packaging/llama.env"), "utf8");
