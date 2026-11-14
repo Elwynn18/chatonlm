@@ -13,6 +13,11 @@
 // index.css à noms fixes, rien de Tauri, aucune ressource distante, seuils
 // propres.
 //
+// Exports .docx et .pdf (src/lib/export) : leurs morceaux (docx, pdfmake et
+// les polices du PDF) ne sont chargés que par import(), jamais au démarrage,
+// et ont leurs propres seuils de taille ; le lanceur de Worker de fflate,
+// inatteignable, est toléré dans le seul morceau de pdfmake.
+//
 // Usage : node scripts/check-bundle.mjs [dossier du build, dist/ par défaut]
 //         node scripts/check-bundle.mjs --webview [dossier du build]
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -101,6 +106,33 @@ const CSP_PATTERNS = [
   [/\bWebAssembly\./, "WebAssembly."],
 ];
 
+/**
+ * Morceaux des exports de documents (src/lib/export), reconnus à une chaîne
+ * propre à leur bibliothèque : clé de la mesure, marque, origine. Chargés par
+ * import() au premier export seulement. Absents tant qu'aucune page n'exporte.
+ */
+export const EXPORT_CHUNKS = [
+  [
+    "exportPdf",
+    "Parameter 'docDefinition' has an invalid type",
+    "pdfmake, src/lib/export/pdf.ts",
+  ],
+  [
+    "exportDocx",
+    "schemas.openxmlformats.org/wordprocessingml/2006/main",
+    "docx, src/lib/export/docx.ts",
+  ],
+];
+
+/**
+ * Lanceur de Worker de fflate (blob: refusé par la CSP), compilé dans la
+ * version pour navigateur de pdfmake : seules les fonctions asynchrones de
+ * fflate le lancent, et pdfkit n'appelle que deflateSync. Toléré dans le seul
+ * morceau de pdfmake, sous sa forme minifiée exacte.
+ */
+const PDFMAKE_UNREACHABLE_WORKER =
+  /\bnew\s+Worker\s*\(\s*[\w$]+\[[\w$]+\]\s*\|\|\s*\(\s*[\w$]+\[[\w$]+\]\s*=\s*URL\.createObjectURL\(\s*new\s+Blob\(/g;
+
 /** Chaînes propres au code de test, absentes du code de l'app. */
 const TEST_MARKERS = [
   ["chatonlm-ipc-simulator", "simulateur IPC de src/test/simulator.ts"],
@@ -137,6 +169,16 @@ const NOT_PROSE_REASON =
   "greffon withoutNotProse de vite.config.ts, sinon recalcul de style ~20 fois plus lent dans WebKitGTK";
 
 /**
+ * Seuils des morceaux des exports, ≈ 10 % au-dessus du lot 7 de l'outil
+ * Transcription (14 novembre 2026) : pdfmake et ses polices en base64
+ * (sous-ensembles latin et latin-ext) 953 620 o, docx 228 662 o.
+ */
+export const EXPORT_LIMITS = {
+  exportPdf: 1_050_000,
+  exportDocx: 252_000,
+};
+
+/**
  * Tailles maximales en octets, non compressées, ≈ 10 % au-dessus du build de
  * l'étape 8 (4 octobre 2026) : surligneur 1 993 089 o, woff2 256 168 o ;
  * entrée : ≈ 10 % au-dessus du build des modèles d'images (16 octobre 2026,
@@ -159,6 +201,7 @@ const LIMITS = {
   highlighter: 2_200_000,
   css: 146_000,
   woff2: 280_000,
+  ...EXPORT_LIMITS,
 };
 
 /**
@@ -192,6 +235,8 @@ const LIMIT_LABELS = {
   highlighter: "morceau du surligneur",
   css: "CSS",
   woff2: "polices woff2",
+  exportPdf: "morceau de l'export .pdf",
+  exportDocx: "morceau de l'export .docx",
 };
 
 const NOT_WOFF2 =
@@ -420,9 +465,33 @@ export function checkBundle(dist, { limits = LIMITS, entry: fixedEntry } = {}) {
     );
   }
 
+  // 4 bis. Exports de documents : chargés à la demande seulement.
+  const exportFiles = Object.fromEntries(
+    EXPORT_CHUNKS.map(([key, marker]) => [
+      key,
+      [...code].filter(([, text]) => text.includes(marker)).map(([f]) => f),
+    ]),
+  );
+  for (const [key, , origin] of EXPORT_CHUNKS) {
+    const eagerExport = exportFiles[key].filter((file) => eager.has(file));
+    if (eagerExport.length > 0) {
+      errors.push(
+        `Export de documents chargé au démarrage (${origin}), dans le JS d'entrée ou ses imports statiques (${list(eagerExport)}) : src/lib/export/index.ts doit le charger par import()`,
+      );
+    }
+  }
+
   // 5. Motifs incompatibles avec la CSP, et code de test.
+  const cspCode = new Map(
+    [...code].map(([file, text]) => [
+      file,
+      exportFiles.exportPdf.includes(file)
+        ? text.replace(PDFMAKE_UNREACHABLE_WORKER, "")
+        : text,
+    ]),
+  );
   for (const [pattern, label] of CSP_PATTERNS) {
-    const hits = [...code].filter(([, text]) => pattern.test(text));
+    const hits = [...cspCode].filter(([, text]) => pattern.test(text));
     if (hits.length === 0) continue;
     const [file, text] = hits[0];
     errors.push(
@@ -487,6 +556,8 @@ export function checkBundle(dist, { limits = LIMITS, entry: fixedEntry } = {}) {
     css: sum(css),
     woff2: sum(woff2),
     jsTotal: sum(js),
+    exportPdf: sum(exportFiles.exportPdf),
+    exportDocx: sum(exportFiles.exportDocx),
   };
   for (const [key, limit] of Object.entries(limits)) {
     if (measures[key] > limit) {
@@ -614,7 +685,7 @@ function main() {
   const { measures, packages, scopes, js } = result;
   const errors = [...result.errors, ...checkSources(root)];
   console.log(
-    `Mesures : JS d'entrée ${formatBytes(measures.jsEntry)}, surligneur ${formatBytes(measures.highlighter)}, CSS ${formatBytes(measures.css)}, woff2 ${formatBytes(measures.woff2)}, JS total ${formatBytes(measures.jsTotal)}.`,
+    `Mesures : JS d'entrée ${formatBytes(measures.jsEntry)}, surligneur ${formatBytes(measures.highlighter)}, CSS ${formatBytes(measures.css)}, woff2 ${formatBytes(measures.woff2)}, export .pdf ${formatBytes(measures.exportPdf)}, export .docx ${formatBytes(measures.exportDocx)}, JS total ${formatBytes(measures.jsTotal)}.`,
   );
   for (const error of errors) console.error(`✗ ${error}`);
   if (errors.length > 0) process.exit(1);

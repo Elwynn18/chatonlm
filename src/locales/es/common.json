@@ -15,6 +15,11 @@
     "retry": "Reintentar",
     "remove": "Quitar"
   },
+  "export": {
+    "footer": "ChatonLM",
+    "defaultName": "Documento",
+    "unsupportedCharacters": "Este documento usa caracteres que la fuente del PDF no puede mostrar ({characters}). Expórtalo en .docx."
+  },
   "time": {
     "justNow": "hace un momento"
   }

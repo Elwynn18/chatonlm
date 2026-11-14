@@ -556,6 +556,161 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
+-- Fonts of the PDF export: Figtree and JetBrains Mono --
+
+Packages: @fontsource/figtree 5.3.0 and @fontsource/jetbrains-mono 5.3.0,
+          https://github.com/fontsource/font-files
+Files:    files/figtree-latin-400-normal.woff, figtree-latin-400-italic.woff,
+          figtree-latin-700-normal.woff, figtree-latin-700-italic.woff, the
+          same four in latin-ext (figtree-latin-ext-*.woff),
+          jetbrains-mono-latin-400-normal.woff and
+          jetbrains-mono-latin-ext-400-normal.woff, shipped unmodified (base64
+          inside the PDF export module of the user interface); the PDF
+          documents that ChatonLM writes embed subsets of them
+License:  SIL Open Font License 1.1 (OFL-1.1)
+
+  Copyright 2022 The Figtree Project Authors
+  (https://github.com/erikdkennedy/figtree)
+  Copyright 2020 The JetBrains Mono Project Authors
+  (https://github.com/JetBrains/JetBrainsMono)
+
+Both packages carry the full text of the OFL 1.1, given above with the
+KaTeX fonts. As the OFL states, its terms do not apply to the documents
+created with the fonts.
+
+-- Packages compiled into pdfmake and docx --
+
+Packages: pdfmake 0.3.13, https://github.com/bpampuch/pdfmake (its
+          browser build, build/pdfmake.js, loaded by the PDF export), and
+          docx 9.15.1, https://github.com/dolanmiu/docx (dist/index.mjs,
+          loaded by the Word export)
+
+Both packages ship files that are already built and contain other
+packages, which the generated list does not show (it lists pdfmake and docx
+themselves). These are the packages compiled into them, with their notices.
+Versions are those installed with pdfmake 0.3.13 and docx 9.15.1; for the
+packages that only pdfmake's own build brings in, the range that pdfmake
+0.3.13 declares is given.
+
+Under the MIT License (text below), compiled into pdfmake:
+
+  pdfkit 0.20.2          Copyright (c) 2014 Devon Govett
+  fontkit 2.0.4          Copyright (c) Devon Govett (MIT per its
+                         package.json, which has no license file)
+  restructure 3.0.2      Copyright (c) 2015-present Devon Govett
+  linebreak 1.1.0        Copyright (c) 2014-present Devon Govett
+  png-js 2.0.0           Copyright (c) 2017 Devon Govett
+  tiny-inflate 1.0.3     Copyright (c) 2015-present Devon Govett
+  brotli 1.3.3           Copyright (c) Devon Govett (MIT per its
+                         package.json, which has no license file; a port of
+                         the Brotli decoder, Copyright 2013 Google Inc.,
+                         MIT License)
+  dfa 1.2.0              Copyright (c) Devon Govett (MIT per its
+                         package.json, which has no license file)
+  unicode-trie 2.0.0     Copyright 2018 (MIT, Devon Govett)
+  unicode-properties 1.4.1  Copyright 2018 (MIT, Devon Govett)
+  clone 2.1.2            Copyright (c) 2011-2015 Paul Vorbach
+  fast-deep-equal 3.1.3  Copyright (c) 2017 Evgeny Poberezkin
+  base64-js 1.5.1        Copyright (c) 2014 Jameson Little
+  @noble/ciphers 1.3.0   Copyright (c) 2022 Paul Miller (https://paulmillr.com)
+                         Copyright (c) 2016 Thomas Pornin
+  @noble/hashes 1.8.0    Copyright (c) 2022 Paul Miller (https://paulmillr.com)
+  fflate 0.8.3           Copyright (c) 2026 Arjun Barrett
+  xmldoc 2.0.3           Copyright 2012 Nick Farina
+  core-js 3.51.0         Copyright (c) 2013-2025 Denis Pushkarev (zloirock.ru)
+                         Copyright (c) 2025-2026 CoreJS Company (core-js.io)
+  buffer ^6.0.3          Copyright (c) Feross Aboukhadijeh, and other
+                         contributors
+  process ^0.11.10       Copyright (c) 2013 Roman Shtylman
+  events                 Copyright Joyent, Inc. and other Node contributors
+  file-saver ^2.0.5      Copyright (c) 2016 Eli Grey
+  expose-loader ^5.0.1   Copyright JS Foundation and other contributors
+  webpack runtime        Copyright JS Foundation and other contributors
+
+Under the MIT License (text below), compiled into docx:
+
+  fflate 0.8.3           Copyright (c) 2026 Arjun Barrett
+  nanoid 6.0.2           Copyright 2017 Andrey Sitnik
+  @oxc-project/runtime 0.155.0
+                         Copyright (c) 2024-present VoidZero Inc. &
+                         Contributors
+                         Copyright (c) 2023 Boshen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Under the Apache License, Version 2.0 (full text in the generated
+licenses/ directory), compiled into pdfmake, without a NOTICE file:
+
+  @swc/helpers 0.5.24    Copyright (c) swc project contributors
+
+Under the 0BSD license, compiled into pdfmake:
+
+  tslib                  Copyright (c) Microsoft Corporation.
+
+  Permission to use, copy, modify, and/or distribute this software for any
+  purpose with or without fee is hereby granted.
+
+  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+  SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+  OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+  CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+Under the Blue Oak Model License 1.0.0, compiled into pdfmake:
+
+  sax 1.6.1              https://github.com/isaacs/sax-js
+                         License text: https://blueoakcouncil.org/license/1.0.0
+
+Under the BSD 3-Clause License, compiled into pdfmake:
+
+  ieee754 1.2.1          https://github.com/feross/ieee754
+
+  Copyright 2008 Fair Oaks Labs, Inc.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
+
+  1. Redistributions of source code must retain the above copyright notice,
+  this list of conditions and the following disclaimer.
+
+  2. Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+  3. Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from this
+  software without specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  POSSIBILITY OF SUCH DAMAGE.
+
 -- whisper.cpp and ggml --
 
 Crate:    whisper-rs-sys 0.15.0, which compiles whisper.cpp 1.8.3 and

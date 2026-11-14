@@ -13,6 +13,7 @@ import {
   checkSources,
   checkWebviewBundle,
   EXPECTED_SCOPES,
+  EXPORT_LIMITS,
   REQUIRED_PACKAGES,
   WEBVIEW_LIMITS,
 } from "./check-bundle.mjs";
@@ -362,6 +363,69 @@ describe("checkBundle", () => {
       "Taille dépassée, polices woff2",
     ]);
     expect(errors[3]).toContain("4 o > 3 o");
+  });
+
+  // Morceaux des exports (src/lib/export), minifiés comme par Vite.
+  const PDF_CHUNK =
+    "var We={},Ge=(function(e,t,n,r,i){var a=new Worker(We[t]||(We[t]=URL.createObjectURL(new Blob([e])))));});throw Error(`Parameter 'docDefinition' has an invalid type. Object expected.`);";
+  const DOCX_CHUNK =
+    'const w="http://schemas.openxmlformats.org/wordprocessingml/2006/main";export{w};';
+  const LAZY_ENTRY =
+    'const h=()=>import("./highlighterCore-c.js");const p=()=>import("./pdf-e.js");const d=()=>import("./docx-f.js");console.log(h,p,d);';
+
+  it("accepts the document exports loaded on demand and measures them", () => {
+    const { errors, measures } = checkBundle(
+      build({
+        "assets/index-a.js": LAZY_ENTRY,
+        "assets/pdf-e.js": PDF_CHUNK,
+        "assets/docx-f.js": DOCX_CHUNK,
+      }),
+    );
+    expect(errors).toEqual([]);
+    expect(measures.exportPdf).toBe(PDF_CHUNK.length);
+    expect(measures.exportDocx).toBe(DOCX_CHUNK.length);
+    expect(
+      checkBundle(
+        build({
+          "assets/index-a.js": LAZY_ENTRY,
+          "assets/pdf-e.js": PDF_CHUNK,
+          "assets/docx-f.js": DOCX_CHUNK,
+        }),
+        {
+          limits: { ...EXPORT_LIMITS, exportPdf: 10, exportDocx: 10 },
+        },
+      ).errors.map((e) => e.split(" : ")[0]),
+    ).toEqual([
+      "Taille dépassée, morceau de l'export .pdf",
+      "Taille dépassée, morceau de l'export .docx",
+    ]);
+  });
+
+  it("refuses document exports loaded at startup", () => {
+    const errors = errorsOf({
+      "assets/index-a.js":
+        'import"./pdf-e.js";import{w}from"./docx-f.js";const h=()=>import("./highlighterCore-c.js");console.log(h,w);',
+      "assets/pdf-e.js": PDF_CHUNK,
+      "assets/docx-f.js": DOCX_CHUNK,
+    });
+    expect(errors).toEqual([
+      "Export de documents chargé au démarrage (pdfmake, src/lib/export/pdf.ts), dans le JS d'entrée ou ses imports statiques (assets/pdf-e.js) : src/lib/export/index.ts doit le charger par import()",
+      "Export de documents chargé au démarrage (docx, src/lib/export/docx.ts), dans le JS d'entrée ou ses imports statiques (assets/docx-f.js) : src/lib/export/index.ts doit le charger par import()",
+    ]);
+  });
+
+  it("tolerates fflate's unreachable worker in the pdfmake chunk only", () => {
+    const worker = PDF_CHUNK.split("throw")[0];
+    const errors = errorsOf({
+      "assets/index-a.js": LAZY_ENTRY,
+      "assets/pdf-e.js": `${PDF_CHUNK}new Worker("w.js");`,
+      "assets/docx-f.js": DOCX_CHUNK,
+      "assets/other-g.js": worker,
+    });
+    expect(errors.map((e) => e.split(" : ")[0])).toEqual([
+      "Motif refusé par la CSP, new Worker(",
+    ]);
+    expect(errors[0]).toContain("assets/other-g.js, assets/pdf-e.js");
   });
 
   it("reports a missing package list", () => {
