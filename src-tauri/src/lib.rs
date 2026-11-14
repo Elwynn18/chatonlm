@@ -33,6 +33,7 @@ mod startup;
 mod store;
 mod study;
 mod tools;
+mod transcription;
 mod tts;
 mod updater;
 mod voice_mode;
@@ -210,6 +211,21 @@ pub fn run() {
                     let _ = handle.emit(tools::STATUS_EVENT, status);
                 },
             ));
+            // Transcription : moteur de la dictée (verrou du modèle pris à
+            // chaque morceau), yt-dlp par les outils ci-dessus, état vers la
+            // page (`transcription-status`) ; audio de travail laissé par une
+            // app coupée effacé au lancement.
+            let handle = app.handle().clone();
+            let transcriber = transcription::Transcription::new(transcription::Services::new(
+                app.state::<Dictation>().engine(),
+                Box::new(transcription::AppFetcher(app.handle().clone())),
+                data_dir.join("transcription").join("work"),
+                move |status| {
+                    let _ = handle.emit(transcription::STATUS_EVENT, status);
+                },
+            ));
+            transcriber.recover(store.as_ref());
+            app.manage(transcriber);
             // Catalogue du ModelHub : cache disque sous le dossier des données.
             app.manage(hub::state::Catalog::new(data_dir.join("modelhub")));
             // Modèles d'images : file des téléchargements (liste complète vers
@@ -379,6 +395,15 @@ pub fn run() {
                         .filter(|path| path.is_absolute())
                         .map(|path| path.to_string_lossy().into_owned()),
                 );
+                // Aussi transcriptibles (outil Transcription).
+                if let Some(transcription) = window.try_state::<transcription::Transcription>() {
+                    transcription.grant(
+                        paths
+                            .iter()
+                            .filter(|path| path.is_absolute())
+                            .map(|path| path.to_string_lossy().into_owned()),
+                    );
+                }
             }
             _ => {}
         })
@@ -397,6 +422,12 @@ pub fn run() {
                     .state::<study::StudyEngine>()
                     .cancel_streams();
                 webview.app_handle().state::<Staging>().clear();
+                if let Some(transcription) = webview
+                    .app_handle()
+                    .try_state::<transcription::Transcription>()
+                {
+                    transcription.clear_grants();
+                }
             }
         })
         // Images des pièces jointes (chatonlm://localhost/...).
@@ -467,6 +498,17 @@ pub fn run() {
             commands::tools::tools_remove,
             commands::tools::tools_status,
             commands::tools::tools_update,
+            commands::transcription::transcription_cancel,
+            commands::transcription::transcription_delete,
+            commands::transcription::transcription_export,
+            commands::transcription::transcription_get,
+            commands::transcription::transcription_list,
+            commands::transcription::transcription_options,
+            commands::transcription::transcription_pick_file,
+            commands::transcription::transcription_probe,
+            commands::transcription::transcription_rename,
+            commands::transcription::transcription_start,
+            commands::transcription::transcription_status,
             commands::tts::read_aloud,
             commands::tts::read_aloud_state,
             commands::tts::read_aloud_stop,
@@ -707,6 +749,13 @@ async fn stop_work(app: &AppHandle) {
             tools.stop_all(EXIT_GRACE).await;
         }
     };
+    // Transcription annulée, audio de travail effacé.
+    let transcription = app.try_state::<transcription::Transcription>();
+    let transcription = async {
+        if let Some(transcription) = transcription {
+            transcription.shutdown(transcription::SHUTDOWN_WAIT).await;
+        }
+    };
     let images = app.try_state::<image_gen::ImageGen>();
     let images = async {
         if let Some(images) = images {
@@ -722,6 +771,7 @@ async fn stop_work(app: &AppHandle) {
         image_downloads,
         cuda,
         tools,
+        transcription,
         dictation.shutdown(),
         images
     );

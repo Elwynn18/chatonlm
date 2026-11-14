@@ -10,6 +10,11 @@
 //! morceaux de 40 s, 1 426 mots sur ~1 432 ; de 50 à 60 s, 11 à 13 % de
 //! perdus ; un seul bloc de 75 s, 31 mots sur ~220). L'abandon prend effet
 //! entre deux morceaux.
+//!
+//! La transcription longue (`crate::transcription`) passe par
+//! [`Engine::transcribe_piece`] : un morceau à la fois, verrou du modèle pris
+//! et rendu à chaque morceau, après la dictée et le mode vocal s'ils
+//! attendent ([`Engine::transcribe`] et [`Engine::preload`] passent devant).
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -145,10 +150,88 @@ impl<'a> Words<'a> {
     }
 }
 
+/// Passage horodaté d'un morceau ; secondes depuis le début du morceau.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Timed {
+    pub start: f32,
+    pub end: f32,
+    pub text: String,
+}
+
+/// Texte d'un morceau et ses passages horodatés (dans l'ordre, sans texte
+/// vide ni annotation seule de Whisper).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Piece {
+    pub text: String,
+    pub segments: Vec<Timed>,
+}
+
+impl Piece {
+    /// Texte d'un seul tenant, sans horodatage plus fin que le morceau
+    /// (`duration` : secondes).
+    pub fn whole(text: &str, duration: f32) -> Self {
+        Self::from_parts(text, Vec::new(), duration)
+    }
+
+    /// Passages rendus par un moteur : textes nettoyés ([`clean_transcript`]),
+    /// vides retirés, bornes ramenées dans le morceau et croissantes ; sans
+    /// passage, le texte entier en un seul.
+    pub fn from_parts(text: &str, segments: Vec<Timed>, duration: f32) -> Self {
+        let text = clean_transcript(text);
+        let duration = duration.max(0.0);
+        let mut kept: Vec<Timed> = Vec::new();
+        for segment in segments {
+            let cleaned = clean_transcript(&segment.text);
+            if cleaned.is_empty() {
+                continue;
+            }
+            let floor = kept.last().map_or(0.0, |last| last.start);
+            let start = finite(segment.start).clamp(floor, duration);
+            let end = finite(segment.end).clamp(start, duration);
+            kept.push(Timed {
+                start,
+                end,
+                text: cleaned,
+            });
+        }
+        if kept.is_empty() && !text.is_empty() {
+            kept.push(Timed {
+                start: 0.0,
+                end: duration,
+                text: text.clone(),
+            });
+        }
+        Self {
+            text,
+            segments: kept,
+        }
+    }
+}
+
+fn finite(value: f32) -> f32 {
+    if value.is_finite() { value } else { 0.0 }
+}
+
 /// Modèle chargé.
 pub trait Recognizer: Send {
     fn transcribe(&mut self, samples: &[f32], request: &Request) -> Result<String, String>;
+
+    /// Comme [`Recognizer::transcribe`], avec les passages horodatés quand le
+    /// moteur les donne (par défaut : le morceau entier).
+    fn transcribe_timed(&mut self, samples: &[f32], request: &Request) -> Result<Piece, String> {
+        let text = self.transcribe(samples, request)?;
+        Ok(Piece::whole(&text, seconds(samples)))
+    }
 }
+
+/// Durée de `samples` à 16 kHz, en secondes.
+fn seconds(samples: &[f32]) -> f32 {
+    samples.len() as f32 / RATE as f32
+}
+
+/// Attente entre deux regards au verrou d'une transcription longue qui
+/// laisse passer la dictée.
+const YIELD: Duration = Duration::from_millis(10);
 
 /// Chargement d'un modèle (bloquant).
 pub type Loader = dyn Fn(&ModelSpec) -> Result<Box<dyn Recognizer>, String> + Send + Sync;
@@ -169,6 +252,18 @@ struct Shared {
     generation: AtomicU64,
     /// Fermeture de l'app : plus aucun chargement (voir [`Engine::shutdown`]).
     closed: AtomicBool,
+    /// Dictées et séances du mode vocal qui attendent le verrou : une
+    /// transcription longue les laisse passer avant son morceau suivant.
+    urgent: AtomicUsize,
+}
+
+/// Attente prioritaire du verrou (voir `Shared::urgent`), retirée en sortant.
+struct Urgent<'a>(&'a AtomicUsize);
+
+impl Drop for Urgent<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 struct Loaded {
@@ -197,6 +292,7 @@ impl Engine {
                 holds: AtomicUsize::new(0),
                 generation: AtomicU64::new(0),
                 closed: AtomicBool::new(false),
+                urgent: AtomicUsize::new(0),
             }),
         }
     }
@@ -217,7 +313,10 @@ impl Engine {
         }
         let shared = self.shared.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            let mut slot = shared.slot.lock();
+            let mut slot = {
+                let _urgent = shared.urgent();
+                shared.slot.lock()
+            };
             if let Err(error) = shared.ensure(&mut slot, &spec) {
                 crate::app_log!("chatonlm: speech model {}: {error}", spec.id);
             }
@@ -235,7 +334,10 @@ impl Engine {
         request: &Request,
         cancel: &AtomicBool,
     ) -> Result<String, String> {
-        let mut slot = self.shared.slot.lock();
+        let mut slot = {
+            let _urgent = self.shared.urgent();
+            self.shared.slot.lock()
+        };
         let loaded = self.shared.ensure(&mut slot, spec)?;
         let mut texts = Vec::new();
         for range in chunks(samples) {
@@ -249,6 +351,46 @@ impl Engine {
             }
         }
         Ok(texts.join(" "))
+    }
+
+    /// Transcrit un seul morceau d'une transcription longue (bloquant), avec
+    /// ses passages horodatés. Le verrou du modèle n'est pris que pour ce
+    /// morceau, et seulement quand aucune dictée ni séance du mode vocal ne
+    /// l'attend : elles passent entre deux morceaux. `cancel` levé pendant
+    /// l'attente : [`CANCELLED`] ; app qui ferme : [`CLOSING`].
+    pub fn transcribe_piece(
+        &self,
+        spec: &ModelSpec,
+        samples: &[f32],
+        request: &Request,
+        cancel: &AtomicBool,
+    ) -> Result<Piece, String> {
+        let mut slot = loop {
+            if self.shared.closed.load(Ordering::SeqCst) {
+                return Err(CLOSING.into());
+            }
+            if cancel.load(Ordering::SeqCst) {
+                return Err(CANCELLED.into());
+            }
+            if self.shared.urgent.load(Ordering::SeqCst) == 0
+                && let Some(slot) = self.shared.slot.try_lock_for(YIELD)
+            {
+                // Une dictée arrivée pendant l'attente passe encore devant.
+                if self.shared.urgent.load(Ordering::SeqCst) == 0 {
+                    break slot;
+                }
+                drop(slot);
+            }
+            std::thread::sleep(YIELD);
+        };
+        let loaded = self.shared.ensure(&mut slot, spec)?;
+        loaded.recognizer.transcribe_timed(samples, request)
+    }
+
+    /// Dictées et séances qui attendent le verrou (essais).
+    #[cfg(test)]
+    pub fn urgent_waiting(&self) -> usize {
+        self.shared.urgent.load(Ordering::SeqCst)
     }
 
     /// Identifiant du modèle chargé (attend une transcription en cours).
@@ -300,6 +442,11 @@ impl Engine {
 }
 
 impl Shared {
+    fn urgent(&self) -> Urgent<'_> {
+        self.urgent.fetch_add(1, Ordering::SeqCst);
+        Urgent(&self.urgent)
+    }
+
     fn ensure<'a>(
         &self,
         slot: &'a mut Option<Loaded>,
@@ -455,25 +602,66 @@ impl Recognizer for Parakeet {
             .map(|result| clean_transcript(&result.text))
             .map_err(|error| transcription_failed(&error))
     }
+
+    fn transcribe_timed(&mut self, samples: &[f32], _request: &Request) -> Result<Piece, String> {
+        use transcribe_rs::onnx::parakeet::{ParakeetParams, TimestampGranularity};
+        // Passages par phrase (mots groupés jusqu'à « . », « ? », « ! ») ;
+        // même silence de tête que `transcribe`, horodatage corrigé.
+        let params = ParakeetParams {
+            language: None,
+            timestamp_granularity: Some(TimestampGranularity::Segment),
+        };
+        self.0
+            .transcribe_with(samples, &params)
+            .map(|result| timed(result, samples))
+            .map_err(|error| transcription_failed(&error))
+    }
+}
+
+/// Résultat de transcribe-rs en [`Piece`].
+fn timed(result: transcribe_rs::TranscriptionResult, samples: &[f32]) -> Piece {
+    let segments = result
+        .segments
+        .unwrap_or_default()
+        .into_iter()
+        .map(|segment| Timed {
+            start: segment.start,
+            end: segment.end,
+            text: segment.text,
+        })
+        .collect();
+    Piece::from_parts(&result.text, segments, seconds(samples))
 }
 
 struct Whisper(transcribe_rs::whisper_cpp::WhisperEngine);
 
-impl Recognizer for Whisper {
-    fn transcribe(&mut self, samples: &[f32], request: &Request) -> Result<String, String> {
+impl Whisper {
+    fn params(request: &Request) -> transcribe_rs::whisper_cpp::WhisperInferenceParams {
         use transcribe_rs::whisper_cpp::WhisperInferenceParams;
         let threads = std::thread::available_parallelism()
             .map_or(4, usize::from)
             .min(MAX_THREADS);
-        let params = WhisperInferenceParams {
+        WhisperInferenceParams {
             language: request.language.clone(),
             n_threads: threads as i32,
             initial_prompt: request.initial_prompt(),
             ..WhisperInferenceParams::default()
-        };
+        }
+    }
+}
+
+impl Recognizer for Whisper {
+    fn transcribe(&mut self, samples: &[f32], request: &Request) -> Result<String, String> {
         self.0
-            .transcribe_with(samples, &params)
+            .transcribe_with(samples, &Self::params(request))
             .map(|result| clean_transcript(&result.text))
+            .map_err(|error| transcription_failed(&error))
+    }
+
+    fn transcribe_timed(&mut self, samples: &[f32], request: &Request) -> Result<Piece, String> {
+        self.0
+            .transcribe_with(samples, &Self::params(request))
+            .map(|result| timed(result, samples))
             .map_err(|error| transcription_failed(&error))
     }
 }
@@ -919,6 +1107,145 @@ mod tests {
         );
     }
 
+    /// Passages d'un moteur : annotations et vides retirés, bornes dans le
+    /// morceau et croissantes ; sans passage, le texte entier.
+    #[test]
+    fn pieces_keep_clean_ordered_segments() {
+        let piece = Piece::from_parts(
+            " Bonjour. [BLANK_AUDIO] Au revoir. ",
+            vec![
+                Timed {
+                    start: -0.2,
+                    end: 1.0,
+                    text: " Bonjour. ".into(),
+                },
+                Timed {
+                    start: 1.0,
+                    end: 2.0,
+                    text: "[BLANK_AUDIO]".into(),
+                },
+                Timed {
+                    start: 0.5,
+                    end: f32::NAN,
+                    text: "Au revoir.".into(),
+                },
+                Timed {
+                    start: 3.0,
+                    end: 9.0,
+                    text: "Fin".into(),
+                },
+            ],
+            4.0,
+        );
+        assert_eq!(piece.text, "Bonjour.   Au revoir.");
+        let found: Vec<(f32, f32, &str)> = piece
+            .segments
+            .iter()
+            .map(|s| (s.start, s.end, s.text.as_str()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                (0.0, 1.0, "Bonjour."),
+                (0.5, 0.5, "Au revoir."),
+                (3.0, 4.0, "Fin")
+            ]
+        );
+        let whole = Piece::whole("Salut", 2.5);
+        assert_eq!(whole.segments.len(), 1);
+        assert_eq!((whole.segments[0].start, whole.segments[0].end), (0.0, 2.5));
+        assert!(Piece::whole("[Music]", 2.0).segments.is_empty());
+    }
+
+    /// Une dictée qui attend le verrou passe avant le morceau suivant d'une
+    /// transcription longue ; celle-ci reprend ensuite.
+    #[tokio::test]
+    async fn a_dictation_passes_between_two_pieces_of_a_long_transcription() {
+        let log = Arc::new(Mutex::new(Vec::<String>::new()));
+        let (go, gate) = std::sync::mpsc::channel::<()>();
+        let gate = Arc::new(Mutex::new(Some(gate)));
+        struct Logged(
+            Arc<Mutex<Vec<String>>>,
+            Arc<Mutex<Option<std::sync::mpsc::Receiver<()>>>>,
+        );
+        impl Recognizer for Logged {
+            fn transcribe(&mut self, samples: &[f32], _: &Request) -> Result<String, String> {
+                // Premier morceau : attend le feu vert.
+                if let Some(gate) = self.1.lock().take() {
+                    let _ = gate.recv_timeout(Duration::from_secs(10));
+                }
+                let name = if samples.len() == 1 {
+                    "dictation"
+                } else {
+                    "piece"
+                };
+                self.0.lock().push(name.into());
+                Ok(name.into())
+            }
+        }
+        let (written, waiting) = (log.clone(), gate.clone());
+        let engine = Engine::with_loader(
+            Box::new(move |_: &ModelSpec| {
+                Ok(Box::new(Logged(written.clone(), waiting.clone())) as Box<dyn Recognizer>)
+            }),
+            IDLE,
+        );
+        let long = engine.clone();
+        let pieces = tokio::task::spawn_blocking(move || {
+            (0..3)
+                .map(|_| {
+                    long.transcribe_piece(
+                        &spec("whisper-tiny"),
+                        &[0.0; 4],
+                        &Request::default(),
+                        &GO,
+                    )
+                    .map(|piece| piece.text)
+                })
+                .collect::<Result<Vec<_>, _>>()
+        });
+        // Premier morceau en cours (verrou tenu), puis une dictée arrive.
+        let probe = engine.clone();
+        wait_until(move || probe.shared.slot.is_locked()).await;
+        let dictation = engine.clone();
+        let dictated = tokio::task::spawn_blocking(move || {
+            dictation.transcribe(&spec("whisper-tiny"), &[0.0], &Request::default(), &GO)
+        });
+        let probe = engine.clone();
+        wait_until(move || probe.urgent_waiting() == 1).await;
+        go.send(()).unwrap();
+        assert_eq!(dictated.await.unwrap().unwrap(), "dictation");
+        assert_eq!(pieces.await.unwrap().unwrap(), ["piece"; 3]);
+        assert_eq!(*log.lock(), ["piece", "dictation", "piece", "piece"]);
+        assert_eq!(engine.urgent_waiting(), 0);
+    }
+
+    /// Transcription longue annulée pendant qu'une dictée tient le verrou :
+    /// arrêt sans attendre la fin de la dictée ; app qui ferme : refus.
+    #[test]
+    fn a_waiting_piece_stops_on_cancel_and_on_shutdown() {
+        let (engine, _) = engine(IDLE);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let held = engine.shared.slot.lock();
+        let waiting = engine.clone();
+        let flag = cancel.clone();
+        let piece = std::thread::spawn(move || {
+            waiting.transcribe_piece(&spec("whisper-tiny"), &[0.0], &Request::default(), &flag)
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        cancel.store(true, Ordering::SeqCst);
+        assert_eq!(piece.join().unwrap().unwrap_err(), CANCELLED);
+        drop(held);
+        let piece = engine
+            .transcribe_piece(&spec("whisper-tiny"), &[0.0; 8], &Request::default(), &GO)
+            .unwrap();
+        assert_eq!(piece.text, "whisper-tiny: 8 None");
+        assert!(engine.shutdown(Duration::from_secs(1)));
+        let refused =
+            engine.transcribe_piece(&spec("whisper-tiny"), &[0.0], &Request::default(), &GO);
+        assert_eq!(refused.unwrap_err(), CLOSING);
+    }
+
     /// Contrats : vrais modèles et échantillons (voir `test_data`).
     mod contract {
         use super::*;
@@ -1032,6 +1359,97 @@ mod tests {
             // Rien de perdu aux coupures.
             assert!(
                 words(&text).len() as f64 > 0.9 * (rounds * words(&expected).len()) as f64,
+                "{text}"
+            );
+        }
+
+        /// Transcription longue (outil Transcription) d'un enregistrement
+        /// coupé dans les pauses du vrai Silero, un morceau à la fois par
+        /// `transcribe_piece` ; passages horodatés dans l'ordre. `once` répété
+        /// (1,5 s de silence entre deux) jusqu'à `seconds` ; texte rendu et
+        /// nombre de répétitions.
+        fn long_recording(once: &[f32], seconds: usize) -> (String, usize) {
+            use crate::transcription::segment::{Analyzer, plan};
+            let gap = vec![0.0; 24_000];
+            let mut long = Vec::new();
+            let mut rounds = 0;
+            while long.len() < seconds * 16_000 {
+                long.extend_from_slice(once);
+                long.extend_from_slice(&gap);
+                rounds += 1;
+            }
+            let analysed = std::time::Instant::now();
+            let mut analyzer = Analyzer::new(Some(crate::transcription::silero().unwrap()));
+            for block in long.chunks(16_000) {
+                analyzer.push(block);
+            }
+            let (analysis, _) = analyzer.finish();
+            let analysed = analysed.elapsed();
+            assert!(analysis.probabilities.is_some());
+            let chunks = plan(&analysis);
+            assert!(chunks.len() >= seconds / 48, "{chunks:?}");
+            let engine = Engine::new();
+            let started = std::time::Instant::now();
+            let mut text = String::new();
+            let mut last_start = 0.0f64;
+            for chunk in &chunks {
+                if chunk.speech == Some(false) {
+                    continue;
+                }
+                let piece = engine
+                    .transcribe_piece(
+                        &parakeet(),
+                        &long[chunk.voiced.clone()],
+                        &Request::default(),
+                        &GO,
+                    )
+                    .unwrap();
+                let offset = chunk.voiced.start as f64 / 16_000.0;
+                for segment in &piece.segments {
+                    let start = offset + f64::from(segment.start);
+                    assert!(start >= last_start - 0.05, "{start} after {last_start}");
+                    last_start = start;
+                }
+                text.push(' ');
+                text.push_str(&piece.text);
+            }
+            crate::app_log!(
+                "parakeet long, {} s in {} pieces, speech detection {:?}, transcription {:?}: {} words",
+                long.len() / 16_000,
+                chunks.len(),
+                analysed,
+                started.elapsed(),
+                words(&text).len()
+            );
+            (text, rounds)
+        }
+
+        /// Sept minutes de français (fr0 à fr3 répétés) et quatre minutes
+        /// d'anglais (jfk répété), chacun d'une seule langue : aucune phrase
+        /// perdue aux coupures. (Les deux langues alternées toutes les 15 s
+        /// dans un même morceau perdent plus de la moitié des mots : Parakeet
+        /// garde une langue par morceau, rapport 106-lot2.)
+        #[test]
+        #[ignore = "needs the speech models and samples of .tools, and ONNX Runtime"]
+        fn contract_parakeet_transcribes_a_long_recording_piece_by_piece() {
+            let expected: String = ["fr0.txt", "fr1.txt", "fr2.txt", "fr3.txt"]
+                .map(reference)
+                .join(" ");
+            let (text, rounds) = long_recording(&sample("fr-all.wav"), 7 * 60);
+            assert!(recall(&text, &expected) > 0.8, "{text}");
+            assert!(
+                words(&text).len() as f64 > 0.9 * (rounds * words(&expected).len()) as f64,
+                "{text}"
+            );
+            let (text, rounds) = long_recording(&sample("jfk.wav"), 4 * 60);
+            assert!(
+                words(&text).len() as f64 > 0.95 * (rounds * words(JFK).len()) as f64,
+                "{text}"
+            );
+            // Chaque « ask not » retrouvé.
+            assert_eq!(
+                text.to_lowercase().matches("ask not").count(),
+                rounds,
                 "{text}"
             );
         }

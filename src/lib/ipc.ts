@@ -33,6 +33,13 @@ import type { ChatModel } from "@/bindings/ChatModel";
 import type { EngineRunningModel } from "@/bindings/EngineRunningModel";
 import type { CudaStatus } from "@/bindings/CudaStatus";
 import type { ToolsStatus } from "@/bindings/ToolsStatus";
+import type { TranscriptionDetail } from "@/bindings/TranscriptionDetail";
+import type { TranscriptionExportFormat } from "@/bindings/TranscriptionExportFormat";
+import type { TranscriptionItem } from "@/bindings/TranscriptionItem";
+import type { TranscriptionOptions } from "@/bindings/TranscriptionOptions";
+import type { TranscriptionProbe } from "@/bindings/TranscriptionProbe";
+import type { TranscriptionRequest } from "@/bindings/TranscriptionRequest";
+import type { TranscriptionStatus } from "@/bindings/TranscriptionStatus";
 import type { EngineStatus } from "@/bindings/EngineStatus";
 import type { EngineModelsDir } from "@/bindings/EngineModelsDir";
 import type { FolderEvent } from "@/bindings/FolderEvent";
@@ -340,6 +347,89 @@ export function listenToolsStatus(
   onChange: (status: ToolsStatus) => void,
 ): Promise<UnlistenFn> {
   return listen<ToolsStatus>(TOOLS_STATUS_EVENT, (event) =>
+    onChange(event.payload),
+  );
+}
+
+/**
+ * Transcription : sélecteur natif d'un fichier audio ou vidéo ; le chemin
+ * choisi (seul transcriptible, avec ceux d'un dépôt natif), ou `null`.
+ */
+export function transcriptionPickFile(): Promise<string | null> {
+  return invoke<string | null>("transcription_pick_file");
+}
+
+/** Modèles proposés (installés ou non), modèle et langue d'office. */
+export function transcriptionOptions(): Promise<TranscriptionOptions> {
+  return invoke<TranscriptionOptions>("transcription_options");
+}
+
+/** Durée annoncée d'un fichier remis, ou pourquoi il ne sera pas lu. */
+export function transcriptionProbe(path: string): Promise<TranscriptionProbe> {
+  return invoke<TranscriptionProbe>("transcription_probe", { path });
+}
+
+/**
+ * Lance une transcription (refusée si une autre tourne) ; son identifiant.
+ * Les échecs (modèle absent, fichier illisible, yt-dlp…) arrivent par l'état.
+ */
+export function transcriptionStart(
+  request: TranscriptionRequest,
+): Promise<string> {
+  return invoke<string>("transcription_start", { request });
+}
+
+/** Annule la transcription en cours. */
+export function transcriptionCancel(): Promise<void> {
+  return invoke<void>("transcription_cancel");
+}
+
+/** Transcription en cours (ou la dernière), avec tous ses passages. */
+export function transcriptionStatus(): Promise<TranscriptionStatus> {
+  return invoke<TranscriptionStatus>("transcription_status");
+}
+
+/** Historique, du plus récent au plus ancien. */
+export function transcriptionList(): Promise<TranscriptionItem[]> {
+  return invoke<TranscriptionItem[]>("transcription_list");
+}
+
+export function transcriptionGet(id: string): Promise<TranscriptionDetail> {
+  return invoke<TranscriptionDetail>("transcription_get", { id });
+}
+
+export function transcriptionDelete(id: string): Promise<void> {
+  return invoke<void>("transcription_delete", { id });
+}
+
+export function transcriptionRename(id: string, title: string): Promise<void> {
+  return invoke<void>("transcription_rename", { id, title });
+}
+
+/**
+ * Texte d'une transcription en `.txt`, `.md` ou `.srt` (`timestamps` :
+ * horodatage des paragraphes de `.txt` et `.md`), à enregistrer par
+ * `save_document`.
+ */
+export function transcriptionExport(
+  id: string,
+  format: TranscriptionExportFormat,
+  timestamps: boolean,
+): Promise<string> {
+  return invoke<string>("transcription_export", { id, format, timestamps });
+}
+
+/**
+ * Événement de la transcription : étape et progression, et seulement les
+ * passages nouveaux (à partir de `segmentsFrom` ; relire l'état si ce
+ * n'est pas le nombre déjà reçu).
+ */
+export const TRANSCRIPTION_STATUS_EVENT = "transcription-status";
+
+export function listenTranscriptionStatus(
+  onChange: (status: TranscriptionStatus) => void,
+): Promise<UnlistenFn> {
+  return listen<TranscriptionStatus>(TRANSCRIPTION_STATUS_EVENT, (event) =>
     onChange(event.payload),
   );
 }

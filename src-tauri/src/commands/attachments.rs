@@ -279,7 +279,7 @@ fn declared_size(header: Option<&[u8]>) -> AppResult<Option<u64>> {
 /// l'extension nue : son filtre ignore déjà la casse et ne connaît que `*`
 /// et `?` (un motif à crochets ne montrerait aucun fichier). Ailleurs, le
 /// motif insensible à la casse de [`case_insensitive_glob`].
-fn picker_pattern(extension: &str, windows: bool) -> String {
+pub(crate) fn picker_pattern(extension: &str, windows: bool) -> String {
     if windows {
         extension.to_owned()
     } else {

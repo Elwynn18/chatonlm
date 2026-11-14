@@ -14,13 +14,17 @@
 //! de 512 échantillons est précédée des 64 derniers échantillons de la
 //! précédente (N = 576) ; l'état récurrent passe d'une trame à l'autre et
 //! repart de zéro à chaque ouverture de l'écoute.
+//!
+//! Aussi utilisé hors du mode vocal par la transcription longue
+//! (`crate::transcription::segment`), qui remet l'état à zéro
+//! ([`SpeechDetector::reset`]) au début de chaque fichier.
 
 use ort::session::Session;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::value::TensorRef;
 
 use super::RATE;
-use super::endpoint::FRAME;
+pub use super::endpoint::FRAME;
 
 /// Le graphe (1,3 Mo).
 const MODEL: &[u8] = include_bytes!("../../../models/silero_vad.onnx");
@@ -35,6 +39,10 @@ pub trait SpeechDetector {
     /// `frame` : `FRAME` échantillons à 16 kHz ; erreur en anglais (détail
     /// technique).
     fn probability(&mut self, frame: &[f32]) -> Result<f32, String>;
+
+    /// Oublie le son déjà vu (état récurrent et contexte à zéro), comme une
+    /// session neuve : un autre son commence.
+    fn reset(&mut self) {}
 }
 
 pub struct Silero {
@@ -107,6 +115,11 @@ impl SpeechDetector for Silero {
         self.input.copy_within(FRAME.., 0);
         Ok(probability)
     }
+
+    fn reset(&mut self) {
+        self.state.fill(0.0);
+        self.input.fill(0.0);
+    }
 }
 
 #[cfg(test)]
@@ -176,5 +189,28 @@ mod tests {
         }
         let speech = found.iter().filter(|p| **p >= 0.5).count();
         assert!((228..=238).contains(&speech), "{speech}");
+    }
+
+    /// Contrat : après `reset`, une session déjà servie rend exactement les
+    /// probabilités d'une session neuve (sans `reset`, l'état d'avant les
+    /// change).
+    #[test]
+    #[ignore = "needs the speech samples of .tools and ONNX Runtime"]
+    fn voice_contract_silero_reset_starts_afresh() {
+        let samples = crate::voice_mode::audio::test_data::sample("jfk.wav");
+        let frames = &samples.as_chunks::<FRAME>().0[..40];
+        let fresh = probabilities(&samples[..40 * FRAME]);
+        let mut silero = Silero::load().expect("Silero VAD");
+        let run = |silero: &mut Silero| -> Vec<f32> {
+            frames
+                .iter()
+                .map(|frame| silero.probability(frame).unwrap())
+                .collect()
+        };
+        assert_eq!(run(&mut silero), fresh);
+        let carried = run(&mut silero);
+        assert_ne!(carried, fresh);
+        silero.reset();
+        assert_eq!(run(&mut silero), fresh);
     }
 }

@@ -18,6 +18,7 @@ pub mod model_prefs;
 pub mod remote;
 pub mod settings;
 pub mod study;
+pub mod transcriptions;
 pub mod updates;
 pub mod voice_mode;
 pub mod web_search;
@@ -79,6 +80,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0043_remote_retired_ids.sql"),
     include_str!("../../migrations/0044_ollama_settings_removed.sql"),
     include_str!("../../migrations/0045_web_search_engine.sql"),
+    include_str!("../../migrations/0046_transcriptions.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.

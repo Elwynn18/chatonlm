@@ -22,7 +22,8 @@ pub(super) fn platform_key() -> String {
     tauri_plugin_updater::target().expect("plateforme connue du greffon")
 }
 
-pub(super) const WAIT: Duration = Duration::from_secs(15);
+// 60 s : une machine chargée (suite complète, disque saturé) dépassait 15 s.
+pub(super) const WAIT: Duration = Duration::from_secs(60);
 
 /// Ce que sert le faux serveur.
 pub(super) struct Served {

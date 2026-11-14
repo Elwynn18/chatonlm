@@ -22,6 +22,7 @@ pub mod settings;
 pub mod study;
 pub mod system;
 pub mod tools;
+pub mod transcription;
 pub mod tts;
 pub mod updates;
 pub mod voice_mode;

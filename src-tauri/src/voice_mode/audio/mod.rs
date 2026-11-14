@@ -15,7 +15,7 @@ mod noise;
 mod system;
 #[cfg(test)]
 mod test_data;
-mod vad;
+pub mod vad;
 
 use std::time::Duration;
 
