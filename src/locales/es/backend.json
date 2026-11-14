@@ -251,7 +251,7 @@
     "timedOut": "Hugging Face no respondió a tiempo. Vuelve a intentarlo.",
     "locationChanging": "la ubicación de los modelos se está cambiando: vuelve a intentarlo cuando termine",
     "hfTimeout": "Hugging Face no respondió a tiempo",
-    "hfUnreachable": "no se puede conectar con Hugging Face: {error}",
+    "hfUnreachable": "no se puede conectar con Hugging Face: comprueba tu conexión",
     "hfStatus": "Hugging Face respondió con el estado {status}."
   },
   "process": {

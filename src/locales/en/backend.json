@@ -251,7 +251,7 @@
     "timedOut": "Hugging Face didn't answer in time. Try again.",
     "locationChanging": "the model location is being changed: try again once it's done",
     "hfTimeout": "Hugging Face didn't answer in time",
-    "hfUnreachable": "can't reach Hugging Face: {error}",
+    "hfUnreachable": "can't reach Hugging Face: check your connection",
     "hfStatus": "Hugging Face answered with status {status}."
   },
   "process": {

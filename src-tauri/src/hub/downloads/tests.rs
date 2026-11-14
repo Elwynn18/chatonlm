@@ -781,11 +781,10 @@ async fn an_unusable_listing_is_told() {
     .await;
     env.ask(model);
     let failed = env.finished(model).await;
-    assert!(
-        failed
-            .error
-            .as_deref()
-            .is_some_and(|error| error.starts_with("can't reach Hugging Face")),
+    // Phrase claire, sans le détail de reqwest (« error sending request »).
+    assert_eq!(
+        failed.error.as_deref(),
+        Some("can't reach Hugging Face: check your connection"),
         "{failed:?}"
     );
 }

@@ -1812,7 +1812,7 @@ async fn download_failures_are_told_apart() {
         .await;
     assert_eq!(recorder.last()["kind"], json!("download"));
     let message = recorder.last()["message"].as_str().unwrap().to_owned();
-    assert!(message.starts_with("can't reach Hugging Face"), "{message}");
+    assert_eq!(message, "can't reach Hugging Face: check your connection");
     bench.shutdown().await;
     offline.shutdown().await;
 }

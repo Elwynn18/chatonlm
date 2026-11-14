@@ -29,7 +29,7 @@
     {
       "type": "error",
       "kind": "download",
-      "message": "can't reach Hugging Face: error sending request"
+      "message": "can't reach Hugging Face: check your connection"
     }
   ],
   "error": null

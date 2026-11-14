@@ -98,11 +98,17 @@ pub async fn fetch(
     parse(&body).ok_or_else(|| ListingError(t!("localModels.unreadableListing")))
 }
 
+/// Hugging Face injoignable : phrase claire à l'écran, détail de reqwest
+/// (« error sending request »…) dans le journal seulement.
 fn unreachable(error: reqwest::Error) -> String {
     if error.is_timeout() {
         t!("downloads.hfTimeout")
     } else {
-        t!("downloads.hfUnreachable", error = error.without_url())
+        crate::app_log!(
+            "chatonlm: Hugging Face injoignable : {}",
+            error.without_url()
+        );
+        t!("downloads.hfUnreachable")
     }
 }
 
