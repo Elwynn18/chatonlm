@@ -40,6 +40,7 @@ import type { TranscriptionOptions } from "@/bindings/TranscriptionOptions";
 import type { TranscriptionProbe } from "@/bindings/TranscriptionProbe";
 import type { TranscriptionRequest } from "@/bindings/TranscriptionRequest";
 import type { TranscriptionStatus } from "@/bindings/TranscriptionStatus";
+import type { SynthesisStatus } from "@/bindings/SynthesisStatus";
 import type { EngineStatus } from "@/bindings/EngineStatus";
 import type { EngineModelsDir } from "@/bindings/EngineModelsDir";
 import type { FolderEvent } from "@/bindings/FolderEvent";
@@ -1760,11 +1761,12 @@ export type ExportKind = "md" | "docx" | "pdf";
  * Enregistre un document exporté (src/lib/export) : boîte « Enregistrer
  * sous » native, filtrée sur le format, nom proposé `name` (sans extension,
  * nettoyé par le moteur, qui ajoute l'extension) ; le contenu part en octets
- * bruts. Chemin écrit, ou null si l'utilisateur annule.
+ * bruts. Chemin écrit, ou null si l'utilisateur annule. Aussi le texte
+ * d'une transcription (`.txt`, `.md`, `.srt` de `transcriptionExport`).
  */
 export function saveExport(
   data: Uint8Array,
-  kind: ExportKind,
+  kind: ExportKind | TranscriptionExportFormat,
   name: string,
 ): Promise<string | null> {
   return invoke<string | null>("save_document", data, {
@@ -1773,4 +1775,46 @@ export function saveExport(
       "x-kind": kind,
     },
   });
+}
+
+/**
+ * « Synthétiser » la transcription `id` : document de lecture en Markdown
+ * écrit par `model` (absent : « Auto », le plus grand modèle prêt, sinon
+ * celui du chat). Refusée (AppError) si une synthèse tourne déjà, si la
+ * transcription est en cours ou n'a pas de texte, ou si aucun modèle n'est
+ * disponible ; la suite arrive par `listenTranscriptionSynthesis`.
+ */
+export function transcriptionSynthesize(
+  id: string,
+  model?: string,
+): Promise<void> {
+  return invoke<void>("transcription_synthesize", { id, model: model ?? null });
+}
+
+/** Annule la synthèse de la transcription `id` (sans effet sinon). */
+export function transcriptionSynthesisCancel(id: string): Promise<void> {
+  return invoke<void>("transcription_synthesis_cancel", { id });
+}
+
+/**
+ * Synthèse en cours, ou la dernière depuis le lancement (document entier) ;
+ * pour une page rechargée.
+ */
+export function transcriptionSynthesisStatus(): Promise<SynthesisStatus | null> {
+  return invoke<SynthesisStatus | null>("transcription_synthesis_status");
+}
+
+/**
+ * Événement de la synthèse : étape et document entier tel qu'il est (il
+ * grandit pendant l'écriture ; vide pendant les notes d'une transcription
+ * longue). Une fois `done`, il est aussi rendu par `transcriptionGet`.
+ */
+export const TRANSCRIPTION_SYNTHESIS_EVENT = "transcription-synthesis";
+
+export function listenTranscriptionSynthesis(
+  onChange: (status: SynthesisStatus) => void,
+): Promise<UnlistenFn> {
+  return listen<SynthesisStatus>(TRANSCRIPTION_SYNTHESIS_EVENT, (event) =>
+    onChange(event.payload),
+  );
 }

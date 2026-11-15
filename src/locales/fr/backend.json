@@ -11,6 +11,8 @@
     "markdownFiles": "Fichiers Markdown",
     "wordFiles": "Documents Word",
     "pdfFiles": "Documents PDF",
+    "textFiles": "Fichiers texte",
+    "subtitleFiles": "Fichiers de sous-titres",
     "defaultName": "Document",
     "tooLarge": "Ce document est trop gros pour être enregistré : 64 Mo au plus."
   },
@@ -676,5 +678,19 @@
     "ioFailedDetail": "Impossible d'écrire le fichier audio de travail : {error}",
     "pickTitle": "Choisir un fichier audio ou vidéo",
     "mediaFiles": "Fichiers audio et vidéo"
+  },
+  "synthesis": {
+    "busy": "Une synthèse est déjà en cours d'écriture. Attendez qu'elle finisse, ou arrêtez-la.",
+    "noText": "Cette transcription n'a pas de texte à synthétiser.",
+    "transcribing": "Cette transcription n'est pas encore finie. Synthétisez-la une fois terminée.",
+    "noModel": "Aucun modèle n'est disponible. Téléchargez-en un dans le ModelHub, ou choisissez-en un dans le chat.",
+    "modelNotFound": "Le modèle {model} n'est pas installé",
+    "unloaded": "Le modèle a été déchargé avant la fin de la synthèse.",
+    "connectionLost": "La connexion au modèle a été perdue avant la fin de la synthèse.",
+    "contextTooSmall": "Le contexte de ce modèle est trop petit pour synthétiser cette transcription. Choisissez une longueur du contexte plus grande dans Paramètres › Général, ou un autre modèle.",
+    "empty": "Le modèle a donné une réponse vide. Réessayez, ou choisissez un autre modèle.",
+    "failed": "La synthèse a échoué : {detail}",
+    "timedOut": "le modèle a mis trop de temps à répondre",
+    "notSaved": "La synthèse n'a pas pu être enregistrée : {detail}"
   }
 }

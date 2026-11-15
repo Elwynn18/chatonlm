@@ -11,6 +11,8 @@
     "markdownFiles": "Archivos Markdown",
     "wordFiles": "Documentos de Word",
     "pdfFiles": "Documentos PDF",
+    "textFiles": "Archivos de texto",
+    "subtitleFiles": "Archivos de subtítulos",
     "defaultName": "Documento",
     "tooLarge": "Este documento es demasiado grande para guardarlo: 64 MB como máximo."
   },
@@ -676,5 +678,19 @@
     "ioFailedDetail": "No se pudo escribir el archivo de audio de trabajo: {error}",
     "pickTitle": "Elegir un archivo de audio o video",
     "mediaFiles": "Archivos de audio y video"
+  },
+  "synthesis": {
+    "busy": "Ya se está escribiendo una síntesis. Espera a que termine, o detenla.",
+    "noText": "Esta transcripción no tiene texto para sintetizar.",
+    "transcribing": "Esta transcripción aún no ha terminado. Sintetízala cuando esté lista.",
+    "noModel": "No hay ningún modelo disponible. Descarga uno en el ModelHub, o elige uno en el chat.",
+    "modelNotFound": "El modelo {model} no está instalado",
+    "unloaded": "El modelo se descargó antes del final de la síntesis.",
+    "connectionLost": "Se perdió la conexión con el modelo antes del final de la síntesis.",
+    "contextTooSmall": "El contexto de este modelo es demasiado pequeño para sintetizar esta transcripción. Elige una longitud del contexto mayor en Configuración › General, u otro modelo.",
+    "empty": "El modelo dio una respuesta vacía. Inténtalo de nuevo, o elige otro modelo.",
+    "failed": "La síntesis falló: {detail}",
+    "timedOut": "el modelo tardó demasiado en responder",
+    "notSaved": "No se pudo guardar la síntesis: {detail}"
   }
 }

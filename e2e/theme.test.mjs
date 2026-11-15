@@ -66,6 +66,7 @@ const SCREENS = [
   ["tools", "nav a[href$='/tools']", "[data-testid=tools]"],
   tool("proofread", "[data-testid=proofread]"),
   tool("study", "[data-testid=study-form]"),
+  tool("transcription", "[data-testid=transcription-form]"),
   ["hub", "nav a[href$='/hub']", "nav[aria-label=ModelHub]"],
   ...["transcription", "polish", "voices", "installed", "downloads"].map(
     hubTab,

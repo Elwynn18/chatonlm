@@ -1,6 +1,6 @@
 // Faux serveurs lancés depuis un test : moteur de texte (fake-llama, lancé par
-// l'app sur des modèles inscrits au démarrage) et Hugging Face
-// (fake-services).
+// l'app sur des modèles inscrits au démarrage), Hugging Face et GitHub des
+// outils de la Transcription (fake-services).
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   copyFileSync,
@@ -432,6 +432,59 @@ export async function startFakeHf(mode = "hf", port = 0) {
       child.kill("SIGTERM");
       // Un serveur figé ne traiterait SIGTERM qu'une fois relancé.
       child.kill("SIGCONT");
+      await exited;
+    },
+  };
+}
+
+/** Faux yt-dlp et faux Deno compilés (fake-services, scripts/e2e-build.sh). */
+export const FAKE_YTDLP = `${ROOT}.tools/e2e-target/debug/fake-yt-dlp`;
+export const FAKE_DENO = `${ROOT}.tools/e2e-target/debug/fake-deno`;
+
+/**
+ * Démarre le faux GitHub des outils de la Transcription (`fake-services
+ * github`) : Releases de yt-dlp et de Deno dont les archives portent les
+ * faux binaires compilés (FAKE_YTDLP, FAKE_DENO), sommes signées par la clé
+ * d'essai. `env` : variables à donner à `withApp` (dépôts, clé d'essai, file
+ * des téléchargements rendue aux adresses de la Release). Renvoie { url,
+ * env, requests, stop }.
+ */
+export async function startFakeGithub() {
+  const child = spawn(FAKE_SERVICES, ["github", "0"], {
+    stdio: ["ignore", "pipe", "inherit"],
+    env: {
+      ...process.env,
+      FAKE_GITHUB_YTDLP_BIN: FAKE_YTDLP,
+      FAKE_GITHUB_DENO_BIN: FAKE_DENO,
+    },
+  });
+  const exited = new Promise((resolve) => {
+    child.once("exit", resolve);
+    child.once("error", () => resolve(null));
+  });
+  const url = await new Promise((resolve, reject) => {
+    createInterface({ input: child.stdout }).once("line", resolve);
+    child.once("error", reject);
+    child.once("exit", (code) =>
+      reject(new Error(`fake-services github s'est arrêté (code ${code})`)),
+    );
+  });
+  const pubkey = await (await fetch(new URL("/fake/pubkey", url))).text();
+  const base = url.replace(/\/$/, "");
+  return {
+    url,
+    env: {
+      CHATONLM_YTDLP_RELEASES_URL: `${base}/yt-dlp/yt-dlp`,
+      CHATONLM_DENO_RELEASES_URL: `${base}/denoland/deno`,
+      CHATONLM_TOOLS_PUBKEY: pubkey,
+      // Adresses complètes de la Release (vide : pas d'hôte imposé).
+      CHATONLM_TOOLS_QUEUE_URL: "",
+    },
+    async requests() {
+      return (await fetch(new URL("/fake/requests", url))).json();
+    },
+    async stop() {
+      child.kill("SIGTERM");
       await exited;
     },
   };

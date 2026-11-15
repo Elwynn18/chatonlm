@@ -1,8 +1,9 @@
 // Outils de la page Tools (propre à ChatonLM) : une entrée par carte, dans
-// l'ordre de la page (Study, Proofread ; Transcription viendra ensuite).
+// l'ordre de la page (Study, Proofread, Transcription).
 
 import {
   AcademicCapIcon,
+  ChatBubbleBottomCenterTextIcon,
   DocumentCheckIcon,
 } from "@heroicons/react/24/outline";
 import type { ComponentType, SVGProps } from "react";
@@ -13,7 +14,7 @@ export interface Tool {
   /** Nom court : `data-testid="tool-card-<id>"`. */
   id: string;
   /** Page de l'outil (un outil de plus : son chemin ici). */
-  to: "/study" | "/proofread";
+  to: "/study" | "/proofread" | "/transcription";
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   /** Nom de l'outil : le titre de sa page. */
   name: TKey;
@@ -22,8 +23,8 @@ export interface Tool {
 }
 
 /**
- * Outils, dans l'ordre des cartes. Un outil de plus (Transcription) : une
- * entrée ici, avec son icône et ses textes (`tools.cards.<id>`).
+ * Outils, dans l'ordre des cartes. Un outil de plus : une entrée ici, avec
+ * son icône et ses textes (`tools.cards.<id>`).
  */
 export const TOOLS: readonly Tool[] = [
   {
@@ -39,5 +40,12 @@ export const TOOLS: readonly Tool[] = [
     icon: DocumentCheckIcon,
     name: "proofread.title",
     description: "tools.cards.proofread",
+  },
+  {
+    id: "transcription",
+    to: "/transcription",
+    icon: ChatBubbleBottomCenterTextIcon,
+    name: "transcription.title",
+    description: "tools.cards.transcription",
   },
 ];

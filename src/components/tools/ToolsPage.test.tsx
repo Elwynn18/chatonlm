@@ -42,11 +42,15 @@ const toolsEntry = () =>
   document.querySelector<HTMLElement>('nav a[href="/tools"]')!;
 
 describe("Tools page", () => {
-  it("shows a card per tool, Study then Proofread, under the Tools title", async () => {
+  it("shows a card per tool, Study, Proofread then Transcription, under the Tools title", async () => {
     setup();
     await screen.findByTestId("tools");
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Tools");
-    expect(TOOLS.map((tool) => tool.id)).toEqual(["study", "proofread"]);
+    expect(TOOLS.map((tool) => tool.id)).toEqual([
+      "study",
+      "proofread",
+      "transcription",
+    ]);
     expect(cards()).toEqual([
       [
         "tool-card-study",
@@ -57,6 +61,11 @@ describe("Tools page", () => {
         "tool-card-proofread",
         "/proofread",
         "ProofreadCorrect or rephrase a text and see every change.",
+      ],
+      [
+        "tool-card-transcription",
+        "/transcription",
+        "TranscriptionTurn a video from the web or an audio file into text, then into a document to read.",
       ],
     ]);
     // Chaque carte a son icône.

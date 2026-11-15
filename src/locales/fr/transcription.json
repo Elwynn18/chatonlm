@@ -1,0 +1,192 @@
+{
+  "title": "Transcription",
+  "home": {
+    "description": "Faites d'une vidéo du web ou d'un fichier audio ou vidéo un texte écrit, puis un document à lire.",
+    "history": "Vos transcriptions",
+    "empty": "Aucune transcription pour l'instant. Collez l'adresse d'une vidéo ou choisissez un fichier pour commencer.",
+    "listError": "Impossible de lire les transcriptions : {message}",
+    "running": "Transcription en cours",
+    "open": "Ouvrir"
+  },
+  "form": {
+    "label": "Nouvelle transcription",
+    "address": "Adresse d'une vidéo",
+    "addressPlaceholder": "https://…",
+    "or": "ou",
+    "chooseFile": "Choisir un fichier…",
+    "dropHint": "Vous pouvez aussi déposer un fichier audio ou vidéo sur la fenêtre.",
+    "dropOverlay": "Déposez le fichier pour le transcrire",
+    "file": "Fichier à transcrire",
+    "removeFile": "Retirer {name}",
+    "reading": "Lecture du fichier…",
+    "model": "Modèle",
+    "language": "Langue",
+    "autoLanguage": "Détecter automatiquement",
+    "start": "Transcrire",
+    "starting": "Démarrage…",
+    "waitingTools": "La transcription commencera une fois yt-dlp et Deno installés.",
+    "busy": "Une autre transcription est en cours : attendez qu'elle finisse ou annulez-la.",
+    "noModel": "Aucun modèle de transcription n'est installé.",
+    "getModel": "En obtenir un dans le ModelHub",
+    "moreModels": "D'autres modèles dans le ModelHub",
+    "whisperSlow": "Whisper est lent sur un processeur : environ 55 minutes par heure de son.",
+    "whisperSlowFile": {
+      "one": "Whisper est lent sur un processeur : comptez environ {count} minute pour ce fichier.",
+      "other": "Whisper est lent sur un processeur : comptez environ {count} minutes pour ce fichier."
+    },
+    "parakeetLanguage": "Parakeet ne connaît pas cette langue ({language}) : choisissez un modèle Whisper.",
+    "twoLanguages": "L'enregistrement mélange deux langues ? Choisissez un modèle Whisper : Parakeet ne garde qu'une langue par passage.",
+    "invalidAddress": "Saisissez l'adresse complète de la page, qui commence par https://.",
+    "pickError": "Impossible de choisir le fichier : {message}",
+    "startError": "Impossible de lancer la transcription : {message}"
+  },
+  "tools": {
+    "needed": "Pour transcrire une vidéo du web, ChatonLM se sert de deux outils libres, yt-dlp et Deno, téléchargés une fois ({size}).",
+    "install": "Télécharger les outils…",
+    "fetching": "Recherche des dernières versions…",
+    "downloading": "Téléchargement de {name} : {done} sur {total}",
+    "verifying": "Vérification de {name}…",
+    "installing": "Installation de {name}…",
+    "progress": "Téléchargement des outils",
+    "cancel": "Annuler",
+    "installed": "yt-dlp {ytdlp} et Deno {deno} sont installés.",
+    "updateAvailable": "Une version plus récente de {name} est disponible ({version}).",
+    "update": "Mettre à jour",
+    "remove": "Retirer les outils",
+    "componentLicenses": "Licences des composants de yt-dlp",
+    "unsupported": "Les vidéos du web ne peuvent pas être transcrites sur ce système. Vous pouvez toujours transcrire un fichier.",
+    "statusError": "Impossible de lire l'état des outils : {message}",
+    "actionError": "Impossible de modifier les outils : {message}",
+    "consent": {
+      "title": "Télécharger yt-dlp et Deno ?",
+      "download": "ChatonLM va télécharger yt-dlp (Unlicense) et Deno (MIT) depuis GitHub ({size}).",
+      "components": "Le programme yt-dlp contient aussi des composants sous leurs propres licences, dont certains sous GPL ou LGPL.",
+      "responsibility": "Vous fournissez l'adresse ; n'utilisez cette fonction que pour des contenus que vous avez le droit de copier pour votre usage personnel (vos vidéos, contenus sous licence libre, exceptions prévues par la loi de votre pays), dans le respect des conditions du site.",
+      "workFile": "Le son n'est qu'un fichier de travail : il est effacé une fois transcrit.",
+      "ytdlpLicense": "Licence de yt-dlp",
+      "denoLicense": "Licence de Deno",
+      "accept": "Accepter et télécharger"
+    }
+  },
+  "job": {
+    "label": "Avancement de la transcription",
+    "stages": {
+      "fetching": "Lecture de la page de la vidéo",
+      "downloading": "Récupération du son",
+      "decoding": "Décodage du son",
+      "transcribing": "Transcription"
+    },
+    "steps": {
+      "done": "Fait",
+      "current": "En cours",
+      "pending": "À venir"
+    },
+    "preparing": "Préparation…",
+    "received": "{done} sur {total}",
+    "receivedSoFar": "{done} reçus",
+    "position": "{done} sur {total}",
+    "speed": "{speed} × le temps réel",
+    "remaining": {
+      "one": "encore environ {count} minute",
+      "other": "encore environ {count} minutes"
+    },
+    "progress": "Avancement",
+    "cancel": "Annuler",
+    "cancelError": "Impossible d'annuler la transcription : {message}",
+    "cancelled": "La transcription a été annulée.",
+    "liveText": "Texte déjà transcrit",
+    "waiting": "Le texte apparaît ici au fur et à mesure.",
+    "by": "par {channel}",
+    "retry": "Réessayer"
+  },
+  "errors": {
+    "codes": {
+      "noModel": "Aucun modèle de transcription n'est installé",
+      "modelNotInstalled": "Ce modèle n'est plus installé",
+      "unsupported": "Ce modèle ne peut pas fonctionner sur cet ordinateur",
+      "cannotOpen": "Impossible d'ouvrir le fichier",
+      "unsupportedFormat": "Ce format de fichier ne peut pas être lu",
+      "unsupportedCodec": "Le son de ce fichier ne peut pas être décodé",
+      "noAudioTrack": "Ce fichier n'a pas de son",
+      "damaged": "Ce fichier semble abîmé",
+      "tooLong": "Cet enregistrement est trop long",
+      "tooLarge": "Ce fichier est trop gros",
+      "fetch": "Impossible de récupérer la vidéo",
+      "noSpeech": "Aucune parole n'a été trouvée",
+      "failed": "La transcription a échoué",
+      "io": "Impossible d'écrire un fichier de travail"
+    },
+    "openHub": "Ouvrir le ModelHub",
+    "updateTools": "Mettre à jour yt-dlp"
+  },
+  "history": {
+    "fromAddress": "Vidéo du web",
+    "fromFile": "Fichier",
+    "states": {
+      "running": "En cours",
+      "failed": "Arrêtée par une erreur",
+      "cancelled": "Annulée",
+      "interrupted": "Interrompue"
+    },
+    "hasSummary": "Document prêt",
+    "delete": "Supprimer {title}"
+  },
+  "delete": {
+    "title": "Supprimer « {title} » ?",
+    "message": "La transcription et son document seront supprimés.",
+    "error": "Impossible de supprimer la transcription : {message}"
+  },
+  "page": {
+    "back": "Toutes les transcriptions",
+    "loadError": "Impossible de lire cette transcription : {message}",
+    "rename": "Renommer",
+    "renameLabel": "Titre",
+    "save": "Enregistrer",
+    "renameError": "Impossible de changer le titre : {message}",
+    "delete": "Supprimer",
+    "openSource": "Ouvrir la page de la vidéo",
+    "partial": {
+      "failed": "La transcription s'est arrêtée avant la fin : voici ce qui a été transcrit.",
+      "cancelled": "La transcription a été annulée : voici ce qui a été transcrit.",
+      "interrupted": "ChatonLM a été fermé pendant la transcription : voici ce qui a été transcrit."
+    },
+    "text": "Texte",
+    "timestamps": "Horodatage",
+    "copy": "Copier le texte",
+    "saveAs": "Enregistrer en",
+    "saved": "Enregistré : {path}",
+    "saveError": "Impossible d'enregistrer le fichier : {message}"
+  },
+  "formats": {
+    "txt": "Texte (.txt)",
+    "md": "Markdown (.md)",
+    "srt": "Sous-titres (.srt)",
+    "docx": "Word (.docx)",
+    "pdf": "PDF (.pdf)"
+  },
+  "synthesis": {
+    "title": "Document à lire",
+    "description": "Un modèle de langage réécrit la transcription en un document à lire, avec des intertitres et les points clés.",
+    "model": "Modèle",
+    "auto": "Auto",
+    "notInstalled": "{name} (non installé)",
+    "start": "Synthétiser",
+    "again": "Synthétiser à nouveau",
+    "writing": "Rédaction du document…",
+    "reading": "Lecture de la transcription…",
+    "stop": "Arrêter",
+    "cancelled": "Le document a été arrêté avant la fin.",
+    "error": "Impossible de rédiger le document : {message}",
+    "noModel": "Installez un modèle de langage dans le ModelHub pour rédiger le document.",
+    "busy": "Un autre document est en cours de rédaction : attendez qu'il soit fini.",
+    "madeWith": "Rédigé par {model}, {date}",
+    "useDocx": "Enregistrer en Word (.docx)",
+    "codes": {
+      "modelNotFound": "Le modèle n'est pas installé",
+      "engineFailed": "Le modèle a cessé de fonctionner",
+      "contextTooSmall": "Le contexte du modèle est trop petit",
+      "empty": "Le modèle n'a rendu aucun texte",
+      "failed": "Impossible de rédiger le document"
+    }
+  }
+}

@@ -1,0 +1,192 @@
+{
+  "title": "Transcription",
+  "home": {
+    "description": "Turn a video from the web or an audio or video file into written text, then into a document to read.",
+    "history": "Your transcriptions",
+    "empty": "No transcriptions yet. Paste the address of a video or choose a file to start.",
+    "listError": "The transcriptions couldn't be read: {message}",
+    "running": "Transcription in progress",
+    "open": "Open"
+  },
+  "form": {
+    "label": "New transcription",
+    "address": "Video address",
+    "addressPlaceholder": "https://…",
+    "or": "or",
+    "chooseFile": "Choose a file…",
+    "dropHint": "You can also drop an audio or video file on the window.",
+    "dropOverlay": "Drop the file to transcribe it",
+    "file": "File to transcribe",
+    "removeFile": "Remove {name}",
+    "reading": "Reading the file…",
+    "model": "Model",
+    "language": "Language",
+    "autoLanguage": "Detect automatically",
+    "start": "Transcribe",
+    "starting": "Starting…",
+    "waitingTools": "The transcription will start once yt-dlp and Deno are installed.",
+    "busy": "Another transcription is in progress: wait for it to finish or cancel it.",
+    "noModel": "No transcription model is installed.",
+    "getModel": "Get one in the ModelHub",
+    "moreModels": "More models in the ModelHub",
+    "whisperSlow": "Whisper is slow on a processor: about 55 minutes per hour of audio.",
+    "whisperSlowFile": {
+      "one": "Whisper is slow on a processor: allow about {count} minute for this file.",
+      "other": "Whisper is slow on a processor: allow about {count} minutes for this file."
+    },
+    "parakeetLanguage": "Parakeet doesn't know {language}: choose a Whisper model.",
+    "twoLanguages": "Does the recording mix two languages? Choose a Whisper model: Parakeet keeps only one language per passage.",
+    "invalidAddress": "Enter the full address of the page, starting with https://.",
+    "pickError": "The file couldn't be chosen: {message}",
+    "startError": "The transcription couldn't start: {message}"
+  },
+  "tools": {
+    "needed": "To transcribe a video from the web, ChatonLM uses two free tools, yt-dlp and Deno, downloaded once ({size}).",
+    "install": "Download the tools…",
+    "fetching": "Looking for the latest versions…",
+    "downloading": "Downloading {name}: {done} of {total}",
+    "verifying": "Checking {name}…",
+    "installing": "Installing {name}…",
+    "progress": "Download of the tools",
+    "cancel": "Cancel",
+    "installed": "yt-dlp {ytdlp} and Deno {deno} are installed.",
+    "updateAvailable": "A newer version of {name} is available ({version}).",
+    "update": "Update",
+    "remove": "Remove the tools",
+    "componentLicenses": "Licenses of yt-dlp's components",
+    "unsupported": "Videos from the web can't be transcribed on this system. You can still transcribe a file.",
+    "statusError": "The state of the tools couldn't be read: {message}",
+    "actionError": "The tools couldn't be changed: {message}",
+    "consent": {
+      "title": "Download yt-dlp and Deno?",
+      "download": "ChatonLM will download yt-dlp (Unlicense) and Deno (MIT) from GitHub ({size}).",
+      "components": "The yt-dlp program also contains components under their own licenses, some of them under the GPL or the LGPL.",
+      "responsibility": "You provide the address; only use this feature for content you have the right to copy for your personal use (your videos, content under a free license, exceptions provided by the law of your country), in accordance with the site's terms.",
+      "workFile": "The audio is only a working file: it is deleted once transcribed.",
+      "ytdlpLicense": "yt-dlp license",
+      "denoLicense": "Deno license",
+      "accept": "Accept and download"
+    }
+  },
+  "job": {
+    "label": "Progress of the transcription",
+    "stages": {
+      "fetching": "Reading the video page",
+      "downloading": "Getting the audio",
+      "decoding": "Decoding the audio",
+      "transcribing": "Transcribing"
+    },
+    "steps": {
+      "done": "Done",
+      "current": "In progress",
+      "pending": "To come"
+    },
+    "preparing": "Preparing…",
+    "received": "{done} of {total}",
+    "receivedSoFar": "{done} received",
+    "position": "{done} of {total}",
+    "speed": "{speed}× real time",
+    "remaining": {
+      "one": "about {count} minute left",
+      "other": "about {count} minutes left"
+    },
+    "progress": "Progress",
+    "cancel": "Cancel",
+    "cancelError": "The transcription couldn't be cancelled: {message}",
+    "cancelled": "The transcription was cancelled.",
+    "liveText": "Text so far",
+    "waiting": "The text appears here as it is transcribed.",
+    "by": "by {channel}",
+    "retry": "Try again"
+  },
+  "errors": {
+    "codes": {
+      "noModel": "No transcription model is installed",
+      "modelNotInstalled": "This model is no longer installed",
+      "unsupported": "This model can't run on this computer",
+      "cannotOpen": "The file couldn't be opened",
+      "unsupportedFormat": "This file format can't be read",
+      "unsupportedCodec": "The sound of this file can't be decoded",
+      "noAudioTrack": "This file has no sound",
+      "damaged": "This file seems damaged",
+      "tooLong": "This recording is too long",
+      "tooLarge": "This file is too large",
+      "fetch": "The video couldn't be retrieved",
+      "noSpeech": "No speech was found",
+      "failed": "The transcription failed",
+      "io": "A working file couldn't be written"
+    },
+    "openHub": "Open the ModelHub",
+    "updateTools": "Update yt-dlp"
+  },
+  "history": {
+    "fromAddress": "Video from the web",
+    "fromFile": "File",
+    "states": {
+      "running": "In progress",
+      "failed": "Stopped by an error",
+      "cancelled": "Cancelled",
+      "interrupted": "Interrupted"
+    },
+    "hasSummary": "Document ready",
+    "delete": "Delete {title}"
+  },
+  "delete": {
+    "title": "Delete “{title}”?",
+    "message": "The transcription and its document will be deleted.",
+    "error": "The transcription couldn't be deleted: {message}"
+  },
+  "page": {
+    "back": "All transcriptions",
+    "loadError": "This transcription couldn't be read: {message}",
+    "rename": "Rename",
+    "renameLabel": "Title",
+    "save": "Save",
+    "renameError": "The title couldn't be changed: {message}",
+    "delete": "Delete",
+    "openSource": "Open the video page",
+    "partial": {
+      "failed": "The transcription stopped before the end: here is what was transcribed.",
+      "cancelled": "The transcription was cancelled: here is what was transcribed.",
+      "interrupted": "ChatonLM was closed during the transcription: here is what was transcribed."
+    },
+    "text": "Text",
+    "timestamps": "Timestamps",
+    "copy": "Copy the text",
+    "saveAs": "Save as",
+    "saved": "Saved: {path}",
+    "saveError": "The file couldn't be saved: {message}"
+  },
+  "formats": {
+    "txt": "Text (.txt)",
+    "md": "Markdown (.md)",
+    "srt": "Subtitles (.srt)",
+    "docx": "Word (.docx)",
+    "pdf": "PDF (.pdf)"
+  },
+  "synthesis": {
+    "title": "Document to read",
+    "description": "A language model rewrites the transcription as a document to read, with headings and key points.",
+    "model": "Model",
+    "auto": "Auto",
+    "notInstalled": "{name} (not installed)",
+    "start": "Summarize",
+    "again": "Summarize again",
+    "writing": "Writing the document…",
+    "reading": "Reading the transcription…",
+    "stop": "Stop",
+    "cancelled": "The document was stopped before the end.",
+    "error": "The document couldn't be written: {message}",
+    "noModel": "Install a language model in the ModelHub to write the document.",
+    "busy": "Another document is being written: wait for it to finish.",
+    "madeWith": "Written by {model}, {date}",
+    "useDocx": "Save as Word (.docx)",
+    "codes": {
+      "modelNotFound": "The model isn't installed",
+      "engineFailed": "The model stopped working",
+      "contextTooSmall": "The model's context is too small",
+      "empty": "The model gave no text",
+      "failed": "The document couldn't be written"
+    }
+  }
+}

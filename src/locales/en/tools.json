@@ -3,6 +3,7 @@
   "description": "Each tool puts your models to work on one task.",
   "cards": {
     "study": "Turn any topic into a short course, with lessons and quizzes.",
-    "proofread": "Correct or rephrase a text and see every change."
+    "proofread": "Correct or rephrase a text and see every change.",
+    "transcription": "Turn a video from the web or an audio file into text, then into a document to read."
   }
 }

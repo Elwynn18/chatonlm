@@ -1,9 +1,10 @@
 //! Enregistrement d'un document exporté par la page (src/lib/export : .md,
-//! .docx, .pdf), propre à ChatonLM. La page produit les octets ; le moteur
-//! ouvre la boîte « Enregistrer sous » native (filtrée sur le format, nom
-//! proposé) et les écrit là où l'utilisateur l'a choisi. Un seul chemin pour
-//! les trois formats, le même sous Linux et sous Windows ; la page n'a aucun
-//! accès direct aux fichiers.
+//! .docx, .pdf ; outil Transcription : texte .txt et sous-titres .srt),
+//! propre à ChatonLM. La page produit les octets ; le moteur ouvre la boîte
+//! « Enregistrer sous » native (filtrée sur le format, nom proposé) et les
+//! écrit là où l'utilisateur l'a choisi. Un seul chemin pour tous les
+//! formats, le même sous Linux et sous Windows ; la page n'a aucun accès
+//! direct aux fichiers.
 
 use std::path::{Path, PathBuf};
 
@@ -18,7 +19,7 @@ use crate::i18n::t;
 
 /// En-tête du nom proposé (sans extension), encodé par `encodeURIComponent`.
 const FILENAME_HEADER: &str = "x-filename";
-/// En-tête du format : `md`, `docx` ou `pdf`.
+/// En-tête du format : `md`, `docx`, `pdf`, `txt` ou `srt`.
 const KIND_HEADER: &str = "x-kind";
 
 /// Taille maximale d'un document : bien au-delà d'une transcription de
@@ -35,6 +36,10 @@ enum Kind {
     Markdown,
     Word,
     Pdf,
+    /// Texte brut d'une transcription.
+    Text,
+    /// Sous-titres d'une transcription.
+    Subtitles,
 }
 
 impl Kind {
@@ -43,6 +48,8 @@ impl Kind {
             "md" => Some(Self::Markdown),
             "docx" => Some(Self::Word),
             "pdf" => Some(Self::Pdf),
+            "txt" => Some(Self::Text),
+            "srt" => Some(Self::Subtitles),
             _ => None,
         }
     }
@@ -52,6 +59,8 @@ impl Kind {
             Self::Markdown => "md",
             Self::Word => "docx",
             Self::Pdf => "pdf",
+            Self::Text => "txt",
+            Self::Subtitles => "srt",
         }
     }
 
@@ -61,6 +70,8 @@ impl Kind {
             Self::Markdown => t!("documents.markdownFiles"),
             Self::Word => t!("documents.wordFiles"),
             Self::Pdf => t!("documents.pdfFiles"),
+            Self::Text => t!("documents.textFiles"),
+            Self::Subtitles => t!("documents.subtitleFiles"),
         }
     }
 }
@@ -250,7 +261,12 @@ mod tests {
         assert_eq!(kind, Kind::Pdf);
         assert_eq!(name, "Réunion « a »");
         assert_eq!(data, b"%PDF-1.3");
-        for (value, expected) in [("md", Kind::Markdown), ("docx", Kind::Word)] {
+        for (value, expected) in [
+            ("md", Kind::Markdown),
+            ("docx", Kind::Word),
+            ("txt", Kind::Text),
+            ("srt", Kind::Subtitles),
+        ] {
             let (kind, ..) =
                 parse_request(&headers(&[("x-kind", value), ("x-filename", "a")]), &body).unwrap();
             assert_eq!(kind, expected);
@@ -298,6 +314,8 @@ mod tests {
             "a b c d e f g h i.docx"
         );
         assert_eq!(file_name("...notes. ", Kind::Markdown), "notes.md");
+        assert_eq!(file_name("Cours 3", Kind::Text), "Cours 3.txt");
+        assert_eq!(file_name("Cours 3", Kind::Subtitles), "Cours 3.srt");
         assert_eq!(file_name("CON", Kind::Pdf), "CON_.pdf");
         assert_eq!(file_name("com1", Kind::Pdf), "com1_.pdf");
         assert_eq!(file_name("COM10", Kind::Pdf), "COM10.pdf");
@@ -330,6 +348,14 @@ mod tests {
             with_extension(PathBuf::from("/d/notes"), Kind::Markdown, always),
             PathBuf::from("/d/notes")
         );
+        assert_eq!(
+            with_extension(PathBuf::from("/d/cours"), Kind::Subtitles, never),
+            PathBuf::from("/d/cours.srt")
+        );
+        assert_eq!(
+            with_extension(PathBuf::from("/d/cours.txt"), Kind::Text, never),
+            PathBuf::from("/d/cours.txt")
+        );
     }
 
     #[test]
@@ -347,6 +373,11 @@ mod tests {
             pdf
         );
         assert_eq!(std::fs::read(&pdf).unwrap(), b"%PDF");
+        // Sous-titres : octets écrits tels quels, extension ajoutée.
+        let srt = "1\n00:00:00,000 --> 00:00:02,500\nÉté\n".as_bytes();
+        let written = write_document(dir.path().join("cours"), Kind::Subtitles, srt).unwrap();
+        assert_eq!(written, dir.path().join("cours.srt"));
+        assert_eq!(std::fs::read(&written).unwrap(), srt);
         // Dossier absent : erreur de fichier, rien d'écrit.
         let missing = dir.path().join("absent").join("x.docx");
         assert!(matches!(

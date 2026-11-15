@@ -11,6 +11,8 @@
     "markdownFiles": "Markdown Files",
     "wordFiles": "Word Documents",
     "pdfFiles": "PDF Documents",
+    "textFiles": "Text Files",
+    "subtitleFiles": "Subtitle Files",
     "defaultName": "Document",
     "tooLarge": "This document is too large to be saved: 64 MB at most."
   },
@@ -676,5 +678,19 @@
     "ioFailedDetail": "The working audio file couldn't be written: {error}",
     "pickTitle": "Choose an audio or video file",
     "mediaFiles": "Audio and video files"
+  },
+  "synthesis": {
+    "busy": "A synthesis is already being written. Wait for it to finish, or stop it.",
+    "noText": "This transcription has no text to synthesize.",
+    "transcribing": "This transcription isn't finished yet. Synthesize it once it's done.",
+    "noModel": "No model is available. Download one in the ModelHub, or choose one in the chat.",
+    "modelNotFound": "The model {model} is not installed",
+    "unloaded": "The model was unloaded before the end of the synthesis.",
+    "connectionLost": "The connection to the model was lost before the end of the synthesis.",
+    "contextTooSmall": "The context of this model is too small to synthesize this transcription. Choose a longer context length in Settings › General, or another model.",
+    "empty": "The model gave an empty answer. Try again, or choose another model.",
+    "failed": "The synthesis failed: {detail}",
+    "timedOut": "the model took too long to answer",
+    "notSaved": "The synthesis couldn't be saved: {detail}"
   }
 }

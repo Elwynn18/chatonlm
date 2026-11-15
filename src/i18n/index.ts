@@ -20,6 +20,7 @@ import enProofread from "@/locales/en/proofread.json";
 import enSettings from "@/locales/en/settings.json";
 import enStudy from "@/locales/en/study.json";
 import enTools from "@/locales/en/tools.json";
+import enTranscription from "@/locales/en/transcription.json";
 import enVoiceMode from "@/locales/en/voiceMode.json";
 import enVscode from "@/locales/en/vscode.json";
 import esChat from "@/locales/es/chat.json";
@@ -31,6 +32,7 @@ import esProofread from "@/locales/es/proofread.json";
 import esSettings from "@/locales/es/settings.json";
 import esStudy from "@/locales/es/study.json";
 import esTools from "@/locales/es/tools.json";
+import esTranscription from "@/locales/es/transcription.json";
 import esVoiceMode from "@/locales/es/voiceMode.json";
 import esVscode from "@/locales/es/vscode.json";
 import frChat from "@/locales/fr/chat.json";
@@ -42,6 +44,7 @@ import frProofread from "@/locales/fr/proofread.json";
 import frSettings from "@/locales/fr/settings.json";
 import frStudy from "@/locales/fr/study.json";
 import frTools from "@/locales/fr/tools.json";
+import frTranscription from "@/locales/fr/transcription.json";
 import frVoiceMode from "@/locales/fr/voiceMode.json";
 import frVscode from "@/locales/fr/vscode.json";
 
@@ -60,6 +63,7 @@ const en = {
   proofread: enProofread,
   study: enStudy,
   tools: enTools,
+  transcription: enTranscription,
   voiceMode: enVoiceMode,
   vscode: enVscode,
 };
@@ -78,6 +82,7 @@ const catalogs: Record<Lang, Catalog> = {
     proofread: esProofread,
     study: esStudy,
     tools: esTools,
+    transcription: esTranscription,
     voiceMode: esVoiceMode,
     vscode: esVscode,
   },
@@ -91,6 +96,7 @@ const catalogs: Record<Lang, Catalog> = {
     proofread: frProofread,
     study: frStudy,
     tools: frTools,
+    transcription: frTranscription,
     voiceMode: frVoiceMode,
     vscode: frVscode,
   },

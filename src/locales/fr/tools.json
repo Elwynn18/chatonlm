@@ -3,6 +3,7 @@
   "description": "Chaque outil met vos modèles au travail sur une tâche.",
   "cards": {
     "study": "Faites de n'importe quel sujet un cours court, avec leçons et questions.",
-    "proofread": "Corrigez ou reformulez un texte et voyez chaque changement."
+    "proofread": "Corrigez ou reformulez un texte et voyez chaque changement.",
+    "transcription": "Faites d'une vidéo du web ou d'un fichier audio un texte, puis un document à lire."
   }
 }
