@@ -156,13 +156,17 @@ export type EngineAdvice =
   | { kind: "whisperSlow" }
   | { kind: "whisperSlowFile"; minutes: number }
   | { kind: "parakeetLanguage" }
+  | { kind: "parakeetGuesses" }
   | { kind: "twoLanguages" };
 
 /**
  * Conseils sous le choix du modèle : Whisper lent sur un long son (durée du
  * fichier connue, sinon adresse : durée encore inconnue) ; Parakeet ne
- * connaît pas la langue demandée ; Parakeet garde une seule langue par
- * passage (vidéo qui mélange deux langues).
+ * connaît pas la langue demandée ; langue choisie qu'il connaît : il ne
+ * l'impose pas, il devine celle de chaque passage (plusieurs voix, mots
+ * d'une autre langue : des passages sortent dans une autre langue, retour de
+ * recette de la 0.10.0) ; en détection automatique, il garde une seule
+ * langue par passage (vidéo qui mélange deux langues).
  */
 export function engineAdvice({
   engine,
@@ -191,10 +195,13 @@ export function engineAdvice({
       advice.push({ kind: "whisperSlow" });
     }
   } else if (engine === "parakeet") {
-    if (language !== "auto" && !parakeetLanguages.includes(language)) {
-      advice.push({ kind: "parakeetLanguage" });
+    if (language === "auto") {
+      advice.push({ kind: "twoLanguages" });
+    } else if (parakeetLanguages.includes(language)) {
+      advice.push({ kind: "parakeetGuesses" });
+    } else {
+      advice.push({ kind: "parakeetLanguage" }, { kind: "twoLanguages" });
     }
-    advice.push({ kind: "twoLanguages" });
   }
   return advice;
 }

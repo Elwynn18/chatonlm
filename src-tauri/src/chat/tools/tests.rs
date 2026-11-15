@@ -21,8 +21,9 @@ fn idle() -> watch::Receiver<bool> {
     watch::channel(false).1
 }
 
-fn error(text: &str) -> Executed {
-    Executed::Error(text.into())
+/// Erreur de ce code : texte pour le modèle (exact), code pour la page.
+fn error(code: ToolCallErrorCode, text: &str) -> Executed {
+    Executed::Error(ToolCallError::new(code, text))
 }
 
 /// Faux moteurs et outils qui s'y adressent.
@@ -270,48 +271,66 @@ async fn arguments_are_checked_before_any_request() {
     let bench = bench().await;
     let policy = Policy::public();
     let mut allowed = AllowedUrls::from_text("https://example.com/page");
-    for (name, arguments, expected) in [
-        (WEB_SEARCH, json!({}), "query parameter is required"),
+    use ToolCallErrorCode::{InvalidArguments, InvalidQuery, UnknownTool, UrlNotProvided};
+    for (name, arguments, code, expected) in [
+        (
+            WEB_SEARCH,
+            json!({}),
+            InvalidArguments,
+            "query parameter is required",
+        ),
         (
             WEB_SEARCH,
             json!({ "max_results": 3 }),
+            InvalidArguments,
             "query parameter is required",
         ),
         (
             WEB_SEARCH,
             json!({ "query": " \n" }),
+            InvalidArguments,
             "query must be a non-empty string",
         ),
         (
             WEB_SEARCH,
             json!({ "query": 3 }),
+            InvalidArguments,
             "query must be a non-empty string",
         ),
         (
             WEB_SEARCH,
             json!({ "query": "x ".repeat(60) }),
+            InvalidQuery,
             "the search query is empty or too long",
         ),
-        (WEB_FETCH, json!({}), "url parameter is required"),
+        (
+            WEB_FETCH,
+            json!({}),
+            InvalidArguments,
+            "url parameter is required",
+        ),
         (
             WEB_FETCH,
             json!({ "url": ["https://example.com/page"] }),
+            InvalidArguments,
             "url must be a non-empty string",
         ),
         (
             WEB_FETCH,
             json!({ "url": "https://example.com/page." }),
+            UrlNotProvided,
             "web fetch is only allowed for URLs provided by the user",
         ),
         (
             "browser.search",
             json!({ "query": "x" }),
+            UnknownTool,
             "unknown tool: browser.search",
         ),
     ] {
         assert_eq!(
             run(&bench.web, &policy, name, arguments.clone(), &mut allowed).await,
-            error(expected),
+            error(code, expected),
             "{name} {arguments}"
         );
     }
@@ -463,11 +482,14 @@ async fn failed_searches_stop_the_send_with_their_code() {
     );
     // … une erreur au modèle après une recherche réussie.
     allowed.searched = true;
-    let Executed::Error(text) = run(&closed, &policy, WEB_SEARCH, search(), &mut allowed).await
-    else {
-        panic!("an error for the model was expected");
-    };
-    assert_eq!(text, "web search failed: duckduckgo offline");
+    let failed = run(&closed, &policy, WEB_SEARCH, search(), &mut allowed).await;
+    assert_eq!(
+        failed,
+        error(
+            ToolCallErrorCode::SearchFailed,
+            "web search failed: duckduckgo offline"
+        )
+    );
 }
 
 #[tokio::test]
@@ -520,6 +542,10 @@ async fn a_page_is_read_by_the_app_and_allows_its_links() {
             headers: vec![("content-type", "text/plain".into())],
             ..Reply::html("plain text")
         },
+        "/forbidden" => Reply {
+            status: 403,
+            ..Reply::html("")
+        },
         _ => Reply {
             status: 404,
             ..Reply::html("")
@@ -541,7 +567,10 @@ async fn a_page_is_read_by_the_app_and_allows_its_links() {
     .await;
     assert_eq!(
         refused,
-        error("web fetch is only allowed for URLs provided by the user")
+        error(
+            ToolCallErrorCode::UrlNotProvided,
+            "web fetch is only allowed for URLs provided by the user"
+        )
     );
     let read = run(
         &web,
@@ -582,8 +611,62 @@ async fn a_page_is_read_by_the_app_and_allows_its_links() {
     .await;
     assert_eq!(
         missing,
-        error("failed to fetch the page: the server answered with status 404")
+        Executed::Error(ToolCallError::with_status(
+            ToolCallErrorCode::PageNotFound,
+            404,
+            "failed to fetch the page: the server answered with status 404"
+        ))
     );
+    // Site qui refuse : même texte anglais pour le modèle, code et statut
+    // pour la page.
+    allowed.add(&site.url("/forbidden"));
+    let forbidden = run(
+        &web,
+        &policy,
+        WEB_FETCH,
+        json!({ "url": site.url("/forbidden") }),
+        &mut allowed,
+    )
+    .await;
+    assert_eq!(
+        forbidden,
+        Executed::Error(ToolCallError::with_status(
+            ToolCallErrorCode::AccessDenied,
+            403,
+            "failed to fetch the page: the server answered with status 403"
+        ))
+    );
+}
+
+#[test]
+fn every_fetch_error_has_a_code_for_the_page() {
+    use ToolCallErrorCode as C;
+    for (error, code) in [
+        (FetchError::Scheme, (C::InvalidUrl, None)),
+        (FetchError::Address, (C::InvalidUrl, None)),
+        (FetchError::NotPublic, (C::PrivateAddress, None)),
+        (FetchError::Resolve, (C::UnknownHost, None)),
+        (FetchError::Connect, (C::Network, None)),
+        (FetchError::Interrupted, (C::Network, None)),
+        (FetchError::Redirects, (C::TooManyRedirects, None)),
+        (
+            FetchError::ContentType("application/pdf".into()),
+            (C::UnsupportedContent, None),
+        ),
+        (FetchError::TooLarge, (C::TooLarge, None)),
+        (FetchError::Status(401), (C::AccessDenied, Some(401))),
+        (FetchError::Status(403), (C::AccessDenied, Some(403))),
+        (FetchError::Status(404), (C::PageNotFound, Some(404))),
+        (FetchError::Status(410), (C::PageNotFound, Some(410))),
+        (FetchError::Status(429), (C::TooManyRequests, Some(429))),
+        (FetchError::Status(500), (C::ServerError, Some(500))),
+        (FetchError::Status(503), (C::ServerError, Some(503))),
+        (FetchError::Status(302), (C::HttpStatus, Some(302))),
+        (FetchError::Status(400), (C::HttpStatus, Some(400))),
+        (FetchError::Status(451), (C::HttpStatus, Some(451))),
+    ] {
+        assert_eq!(error.code(), code, "{error:?}");
+    }
 }
 
 #[test]
@@ -778,7 +861,13 @@ async fn the_guard_refuses_private_addresses_names_and_redirects() {
         Duration::from_millis(200),
     )
     .await;
-    assert_eq!(late, error("failed to fetch the page: timed out"));
+    assert_eq!(
+        late,
+        error(
+            ToolCallErrorCode::Timeout,
+            "failed to fetch the page: timed out"
+        )
+    );
     assert!(started.elapsed() < Duration::from_secs(2));
     let (stop, mut cancel) = watch::channel(false);
     let task = {

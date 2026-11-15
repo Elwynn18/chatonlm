@@ -605,6 +605,10 @@ function adviceText(t: TFunction, advice: EngineAdvice, language: string) {
       return t("transcription.form.parakeetLanguage", {
         language: languageName(t.lang, language),
       });
+    case "parakeetGuesses":
+      return t("transcription.form.parakeetGuesses", {
+        language: languageName(t.lang, language),
+      });
     case "twoLanguages":
       return t("transcription.form.twoLanguages");
   }

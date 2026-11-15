@@ -75,6 +75,12 @@
     "seconds": "A réfléchi pendant {seconds} secondes",
     "ruminating": "Le modèle réfléchit depuis longtemps et semble tourner en rond."
   },
+  "steps": {
+    "count": {
+      "one": "{count} étape",
+      "other": "{count} étapes"
+    }
+  },
   "tools": {
     "searching": "Recherche de <term/>…",
     "fetching": "Récupération de <term/>…",
@@ -85,7 +91,28 @@
     "fetchResults": "Contenu récupéré de <url/>",
     "webFetchResults": "Contenu web récupéré",
     "rawResult": "Résultat brut de l'outil",
-    "error": "Erreur : {error}"
+    "error": "Erreur : {error}",
+    "errors": {
+      "accessDenied": "Le site a refusé l'accès à la page (erreur {status}). Certains sites bloquent les lectures automatiques.",
+      "pageNotFound": "Page introuvable (erreur {status}). L'adresse est peut-être fausse, ou la page a été retirée.",
+      "tooManyRequests": "Le site a reçu trop de demandes. Réessayez dans quelques minutes.",
+      "serverError": "Le site a rencontré un problème (erreur {status}). Réessayez plus tard.",
+      "httpStatus": "Le site n'a pas pu fournir la page (erreur {status}).",
+      "timeout": "La page a mis trop de temps à répondre.",
+      "network": "Impossible de joindre le site. Vérifiez votre connexion à Internet.",
+      "unknownHost": "Site introuvable. Vérifiez l'adresse et votre connexion à Internet.",
+      "privateAddress": "Cette adresse mène à cet ordinateur ou à un réseau local : sa lecture est bloquée par sécurité.",
+      "invalidUrl": "Cette adresse ne peut pas être lue : seules les pages web (http ou https) le peuvent.",
+      "tooManyRedirects": "La page renvoie vers d'autres adresses trop de fois.",
+      "unsupportedContent": "Cette page n'est pas du texte lisible (un PDF ou une image, par exemple).",
+      "tooLarge": "La page est trop grande pour être lue.",
+      "urlNotProvided": "Le modèle a voulu ouvrir une adresse que vous n'avez pas donnée. Par sécurité, seules les adresses écrites dans la conversation ou trouvées par la recherche peuvent être lues.",
+      "searchFailed": "La recherche web n'a pas abouti cette fois-ci.",
+      "invalidQuery": "La recherche demandée était vide ou trop longue.",
+      "unknownTool": "Le modèle a demandé un outil qui n'est pas disponible.",
+      "invalidArguments": "Le modèle a mal appelé l'outil (information manquante ou incorrecte).",
+      "internal": "Une erreur interne est survenue en préparant le résultat."
+    }
   },
   "image": {
     "label": "Image",

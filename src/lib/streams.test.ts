@@ -444,6 +444,32 @@ describe("tool calls (web search)", () => {
     expect(only("c")!.replies).toEqual(before!.replies);
   });
 
+  it("keeps the code and status of a tool error for the page", () => {
+    startTurn();
+    streams.apply("s", {
+      type: "toolCalls",
+      messageId: 2,
+      toolCalls: [search("a")],
+    });
+    const text =
+      "failed to fetch the page: the server answered with status 403";
+    streams.apply("s", {
+      type: "toolResult",
+      messageId: 2,
+      index: 0,
+      result: null,
+      error: text,
+      errorCode: "accessDenied",
+      errorStatus: 403,
+    });
+    expect(only("c")!.replies[0].toolCalls[0]).toStrictEqual({
+      ...search("a"),
+      error: text,
+      errorCode: "accessDenied",
+      errorStatus: 403,
+    });
+  });
+
   it("a stop during a tool keeps the call without result", () => {
     startTurn();
     streams.apply("s", {

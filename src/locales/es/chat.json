@@ -75,6 +75,12 @@
     "seconds": "Pensó durante {seconds} segundos",
     "ruminating": "El modelo lleva mucho tiempo pensando y parece dar vueltas en círculo."
   },
+  "steps": {
+    "count": {
+      "one": "{count} paso",
+      "other": "{count} pasos"
+    }
+  },
   "tools": {
     "searching": "Buscando <term/>…",
     "fetching": "Obteniendo <term/>…",
@@ -85,7 +91,28 @@
     "fetchResults": "Contenido obtenido de <url/>",
     "webFetchResults": "Contenido web obtenido",
     "rawResult": "Resultado sin procesar de la herramienta",
-    "error": "Error: {error}"
+    "error": "Error: {error}",
+    "errors": {
+      "accessDenied": "El sitio ha denegado el acceso a la página (error {status}). Algunos sitios bloquean las lecturas automáticas.",
+      "pageNotFound": "No se ha encontrado la página (error {status}). Puede que la dirección sea incorrecta o que la página se haya eliminado.",
+      "tooManyRequests": "El sitio ha recibido demasiadas solicitudes. Vuelve a intentarlo dentro de unos minutos.",
+      "serverError": "El sitio ha tenido un problema (error {status}). Vuelve a intentarlo más tarde.",
+      "httpStatus": "El sitio no ha podido proporcionar la página (error {status}).",
+      "timeout": "La página ha tardado demasiado en responder.",
+      "network": "No se puede conectar con el sitio. Comprueba tu conexión a Internet.",
+      "unknownHost": "No se encuentra el sitio. Comprueba la dirección y tu conexión a Internet.",
+      "privateAddress": "Esta dirección lleva a este ordenador o a una red local: su lectura está bloqueada por seguridad.",
+      "invalidUrl": "Esta dirección no se puede leer: solo se pueden leer páginas web (http o https).",
+      "tooManyRedirects": "La página redirige a otras direcciones demasiadas veces.",
+      "unsupportedContent": "Esta página no es texto legible (un PDF o una imagen, por ejemplo).",
+      "tooLarge": "La página es demasiado grande para leerla.",
+      "urlNotProvided": "El modelo ha intentado abrir una dirección que no has dado. Por seguridad, solo se pueden leer las direcciones escritas en el chat o encontradas por la búsqueda.",
+      "searchFailed": "La búsqueda web no ha funcionado esta vez.",
+      "invalidQuery": "La búsqueda pedida estaba vacía o era demasiado larga.",
+      "unknownTool": "El modelo ha pedido una herramienta que no está disponible.",
+      "invalidArguments": "El modelo ha llamado mal a la herramienta (falta información o no es correcta).",
+      "internal": "Se ha producido un error interno al preparar el resultado."
+    }
   },
   "image": {
     "label": "Imagen",

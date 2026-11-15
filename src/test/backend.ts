@@ -721,6 +721,8 @@ export function fakeBackend(
         if (!call) break;
         call.result = event.result;
         call.error = event.error;
+        call.errorCode = event.errorCode;
+        call.errorStatus = event.errorStatus;
         break;
       }
       case "imageReady": {

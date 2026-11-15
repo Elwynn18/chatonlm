@@ -436,7 +436,13 @@ export function apply(streamId: string, event: ChatEvent) {
           ...reply,
           toolCalls: reply.toolCalls.map((call, index) =>
             index === event.index
-              ? { ...call, result: event.result, error: event.error }
+              ? {
+                  ...call,
+                  result: event.result,
+                  error: event.error,
+                  errorCode: event.errorCode,
+                  errorStatus: event.errorStatus,
+                }
               : call,
           ),
         })),

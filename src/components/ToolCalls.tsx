@@ -27,7 +27,10 @@
  * Images tab of the ModelHub; once done, "Created an image", unfolding its
  * prompt like the web results (the image itself: GeneratedImage.tsx); the
  * web search goes through ChatonLM's relay, and a result found by Brave says
- * "Powered by Brave Search" under its block (WebSearchAttribution.tsx).
+ * "Powered by Brave Search" under its block (WebSearchAttribution.tsx); a
+ * failed web tool shows a plain sentence in the page's language for the code
+ * of its error (src/lib/toolCallError.ts) instead of the English text given
+ * to the model, which is kept for older chats without a code.
  */
 
 import {
@@ -51,6 +54,7 @@ import {
   imagePrompt,
   requestedSide,
 } from "@/lib/generatedImages";
+import { toolCallErrorText } from "@/lib/toolCallError";
 
 /** Préparation (démarrage, chargement) au-delà de laquelle un conseil vient. */
 export const SLOW_PREPARATION_MS = 20_000;
@@ -428,7 +432,7 @@ export function ToolResult({ call }: { call: ToolCall }) {
     return (
       <div className="space-y-2">
         <pre className="max-h-40 overflow-x-auto rounded-md bg-neutral-100 p-2 text-xs whitespace-pre-wrap text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200">
-          <code>{t("chat.tools.error", { error: call.error })}</code>
+          <code>{toolCallErrorText(t, call)}</code>
         </pre>
       </div>
     );

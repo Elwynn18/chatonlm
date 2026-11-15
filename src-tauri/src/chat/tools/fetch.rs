@@ -25,6 +25,7 @@ use std::time::Duration;
 use url::Url;
 
 use super::page;
+use crate::store::chats::ToolCallErrorCode;
 
 /// Redirections suivies au plus.
 pub const MAX_REDIRECTS: usize = 5;
@@ -93,6 +94,36 @@ pub enum FetchError {
     TooLarge,
     #[error("the reply was interrupted")]
     Interrupted,
+}
+
+impl FetchError {
+    /// Nature de l'échec pour la page, et statut HTTP quand le site a
+    /// répondu par un échec.
+    pub fn code(&self) -> (ToolCallErrorCode, Option<u16>) {
+        use ToolCallErrorCode as C;
+        match self {
+            Self::Scheme | Self::Address => (C::InvalidUrl, None),
+            Self::NotPublic => (C::PrivateAddress, None),
+            Self::Resolve => (C::UnknownHost, None),
+            Self::Connect | Self::Interrupted => (C::Network, None),
+            Self::Redirects => (C::TooManyRedirects, None),
+            Self::Status(status) => (status_code(*status), Some(*status)),
+            Self::ContentType(_) => (C::UnsupportedContent, None),
+            Self::TooLarge => (C::TooLarge, None),
+        }
+    }
+}
+
+/// Nature d'un statut HTTP d'échec.
+fn status_code(status: u16) -> ToolCallErrorCode {
+    use ToolCallErrorCode as C;
+    match status {
+        401 | 403 => C::AccessDenied,
+        404 | 410 => C::PageNotFound,
+        429 => C::TooManyRequests,
+        500..=599 => C::ServerError,
+        _ => C::HttpStatus,
+    }
 }
 
 /// Page lue.

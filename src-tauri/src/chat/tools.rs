@@ -17,7 +17,10 @@
 // only the titles and links of the search results (the excerpts go to the
 // model during the send only, as the Brave Search terms ask); a search that
 // fails at the first search of a send (no network, DuckDuckGo blocking, key
-// refused) stops the send with its own code instead of going to the model.
+// refused) stops the send with its own code instead of going to the model;
+// each error given to the model also carries a code (and the HTTP status of
+// a refused page) so that the page shows it in its own language, the English
+// text going to the model unchanged.
 
 //! Outils de la recherche web, comme l'app officielle : `web_search` et
 //! `web_fetch`.
@@ -52,6 +55,7 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use super::{ChatErrorKind, WebTools, cancelled};
+use crate::store::chats::{ToolCallError, ToolCallErrorCode};
 use web_search::SearchError;
 
 pub use fetch::Policy;
@@ -190,8 +194,9 @@ pub enum Executed {
     /// JSON de la réponse (texte compact), enregistré et montré ; le modèle
     /// reçoit [`AllowedUrls::model_text`] de ce texte.
     Result(String),
-    /// Erreur donnée au modèle (sans « Error: »).
-    Error(String),
+    /// Erreur : texte donné au modèle (sans « Error: »), code et statut HTTP
+    /// pour la page.
+    Error(ToolCallError),
     /// Arrêt demandé pendant l'appel : ni résultat ni erreur.
     Cancelled,
     /// L'envoi s'arrête avec ce code (recherche impossible à la première
@@ -233,7 +238,10 @@ async fn execute_with(
     match name {
         WEB_SEARCH => web_search(web, arguments, allowed, cancel).await,
         WEB_FETCH => web_fetch(policy, arguments, allowed, cancel, fetch_timeout).await,
-        other => Executed::Error(format!("unknown tool: {other}")),
+        other => Executed::Error(ToolCallError::new(
+            ToolCallErrorCode::UnknownTool,
+            format!("unknown tool: {other}"),
+        )),
     }
 }
 
@@ -245,13 +253,19 @@ fn text_argument<'a>(
     missing: &str,
     invalid: &str,
 ) -> Result<&'a str, Executed> {
+    let invalid_arguments = |text: &str| {
+        Executed::Error(ToolCallError::new(
+            ToolCallErrorCode::InvalidArguments,
+            text,
+        ))
+    };
     let Some(value) = arguments.get(key) else {
-        return Err(Executed::Error(missing.into()));
+        return Err(invalid_arguments(missing));
     };
     value
         .as_str()
         .filter(|text| !text.trim().is_empty())
-        .ok_or_else(|| Executed::Error(invalid.into()))
+        .ok_or_else(|| invalid_arguments(invalid))
 }
 
 /// Un résultat enregistré : titre et lien seulement.
@@ -306,12 +320,14 @@ fn refused(error: &SearchError, first_search: bool) -> Executed {
     };
     match error {
         // La requête du modèle est en cause : à lui de la refaire.
-        SearchError::InvalidQuery => {
-            Executed::Error("the search query is empty or too long".into())
-        }
-        _ if !first_search => {
-            Executed::Error(format!("web search failed: {}", crate::search::code(error)))
-        }
+        SearchError::InvalidQuery => Executed::Error(ToolCallError::new(
+            ToolCallErrorCode::InvalidQuery,
+            "the search query is empty or too long",
+        )),
+        _ if !first_search => Executed::Error(ToolCallError::new(
+            ToolCallErrorCode::SearchFailed,
+            format!("web search failed: {}", crate::search::code(error)),
+        )),
         _ => Executed::Stop(kind, crate::search::message(error)),
     }
 }
@@ -397,9 +413,7 @@ async fn web_search(
             allowed.for_model.insert(stored.clone(), for_model);
             Executed::Result(stored)
         }
-        (Err(error), _) | (_, Err(error)) => {
-            Executed::Error(format!("failed to marshal tool result: {error}"))
-        }
+        (Err(error), _) | (_, Err(error)) => marshal_failed(&error),
     }
 }
 
@@ -428,7 +442,10 @@ async fn web_fetch(
         Err(error) => return error,
     };
     if !allowed.allows(url) {
-        return Executed::Error("web fetch is only allowed for URLs provided by the user".into());
+        return Executed::Error(ToolCallError::new(
+            ToolCallErrorCode::UrlNotProvided,
+            "web fetch is only allowed for URLs provided by the user",
+        ));
     }
     let fetched = tokio::select! {
         biased;
@@ -436,8 +453,19 @@ async fn web_fetch(
         fetched = tokio::time::timeout(timeout, fetch::fetch(policy, url)) => fetched,
     };
     let page = match fetched {
-        Err(_) => return Executed::Error("failed to fetch the page: timed out".into()),
-        Ok(Err(error)) => return Executed::Error(format!("failed to fetch the page: {error}")),
+        Err(_) => {
+            return Executed::Error(ToolCallError::new(
+                ToolCallErrorCode::Timeout,
+                "failed to fetch the page: timed out",
+            ));
+        }
+        Ok(Err(error)) => {
+            let text = format!("failed to fetch the page: {error}");
+            return Executed::Error(match error.code() {
+                (code, Some(status)) => ToolCallError::with_status(code, status, text),
+                (code, None) => ToolCallError::new(code, text),
+            });
+        }
         Ok(Ok(page)) => page,
     };
     for link in &page.links {
@@ -450,8 +478,16 @@ async fn web_fetch(
     };
     match serde_json::to_string(&response) {
         Ok(text) => Executed::Result(text),
-        Err(error) => Executed::Error(format!("failed to marshal tool result: {error}")),
+        Err(error) => marshal_failed(&error),
     }
+}
+
+/// Résultat impossible à écrire en JSON (erreur interne).
+fn marshal_failed(error: &serde_json::Error) -> Executed {
+    Executed::Error(ToolCallError::new(
+        ToolCallErrorCode::Internal,
+        format!("failed to marshal tool result: {error}"),
+    ))
 }
 
 /// Outils d'essai sur ces moteurs de recherche (essais du chat et de

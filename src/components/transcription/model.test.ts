@@ -152,6 +152,17 @@ describe("transcription model", () => {
     expect(
       engineAdvice({ ...base, engine: "parakeet", source: "url" }),
     ).toEqual([{ kind: "twoLanguages" }]);
+    // Langue choisie que Parakeet connaît : il ne l'impose pas (il devine
+    // celle de chaque passage), Whisper est proposé.
+    expect(
+      engineAdvice({
+        ...base,
+        engine: "parakeet",
+        source: "url",
+        language: "fr",
+        parakeetLanguages: ["fr", "en"],
+      }),
+    ).toEqual([{ kind: "parakeetGuesses" }]);
     expect(
       engineAdvice({
         ...base,

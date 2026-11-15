@@ -35,6 +35,7 @@
       "other": "Whisper es lento en un procesador: cuenta con unos {count} minutos para este archivo."
     },
     "parakeetLanguage": "Parakeet no conoce este idioma ({language}): elige un modelo Whisper.",
+    "parakeetGuesses": "Parakeet adivina por sí mismo el idioma de cada fragmento: con varias voces o palabras de otro idioma, algunos fragmentos pueden salir en otro idioma. Para mantener el idioma elegido ({language}) de principio a fin, elige un modelo Whisper.",
     "twoLanguages": "¿La grabación mezcla dos idiomas? Elige un modelo Whisper: Parakeet conserva un solo idioma por fragmento.",
     "invalidAddress": "Escribe la dirección completa de la página, que empieza por https://.",
     "pickError": "No se pudo elegir el archivo: {message}",

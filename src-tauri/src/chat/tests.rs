@@ -1260,6 +1260,26 @@ async fn web_fetch_reads_only_urls_given_by_the_user() {
         "{calls:?}"
     );
     assert_eq!(calls[2], ("http://127.0.0.1:9/bx".into(), ONLY_USER.into()));
+    // Code de chaque erreur pour la page, enregistré et annoncé ; le texte
+    // reste celui du modèle.
+    let codes: Vec<_> = chat
+        .messages
+        .iter()
+        .flat_map(|message| &message.tool_calls)
+        .map(|call| (call.error_code, call.error_status))
+        .collect();
+    assert_eq!(
+        codes,
+        [
+            (Some(ToolCallErrorCode::UrlNotProvided), None),
+            (Some(ToolCallErrorCode::PrivateAddress), None),
+            (Some(ToolCallErrorCode::UrlNotProvided), None),
+        ]
+    );
+    let announced = of_type(&first.events(), "toolResult");
+    assert_eq!(announced[0]["error"], ONLY_USER);
+    assert_eq!(announced[0]["errorCode"], "urlNotProvided");
+    assert!(announced[0].get("errorStatus").is_none(), "{announced:?}");
     // La première réponse porte bien l'adresse du modèle (sinon l'essai ne
     // prouverait rien).
     assert!(
@@ -3353,6 +3373,27 @@ async fn image_calls_are_checked_and_limited_to_four_per_send() {
             Some("unknown tool: web_fetch".into()),
         ]
     );
+    // Les erreurs de l'image sont déjà dans la langue du moment : sans code
+    // (la page montre le texte) ; un outil pas offert : `unknownTool`.
+    let codes: Vec<_> = saved(store, &chat_id).messages[1]
+        .tool_calls
+        .iter()
+        .map(|call| call.error_code)
+        .collect();
+    let unknown = Some(ToolCallErrorCode::UnknownTool);
+    assert_eq!(
+        codes,
+        [None, None, None, None, None, None, None, unknown, unknown]
+    );
+    let announced: Vec<_> = events
+        .lock()
+        .iter()
+        .filter_map(|event| match event {
+            ChatEvent::ToolResult { error_code, .. } => Some(*error_code),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(announced, codes);
     assert_eq!(
         painter.prompts(),
         ["picture 1", "picture 2", "picture 3", "picture 4"]

@@ -40,9 +40,16 @@
  * (`generate_image`, ToolCalls.tsx): its finished result shows the image
  * created (GeneratedImage.tsx, with "Save image...") instead of the JSON
  * block, its error stays with the call (no "Error:" block), and the reply of
- * the composer's "Image" mode (no text, one call) has no empty text block.
+ * the composer's "Image" mode (no text, one call) has no empty text block;
+ * ChatonLM's own group of steps: when the replies of one turn hold several
+ * steps (thinking blocks and tool calls with their results, created images
+ * excepted), a "N steps" button above them folds them all at once, along with
+ * the text written between calls; unfolded while the model works, folded as
+ * soon as the final text starts or the reply ends, then as the user chose for
+ * that turn while the page lives; a single step is shown as before.
  */
 
+import { ChevronDownIcon, QueueListIcon } from "@heroicons/react/24/outline";
 import {
   memo,
   type ReactNode,
@@ -80,9 +87,18 @@ import {
 } from "@/lib/generatedImages";
 import type { DownloadProgress } from "@/lib/streams";
 import { errorFor, phaseFor } from "@/lib/readAloud";
+import {
+  isStepCall,
+  setStepsExpanded,
+  stepTurns,
+  useStepChoices,
+} from "@/lib/stepGroups";
 import { isFinished } from "@/lib/toolCalls";
 
 const NO_COMPACTIONS: readonly Compaction[] = [];
+
+/** Message hors d'un groupe d'étapes. */
+const NO_GROUP = { folded: false, count: 0, expanded: false };
 
 export function MessageList({
   chatId,
@@ -173,27 +189,57 @@ export function MessageList({
     editingMessageId === null
       ? -1
       : messages.findIndex((m) => m.id === editingMessageId);
+  // Étapes de chaque tour : groupées à partir de deux. Sans choix de
+  // l'utilisateur, dépliées tant que le modèle travaille et que le texte
+  // final n'a pas commencé (dérivé du flux, rien n'est stocké).
+  const turns = useMemo(() => stepTurns(messages), [messages]);
+  const stepChoices = useStepChoices();
+  const lastId = last?.id;
+  const stepsFor = (message: Message) => {
+    const turn = turns.get(message.id);
+    if (!turn || turn.steps < 2) return NO_GROUP;
+    const working =
+      (isStreaming && lastId !== undefined && turn.ids.includes(lastId)) ||
+      (remoteReplyId !== null && turn.ids.includes(remoteReplyId));
+    const expanded =
+      stepChoices.get(turn.key) ?? (working && !turn.finalStarted);
+    const first = turn.key === message.id;
+    return {
+      folded: !expanded,
+      count: first ? turn.steps : 0,
+      expanded: first && expanded,
+    };
+  };
 
   return (
     <div
       className="mx-auto flex max-w-[768px] flex-1 flex-col px-6 pb-12 select-text"
       data-role="message-list"
     >
-      {messages.map((message, idx) => (
-        <div key={message.id} data-message-index={idx}>
-          <MessageView
-            chatId={chatId}
-            message={message}
-            isStreaming={isStreaming && idx === messages.length - 1}
-            isRemoteRunning={message.id === remoteReplyId}
-            isFaded={editingIndex !== -1 && idx >= editingIndex}
-            onEditMessage={onEditMessage}
-          />
-          {compactionsAfter.get(message.id)?.map((compaction) => (
-            <CompactionSeparator key={compaction.id} compaction={compaction} />
-          ))}
-        </div>
-      ))}
+      {messages.map((message, idx) => {
+        const steps = stepsFor(message);
+        return (
+          <div key={message.id} data-message-index={idx}>
+            <MessageView
+              chatId={chatId}
+              message={message}
+              isStreaming={isStreaming && idx === messages.length - 1}
+              isRemoteRunning={message.id === remoteReplyId}
+              isFaded={editingIndex !== -1 && idx >= editingIndex}
+              stepsFolded={steps.folded}
+              stepsCount={steps.count}
+              stepsExpanded={steps.expanded}
+              onEditMessage={onEditMessage}
+            />
+            {compactionsAfter.get(message.id)?.map((compaction) => (
+              <CompactionSeparator
+                key={compaction.id}
+                compaction={compaction}
+              />
+            ))}
+          </div>
+        );
+      })}
 
       {/* Inline error message */}
       {error && <ErrorMessage message={error}>{errorActions}</ErrorMessage>}
@@ -264,6 +310,9 @@ const MessageView = memo(function MessageView({
   isStreaming,
   isRemoteRunning,
   isFaded,
+  stepsFolded,
+  stepsCount,
+  stepsExpanded,
   onEditMessage,
 }: {
   chatId?: string;
@@ -272,6 +321,12 @@ const MessageView = memo(function MessageView({
   /** Réponse d'un bot d'Easy Link en cours, sans flux dans la page. */
   isRemoteRunning: boolean;
   isFaded: boolean;
+  /** Étapes de son tour repliées : les siennes sont masquées. */
+  stepsFolded: boolean;
+  /** Premier message d'un groupe d'étapes : leur nombre (sinon 0). */
+  stepsCount: number;
+  /** Groupe déplié (premier message seulement). */
+  stepsExpanded: boolean;
   onEditMessage?: (message: Message) => void;
 }) {
   return message.role === "user" ? (
@@ -287,6 +342,9 @@ const MessageView = memo(function MessageView({
       isStreaming={isStreaming}
       isRemoteRunning={isRemoteRunning}
       isFaded={isFaded}
+      stepsFolded={stepsFolded}
+      stepsCount={stepsCount}
+      stepsExpanded={stepsExpanded}
     />
   );
 });
@@ -487,12 +545,22 @@ function thinkingTimes(
  * son JSON (hors de la typographie des réponses), une erreur d'image reste
  * avec son appel (ToolCalls.tsx).
  */
-function ToolResultBlock({ call, fade }: { call: ToolCall; fade: string }) {
+function ToolResultBlock({
+  call,
+  fade,
+  hidden,
+}: {
+  call: ToolCall;
+  fade: string;
+  /** Étape d'un groupe replié. */
+  hidden: boolean;
+}) {
   const image = call.name === IMAGE_TOOL ? parseImageResult(call.result) : null;
   if (call.name === IMAGE_TOOL && call.error !== null) return null;
   return (
     <div
       className={`mb-8 flex flex-col space-y-4 transition-opacity duration-300 ${fade}`}
+      hidden={hidden}
     >
       <div className="group relative flex max-w-none flex-1 flex-col justify-start text-wrap break-words">
         {image ? (
@@ -512,18 +580,63 @@ function ToolResultBlock({ call, fade }: { call: ToolCall; fade: string }) {
   );
 }
 
+/**
+ * En-tête d'un groupe d'étapes : « N steps », qui les déplie ou les replie
+ * toutes. Elles sont réparties dans plusieurs messages (pas d'aria-controls
+ * unique) ; la flèche tourne comme celles des étapes.
+ */
+function StepsToggle({
+  turnKey,
+  count,
+  expanded,
+}: {
+  turnKey: number;
+  count: number;
+  expanded: boolean;
+}) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      data-role="steps-toggle"
+      className="group/steps relative flex cursor-pointer items-center self-start rounded-md text-left text-neutral-600 outline-none transition-colors select-text hover:text-neutral-800 focus-visible:ring-2 focus-visible:ring-accent-fg dark:text-neutral-400 dark:hover:text-neutral-200"
+      aria-expanded={expanded}
+      onClick={() => setStepsExpanded(turnKey, !expanded)}
+    >
+      <QueueListIcon
+        aria-hidden="true"
+        className="absolute top-1/2 h-4 w-4 -translate-y-1/2"
+      />
+      <span className="ml-6">{t("chat.steps.count", { count })}</span>
+      <ChevronDownIcon
+        aria-hidden="true"
+        strokeWidth={2}
+        className={`ml-1 h-4 w-4 transition-transform ${
+          expanded ? "rotate-0" : "-rotate-90"
+        }`}
+      />
+    </button>
+  );
+}
+
 function AssistantMessage({
   chatId,
   message,
   isStreaming,
   isRemoteRunning = false,
   isFaded,
+  stepsFolded = false,
+  stepsCount = 0,
+  stepsExpanded = false,
 }: {
   chatId?: string;
   message: Message;
   isStreaming: boolean;
   isRemoteRunning?: boolean;
   isFaded: boolean;
+  stepsFolded?: boolean;
+  stepsCount?: number;
+  stepsExpanded?: boolean;
 }) {
   const t = useT();
   const messageRef = useRef<HTMLDivElement>(null);
@@ -532,6 +645,14 @@ function AssistantMessage({
   const hasThinking = message.thinking.trim() !== "";
   const { toolCalls } = message;
   const fade = isFaded ? "opacity-50" : "opacity-100";
+  // Groupe replié : raisonnement, appels (sauf image), leurs résultats et le
+  // texte écrit entre deux appels sont masqués (gardés dans la page : chaque
+  // étape garde son propre état). Même arbre replié ou non, groupé ou non.
+  const finalContent = hasContent && toolCalls.length === 0;
+  const hasImageCall = toolCalls.some((call) => !isStepCall(call));
+  const contentHidden = stepsFolded && !finalContent;
+  const messageHidden =
+    stepsFolded && stepsCount === 0 && !finalContent && !hasImageCall;
   // Réponse finie, avec un texte, pas un tour d'outils : ses actions.
   const finished = !isStreaming && hasContent && toolCalls.length === 0;
   const copy = (
@@ -547,16 +668,30 @@ function AssistantMessage({
 
   return (
     <>
+      {/* gap plutôt que space-y : un enfant masqué ne laisse pas de marge. */}
       <div
-        className={`mb-8 flex flex-col space-y-4 transition-opacity duration-300 ${fade}`}
+        className={`mb-8 flex flex-col gap-4 transition-opacity duration-300 ${fade}`}
+        hidden={messageHidden}
       >
-        <div className="group relative flex max-w-none flex-1 flex-col justify-start text-wrap break-words">
+        {stepsCount > 0 && (
+          <StepsToggle
+            turnKey={message.id}
+            count={stepsCount}
+            expanded={stepsExpanded}
+          />
+        )}
+        <div
+          className="group relative flex max-w-none flex-1 flex-col justify-start text-wrap break-words"
+          hidden={contentHidden}
+        >
           {/* Thinking area */}
           {hasThinking && (
-            <Thinking
-              thinking={message.thinking}
-              {...thinkingTimes(message, isStreaming)}
-            />
+            <div hidden={stepsFolded}>
+              <Thinking
+                thinking={message.thinking}
+                {...thinkingTimes(message, isStreaming)}
+              />
+            </div>
           )}
 
           {/* Only render content div if there's actual content to show */}
@@ -583,16 +718,17 @@ function AssistantMessage({
         </div>
 
         {toolCalls.length > 0 && (
-          <div data-role="tool-calls">
+          <div data-role="tool-calls" hidden={stepsFolded && !hasImageCall}>
             {toolCalls.map((call, index) => (
-              <ToolCallDisplay
-                key={index}
-                call={call}
-                messageId={message.id}
-                index={index}
-                isStreaming={isStreaming}
-                isRemoteRunning={isRemoteRunning}
-              />
+              <div key={index} hidden={stepsFolded && isStepCall(call)}>
+                <ToolCallDisplay
+                  call={call}
+                  messageId={message.id}
+                  index={index}
+                  isStreaming={isStreaming}
+                  isRemoteRunning={isRemoteRunning}
+                />
+              </div>
             ))}
           </div>
         )}
@@ -616,7 +752,12 @@ function AssistantMessage({
       {toolCalls.map(
         (call, index) =>
           isFinished(call) && (
-            <ToolResultBlock key={index} call={call} fade={fade} />
+            <ToolResultBlock
+              key={index}
+              call={call}
+              fade={fade}
+              hidden={stepsFolded && isStepCall(call)}
+            />
           ),
       )}
     </>

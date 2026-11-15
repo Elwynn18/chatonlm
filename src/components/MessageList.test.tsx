@@ -5,9 +5,11 @@ import {
   render,
   screen,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "@/bindings/Message";
 import type { ToolCall } from "@/bindings/ToolCall";
+import { setLanguage } from "@/i18n";
 import type { DownloadProgress } from "@/lib/streams";
 import { MessageList } from "./MessageList";
 
@@ -844,6 +846,330 @@ describe("MessageList", () => {
       rerender(list([sent, done], false));
       act(() => vi.advanceTimersByTime(2000));
       expect(dots()).toBeNull();
+    });
+  });
+
+  describe("groups of steps", () => {
+    function call(
+      name: string,
+      args: unknown,
+      done: Partial<Pick<ToolCall, "result" | "error">> = {},
+    ): ToolCall {
+      return {
+        name,
+        arguments: JSON.stringify(args),
+        result: null,
+        error: null,
+        ...done,
+      };
+    }
+
+    /** Réponse de l'assistant : raisonnement (fini si `ended`) et appels. */
+    function reply(
+      id: number,
+      {
+        content = "",
+        thinking = "",
+        ended = true,
+        toolCalls = [],
+      }: {
+        content?: string;
+        thinking?: string;
+        ended?: boolean;
+        toolCalls?: ToolCall[];
+      },
+    ): Message {
+      return {
+        ...message(id, "assistant", content),
+        thinking,
+        thinkingStartedAt: thinking ? 1_000 : null,
+        thinkingEndedAt: thinking && ended ? 4_000 : null,
+        toolCalls,
+      };
+    }
+
+    const sent = message(1, "user", "Search");
+    // Tour en cours : réflexion + recherche, puis récupération avec un texte
+    // écrit entre deux appels, puis réflexion en cours (4 étapes).
+    const searched = reply(2, {
+      thinking: "Plan",
+      toolCalls: [call("web_search", { query: "kittens" }, { result: "{}" })],
+    });
+    const fetched = reply(3, {
+      content: "Let me read it.",
+      toolCalls: [
+        call("web_fetch", { url: "https://e.com" }, { error: "timeout" }),
+      ],
+    });
+    const thinkingNow = reply(4, { thinking: "Nearly", ended: false });
+    const answered = reply(4, { thinking: "Nearly", content: "The answer" });
+    const working = [sent, searched, fetched, thinkingNow];
+    const done = [sent, searched, fetched, answered];
+
+    const toggle = () =>
+      document.querySelector<HTMLButtonElement>("[data-role=steps-toggle]");
+    /** Visible : aucun ancêtre masqué. */
+    const shown = (element: Element) => element.closest("[hidden]") === null;
+    const callLines = () => [
+      ...document.querySelectorAll("[data-role=tool-calls] > div"),
+    ];
+    const resultBlocks = () => [
+      ...document.querySelectorAll<HTMLElement>("[data-role=tool]"),
+    ];
+    /** En-têtes de raisonnement accessibles (pas ceux d'un groupe replié). */
+    const thinkingHeaders = () =>
+      screen.queryAllByRole("button", { name: /^(Thought|Thinking)/ });
+    const texts = () => [
+      ...document.querySelectorAll<HTMLElement>("[data-role=assistant]"),
+    ];
+    /** Lignes d'appel et résultats visibles, raisonnements, texte intermédiaire. */
+    const stepsShown = () => [
+      ...[...callLines(), ...resultBlocks()].map(shown),
+      thinkingHeaders().length,
+      shown(texts()[0]),
+    ];
+
+    it("groups the steps of a turn under one button, unfolded while the model works", () => {
+      render(list(working));
+      const button = toggle()!;
+      expect(button.tagName).toBe("BUTTON");
+      expect(button.type).toBe("button");
+      expect(button.textContent).toBe("4 steps");
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      expect(
+        screen.getByRole("button", { name: "4 steps", expanded: true }),
+      ).toBe(button);
+      // Un seul groupe, au-dessus de la première étape.
+      expect(
+        document.querySelectorAll("[data-role=steps-toggle]"),
+      ).toHaveLength(1);
+      expect(
+        button.compareDocumentPosition(thinkingHeaders()[0]) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      // Tout se voit pendant le travail, chaque étape avec son propre repli.
+      expect(callLines()).toHaveLength(2);
+      expect(resultBlocks()).toHaveLength(2);
+      expect(stepsShown()).toEqual([true, true, true, true, 2, true]);
+      expect(resultBlocks()[0].querySelector("button")?.textContent).toBe(
+        "Search results for kittens",
+      );
+    });
+
+    it("stays unfolded between the results and the next reply", () => {
+      render(list([sent, searched, fetched]));
+      expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+      expect(callLines().every(shown)).toBe(true);
+    });
+
+    it("folds them all as soon as the final text starts, keeping it in view", () => {
+      const { rerender } = render(list(working));
+      const button = toggle()!;
+      rerender(list(done));
+      // Même bouton, replié, toujours là.
+      expect(toggle()).toBe(button);
+      expect(button.getAttribute("aria-expanded")).toBe("false");
+      expect(button.textContent).toBe("4 steps");
+      expect(shown(button)).toBe(true);
+      // Étapes masquées (et hors de l'arbre d'accessibilité), texte écrit
+      // entre deux appels compris ; le texte final reste.
+      expect(stepsShown()).toEqual([false, false, false, false, 0, false]);
+      expect(texts().map((text) => [text.textContent, shown(text)])).toEqual([
+        ["Let me read it.", false],
+        ["The answer", true],
+      ]);
+      // Un message fait seulement d'étapes ne laisse aucune place.
+      const middle = document.querySelector('[data-message-index="2"]')!;
+      expect([...middle.children].every((child) => !shown(child))).toBe(true);
+      // Fin de la réponse : toujours replié.
+      rerender(list(done, false));
+      expect(button.getAttribute("aria-expanded")).toBe("false");
+      expect(callLines().some(shown)).toBe(false);
+    });
+
+    it("folds the text written before the first call with the steps", () => {
+      render(
+        list(
+          [
+            sent,
+            reply(2, {
+              content: "Looking it up.",
+              toolCalls: [
+                call("web_search", { query: "a" }, { result: "{}" }),
+                call("web_search", { query: "b" }, { result: "{}" }),
+              ],
+            }),
+            reply(3, { content: "Done" }),
+          ],
+          false,
+        ),
+      );
+      expect(shown(toggle()!)).toBe(true);
+      expect(texts().map((text) => [text.textContent, shown(text)])).toEqual([
+        ["Looking it up.", false],
+        ["Done", true],
+      ]);
+    });
+
+    it("shows a finished turn folded, even without a final text", () => {
+      render(
+        list(
+          [
+            sent,
+            searched,
+            message(5, "user", "Again"),
+            reply(6, {
+              thinking: "Hmm",
+              toolCalls: [call("web_search", { query: "b" })],
+            }),
+          ],
+          false,
+        ),
+      );
+      const buttons = screen.getAllByRole("button", {
+        name: "2 steps",
+        expanded: false,
+      });
+      expect(buttons).toHaveLength(2);
+      expect(callLines().some(shown)).toBe(false);
+      expect(thinkingHeaders()).toHaveLength(0);
+    });
+
+    it("unfolds and folds on click, the user's choice winning over the automatic state", () => {
+      const { rerender, unmount } = render(list(working));
+      const button = toggle()!;
+      // Replié pendant le travail : il le reste quand d'autres étapes
+      // arrivent.
+      fireEvent.click(button);
+      expect(button.getAttribute("aria-expanded")).toBe("false");
+      expect(callLines().some(shown)).toBe(false);
+      const more = reply(4, {
+        thinking: "Nearly",
+        toolCalls: [call("web_search", { query: "c" })],
+      });
+      rerender(list([sent, searched, fetched, more]));
+      expect(button.textContent).toBe("5 steps");
+      expect(button.getAttribute("aria-expanded")).toBe("false");
+      expect(callLines().some(shown)).toBe(false);
+
+      // Déplié par l'utilisateur : il le reste au texte final et à la fin.
+      fireEvent.click(button);
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      rerender(list(done));
+      rerender(list(done, false));
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      expect(stepsShown()).toEqual([true, true, true, true, 2, true]);
+      // Chaque étape garde son propre repli.
+      const result = resultBlocks()[0].querySelector("button")!;
+      expect(result.getAttribute("aria-expanded")).toBe("false");
+      fireEvent.click(result);
+      expect(result.getAttribute("aria-expanded")).toBe("true");
+      fireEvent.click(button);
+      fireEvent.click(button);
+      expect(result.getAttribute("aria-expanded")).toBe("true");
+
+      // Choix gardé pour ce tour tant que la page vit (conversation rouverte).
+      unmount();
+      render(list(done, false));
+      expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+    });
+
+    it("toggles from the keyboard, with nothing of a folded group reachable", async () => {
+      render(list(done, false));
+      await userEvent.tab();
+      expect(document.activeElement).toBe(toggle());
+      await userEvent.keyboard("{Enter}");
+      expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+      expect(callLines().every(shown)).toBe(true);
+      await userEvent.keyboard(" ");
+      expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+      // Tab suivant : hors des étapes masquées.
+      await userEvent.tab();
+      expect(shown(document.activeElement!)).toBe(true);
+      expect(document.activeElement).not.toBe(toggle());
+    });
+
+    it("shows a single step as before, without a group", () => {
+      const { rerender } = render(
+        list([sent, reply(2, { thinking: "Plan", content: "Hi" })], false),
+      );
+      expect(toggle()).toBeNull();
+      expect(thinkingHeaders()).toHaveLength(1);
+      rerender(
+        list([
+          sent,
+          reply(2, {
+            toolCalls: [call("web_search", { query: "q" }, { result: "{}" })],
+          }),
+          reply(3, { content: "Found it" }),
+        ]),
+      );
+      expect(toggle()).toBeNull();
+      expect(callLines().every(shown)).toBe(true);
+      expect(resultBlocks().every(shown)).toBe(true);
+      // Un raisonnement vide n'est pas une étape.
+      rerender(
+        list(
+          [
+            sent,
+            reply(2, {
+              thinking: "  ",
+              toolCalls: [call("web_search", { query: "q" }, { result: "{}" })],
+            }),
+            reply(3, { content: "Found it" }),
+          ],
+          false,
+        ),
+      );
+      expect(toggle()).toBeNull();
+    });
+
+    it("keeps a created image out of the group", () => {
+      render(
+        list(
+          [
+            sent,
+            reply(2, {
+              thinking: "Plan",
+              toolCalls: [
+                call("web_search", { query: "q" }, { result: "{}" }),
+                // Arrêtée (réponse finie sans résultat).
+                call("generate_image", { prompt: "cat" }),
+              ],
+            }),
+            reply(3, { content: "Sorry" }),
+          ],
+          false,
+        ),
+      );
+      expect(toggle()?.textContent).toBe("2 steps");
+      expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+      const image = document.querySelector("[data-role=image-stopped]")!;
+      expect(shown(image)).toBe(true);
+      expect(callLines().map(shown)).toEqual([false, true]);
+    });
+
+    it("stays unfolded while an Easy Link bot's reply runs", () => {
+      render(
+        <MessageList
+          messages={[sent, searched, fetched]}
+          spacerHeight={0}
+          isStreaming={false}
+          remoteReplyId={3}
+          error={null}
+        />,
+      );
+      expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+    });
+
+    it("counts the steps in the language of the interface", () => {
+      setLanguage("fr");
+      render(list(done, false));
+      expect(toggle()?.textContent).toBe("4 étapes");
+      cleanup();
+      setLanguage("es");
+      render(list(done, false));
+      expect(toggle()?.textContent).toBe("4 pasos");
     });
   });
 

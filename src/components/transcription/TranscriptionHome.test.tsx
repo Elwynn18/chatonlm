@@ -118,6 +118,13 @@ describe("Transcription home", () => {
     expect(form().textContent).toContain(
       "Parakeet doesn't know Japanese: choose a Whisper model.",
     );
+    // Langue qu'il connaît : il ne l'impose pas, Whisper est proposé.
+    await user.selectOptions(language, "fr");
+    expect(advice()).toEqual(["parakeetGuesses"]);
+    expect(form().textContent).toContain(
+      "To keep the chosen language (French) throughout, choose a Whisper model.",
+    );
+    await user.selectOptions(language, "ja");
     // Whisper sur une heure : lent, le temps est annoncé.
     await user.selectOptions(model, WHISPER);
     expect(advice()).toEqual(["whisperSlowFile"]);

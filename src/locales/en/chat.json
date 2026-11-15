@@ -75,6 +75,12 @@
     "seconds": "Thought for {seconds} seconds",
     "ruminating": "The model has been thinking for a long time and seems to be going in circles."
   },
+  "steps": {
+    "count": {
+      "one": "{count} step",
+      "other": "{count} steps"
+    }
+  },
   "tools": {
     "searching": "Searching for <term/>…",
     "fetching": "Fetching for <term/>…",
@@ -85,7 +91,28 @@
     "fetchResults": "Fetch results for <url/>",
     "webFetchResults": "Web fetch results",
     "rawResult": "Raw tool result",
-    "error": "Error: {error}"
+    "error": "Error: {error}",
+    "errors": {
+      "accessDenied": "The website refused access to the page (error {status}). Some websites block automated reading.",
+      "pageNotFound": "The page was not found (error {status}). The address may be wrong, or the page may have been removed.",
+      "tooManyRequests": "The website received too many requests. Try again in a few minutes.",
+      "serverError": "The website ran into a problem (error {status}). Try again later.",
+      "httpStatus": "The website could not provide the page (error {status}).",
+      "timeout": "The page took too long to respond.",
+      "network": "Could not reach the website. Check your internet connection.",
+      "unknownHost": "The website could not be found. Check the address and your internet connection.",
+      "privateAddress": "This address leads to this computer or to a local network: reading it is blocked for safety.",
+      "invalidUrl": "This address cannot be read: only web pages (http or https) can.",
+      "tooManyRedirects": "The page sends to other addresses too many times.",
+      "unsupportedContent": "This page is not readable text (a PDF or an image, for example).",
+      "tooLarge": "The page is too large to be read.",
+      "urlNotProvided": "The model tried to open an address you did not give. For safety, only addresses written in the conversation or found by the search can be read.",
+      "searchFailed": "The web search did not work this time.",
+      "invalidQuery": "The requested search was empty or too long.",
+      "unknownTool": "The model asked for a tool that is not available.",
+      "invalidArguments": "The model called the tool incorrectly (missing or wrong information).",
+      "internal": "An internal error occurred while preparing the result."
+    }
   },
   "image": {
     "label": "Image",

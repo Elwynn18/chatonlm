@@ -417,5 +417,12 @@ describe("useMessageAutoscroll", () => {
         .setAttribute("data-expanded", "false");
     });
     expect(spacer().style.height).toBe("560px");
+
+    // Groupe d'étapes montré ou masqué (attribut hidden) : de même.
+    extraHeight.set(10, 100);
+    await act(async () => {
+      replaced.querySelector("[data-role='user']")!.setAttribute("hidden", "");
+    });
+    expect(spacer().style.height).toBe("460px");
   });
 });

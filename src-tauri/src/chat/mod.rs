@@ -152,7 +152,7 @@ use crate::llm::models::ModelDetails;
 use crate::llm::{Access, LlmError, OpenOptions, Prefs, Session, ids};
 use crate::store::chats::{
     self, AttachmentInfo, Chat, Compaction, ContextUsage, Counted, Message, Reply, Sendable,
-    ToolCall,
+    ToolCall, ToolCallError, ToolCallErrorCode,
 };
 use crate::store::settings::Settings;
 use crate::store::{Store, model_prefs, now_ms};
@@ -377,12 +377,20 @@ pub enum ChatEvent {
         tool_calls: Vec<ToolCall>,
     },
     /// Résultat (ou erreur) de l'appel `index` d'une réponse, enregistré.
+    /// `error` : texte donné au modèle ; `error_code` et `error_status` :
+    /// nature de l'erreur et statut HTTP, pour la page (propre à ChatonLM).
     #[serde(rename_all = "camelCase")]
     ToolResult {
         message_id: i64,
         index: u32,
         result: Option<String>,
         error: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        error_code: Option<ToolCallErrorCode>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        error_status: Option<u16>,
     },
     /// Avancement de l'image demandée par l'appel `index` (outil
     /// `generate_image`) d'une réponse (propre à ChatonLM).
@@ -1141,7 +1149,10 @@ fn tool_definitions(web: bool, image: bool) -> Option<serde_json::Value> {
 /// Erreur d'un outil appelé sans avoir été offert (texte de l'officiel).
 fn unknown_tool(name: &str) -> Executed {
     // i18n-ignore : texte de l'officiel, donné au modèle.
-    Executed::Error(format!("unknown tool: {name}"))
+    Executed::Error(ToolCallError::new(
+        ToolCallErrorCode::UnknownTool,
+        format!("unknown tool: {name}"),
+    ))
 }
 
 impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
@@ -1624,8 +1635,7 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
                 Executed::Stop(kind, message) => return Err(Outcome::Failed(kind, message)),
             };
             if let Some(live) = reply.reply.tool_calls.get_mut(index as usize) {
-                live.result.clone_from(&result);
-                live.error.clone_from(&error);
+                live.set_outcome(result.clone(), error.as_ref());
             }
             self.engine
                 .update_live(&reply.chat_id, message_id, &reply.reply);
@@ -1637,15 +1647,21 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
                         message_id,
                         index,
                         saved_result.as_deref(),
-                        saved_error.as_deref(),
+                        saved_error.as_ref(),
                     )
                 })
                 .await?;
+            let (error, error_code, error_status) = match error {
+                Some(error) => (Some(error.text), error.code, error.status),
+                None => (None, None, None),
+            };
             (self.emit)(ChatEvent::ToolResult {
                 message_id,
                 index,
                 result,
                 error,
+                error_code,
+                error_status,
             });
         }
         Ok(())
@@ -1668,13 +1684,15 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
             return Ok(unknown_tool(images::TOOL_NAME));
         };
         let Some(prompt) = images::prompt_argument(arguments) else {
-            return Ok(Executed::Error(t!("chat.imageNoPrompt")));
+            return Ok(Executed::Error(ToolCallError::uncoded(t!(
+                "chat.imageNoPrompt"
+            ))));
         };
         if images.count >= images::MAX_IMAGES_PER_SEND {
-            return Ok(Executed::Error(t!(
+            return Ok(Executed::Error(ToolCallError::uncoded(t!(
                 "chat.imageTooMany",
                 max = images::MAX_IMAGES_PER_SEND
-            )));
+            ))));
         }
         images.count += 1;
         // Carte graphique détectée maintenant seulement (pas à chaque envoi).
@@ -1710,7 +1728,7 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
         };
         let mut painted = match painted {
             Ok(painted) => painted,
-            Err(error) => return Ok(Executed::Error(error)),
+            Err(error) => return Ok(Executed::Error(ToolCallError::uncoded(error))),
         };
         // Arrêt demandé pendant que l'image finissait : ni enregistrée, ni
         // annoncée (un bot d'Easy Link l'enverrait encore).
@@ -1725,7 +1743,9 @@ impl<E: Fn(ChatEvent) + Sync> Conversation<'_, E> {
         let attachment = match saved {
             Ok(attachment) => attachment,
             // Trop grande : erreur donnée au modèle.
-            Err(AppError::Invalid(message)) => return Ok(Executed::Error(message)),
+            Err(AppError::Invalid(message)) => {
+                return Ok(Executed::Error(ToolCallError::uncoded(message)));
+            }
             Err(error) => return Err(error.into()),
         };
         let result = images::result_text(attachment.id, &painted);

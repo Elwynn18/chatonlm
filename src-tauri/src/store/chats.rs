@@ -150,8 +150,161 @@ pub struct ToolCall {
     /// JSON renvoyé par l'outil ; absent tant qu'il n'a pas répondu, et en
     /// cas d'erreur.
     pub result: Option<String>,
-    /// Erreur de l'outil (sans « Error: »).
+    /// Erreur de l'outil (sans « Error: »), en anglais : texte donné au
+    /// modèle, montré tel quel quand l'erreur n'a pas de code.
     pub error: Option<String>,
+    /// Nature de l'erreur, pour la page (texte dans la langue de la page) ;
+    /// absente : pas d'erreur, erreur sans code (image, déjà dans la langue
+    /// du moment) ou enregistrée avant les codes (migration 0048).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error_code: Option<ToolCallErrorCode>,
+    /// Statut HTTP de la réponse du site, quand l'erreur en vient
+    /// (`accessDenied`, `pageNotFound`, `tooManyRequests`, `serverError`,
+    /// `httpStatus`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error_status: Option<u16>,
+}
+
+/// Nature de l'erreur d'un appel d'outil (propre à ChatonLM : l'officiel
+/// montre le texte anglais donné au modèle). Enregistrée en base sous son nom
+/// sérialisé ([`ToolCallErrorCode::as_str`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ToolCallErrorCode {
+    /// Le site refuse la lecture (statut 401 ou 403).
+    AccessDenied,
+    /// Page introuvable (statut 404 ou 410).
+    PageNotFound,
+    /// Trop de requêtes (statut 429).
+    TooManyRequests,
+    /// Erreur du serveur du site (statut 5xx).
+    ServerError,
+    /// Autre statut HTTP (redirection sans adresse, 400, 451…).
+    HttpStatus,
+    /// Lecture trop longue (délai dépassé).
+    Timeout,
+    /// Connexion impossible ou coupée.
+    Network,
+    /// Nom du site introuvable (DNS).
+    UnknownHost,
+    /// Adresse de la machine ou d'un réseau local : lecture refusée.
+    PrivateAddress,
+    /// Adresse mal formée, ou autre chose que http(s).
+    InvalidUrl,
+    /// Trop de redirections.
+    TooManyRedirects,
+    /// Contenu qui n'est ni du texte ni du HTML (PDF, image…).
+    UnsupportedContent,
+    /// Page trop grande.
+    TooLarge,
+    /// Adresse ni écrite par l'utilisateur, ni trouvée pendant l'envoi.
+    UrlNotProvided,
+    /// Recherche web impossible (après une première recherche réussie).
+    SearchFailed,
+    /// Requête de recherche vide ou trop longue.
+    InvalidQuery,
+    /// Outil inconnu, ou pas offert à cet envoi.
+    UnknownTool,
+    /// Argument absent ou d'un mauvais type.
+    InvalidArguments,
+    /// Erreur interne (résultat impossible à écrire).
+    Internal,
+}
+
+impl ToolCallErrorCode {
+    pub const ALL: [Self; 19] = [
+        Self::AccessDenied,
+        Self::PageNotFound,
+        Self::TooManyRequests,
+        Self::ServerError,
+        Self::HttpStatus,
+        Self::Timeout,
+        Self::Network,
+        Self::UnknownHost,
+        Self::PrivateAddress,
+        Self::InvalidUrl,
+        Self::TooManyRedirects,
+        Self::UnsupportedContent,
+        Self::TooLarge,
+        Self::UrlNotProvided,
+        Self::SearchFailed,
+        Self::InvalidQuery,
+        Self::UnknownTool,
+        Self::InvalidArguments,
+        Self::Internal,
+    ];
+
+    /// Nom enregistré en base (celui de la sérialisation).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AccessDenied => "accessDenied",
+            Self::PageNotFound => "pageNotFound",
+            Self::TooManyRequests => "tooManyRequests",
+            Self::ServerError => "serverError",
+            Self::HttpStatus => "httpStatus",
+            Self::Timeout => "timeout",
+            Self::Network => "network",
+            Self::UnknownHost => "unknownHost",
+            Self::PrivateAddress => "privateAddress",
+            Self::InvalidUrl => "invalidUrl",
+            Self::TooManyRedirects => "tooManyRedirects",
+            Self::UnsupportedContent => "unsupportedContent",
+            Self::TooLarge => "tooLarge",
+            Self::UrlNotProvided => "urlNotProvided",
+            Self::SearchFailed => "searchFailed",
+            Self::InvalidQuery => "invalidQuery",
+            Self::UnknownTool => "unknownTool",
+            Self::InvalidArguments => "invalidArguments",
+            Self::Internal => "internal",
+        }
+    }
+
+    /// Code d'un nom enregistré ; inconnu (base d'une version plus
+    /// récente) : aucun, la page montre alors le texte.
+    pub fn parse(text: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|code| code.as_str() == text)
+    }
+}
+
+/// Erreur d'un appel d'outil : texte en anglais donné au modèle (et
+/// enregistré, comme l'officiel), code et statut HTTP pour la page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToolCallError {
+    pub text: String,
+    pub code: Option<ToolCallErrorCode>,
+    pub status: Option<u16>,
+}
+
+impl ToolCallError {
+    /// Erreur de ce code, sans statut.
+    pub fn new(code: ToolCallErrorCode, text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            code: Some(code),
+            status: None,
+        }
+    }
+
+    /// Erreur de ce code, avec le statut HTTP de la réponse du site.
+    pub fn with_status(code: ToolCallErrorCode, status: u16, text: impl Into<String>) -> Self {
+        Self {
+            status: Some(status),
+            ..Self::new(code, text)
+        }
+    }
+
+    /// Erreur sans code : la page montre le texte (déjà dans la langue du
+    /// moment : erreurs de l'image).
+    pub fn uncoded(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            code: None,
+            status: None,
+        }
+    }
 }
 
 impl ToolCall {
@@ -162,7 +315,17 @@ impl ToolCall {
             arguments: arguments.into(),
             result: None,
             error: None,
+            error_code: None,
+            error_status: None,
         }
+    }
+
+    /// Fixe le résultat ou l'erreur reçus.
+    pub fn set_outcome(&mut self, result: Option<String>, error: Option<&ToolCallError>) {
+        self.result = result;
+        self.error = error.map(|error| error.text.clone());
+        self.error_code = error.and_then(|error| error.code);
+        self.error_status = error.and_then(|error| error.status);
     }
 
     /// Résultat ou erreur reçus ; sinon l'appel a été interrompu (arrêt, app
@@ -526,7 +689,8 @@ fn saved_tool_calls(
     finished: bool,
 ) -> AppResult<Vec<(i64, ToolCall)>> {
     let mut statement = connection.prepare(
-        "SELECT t.message_id, t.name, t.arguments, t.result, t.error
+        "SELECT t.message_id, t.name, t.arguments, t.result, t.error, t.error_code,
+                t.error_status
          FROM tool_calls t JOIN messages m ON m.id = t.message_id
          WHERE m.chat_id = ?1 AND (?2 = 0 OR t.result IS NOT NULL OR t.error IS NOT NULL)
          ORDER BY t.message_id, t.position",
@@ -539,6 +703,11 @@ fn saved_tool_calls(
                 arguments: row.get(2)?,
                 result: row.get(3)?,
                 error: row.get(4)?,
+                error_code: row
+                    .get::<_, Option<String>>(5)?
+                    .as_deref()
+                    .and_then(ToolCallErrorCode::parse),
+                error_status: row.get(6)?,
             },
         ))
     })?;
@@ -1231,15 +1400,18 @@ pub fn add_tool_calls(
     )?;
     for (position, call) in (first..).zip(calls) {
         transaction.execute(
-            "INSERT INTO tool_calls (message_id, position, name, arguments, result, error)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO tool_calls
+                 (message_id, position, name, arguments, result, error, error_code, error_status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 message_id,
                 position,
                 call.name,
                 call.arguments,
                 call.result,
-                call.error
+                call.error,
+                call.error_code.map(ToolCallErrorCode::as_str),
+                call.error_status
             ],
         )?;
     }
@@ -1247,17 +1419,28 @@ pub fn add_tool_calls(
     Ok(())
 }
 
-/// Enregistre le résultat (ou l'erreur) de l'appel `index` d'une réponse.
+/// Enregistre le résultat (ou l'erreur : texte du modèle, code et statut)
+/// de l'appel `index` d'une réponse.
 pub fn set_tool_result(
     connection: &Connection,
     message_id: i64,
     index: u32,
     result: Option<&str>,
-    error: Option<&str>,
+    error: Option<&ToolCallError>,
 ) -> AppResult<()> {
     let changed = connection.execute(
-        "UPDATE tool_calls SET result = ?3, error = ?4 WHERE message_id = ?1 AND position = ?2",
-        params![message_id, index, result, error],
+        "UPDATE tool_calls SET result = ?3, error = ?4, error_code = ?5, error_status = ?6
+         WHERE message_id = ?1 AND position = ?2",
+        params![
+            message_id,
+            index,
+            result,
+            error.map(|error| error.text.as_str()),
+            error
+                .and_then(|error| error.code)
+                .map(ToolCallErrorCode::as_str),
+            error.and_then(|error| error.status)
+        ],
     )?;
     if changed == 0 {
         return Err(AppError::Internal(format!(
@@ -1889,7 +2072,15 @@ mod tests {
             .blocking(|c| set_tool_result(c, calls_only, 0, Some(found), None))
             .unwrap();
         store
-            .blocking(|c| set_tool_result(c, calls_only, 1, None, Some("boom")))
+            .blocking(|c| {
+                set_tool_result(
+                    c,
+                    calls_only,
+                    1,
+                    None,
+                    Some(&ToolCallError::uncoded("boom")),
+                )
+            })
             .unwrap();
         assert!(matches!(
             store.blocking(|c| set_tool_result(c, calls_only, 3, Some("{}"), None)),
@@ -1958,6 +2149,91 @@ mod tests {
             chat.messages[1].tool_calls[3],
             finished("web_fetch", "{}", Some("{}"), None)
         );
+    }
+
+    #[test]
+    fn a_tool_error_keeps_its_code_and_status_and_old_errors_have_none() {
+        let store = Store::open_in_memory().unwrap();
+        let id = store.blocking(|c| create(c, NOW)).unwrap();
+        store
+            .blocking(|c| add_user_message(c, &id, "Read", &[], NOW))
+            .unwrap();
+        let reply = store
+            .blocking(|c| create_reply(c, &id, "qwen3:0.6b", NOW + 1))
+            .unwrap();
+        let calls = [
+            ToolCall::new("web_fetch", r#"{"url":"https://example.com"}"#),
+            ToolCall::new("web_search", r#"{"query":""}"#),
+            ToolCall::new("web_fetch", "{}"),
+            ToolCall::new("web_fetch", "{}"),
+        ];
+        store
+            .blocking(|c| add_tool_calls(c, reply, &calls))
+            .unwrap();
+        let refused = ToolCallError::with_status(
+            ToolCallErrorCode::AccessDenied,
+            403,
+            "failed to fetch the page: the server answered with status 403",
+        );
+        let empty = ToolCallError::new(
+            ToolCallErrorCode::InvalidQuery,
+            "the search query is empty or too long",
+        );
+        store
+            .blocking(|c| set_tool_result(c, reply, 0, None, Some(&refused)))
+            .unwrap();
+        store
+            .blocking(|c| set_tool_result(c, reply, 1, None, Some(&empty)))
+            .unwrap();
+        // Erreur d'avant la migration 0048 (code NULL), puis code d'une
+        // version plus récente (inconnu ici) : la page montre le texte.
+        store
+            .blocking(|c| {
+                c.execute(
+                    "UPDATE tool_calls SET error = 'old' WHERE message_id = ?1 AND position = 2",
+                    params![reply],
+                )?;
+                c.execute(
+                    "UPDATE tool_calls SET error = 'new', error_code = 'fromTheFuture'
+                     WHERE message_id = ?1 AND position = 3",
+                    params![reply],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+
+        let chat = store.blocking(|c| get(c, &id)).unwrap();
+        let saved = &chat.messages[1].tool_calls;
+        assert_eq!(saved[0].error.as_deref(), Some(refused.text.as_str()));
+        assert_eq!(saved[0].error_code, Some(ToolCallErrorCode::AccessDenied));
+        assert_eq!(saved[0].error_status, Some(403));
+        assert_eq!(saved[1].error_code, Some(ToolCallErrorCode::InvalidQuery));
+        assert_eq!(saved[1].error_status, None);
+        for (call, text) in saved[2..].iter().zip(["old", "new"]) {
+            assert_eq!(call.error.as_deref(), Some(text));
+            assert_eq!((call.error_code, call.error_status), (None, None));
+        }
+        // Le modèle reçoit le même appel (texte compris) ; la page, le code
+        // et le statut, absents du JSON quand ils manquent.
+        let turns = store.blocking(|c| history(c, &id)).unwrap();
+        assert_eq!(&turns[1].tool_calls, saved);
+        let json = serde_json::to_value(saved).unwrap();
+        assert_eq!(json[0]["errorCode"], "accessDenied");
+        assert_eq!(json[0]["errorStatus"], 403);
+        assert!(json[2].get("errorCode").is_none(), "{json}");
+        assert!(json[2].get("errorStatus").is_none(), "{json}");
+    }
+
+    #[test]
+    fn every_tool_error_code_is_saved_under_its_serialized_name() {
+        for code in ToolCallErrorCode::ALL {
+            assert_eq!(
+                serde_json::to_value(code).unwrap(),
+                code.as_str(),
+                "{code:?}"
+            );
+            assert_eq!(ToolCallErrorCode::parse(code.as_str()), Some(code));
+        }
     }
 
     #[test]

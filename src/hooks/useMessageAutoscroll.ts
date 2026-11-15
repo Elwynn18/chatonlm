@@ -12,7 +12,8 @@
  * the renders that follow (only by unmounting); observers set up once,
  * message elements observed as they appear; a folding element (finished
  * thinking) is counted at its final height, both in the spacer and in the
- * scroll target.
+ * scroll target; a group of steps hidden or shown (hidden attribute) is
+ * taken into account at once, like a folded block.
  */
 
 import {
@@ -33,8 +34,11 @@ const STREAMING_ROOM = 0.4;
 /** Anti-rebond des changements de taille (texte qui s'allonge...). */
 const RESIZE_DEBOUNCE_MS = 100;
 
-/** Attributs qui plient ou déplient un contenu (raisonnement, bloc de code). */
-const TOGGLE_ATTRIBUTES = ["class", "style", "open", "data-expanded"];
+/**
+ * Attributs qui plient ou déplient un contenu (raisonnement, bloc de code,
+ * groupe d'étapes).
+ */
+const TOGGLE_ATTRIBUTES = ["class", "style", "open", "data-expanded", "hidden"];
 
 /**
  * Élément replié (corps d'un raisonnement fini) : sa hauteur finale est nulle,
