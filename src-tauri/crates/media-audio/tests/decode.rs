@@ -491,6 +491,38 @@ fn a_truncated_file_gives_what_came_before() {
     }
 }
 
+/// Relecture 107 : paquets illisibles épars (AAC abîmé par endroits dans le
+/// MP4) : du silence prend leur place, le son garde sa durée et ce qui suit
+/// reste à sa place (horodatages, sous-titres).
+#[test]
+fn skipped_packets_are_replaced_by_silence() {
+    let none = AtomicBool::new(false);
+    for name in ["jfk.m4a", "jfk-yt140.m4a"] {
+        let bytes = std::fs::read(data(name)).unwrap();
+        let mut whole = Vec::new();
+        decode_bytes(bytes.clone(), None, &options(1), &none, &mut whole).unwrap();
+        // Six endroits de 7 octets entre 30 % et 70 % du fichier.
+        let mut damaged = bytes.clone();
+        let len = damaged.len();
+        let mut at = len * 3 / 10;
+        for _ in 0..6 {
+            for byte in &mut damaged[at..at + 7] {
+                *byte ^= 0xA5;
+            }
+            at += len / 12;
+        }
+        let mut samples = Vec::new();
+        let summary = decode_bytes(damaged, None, &options(1), &none, &mut samples)
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert!(summary.skipped_packets > 0, "{name}: no packet skipped");
+        assert!(summary.complete, "{name}");
+        assert_eq!(samples.len(), whole.len(), "{name}");
+        // Le début, avant les paquets abîmés, est intact.
+        let intact = whole.len() / 5;
+        assert_eq!(samples[..intact], whole[..intact], "{name}");
+    }
+}
+
 /// Paniques vues pendant un essai (même rattrapées par le crate).
 static PANICS: AtomicUsize = AtomicUsize::new(0);
 

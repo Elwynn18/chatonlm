@@ -3,11 +3,16 @@ import type { SpeechEngine } from "./SpeechEngine";
 import type { TranscriptionError } from "./TranscriptionError";
 import type { TranscriptionSourceKind } from "./TranscriptionSourceKind";
 import type { TranscriptionState } from "./TranscriptionState";
+import type { TranscriptionWarning } from "./TranscriptionWarning";
 
 /**
  * Transcription de l'historique (liste).
  */
 export type TranscriptionItem = { id: string, source: TranscriptionSourceKind, origin: string, title: string, channel: string, url: string, site: string, durationS: number | null, engine: SpeechEngine, model: string, language: string | null, state: TranscriptionState, error: TranscriptionError | null, 
+/**
+ * Finie, mais incomplète (voir le code).
+ */
+warning?: TranscriptionWarning, 
 /**
  * Début du texte (200 caractères au plus).
  */

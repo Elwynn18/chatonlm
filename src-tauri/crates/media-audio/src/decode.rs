@@ -16,6 +16,7 @@ use symphonia::core::formats::{FormatOptions, FormatReader, Track, TrackFlags};
 use symphonia::core::io::{MediaSource, MediaSourceStream, ReadOnlySource};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::packet::Packet;
+use symphonia::core::units::TimeBase;
 
 use crate::error::{Codec, Container, DecodeError, ErrorCode};
 use crate::resample::Resampler;
@@ -24,6 +25,10 @@ use crate::{Limits, MediaInfo, Options, Progress, RATE, Sink, Summary, heaac, op
 /// Paquets illisibles de suite au-delà desquels la lecture s'arrête (le
 /// reste du fichier est sans doute abîmé, ou n'est pas ce qu'il prétend).
 const MAX_BAD_PACKETS_IN_A_ROW: u32 = 64;
+
+/// Silence au plus mis à la place d'un paquet illisible (une durée de paquet
+/// abîmée ne doit pas inventer des minutes de silence).
+const MAX_GAP: Duration = Duration::from_secs(1);
 
 /// Marge de la borne de durée : le dernier paquet peut porter jusqu'à 120 ms
 /// de remplissage, et une durée annoncée est arrondie.
@@ -64,6 +69,8 @@ pub(crate) fn guarded<T>(work: impl FnOnce() -> Result<T, DecodeError>) -> Resul
 pub(crate) struct Opened {
     reader: Box<dyn FormatReader>,
     track: u32,
+    /// Base de temps de la piste (durée des paquets).
+    time_base: Option<TimeBase>,
     decoder: TrackDecoder,
     pub(crate) info: MediaInfo,
 }
@@ -244,7 +251,7 @@ fn open_source(
     for track in tracks {
         match prepare(track) {
             Ok(prepared) => {
-                chosen = Some((track.id, prepared));
+                chosen = Some(((track.id, track.time_base), prepared));
                 break;
             }
             Err(error) => {
@@ -252,7 +259,7 @@ fn open_source(
             }
         }
     }
-    let Some((track, (decoder, mut info))) = chosen else {
+    let Some(((track, time_base), (decoder, mut info))) = chosen else {
         let error =
             refused.unwrap_or_else(|| DecodeError::new(ErrorCode::NoAudioTrack, "no audio track"));
         return Err(error.in_container(container));
@@ -270,6 +277,7 @@ fn open_source(
     Ok(Opened {
         reader,
         track,
+        time_base,
         decoder,
         info,
     })
@@ -339,6 +347,27 @@ fn prepare(track: &Track) -> Result<(TrackDecoder, MediaInfo), DecodeError> {
     Ok((TrackDecoder::Symphonia(decoder), info))
 }
 
+/// Échantillons de silence, à `rate`, pour un paquet illisible de durée
+/// `dur` (unités de `time_base`) : [`MAX_GAP`] au plus ; 0 sans base de
+/// temps ni fréquence.
+pub(crate) fn gap_samples(
+    time_base: Option<TimeBase>,
+    dur: symphonia::core::units::Duration,
+    rate: Option<u32>,
+) -> usize {
+    let (Some(base), Some(rate)) = (
+        time_base,
+        rate.filter(|rate| PLAUSIBLE_RATES.contains(rate)),
+    ) else {
+        return 0;
+    };
+    let seconds = base
+        .calc_duration(dur)
+        .map_or(0.0, |time| time.as_secs_f64())
+        .clamp(0.0, MAX_GAP.as_secs_f64());
+    (seconds * f64::from(rate)).round() as usize
+}
+
 /// Durée annoncée par la piste.
 fn track_duration(track: &Track, params: &AudioCodecParameters) -> Option<Duration> {
     let from_base = track
@@ -382,6 +411,9 @@ pub(crate) fn run(
     let mut sent = 0u64;
     let (mut skipped, mut bad_in_a_row) = (0u64, 0u32);
     let mut complete = false;
+    // Un paquet au moins a donné du son (un fichier dont rien ne se lit
+    // reste abîmé, pas du silence).
+    let mut heard = false;
 
     loop {
         if cancel.load(Ordering::Relaxed) {
@@ -407,15 +439,36 @@ pub(crate) fn run(
             continue;
         }
         mono.clear();
-        let rate = match opened.decoder.decode(&packet, &mut mono, &mut interleaved) {
-            Decoded::Sound(rate) => rate,
+        let (rate, silent) = match opened.decoder.decode(&packet, &mut mono, &mut interleaved) {
+            Decoded::Sound(rate) => {
+                heard = true;
+                (rate, false)
+            }
             Decoded::Bad => {
                 skipped += 1;
                 bad_in_a_row += 1;
                 if bad_in_a_row > MAX_BAD_PACKETS_IN_A_ROW {
                     break;
                 }
-                continue;
+                // Silence de la durée du paquet sauté, à la fréquence en
+                // cours (sinon celle annoncée) : sans lui, tout ce qui suit
+                // serait décalé d'autant (horodatages, sous-titres). Avant le
+                // premier son, sauté comme avant.
+                if !heard {
+                    continue;
+                }
+                let rate = resampler
+                    .as_ref()
+                    .map(|(rate, _)| *rate)
+                    .or(info.sample_rate);
+                let gap = gap_samples(opened.time_base, packet.dur, rate);
+                match rate {
+                    Some(rate) if gap > 0 => {
+                        mono.resize(gap, 0.0);
+                        (rate, true)
+                    }
+                    _ => continue,
+                }
             }
             Decoded::Stop(detail) => {
                 if sent == 0 && decoded_here == 0 && decoded_before == 0.0 {
@@ -438,7 +491,9 @@ pub(crate) fn run(
             }
             break;
         }
-        bad_in_a_row = 0;
+        if !silent {
+            bad_in_a_row = 0;
+        }
         // Borne de durée, avant d'envoyer quoi que ce soit de ce paquet.
         let decoded = if resampler
             .as_ref()
@@ -571,6 +626,22 @@ mod tests {
                 samples.len()
             );
         }
+    }
+
+    #[test]
+    fn the_silence_of_a_skipped_packet_is_bounded() {
+        use symphonia::core::units::Duration as Units;
+        let base = TimeBase::try_new(1, 44_100);
+        // 1 024 trames à 44,1 kHz, rendues à 44,1 kHz.
+        assert_eq!(gap_samples(base, Units::new(1_024), Some(44_100)), 1_024);
+        // Durée abîmée : une seconde au plus.
+        assert_eq!(
+            gap_samples(base, Units::new(u64::from(u32::MAX)), Some(16_000)),
+            16_000
+        );
+        assert_eq!(gap_samples(None, Units::new(1_024), Some(44_100)), 0);
+        assert_eq!(gap_samples(base, Units::new(1_024), None), 0);
+        assert_eq!(gap_samples(base, Units::new(1_024), Some(0)), 0);
     }
 
     #[test]

@@ -22,8 +22,10 @@ export interface DialogAction {
  * côté annule aussi. `title` et `confirmLabel` (ModelHub : « Delete {name}? »,
  * bouton « Delete ») sont facultatifs. Avec `actions` (Settings > Model
  * location), ces boutons suivent « Cancel » à la place du bouton de
- * confirmation, le dernier ayant le focus. « OK » et « Cancel » dans la
- * langue affichée. Fermée, elle rend le focus à
+ * confirmation, le dernier ayant le focus. `initialFocus="cancel"` met le
+ * focus sur « Cancel » (accord qui engage l'utilisateur : outils de la
+ * Transcription) : un Entrée répété ne vaut pas accord. « OK » et « Cancel »
+ * dans la langue affichée. Fermée, elle rend le focus à
  * l'élément qui l'avait à l'ouverture (bouton qui l'a ouverte), s'il est
  * encore dans la page et que le focus n'a pas été mis ailleurs entre-temps
  * (ModelHub : titre de la liste après une suppression).
@@ -35,6 +37,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   actions,
+  initialFocus = "confirm",
 }: {
   /** Titre, nom de la boîte pour les lecteurs d'écran. */
   title?: string;
@@ -44,6 +47,8 @@ export function ConfirmDialog({
   onConfirm?: () => void;
   onCancel: () => void;
   actions?: DialogAction[];
+  /** Bouton qui a le focus à l'ouverture : la confirmation, ou « Cancel ». */
+  initialFocus?: "confirm" | "cancel";
 }) {
   const t = useT();
   const titleId = useId();
@@ -61,7 +66,11 @@ export function ConfirmDialog({
   useLayoutEffect(() => {
     const opener = document.activeElement;
     const dialog = ref.current;
-    dialog?.querySelector<HTMLElement>("[data-default]")?.focus();
+    dialog
+      ?.querySelector<HTMLElement>(
+        initialFocus === "cancel" ? "[data-cancel]" : "[data-default]",
+      )
+      ?.focus();
     return () => {
       const active = document.activeElement;
       const lost =
@@ -72,6 +81,8 @@ export function ConfirmDialog({
         opener.focus();
       }
     };
+    // Focus initial : à l'ouverture seulement.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -127,6 +138,7 @@ export function ConfirmDialog({
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <button
             type="button"
+            data-cancel=""
             onClick={onCancel}
             className="rounded-full px-4 py-1.5 text-sm text-neutral-700 outline-none hover:bg-neutral-100 focus-visible:ring-2 focus-visible:ring-accent-fg dark:text-neutral-200 dark:hover:bg-neutral-700"
           >

@@ -8,7 +8,11 @@
 //
 // Adresse sans yt-dlp ni Deno : boîte d'accord, installation suivie par
 // « tools-status », puis la transcription part d'elle-même une fois les
-// outils prêts. Au départ, la page de la transcription s'ouvre.
+// outils prêts, avec le modèle et la langue choisis à ce moment ; changer
+// d'adresse ou choisir un fichier pendant l'attente l'abandonne. Quitter la
+// page pendant l'attente l'abandonne aussi : au retour, l'adresse et les
+// choix reviennent dans le formulaire, avec un mot pour relancer. Au départ,
+// la page de la transcription s'ouvre.
 
 import {
   ArrowRightIcon,
@@ -17,7 +21,7 @@ import {
   FilmIcon,
   XMarkIcon,
 } from "@heroicons/react/20/solid";
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   type FormEvent,
@@ -71,6 +75,12 @@ const SELECT =
 const INPUT =
   "w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-base text-neutral-900 outline-none placeholder:text-neutral-400 focus-visible:border-accent-fg focus-visible:ring-2 focus-visible:ring-accent-fg/40 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-500";
 
+/**
+ * Demande qui attendait les outils quand le formulaire a été quitté, par
+ * client de requêtes (un par lancement de l'app, un par essai).
+ */
+const abandoned = new WeakMap<QueryClient, TranscriptionRequest>();
+
 /** Fichier choisi ou déposé, lu par le moteur. */
 interface ChosenFile {
   path: string;
@@ -88,11 +98,20 @@ export function NewTranscriptionForm() {
   const info = useDictationInfo();
   const status = useTranscriptionStatus();
   const tools = useToolsStatus();
-  const [address, setAddress] = useState("");
+  // Demande abandonnée en quittant la page : remise dans le formulaire.
+  const [restored] = useState(() => abandoned.get(client) ?? null);
+  const [lost, setLost] = useState(restored !== null);
+  const [address, setAddress] = useState(() =>
+    restored?.source.kind === "url" ? restored.source.url : "",
+  );
   const [file, setFile] = useState<ChosenFile | null>(null);
   const [reading, setReading] = useState(false);
-  const [model, setModel] = useState<string | null>(null);
-  const [language, setLanguage] = useState<string | null>(null);
+  const [model, setModel] = useState<string | null>(
+    () => restored?.model ?? null,
+  );
+  const [language, setLanguage] = useState<string | null>(
+    () => restored?.language ?? null,
+  );
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
@@ -139,6 +158,16 @@ export function NewTranscriptionForm() {
       .map((lang) => lang.code),
   });
 
+  const request = (): TranscriptionRequest | null => {
+    const base = {
+      ...(chosenModel ? { model: chosenModel.id } : {}),
+      language: chosenLanguage,
+    };
+    if (file) return { source: { kind: "file", path: file.path }, ...base };
+    if (url) return { source: { kind: "url", url }, ...base };
+    return null;
+  };
+
   const start = (request: TranscriptionRequest) => {
     setStarting(true);
     setError(null);
@@ -159,24 +188,43 @@ export function NewTranscriptionForm() {
       },
     );
   };
-  // Dernière fonction pour le rappel des outils (inscrit une fois).
+  // Dernières fonctions pour le rappel des outils (inscrit une fois).
   const startRef = useRef(start);
+  const requestRef = useRef(request);
   useEffect(() => {
     startRef.current = start;
+    requestRef.current = request;
   });
 
-  // Outils prêts pendant qu'une demande les attend : elle part ; outils en
-  // échec : elle est abandonnée (l'erreur est montrée sous le champ).
+  // Demande abandonnée reprise ; demande en attente gardée si l'on part.
+  useEffect(() => {
+    abandoned.delete(client);
+    return () => {
+      if (pendingRef.current) abandoned.set(client, pendingRef.current);
+    };
+  }, [client]);
+
+  /** Changement de source : la demande en attente des outils est abandonnée. */
+  const dropPending = () => {
+    pendingRef.current = null;
+    setPending(null);
+    setLost(false);
+  };
+
+  // Outils prêts pendant qu'une demande les attend : elle part, avec le
+  // modèle et la langue choisis à ce moment ; outils en échec : elle est
+  // abandonnée (l'erreur est montrée sous le champ).
   useEffect(() => {
     let active = true;
     let stop: (() => void) | null = null;
     listenToolsStatus((next) => {
-      const request = pendingRef.current;
-      if (!request) return;
+      const held = pendingRef.current;
+      if (!held) return;
       if (next.ready) {
         pendingRef.current = null;
         setPending(null);
-        startRef.current(request);
+        const latest = requestRef.current();
+        startRef.current(latest?.source.kind === "url" ? latest : held);
       } else if (!toolsBusy(next)) {
         pendingRef.current = null;
         setPending(null);
@@ -197,6 +245,7 @@ export function NewTranscriptionForm() {
 
   const readFile = (path: string) => {
     const id = ++readId.current;
+    dropPending();
     setReading(true);
     setError(null);
     setAddress("");
@@ -230,20 +279,11 @@ export function NewTranscriptionForm() {
     );
   };
 
-  const request = (): TranscriptionRequest | null => {
-    const base = {
-      ...(chosenModel ? { model: chosenModel.id } : {}),
-      language: chosenLanguage,
-    };
-    if (file) return { source: { kind: "file", path: file.path }, ...base };
-    if (url) return { source: { kind: "url", url }, ...base };
-    return null;
-  };
-
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const next = request();
     if (disabled || !next) return;
+    setLost(false);
     if (next.source.kind === "file") {
       start(next);
       return;
@@ -318,6 +358,7 @@ export function NewTranscriptionForm() {
         onChange={(event) => {
           setAddress(event.target.value);
           setError(null);
+          dropPending();
           if (event.target.value !== "") {
             readId.current += 1;
             setReading(false);
@@ -391,7 +432,10 @@ export function NewTranscriptionForm() {
                 name: file.name,
               })}
               title={t("transcription.form.removeFile", { name: file.name })}
-              onClick={() => setFile(null)}
+              onClick={() => {
+                dropPending();
+                setFile(null);
+              }}
             >
               <XMarkIcon aria-hidden="true" className="h-4 w-4" />
             </button>
@@ -505,6 +549,14 @@ export function NewTranscriptionForm() {
         {running && (
           <p className="mr-auto text-sm text-neutral-600 dark:text-neutral-300">
             {t("transcription.form.busy")}
+          </p>
+        )}
+        {lost && !waiting && (
+          <p
+            className="mr-auto text-sm text-neutral-600 dark:text-neutral-300"
+            data-testid="transcription-pending-lost"
+          >
+            {t("transcription.form.pendingLost")}
           </p>
         )}
         {waiting && (

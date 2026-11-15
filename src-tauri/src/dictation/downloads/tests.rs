@@ -285,6 +285,7 @@ async fn setup_with(
             verify,
             count_ending_tasks: false,
             before_start: None,
+            https_only: false,
         },
     );
     Setup {

@@ -21,6 +21,9 @@
 //! | `chatonlm-synthesis-stray` | document en espagnol, sauf si la demande contient [`RETRY_MARK`] (garde de la langue) |
 //! | `chatonlm-synthesis-empty` | réponse vide (des blancs) |
 //! | `chatonlm-synthesis-cut` | quelques morceaux du document, puis connexion coupée |
+//! | `chatonlm-synthesis-short` | document coupé (`finish_reason: length`) quand `max_tokens` est sous [`SHORT_LIMIT`] |
+//! | `chatonlm-synthesis-length` | document toujours coupé (`finish_reason: length`) |
+//! | `chatonlm-synthesis-hole` | notes vides pour la partie 2 (réponse vide), le reste comme `chatonlm-synthesis` |
 
 use std::time::Duration;
 
@@ -49,6 +52,12 @@ pub const SYNTHESIS_THINK: Custom = custom("chatonlm-synthesis-think", think);
 pub const SYNTHESIS_STRAY: Custom = custom("chatonlm-synthesis-stray", stray);
 pub const SYNTHESIS_EMPTY: Custom = custom("chatonlm-synthesis-empty", empty);
 pub const SYNTHESIS_CUT: Custom = custom("chatonlm-synthesis-cut", cut);
+pub const SYNTHESIS_SHORT: Custom = custom("chatonlm-synthesis-short", short);
+pub const SYNTHESIS_LENGTH: Custom = custom("chatonlm-synthesis-length", length);
+pub const SYNTHESIS_HOLE: Custom = custom("chatonlm-synthesis-hole", hole);
+
+/// `max_tokens` sous lequel `chatonlm-synthesis-short` coupe le document.
+pub const SHORT_LIMIT: u64 = 2_000;
 
 pub const SCENARIOS: &[Custom] = &[
     SYNTHESIS,
@@ -57,6 +66,9 @@ pub const SCENARIOS: &[Custom] = &[
     SYNTHESIS_STRAY,
     SYNTHESIS_EMPTY,
     SYNTHESIS_CUT,
+    SYNTHESIS_SHORT,
+    SYNTHESIS_LENGTH,
+    SYNTHESIS_HOLE,
 ];
 
 const fn custom(name: &'static str, chat: fn(&ChatCall) -> Script) -> Custom {
@@ -211,6 +223,42 @@ fn cut(call: &ChatCall) -> Script {
         .collect();
     script.push(Step::Cut);
     script
+}
+
+/// Document coupé par la limite de longueur : quelques morceaux, puis
+/// `finish_reason: length`.
+fn cut_by_length(call: &ChatCall) -> Script {
+    let mut script: Script = streamed(&reply(call), Duration::from_millis(5))
+        .into_iter()
+        .take(12)
+        .collect();
+    script.push(Step::Finish("length"));
+    script
+}
+
+fn short(call: &ChatCall) -> Script {
+    let (system, _) = system_and_user(call);
+    let max = call.body["max_tokens"].as_u64().unwrap_or(u64::MAX);
+    if system.contains(DOCUMENT_MARK) && max < SHORT_LIMIT {
+        return cut_by_length(call);
+    }
+    normal(call)
+}
+
+fn length(call: &ChatCall) -> Script {
+    let (system, _) = system_and_user(call);
+    if system.contains(DOCUMENT_MARK) {
+        return cut_by_length(call);
+    }
+    normal(call)
+}
+
+fn hole(call: &ChatCall) -> Script {
+    let (_, user) = system_and_user(call);
+    if user.contains(PART_MARK) && user.contains("Part 2 of") {
+        return vec![Step::Content("  \n".into())];
+    }
+    normal(call)
 }
 
 #[cfg(test)]

@@ -199,6 +199,28 @@ describe("fontSafe", () => {
     ).toBe("Bonjour\u00A0! a b c-d efg    Ÿ");
     expect(fontSafe("« élève » — ñ")).toBe("« élève » — ñ");
   });
+
+  it("writes the usual signs of a model's document with simple equivalents", () => {
+    expect(fontSafe("Entrée → sortie ← ⇒ ↔ ➜ ↗")).toBe(
+      "Entrée -> sortie <- => <-> -> \u2191",
+    );
+    expect(fontSafe("≥ 10 € ≤ 5 ≠ 3 ≈ 2")).toBe(">= 10 € <= 5 != 3 ~ 2");
+    expect(fontSafe("▪ un ◦ deux ► trois ✓ fait ✗ non ☐ à faire")).toBe(
+      "• un • deux • trois [x] fait × non [ ] à faire",
+    );
+    expect(fontSafe("❝ cité ❞ ★ ⅓ 20 ℃")).toBe("“ cité ” * 1/3 20 °C");
+  });
+
+  it("drops emoji, keeping one space between words, and keeps © ® ™", () => {
+    expect(fontSafe("Done ✅ now")).toBe("Done [x] now");
+    expect(fontSafe("🎉 Fête finie 🐱")).toBe("Fête finie");
+    expect(fontSafe("Bravo 👍🏽 et 🇫🇷 France, chat🐱noir.")).toBe(
+      "Bravo et France, chatnoir.",
+    );
+    expect(fontSafe("👨‍👩‍👧 famille")).toBe("famille");
+    expect(fontSafe("1️⃣ un ⚠️ attention")).toBe("1 un (!) attention");
+    expect(fontSafe("© ChatonLM® ™")).toBe("© ChatonLM® ™");
+  });
 });
 
 describe("latin-ext", () => {
@@ -270,11 +292,34 @@ describe("latin-ext", () => {
       "м",
       "α",
       "漢",
-      "🐱",
     ]);
     // Remplacements voisins : pas des manques.
     expect(
       missingCharacters(HEAD, parseMarkdown("a\u202Fb\u2011c\u00ADd")),
     ).toEqual([]);
+  });
+
+  it("links only to web addresses, never to a file or a network share", async () => {
+    const blocks = parseMarkdown(
+      "[voir](file:///C:/Windows/System32/calc.exe) [partage](file://attacker.example/share/x.docx) [web](https://a.example)",
+    );
+    const latin1 = new TextDecoder("latin1").decode(
+      await renderPdf(HEAD, blocks),
+    );
+    const uris = [...latin1.matchAll(/\/URI \(([^)]*)\)/g)].map((m) => m[1]);
+    expect(uris).toEqual(["https://a.example"]);
+  });
+
+  it("writes a typical summary (arrows, comparisons, emoji) as a PDF", async () => {
+    const blocks = splitTitle(
+      parseMarkdown(
+        "# Synthèse\n\n## Points clés\n\n- Entrée → sortie\n- Prix ≥ 10 €\n- Fait ✅ 🎉\n\n`a → b`",
+      ),
+    ).body;
+    expect(missingCharacters(HEAD, blocks)).toEqual([]);
+    const text = pdfText(await renderPdf(HEAD, blocks)).replace(/\s/g, "");
+    for (const words of ["Entrée->sortie", "Prix>=10€", "Fait[x]", "a->b"]) {
+      expect(text).toContain(words);
+    }
   });
 });

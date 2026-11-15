@@ -38,7 +38,8 @@
     "twoLanguages": "Does the recording mix two languages? Choose a Whisper model: Parakeet keeps only one language per passage.",
     "invalidAddress": "Enter the full address of the page, starting with https://.",
     "pickError": "The file couldn't be chosen: {message}",
-    "startError": "The transcription couldn't start: {message}"
+    "startError": "The transcription couldn't start: {message}",
+    "pendingLost": "The transcription that was waiting for the tools didn't start because you left the page. Press Transcribe to start it."
   },
   "tools": {
     "needed": "To transcribe a video from the web, ChatonLM uses two free tools, yt-dlp and Deno, downloaded once ({size}).",
@@ -66,7 +67,8 @@
       "ytdlpLicense": "yt-dlp license",
       "denoLicense": "Deno license",
       "accept": "Accept and download"
-    }
+    },
+    "announceDownloading": "Downloading {name}…"
   },
   "job": {
     "label": "Progress of the transcription",
@@ -97,7 +99,8 @@
     "liveText": "Text so far",
     "waiting": "The text appears here as it is transcribed.",
     "by": "by {channel}",
-    "retry": "Try again"
+    "retry": "Try again",
+    "finished": "The transcription is finished."
   },
   "errors": {
     "codes": {
@@ -186,7 +189,8 @@
       "engineFailed": "The model stopped working",
       "contextTooSmall": "The model's context is too small",
       "empty": "The model gave no text",
-      "failed": "The document couldn't be written"
+      "failed": "The document couldn't be written",
+      "incomplete": "The document was cut short"
     }
   }
 }

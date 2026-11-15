@@ -257,11 +257,27 @@ try {
       );
       assert.match(consent, /GPL or the LGPL/);
       assert.match(consent, /you have the right to copy for your personal use/);
+      // Accord explicite : le focus est sur « Cancel », pas sur l'accord (un
+      // Entrée de plus ne télécharge rien).
+      assert.equal(
+        await driver.execute(
+          "return document.activeElement?.closest('[role=alertdialog]') ? document.activeElement.textContent.trim() : null",
+        ),
+        "Cancel",
+      );
       await driver.screenshot(".tools/shots/transcription-consent.png");
       assert.ok(await clickLabeled(driver, "Accept and download"));
-      await driver.waitFor("[data-testid=transcription-view]", {
-        timeoutMs: 60000,
-      });
+      await driver
+        .waitFor("[data-testid=transcription-view]", { timeoutMs: 60000 })
+        .catch(async (error) => {
+          // Diagnostic : état des outils et du formulaire au moment de l'échec.
+          console.error(
+            "formulaire :",
+            await text(driver, "[data-testid=transcription-form]"),
+          );
+          await driver.screenshot(".tools/shots/transcription-tools-stuck.png");
+          throw error;
+        });
       // Audio du faux yt-dlp : les 4 premières secondes du discours.
       const fetched = await finishedText(driver);
       assert.match(fetched, /fellow Americans/i);

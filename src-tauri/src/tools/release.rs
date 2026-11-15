@@ -7,9 +7,12 @@
 //!   une autre clé, rien n'est installé (« mettez ChatonLM à jour »).
 //! - Deno : `<archive>.sha256sum` à côté de l'archive, au format de Linux
 //!   (`<somme>  <nom>`) ou à celui de PowerShell (`Hash : <SOMME>`, pour
-//!   l'archive Windows) ; pas de signature (HTTPS, `deno.exe` est signé
-//!   Authenticode). Seule la branche 2.x est suivie (≥ 2.3.0, minimum de
-//!   yt-dlp) : une 3.x publiée en dernier laisse la version installée, ou
+//!   l'archive Windows) ; pas de signature : l'intégrité repose sur HTTPS
+//!   seul (GitHub, redirections vers http refusées) et sur cette somme, qui
+//!   vient de la même Release que l'archive. ChatonLM ne vérifie pas la
+//!   signature Authenticode de `deno.exe`. Seule la branche 2.x est suivie
+//!   (≥ 2.3.0, minimum de yt-dlp) : une 3.x publiée en dernier laisse la
+//!   version installée, ou
 //!   installe [`DENO_FALLBACK`] (une 3.0 ne sera prise qu'après un contrat
 //!   vert dans une version de ChatonLM).
 //! - Taille : `GET` avec `Range: bytes=0-0` (206 et `Content-Range`), qui
@@ -235,10 +238,13 @@ pub fn download_url(repo: &str, tag: &str, file: &str) -> String {
     format!("{repo}/releases/download/{tag}/{file}")
 }
 
-fn client(repo: &str, follow: bool) -> Result<reqwest::Client, Failure> {
+/// Client des relevés ; dépôt en https (la production) : toute adresse et
+/// toute redirection en http refusées (pas de rétrogradation vers un
+/// transport en clair entre GitHub et ses adresses signées).
+pub(crate) fn client(repo: &str, follow: bool) -> Result<reqwest::Client, Failure> {
     let url = Url::parse(repo)
         .map_err(|error| Failure::new(ToolErrorCode::Network, error.to_string()))?;
-    let mut builder = crate::http::builder(&url, Some(TIMEOUT));
+    let mut builder = crate::http::builder(&url, Some(TIMEOUT)).https_only(url.scheme() == "https");
     if !follow {
         builder = builder.redirect(reqwest::redirect::Policy::none());
     }

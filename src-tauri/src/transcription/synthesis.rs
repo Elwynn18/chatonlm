@@ -16,6 +16,15 @@
 //!   page (`markdown` grandit) ; pendant les notes, il reste vide.
 //! - Réflexion coupée quand le modèle le permet ; une réflexion écrite dans
 //!   le contenu (`<think>…</think>`) n'est jamais montrée.
+//! - Réponse coupée par la limite de longueur (`finish_reason: length`, la
+//!   réflexion d'un modèle qui réfléchit toujours compte dedans) :
+//!   redemandée une fois avec deux fois plus de jetons, puis échec
+//!   `Incomplete` ; jamais un document tronqué présenté comme fini. Une note
+//!   vide est un échec (`Empty`), jamais une partie de la transcription
+//!   omise en silence.
+//! - Langue : celle enregistrée, sinon devinée sur le texte seulement si
+//!   elle est sûre (`transcription::language`), sinon « la langue de la
+//!   transcription », sans garde.
 //! - Garde de la langue (`proofread::language`, six langues reconnues) : un
 //!   document écrit dans une autre langue est redemandé une fois, avec un
 //!   rappel ; le second est gardé quel qu'il soit.
@@ -78,6 +87,9 @@ pub enum SynthesisErrorCode {
     ContextTooSmall,
     /// Réponse vide.
     Empty,
+    /// Réponse coupée par la limite de longueur (`finish_reason: length`),
+    /// même redemandée avec deux fois plus de jetons : rien n'est enregistré.
+    Incomplete,
     /// Autre échec (délai dépassé, erreur du modèle ou du fournisseur,
     /// enregistrement impossible).
     Failed,
@@ -729,17 +741,10 @@ async fn synthesize(
     let mut notes = Vec::with_capacity(parts.len());
     for (index, part) in parts.iter().enumerate() {
         let messages = prompts::notes(job.language, &job.title, index + 1, parts.len(), part);
-        let answer = asker.ask(messages, budget.notes_tokens, &|_| {}).await?;
-        let note = visible(&answer, true);
-        if !note.is_empty() {
-            notes.push(note);
-        }
-    }
-    if notes.is_empty() {
-        return Err(Stop::failed(
-            SynthesisErrorCode::Empty,
-            t!("synthesis.empty"),
-        ));
+        let answer = asker
+            .ask_complete(messages, budget.notes_tokens, &|_| {}, &|| {})
+            .await?;
+        notes.push(non_empty(visible(&answer, true))?);
     }
     // Notes trop longues pour le document : regroupées par paquets.
     let mut level = 0;
@@ -755,11 +760,10 @@ async fn synthesize(
                 continue;
             }
             let messages = prompts::merge(job.language, &joined(&group));
-            let answer = asker.ask(messages, budget.notes_tokens, &|_| {}).await?;
-            let note = visible(&answer, true);
-            if !note.is_empty() {
-                merged.push(note);
-            }
+            let answer = asker
+                .ask_complete(messages, budget.notes_tokens, &|_| {}, &|| {})
+                .await?;
+            merged.push(non_empty(visible(&answer, true))?);
         }
         notes = merged;
     }
@@ -772,6 +776,18 @@ async fn synthesize(
 
 fn joined(notes: &[String]) -> String {
     notes.join("\n")
+}
+
+/// Note ou document vide : échec (une partie omise en silence ferait un
+/// document incomplet présenté comme fini).
+fn non_empty(text: String) -> Result<String, Stop> {
+    if text.is_empty() {
+        return Err(Stop::failed(
+            SynthesisErrorCode::Empty,
+            t!("synthesis.empty"),
+        ));
+    }
+    Ok(text)
 }
 
 /// Document final, montré en flux ; redemandé une fois s'il est écrit dans
@@ -788,15 +804,9 @@ async fn document(
         let messages = prompts::document(job.language, &job.title, from, retry);
         let stream_show = |raw: &str| show(&visible(raw, false));
         let answer = asker
-            .ask(messages, budget.document_tokens, &stream_show)
+            .ask_complete(messages, budget.document_tokens, &stream_show, &|| show(""))
             .await?;
-        let markdown = visible(&answer, true);
-        if markdown.is_empty() {
-            return Err(Stop::failed(
-                SynthesisErrorCode::Empty,
-                t!("synthesis.empty"),
-            ));
-        }
+        let markdown = non_empty(visible(&answer, true))?;
         let stray = job.guard.is_some_and(|expected| {
             language::detect(&markdown).is_some_and(|found| found != expected)
         });
@@ -822,7 +832,44 @@ struct Asker<'a> {
 /// Température des réponses (fidélité plutôt qu'invention).
 const TEMPERATURE: f32 = 0.3;
 
+/// Réponse brute d'une requête.
+struct Answer {
+    text: String,
+    /// Coupée par la limite de longueur (`finish_reason: length`).
+    cut: bool,
+}
+
 impl Asker<'_> {
+    /// Réponse entière (contenu brut) ; coupée par la limite de longueur :
+    /// redemandée une fois avec deux fois plus de jetons (`restart` appelé
+    /// avant : le flux montré repart de zéro), puis `Incomplete`.
+    async fn ask_complete(
+        &self,
+        messages: Vec<Message>,
+        max_tokens: u32,
+        progress: &(dyn Fn(&str) + Send + Sync),
+        restart: &(dyn Fn() + Send + Sync),
+    ) -> Result<String, Stop> {
+        let first = self.ask(messages.clone(), max_tokens, progress).await?;
+        if !first.cut {
+            return Ok(first.text);
+        }
+        crate::app_log!(
+            "chatonlm: synthesis: answer cut at {max_tokens} tokens, asked again with twice as many"
+        );
+        restart();
+        let second = self
+            .ask(messages, max_tokens.saturating_mul(2), progress)
+            .await?;
+        if second.cut {
+            return Err(Stop::failed(
+                SynthesisErrorCode::Incomplete,
+                t!("synthesis.incomplete"),
+            ));
+        }
+        Ok(second.text)
+    }
+
     /// Réponse entière (contenu brut) ; chaque morceau reçu, le contenu
     /// jusque-là passé à `progress`. Réflexion à part ignorée.
     async fn ask(
@@ -830,7 +877,7 @@ impl Asker<'_> {
         messages: Vec<Message>,
         max_tokens: u32,
         progress: &(dyn Fn(&str) + Send + Sync),
-    ) -> Result<String, Stop> {
+    ) -> Result<Answer, Stop> {
         let mut request = self.session.request(messages);
         request.temperature = Some(TEMPERATURE);
         request.max_tokens = Some(max_tokens);
@@ -863,7 +910,12 @@ impl Asker<'_> {
                     answer.push_str(&content);
                     progress(&answer);
                 }
-                Some(Ok(Event::Done { .. })) => return Ok(answer),
+                Some(Ok(Event::Done { finish_reason, .. })) => {
+                    return Ok(Answer {
+                        text: answer,
+                        cut: finish_reason == inference::FinishReason::Length,
+                    });
+                }
                 // Réflexion à part, appels d'outils (aucun offert) : ignorés.
                 Some(Ok(_)) => {}
                 Some(Err(error)) => {

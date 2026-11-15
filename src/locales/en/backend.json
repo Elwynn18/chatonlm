@@ -168,7 +168,8 @@
     "voiceModeActive": "Voice mode is on: end it to dictate",
     "models": {
       "downloading": "This model is downloading: cancel the download first",
-      "stillDownloading": "This model is still downloading: try again in a moment"
+      "stillDownloading": "This model is still downloading: try again in a moment",
+      "transcribing": "This model is being used by a transcription: wait for it to finish, or cancel it"
     }
   },
   "speechDownloads": {
@@ -650,6 +651,8 @@
     "network": "The site can't be reached. Check your Internet connection, then try again.",
     "outdated": "yt-dlp can't read this video, even with its latest version. The site may have changed. Try again in a few days.",
     "tooLong": "This video is too long to be transcribed.",
+    "tooLarge": "The audio at this address is too large, or never ends (a web radio or a live stream that isn't announced as one), so it can't be transcribed.",
+    "noSpace": "There isn't enough free space on the disk to retrieve this audio. Free up some space, then try again.",
     "cancelled": "Cancelled.",
     "failed": "The audio of this video couldn't be retrieved. The details are in the log."
   },
@@ -673,6 +676,7 @@
     "tooLarge": "This file is larger than {gigabytes} GB, the limit of a transcription.",
     "fetchFailed": "The audio of this video couldn't be retrieved.",
     "noSpeech": "No speech was found in this recording.",
+    "partial": "The end of this recording couldn't be read (the file is damaged, cut short, or made of several chained streams): only the start was transcribed.",
     "stopped": "The transcription stopped on an error. The details are in the log.",
     "ioFailed": "The working audio file couldn't be written. Check the free space on the disk.",
     "ioFailedDetail": "The working audio file couldn't be written: {error}",
@@ -689,6 +693,7 @@
     "connectionLost": "The connection to the model was lost before the end of the synthesis.",
     "contextTooSmall": "The context of this model is too small to synthesize this transcription. Choose a longer context length in Settings › General, or another model.",
     "empty": "The model gave an empty answer. Try again, or choose another model.",
+    "incomplete": "The model reached the length limit of its answer before the end, so the synthesis would be incomplete. Choose a longer context length in Settings › General, or another model.",
     "failed": "The synthesis failed: {detail}",
     "timedOut": "the model took too long to answer",
     "notSaved": "The synthesis couldn't be saved: {detail}"

@@ -93,6 +93,21 @@ describe("renderDocx", () => {
     expect(text(footer as string)).toContain("NUMPAGES");
   });
 
+  it("links only to web and mail addresses, never to a file or a network share", async () => {
+    const { text } = await unzip(
+      "[voir](file:///C:/Windows/System32/calc.exe) " +
+        "[partage](file://attacker.example/share/x.docx) " +
+        "[web](https://a.example) [mail](mailto:a@b.example)",
+    );
+    const rels = text("word/_rels/document.xml.rels");
+    expect(rels).not.toContain("file:");
+    expect(rels).toContain('Target="https://a.example"');
+    expect(rels).toContain('Target="mailto:a@b.example"');
+    const body = text("word/document.xml");
+    expect(body).toContain("voir");
+    expect(body).toContain("partage");
+  });
+
   it("starts each numbered list at its own first number", async () => {
     const { text } = await unzip("1. a\n2. b\n\nTexte\n\n5. c\n");
     const numbering = text("word/numbering.xml");

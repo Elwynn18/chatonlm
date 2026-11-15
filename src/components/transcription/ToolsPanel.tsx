@@ -2,8 +2,9 @@
 // la demande pour lire une vidéo du web (rapport 105, § 6). Jamais livrés
 // avec l'app : avant le premier téléchargement, une boîte demande l'accord
 // explicite (licences de yt-dlp, de ses composants dont certains sous GPL
-// ou LGPL, et de Deno ; responsabilité de l'utilisateur) ; puis
-// progression, « Cancel », mise à jour proposée et retrait.
+// ou LGPL, et de Deno ; responsabilité de l'utilisateur), focus sur
+// « Cancel » ; puis progression (annoncée aux lecteurs d'écran, sans les
+// octets), « Cancel », mise à jour proposée et retrait.
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -165,6 +166,13 @@ export function ToolsPanel({
       data-testid="transcription-tools"
       className="mt-3 rounded-xl bg-neutral-50 px-3 py-2.5 dark:bg-neutral-900"
     >
+      <p
+        role="status"
+        className="sr-only"
+        data-testid="transcription-tools-announce"
+      >
+        {toolsAnnounce(t, status)}
+      </p>
       {body}
       {errors.map((message) => (
         <p
@@ -184,7 +192,26 @@ export function ToolsPanel({
   );
 }
 
-function ToolProgress({ tool }: { tool: ToolStatus }) {
+/**
+ * Annonce de l'état des outils : la phase de l'outil en cours (sans les
+ * octets, qui changent sans cesse), puis l'installation finie.
+ */
+function toolsAnnounce(t: TFunction, status: ToolsStatus): string {
+  const busy = status.tools.find(isToolBusy);
+  if (busy) {
+    return busy.phase === "downloading"
+      ? t("transcription.tools.announceDownloading", { name: busy.name })
+      : toolPhaseText(t, busy);
+  }
+  if (!status.ready) return "";
+  return t("transcription.tools.installed", {
+    ytdlp: tool(status, "ytDlp")?.version ?? "",
+    deno: tool(status, "deno")?.version ?? "",
+  });
+}
+
+/** Progression d'un outil (aussi sous l'échec « yt-dlp périmé »). */
+export function ToolProgress({ tool }: { tool: ToolStatus }) {
   const t = useT();
   const percent =
     tool.totalBytes > 0
@@ -303,6 +330,9 @@ export function ToolsConsent({
         },
       ]}
       onCancel={onCancel}
+      // Accord explicite : il se donne en visant le bouton, pas par un
+      // Entrée de plus après celui qui a validé l'adresse.
+      initialFocus="cancel"
     />
   );
 }

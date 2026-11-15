@@ -168,7 +168,8 @@
     "voiceModeActive": "El modo de voz está activo: termínalo para dictar",
     "models": {
       "downloading": "Este modelo se está descargando: cancela primero la descarga",
-      "stillDownloading": "Este modelo todavía se está descargando: vuelve a intentarlo en un momento"
+      "stillDownloading": "Este modelo todavía se está descargando: vuelve a intentarlo en un momento",
+      "transcribing": "Este modelo se está usando en una transcripción: espera a que termine o cancélala"
     }
   },
   "speechDownloads": {
@@ -650,6 +651,8 @@
     "network": "No se puede conectar con el sitio. Revisa tu conexión a internet y vuelve a intentarlo.",
     "outdated": "yt-dlp no puede leer este video, ni siquiera con su última versión. Puede que el sitio haya cambiado. Vuelve a intentarlo en unos días.",
     "tooLong": "Este video es demasiado largo para transcribirlo.",
+    "tooLarge": "El audio de esta dirección es demasiado grande, o no termina nunca (una radio en línea o una transmisión en directo que no se presenta como tal), así que no se puede transcribir.",
+    "noSpace": "No hay suficiente espacio libre en el disco para obtener este audio. Libera espacio y vuelve a intentarlo.",
     "cancelled": "Cancelado.",
     "failed": "No se pudo obtener el audio de este video. Los detalles están en el registro."
   },
@@ -673,6 +676,7 @@
     "tooLarge": "Este archivo supera los {gigabytes} GB, el límite de una transcripción.",
     "fetchFailed": "No se pudo obtener el audio de este video.",
     "noSpeech": "No se encontró voz en esta grabación.",
+    "partial": "No se pudo leer el final de esta grabación (el archivo está dañado, cortado o formado por varios flujos encadenados): solo se transcribió el principio.",
     "stopped": "La transcripción se detuvo por un error. Los detalles están en el registro.",
     "ioFailed": "No se pudo escribir el archivo de audio de trabajo. Comprueba el espacio libre en el disco.",
     "ioFailedDetail": "No se pudo escribir el archivo de audio de trabajo: {error}",
@@ -689,6 +693,7 @@
     "connectionLost": "Se perdió la conexión con el modelo antes del final de la síntesis.",
     "contextTooSmall": "El contexto de este modelo es demasiado pequeño para sintetizar esta transcripción. Elige una longitud del contexto mayor en Configuración › General, u otro modelo.",
     "empty": "El modelo dio una respuesta vacía. Inténtalo de nuevo, o elige otro modelo.",
+    "incomplete": "El modelo alcanzó el límite de longitud de su respuesta antes del final, así que la síntesis quedaría incompleta. Elige una longitud del contexto mayor en Configuración › General, u otro modelo.",
     "failed": "La síntesis falló: {detail}",
     "timedOut": "el modelo tardó demasiado en responder",
     "notSaved": "No se pudo guardar la síntesis: {detail}"

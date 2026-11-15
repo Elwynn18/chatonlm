@@ -131,7 +131,24 @@ export function itemOf(
   };
 }
 
-function jobOf(id: string, request: TranscriptionRequest): TranscriptionJob {
+/**
+ * Langue d'une demande, comme le moteur (`language_of`, job.rs) : « auto »
+ * n'en donne aucune (détectée ensuite), une demande sans langue prend celle
+ * de la dictée.
+ */
+function languageOf(
+  request: TranscriptionRequest,
+  dictation: string,
+): string | null {
+  const language = request.language ?? dictation;
+  return language === "auto" ? null : language;
+}
+
+function jobOf(
+  id: string,
+  request: TranscriptionRequest,
+  dictation: string,
+): TranscriptionJob {
   const url = request.source.kind === "url";
   const origin = url
     ? (request.source as { url: string }).url
@@ -145,7 +162,7 @@ function jobOf(id: string, request: TranscriptionRequest): TranscriptionJob {
     engine: (request.model ?? PARAKEET).startsWith("whisper")
       ? "whisper"
       : "parakeet",
-    language: request.language ?? null,
+    language: languageOf(request, dictation),
     title: url ? null : (origin.split("/").at(-1) ?? origin),
     channel: null,
     url: null,
@@ -165,6 +182,8 @@ const clone = <T>(value: T): T => structuredClone(value);
 
 export function fakeTranscription(simulator: Simulator): FakeTranscription {
   let next = 1;
+  /** Transcriptions renommées : la fiche de la vidéo ne change plus le titre. */
+  const renamed = new Set<string>();
   const fake: FakeTranscription = {
     options: {
       models: [
@@ -227,7 +246,9 @@ export function fakeTranscription(simulator: Simulator): FakeTranscription {
       if (detail) {
         detail.segments = clone(job.segments);
         Object.assign(detail.item, {
-          title: job.title ?? detail.item.title,
+          title: renamed.has(job.id)
+            ? detail.item.title
+            : (job.title ?? detail.item.title),
           channel: job.channel ?? "",
           durationS: job.durationS,
         });
@@ -256,6 +277,7 @@ export function fakeTranscription(simulator: Simulator): FakeTranscription {
                 ? "cancelled"
                 : "failed";
           detail.item.error = error ?? null;
+          if (job.warning) detail.item.warning = clone(job.warning);
         }
       }
       await simulator.emitEvent("transcription-status", {
@@ -325,7 +347,7 @@ export function fakeTranscription(simulator: Simulator): FakeTranscription {
     }
     const request = args.request as TranscriptionRequest;
     const id = `t-${next++}`;
-    fake.job = jobOf(id, request);
+    fake.job = jobOf(id, request, fake.options.language);
     fake.items.unshift({
       item: itemOf({
         id,
@@ -373,6 +395,7 @@ export function fakeTranscription(simulator: Simulator): FakeTranscription {
   simulator.handle("transcription_rename", (args) => {
     failure("transcription_rename");
     find(args.id).item.title = args.title as string;
+    renamed.add(args.id as string);
     return null;
   });
   simulator.handle("transcription_export", (args) => {

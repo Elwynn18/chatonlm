@@ -163,7 +163,8 @@ pub async fn speech_dismiss_download(
 }
 
 /// Supprime un modèle (dossier entier, morceaux d'un téléchargement compris).
-/// Refusé pendant son téléchargement ; libéré d'abord s'il est chargé.
+/// Refusé pendant son téléchargement et pendant une transcription qui s'en
+/// sert ; libéré d'abord s'il est chargé.
 #[tauri::command]
 pub async fn speech_delete_model(
     app: AppHandle,
@@ -171,14 +172,23 @@ pub async fn speech_delete_model(
     dictation: State<'_, Dictation>,
     id: String,
 ) -> AppResult<()> {
-    delete_model(&downloads, &dictation, &id).await?;
+    use tauri::Manager;
+    let transcription = app.try_state::<crate::transcription::Transcription>();
+    let in_use = |model: &str| {
+        transcription
+            .as_ref()
+            .is_some_and(|transcription| transcription.uses_model(model))
+    };
+    delete_model(&downloads, &dictation, &in_use, &id).await?;
     dictation.emit_status(&app);
     Ok(())
 }
 
+/// `in_use` : le modèle sert à une transcription en cours.
 async fn delete_model(
     downloads: &SpeechDownloads,
     dictation: &Dictation,
+    in_use: &(dyn Fn(&str) -> bool + Sync),
     id: &str,
 ) -> AppResult<()> {
     let model = models::find(id)
@@ -186,6 +196,9 @@ async fn delete_model(
         .ok_or_else(|| AppError::Invalid(format!("unknown speech model: {id}")))?;
     if downloads.is_active(model.id) {
         return Err(AppError::Invalid(t!("dictation.models.downloading")));
+    }
+    if in_use(model.id) {
+        return Err(AppError::Invalid(t!("dictation.models.transcribing")));
     }
     // Annulé à l'instant : sa tâche peut encore écrire un `.part`.
     if !downloads
@@ -232,17 +245,27 @@ mod tests {
             },
         );
         let dictation = Dictation::new();
+        let idle = |_: &str| false;
         let dir = root.path().join("whisper-tiny");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("ggml-tiny.bin.part"), b"partial").unwrap();
 
+        // Modèle d'une transcription en cours : refusé, rien n'est effacé.
+        let transcribing = |model: &str| model == "whisper-tiny";
+        let refused = delete_model(&downloads, &dictation, &transcribing, "whisper-tiny").await;
+        assert!(
+            matches!(&refused, Err(AppError::Invalid(message)) if !message.starts_with("dictation.")),
+            "{refused:?}"
+        );
+        assert!(dir.join("ggml-tiny.bin.part").exists());
+
         downloads.download("whisper-tiny").unwrap();
-        let refused = delete_model(&downloads, &dictation, "whisper-tiny").await;
+        let refused = delete_model(&downloads, &dictation, &idle, "whisper-tiny").await;
         assert!(matches!(refused, Err(AppError::Invalid(_))));
         assert!(dir.exists());
 
         downloads.cancel("whisper-tiny");
-        delete_model(&downloads, &dictation, "whisper-tiny")
+        delete_model(&downloads, &dictation, &idle, "whisper-tiny")
             .await
             .unwrap();
         assert!(!dir.exists());
@@ -257,18 +280,18 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
             ender.end_task("whisper-tiny");
         });
-        delete_model(&ending, &dictation, "whisper-tiny")
+        delete_model(&ending, &dictation, &idle, "whisper-tiny")
             .await
             .unwrap();
         assert!(started.elapsed() >= std::time::Duration::from_millis(300));
         assert!(!dir.exists());
         let downloads = ending;
         // Déjà absent : rien à faire ; inconnu : refusé.
-        delete_model(&downloads, &dictation, "whisper-tiny")
+        delete_model(&downloads, &dictation, &idle, "whisper-tiny")
             .await
             .unwrap();
         assert!(matches!(
-            delete_model(&downloads, &dictation, "nope").await,
+            delete_model(&downloads, &dictation, &idle, "nope").await,
             Err(AppError::Invalid(_))
         ));
     }

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fake_llama::scenarios::synthesis::{
-    DOCUMENT_MARK, PART_MARK, RETRY_MARK, STRAY_DOCUMENT, SYNTHESIS_THINKING,
+    DOCUMENT_MARK, PART_MARK, RETRY_MARK, SHORT_LIMIT, STRAY_DOCUMENT, SYNTHESIS_THINKING,
 };
 use serde_json::Value;
 
@@ -26,6 +26,9 @@ const THINKER: &str = "test/Thinker-GGUF:Q4_K_M";
 const STRAY: &str = "test/Stray-GGUF:Q4_K_M";
 const EMPTY: &str = "test/Empty-GGUF:Q4_K_M";
 const CUT: &str = "test/Cut-GGUF:Q4_K_M";
+const SHORT: &str = "test/Short-GGUF:Q4_K_M";
+const LENGTH: &str = "test/Length-GGUF:Q4_K_M";
+const HOLE: &str = "test/Hole-GGUF:Q4_K_M";
 
 fn bench() -> FakeBench {
     FakeBench::new(&[
@@ -36,6 +39,9 @@ fn bench() -> FakeBench {
         (STRAY, "synthesis-stray"),
         (EMPTY, "synthesis-empty"),
         (CUT, "synthesis-cut"),
+        (SHORT, "synthesis-short"),
+        (LENGTH, "synthesis-length"),
+        (HOLE, "synthesis-hole"),
     ])
 }
 
@@ -607,6 +613,119 @@ async fn the_document_is_written_in_the_language_of_the_transcription() {
     assert!(message(&requests[1], "user").contains(RETRY_MARK));
     assert_eq!(summary_of(&bench, "en").unwrap().markdown, last.markdown);
     assert!(!last.markdown.contains(STRAY_DOCUMENT));
+    bench.shutdown().await;
+}
+
+/// Relecture 107 : document coupé par la limite de longueur
+/// (`finish_reason: length`) : redemandé une fois avec deux fois plus de
+/// jetons (montré de nouveau depuis le début) ; encore coupé : échec
+/// `Incomplete`, rien d'enregistré (jamais un document tronqué « fini »).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cut_document_is_asked_again_then_refused() {
+    let bench = bench();
+    bench.set(SettingsPatch {
+        context_length: Some(4_096),
+        ..SettingsPatch::default()
+    });
+    add(&bench, "short", "en", &[paragraph(1)]);
+    add(&bench, "cut", "en", &[paragraph(1)]);
+    let (synthesizer, sent) = synthesizer();
+
+    synthesizer
+        .start(&bench.access, "short".into(), Some(SHORT.into()))
+        .await
+        .unwrap();
+    let last = finished(&synthesizer).await;
+    assert_eq!(last.stage, SynthesisStage::Done, "{last:?}");
+    assert!(last.markdown.starts_with("# Summary"), "{}", last.markdown);
+    assert!(last.markdown.contains("## Conclusion"), "{}", last.markdown);
+    assert_eq!(summary_of(&bench, "short").unwrap().markdown, last.markdown);
+    let requests = chat_requests(&bench, SHORT).await;
+    assert_eq!(requests.len(), 2);
+    let first = requests[0]["max_tokens"].as_u64().unwrap();
+    assert!(first < SHORT_LIMIT, "{first}");
+    assert_eq!(requests[1]["max_tokens"].as_u64().unwrap(), first * 2);
+    // Le flux repart de zéro avant la seconde réponse.
+    let shown: Vec<String> = sent.all().into_iter().map(|s| s.markdown).collect();
+    assert!(
+        shown
+            .windows(2)
+            .any(|pair| !pair[0].is_empty() && pair[1].is_empty()),
+        "{shown:?}"
+    );
+
+    synthesizer
+        .start(&bench.access, "cut".into(), Some(LENGTH.into()))
+        .await
+        .unwrap();
+    let last = finished(&synthesizer).await;
+    assert_eq!(last.stage, SynthesisStage::Error, "{last:?}");
+    let error = last.error.unwrap();
+    assert_eq!(error.code, SynthesisErrorCode::Incomplete);
+    assert!(
+        !error.message.starts_with("synthesis."),
+        "{}",
+        error.message
+    );
+    assert_eq!(chat_requests(&bench, LENGTH).await.len(), 2);
+    assert_eq!(summary_of(&bench, "cut"), None);
+    bench.shutdown().await;
+}
+
+/// Relecture 107 : une note vide (partie 2) fait échouer la synthèse au lieu
+/// d'omettre cette partie de la transcription en silence.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_empty_note_fails_instead_of_dropping_a_part() {
+    let bench = bench();
+    bench.set(SettingsPatch {
+        context_length: Some(4_096),
+        ..SettingsPatch::default()
+    });
+    let paragraphs: Vec<String> = (1..=22).map(paragraph).collect();
+    add(&bench, "long", "en", &paragraphs);
+    let (synthesizer, _) = synthesizer();
+    synthesizer
+        .start(&bench.access, "long".into(), Some(HOLE.into()))
+        .await
+        .unwrap();
+    let last = finished(&synthesizer).await;
+    assert_eq!(last.stage, SynthesisStage::Error, "{last:?}");
+    assert_eq!(last.error.unwrap().code, SynthesisErrorCode::Empty);
+    // Arrêt à la partie vide : aucun document demandé.
+    let requests = chat_requests(&bench, HOLE).await;
+    assert!(
+        requests
+            .iter()
+            .all(|request| !message(request, "system").contains(DOCUMENT_MARK))
+    );
+    assert_eq!(summary_of(&bench, "long"), None);
+    bench.shutdown().await;
+}
+
+/// Relecture 107 : sans langue enregistrée, une transcription néerlandaise
+/// n'est plus prise pour de l'anglais : consigne « dans la langue de la
+/// transcription », sans garde.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unsure_language_is_left_to_the_transcript() {
+    let bench = bench();
+    let dutch = "Ik heb gisteren met mijn broer gesproken en hij zegt dat het weer in \
+                 Amsterdam niet zo goed is, maar dat de stad nog steeds erg mooi is. We gaan \
+                 er volgende week samen naartoe, want hij wil het museum zien."
+        .to_owned();
+    add(&bench, "nl", "", std::slice::from_ref(&dutch));
+    let (synthesizer, _) = synthesizer();
+    synthesizer
+        .start(&bench.access, "nl".into(), Some(SYNTH.into()))
+        .await
+        .unwrap();
+    assert_eq!(finished(&synthesizer).await.stage, SynthesisStage::Done);
+    let requests = chat_requests(&bench, SYNTH).await;
+    let system = message(&requests[0], "system");
+    assert!(
+        system.contains("in the language of the transcript"),
+        "{system}"
+    );
+    assert!(!system.contains("English"), "{system}");
     bench.shutdown().await;
 }
 

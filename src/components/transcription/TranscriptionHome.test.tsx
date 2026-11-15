@@ -294,6 +294,179 @@ describe("Transcription home", () => {
     expect(startButton().disabled).toBe(false);
   });
 
+  it("puts the focus on Cancel in the consent: a second Enter accepts nothing", async () => {
+    const user = userEvent.setup();
+    const { simulator } = setup();
+    await screen.findByTestId("transcription-form");
+    await user.type(address(), "https://video.test/ok{Enter}");
+    const dialog = await screen.findByRole("alertdialog");
+    expect(document.activeElement).toBe(
+      within(dialog).getByRole("button", { name: "Cancel" }),
+    );
+    await user.keyboard("{Enter}");
+    expect(simulator.callsTo("tools_install")).toEqual([]);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByTestId("transcription-waiting-tools")).toBeNull();
+  });
+
+  it("reads the tools again after an install that finished while away from the home page", async () => {
+    const user = userEvent.setup();
+    const { fake } = setup((fake) => {
+      fake.add({ title: "Old one" }, [segment(0, 2, "Hello.")]);
+    });
+    await screen.findByTestId("transcription-form");
+    await user.type(address(), "https://video.test/ok");
+    await user.click(startButton());
+    await user.click(
+      await screen.findByRole("button", { name: "Accept and download" }),
+    );
+    await fake.toolsEvent({}, [
+      { phase: "downloading", completedBytes: 1, totalBytes: 10 },
+    ]);
+    const announce = await screen.findByTestId("transcription-tools-announce");
+    // Annonce sans les octets, qui changent sans cesse.
+    expect(announce.getAttribute("role")).toBe("status");
+    expect(announce.textContent).toBe("Downloading yt-dlp…");
+    // Ancienne transcription ouverte pendant le téléchargement.
+    await user.click(screen.getByRole("link", { name: /Old one/ }));
+    await screen.findByTestId("transcription-view");
+    // Les outils finissent pendant ce temps.
+    const ready = installedTools();
+    await fake.toolsEvent(ready, ready.tools);
+    await user.click(screen.getByRole("link", { name: "All transcriptions" }));
+    await screen.findByTestId("transcription-form");
+    await user.type(address(), "https://video.test/ok");
+    // Plus de jauge figée : les outils sont prêts, versions montrées.
+    expect(screen.queryByTestId("transcription-tools-progress")).toBeNull();
+    expect(
+      screen.getByTestId("transcription-tools-installed").textContent,
+    ).toContain("yt-dlp 2026.10.26");
+  });
+
+  it("reads the tools again each time the home page opens", async () => {
+    const user = userEvent.setup();
+    const { fake, simulator, app } = setup((fake) => {
+      fake.add({ title: "Old one" }, [segment(0, 2, "Hello.")]);
+    });
+    await screen.findByTestId("transcription-form");
+    const reads = simulator.callsTo("tools_status").length;
+    // Les outils changent hors des pages de l'outil (aucun événement reçu).
+    await act(() => app.router.navigate({ to: "/" }));
+    fake.tools = installedTools();
+    await act(() => app.router.navigate({ to: "/transcription" }));
+    await screen.findByTestId("transcription-form");
+    await waitFor(() =>
+      expect(simulator.callsTo("tools_status").length).toBeGreaterThan(reads),
+    );
+    await user.type(address(), "https://video.test/ok");
+    expect(
+      (await screen.findByTestId("transcription-tools-installed")).textContent,
+    ).toContain("2026.10.26");
+  });
+
+  it("drops the request waiting for the tools when the source changes, and follows the model", async () => {
+    const user = userEvent.setup();
+    const { simulator, fake } = setup((fake) => {
+      fake.picked = "/home/me/talk.mkv";
+    });
+    await screen.findByTestId("transcription-form");
+    await user.type(address(), "https://video.test/ok");
+    await user.click(startButton());
+    await user.click(
+      await screen.findByRole("button", { name: "Accept and download" }),
+    );
+    await screen.findByTestId("transcription-waiting-tools");
+    // Un fichier choisi pendant l'attente : l'adresse n'attend plus.
+    await user.click(screen.getByRole("button", { name: "Choose a file…" }));
+    await screen.findByTestId("transcription-file");
+    expect(screen.queryByTestId("transcription-waiting-tools")).toBeNull();
+    expect(startButton().disabled).toBe(false);
+    const ready = installedTools();
+    await fake.toolsEvent({ ...ready, ready: false }, [
+      { phase: "installing" },
+    ]);
+    await fake.toolsEvent(ready, ready.tools);
+    expect(simulator.callsTo("transcription_start")).toEqual([]);
+    // Transcrire : c'est le fichier qui part.
+    await user.click(startButton());
+    await waitFor(() =>
+      expect(simulator.callsTo("transcription_start")).toHaveLength(1),
+    );
+    expect(
+      (
+        simulator.callsTo("transcription_start")[0].request as {
+          source: unknown;
+        }
+      ).source,
+    ).toEqual({ kind: "file", path: "/home/me/talk.mkv" });
+  });
+
+  it("starts the waiting request with the model chosen meanwhile", async () => {
+    const user = userEvent.setup();
+    const { simulator, fake } = setup();
+    await screen.findByTestId("transcription-form");
+    await user.type(address(), "https://video.test/ok");
+    await user.click(startButton());
+    await user.click(
+      await screen.findByRole("button", { name: "Accept and download" }),
+    );
+    await screen.findByTestId("transcription-waiting-tools");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Model" }),
+      WHISPER,
+    );
+    const ready = installedTools();
+    await fake.toolsEvent(ready, ready.tools);
+    await screen.findByTestId("transcription-view");
+    expect(simulator.callsTo("transcription_start")).toEqual([
+      {
+        request: {
+          source: { kind: "url", url: "https://video.test/ok" },
+          model: WHISPER,
+          language: "auto",
+        },
+      },
+    ]);
+  });
+
+  it("brings back the request left waiting for the tools, with a word to start it", async () => {
+    const user = userEvent.setup();
+    const { simulator, fake, app } = setup();
+    await screen.findByTestId("transcription-form");
+    await user.type(address(), "https://video.test/ok");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Model" }),
+      WHISPER,
+    );
+    await user.click(startButton());
+    await user.click(
+      await screen.findByRole("button", { name: "Accept and download" }),
+    );
+    await screen.findByTestId("transcription-waiting-tools");
+    // L'utilisateur part dans le chat ; les outils finissent sans lui.
+    await act(() => app.router.navigate({ to: "/" }));
+    const ready = installedTools();
+    await fake.toolsEvent(ready, ready.tools);
+    expect(simulator.callsTo("transcription_start")).toEqual([]);
+    await act(() => app.router.navigate({ to: "/transcription" }));
+    const lost = await screen.findByTestId("transcription-pending-lost");
+    expect(lost.textContent).toBe(
+      "The transcription that was waiting for the tools didn't start because you left the page. Press Transcribe to start it.",
+    );
+    expect(address().value).toBe("https://video.test/ok");
+    expect(
+      screen.getByRole<HTMLSelectElement>("combobox", { name: "Model" }).value,
+    ).toBe(WHISPER);
+    await user.click(startButton());
+    await screen.findByTestId("transcription-view");
+    expect(simulator.callsTo("transcription_start")).toHaveLength(1);
+    // Une seule fois : de retour sur l'accueil, plus rien n'est repris.
+    await user.click(screen.getByRole("link", { name: "All transcriptions" }));
+    await screen.findByTestId("transcription-form");
+    expect(screen.queryByTestId("transcription-pending-lost")).toBeNull();
+    expect(address().value).toBe("");
+  });
+
   it("starts at once when the tools are installed; refuses an address that isn't one", async () => {
     const user = userEvent.setup();
     const { simulator } = setup((fake) => {

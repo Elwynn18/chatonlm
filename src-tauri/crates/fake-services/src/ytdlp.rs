@@ -18,7 +18,14 @@
 //! - `--load-info-json <fichier> -P <dossier> -o audio.%(ext)s` : écrit
 //!   `audio.<ext>.part` par morceaux (lignes du `--progress-template`),
 //!   le renomme, puis la ligne du `--print after_move:` ; l'audio est une
-//!   vraie fixture de `media-audio` (jfk, domaine public).
+//!   vraie fixture de `media-audio` (jfk, domaine public). Scénarios du
+//!   deuxième temps : `endless` (fiche sans durée, flux sans fin ni taille
+//!   annoncée, comme une webradio), `quiet-endless` (pareil, sans ligne de
+//!   progression), `big` (taille annoncée énorme), `reextract` (échec 403,
+//!   puis, comme le vrai `download_with_info_file`, nouvelle extraction de
+//!   `webpage_url` s'il est dans la fiche chargée : flux sans fin). Un flux
+//!   sans fin s'arrête de lui-même après [`ENDLESS_SAFETY`] octets (essai
+//!   raté : le disque ne se remplit pas).
 //!
 //! Version (`--version`) : `FAKE_YTDLP_VERSION`, sinon le fichier
 //! `_internal/chatonlm-fake-version` à côté du programme (écrit par le faux
@@ -44,6 +51,9 @@ use serde_json::{Value, json};
 /// Audio écrit par le faux (vraies sorties de YouTube réencodées : jfk).
 pub const AUDIO_WEBM: &[u8] = include_bytes!("../../media-audio/tests/data/jfk-yt251.webm");
 pub const AUDIO_M4A: &[u8] = include_bytes!("../../media-audio/tests/data/jfk-yt140.m4a");
+
+/// Octets au plus d'un flux « sans fin » du faux (garde-fou des essais).
+pub const ENDLESS_SAFETY: usize = 256 << 20;
 
 /// Fichier de version à côté du programme (écrit par le faux GitHub).
 pub const VERSION_FILE: &str = "chatonlm-fake-version";
@@ -439,6 +449,8 @@ fn metadata(url: &str, deno: &Path, flat: bool) -> i32 {
         .get("d")
         .and_then(|d| d.parse::<f64>().ok())
         .unwrap_or(if scenario == "long" { 36_000.0 } else { 11.0 });
+    // Flux direct de l'extracteur générique : ni durée ni direct signalé.
+    let duration = (!matches!(scenario.as_str(), "endless" | "quiet-endless")).then_some(duration);
     let fmt = query.get("fmt").cloned().unwrap_or_else(|| "webm".into());
     let info = if scenario == "playlist" {
         if !flat {
@@ -541,6 +553,28 @@ fn download(parsed: &Parsed, info: &Path, deno: &Path) -> i32 {
             out(&render(template, &fields));
         }
     };
+    if scenario == "reextract" {
+        let _ = writeln!(
+            std::io::stderr(),
+            "ERROR: unable to download video data: HTTP Error 403: Forbidden"
+        );
+        // `YoutubeDL.download_with_info_file` : sans `webpage_url`, l'erreur
+        // remonte ; sinon, extraction complète de l'adresse.
+        let Some(url) = info.get("webpage_url").and_then(Value::as_str) else {
+            return 1;
+        };
+        let _ = writeln!(
+            std::io::stderr(),
+            "WARNING: The info failed to download: ERROR: unable to download video data: HTTP Error 403: Forbidden; trying with URL {url}"
+        );
+        return endless(&part, progress.as_deref(), None);
+    }
+    match scenario {
+        "endless" => return endless(&part, progress.as_deref(), None),
+        "quiet-endless" => return endless(&part, None, None),
+        "big" => return endless(&part, progress.as_deref(), Some(100 << 30)),
+        _ => {}
+    }
     let Ok(mut file) = std::fs::File::create(&part) else {
         return fail("ERROR: fake yt-dlp: cannot write the audio", 1);
     };
@@ -573,6 +607,36 @@ fn download(parsed: &Parsed, info: &Path, deno: &Path) -> i32 {
         drop(child.stdin.take());
         let _ = child.wait();
     }
+    0
+}
+
+/// Flux sans fin vers `part` (morceaux de l'audio répétés), lignes de
+/// progression sans taille (ou `total` annoncé) ; s'arrête de lui-même
+/// après [`ENDLESS_SAFETY`] octets, puis attend d'être arrêté (60 s au
+/// plus).
+fn endless(part: &Path, progress: Option<&str>, total: Option<u64>) -> i32 {
+    let Ok(mut file) = std::fs::File::create(part) else {
+        return fail("ERROR: fake yt-dlp: cannot write the audio", 1);
+    };
+    let block = AUDIO_WEBM.repeat((64 << 10) / AUDIO_WEBM.len() + 1);
+    let mut done = 0usize;
+    while done < ENDLESS_SAFETY {
+        if file.write_all(&block).is_err() {
+            return fail("ERROR: fake yt-dlp: cannot write the audio", 1);
+        }
+        done += block.len();
+        if let Some(template) = progress {
+            let fields = HashMap::from([
+                ("progress.status", json!("downloading")),
+                ("progress.downloaded_bytes", json!(done)),
+                ("progress.total_bytes", json!(total)),
+                ("progress.total_bytes_estimate", Value::Null),
+            ]);
+            out(&render(template, &fields));
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    std::thread::sleep(Duration::from_secs(60));
     0
 }
 

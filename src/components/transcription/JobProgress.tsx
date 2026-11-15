@@ -1,7 +1,8 @@
 // Outil Transcription (propre à ChatonLM) : avancement d'une transcription
 // (étapes, octets reçus, son décodé puis transcrit, vitesse, temps
 // restant), bouton « Cancel » ; échec ou annulation, avec la raison et ce
-// qu'on peut y faire.
+// qu'on peut y faire. Les étapes et la fin sont annoncées aux lecteurs
+// d'écran par la page (`TranscriptionView`), pas par cette section.
 
 import {
   CheckCircleIcon,
@@ -16,10 +17,15 @@ import type { TranscriptionStage } from "@/bindings/TranscriptionStage";
 import { BUTTON, QUIET_BUTTON } from "@/components/study/ui";
 import {
   clock,
+  isToolBusy,
   remainingMinutes,
   stagePercent,
 } from "@/components/transcription/model";
-import { transcriptionListKey } from "@/components/transcription/queries";
+import {
+  toolsStatusKey,
+  useToolsStatus,
+} from "@/components/transcription/queries";
+import { ToolProgress } from "@/components/transcription/ToolsPanel";
 import { useT } from "@/i18n";
 import { formatBytes, formatDecimal, formatPercent } from "@/i18n/format";
 import { errorMessage, toolsUpdate, transcriptionCancel } from "@/lib/ipc";
@@ -56,7 +62,6 @@ export function JobProgress({ job }: { job: TranscriptionJob }) {
   return (
     <section
       aria-label={t("transcription.job.label")}
-      aria-busy="true"
       data-testid="transcription-progress"
       data-stage={job.stage}
       className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-700/70 dark:bg-neutral-800/60"
@@ -209,7 +214,8 @@ function stepDetail(t: ReturnType<typeof useT>, job: TranscriptionJob) {
 /**
  * Échec d'une transcription : titre d'après son code, message du moteur
  * (déjà traduit), et ce qu'on peut y faire (ModelHub, mise à jour de
- * yt-dlp, nouvel essai).
+ * yt-dlp, nouvel essai). La mise à jour rend la main dès son départ : sa
+ * progression est lue dans l'état des outils (« tools-status »).
  */
 export function ErrorNotice({
   error,
@@ -225,13 +231,15 @@ export function ErrorNotice({
   const needsModel =
     error.code === "noModel" || error.code === "modelNotInstalled";
   const outdated = error.code === "fetch" && error.fetch === "outdated";
+  const tools = useToolsStatus(outdated);
+  const busyTools = tools.data?.tools.filter(isToolBusy) ?? [];
   const update = () => {
     setUpdating(true);
     setActionError(null);
     toolsUpdate().then(
       () => {
         setUpdating(false);
-        void client.invalidateQueries({ queryKey: transcriptionListKey });
+        void client.invalidateQueries({ queryKey: toolsStatusKey });
       },
       (cause: unknown) => {
         setUpdating(false);
@@ -269,7 +277,7 @@ export function ErrorNotice({
               type="button"
               className={BUTTON}
               onClick={update}
-              disabled={updating}
+              disabled={updating || busyTools.length > 0}
             >
               {t("transcription.errors.updateTools")}
             </button>
@@ -279,6 +287,13 @@ export function ErrorNotice({
               {t("transcription.job.retry")}
             </button>
           )}
+        </div>
+      )}
+      {outdated && busyTools.length > 0 && (
+        <div className="mt-2 pl-6" data-testid="transcription-tools-progress">
+          {busyTools.map((item) => (
+            <ToolProgress key={item.tool} tool={item} />
+          ))}
         </div>
       )}
       {actionError && (

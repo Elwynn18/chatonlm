@@ -1,5 +1,5 @@
-//! Historique de l'outil Transcription : table `transcriptions` (migration
-//! 0046). Passages horodatés en JSON (`transcription::paragraphs::Segment`),
+//! Historique de l'outil Transcription : table `transcriptions` (migrations
+//! 0046, puis 0047 pour l'avertissement). Passages horodatés en JSON (`transcription::paragraphs::Segment`),
 //! texte en paragraphes à côté (export, aperçu, synthèse). Le message d'une
 //! erreur enregistrée est refait dans la langue du moment, d'après son code.
 
@@ -12,7 +12,7 @@ use crate::transcription::paragraphs::{Segment, plain_text};
 use crate::transcription::ytdlp::VideoInfo;
 use crate::transcription::{
     SourceKind, Synthesis, TranscriptionDetail, TranscriptionError, TranscriptionErrorCode,
-    TranscriptionItem, TranscriptionState,
+    TranscriptionItem, TranscriptionState, TranscriptionWarning, TranscriptionWarningCode,
 };
 
 /// Longueur de l'aperçu de la liste (caractères).
@@ -108,14 +108,16 @@ pub fn insert(connection: &Connection, new: &NewTranscription) -> AppResult<()> 
     Ok(())
 }
 
-/// Fiche de la vidéo (yt-dlp) : titre, chaîne, adresse, site, durée.
+/// Fiche de la vidéo (yt-dlp) : titre (sauf si l'utilisateur a déjà renommé
+/// la transcription pendant la récupération), chaîne, adresse, site, durée.
 pub fn set_info(connection: &Connection, id: &str, info: &VideoInfo) -> AppResult<()> {
     let duration = info
         .duration_s
         .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
         .map(|seconds| (seconds * 1000.0).round() as i64);
     connection.execute(
-        "UPDATE transcriptions SET title = ?2, channel = ?3, url = ?4, site = ?5,
+        "UPDATE transcriptions SET title = CASE WHEN title = '' THEN ?2 ELSE title END,
+             channel = ?3, url = ?4, site = ?5,
              duration_ms = coalesce(?6, duration_ms), updated_at = ?7
          WHERE id = ?1",
         params![
@@ -174,6 +176,19 @@ pub fn finish(
     Ok(())
 }
 
+/// Avertissement d'une transcription finie (`None` : aucun).
+pub fn set_warning(
+    connection: &Connection,
+    id: &str,
+    warning: Option<TranscriptionWarningCode>,
+) -> AppResult<()> {
+    connection.execute(
+        "UPDATE transcriptions SET warning = ?2 WHERE id = ?1",
+        params![id, warning.map(|code| code.as_str())],
+    )?;
+    Ok(())
+}
+
 /// Synthèse (« Synthétiser ») enregistrée, remplace la précédente ; vrai si
 /// la transcription existait.
 pub fn set_summary(
@@ -228,7 +243,10 @@ fn clip(text: &str) -> String {
 
 const ITEM_COLUMNS: &str = "id, source, origin, title, channel, url, site, duration_ms, engine,
     model, language, status, error, substr(text, 1, 400), summary IS NOT NULL,
-    created_at, updated_at, finished_at";
+    created_at, updated_at, finished_at, warning";
+
+/// Nombre de colonnes de [`ITEM_COLUMNS`] (celles du détail suivent).
+const ITEM_COUNT: usize = 19;
 
 fn item(row: &Row) -> rusqlite::Result<RawItem> {
     Ok(RawItem {
@@ -250,6 +268,7 @@ fn item(row: &Row) -> rusqlite::Result<RawItem> {
         created_at: row.get(15)?,
         updated_at: row.get(16)?,
         finished_at: row.get(17)?,
+        warning: row.get(18)?,
     })
 }
 
@@ -272,6 +291,7 @@ struct RawItem {
     created_at: i64,
     updated_at: i64,
     finished_at: Option<i64>,
+    warning: Option<String>,
 }
 
 impl RawItem {
@@ -283,6 +303,15 @@ impl RawItem {
                 TranscriptionErrorCode::parse(code)
                     .map(TranscriptionError::of)
                     .ok_or_else(|| unknown("error", code))
+            })
+            .transpose()?;
+        let warning = self
+            .warning
+            .as_deref()
+            .map(|code| {
+                TranscriptionWarningCode::parse(code)
+                    .map(TranscriptionWarning::of)
+                    .ok_or_else(|| unknown("warning", code))
             })
             .transpose()?;
         // Paragraphes à la suite, sur une ligne.
@@ -302,6 +331,7 @@ impl RawItem {
             language: (!self.language.is_empty()).then_some(self.language),
             state: state_of(&self.status)?,
             error,
+            warning,
             preview,
             has_summary: self.has_summary,
             created_at: self.created_at,
@@ -333,11 +363,11 @@ pub fn get(connection: &Connection, id: &str) -> AppResult<Option<TranscriptionD
             |row| {
                 Ok((
                     item(row)?,
-                    row.get::<_, String>(18)?,
-                    row.get::<_, String>(19)?,
-                    row.get::<_, Option<String>>(20)?,
-                    row.get::<_, String>(21)?,
-                    row.get::<_, Option<i64>>(22)?,
+                    row.get::<_, String>(ITEM_COUNT)?,
+                    row.get::<_, String>(ITEM_COUNT + 1)?,
+                    row.get::<_, Option<String>>(ITEM_COUNT + 2)?,
+                    row.get::<_, String>(ITEM_COUNT + 3)?,
+                    row.get::<_, Option<i64>>(ITEM_COUNT + 4)?,
                 ))
             },
         )
@@ -485,6 +515,31 @@ mod tests {
                 assert_eq!(detail.summary, None);
                 assert!(get(c, "nope")?.is_none());
 
+                // Renommée pendant la récupération : la fiche de yt-dlp, qui
+                // arrive ensuite, ne remet pas le titre de la vidéo.
+                insert(c, &new("0199-3"))?;
+                assert!(rename(c, "0199-3", "Mon cours")?);
+                let info = VideoInfo {
+                    title: Some("Leçon 4".into()),
+                    channel: Some("École".into()),
+                    duration_s: Some(60.0),
+                    webpage_url: "https://example.org/watch?v=3".into(),
+                    site: "example".into(),
+                };
+                set_info(c, "0199-3", &info)?;
+                let renamed = get(c, "0199-3")?.unwrap().item;
+                assert_eq!(renamed.title, "Mon cours");
+                assert_eq!(renamed.channel, "École");
+                assert!(delete(c, "0199-3")?);
+                // Avertissement : enregistré, relu, retiré.
+                assert_eq!(get(c, "0199-1")?.unwrap().item.warning, None);
+                set_warning(c, "0199-1", Some(TranscriptionWarningCode::Partial))?;
+                let warned = get(c, "0199-1")?.unwrap().item.warning.unwrap();
+                assert_eq!(warned.code, TranscriptionWarningCode::Partial);
+                assert!(!warned.message.starts_with("transcription."));
+                set_warning(c, "0199-1", None)?;
+                assert_eq!(list(c)?[1].warning, None);
+
                 assert!(rename(c, "0199-1", "  Nouveau nom  ")?);
                 assert_eq!(get(c, "0199-1")?.unwrap().item.title, "Nouveau nom");
                 assert!(!rename(c, "nope", "x")?);
@@ -578,5 +633,11 @@ mod tests {
             assert_eq!(serialized, serde_json::Value::from(code.as_str()));
         }
         assert_eq!(TranscriptionErrorCode::parse("nope"), None);
+        for code in TranscriptionWarningCode::ALL {
+            assert_eq!(TranscriptionWarningCode::parse(code.as_str()), Some(code));
+            let serialized = serde_json::to_value(code).unwrap();
+            assert_eq!(serialized, serde_json::Value::from(code.as_str()));
+        }
+        assert_eq!(TranscriptionWarningCode::parse("nope"), None);
     }
 }

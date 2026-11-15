@@ -3,4 +3,4 @@
 /**
  * Nature d'un échec (texte : [`SynthesisError::message`]).
  */
-export type SynthesisErrorCode = "modelNotFound" | "engineFailed" | "contextTooSmall" | "empty" | "failed";
+export type SynthesisErrorCode = "modelNotFound" | "engineFailed" | "contextTooSmall" | "empty" | "incomplete" | "failed";

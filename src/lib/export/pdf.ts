@@ -13,8 +13,9 @@
 // Fichiers WOFF (fontkit ne sait pas découper un WOFF2), mis dans le morceau
 // en base64 (`?inline`) : la CSP de la page (connect-src) interdit de les
 // relire par fetch(). Quelques caractères absents des deux (espaces fines,
-// traits d'union insécables...) sont remplacés par leur plus proche voisin
-// (`fontSafe`) ; pour les autres (cyrillique, grec, CJC, emoji...),
+// traits d'union insécables, flèches, comparaisons, puces, coches...) sont
+// remplacés par leur plus proche voisin et les emoji retirés (`fontSafe`) ;
+// pour les autres (cyrillique, grec, CJC...),
 // `missingCharacters` permet de refuser l'export avant de rien produire.
 import pdfMake from "pdfmake/build/pdfmake.js";
 import type {
@@ -140,30 +141,149 @@ const SUBSTITUTES: Record<string, string> = {
   "\u2029": "\n",
   "\u2032": "'",
   "\u2033": '"',
+  "\u2034": "'''",
   "\u203C": "!!",
   "\u2043": "-",
   "\u2047": "??",
   "\u2048": "?!",
   "\u2049": "!?",
+  "\u2E3A": "\u2014",
+  "\u2E3B": "\u2014",
+  "\u22EF": "\u2026",
   // t cédille (anciens encodages du roumain) : t virgule souscrite, la forme
   // correcte, que Figtree a.
-  "\u0162": "\u021A",
-  "\u0163": "\u021B",
+  Ţ: "\u021A",
+  ţ: "\u021B",
+  // Signes fréquents dans les documents d'un modèle (synthèse) : flèches,
+  // comparaisons, puces, coches, guillemets ornés, en équivalents simples.
+  "\u2190": "<-",
+  "\u2192": "->",
+  "\u2194": "<->",
+  "\u2195": "\u2191\u2193",
+  "\u2196": "\u2191",
+  "\u2197": "\u2191",
+  "\u2198": "\u2193",
+  "\u2199": "\u2193",
+  "\u21A6": "->",
+  "\u21A9": "<-",
+  "\u21AA": "->",
+  "\u21D0": "<=",
+  "\u21D2": "=>",
+  "\u21D4": "<=>",
+  "\u27F5": "<-",
+  "\u27F6": "->",
+  "\u27F7": "<->",
+  "\u27F8": "<=",
+  "\u27F9": "=>",
+  "\u27FA": "<=>",
+  "\u2794": "->",
+  "\u279C": "->",
+  "\u279D": "->",
+  "\u279E": "->",
+  "\u27A1": "->",
+  "\u2B05": "<-",
+  "\u2B06": "\u2191",
+  "\u2B07": "\u2193",
+  "\u2264": "<=",
+  "\u2265": ">=",
+  "\u2A7D": "<=",
+  "\u2A7E": ">=",
+  "\u2260": "!=",
+  "\u2248": "~",
+  "\u2243": "~",
+  "\u2245": "~",
+  "\u223C": "~",
+  "\u2261": "=",
+  "\u226A": "<<",
+  "\u226B": ">>",
+  "\u2217": "*",
+  "\u2219": "\u00B7",
+  "\u22C5": "\u00B7",
+  "\u2023": "\u2022",
+  "\u25AA": "\u2022",
+  "\u25AB": "\u2022",
+  "\u25B6": "\u2022",
+  "\u25B7": "\u2022",
+  "\u25B8": "\u2022",
+  "\u25B9": "\u2022",
+  "\u25BA": "\u2022",
+  "\u25BB": "\u2022",
+  "\u25E6": "\u2022",
+  "\u25CF": "\u2022",
+  "\u25CB": "\u2022",
+  "\u25C6": "\u2022",
+  "\u25C7": "\u2022",
+  "\u25A0": "\u2022",
+  "\u25A1": "\u2022",
+  "\u25FB": "\u2022",
+  "\u25FC": "\u2022",
+  "\u2981": "\u2022",
+  "\u2713": "[x]",
+  "\u2714": "[x]",
+  "\u2705": "[x]",
+  "\u2611": "[x]",
+  "\u2610": "[ ]",
+  "\u2717": "\u00D7",
+  "\u2718": "\u00D7",
+  "\u274C": "\u00D7",
+  "\u274E": "\u00D7",
+  "\u2612": "\u00D7",
+  "\u2605": "*",
+  "\u2606": "*",
+  "\u2B50": "*",
+  "\u26A0": "(!)",
+  ℹ: "(i)",
+  "\u2757": "!",
+  "\u2755": "!",
+  "\u2753": "?",
+  "\u2754": "?",
+  "\u275B": "\u2018",
+  "\u275C": "\u2019",
+  "\u275D": "\u201C",
+  "\u275E": "\u201D",
+  "\u27E8": "<",
+  "\u27E9": ">",
+  "\u2153": "1/3",
+  "\u2154": "2/3",
+  "\u2155": "1/5",
+  "\u2159": "1/6",
+  "\u215B": "1/8",
+  "\u2103": "\u00B0C",
+  "\u2109": "\u00B0F",
+  "\u2116": "No",
 };
+
+/** Un des caractères remplacés. */
+const SUBSTITUTED = new RegExp(
+  `[${Object.keys(SUBSTITUTES)
+    .map((c) => `\\u{${(c.codePointAt(0) ?? 0).toString(16)}}`)
+    .join("")}]`,
+  "gu",
+);
+
+/**
+ * Suite d'emoji : pictogrammes (sauf © ® ™, que les polices ont), sélecteurs
+ * de variante, touche « keycap », teintes de peau, drapeaux, étiquettes ;
+ * avec l'espace qui la précède et celle qui la suit.
+ */
+const EMOJI =
+  /( ?)(?:(?![\u00A9\u00AE\u2122])\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|[\uFE00-\uFE0F]|\u20E3|[\u{E0020}-\u{E007F}])+( ?)/gu;
 
 /**
  * Texte écrit avec les glyphes des polices intégrées : espaces Unicode
  * ramenées à l'espace (ou à l'insécable), caractères invisibles (césure
- * conditionnelle, chasse nulle, marques de sens) retirés, quelques signes
- * remplacés par leur équivalent, tabulation en quatre espaces. Le reste est
- * inchangé.
+ * conditionnelle, chasse nulle, marques de sens) retirés, signes courants
+ * remplacés par leur équivalent (flèches, comparaisons, puces, coches,
+ * guillemets ornés...), emoji retirés (une seule espace gardée entre deux
+ * mots), tabulation en quatre espaces. Le reste est inchangé
+ * (`missingCharacters` le vérifie).
  */
 export function fontSafe(text: string): string {
   return text
     .replace(/[\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, "")
-    .replace(
-      /[\u2007\u202F\u2010-\u2012\u2015\u201B\u201F\u2024\u2025\u2027-\u2029\u2032\u2033\u203C\u2043\u2047-\u2049\u0162\u0163]/g,
-      (c) => SUBSTITUTES[c] ?? c,
+    .replace(SUBSTITUTED, (c) => SUBSTITUTES[c] ?? c)
+    .replace(EMOJI, (_match, before: string, after: string, offset: number) =>
+      (before || offset > 0) && after ? " " : "",
     )
     .replace(/[\u2000-\u200A\u205F]/g, " ")
     .replace(/\t/g, "    ");

@@ -811,24 +811,37 @@ async fn a_due_check_shows_the_update_and_ready_installs_it_first() {
     assert_eq!(seen.tools[0].latest.as_deref(), Some("2026.11.02"));
     assert_eq!(seen.tools[0].version.as_deref(), Some(fake::YTDLP_VERSION));
 
-    // Au moment de servir, relevé dû : installée avant le bail.
-    std::fs::write(
-        root.join("yt-dlp/checked.json"),
-        format!(r#"{{"checkedAt":{yesterday},"latest":"2026.10.26"}}"#),
-    )
-    .unwrap();
-    let (tools, _statuses) = tools_for(&root, &github, Platform::Linux);
+    // Parcours réel : la page vient de relever (relevé frais, plus dû),
+    // puis la transcription demande les outils : la version déjà relevée,
+    // plus récente, est installée avant le bail (sans retoucher
+    // `checked.json`).
+    let checked: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("yt-dlp/checked.json")).unwrap())
+            .unwrap();
+    assert!(checked["checkedAt"].as_i64().unwrap() > yesterday);
     let lease = tools.ready().await.unwrap();
     assert_eq!(lease.paths.yt_dlp_version, "2026.11.02");
     drop(lease);
 
+    // Au moment de servir, relevé dû : installée avant le bail.
+    github.publish(fake::Tool::YtDlp, "2026.11.03");
+    std::fs::write(
+        root.join("yt-dlp/checked.json"),
+        format!(r#"{{"checkedAt":{yesterday},"latest":"2026.11.02"}}"#),
+    )
+    .unwrap();
+    let (tools, _statuses) = tools_for(&root, &github, Platform::Linux);
+    let lease = tools.ready().await.unwrap();
+    assert_eq!(lease.paths.yt_dlp_version, "2026.11.03");
+    drop(lease);
+
     // Après une erreur « périmée » : relevé immédiat ; rien de plus récent.
     assert!(!tools.refresh().await.unwrap());
-    github.publish(fake::Tool::YtDlp, "2026.11.03");
+    github.publish(fake::Tool::YtDlp, "2026.11.04");
     assert!(tools.refresh().await.unwrap());
     assert_eq!(
         tools.installed_paths().unwrap().yt_dlp_version,
-        "2026.11.03"
+        "2026.11.04"
     );
 }
 
@@ -962,4 +975,44 @@ async fn tools_contract_latest_releases() {
             assert_eq!(&head[..4], b"PK\x03\x04", "{}", found.asset);
         }
     }
+}
+
+/// Relecture 107 : l'intégrité de Deno repose sur HTTPS seul ; dépôt en
+/// https, toute adresse en http est refusée par le client (et donc toute
+/// redirection, même règle dans reqwest), sans même se connecter.
+#[tokio::test]
+async fn tool_clients_refuse_plain_http_when_the_source_is_https() {
+    let client = release::client("https://github.com/denoland/deno", true).unwrap();
+    let error = client
+        .get("http://127.0.0.1:9/deno.zip")
+        .send()
+        .await
+        .unwrap_err();
+    assert!(error.is_builder(), "{error:?}");
+    // Faux GitHub des essais, en http : permis (échec de connexion seulement).
+    let local = release::client("http://127.0.0.1:9", true).unwrap();
+    let error = local
+        .get("http://127.0.0.1:9/deno.zip")
+        .send()
+        .await
+        .unwrap_err();
+    assert!(!error.is_builder(), "{error:?}");
+
+    // File des téléchargements : https seul quand c'est demandé et que tous
+    // les fichiers sont en https.
+    use crate::dictation::downloads::{ItemFile, https_only};
+    let file = |url: &str| ItemFile {
+        path: "deno.zip".into(),
+        size: 1,
+        sha256: String::new(),
+        local: "deno.zip".into(),
+        url: url.into(),
+    };
+    let secure = [file(
+        "https://github.com/denoland/deno/releases/download/v2.9.8/deno.zip",
+    )];
+    assert!(https_only(true, &secure));
+    assert!(!https_only(false, &secure));
+    assert!(!https_only(true, &[file("http://127.0.0.1:9/deno.zip")]));
+    assert!(!https_only(true, &[]));
 }

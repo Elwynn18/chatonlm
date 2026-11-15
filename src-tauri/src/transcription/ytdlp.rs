@@ -5,15 +5,19 @@
 //! - Adresse vérifiée d'abord ([`check_address`]) : http ou https, avec un
 //!   hôte, sans identifiants ni espace ; jamais un fichier local ni une
 //!   option déguisée (elle passe de toute façon après `--`).
-//! - Outils servis par [`Tools::ready`] (mises à jour dues d'abord) ; leur
-//!   bail est tenu pendant tout le téléchargement.
+//! - Outils servis par [`Tools::ready`] (mises à jour dues, ou déjà
+//!   relevées, installées d'abord) ; leur bail est tenu pendant tout le
+//!   téléchargement.
 //! - Deux temps, mêmes options communes ([`common_args`]) :
 //!   1. métadonnées (`--flat-playlist -J`, rien n'est téléchargé), écrites
 //!      dans `info.json` : fiche ([`FetchProgress::Info`]), refus d'une
 //!      liste de lecture, d'un direct (en cours, à venir ou juste fini) et
 //!      d'une durée au-delà de `max_duration_s` (`TooLong`), avant tout
 //!      téléchargement ;
-//!   2. audio seul (`--load-info-json`, sans nouvelle extraction), sélection
+//!   2. audio seul (`--load-info-json`, sans nouvelle extraction : la fiche
+//!      chargée n'a plus de `webpage_url`, sans quoi yt-dlp réextrairait
+//!      l'adresse après un échec du téléchargement, hors des refus du
+//!      premier temps), sélection
 //!      [`SELECTION`] : Opus en webm (251, 250, 249 sur YouTube), puis m4a
 //!      AAC-LC (140), puis HE-AAC (139), par HTTP direct d'abord. Jamais de
 //!      conversion : `--ffmpeg-location` désigne un dossier vide de l'app,
@@ -28,6 +32,13 @@
 //!   `--cache-dir` et `--no-cookies`, yt-dlp 2026.10.26 et Deno 2.9.8 n'y
 //!   écrivent rien (vérifié par `scripts/record-ytdlp-fixtures.sh`, HOME
 //!   neuf resté vide).
+//! - Bornes ([`FetchLimits`]) tenues par ChatonLM pendant le téléchargement,
+//!   d'après les lignes de progression et, chaque seconde, la taille du
+//!   dossier privé : octets reçus (un flux sans fin, webradio ou direct mal
+//!   annoncé, n'a ni durée ni taille : yt-dlp le téléchargerait sans fin, et
+//!   son `--max-filesize` ne lit que la taille annoncée) et place libre du
+//!   disque (avant le deuxième temps, puis pendant) ; au-delà, arbre de
+//!   processus arrêté, `TooLarge` ou `NoSpace`.
 //! - Tout passe par un dossier privé `<work_dir>/.fetch/` : à la fin
 //!   (réussite, échec, annulation), seul `<work_dir>/audio.<ext>` reste
 //!   (réussite) ; le dossier privé est effacé, `.part` compris.
@@ -132,6 +143,11 @@ pub enum FetchErrorCode {
     Outdated,
     /// Plus longue que la durée permise.
     TooLong,
+    /// Audio plus gros que la borne de ChatonLM, ou sans fin (webradio,
+    /// direct non annoncé comme tel).
+    TooLarge,
+    /// Plus assez de place libre sur le disque des données.
+    NoSpace,
     Cancelled,
     /// Le reste (détail dans le journal).
     Failed,
@@ -170,6 +186,8 @@ pub(crate) const SELECTION: &str = "ba[acodec=opus][protocol^=http]/ba[acodec=mp
 const FETCH_DIR: &str = ".fetch";
 /// Métadonnées du premier temps (dans le dossier privé).
 const INFO_FILE: &str = "info.json";
+/// Métadonnées données au deuxième temps (sans `webpage_url`).
+const LOAD_FILE: &str = "load.json";
 /// Nom (sans extension) de l'audio.
 const AUDIO_STEM: &str = "audio";
 /// Métadonnées plus grandes : refusées (une vraie fiche YouTube fait
@@ -182,6 +200,18 @@ const LINE_LIMIT: usize = 1 << 20;
 /// Longueur d'adresse acceptée.
 const ADDRESS_LIMIT: usize = 4096;
 
+/// Octets reçus au plus : la limite d'un fichier local de la Transcription
+/// (`media_audio::Limits`), au-delà de laquelle le décodage refuserait.
+pub const MAX_BYTES: u64 = super::job::MAX_GIGABYTES << 30;
+/// Octets reçus au plus quand ni la durée ni la taille ne sont annoncées
+/// (flux) : 2 Gio, plus de six heures d'audio à 320 kb/s.
+pub const STREAM_BYTES: u64 = 2 << 30;
+/// Place laissée libre sur le disque des données (l'audio de travail du
+/// décodage, 230 Mo par heure, s'écrit ensuite).
+pub const DISK_RESERVE: u64 = 1 << 30;
+/// Période des relevés de taille et de place pendant un lancement.
+const GUARD_TICK: Duration = Duration::from_secs(1);
+
 /// Délais de l'arrêt (SIGTERM puis SIGKILL ; Windows : arrêt du Job).
 const STOP_GRACE: Duration = Duration::from_secs(2);
 const KILL_WAIT: Duration = Duration::from_secs(5);
@@ -192,9 +222,39 @@ const DRAIN_WAIT: Duration = Duration::from_secs(3);
 /// `PR_SET_PDEATHSIG` suit le fil créateur).
 static SPAWNER: parking_lot::Mutex<Option<Spawner>> = parking_lot::const_mutex(None);
 
+/// Bornes d'une récupération.
+#[derive(Clone, Copy, Debug)]
+pub struct FetchLimits {
+    /// Durée annoncée au-delà de laquelle la vidéo est refusée avant le
+    /// téléchargement (durée inconnue : acceptée, les octets la bornent).
+    pub max_duration_s: Option<f64>,
+    /// Octets reçus au plus (taille annoncée comprise).
+    pub max_bytes: u64,
+    /// Octets reçus au plus sans durée ni taille annoncées.
+    pub stream_bytes: u64,
+    /// Place à laisser libre sur le disque du dossier de travail.
+    pub reserve_bytes: u64,
+    /// Place libre d'un dossier (remplacée dans les essais).
+    pub free_space: fn(&Path) -> Option<u64>,
+}
+
+impl FetchLimits {
+    /// Bornes de l'app, avec `max_duration_s`.
+    pub fn standard(max_duration_s: Option<f64>) -> FetchLimits {
+        FetchLimits {
+            max_duration_s,
+            max_bytes: MAX_BYTES,
+            stream_bytes: STREAM_BYTES,
+            reserve_bytes: DISK_RESERVE,
+            free_space: crate::disk::free_space_for,
+        }
+    }
+}
+
 /// Récupère l'audio de `url` dans `work_dir` (créé s'il manque) : voir
 /// l'en-tête du module. `max_duration_s` : durée au-delà de laquelle la
-/// vidéo est refusée avant le téléchargement (durée inconnue : acceptée).
+/// vidéo est refusée avant le téléchargement (durée inconnue : acceptée) ;
+/// octets et place libre bornés par [`FetchLimits::standard`].
 pub async fn fetch_audio(
     tools: &Tools,
     url: &str,
@@ -203,7 +263,8 @@ pub async fn fetch_audio(
     cancel: watch::Receiver<bool>,
     on_progress: impl Fn(FetchProgress) + Send + Sync,
 ) -> Result<FetchedAudio, FetchError> {
-    fetch_with(tools, url, work_dir, max_duration_s, cancel, &on_progress).await
+    let limits = FetchLimits::standard(max_duration_s);
+    fetch_with(tools, url, work_dir, &limits, cancel, &on_progress).await
 }
 
 /// Phrase claire pour la page, dans la langue du moment.
@@ -223,6 +284,8 @@ pub fn message(code: FetchErrorCode) -> String {
         FetchErrorCode::Network => t!("ytdlp.network"),
         FetchErrorCode::Outdated => t!("ytdlp.outdated"),
         FetchErrorCode::TooLong => t!("ytdlp.tooLong"),
+        FetchErrorCode::TooLarge => t!("ytdlp.tooLarge"),
+        FetchErrorCode::NoSpace => t!("ytdlp.noSpace"),
         FetchErrorCode::Cancelled => t!("ytdlp.cancelled"),
         FetchErrorCode::Failed => t!("ytdlp.failed"),
     }
@@ -263,7 +326,7 @@ pub(crate) async fn fetch_with<P: Provider>(
     provider: &P,
     url: &str,
     work_dir: &Path,
-    max_duration_s: Option<f64>,
+    limits: &FetchLimits,
     mut cancel: watch::Receiver<bool>,
     on_progress: &(impl Fn(FetchProgress) + Send + Sync),
 ) -> Result<FetchedAudio, FetchError> {
@@ -277,7 +340,7 @@ pub(crate) async fn fetch_with<P: Provider>(
             ready = provider.ready() => ready?,
             () = cancelled(&mut cancel) => return Err(FetchError::cancelled()),
         };
-        let result = attempt(&paths, &url, work_dir, max_duration_s, &cancel, on_progress).await;
+        let result = attempt(&paths, &url, work_dir, limits, &cancel, on_progress).await;
         drop(lease);
         match result {
             Err(error) if error.code == FetchErrorCode::Outdated && !retried => {
@@ -300,7 +363,7 @@ async fn attempt(
     paths: &ToolPaths,
     url: &str,
     work_dir: &Path,
-    max_duration_s: Option<f64>,
+    limits: &FetchLimits,
     cancel: &watch::Receiver<bool>,
     on_progress: &(impl Fn(FetchProgress) + Send + Sync),
 ) -> Result<FetchedAudio, FetchError> {
@@ -313,7 +376,7 @@ async fn attempt(
         url,
         work_dir,
         &fetch_dir,
-        max_duration_s,
+        limits,
         cancel,
         on_progress,
     )
@@ -330,11 +393,11 @@ async fn two_steps(
     url: &str,
     work_dir: &Path,
     fetch_dir: &Path,
-    max_duration_s: Option<f64>,
+    limits: &FetchLimits,
     cancel: &watch::Receiver<bool>,
     on_progress: &(impl Fn(FetchProgress) + Send + Sync),
 ) -> Result<FetchedAudio, FetchError> {
-    // 1. Métadonnées.
+    // 1. Métadonnées (fichier borné pendant l'écriture).
     let info_path = fetch_dir.join(INFO_FILE);
     let ended = run(
         paths,
@@ -342,14 +405,25 @@ async fn two_steps(
         fetch_dir,
         Output::File(&info_path),
         cancel.clone(),
-        |_| {},
+        |seen| match seen {
+            Seen::Line(_) => Ok(()),
+            Seen::Tick => match std::fs::metadata(&info_path) {
+                // i18n-ignore : journal.
+                Ok(metadata) if metadata.len() > INFO_LIMIT => Err(FetchError::new(
+                    FetchErrorCode::Failed,
+                    "metadata too large",
+                )),
+                _ => Ok(()),
+            },
+        },
     )
     .await?;
     if !ended.success {
         return Err(failure(&ended));
     }
-    let info = read_info(&info_path, url)?;
-    if let Some(max) = max_duration_s
+    let value = read_info_value(&info_path)?;
+    let info = info_of(&value, url)?;
+    if let Some(max) = limits.max_duration_s
         && info.duration_s.is_some_and(|duration| duration > max)
     {
         return Err(FetchError::new(
@@ -360,20 +434,35 @@ async fn two_steps(
     }
     on_progress(FetchProgress::Info(info.clone()));
 
-    // 2. Audio seul.
+    // 2. Audio seul, d'après une fiche sans `webpage_url` : sur un échec du
+    // téléchargement, yt-dlp n'a plus d'adresse à réextraire
+    // (`download_with_info_file` relancerait sinon une extraction complète,
+    // qui échapperait aux refus ci-dessus).
+    let load_path = fetch_dir.join(LOAD_FILE);
+    write_load_info(&load_path, value)?;
+    let mut guard = Guard::new(limits, fetch_dir, info.duration_s.is_some());
+    guard.check_space(0)?;
     let mut file: Option<String> = None;
     let ended = run(
         paths,
-        download_args(paths, &info_path, fetch_dir),
+        download_args(paths, &load_path, fetch_dir),
         fetch_dir,
         Output::Lines,
         cancel.clone(),
-        |line| match parse_line(line) {
-            Some(Line::Progress { received, total }) => {
-                on_progress(FetchProgress::Downloading { received, total });
-            }
-            Some(Line::File(path)) => file = Some(path),
-            None => {}
+        |seen| match seen {
+            Seen::Line(line) => match parse_line(line) {
+                Some(Line::Progress { received, total }) => {
+                    guard.progress(received, total)?;
+                    on_progress(FetchProgress::Downloading { received, total });
+                    Ok(())
+                }
+                Some(Line::File(path)) => {
+                    file = Some(path);
+                    Ok(())
+                }
+                None => Ok(()),
+            },
+            Seen::Tick => guard.tick(),
         },
     )
     .await?;
@@ -396,6 +485,130 @@ async fn two_steps(
     }
     std::fs::rename(&audio, &dest).map_err(io)?;
     Ok(FetchedAudio { path: dest, info })
+}
+
+/// Fiche donnée au deuxième temps : celle du premier, sans `webpage_url`
+/// (ni `original_url`) : yt-dlp ne s'en sert que pour réextraire après un
+/// échec, et pour les raccourcis Internet (`--write-link`, jamais passé).
+pub(crate) fn write_load_info(path: &Path, mut value: Value) -> Result<(), FetchError> {
+    if let Some(object) = value.as_object_mut() {
+        object.remove("webpage_url");
+        object.remove("original_url");
+    }
+    std::fs::write(path, value.to_string())
+        .map_err(|error| FetchError::new(FetchErrorCode::Failed, error.to_string()))
+}
+
+/// Bornes tenues pendant le deuxième temps (voir [`FetchLimits`]).
+pub(crate) struct Guard<'a> {
+    limits: &'a FetchLimits,
+    dir: &'a Path,
+    /// Durée annoncée par la fiche.
+    known_duration: bool,
+    /// Taille annoncée par la dernière ligne de progression.
+    total: Option<u64>,
+    /// Octets reçus d'après la dernière ligne de progression.
+    received: u64,
+}
+
+impl<'a> Guard<'a> {
+    pub(crate) fn new(limits: &'a FetchLimits, dir: &'a Path, known_duration: bool) -> Self {
+        Guard {
+            limits,
+            dir,
+            known_duration,
+            total: None,
+            received: 0,
+        }
+    }
+
+    /// Plafond des octets : plus bas pour un flux (ni durée ni taille).
+    fn cap(&self) -> u64 {
+        if self.known_duration || self.total.is_some() {
+            self.limits.max_bytes
+        } else {
+            self.limits.stream_bytes.min(self.limits.max_bytes)
+        }
+    }
+
+    fn too_large(&self, bytes: u64) -> Result<(), FetchError> {
+        if bytes > self.cap() {
+            // i18n-ignore : journal.
+            return Err(FetchError::new(
+                FetchErrorCode::TooLarge,
+                format!(
+                    "{bytes} bytes > {} bytes (total announced: {:?})",
+                    self.cap(),
+                    self.total
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Place libre : de quoi finir (`remaining` octets encore attendus) et
+    /// garder la réserve.
+    pub(crate) fn check_space(&self, remaining: u64) -> Result<(), FetchError> {
+        if let Some(free) = (self.limits.free_space)(self.dir) {
+            let needed = remaining.saturating_add(self.limits.reserve_bytes);
+            if free < needed {
+                // i18n-ignore : journal.
+                return Err(FetchError::new(
+                    FetchErrorCode::NoSpace,
+                    format!("{free} bytes free, {needed} bytes needed"),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Ligne de progression : taille annoncée, octets reçus, place libre.
+    pub(crate) fn progress(&mut self, received: u64, total: Option<u64>) -> Result<(), FetchError> {
+        if total.is_some() {
+            self.total = total;
+        }
+        self.received = received;
+        if let Some(total) = self.total {
+            self.too_large(total)?;
+        }
+        self.too_large(received)?;
+        let remaining = self.total.map_or(0, |total| total.saturating_sub(received));
+        self.check_space(remaining)
+    }
+
+    /// Relevé périodique : taille du dossier privé (même sans ligne de
+    /// progression) et place libre.
+    pub(crate) fn tick(&self) -> Result<(), FetchError> {
+        self.too_large(folder_size(self.dir))?;
+        let remaining = self
+            .total
+            .map_or(0, |total| total.saturating_sub(self.received));
+        self.check_space(remaining)
+    }
+}
+
+/// Taille des fichiers sous `dir` (sous-dossiers compris, liens non suivis).
+pub(crate) fn folder_size(dir: &Path) -> u64 {
+    let mut total = 0u64;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
+                stack.push(entry.path());
+            } else if kind.is_file()
+                && let Ok(metadata) = entry.metadata()
+            {
+                total = total.saturating_add(metadata.len());
+            }
+        }
+    }
+    total
 }
 
 /// Vérifie l'adresse donnée ; rend sa forme normalisée.
@@ -548,7 +761,13 @@ pub(crate) fn parse_line(line: &str) -> Option<Line> {
 /// Fiche lue dans les métadonnées : dernière ligne JSON du fichier (rien
 /// d'autre n'y est écrit par yt-dlp ; le double des essais y met une ligne
 /// du lanceur d'essais avant).
+#[cfg(test)]
 pub(crate) fn read_info(path: &Path, url: &str) -> Result<VideoInfo, FetchError> {
+    info_of(&read_info_value(path)?, url)
+}
+
+/// Dernière ligne JSON des métadonnées (voir [`read_info`]).
+fn read_info_value(path: &Path) -> Result<Value, FetchError> {
     let failed = |detail: String| FetchError::new(FetchErrorCode::Failed, detail);
     let size = std::fs::metadata(path)
         .map_err(|error| failed(error.to_string()))?
@@ -567,7 +786,7 @@ pub(crate) fn read_info(path: &Path, url: &str) -> Result<VideoInfo, FetchError>
         .find_map(|line| serde_json::from_str::<Value>(line).ok())
         // i18n-ignore : journal.
         .ok_or_else(|| failed("no metadata from yt-dlp".into()))?;
-    info_of(&value, url)
+    Ok(value)
 }
 
 pub(crate) fn info_of(value: &Value, url: &str) -> Result<VideoInfo, FetchError> {
@@ -670,15 +889,24 @@ enum Output<'a> {
     Lines,
 }
 
+/// Ce que voit la garde d'un lancement.
+enum Seen<'a> {
+    /// Ligne de la sortie standard.
+    Line(&'a str),
+    /// Relevé périodique ([`GUARD_TICK`]).
+    Tick,
+}
+
 /// Lance yt-dlp jusqu'à sa fin ; annulation : arbre de processus arrêté,
-/// `Cancelled`.
+/// `Cancelled` ; `guard` (chaque ligne de la sortie standard, chaque
+/// seconde) qui rend une erreur : arbre arrêté, cette erreur.
 async fn run(
     paths: &ToolPaths,
     args: Vec<OsString>,
     fetch_dir: &Path,
     output: Output<'_>,
     mut cancel: watch::Receiver<bool>,
-    mut on_line: impl FnMut(&str),
+    mut guard: impl FnMut(Seen<'_>) -> Result<(), FetchError>,
 ) -> Result<Ended, FetchError> {
     let failed = |error: std::io::Error| FetchError::new(FetchErrorCode::Failed, error.to_string());
     if *cancel.borrow() {
@@ -718,24 +946,35 @@ async fn run(
     let pid = child.id();
     let mut exited = watch_exit(child);
     let mut open = true;
+    let mut ticks = tokio::time::interval(GUARD_TICK);
+    ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let status = loop {
-        tokio::select! {
+        let seen = tokio::select! {
             () = cancelled(&mut cancel) => {
                 terminate(pid, &mut exited, STOP_GRACE, KILL_WAIT).await;
                 return Err(FetchError::cancelled());
             }
             line = lines.recv(), if open => match line {
-                Some(line) => on_line(&line),
-                None => open = false,
+                Some(line) => guard(Seen::Line(&line)),
+                None => {
+                    open = false;
+                    Ok(())
+                }
             },
+            _ = ticks.tick() => guard(Seen::Tick),
             status = &mut exited => break status.ok().flatten(),
+        };
+        if let Err(error) = seen {
+            terminate(pid, &mut exited, STOP_GRACE, KILL_WAIT).await;
+            return Err(error);
         }
     };
     // Lignes encore en route (le tube se ferme avec le dernier processus du
-    // groupe, arrêté par `watch_exit`).
+    // groupe, arrêté par `watch_exit`) : le processus est fini, une borne
+    // dépassée ici n'a plus rien à arrêter mais reste un échec.
     while open {
         match tokio::time::timeout(DRAIN_WAIT, lines.recv()).await {
-            Ok(Some(line)) => on_line(&line),
+            Ok(Some(line)) => guard(Seen::Line(&line))?,
             _ => open = false,
         }
     }

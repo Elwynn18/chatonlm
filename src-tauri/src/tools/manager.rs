@@ -15,7 +15,8 @@
 //! quelques jours.
 //!
 //! Le lot 4 (lancement de yt-dlp) appelle [`Tools::ready`] : mises à jour
-//! dues faites d'abord (attendues, progression vers la page), puis un bail
+//! faites d'abord (relevé dû, ou dernière version déjà relevée plus récente
+//! que celle en service ; attendues, progression vers la page), puis un bail
 //! qui donne les chemins vérifiés ([`ToolPaths`]) et bloque mise à jour et
 //! retrait jusqu'à sa fin.
 
@@ -299,6 +300,8 @@ impl Tools {
                 // Adresses complètes données par la Release.
                 find: Arc::new(|_| None),
                 count_ending_tasks: true,
+                // Intégrité de Deno : HTTPS seul (voir `release`).
+                https_only: true,
                 ..Options::default()
             },
         );
@@ -365,6 +368,29 @@ impl Tools {
                             >= tool.check_period().as_millis() as i64
                             || checked.checked_at > now
                     })
+            })
+            .collect()
+    }
+
+    /// Outils installés, sans opération, dont le dernier relevé annonce une
+    /// version plus récente que celle en service ; aucun pendant un bail ou
+    /// un retrait.
+    fn outdated(&self) -> Vec<ToolId> {
+        let mut state = self.0.state.lock();
+        if state.leases > 0 || state.removing {
+            return Vec::new();
+        }
+        ToolId::ALL
+            .into_iter()
+            .filter(|tool| {
+                let entry = state.tool(*tool);
+                entry.op.is_none()
+                    && match (&entry.installed, &entry.checked) {
+                        (Some(installed), Some(checked)) => {
+                            release::newer(&checked.latest, &installed.tag)
+                        }
+                        _ => false,
+                    }
             })
             .collect()
     }
@@ -757,11 +783,22 @@ impl Tools {
     }
 
     /// Pour une transcription (lot 4) : mises à jour dues relevées et
-    /// installées d'abord (attendues ; un échec garde la version en
-    /// service), puis un bail sur les chemins vérifiés. Outils absents (ou
+    /// installées d'abord, comme une version plus récente déjà relevée
+    /// (attendues ; un échec garde la version en service), puis un bail sur
+    /// les chemins vérifiés. Outils absents (ou
     /// disparus du disque) : erreur, la page propose l'installation.
     pub async fn ready(&self) -> AppResult<ToolsLease> {
-        for tool in self.due() {
+        // Relevé dû, ou relevé récent qui annonce plus récent que la version
+        // en service : la page relève à chaque ouverture du formulaire, sans
+        // installer ; sans le second cas, la mise à jour avant usage ne se
+        // ferait presque jamais.
+        let mut wanted = self.due();
+        for tool in self.outdated() {
+            if !wanted.contains(&tool) {
+                wanted.push(tool);
+            }
+        }
+        for tool in wanted {
             self.start(tool, Mode::Install { quiet: true });
         }
         loop {

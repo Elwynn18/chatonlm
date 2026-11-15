@@ -168,7 +168,8 @@
     "voiceModeActive": "Le mode vocal est actif : terminez-le pour dicter",
     "models": {
       "downloading": "Ce modèle est en cours de téléchargement : annulez d'abord le téléchargement",
-      "stillDownloading": "Ce modèle est encore en cours de téléchargement : réessayez dans un instant"
+      "stillDownloading": "Ce modèle est encore en cours de téléchargement : réessayez dans un instant",
+      "transcribing": "Ce modèle sert à une transcription en cours : attendez qu'elle finisse, ou annulez-la"
     }
   },
   "speechDownloads": {
@@ -650,6 +651,8 @@
     "network": "Le site est injoignable. Vérifiez votre connexion à Internet, puis réessayez.",
     "outdated": "yt-dlp n'arrive pas à lire cette vidéo, même dans sa dernière version. Le site a peut-être changé. Réessayez dans quelques jours.",
     "tooLong": "Cette vidéo est trop longue pour être transcrite.",
+    "tooLarge": "L'audio de cette adresse est trop volumineux, ou sans fin (une webradio ou un direct qui ne se présente pas comme tel) : il ne peut pas être transcrit.",
+    "noSpace": "Il n'y a pas assez de place libre sur le disque pour récupérer cet audio. Libérez de la place, puis réessayez.",
     "cancelled": "Annulé.",
     "failed": "L'audio de cette vidéo n'a pas pu être récupéré. Le détail est dans le journal."
   },
@@ -673,6 +676,7 @@
     "tooLarge": "Ce fichier dépasse {gigabytes} Go, la limite d'une transcription.",
     "fetchFailed": "L'audio de cette vidéo n'a pas pu être récupéré.",
     "noSpeech": "Aucune parole n'a été trouvée dans cet enregistrement.",
+    "partial": "La fin de cet enregistrement n'a pas pu être lue (fichier abîmé, tronqué, ou fait de plusieurs flux enchaînés) : seul le début a été transcrit.",
     "stopped": "La transcription s'est arrêtée sur une erreur. Le détail est dans le journal.",
     "ioFailed": "Impossible d'écrire le fichier audio de travail. Vérifiez la place libre sur le disque.",
     "ioFailedDetail": "Impossible d'écrire le fichier audio de travail : {error}",
@@ -689,6 +693,7 @@
     "connectionLost": "La connexion au modèle a été perdue avant la fin de la synthèse.",
     "contextTooSmall": "Le contexte de ce modèle est trop petit pour synthétiser cette transcription. Choisissez une longueur du contexte plus grande dans Paramètres › Général, ou un autre modèle.",
     "empty": "Le modèle a donné une réponse vide. Réessayez, ou choisissez un autre modèle.",
+    "incomplete": "Le modèle a atteint la longueur maximale de sa réponse avant la fin : la synthèse serait incomplète. Choisissez une longueur du contexte plus grande dans Paramètres › Général, ou un autre modèle.",
     "failed": "La synthèse a échoué : {detail}",
     "timedOut": "le modèle a mis trop de temps à répondre",
     "notSaved": "La synthèse n'a pas pu être enregistrée : {detail}"

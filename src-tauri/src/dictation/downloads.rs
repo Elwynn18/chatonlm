@@ -180,6 +180,9 @@ pub struct Options {
     pub count_ending_tasks: bool,
     /// Contrôle au démarrage de chaque tâche.
     pub before_start: Option<BeforeStart>,
+    /// Fichiers tous en https : adresses et redirections en http refusées
+    /// (outils de la Transcription, dont l'intégrité repose sur HTTPS).
+    pub https_only: bool,
 }
 
 impl Default for Options {
@@ -194,8 +197,15 @@ impl Default for Options {
             verify,
             count_ending_tasks: false,
             before_start: None,
+            https_only: false,
         }
     }
+}
+
+/// `https_only` du client d'une tâche : demandé, et tous ses fichiers en
+/// https (les faux serveurs des essais sont en http).
+pub(crate) fn https_only(wanted: bool, files: &[ItemFile]) -> bool {
+    wanted && !files.is_empty() && files.iter().all(|file| file.url.starts_with("https://"))
 }
 
 /// Adresse imposée par la variable `name` si elle est définie et non vide
@@ -725,6 +735,7 @@ impl Task {
                 http::builder(&url, None)
                     .connect_timeout(Duration::from_secs(15))
                     .read_timeout(self.inner.options.read_timeout)
+                    .https_only(https_only(options.https_only, &files))
                     .build()
                     .map_err(|error| error.to_string())
             }) {

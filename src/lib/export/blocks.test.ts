@@ -44,6 +44,32 @@ describe("parseMarkdown", () => {
     });
   });
 
+  it("keeps only web and mail links: other schemes keep their text, not their address", () => {
+    const [paragraph] = parseMarkdown(
+      "[web](https://a.example/x) [mail](mailto:a@b.example) " +
+        "[local](file:///C:/Windows/System32/calc.exe) " +
+        "[partage](file://serveur.example/partage/doc.docx) " +
+        "[unc](\\\\serveur\\partage) [js](javascript:alert(1)) " +
+        "[relatif](notes.md) <file:///etc/passwd>",
+    );
+    expect(paragraph.type).toBe("paragraph");
+    const links =
+      paragraph.type === "paragraph"
+        ? paragraph.content.filter((piece) => piece.link)
+        : [];
+    expect(links.map((piece) => [piece.text, piece.link])).toEqual([
+      ["web", "https://a.example/x"],
+      ["mail", "mailto:a@b.example"],
+    ]);
+    const text =
+      paragraph.type === "paragraph"
+        ? paragraph.content.map((piece) => piece.text).join("")
+        : "";
+    for (const word of ["local", "partage", "js", "relatif"]) {
+      expect(text).toContain(word);
+    }
+  });
+
   it("decodes entities and escapes, keeps raw HTML as text and line breaks", () => {
     const [paragraph] = parseMarkdown(
       "a \\*b\\* &amp; &#233;t&eacute; <b>x</b>  \nligne",

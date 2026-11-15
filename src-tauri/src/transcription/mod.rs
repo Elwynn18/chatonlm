@@ -26,6 +26,7 @@
 //! chemins remis sont oubliés au rechargement de la page.
 
 pub mod job;
+mod language;
 pub mod paragraphs;
 pub mod segment;
 /// « Synthétiser » : document de lecture tiré d'une transcription (lot 6).
@@ -113,8 +114,9 @@ pub struct TranscriptionRequest {
     #[ts(optional)]
     pub model: Option<String>,
     /// Code de langue, ou « auto » ; absent : celle de la dictée. Parakeet
-    /// détecte toujours seul ; Whisper sans langue la détecte sur le premier
-    /// morceau parlé, puis la garde.
+    /// détecte toujours seul ; Whisper sans langue la détecte à chaque
+    /// morceau, jusqu'à ce que deux morceaux parlés donnent la même langue
+    /// sûre (`language::sure`), gardée ensuite.
     #[ts(optional)]
     pub language: Option<String>,
 }
@@ -243,6 +245,52 @@ impl TranscriptionError {
     }
 }
 
+/// Avertissement d'une transcription finie (texte :
+/// [`TranscriptionWarning::message`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum TranscriptionWarningCode {
+    /// Lecture du fichier arrêtée avant sa fin (abîmé, tronqué, OGG
+    /// enchaîné…) : seul le début est transcrit.
+    Partial,
+}
+
+impl TranscriptionWarningCode {
+    pub const ALL: [Self; 1] = [Self::Partial];
+
+    /// Nom enregistré en base (celui de la sérialisation).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Partial => "partial",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|code| code.as_str() == text)
+    }
+}
+
+/// Avertissement : code, texte dans la langue du moment.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TranscriptionWarning {
+    pub code: TranscriptionWarningCode,
+    pub message: String,
+}
+
+impl TranscriptionWarning {
+    pub fn of(code: TranscriptionWarningCode) -> Self {
+        Self {
+            code,
+            message: match code {
+                TranscriptionWarningCode::Partial => t!("transcription.partial"),
+            },
+        }
+    }
+}
+
 /// Formats lus, pour les messages (noms techniques, non traduits).
 const SUPPORTED_FORMATS: &str = "MP3, M4A/AAC, MP4/MOV, MKV/WebM, OGG/Opus/Vorbis, FLAC, WAV, AIFF";
 
@@ -333,6 +381,10 @@ pub struct TranscriptionJob {
     pub segments: Vec<Segment>,
     pub segments_from: u32,
     pub error: Option<TranscriptionError>,
+    /// Transcription finie, mais incomplète (voir le code).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub warning: Option<TranscriptionWarning>,
 }
 
 impl TranscriptionJob {
@@ -360,6 +412,7 @@ impl TranscriptionJob {
             segments: Vec::new(),
             segments_from: 0,
             error: None,
+            warning: None,
         }
     }
 }
@@ -397,6 +450,10 @@ pub struct TranscriptionItem {
     pub language: Option<String>,
     pub state: TranscriptionState,
     pub error: Option<TranscriptionError>,
+    /// Finie, mais incomplète (voir le code).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub warning: Option<TranscriptionWarning>,
     /// Début du texte (200 caractères au plus).
     pub preview: String,
     pub has_summary: bool,
@@ -625,10 +682,12 @@ pub(crate) struct Shared {
 }
 
 /// Annulation vue par les étapes asynchrones (`watch`) et bloquantes
-/// (drapeau lu entre deux blocs).
+/// (drapeau lu entre deux blocs), avec sa raison : bouton, ou app qui ferme
+/// (« interrompue », comme une app coupée).
 pub(crate) struct Cancel {
     pub flag: Arc<AtomicBool>,
     pub sender: watch::Sender<bool>,
+    closing: AtomicBool,
 }
 
 impl Cancel {
@@ -636,6 +695,7 @@ impl Cancel {
         Self {
             flag: Arc::new(AtomicBool::new(false)),
             sender: watch::channel(false).0,
+            closing: AtomicBool::new(false),
         }
     }
 
@@ -644,8 +704,19 @@ impl Cancel {
         let _ = self.sender.send(true);
     }
 
+    /// Fermeture de l'app : annulation dont la raison est notée d'abord.
+    pub fn close(&self) {
+        self.closing.store(true, Ordering::SeqCst);
+        self.raise();
+    }
+
     pub fn is_raised(&self) -> bool {
         self.flag.load(Ordering::SeqCst)
+    }
+
+    /// Annulée parce que l'app ferme.
+    pub fn is_closing(&self) -> bool {
+        self.closing.load(Ordering::SeqCst)
     }
 }
 
@@ -771,6 +842,13 @@ impl Transcription {
         Ok(id)
     }
 
+    /// Le modèle de transcription `model` sert à la transcription en cours
+    /// (sa suppression est refusée).
+    pub fn uses_model(&self, model: &str) -> bool {
+        let inner = self.shared.inner.lock();
+        inner.running && inner.job.as_ref().is_some_and(|job| job.model == model)
+    }
+
     /// `id` est la transcription en cours.
     pub fn is_running(&self, id: &str) -> bool {
         let inner = self.shared.inner.lock();
@@ -814,18 +892,31 @@ impl Transcription {
         })
     }
 
-    /// Fermeture de l'app : transcription annulée, attendue `limit` au plus
-    /// (audio de travail effacé, état enregistré).
+    /// Fermeture de l'app : transcription arrêtée (« interrompue », ce qui
+    /// est fait gardé), attendue `limit` au plus (audio de travail effacé,
+    /// état enregistré) ; un morceau encore dans le moteur (Whisper sur le
+    /// processeur : des dizaines de secondes) est attendu jusqu'à sa fin,
+    /// [`crate::dictation::engine::PIECE_EXIT_WAIT`] au plus, comme le fait
+    /// `Engine::shutdown` avant de libérer le modèle.
     pub async fn shutdown(&self, limit: Duration) {
         let task = {
             let mut inner = self.shared.inner.lock();
             if let Some(cancel) = &inner.cancel {
-                cancel.raise();
+                cancel.close();
             }
             inner.task.take()
         };
-        if let Some(task) = task {
-            let _ = tokio::time::timeout(limit, task).await;
+        let Some(mut task) = task else {
+            return;
+        };
+        if tokio::time::timeout(limit, &mut task).await.is_ok() {
+            return;
+        }
+        if self.shared.services.engine.piece_running() {
+            let wait = crate::dictation::engine::PIECE_EXIT_WAIT.saturating_sub(limit);
+            if tokio::time::timeout(wait, task).await.is_err() {
+                crate::app_log!("chatonlm: transcription: still running at exit");
+            }
         }
     }
 

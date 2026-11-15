@@ -81,6 +81,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0044_ollama_settings_removed.sql"),
     include_str!("../../migrations/0045_web_search_engine.sql"),
     include_str!("../../migrations/0046_transcriptions.sql"),
+    include_str!("../../migrations/0047_transcription_warning.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.

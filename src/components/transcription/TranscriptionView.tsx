@@ -4,10 +4,14 @@
 // de l'eau (l'état revient au rechargement de la page : `transcription_status`
 // rend tous les passages) ; une fois finie, le texte et ses exports, puis le
 // document de lecture (Synthétiser). Un échec dit sa raison, d'après son code.
+// Finie mais incomplète (fichier lu en partie) : l'avertissement du moteur.
+// Étapes et fin annoncées aux lecteurs d'écran (région « status »). Renommée
+// pendant le travail, elle montre aussitôt son nouveau titre.
 
 import {
   ArrowLeftIcon,
   ArrowTopRightOnSquareIcon,
+  ExclamationTriangleIcon,
   PencilIcon,
   TrashIcon,
 } from "@heroicons/react/20/solid";
@@ -37,8 +41,9 @@ import {
   Paragraphs,
   TranscriptText,
 } from "@/components/transcription/TranscriptText";
-import { useT } from "@/i18n";
+import { type TFunction, useT } from "@/i18n";
 import { languageName } from "@/i18n/format";
+import { AUTO_LANGUAGE } from "@/lib/dictation";
 import {
   errorMessage,
   openExternal,
@@ -58,6 +63,10 @@ export function TranscriptionView({ id }: { id: string }) {
   // Horodatage montré : même choix pour le texte au fil de l'eau et fini.
   const [timestamps, setTimestamps] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  /** Titre donné par « Rename » pendant ce passage sur la page. */
+  const [renamed, setRenamed] = useState<{ id: string; title: string } | null>(
+    null,
+  );
   const job = status.data?.job?.id === id ? status.data.job : null;
   const running = isRunning(job);
   const item = detail.data?.item ?? null;
@@ -80,16 +89,22 @@ export function TranscriptionView({ id }: { id: string }) {
     );
   };
 
-  // Pendant le travail, la fiche de la vidéo arrive par l'état ; ensuite,
-  // le titre enregistré (renommé ou non).
+  // Pendant le travail, la fiche de la vidéo arrive par l'état (sauf
+  // titre donné entre-temps) ; ensuite, le titre enregistré (renommé ou non).
   const title =
-    (running ? job?.title || item?.title : item?.title || job?.title) ||
+    (running
+      ? (renamed?.id === id ? renamed.title : null) || job?.title || item?.title
+      : item?.title || job?.title) ||
     job?.origin ||
     "";
   const segments = detail.data?.segments ?? [];
   // Échec ou annulation vus pendant ce lancement : l'état de la
   // transcription ; sinon celui de l'historique.
   const ended = job && !running && job.stage !== "done" ? job : null;
+  // Finie mais incomplète (fichier lu en partie) : texte du moteur.
+  const warning = running
+    ? undefined
+    : (item?.warning ?? (job?.stage === "done" ? job.warning : undefined));
 
   return (
     <main
@@ -97,6 +112,13 @@ export function TranscriptionView({ id }: { id: string }) {
       className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto dark:bg-neutral-900"
     >
       <div className={READING}>
+        <p
+          role="status"
+          className="sr-only"
+          data-testid="transcription-announce"
+        >
+          {announce(t, job)}
+        </p>
         <Link
           to="/transcription"
           className="inline-flex w-fit items-center gap-1 rounded text-sm text-neutral-600 outline-none hover:text-neutral-900 focus-visible:ring-2 focus-visible:ring-accent-fg dark:text-neutral-300 dark:hover:text-white"
@@ -112,6 +134,7 @@ export function TranscriptionView({ id }: { id: string }) {
             item={item}
             job={job}
             running={running}
+            onRenamed={(next) => setRenamed({ id, title: next })}
             onDeleted={() => void navigate({ to: "/transcription" })}
           />
         )}
@@ -182,6 +205,20 @@ export function TranscriptionView({ id }: { id: string }) {
             </p>
           )}
 
+        {warning && (
+          <p
+            data-testid="transcription-warning"
+            data-code={warning.code}
+            className="flex items-start gap-2 rounded-xl bg-neutral-100 px-3 py-2 text-sm text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
+          >
+            <ExclamationTriangleIcon
+              aria-hidden="true"
+              className="mt-0.5 h-4 w-4 flex-none text-amber-700 dark:text-amber-400"
+            />
+            {warning.message}
+          </p>
+        )}
+
         {!running && item && segments.length > 0 && (
           <>
             <TranscriptText
@@ -207,7 +244,11 @@ export function TranscriptionView({ id }: { id: string }) {
   );
 }
 
-/** Même demande : même source, même modèle, même langue. */
+/**
+ * Même demande : même source, même modèle, même langue. Sans langue (« Detect
+ * automatically », échec avant la détection), « auto » : une demande sans
+ * langue prendrait celle de la dictée.
+ */
 function retryOf(job: TranscriptionJob): TranscriptionRequest {
   return {
     source:
@@ -215,8 +256,31 @@ function retryOf(job: TranscriptionJob): TranscriptionRequest {
         ? { kind: "url", url: job.origin }
         : { kind: "file", path: job.origin },
     ...(job.model ? { model: job.model } : {}),
-    ...(job.language ? { language: job.language } : {}),
+    language: job.language || AUTO_LANGUAGE,
   };
+}
+
+/**
+ * Annonce aux lecteurs d'écran : l'étape en cours (sans les chiffres, qui
+ * changent sans cesse), puis la fin ou l'annulation (un échec l'est déjà
+ * par son alerte).
+ */
+function announce(t: TFunction, job: TranscriptionJob | null): string {
+  switch (job?.stage) {
+    case "preparing":
+      return t("transcription.job.preparing");
+    case "fetching":
+    case "downloading":
+    case "decoding":
+    case "transcribing":
+      return t(`transcription.job.stages.${job.stage}`);
+    case "done":
+      return t("transcription.job.finished");
+    case "cancelled":
+      return t("transcription.job.cancelled");
+    default:
+      return "";
+  }
 }
 
 function Header({
@@ -225,6 +289,7 @@ function Header({
   item,
   job,
   running,
+  onRenamed,
   onDeleted,
 }: {
   id: string;
@@ -232,6 +297,7 @@ function Header({
   item: TranscriptionItem | null;
   job: TranscriptionJob | null;
   running: boolean;
+  onRenamed: (title: string) => void;
   onDeleted: () => void;
 }) {
   const t = useT();
@@ -265,6 +331,7 @@ function Header({
     transcriptionRename(id, next).then(
       () => {
         setEditing(false);
+        onRenamed(next);
         refreshTranscription(client, id);
       },
       (cause: unknown) =>

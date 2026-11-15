@@ -300,6 +300,8 @@ fn every_code_has_a_message() {
         Network,
         Outdated,
         TooLong,
+        TooLarge,
+        NoSpace,
         Cancelled,
         Failed,
     ];
@@ -549,7 +551,8 @@ async fn fetch(
 ) -> (Result<FetchedAudio, FetchError>, Vec<FetchProgress>) {
     let (_sender, cancel) = watch::channel(false);
     let seen = Mutex::new(Vec::new());
-    let result = fetch_with(stub, url, work, max, cancel, &|progress| {
+    let limits = FetchLimits::standard(max);
+    let result = fetch_with(stub, url, work, &limits, cancel, &|progress| {
         seen.lock().unwrap().push(progress);
     })
     .await;
@@ -717,6 +720,254 @@ async fn outdated_tools_are_refreshed_and_retried_once() {
     assert!(fake::files(&work).is_empty(), "{:?}", fake::files(&work));
 }
 
+// --- Bornes de taille et de place (relecture 107) ---
+
+/// Place libre « illimitée » des essais.
+fn plenty(_: &Path) -> Option<u64> {
+    Some(u64::MAX / 2)
+}
+
+/// Bornes d'essai : 8 Mio, 1 Mio pour un flux, réserve de 1 Mio.
+fn small_limits(free_space: fn(&Path) -> Option<u64>) -> FetchLimits {
+    FetchLimits {
+        max_duration_s: Some(6.0 * 3600.0),
+        max_bytes: 8 << 20,
+        stream_bytes: 1 << 20,
+        reserve_bytes: 1 << 20,
+        free_space,
+    }
+}
+
+#[cfg(unix)]
+async fn fetch_limited(
+    stub: &Stub,
+    url: &str,
+    work: &Path,
+    limits: &FetchLimits,
+) -> (Result<FetchedAudio, FetchError>, Vec<FetchProgress>) {
+    let (_sender, cancel) = watch::channel(false);
+    let seen = Mutex::new(Vec::new());
+    let result = tokio::time::timeout(
+        Duration::from_secs(60),
+        fetch_with(stub, url, work, limits, cancel, &|progress| {
+            seen.lock().unwrap().push(progress);
+        }),
+    )
+    .await
+    .expect("borne non tenue : récupération sans fin");
+    (result, seen.into_inner().unwrap())
+}
+
+#[test]
+fn the_loaded_metadata_have_no_address_to_extract_again() {
+    let dir = temp_dir();
+    let path = dir.path().join("load.json");
+    let value = json!({
+        "_type": "video", "id": "x", "title": "T", "duration": 3.5,
+        "webpage_url": "https://video.test/x", "original_url": "https://video.test/x",
+        "formats": [{"format_id": "251", "url": "https://cdn.test/251"}],
+    });
+    write_load_info(&path, value.clone()).unwrap();
+    let written: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(written.get("webpage_url").is_none());
+    assert!(written.get("original_url").is_none());
+    let mut expected = value;
+    let object = expected.as_object_mut().unwrap();
+    object.remove("webpage_url");
+    object.remove("original_url");
+    assert_eq!(written, expected);
+}
+
+#[test]
+fn the_guard_bounds_bytes_and_free_space() {
+    let dir = temp_dir();
+    let limits = small_limits(plenty);
+    // Flux (ni durée ni taille) : 1 Mio ; durée connue : 8 Mio.
+    let mut stream = Guard::new(&limits, dir.path(), false);
+    assert!(stream.progress(1 << 20, None).is_ok());
+    assert_eq!(
+        stream.progress((1 << 20) + 1, None).unwrap_err().code,
+        FetchErrorCode::TooLarge
+    );
+    let mut video = Guard::new(&limits, dir.path(), true);
+    assert!(video.progress(4 << 20, None).is_ok());
+    assert_eq!(
+        video.progress((8 << 20) + 1, None).unwrap_err().code,
+        FetchErrorCode::TooLarge
+    );
+    // Taille annoncée trop grande : refusée dès la première ligne.
+    let mut announced = Guard::new(&limits, dir.path(), false);
+    assert_eq!(
+        announced.progress(1, Some(9 << 20)).unwrap_err().code,
+        FetchErrorCode::TooLarge
+    );
+    // Taille annoncée : le flux n'est plus « sans fin ».
+    let mut sized = Guard::new(&limits, dir.path(), false);
+    assert!(sized.progress(2 << 20, Some(4 << 20)).is_ok());
+    // Relevé du dossier sans ligne de progression.
+    std::fs::create_dir_all(dir.path().join("sub")).unwrap();
+    std::fs::write(
+        dir.path().join("sub/audio.webm.part"),
+        vec![0u8; (1 << 20) + 10],
+    )
+    .unwrap();
+    let quiet = Guard::new(&limits, dir.path(), false);
+    assert_eq!(quiet.tick().unwrap_err().code, FetchErrorCode::TooLarge);
+    assert_eq!(folder_size(dir.path()), (1 << 20) + 10);
+    // Place : réserve, et ce qui reste à recevoir.
+    fn two_mebibytes(_: &Path) -> Option<u64> {
+        Some(2 << 20)
+    }
+    let tight = small_limits(two_mebibytes);
+    let mut guard = Guard::new(&tight, dir.path(), true);
+    assert!(guard.check_space(0).is_ok());
+    assert!(guard.progress(0, Some(512 << 10)).is_ok());
+    assert_eq!(
+        guard.progress(0, Some(2 << 20)).unwrap_err().code,
+        FetchErrorCode::NoSpace
+    );
+    // Place illisible : rien n'est refusé.
+    fn unknown(_: &Path) -> Option<u64> {
+        None
+    }
+    let blind = small_limits(unknown);
+    assert!(
+        Guard::new(&blind, dir.path(), true)
+            .check_space(u64::MAX)
+            .is_ok()
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn endless_streams_and_huge_files_are_stopped() {
+    let dir = temp_dir();
+    let (paths, log) = fake::tools(dir.path(), "tools", None);
+    let limits = small_limits(plenty);
+    for scenario in ["endless", "quiet-endless", "big"] {
+        let before = fake::calls(&log).len();
+        let work = dir.path().join(format!("work-{scenario}"));
+        let stub = Stub::new(vec![paths.clone()], false);
+        let url = format!("https://video.test/{scenario}");
+        let (result, seen) = fetch_limited(&stub, &url, &work, &limits).await;
+        let error = result.unwrap_err();
+        assert_eq!(
+            error.code,
+            FetchErrorCode::TooLarge,
+            "{scenario} : {}",
+            error.detail
+        );
+        assert!(
+            matches!(seen.first(), Some(FetchProgress::Info(_))),
+            "{scenario}"
+        );
+        if scenario == "endless" {
+            // Arrêté par la ligne qui dépasse : un peu plus de 1 Mio.
+            let received = seen
+                .iter()
+                .filter_map(|progress| match progress {
+                    FetchProgress::Downloading { received, .. } => Some(*received),
+                    FetchProgress::Info(_) => None,
+                })
+                .max()
+                .unwrap();
+            assert!(received <= 1 << 20, "{received}");
+        }
+        assert_eq!(fake::calls(&log).len(), before + 2, "{scenario}");
+        assert!(
+            fake::files(&work).is_empty(),
+            "{scenario} : {:?}",
+            fake::files(&work)
+        );
+    }
+    // Message pour la page, dans la langue du moment.
+    assert!(!message(FetchErrorCode::TooLarge).starts_with("ytdlp."));
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_disk_stops_the_download_before_and_during() {
+    use std::sync::atomic::AtomicU64;
+    static FREE: AtomicU64 = AtomicU64::new(0);
+    fn free(_: &Path) -> Option<u64> {
+        Some(FREE.load(Ordering::SeqCst))
+    }
+    let dir = temp_dir();
+    let (paths, log) = fake::tools(dir.path(), "tools", None);
+    let limits = small_limits(free);
+
+    // Avant : sous la réserve, rien n'est téléchargé.
+    FREE.store(512 << 10, Ordering::SeqCst);
+    let work = dir.path().join("w1");
+    let stub = Stub::new(vec![paths.clone()], false);
+    let (result, seen) = fetch_limited(&stub, "https://video.test/slow", &work, &limits).await;
+    assert_eq!(result.unwrap_err().code, FetchErrorCode::NoSpace);
+    assert!(
+        !seen
+            .iter()
+            .any(|progress| matches!(progress, FetchProgress::Downloading { .. }))
+    );
+    assert_eq!(fake::calls(&log).len(), 1);
+    assert!(fake::files(&work).is_empty(), "{:?}", fake::files(&work));
+
+    // Pendant : la place tombe sous la réserve au cours du téléchargement.
+    FREE.store(u64::MAX / 2, Ordering::SeqCst);
+    let work = dir.path().join("w2");
+    let stub = Stub::new(vec![paths.clone()], false);
+    let (_sender, cancel) = watch::channel(false);
+    let on_progress = |progress: FetchProgress| {
+        if matches!(progress, FetchProgress::Downloading { .. }) {
+            FREE.store(0, Ordering::SeqCst);
+        }
+    };
+    let result = tokio::time::timeout(
+        Duration::from_secs(30),
+        fetch_with(
+            &stub,
+            "https://video.test/slow",
+            &work,
+            &limits,
+            cancel,
+            &on_progress,
+        ),
+    )
+    .await
+    .expect("place non relevée pendant le téléchargement");
+    assert_eq!(result.unwrap_err().code, FetchErrorCode::NoSpace);
+    assert!(fake::files(&work).is_empty(), "{:?}", fake::files(&work));
+    assert!(!message(FetchErrorCode::NoSpace).starts_with("ytdlp."));
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_download_never_extracts_the_address_again() {
+    let dir = temp_dir();
+    let (paths, log) = fake::tools(dir.path(), "tools", None);
+    let stub = Stub::new(vec![paths], false);
+    let work = dir.path().join("w");
+    // Le faux réextrait comme le vrai si la fiche chargée a `webpage_url`
+    // (flux sans fin, arrêté par la borne) ; sans elle, l'échec 403 remonte.
+    let (result, _) = fetch_limited(
+        &stub,
+        "https://video.test/reextract",
+        &work,
+        &small_limits(plenty),
+    )
+    .await;
+    let error = result.unwrap_err();
+    assert_eq!(error.code, FetchErrorCode::Outdated, "{}", error.detail);
+    let calls = fake::calls(&log);
+    assert_eq!(calls.len(), 2);
+    let load = calls[1]
+        .iter()
+        .skip_while(|arg| *arg != "--load-info-json")
+        .nth(1)
+        .unwrap();
+    assert!(load.ends_with(LOAD_FILE), "{load}");
+    assert!(fake::files(&work).is_empty(), "{:?}", fake::files(&work));
+}
+
 /// Processus encore vivant (ni fini, ni zombie).
 #[cfg(target_os = "linux")]
 fn alive(pid: u32) -> bool {
@@ -741,11 +992,12 @@ async fn cancelling_stops_yt_dlp_and_deno_and_removes_partial_files() {
             downloading.notify_one();
         }
     };
+    let limits = FetchLimits::standard(None);
     let fetching = fetch_with(
         &stub,
         "https://video.test/slow",
         &work,
-        None,
+        &limits,
         cancel,
         &on_progress,
     );
@@ -818,7 +1070,7 @@ async fn an_already_cancelled_fetch_launches_nothing() {
         &stub,
         "https://video.test/ok",
         &dir.path().join("w"),
-        None,
+        &FetchLimits::standard(None),
         cancel,
         &|_| {},
     )
@@ -874,7 +1126,7 @@ async fn ytdlp_live_youtube_cc_video() {
         &stub,
         "https://www.youtube.com/watch?v=M4gD1WSo5mA",
         &work,
-        Some(3600.0),
+        &FetchLimits::standard(Some(3600.0)),
         cancel,
         &|progress| {
             if let FetchProgress::Info(info) = &progress {

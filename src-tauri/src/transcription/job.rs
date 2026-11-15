@@ -16,7 +16,7 @@ use super::segment::{self, Analyzer, Chunk};
 use super::ytdlp::{FetchErrorCode, FetchProgress};
 use super::{
     Cancel, Prepared, Shared, Source, Stage, TranscriptionError, TranscriptionErrorCode as Code,
-    TranscriptionRequest, TranscriptionState,
+    TranscriptionRequest, TranscriptionState, TranscriptionWarning, TranscriptionWarningCode,
 };
 use crate::dictation::engine::{self, ModelSpec, Request};
 use crate::dictation::languages;
@@ -36,6 +36,11 @@ const WORK_FILE: &str = "audio.f32";
 /// Essais d'effacement du dossier de travail (Windows : antivirus, fichier
 /// encore ouvert un instant).
 const REMOVE_TRIES: usize = 10;
+
+/// Sans détection de parole : fenêtre jugée parlée si son niveau (RMS)
+/// dépasse [`LOUD_DBFS`] (voir [`chunk_has_speech`]).
+const LOUD_WINDOW: usize = 2 * segment::RATE;
+const LOUD_DBFS: f32 = -45.0;
 
 /// Ce que la page a demandé, et les réglages lus pour elle.
 pub struct Plan {
@@ -72,6 +77,8 @@ struct Run {
     recorded: bool,
     /// Audio récupéré hors du dossier de travail (à effacer aussi).
     stray: Option<PathBuf>,
+    /// Transcription incomplète (lecture arrêtée avant la fin du fichier).
+    warning: Option<TranscriptionWarningCode>,
 }
 
 /// Modèle de la transcription : celui demandé s'il est installé ; sinon
@@ -94,19 +101,12 @@ pub fn language_of(requested: Option<&str>, prepared: &Prepared) -> Option<Strin
     (code != languages::AUTO && languages::is_supported(code)).then(|| code.to_owned())
 }
 
-/// Code de langue d'un texte (première langue figée de Whisper), parmi
-/// celles que `proofread::language` reconnaît.
+/// Code de langue d'un texte, seulement si elle est sûre
+/// ([`super::language::sure`]) : langue figée de Whisper, langue de la
+/// synthèse d'une transcription sans langue enregistrée. Dans le doute :
+/// `None` (« auto »).
 pub fn detect_language(text: &str) -> Option<String> {
-    use crate::proofread::language::{Language, detect};
-    let code = match detect(text)? {
-        Language::English => "en",
-        Language::French => "fr",
-        Language::Spanish => "es",
-        Language::German => "de",
-        Language::Italian => "it",
-        Language::Portuguese => "pt",
-    };
-    Some(code.to_owned())
+    super::language::sure(text).map(str::to_owned)
 }
 
 /// Nom lisible d'un codec refusé.
@@ -181,6 +181,7 @@ pub(super) async fn run(shared: Arc<Shared>, store: Store, plan: Plan, cancel: A
         segments: Vec::new(),
         recorded: false,
         stray: None,
+        warning: None,
     };
     let outcome = run.execute(plan).await;
     run.clean_up().await;
@@ -260,7 +261,14 @@ impl Run {
         let _hold = engine.hold();
         engine.preload(spec.clone());
 
-        let analysis = self.decode(&audio).await?;
+        let (analysis, complete) = self.decode(&audio).await?;
+        if !complete {
+            // Seul le début se lit : la transcription le dira à sa fin.
+            self.warning = Some(TranscriptionWarningCode::Partial);
+            self.shared.update(true, |job| {
+                job.warning = Some(TranscriptionWarning::of(TranscriptionWarningCode::Partial));
+            });
+        }
         let duration = analysis.samples as f64 / segment::RATE as f64;
         let id = self.id.clone();
         let duration_ms = (duration * 1000.0).round() as i64;
@@ -284,10 +292,21 @@ impl Run {
         };
         let mut transcribed = 0.0;
         let mut busy = Duration::ZERO;
+        // Whisper sans langue : langue sûre du morceau parlé précédent.
+        let mut previous: Option<String> = None;
         for chunk in chunks {
             self.check_cancel()?;
             let started = Instant::now();
-            let piece = self.transcribe(&engine, &spec, &request, &chunk).await?;
+            let piece = match self.transcribe(&engine, &spec, &request, &chunk).await {
+                // Modèle supprimé entre-temps : le dire, plutôt que l'erreur
+                // brute de son chargement.
+                Err(Stop::Failed(error))
+                    if error.code == Code::Failed && !(prepared.installed)(model) =>
+                {
+                    return Err(TranscriptionError::of(Code::ModelNotInstalled).into());
+                }
+                other => other?,
+            };
             // Passages comptés depuis le début de la partie envoyée.
             let start = chunk.voiced.start as f64 / segment::RATE as f64;
             let sent = (chunk.voiced.end - chunk.voiced.start) as f64 / segment::RATE as f64;
@@ -305,21 +324,28 @@ impl Run {
                         text: timed.text,
                     })
                     .collect();
-                // Whisper sans langue : détectée sur le premier morceau
-                // parlé, puis gardée (sinon il la redétecte à chaque
-                // morceau et peut basculer sur une citation).
+                // Whisper sans langue : figée seulement quand deux morceaux
+                // parlés donnent la même langue sûre, sans autre langue sûre
+                // entre eux (sinon il la
+                // redétecte à chaque morceau et peut basculer sur une
+                // citation ; un générique en anglais au début d'une vidéo
+                // française ne fige rien). Dans le doute, « auto ».
                 if detect
                     && request.language.is_none()
                     && let Some(code) = detect_language(&piece.text)
                 {
-                    request.language = Some(code.clone());
-                    let id = self.id.clone();
-                    let saved = code.clone();
-                    self.store
-                        .call(move |connection| rows::set_language(connection, &id, &saved))
-                        .await
-                        .map_err(|error| failed(&error))?;
-                    self.shared.update(false, |job| job.language = Some(code));
+                    if previous.as_deref() == Some(code.as_str()) {
+                        request.language = Some(code.clone());
+                        let id = self.id.clone();
+                        let saved = code.clone();
+                        self.store
+                            .call(move |connection| rows::set_language(connection, &id, &saved))
+                            .await
+                            .map_err(|error| failed(&error))?;
+                        self.shared.update(false, |job| job.language = Some(code));
+                    } else {
+                        previous = Some(code);
+                    }
                 }
             }
             let fresh = !added.is_empty();
@@ -342,9 +368,18 @@ impl Run {
 
     fn check_cancel(&self) -> Result<(), Stop> {
         if self.cancel.is_raised() {
-            return Err(Stop::Cancelled);
+            return Err(self.stopped());
         }
         Ok(())
+    }
+
+    /// Arrêt demandé : « interrompue » si l'app ferme, sinon annulée.
+    fn stopped(&self) -> Stop {
+        if self.cancel.is_closing() {
+            Stop::Interrupted
+        } else {
+            Stop::Cancelled
+        }
     }
 
     async fn make_work_dir(&self) -> Result<(), Stop> {
@@ -390,7 +425,7 @@ impl Run {
         let fetched = match fetched {
             Ok(fetched) => fetched,
             Err(error) if error.code == FetchErrorCode::Cancelled || self.cancel.is_raised() => {
-                return Err(Stop::Cancelled);
+                return Err(self.stopped());
             }
             Err(error) => {
                 crate::app_log!("chatonlm: transcription: yt-dlp: {}", error.detail);
@@ -409,8 +444,9 @@ impl Run {
         Ok(fetched)
     }
 
-    /// Décode `audio` dans le fichier de travail en relevant la parole.
-    async fn decode(&self, audio: &Path) -> Result<segment::Analysis, Stop> {
+    /// Décode `audio` dans le fichier de travail en relevant la parole ;
+    /// faux si la lecture s'est arrêtée avant la fin du fichier.
+    async fn decode(&self, audio: &Path) -> Result<(segment::Analysis, bool), Stop> {
         self.shared.update(true, |job| {
             job.stage = Stage::Decoding;
             job.done_s = 0.0;
@@ -463,7 +499,7 @@ impl Run {
                             summary.skipped_packets
                         );
                     }
-                    Ok(analysis)
+                    Ok((analysis, summary.complete))
                 }
                 (Err(error), _) => Err(error),
                 (Ok(_), Err(error)) => Err(DecodeError {
@@ -488,7 +524,7 @@ impl Run {
                 );
                 match decode_error(&error) {
                     Some(error) => Err(error.into()),
-                    None => Err(Stop::Cancelled),
+                    None => Err(self.stopped()),
                 }
             }
         }
@@ -511,12 +547,9 @@ impl Run {
         let done = tauri::async_runtime::spawn_blocking(move || {
             let samples = read_samples(&path, &chunk.range)
                 .map_err(|error| t!("transcription.ioFailedDetail", error = error))?;
-            // Sans détection, la parole se juge sur le morceau entier (critère
-            // relatif de la dictée : il faut ses silences) ; seul l'envoi est
-            // rogné.
-            let speech = chunk
-                .speech
-                .unwrap_or_else(|| crate::dictation::audio::has_speech(&samples));
+            // Sans détection, la parole se juge sur le morceau entier ; seul
+            // l'envoi est rogné.
+            let speech = chunk.speech.unwrap_or_else(|| chunk_has_speech(&samples));
             if !speech {
                 return Ok(None);
             }
@@ -530,7 +563,7 @@ impl Run {
         .map_err(|error| failed(&error))?;
         match done {
             Ok(piece) => Ok(piece),
-            Err(error) if error == engine::CANCELLED => Err(Stop::Cancelled),
+            Err(error) if error == engine::CANCELLED => Err(self.stopped()),
             Err(error) if error == engine::CLOSING => Err(Stop::Interrupted),
             Err(error) => Err(TranscriptionError::with_message(Code::Failed, error).into()),
         }
@@ -584,11 +617,13 @@ impl Run {
             let id = self.id.clone();
             let keep = !self.segments.is_empty();
             let code = error.as_ref().map(|error| error.code);
+            let warning = self.warning;
             let saved = self
                 .store
                 .call(move |connection| {
                     if keep {
-                        rows::finish(connection, &id, state, code)
+                        rows::finish(connection, &id, state, code)?;
+                        rows::set_warning(connection, &id, warning)
                     } else {
                         rows::delete(connection, &id).map(|_| ())
                     }
@@ -618,6 +653,19 @@ fn failed(error: &dyn std::fmt::Display) -> TranscriptionError {
         Code::Failed,
         engine::transcription_failed(&error.to_string()),
     )
+}
+
+/// Parole dans un morceau, sans détection (ONNX Runtime absent) : critère
+/// relatif de la dictée (écart entre blocs forts et calmes, il lui faut des
+/// silences), ou une fenêtre de 2 s assez forte : 40 s de parole continue
+/// (podcast compressé, parole sur fond musical) n'ont pas de silence et
+/// seraient sinon sautées.
+pub(crate) fn chunk_has_speech(samples: &[f32]) -> bool {
+    crate::dictation::audio::has_speech(samples)
+        || samples.as_chunks::<LOUD_WINDOW>().0.iter().any(|window| {
+            let energy: f32 = window.iter().map(|sample| sample * sample).sum();
+            20.0 * (energy / window.len() as f32).sqrt().max(1e-5).log10() > LOUD_DBFS
+        })
 }
 
 /// Échantillons `range` du fichier de travail.

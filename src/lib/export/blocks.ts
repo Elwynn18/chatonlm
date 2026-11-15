@@ -5,11 +5,33 @@
 // des deux bibliothèques, chargées à la demande.
 //
 // Gardé : titres (niveaux 4 à 6 rendus au niveau 3), paragraphes, gras,
-// italique, barré, code en ligne, liens, retours à la ligne forcés, blocs de
+// italique, barré, code en ligne, liens (http, https et mailto seulement :
+// un lien file:, de partage réseau ou d'un autre schéma garde son texte et
+// perd son adresse, comme dans l'app), retours à la ligne forcés, blocs de
 // code, listes à puces et numérotées imbriquées (cases à cocher en « [x] »),
 // citations (imbriquées), règles horizontales, tableaux. Le HTML brut est
 // gardé comme texte, une image devient son texte de remplacement.
 import { Lexer, type Token, type Tokens } from "marked";
+
+/**
+ * Adresse gardée dans un export : http(s) ou mailto, telle quelle ; null pour
+ * tout autre schéma (file:, partage réseau \\serveur, javascript:...), une
+ * adresse relative ou illisible. Le document vient d'un modèle qui a lu du
+ * contenu du web : un traitement de texte suivrait ces liens.
+ */
+export function exportLink(href: string | undefined): string | null {
+  if (!href) return null;
+  try {
+    const url = new URL(href);
+    return url.protocol === "http:" ||
+      url.protocol === "https:" ||
+      url.protocol === "mailto:"
+      ? href
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Morceau de texte d'un paragraphe, avec sa mise en forme. */
 export interface Inline {
@@ -106,9 +128,10 @@ export function inlines(
       }
       case "link": {
         const link = token as Tokens.Link;
+        const href = exportLink(link.href);
         for (const piece of inlines(link.tokens, {
           ...marks,
-          link: link.href,
+          ...(href ? { link: href } : {}),
         })) {
           push(piece.text, piece);
         }

@@ -12,7 +12,8 @@ export type TranscriptionRequest = { source: TranscriptionSource,
 model?: string, 
 /**
  * Code de langue, ou « auto » ; absent : celle de la dictée. Parakeet
- * détecte toujours seul ; Whisper sans langue la détecte sur le premier
- * morceau parlé, puis la garde.
+ * détecte toujours seul ; Whisper sans langue la détecte à chaque
+ * morceau, jusqu'à ce que deux morceaux parlés donnent la même langue
+ * sûre (`language::sure`), gardée ensuite.
  */
 language?: string, };

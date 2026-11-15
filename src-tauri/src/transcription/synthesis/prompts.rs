@@ -31,8 +31,8 @@ headings (##) that follow the order of the content, written as clear prose (with
 they help), then a section of key points (a list of the main points, its heading written \
 {lang}), and a short conclusion. Be faithful: use only what the {short} says, add no facts, \
 opinions or examples of your own, and do not mention the transcript, the recording quality \
-or speech recognition. No timestamps. It is a document to read, not slides. Reply with the \
-document only, without code fences.";
+or speech recognition. No timestamps and no emoji. It is a document to read, not slides. Reply \
+with the document only, without code fences.";
 
 /// Langue demandée, pour les consignes (« in French ») ; inconnue : celle
 /// de la transcription.

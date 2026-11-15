@@ -38,7 +38,8 @@
     "twoLanguages": "¿La grabación mezcla dos idiomas? Elige un modelo Whisper: Parakeet conserva un solo idioma por fragmento.",
     "invalidAddress": "Escribe la dirección completa de la página, que empieza por https://.",
     "pickError": "No se pudo elegir el archivo: {message}",
-    "startError": "No se pudo iniciar la transcripción: {message}"
+    "startError": "No se pudo iniciar la transcripción: {message}",
+    "pendingLost": "La transcripción que esperaba las herramientas no empezó porque saliste de la página. Pulsa Transcribir para empezarla."
   },
   "tools": {
     "needed": "Para transcribir un vídeo de la web, ChatonLM usa dos herramientas libres, yt-dlp y Deno, que se descargan una vez ({size}).",
@@ -66,7 +67,8 @@
       "ytdlpLicense": "Licencia de yt-dlp",
       "denoLicense": "Licencia de Deno",
       "accept": "Aceptar y descargar"
-    }
+    },
+    "announceDownloading": "Descargando {name}…"
   },
   "job": {
     "label": "Progreso de la transcripción",
@@ -97,7 +99,8 @@
     "liveText": "Texto transcrito hasta ahora",
     "waiting": "El texto aparece aquí a medida que se transcribe.",
     "by": "de {channel}",
-    "retry": "Reintentar"
+    "retry": "Reintentar",
+    "finished": "La transcripción ha terminado."
   },
   "errors": {
     "codes": {
@@ -186,7 +189,8 @@
       "engineFailed": "El modelo dejó de funcionar",
       "contextTooSmall": "El contexto del modelo es demasiado pequeño",
       "empty": "El modelo no devolvió texto",
-      "failed": "No se pudo redactar el documento"
+      "failed": "No se pudo redactar el documento",
+      "incomplete": "El documento quedó cortado"
     }
   }
 }

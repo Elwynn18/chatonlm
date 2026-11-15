@@ -79,10 +79,14 @@ export function refreshTranscription(client: QueryClient, id: string) {
  * Suit « transcription-status » tant que les pages de l'outil sont
  * montées : passages ajoutés à ceux déjà reçus (état complet relu s'il en
  * manque), historique et transcription relus à chaque changement d'étape
- * (nouvelle ligne au départ, texte enregistré à la fin).
+ * (nouvelle ligne au départ, texte enregistré à la fin). Suit aussi
+ * « tools-status » sur les deux pages : une installation ou une mise à jour
+ * des outils qui finit pendant qu'on lit une transcription n'est pas perdue
+ * pour l'accueil.
  */
 export function useTranscriptionEvents() {
   const client = useQueryClient();
+  useToolsEvents(client);
   useEffect(() => {
     let active = true;
     let stop: (() => void) | null = null;
@@ -116,13 +120,8 @@ export function useTranscriptionEvents() {
   }, [client]);
 }
 
-/**
- * État de yt-dlp et de Deno, relevé discret de leur dernière version à la
- * première lecture (au plus une fois par jour, par le moteur), tenu à jour
- * par « tools-status ».
- */
-export function useToolsStatus() {
-  const client = useQueryClient();
+/** État des outils tenu à jour par « tools-status ». */
+function useToolsEvents(client: QueryClient) {
   useEffect(() => {
     let active = true;
     let stop: (() => void) | null = null;
@@ -141,10 +140,23 @@ export function useToolsStatus() {
       stop?.();
     };
   }, [client]);
+}
+
+/**
+ * État de yt-dlp et de Deno, avec un relevé discret de leur dernière version
+ * (au plus une fois par jour, par le moteur), tenu à jour par
+ * « tools-status » (`useTranscriptionEvents`, monté par le gabarit des pages
+ * de l'outil). Relu à chaque montage : hors de ces pages, plus personne
+ * n'écoute, et l'état gardé en cache pourrait être celui d'une installation
+ * finie depuis. `enabled` faux : rien n'est lu.
+ */
+export function useToolsStatus(enabled = true) {
   return useQuery({
     queryKey: toolsStatusKey,
     queryFn: () => toolsStatus(true),
     staleTime: Infinity,
+    refetchOnMount: "always",
+    enabled,
   });
 }
 

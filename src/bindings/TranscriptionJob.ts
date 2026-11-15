@@ -4,6 +4,7 @@ import type { TranscriptionError } from "./TranscriptionError";
 import type { TranscriptionSegment } from "./TranscriptionSegment";
 import type { TranscriptionSourceKind } from "./TranscriptionSourceKind";
 import type { TranscriptionStage } from "./TranscriptionStage";
+import type { TranscriptionWarning } from "./TranscriptionWarning";
 
 /**
  * Transcription en cours, ou la dernière finie depuis le lancement.
@@ -57,4 +58,8 @@ speed: number | null,
  * page les ajoute si `segments_from` vaut le nombre qu'elle a déjà,
  * sinon relit l'état).
  */
-segments: Array<TranscriptionSegment>, segmentsFrom: number, error: TranscriptionError | null, };
+segments: Array<TranscriptionSegment>, segmentsFrom: number, error: TranscriptionError | null, 
+/**
+ * Transcription finie, mais incomplète (voir le code).
+ */
+warning?: TranscriptionWarning, };

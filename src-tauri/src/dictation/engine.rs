@@ -31,6 +31,12 @@ use crate::i18n::t;
 /// Modèle gardé en mémoire après sa dernière utilisation.
 pub const IDLE: Duration = Duration::from_secs(5 * 60);
 
+/// Attente au plus, à la fermeture de l'app, d'un morceau de transcription
+/// longue encore dans le moteur (Whisper sur le processeur : plusieurs
+/// dizaines de secondes pour 45 s de son ; l'inférence ne s'interrompt
+/// pas). Les fenêtres sont déjà masquées.
+pub const PIECE_EXIT_WAIT: Duration = Duration::from_secs(150);
+
 /// Refus de charger un modèle pendant la fermeture de l'app (jamais montré :
 /// la dictée est déjà abandonnée).
 pub const CLOSING: &str = "ChatonLM is closing";
@@ -255,6 +261,8 @@ struct Shared {
     /// Dictées et séances du mode vocal qui attendent le verrou : une
     /// transcription longue les laisse passer avant son morceau suivant.
     urgent: AtomicUsize,
+    /// Morceaux de transcription longue dans le moteur (verrou tenu).
+    pieces: AtomicUsize,
 }
 
 /// Attente prioritaire du verrou (voir `Shared::urgent`), retirée en sortant.
@@ -293,6 +301,7 @@ impl Engine {
                 generation: AtomicU64::new(0),
                 closed: AtomicBool::new(false),
                 urgent: AtomicUsize::new(0),
+                pieces: AtomicUsize::new(0),
             }),
         }
     }
@@ -383,8 +392,17 @@ impl Engine {
             }
             std::thread::sleep(YIELD);
         };
+        // Compté jusqu'à la sortie (même garde que l'attente prioritaire).
+        self.shared.pieces.fetch_add(1, Ordering::SeqCst);
+        let _piece = Urgent(&self.shared.pieces);
         let loaded = self.shared.ensure(&mut slot, spec)?;
         loaded.recognizer.transcribe_timed(samples, request)
+    }
+
+    /// Un morceau de transcription longue est dans le moteur (chargement ou
+    /// inférence).
+    pub fn piece_running(&self) -> bool {
+        self.shared.pieces.load(Ordering::SeqCst) > 0
     }
 
     /// Dictées et séances qui attendent le verrou (essais).
@@ -428,10 +446,22 @@ impl Engine {
     /// `limit` au plus, puis libère le modèle. Sinon, les destructeurs
     /// statiques de whisper.cpp et de GGML tourneraient à la sortie pendant
     /// que le fil de chargement s'en sert encore (SIGSEGV dans
-    /// `whisper_init_state`). Faux si le délai est dépassé.
+    /// `whisper_init_state`). Un morceau de transcription longue (qui ne
+    /// s'interrompt pas, et après lequel aucun autre ne commence) est attendu
+    /// jusqu'à sa fin, [`PIECE_EXIT_WAIT`] au plus. Faux si le délai est
+    /// dépassé.
     pub fn shutdown(&self, limit: Duration) -> bool {
         self.shared.closed.store(true, Ordering::SeqCst);
-        match self.shared.slot.try_lock_for(limit) {
+        let slot = self.shared.slot.try_lock_for(limit).or_else(|| {
+            if !self.piece_running() {
+                return None;
+            }
+            crate::app_log!("chatonlm: waiting for the transcription piece in progress");
+            self.shared
+                .slot
+                .try_lock_for(PIECE_EXIT_WAIT.saturating_sub(limit))
+        });
+        match slot {
             Some(mut slot) => {
                 *slot = None;
                 true
@@ -882,6 +912,34 @@ mod tests {
                 .unwrap();
         assert!(!released);
         assert!(begun.elapsed() < Duration::from_secs(1));
+    }
+
+    /// Relecture 107 : app fermée pendant un morceau de transcription longue
+    /// (ici son chargement ; Whisper sur le processeur : l'inférence,
+    /// ininterruptible) : la fermeture attend sa fin au-delà de son délai
+    /// ordinaire ([`PIECE_EXIT_WAIT`] au plus), puis libère le modèle ; sans
+    /// morceau, le délai ordinaire tient (essai précédent).
+    #[tokio::test]
+    async fn shutdown_waits_for_a_piece_in_progress() {
+        let (engine, started, finished) = slow_engine(Duration::from_millis(600));
+        let long = engine.clone();
+        let piece = tokio::task::spawn_blocking(move || {
+            long.transcribe_piece(&spec("whisper-tiny"), &[0.0; 4], &Request::default(), &GO)
+        });
+        let probe = started.clone();
+        wait_until(move || probe.load(Ordering::SeqCst) == 1).await;
+        assert!(engine.piece_running());
+        let closing = engine.clone();
+        let released =
+            tokio::task::spawn_blocking(move || closing.shutdown(Duration::from_millis(100)))
+                .await
+                .unwrap();
+        assert!(released);
+        assert_eq!(finished.load(Ordering::SeqCst), 1);
+        assert!(piece.await.unwrap().is_ok());
+        assert!(!engine.piece_running());
+        assert!(engine.loaded().is_none());
+        assert!(PIECE_EXIT_WAIT >= Duration::from_secs(120));
     }
 
     /// Bruit pseudo-aléatoire de `seconds` à -20 dBFS environ.

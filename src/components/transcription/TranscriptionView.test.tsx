@@ -10,6 +10,7 @@
 
 import {
   act,
+  cleanup,
   configure,
   screen,
   waitFor,
@@ -29,6 +30,7 @@ import {
   installedTools,
   PARAKEET,
   segment,
+  WHISPER,
 } from "@/test/transcription";
 
 configure({ asyncUtilTimeout: 5000 });
@@ -316,6 +318,166 @@ describe("Transcription page", () => {
     expect(second.model).toBe(PARAKEET);
   });
 
+  it("tries again with « Detect automatically » when it failed before the detection", async () => {
+    const { fake, simulator } = setup((fake) => {
+      // Langue de la dictée : le français ; la vidéo est demandée en « auto ».
+      fake.options.language = "fr";
+    });
+    renderApp("/transcription");
+    const user = userEvent.setup();
+    await user.type(
+      await screen.findByRole("textbox", { name: "Video address" }),
+      "https://video.test/ok",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Model" }),
+      WHISPER,
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Language" }),
+      "auto",
+    );
+    await user.click(screen.getByRole("button", { name: "Transcribe" }));
+    await screen.findByTestId("transcription-view");
+    // Comme le moteur : « auto » ne donne aucune langue avant la détection.
+    expect(fake.job?.language).toBeNull();
+    await fake.progress({ stage: "fetching" });
+    await fake.finish("failed", {
+      code: "fetch",
+      fetch: "network",
+      message: "Network error.",
+    } as never);
+    const error = await screen.findByTestId("transcription-error");
+    await user.click(within(error).getByRole("button", { name: "Try again" }));
+    await waitFor(() =>
+      expect(simulator.callsTo("transcription_start")).toHaveLength(2),
+    );
+    const [first, second] = simulator
+      .callsTo("transcription_start")
+      .map((args) => args.request as TranscriptionRequest);
+    expect(first.language).toBe("auto");
+    // Sans langue, le moteur aurait pris celle de la dictée (« fr »).
+    expect(second.language).toBe("auto");
+    expect(second.model).toBe(WHISPER);
+  });
+
+  it("shows the progress of the yt-dlp update asked from an error", async () => {
+    const { fake, simulator } = setup();
+    const { user } = await startFromAddress(
+      fake,
+      "https://video.test/outdated",
+    );
+    await fake.progress({ stage: "fetching" });
+    await fake.finish("failed", {
+      code: "fetch",
+      fetch: "outdated",
+      message: "The site changed: update yt-dlp, then try again.",
+    });
+    const error = await screen.findByTestId("transcription-error");
+    const update = within(error).getByRole<HTMLButtonElement>("button", {
+      name: "Update yt-dlp",
+    });
+    const reads = simulator.callsTo("tools_status").length;
+    await user.click(update);
+    expect(simulator.callsTo("tools_update")).toHaveLength(1);
+    // L'état des outils est relu (la commande rend la main au départ)...
+    await waitFor(() =>
+      expect(simulator.callsTo("tools_status").length).toBeGreaterThan(reads),
+    );
+    // ... et la progression, suivie par « tools-status », se voit ici.
+    await fake.toolsEvent({ ready: false }, [
+      {
+        phase: "downloading",
+        completedBytes: 1 * 2 ** 20,
+        totalBytes: 4 * 2 ** 20,
+      },
+    ]);
+    const progress = await within(error).findByTestId(
+      "transcription-tools-progress",
+    );
+    expect(progress.textContent).toContain(
+      "Downloading yt-dlp: 1.0 MB of 4.0 MB",
+    );
+    expect(update.disabled).toBe(true);
+    const ready = installedTools();
+    await fake.toolsEvent(ready, ready.tools);
+    await waitFor(() =>
+      expect(
+        within(error).queryByTestId("transcription-tools-progress"),
+      ).toBeNull(),
+    );
+    expect(update.disabled).toBe(false);
+  });
+
+  it("shows the new title of a transcription renamed while it runs", async () => {
+    const { fake, simulator } = setup((fake) => {
+      fake.picked = "/home/me/talk.mkv";
+    });
+    renderApp("/transcription");
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: "Choose a file…" }),
+    );
+    await screen.findByTestId("transcription-file");
+    await user.click(screen.getByRole("button", { name: "Transcribe" }));
+    await screen.findByTestId("transcription-view");
+    await fake.progress({ stage: "transcribing", durationS: 100, doneS: 10 });
+    expect(screen.getByTestId("transcription-title").textContent).toBe(
+      "talk.mkv",
+    );
+    await user.click(await screen.findByTestId("transcription-rename"));
+    const input = screen.getByTestId("transcription-title-input");
+    await user.clear(input);
+    await user.type(input, "My talk{Enter}");
+    await waitFor(() =>
+      expect(simulator.callsTo("transcription_rename")).toHaveLength(1),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("transcription-title").textContent).toBe(
+        "My talk",
+      ),
+    );
+    // Toujours le nouveau titre pendant le travail, puis à la fin.
+    await fake.progress({ doneS: 50 }, [segment(0, 4, "Hello.")]);
+    expect(screen.getByTestId("transcription-title").textContent).toBe(
+      "My talk",
+    );
+    await fake.finish("done");
+    await waitFor(() =>
+      expect(screen.getByTestId("transcription-text")).toBeTruthy(),
+    );
+    expect(screen.getByTestId("transcription-title").textContent).toBe(
+      "My talk",
+    );
+  });
+
+  it("announces the steps and the end to screen readers", async () => {
+    const { fake } = setup();
+    await startFromAddress(fake);
+    const status = screen.getByTestId("transcription-announce");
+    expect(status.getAttribute("role")).toBe("status");
+    const progress = screen.getByTestId("transcription-progress");
+    // La section de progression ne retient plus la lecture.
+    expect(progress.getAttribute("aria-busy")).toBeNull();
+    await fake.progress({ stage: "fetching", title: "Talk" });
+    await waitFor(() =>
+      expect(status.textContent).toBe("Reading the video page"),
+    );
+    await fake.progress({ stage: "downloading", receivedBytes: 10 });
+    await waitFor(() => expect(status.textContent).toBe("Getting the audio"));
+    await fake.progress({ stage: "transcribing", durationS: 10, doneS: 2 }, [
+      segment(0, 2, "Hello."),
+    ]);
+    await waitFor(() => expect(status.textContent).toBe("Transcribing"));
+    // Les chiffres, qui changent sans cesse, ne sont pas annoncés.
+    await fake.progress({ doneS: 5 });
+    expect(status.textContent).toBe("Transcribing");
+    await fake.finish("done");
+    await waitFor(() =>
+      expect(status.textContent).toBe("The transcription is finished."),
+    );
+  });
+
   it("points to the ModelHub when the model is missing, and keeps a private video's reason", async () => {
     const { fake } = setup();
     const { user } = await startFromAddress(fake, "https://video.test/private");
@@ -497,6 +659,103 @@ describe("Transcription page", () => {
     await waitFor(() => expect(fake.saves).toHaveLength(2));
     expect(fake.saves[1].kind).toBe("docx");
     expect(String.fromCharCode(...fake.saves[1].bytes.slice(0, 2))).toBe("PK");
+  });
+
+  it("says when a finished transcription only read part of the file", async () => {
+    const { fake } = setup((fake) => {
+      fake.picked = "/home/me/cut.ogg";
+    });
+    renderApp("/transcription");
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: "Choose a file…" }),
+    );
+    await screen.findByTestId("transcription-file");
+    await user.click(screen.getByRole("button", { name: "Transcribe" }));
+    await screen.findByTestId("transcription-view");
+    const message =
+      "The end of this recording couldn't be read: only the start was transcribed.";
+    await fake.progress(
+      {
+        stage: "transcribing",
+        durationS: 10,
+        doneS: 4,
+        warning: { code: "partial", message },
+      },
+      [segment(0, 4, "Hello.")],
+    );
+    // Pas pendant le travail.
+    expect(screen.queryByTestId("transcription-warning")).toBeNull();
+    await fake.finish("done");
+    const warning = await screen.findByTestId("transcription-warning");
+    expect(warning.getAttribute("data-code")).toBe("partial");
+    expect(warning.textContent).toBe(message);
+    await screen.findByTestId("transcription-text");
+    expect(screen.getByTestId("transcription-warning").textContent).toBe(
+      message,
+    );
+  });
+
+  it("keeps the warning in the history, after a restart", async () => {
+    const { fake } = setup();
+    const message = "Only the start was transcribed.";
+    const detail = fake.add(
+      { title: "Cut", warning: { code: "partial", message } },
+      [segment(0, 4, "Hello.")],
+    );
+    renderApp(`/transcription/${detail.item.id}`);
+    expect(
+      (await screen.findByTestId("transcription-warning")).textContent,
+    ).toBe(message);
+  });
+
+  it("shows the reasons of the new retrieval failures, with the engine's text", async () => {
+    for (const [fetch, message] of [
+      ["tooLarge", "The audio at this address is too large, or never ends."],
+      ["noSpace", "There isn't enough free space on the disk."],
+    ] as const) {
+      const { fake } = setup();
+      const { app } = await startFromAddress(fake);
+      await fake.progress({ stage: "downloading", receivedBytes: 10 });
+      await fake.finish("failed", { code: "fetch", fetch, message } as never);
+      const error = await screen.findByTestId("transcription-error");
+      expect(error.getAttribute("data-fetch")).toBe(fetch);
+      expect(error.textContent).toContain("The video couldn't be retrieved");
+      expect(error.textContent).toContain(message);
+      expect(
+        within(error).getByRole("button", { name: "Try again" }),
+      ).toBeTruthy();
+      // Pas de mise à jour de yt-dlp proposée pour ces raisons.
+      expect(
+        within(error).queryByRole("button", { name: "Update yt-dlp" }),
+      ).toBeNull();
+      app.queryClient.clear();
+      cleanup();
+    }
+  });
+
+  it("names a reading document cut short", async () => {
+    const { fake } = setup((fake) => {
+      fake.synthesis = {
+        id: "t-1",
+        stage: "error",
+        markdown: "",
+        model: "qwen3:0.6b",
+        error: {
+          code: "incomplete",
+          message: "The model stopped before the end of the document.",
+        },
+      } as FakeTranscription["synthesis"];
+    });
+    openDone(fake);
+    const panel = await screen.findByTestId("transcription-synthesis");
+    const failure = await within(panel).findByTestId(
+      "transcription-synthesis-error",
+    );
+    expect(failure.getAttribute("data-code")).toBe("incomplete");
+    expect(failure.textContent).toBe(
+      "The document was cut shortThe model stopped before the end of the document.",
+    );
   });
 
   it("offers Word when the PDF refuses characters, and shows a synthesis error", async () => {

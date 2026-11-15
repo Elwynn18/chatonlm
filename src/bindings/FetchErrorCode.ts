@@ -3,4 +3,4 @@
 /**
  * Nature d'un échec (phrase pour la page : [`message`]).
  */
-export type FetchErrorCode = "toolsMissing" | "invalidAddress" | "unsupported" | "playlist" | "live" | "private" | "ageRestricted" | "membersOnly" | "unavailable" | "geoBlocked" | "botCheck" | "network" | "outdated" | "tooLong" | "cancelled" | "failed";
+export type FetchErrorCode = "toolsMissing" | "invalidAddress" | "unsupported" | "playlist" | "live" | "private" | "ageRestricted" | "membersOnly" | "unavailable" | "geoBlocked" | "botCheck" | "network" | "outdated" | "tooLong" | "tooLarge" | "noSpace" | "cancelled" | "failed";

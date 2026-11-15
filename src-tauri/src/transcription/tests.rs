@@ -101,6 +101,8 @@ struct Script {
     gate: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
     /// Échec au n-ième morceau.
     fail_at: Mutex<Option<usize>>,
+    /// Le modèle ne se charge plus (fichiers supprimés).
+    unloadable: std::sync::atomic::AtomicBool,
 }
 
 struct Scribe(Arc<Script>);
@@ -308,7 +310,12 @@ fn bench_with(options: Options) -> Bench {
     let script = Arc::new(Script::default());
     let loaded = script.clone();
     let engine = Engine::with_loader(
-        Box::new(move |_: &ModelSpec| Ok(Box::new(Scribe(loaded.clone())) as Box<dyn Recognizer>)),
+        Box::new(move |_: &ModelSpec| {
+            if loaded.unloadable.load(Ordering::SeqCst) {
+                return Err("Couldn't load the speech model: no such file".into());
+            }
+            Ok(Box::new(Scribe(loaded.clone())) as Box<dyn Recognizer>)
+        }),
         IDLE,
     );
     let fetcher = Arc::new(FakeFetcher {
@@ -527,25 +534,45 @@ async fn a_long_file_is_cut_in_pauses_and_silence_is_skipped() {
     assert_eq!(bench.engine.loaded().as_deref(), Some("whisper-base"));
 }
 
-/// Whisper sans langue : détectée sur le premier morceau parlé, puis gardée
-/// (enregistrée) ; Parakeet ne reçoit jamais de langue ; une langue demandée
-/// est passée telle quelle.
+/// Paragraphe français d'une quarantaine de mots (un morceau de 40 s).
+const FRENCH: &str = "Bonjour à tous, aujourd'hui nous allons parler de l'histoire du droit \
+    d'auteur et de la façon dont il a changé au cours du siècle dernier. La première chose à \
+    savoir, c'est que la loi était très différente, et que la plupart des gens n'y pensaient pas.";
+
+/// Paragraphe anglais d'une quarantaine de mots.
+const ENGLISH: &str = "Hello everyone, today we are going to talk about the history of \
+    copyright and how it has changed over the last century. The first thing you need to know is \
+    that the law was very different, and most people did not think about it at all.";
+
+/// Paragraphe danois : ses mots outils (« i », « at », « for », « her »)
+/// faisaient croire à de l'anglais (relecture 107).
+const DANISH: &str = "Jeg har talt med min bror i går, og han siger at vejret i København \
+    ikke er så godt, men at byen stadig er meget smuk. Vi skal tage derhen sammen i næste uge, \
+    for han vil se museet og jeg vil mest gå en tur.";
+
+/// Deux fois la leçon : huit morceaux parlés au moins.
+fn two_lectures() -> Vec<f32> {
+    let (mut samples, _) = lecture();
+    samples.extend(lecture().0);
+    samples
+}
+
+/// Whisper sans langue : figée quand deux morceaux parlés donnent la même
+/// langue sûre, puis gardée (enregistrée) ; Parakeet ne reçoit jamais de
+/// langue ; une langue demandée est passée telle quelle.
 #[tokio::test]
-async fn whisper_keeps_the_language_of_its_first_spoken_chunk() {
+async fn whisper_keeps_a_language_once_two_chunks_agree() {
     let bench = bench();
-    *bench.script.text.lock() = Some(|_| {
-        "Le chat et les enfants sont dans la maison avec nous, mais il ne pleut pas.".into()
-    });
-    let (samples, _) = lecture();
-    let path = bench.file("cours.wav", &samples);
+    *bench.script.text.lock() = Some(|_| FRENCH.into());
+    let path = bench.file("cours.wav", &two_lectures());
     let id = bench.start(file_request(&path)).unwrap();
     let job = bench.finished().await;
     assert_eq!(job.stage, Stage::Done);
     let languages: Vec<Option<String>> = bench.pieces().into_iter().map(|c| c.language).collect();
-    assert_eq!(languages[0], None);
-    assert!(languages.len() > 2);
+    assert!(languages.len() > 3, "{languages:?}");
+    assert_eq!(languages[..2], [None, None]);
     assert!(
-        languages[1..].iter().all(|l| l.as_deref() == Some("fr")),
+        languages[2..].iter().all(|l| l.as_deref() == Some("fr")),
         "{languages:?}"
     );
     assert_eq!(job.language.as_deref(), Some("fr"));
@@ -575,15 +602,55 @@ async fn whisper_keeps_the_language_of_its_first_spoken_chunk() {
     );
 }
 
-#[test]
-fn languages_are_detected_from_text() {
-    assert_eq!(
-        detect_language("The cat and the children are in the house with us.").as_deref(),
-        Some("en")
+/// Relecture 107 : une vidéo danoise (langue que la détection sur le texte
+/// ne sait pas dire) reste en « auto » d'un bout à l'autre, au lieu d'être
+/// figée en anglais ; rien n'est enregistré comme langue.
+#[tokio::test]
+async fn an_unsure_language_is_never_frozen() {
+    let bench = bench();
+    *bench.script.text.lock() = Some(|_| DANISH.into());
+    let path = bench.file("dansk.wav", &two_lectures());
+    let id = bench.start(file_request(&path)).unwrap();
+    let job = bench.finished().await;
+    assert_eq!(job.stage, Stage::Done);
+    let pieces = bench.pieces();
+    assert!(pieces.len() > 4);
+    assert!(
+        pieces.iter().all(|call| call.language.is_none()),
+        "{pieces:?}"
     );
+    assert_eq!(job.language, None);
+    assert_eq!(bench.row(&id).unwrap().item.language, None);
+}
+
+/// Relecture 107 : un générique en anglais au début d'une vidéo française ne
+/// fige pas l'anglais : le français l'est quand deux morceaux s'accordent.
+#[tokio::test]
+async fn an_english_opening_does_not_freeze_english() {
+    let bench = bench();
+    *bench.script.text.lock() = Some(|index| if index == 0 { ENGLISH } else { FRENCH }.into());
+    let path = bench.file("cours.wav", &two_lectures());
+    bench.start(file_request(&path)).unwrap();
+    let job = bench.finished().await;
+    assert_eq!(job.stage, Stage::Done);
+    let languages: Vec<Option<String>> = bench.pieces().into_iter().map(|c| c.language).collect();
+    assert_eq!(languages[..3], [None, None, None], "{languages:?}");
+    assert!(
+        languages[3..].iter().all(|l| l.as_deref() == Some("fr")),
+        "{languages:?}"
+    );
+    assert_eq!(job.language.as_deref(), Some("fr"));
+}
+
+#[test]
+fn languages_are_detected_from_text_only_when_sure() {
+    assert_eq!(detect_language(ENGLISH).as_deref(), Some("en"));
+    assert_eq!(detect_language(FRENCH).as_deref(), Some("fr"));
+    assert_eq!(detect_language(DANISH), None);
+    // Trop court pour être sûr.
     assert_eq!(
-        detect_language("Los niños están en la casa con nosotros y el perro.").as_deref(),
-        Some("es")
+        detect_language("The cat and the children are in the house with us."),
+        None
     );
     assert_eq!(detect_language("ChatonLM"), None);
 }
@@ -693,6 +760,143 @@ async fn the_fetched_audio_is_transcribed_then_deleted() {
         );
         bench.script.calls.lock().clear();
     }
+}
+
+/// Relecture 107 : app fermée pendant un morceau (`shutdown` de la
+/// transcription et du moteur ensemble, comme `stop_work`) : le morceau en
+/// cours finit, même au-delà des délais ordinaires, puis la ligne est
+/// « interrompue » (pas « annulée ») avec ce qui était fait ; le modèle est
+/// libéré.
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_the_app_records_interrupted() {
+    let bench = bench();
+    let (go, gate) = std::sync::mpsc::channel();
+    *bench.script.gate.lock() = Some(gate);
+    let (samples, _) = lecture();
+    let path = bench.file("cours.wav", &samples);
+    let id = bench.start(file_request(&path)).unwrap();
+    for _ in 0..2_000 {
+        if bench.transcription.status().job.unwrap().stage == Stage::Transcribing
+            && bench.engine_busy()
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(bench.engine.piece_running());
+    let engine = bench.engine.clone();
+    let closing = tokio::task::spawn_blocking(move || engine.shutdown(Duration::from_millis(100)));
+    let transcription = bench.transcription.clone();
+    let stopping =
+        tokio::spawn(async move { transcription.shutdown(Duration::from_millis(100)).await });
+    // Le morceau finit après les délais ordinaires des deux arrêts.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    go.send(()).unwrap();
+    stopping.await.unwrap();
+    assert!(closing.await.unwrap(), "model still busy at exit");
+    let job = bench.finished().await;
+    assert_eq!(job.stage, Stage::Cancelled);
+    let row = bench.row(&id).unwrap();
+    assert_eq!(row.item.state, TranscriptionState::Interrupted);
+    assert_eq!(row.segments.len(), 1);
+    assert_eq!(bench.pieces().len(), 1);
+    assert!(bench.work_root_is_empty());
+}
+
+/// Relecture 107 : fichier dont la lecture s'arrête avant la fin annoncée
+/// (WAV tronqué) : transcription finie, mais avec un avertissement, dans
+/// l'état et dans l'historique.
+#[tokio::test]
+async fn a_file_read_only_in_part_is_done_with_a_warning() {
+    let bench = bench();
+    let (samples, _) = lecture();
+    let path = bench.file("coupé.wav", &samples);
+    let bytes = std::fs::read(&path).unwrap();
+    std::fs::write(&path, &bytes[..bytes.len() / 2]).unwrap();
+    let id = bench.start(file_request(&path)).unwrap();
+    let job = bench.finished().await;
+    assert_eq!(job.stage, Stage::Done, "{:?}", job.error);
+    let warning = job.warning.unwrap();
+    assert_eq!(warning.code, TranscriptionWarningCode::Partial);
+    assert!(!warning.message.starts_with("transcription."));
+    let row = bench.row(&id).unwrap().item;
+    assert_eq!(row.state, TranscriptionState::Done);
+    assert_eq!(
+        row.warning.map(|w| w.code),
+        Some(TranscriptionWarningCode::Partial)
+    );
+
+    // Fichier entier : aucun avertissement.
+    let whole = bench.file("entier.wav", &samples);
+    let id = bench.start(file_request(&whole)).unwrap();
+    assert_eq!(bench.finished().await.warning, None);
+    assert_eq!(bench.row(&id).unwrap().item.warning, None);
+}
+
+/// Relecture 107 : modèle supprimé pendant la transcription (fichiers
+/// partis, chargement impossible) : « modèle non installé », pas l'erreur
+/// brute du chargeur ; le modèle en usage est connu (suppression refusée par
+/// la commande).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_deleted_during_the_transcription_is_said_so() {
+    use std::sync::atomic::AtomicBool;
+    static DELETED: AtomicBool = AtomicBool::new(false);
+    let bench = bench();
+    let (go, gate) = std::sync::mpsc::channel();
+    *bench.script.gate.lock() = Some(gate);
+    let (samples, _) = lecture();
+    let path = bench.file("cours.wav", &samples);
+    let mut prepared = bench.prepared(&["whisper-base"]);
+    prepared.installed =
+        Box::new(|model| model.id == "whisper-base" && !DELETED.load(Ordering::SeqCst));
+    let id = bench
+        .transcription
+        .start(bench.store.clone(), prepared, file_request(&path))
+        .unwrap();
+    for _ in 0..2_000 {
+        if bench.engine_busy() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(bench.transcription.uses_model("whisper-base"));
+    assert!(!bench.transcription.uses_model("whisper-tiny"));
+    // Supprimé quand même (ancienne page, autre chemin) : libéré, effacé.
+    DELETED.store(true, Ordering::SeqCst);
+    bench.script.unloadable.store(true, Ordering::SeqCst);
+    let engine = bench.engine.clone();
+    let released = tokio::task::spawn_blocking(move || engine.release_model("whisper-base"));
+    go.send(()).unwrap();
+    released.await.unwrap();
+    let job = bench.finished().await;
+    assert_eq!(job.stage, Stage::Failed);
+    let error = job.error.unwrap();
+    assert_eq!(error.code, TranscriptionErrorCode::ModelNotInstalled);
+    assert_eq!(
+        error.message,
+        message(TranscriptionErrorCode::ModelNotInstalled)
+    );
+    assert_eq!(bench.row(&id).unwrap().segments.len(), 1);
+    assert!(!bench.transcription.uses_model("whisper-base"));
+}
+
+/// Relecture 107 : sans détection de parole, un long passage de parole
+/// continue (aucune pause : podcast compressé) n'est plus jugé muet.
+#[tokio::test]
+async fn continuous_speech_is_heard_without_speech_detection() {
+    let without = bench_with(Options {
+        detector: false,
+        ..Options::default()
+    });
+    let path = without.file("podcast.wav", &speech(90.0));
+    without.start(file_request(&path)).unwrap();
+    let job = without.finished().await;
+    assert_eq!(job.stage, Stage::Done, "{:?}", job.error);
+    let sent: usize = without.pieces().iter().map(|call| call.samples).sum();
+    assert!(sent > 80 * RATE, "{sent}");
+    // Le silence reste muet.
+    assert!(!job::chunk_has_speech(&silence(40.0)));
+    assert!(!job::chunk_has_speech(&vec![0.001; 40 * RATE]));
 }
 
 /// Annulée pendant le téléchargement : rien n'est gardé (ni ligne, ni
