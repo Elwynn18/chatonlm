@@ -1,7 +1,8 @@
 //! Outil Transcription (module `transcription`) : choix du fichier, fiche,
 //! lancement, annulation et état de la transcription en cours (aussi par
 //! l'événement `transcription-status`), historique et textes exportés
-//! (`.txt`, `.md`, `.srt`, enregistrés par la page avec `save_document`).
+//! (`.txt`, `.md`, `.srt`, enregistrés par la page avec `save_document`),
+//! synthèse (« Synthétiser », événement `transcription-synthesis`).
 
 use tauri::{AppHandle, State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
@@ -10,6 +11,7 @@ use crate::error::{AppError, AppResult};
 use crate::i18n::t;
 use crate::store::{Store, transcriptions};
 use crate::transcription::paragraphs::{to_markdown, to_srt, to_text};
+use crate::transcription::synthesis::{SynthesisStatus, Synthesizer};
 use crate::transcription::{
     ExportFormat, Prepared, Transcription, TranscriptionDetail, TranscriptionItem,
     TranscriptionOptions, TranscriptionProbe, TranscriptionRequest, TranscriptionStatus,
@@ -149,16 +151,19 @@ pub async fn transcription_get(
         .ok_or_else(|| AppError::NotFound(t!("transcription.notFound")))
 }
 
-/// Supprime une transcription de l'historique (refusé pour celle en cours).
+/// Supprime une transcription de l'historique (refusé pour celle en cours ;
+/// sa synthèse en cours est annulée).
 #[tauri::command]
 pub async fn transcription_delete(
     store: State<'_, Store>,
     transcription: State<'_, Transcription>,
+    synthesizer: State<'_, Synthesizer>,
     id: String,
 ) -> AppResult<()> {
     if transcription.is_running(&id) {
         return Err(AppError::Invalid(t!("transcription.busy")));
     }
+    synthesizer.cancel(&id);
     let deleted = store
         .call(move |connection| transcriptions::delete(connection, &id))
         .await?;
@@ -204,4 +209,42 @@ pub async fn transcription_export(
         ExportFormat::Md => to_markdown(&detail.item.title, &detail.segments, timestamps),
         ExportFormat::Srt => to_srt(&detail.segments),
     })
+}
+
+/// Lance la synthèse (« Synthétiser ») de la transcription `id` avec `model`
+/// (absent : « Auto »). Refusée si une synthèse tourne déjà, si la
+/// transcription n'existe pas, est en cours ou n'a pas de texte, ou si aucun
+/// modèle n'est disponible ; la suite arrive par l'événement
+/// `transcription-synthesis`.
+#[tauri::command]
+pub async fn transcription_synthesize(
+    access: State<'_, crate::llm::Access>,
+    transcription: State<'_, Transcription>,
+    synthesizer: State<'_, Synthesizer>,
+    id: String,
+    model: Option<String>,
+) -> AppResult<()> {
+    if transcription.is_running(&id) {
+        return Err(AppError::Invalid(t!("synthesis.transcribing")));
+    }
+    synthesizer.start(&access, id, model).await
+}
+
+/// Annule la synthèse de la transcription `id` (sans effet si elle ne
+/// tourne pas).
+#[tauri::command]
+pub async fn transcription_synthesis_cancel(
+    synthesizer: State<'_, Synthesizer>,
+    id: String,
+) -> AppResult<()> {
+    synthesizer.cancel(&id);
+    Ok(())
+}
+
+/// Synthèse en cours, ou la dernière depuis le lancement (document entier).
+#[tauri::command]
+pub async fn transcription_synthesis_status(
+    synthesizer: State<'_, Synthesizer>,
+) -> AppResult<Option<SynthesisStatus>> {
+    Ok(synthesizer.status())
 }

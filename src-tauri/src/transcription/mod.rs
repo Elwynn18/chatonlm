@@ -28,6 +28,8 @@
 pub mod job;
 pub mod paragraphs;
 pub mod segment;
+/// « Synthétiser » : document de lecture tiré d'une transcription (lot 6).
+pub mod synthesis;
 #[cfg(test)]
 mod tests;
 pub mod ytdlp;

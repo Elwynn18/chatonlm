@@ -18,6 +18,8 @@ pub mod l5a;
 pub mod l7;
 pub mod l8;
 pub mod l9;
+/// Synthèse d'une transcription (outil Transcription).
+pub mod synthesis;
 
 use std::time::Duration;
 
@@ -134,6 +136,7 @@ pub static ALL: &[&[Custom]] = &[
     e::ui::SCENARIOS,
     e::voice::SCENARIOS,
     e::vscode::SCENARIOS,
+    synthesis::SCENARIOS,
 ];
 
 /// Scénario d'un lot d'après l'alias puis le nom du fichier (sans la
@@ -161,6 +164,7 @@ fn all() -> &'static [&'static [Custom]] {
         e::ui::SCENARIOS,
         e::voice::SCENARIOS,
         e::vscode::SCENARIOS,
+        synthesis::SCENARIOS,
         tests::LOT,
     ];
     WITH_TESTS

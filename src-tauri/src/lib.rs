@@ -226,6 +226,12 @@ pub fn run() {
             ));
             transcriber.recover(store.as_ref());
             app.manage(transcriber);
+            // « Synthétiser » une transcription : état vers la page
+            // (`transcription-synthesis`).
+            let handle = app.handle().clone();
+            app.manage(transcription::synthesis::Synthesizer::new(move |status| {
+                let _ = handle.emit(transcription::synthesis::EVENT, status);
+            }));
             // Catalogue du ModelHub : cache disque sous le dossier des données.
             app.manage(hub::state::Catalog::new(data_dir.join("modelhub")));
             // Modèles d'images : file des téléchargements (liste complète vers
@@ -509,6 +515,9 @@ pub fn run() {
             commands::transcription::transcription_rename,
             commands::transcription::transcription_start,
             commands::transcription::transcription_status,
+            commands::transcription::transcription_synthesis_cancel,
+            commands::transcription::transcription_synthesis_status,
+            commands::transcription::transcription_synthesize,
             commands::tts::read_aloud,
             commands::tts::read_aloud_state,
             commands::tts::read_aloud_stop,
@@ -749,12 +758,21 @@ async fn stop_work(app: &AppHandle) {
             tools.stop_all(EXIT_GRACE).await;
         }
     };
-    // Transcription annulée, audio de travail effacé.
+    // Transcription et synthèse annulées, audio de travail effacé.
     let transcription = app.try_state::<transcription::Transcription>();
+    let synthesizer = app.try_state::<transcription::synthesis::Synthesizer>();
     let transcription = async {
-        if let Some(transcription) = transcription {
-            transcription.shutdown(transcription::SHUTDOWN_WAIT).await;
-        }
+        let transcribing = async {
+            if let Some(transcription) = transcription {
+                transcription.shutdown(transcription::SHUTDOWN_WAIT).await;
+            }
+        };
+        let synthesizing = async {
+            if let Some(synthesizer) = synthesizer {
+                synthesizer.shutdown(transcription::SHUTDOWN_WAIT).await;
+            }
+        };
+        tokio::join!(transcribing, synthesizing);
     };
     let images = app.try_state::<image_gen::ImageGen>();
     let images = async {

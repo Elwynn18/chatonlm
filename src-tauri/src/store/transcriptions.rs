@@ -174,6 +174,24 @@ pub fn finish(
     Ok(())
 }
 
+/// Synthèse (« Synthétiser ») enregistrée, remplace la précédente ; vrai si
+/// la transcription existait.
+pub fn set_summary(
+    connection: &Connection,
+    id: &str,
+    markdown: &str,
+    model: &str,
+) -> AppResult<bool> {
+    let now = now_ms();
+    let changed = connection.execute(
+        "UPDATE transcriptions SET summary = ?2, summary_model = ?3, summary_at = ?4,
+             updated_at = ?4
+         WHERE id = ?1",
+        params![id, markdown, model, now],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Vrai si la transcription existait.
 pub fn delete(connection: &Connection, id: &str) -> AppResult<bool> {
     Ok(connection.execute("DELETE FROM transcriptions WHERE id = ?1", [id])? > 0)
@@ -480,6 +498,41 @@ mod tests {
                 assert!(delete(c, "0199-2")?);
                 assert!(!delete(c, "0199-2")?);
                 assert_eq!(list(c)?.len(), 1);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    /// Synthèse enregistrée, relue par la liste et le détail, remplacée par
+    /// la suivante ; sans effet sur une transcription inconnue.
+    #[test]
+    fn a_summary_is_recorded_and_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("chatonlm.sqlite")).unwrap();
+        store
+            .blocking(|c| {
+                insert(c, &new("s1"))?;
+                set_segments(c, "s1", &[segment(0.0, "Bonjour.")])?;
+                assert!(set_summary(
+                    c,
+                    "s1",
+                    "# Titre\n\nTexte.",
+                    "a/M-GGUF:Q4_K_M"
+                )?);
+                assert!(list(c)?[0].has_summary);
+                let summary = get(c, "s1")?.unwrap().summary.unwrap();
+                assert_eq!(summary.markdown, "# Titre\n\nTexte.");
+                assert_eq!(summary.model, "a/M-GGUF:Q4_K_M");
+                assert!(summary.at > 0);
+                assert!(set_summary(c, "s1", "# Autre", "b/N-GGUF:Q8_0")?);
+                let summary = get(c, "s1")?.unwrap().summary.unwrap();
+                assert_eq!(
+                    (summary.markdown.as_str(), summary.model.as_str()),
+                    ("# Autre", "b/N-GGUF:Q8_0")
+                );
+                // Le texte et les passages ne bougent pas.
+                assert_eq!(get(c, "s1")?.unwrap().text, "Bonjour.");
+                assert!(!set_summary(c, "nope", "x", "m")?);
                 Ok(())
             })
             .unwrap();

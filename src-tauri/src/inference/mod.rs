@@ -53,10 +53,11 @@ pub use types::{
     ChatRequest, ChatResponse, Content, Effort, FinishReason, Health, InfillRequest, InfillStop,
     Message, Part, ResponseFormat, Role, Think, Timings, ToolCall, Usage,
 };
-// Employés seulement par les essais du module (`/tokenize`, contexte de
-// l'autocomplétion, réponse de `/props`).
-#[cfg(test)]
+// `/tokenize` : aussi pour la synthèse d'une transcription (budget du
+// contexte).
 pub use api::tokenize;
+// Employés seulement par les essais du module (contexte de
+// l'autocomplétion, réponse de `/props`).
 #[cfg(test)]
 pub use types::{InfillChunk, Props};
 
