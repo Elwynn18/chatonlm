@@ -386,9 +386,17 @@ fn arguments_isolate_yt_dlp_and_never_convert() {
     }
     let position = |arg: &str| text.iter().position(|known| known == arg).unwrap();
     assert!(position("--no-js-runtimes") < position("--js-runtimes"));
-    assert_eq!(text[position("--js-runtimes") + 1], "deno:/d/deno dir/deno");
-    assert_eq!(text[position("--ffmpeg-location") + 1], "/d/no-ffmpeg");
-    assert_eq!(text[position("--cache-dir") + 1], "/d/cache");
+    // Chemins attendus par `join` : séparateur « \ » sous Windows.
+    let shown = |path: std::path::PathBuf| path.to_string_lossy().into_owned();
+    assert_eq!(
+        text[position("--js-runtimes") + 1],
+        format!("deno:{}", shown(dir.join("deno dir/deno")))
+    );
+    assert_eq!(
+        text[position("--ffmpeg-location") + 1],
+        shown(dir.join("no-ffmpeg"))
+    );
+    assert_eq!(text[position("--cache-dir") + 1], shown(dir.join("cache")));
     // L'adresse vient après `--` : jamais lue comme une option.
     assert_eq!(&text[text.len() - 2..], ["--", "https://video.test/a"]);
 
