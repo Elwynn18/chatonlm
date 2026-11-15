@@ -240,14 +240,22 @@ describe("ModelPicker", () => {
       screen
         .getAllByRole("option")
         .find((option) => option.dataset.modelId === name)!;
+    // Pastille réduite à sa couleur : le texte est son nom et son infobulle,
+    // jamais écrit dans la ligne (il en chassait le nom du modèle).
     await waitFor(() =>
-      expect(within(row("gemma4")).getByText("Fits your GPU")).toBeTruthy(),
+      expect(
+        within(row("gemma4")).getByRole("img", { name: "Fits your GPU" }),
+      ).toBeTruthy(),
     );
+    expect(within(row("gemma4")).getByTitle("Fits your GPU")).toBeTruthy();
+    expect(within(row("gemma4")).queryByText("Fits your GPU")).toBeNull();
     const size = within(row("gemma4")).getByTitle(
       /^Needs .* of memory to run$/,
     );
     expect(size.textContent).toMatch(/12/);
-    expect(within(row("llama4")).getByText("Too large")).toBeTruthy();
+    expect(
+      within(row("llama4")).getByRole("img", { name: "Too large" }),
+    ).toBeTruthy();
     expect(within(row("qwen3.5")).queryByTitle(/of memory/)).toBeNull();
     expect(row("qwen3.5").querySelector("[data-fit]")).toBeNull();
     // Toujours l'icône « pas téléchargé ».

@@ -19,7 +19,9 @@
  * Hugging Face id shown as a title and a quantization chip (full shown name
  * as tooltip); the button has a maximum width; ids compared like the engine
  * (src/lib/models.ts); a recommended model not yet downloaded shows the
- * memory it needs and whether it fits this machine (ModelHub's pill); the
+ * memory it needs and whether it fits this machine (ModelHub's pill, reduced
+ * to its colour, its text as tooltip and accessible name); the menu is wider
+ * (w-80) and a line's name never runs under its size; the
  * button and each line carry their model's id (data-model-id) for the
  * app's tests;
  * the model of an opened chat is restored by the composer (ChatForm), not
@@ -227,7 +229,7 @@ export function ModelPicker({
         </svg>
       </button>
       {isOpen && (
-        <div className="absolute right-0 bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-neutral-100 bg-white text-[15px] text-neutral-800 shadow-xl shadow-black/5 backdrop-blur-lg dark:border-neutral-600/40 dark:bg-neutral-800 dark:text-white dark:ring-black/20">
+        <div className="absolute right-0 bottom-full z-50 mb-2 w-80 overflow-hidden rounded-2xl border border-neutral-100 bg-white text-[15px] text-neutral-800 shadow-xl shadow-black/5 backdrop-blur-lg dark:border-neutral-600/40 dark:bg-neutral-800 dark:text-white dark:ring-black/20">
           <div className="border-b border-neutral-100 px-1 py-2 dark:border-neutral-700">
             <input
               ref={searchInputRef}
@@ -395,7 +397,7 @@ function ModelList({
                   : ""
               }`}
             >
-              <span className="min-w-0 flex-1 text-left">
+              <span className="min-w-0 flex-1 overflow-hidden text-left">
                 <ModelLabel
                   model={entry.model}
                   showPublisher
@@ -461,6 +463,7 @@ function NeedBits({
         {size}
       </span>
       <FitPill
+        compact
         fit={recommendation?.fit ?? null}
         gpu={hardware === null ? null : hardware.gpus.length > 0}
       />

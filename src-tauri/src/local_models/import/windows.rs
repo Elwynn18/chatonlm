@@ -19,6 +19,12 @@ pub fn same_file(_a: &Path, _b: &Path) -> bool {
     false
 }
 
+/// Pas de clonage sous Windows (NTFS n'en a pas ; le clonage de blocs de
+/// ReFS n'est pas pris en charge) : faux, l'appelant copie.
+pub fn clone_file(_source: &Path, _target: &Path) -> bool {
+    false
+}
+
 /// Aucun dossier du système : l'app officielle d'Ollama range ses modèles
 /// chez l'utilisateur.
 #[cfg_attr(test, allow(dead_code))]

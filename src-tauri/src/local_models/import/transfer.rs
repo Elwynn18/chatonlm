@@ -185,8 +185,31 @@ fn copy_verified(
     cancel: &AtomicBool,
     done: &AtomicU64,
 ) -> Result<(), TransferError> {
+    copy_verified_with(super::os::clone_file, source, target, sha256, cancel, done)
+}
+
+/// [`copy_verified`], le clonage donné (`clone(source, partiel)` : vrai si
+/// le système a cloné le fichier). Un clone (btrfs, XFS : blocs partagés en
+/// copie sur écriture) ne prend aucune place et laisse la source intacte ; il
+/// est relu pour être vérifié comme une copie, et compté dans la progression.
+/// Sinon, copie octet par octet.
+pub(super) fn copy_verified_with(
+    clone: impl Fn(&Path, &Path) -> bool,
+    source: &Path,
+    target: &Path,
+    sha256: &str,
+    cancel: &AtomicBool,
+    done: &AtomicU64,
+) -> Result<(), TransferError> {
     let partial = partial_path(target);
     let result = (|| {
+        if clone(source, &partial) {
+            let sum = hash_counted(&partial, cancel, Some(done))?;
+            if !sha256.is_empty() && sum != sha256 {
+                return Err(TransferError::Checksum(source.into()));
+            }
+            return fs::rename(&partial, target).map_err(|e| TransferError::Io(target.into(), e));
+        }
         let mut reader = File::open(source).map_err(|e| TransferError::Io(source.into(), e))?;
         let mut writer = File::create(&partial).map_err(|e| TransferError::Io(target.into(), e))?;
         let mut hasher = Sha256::new();
@@ -224,6 +247,15 @@ fn copy_verified(
 
 /// SHA-256 du fichier `path` (hexadécimal, minuscules).
 pub fn hash_file(path: &Path, cancel: &AtomicBool) -> Result<String, TransferError> {
+    hash_counted(path, cancel, None)
+}
+
+/// [`hash_file`], les octets lus ajoutés à `done` s'il est donné.
+fn hash_counted(
+    path: &Path,
+    cancel: &AtomicBool,
+    done: Option<&AtomicU64>,
+) -> Result<String, TransferError> {
     let mut reader = File::open(path).map_err(|e| TransferError::Io(path.into(), e))?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; BUFFER];
@@ -233,7 +265,12 @@ pub fn hash_file(path: &Path, cancel: &AtomicBool) -> Result<String, TransferErr
         }
         match reader.read(&mut buffer) {
             Ok(0) => break,
-            Ok(read) => hasher.update(&buffer[..read]),
+            Ok(read) => {
+                hasher.update(&buffer[..read]);
+                if let Some(done) = done {
+                    done.fetch_add(read as u64, Ordering::Relaxed);
+                }
+            }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(TransferError::Io(path.into(), error)),
         }
@@ -324,6 +361,55 @@ mod tests {
         assert!(undo(&[placed], &dir.path().join("dst")));
         assert_eq!(fs::read(&step.source).unwrap(), b"weights");
         assert!(!dir.path().join("dst").join("a").exists());
+    }
+
+    /// Clone accepté par le système : relu et vérifié (empreinte, octets
+    /// comptés), mis en place sans fichier partiel ; un clone au contenu
+    /// faux est refusé et retiré.
+    #[test]
+    fn a_clone_is_checked_like_a_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let step = step(dir.path(), "w", b"weights", Mode::Copy);
+        fs::create_dir_all(step.target.parent().unwrap()).unwrap();
+        let cloned = |from: &Path, to: &Path| fs::copy(from, to).is_ok();
+        let done = AtomicU64::new(0);
+        let cancel = AtomicBool::new(false);
+        copy_verified_with(
+            cloned,
+            &step.source,
+            &step.target,
+            &step.sha256,
+            &cancel,
+            &done,
+        )
+        .unwrap();
+        assert_eq!(fs::read(&step.target).unwrap(), b"weights");
+        assert_eq!(done.load(Ordering::Relaxed), 7);
+        assert!(!partial_path(&step.target).exists());
+
+        let other = dir.path().join("dst").join("b");
+        let wrong = |_: &Path, to: &Path| fs::write(to, b"garbage").is_ok();
+        let error = copy_verified_with(wrong, &step.source, &other, &step.sha256, &cancel, &done)
+            .unwrap_err();
+        assert!(matches!(error, TransferError::Checksum(_)), "{error:?}");
+        assert!(!other.exists());
+        assert!(!partial_path(&other).exists());
+    }
+
+    /// Le vrai clonage : fait (même contenu, source intacte) ou refusé sans
+    /// rien laisser (système de fichiers sans clonage), jamais à moitié.
+    #[test]
+    fn the_system_clone_is_whole_or_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("s");
+        fs::write(&source, b"weights").unwrap();
+        let target = dir.path().join("t");
+        if super::super::os::clone_file(&source, &target) {
+            assert_eq!(fs::read(&target).unwrap(), b"weights");
+        } else {
+            assert!(!target.exists());
+        }
+        assert_eq!(fs::read(&source).unwrap(), b"weights");
     }
 
     #[test]

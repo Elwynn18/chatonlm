@@ -168,13 +168,36 @@ export function FitPill({
   fit,
   gpu,
   title,
+  compact = false,
 }: {
   fit: HubFit | null;
   gpu: boolean | null;
   title?: string;
+  /**
+   * Pastille réduite à sa couleur (liste étroite du sélecteur de modèle) :
+   * le texte devient son nom accessible et son infobulle.
+   */
+  compact?: boolean;
 }) {
   const t = useT();
   if (gpu === null || fit === null) return null;
+  if (compact) {
+    const label = fitLabel(t, fit, gpu);
+    return (
+      <span
+        data-fit={fit}
+        role="img"
+        aria-label={label}
+        title={title ?? label}
+        className={`inline-flex h-4 w-4 flex-none items-center justify-center rounded-full ${FIT_COLORS[fit]}`}
+      >
+        <span
+          aria-hidden="true"
+          className="h-1.5 w-1.5 rounded-full bg-current opacity-80"
+        />
+      </span>
+    );
+  }
   return (
     <span
       data-fit={fit}

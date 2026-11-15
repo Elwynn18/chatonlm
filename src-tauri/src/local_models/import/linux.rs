@@ -28,6 +28,28 @@ pub fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
+/// Clone `source` en `target` (ioctl FICLONE : btrfs, XFS, bcachefs) : un
+/// fichier à part, aux blocs partagés en copie sur écriture, sans place
+/// prise ni changement de la source. Faux si le système ne sait pas (ext4,
+/// autre système de fichiers, autre point de montage) : `target` est alors
+/// retiré et l'appelant copie.
+pub fn clone_file(source: &Path, target: &Path) -> bool {
+    use std::os::fd::AsRawFd;
+    let Ok(from) = std::fs::File::open(source) else {
+        return false;
+    };
+    let Ok(to) = std::fs::File::create(target) else {
+        return false;
+    };
+    // SAFETY : deux descripteurs ouverts, gardés jusqu'à la fin de l'appel.
+    let cloned = unsafe { libc::ioctl(to.as_raw_fd(), libc::FICLONE, from.as_raw_fd()) } == 0;
+    if !cloned {
+        drop(to);
+        let _ = std::fs::remove_file(target);
+    }
+    cloned
+}
+
 /// Dossiers connus de l'Ollama de la machine, hors `OLLAMA_MODELS` et
 /// `~/.ollama/models` (communs aux deux systèmes) : service du script
 /// officiel (`/usr/share/ollama/.ollama/models`) et paquet d'Arch Linux
