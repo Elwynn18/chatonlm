@@ -92,6 +92,13 @@ export const PAGES = {
     en: "local-ai-image-generator/",
     es: "generador-de-imagenes-ia/",
   },
+  // Transcription (0.10), dans l'onglet Outils de l'app : « transcrire une
+  // vidéo en ligne ou un fichier », jamais « télécharger des vidéos ».
+  transcription: {
+    fr: "transcription-audio-video/",
+    en: "audio-video-transcription/",
+    es: "transcripcion-audio-video/",
+  },
   // Extension VS Code (0.9.4) : pas un outil de l'app, son propre gabarit.
   vscode: {
     fr: "extension-vs-code/",
@@ -112,6 +119,7 @@ export const TOOLS = {
   proofread: { vue: "correction" },
   study: { vue: "etude" },
   images: { vue: "images" },
+  transcription: { vue: "transcription" },
 };
 
 /** Chemin d'une page dans une langue. */

@@ -5,7 +5,8 @@
 ChatonLM is a free, open-source app for using large language models on your
 own computer. One window brings together chat, image generation, a model
 browser for Hugging Face, dictation, read aloud and voice conversations,
-proofreading and step-by-step courses. Models run in a built-in engine,
+proofreading, step-by-step courses and the transcription of audio and video.
+Models run in a built-in engine,
 [llama.cpp](https://github.com/ggml-org/llama.cpp), so it works out of the
 box: nothing else to install, no account, no subscription, no telemetry.
 
@@ -69,6 +70,8 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
   the answer aloud and listens again. A global shortcut also reads aloud the
   text selected in any app (press it again to stop). Everything runs on your
   computer.
+- **Tools**: Study, Proofread and Transcription sit together in the Tools tab
+  of the sidebar, one card each.
 - **Proofread**: correct or rephrase a text in the app, or the text selected
   in any app with a global shortcut, which puts the corrected text in its
   place. On "Auto", it uses the largest model already loaded, or else the
@@ -76,6 +79,14 @@ Website: [chatonlm.com](https://chatonlm.com), in English, French and Spanish.
 - **Study**: pick a topic, and your model writes a short course with lessons,
   worked examples and quizzes, from your own documents and the web if you
   want. Like proofreading, it can pick its model on "Auto".
+- **Transcription**: turn an audio or video file, or a video online, into
+  text on your computer, with the speech recognition models of Dictation.
+  Long recordings are transcribed piece by piece, and the text appears as it
+  goes; copy it or save it as .txt, .md or subtitles (.srt). **Summarize**
+  then has a model rewrite it as a document to read, with headings and key
+  points, saved as .md, .docx or .pdf. For a video online, you paste its
+  address, and ChatonLM fetches only the sound, with third-party tools it
+  downloads once you agree (see [Transcription](#transcription)).
 - **Models settings**: keep models loaded for as long as you want, preload the
   chosen model, see loaded models and unload them (all of them when you quit,
   unless you turn it off), follow a graphics memory gauge, and set a system
@@ -125,6 +136,46 @@ written and saved as usual.
   (Parakeet or Whisper) and the voice of your language (English, French or
   Spanish). When one is missing, ChatonLM offers to download it, with its
   size, then starts.
+
+## Transcription
+
+Open **Tools › Transcription**, then choose an audio or video file (or drop it
+on the window), or paste the address of a video online. Pick the speech
+recognition model and the language, or let ChatonLM detect it, and click
+**Transcribe**.
+
+- **On your computer**: the speech is recognized by Parakeet or Whisper, the
+  models of Dictation (ModelHub offers them if none is installed). Parakeet is
+  fast: on a recent computer, an hour of sound takes a few minutes. Whisper is
+  much slower on a processor, about as long as the recording, and ChatonLM
+  says so before it starts; choose it for a language Parakeet doesn't know,
+  or for a recording that mixes two languages.
+- **As it goes**: long recordings are cut at their pauses and transcribed
+  piece by piece; the text appears as it goes, and you can cancel at any time.
+  One transcription runs at a time, and dictation or voice mode can still be
+  used meanwhile.
+- **The text**: copy it, show timestamps, or save it as text (.txt), Markdown
+  (.md) or subtitles (.srt). Transcriptions are kept in a history, where you
+  can rename or delete them.
+- **Summarize**: a language model ("Auto", like Proofread and Study, or the
+  one you choose) rewrites the transcription as a document to read, with a
+  title, sections and key points, in the language of the recording. Save it
+  as Markdown (.md), Word (.docx) or PDF.
+- **Videos online**: ChatonLM uses two free third-party tools,
+  [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense) and
+  [Deno](https://github.com/denoland/deno) (MIT), which it doesn't ship. The
+  first time, it shows their licenses and asks for your agreement, then
+  downloads them from their official GitHub releases and checks them (SHA-256,
+  and the signature of yt-dlp's checksums). Before a transcription, at most
+  once a day, it installs their newer versions; you can also update or remove
+  them on the page. A file needs neither tool.
+- **Only the text is kept**: for an address, yt-dlp fetches only the sound,
+  as a working file deleted once transcribed. There is no button to save a
+  video or its sound.
+- **You provide the address**: only use this feature for content you have the
+  right to copy for your personal use (your own videos, content under a free
+  license, exceptions provided by the law of your country), in accordance with
+  the site's terms.
 
 ## Easy Link
 
@@ -236,8 +287,9 @@ sudo apt install ./chatonlm_*_amd64.deb
   you can also turn on NVIDIA acceleration: ChatonLM then downloads its CUDA 13
   pack, after showing you NVIDIA's license (see
   [Engine and models](#engine-and-models)).
-- **Dictation with Whisper** needs a processor with AVX2 (x86-64-v3). Without
-  it, ChatonLM offers only Parakeet, which works on any x86-64 processor.
+- **Whisper** (dictation and transcription) needs a processor with AVX2
+  (x86-64-v3). Without it, ChatonLM offers only Parakeet, which works on any
+  x86-64 processor.
 - **Global shortcuts** (dictation, proofreading, reading the selection
   aloud). On Windows, you choose the keys in Settings › Keyboard shortcuts
   (Ctrl+Alt+D, Ctrl+Alt+C and Ctrl+Alt+R by default). On Linux, they use the
@@ -315,8 +367,9 @@ click **Restart to update**, never on its own.
 ## Privacy
 
 ChatonLM has no account of its own, no telemetry and no analytics. Your chats,
-attachments, generated images and settings stay on your computer, dictation
-and voice mode are transcribed locally, and images are generated locally by
+attachments, generated images, transcriptions and settings stay on your
+computer, dictation, voice mode and Transcription turn speech into text
+locally, and images are generated locally by
 the built-in image engine, which does not connect to the internet.
 
 ChatonLM itself connects only to:
@@ -330,6 +383,12 @@ ChatonLM itself connects only to:
   tab of ModelHub. Only the name of the model is sent;
 - **GitHub** (github.com), to check for and download updates, and to download
   the model files of a voice;
+- **GitHub**, only if you transcribe a video online and agree to it, to
+  download yt-dlp and Deno from their official releases, then their newer
+  versions;
+- **the site at the address you transcribe**, through yt-dlp, only when you
+  transcribe a video online: the sound comes straight to your computer, and
+  the site sees your IP address, as with a browser;
 - **GitHub and NVIDIA's servers**, only if you ask for NVIDIA acceleration,
   to download the CUDA 13 pack: ChatonLM's part from this repository's
   releases, NVIDIA's CUDA libraries from NVIDIA;
@@ -360,10 +419,11 @@ AppImage):
 - Windows: `%LOCALAPPDATA%\com.chatonlm.chatonlm`
 - Linux: `~/.local/share/com.chatonlm.chatonlm`
 
-It holds the database (chats, attachments, settings), the models (unless
-you chose another Model location), the NVIDIA acceleration pack if you
-downloaded it, the API keys of remote models, the speech recognition models,
-the voices, the ModelHub cache, logs and downloaded updates.
+It holds the database (chats, attachments, transcriptions, settings), the
+models (unless you chose another Model location), the NVIDIA acceleration
+pack if you downloaded it, the API keys of remote models, the speech
+recognition models, the voices, yt-dlp and Deno if you downloaded them, the
+ModelHub cache, logs and downloaded updates.
 
 To keep it elsewhere, set the `CHATONLM_DATA_DIR` environment variable to an
 absolute path before starting ChatonLM. On Linux, for example:
@@ -490,6 +550,11 @@ folder of the installation on Windows.
   [istupakov](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx)),
   and [Whisper](https://github.com/openai/whisper) by OpenAI (MIT, in the
   [whisper.cpp](https://github.com/ggml-org/whisper.cpp) format).
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense; its program also
+  contains components under their own licenses, some of them under the GPL or
+  the LGPL) and [Deno](https://github.com/denoland/deno) (MIT) are not
+  shipped: Transcription downloads them on demand, once you agree, from their
+  official GitHub releases, to transcribe a video online.
 - Voices for Read aloud are downloaded on demand, not shipped:
   [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) by Kyutai (model
   CC BY 4.0, exported to ONNX and quantized by ChatonLM; code MIT), with the

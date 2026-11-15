@@ -1,15 +1,15 @@
 {
   "fr/": {
-    "hash": "7a95c1203dd21509",
-    "date": "2026-11-10"
+    "hash": "f42678251a2ea3a5",
+    "date": "2026-11-15"
   },
   "en/": {
-    "hash": "78ad372403cc4bd8",
-    "date": "2026-11-10"
+    "hash": "e22c770cd56cd678",
+    "date": "2026-11-15"
   },
   "es/": {
-    "hash": "6379a6a491b0521c",
-    "date": "2026-11-10"
+    "hash": "d01a5da3a76de95f",
+    "date": "2026-11-15"
   },
   "fr/contact/": {
     "hash": "730527af1868cb64",
@@ -36,16 +36,16 @@
     "date": "2026-11-10"
   },
   "fr/privacy/": {
-    "hash": "d554bf563121d947",
-    "date": "2026-11-11"
+    "hash": "e2b946a6f93c035d",
+    "date": "2026-11-15"
   },
   "en/privacy/": {
-    "hash": "7e6819df16a541ef",
-    "date": "2026-11-11"
+    "hash": "ddb40fd0f029bbbc",
+    "date": "2026-11-15"
   },
   "es/privacy/": {
-    "hash": "5329cefff96c1d88",
-    "date": "2026-11-11"
+    "hash": "23af269da6cfa456",
+    "date": "2026-11-15"
   },
   "fr/web-search/": {
     "hash": "a7ff93a34529c299",
@@ -72,111 +72,123 @@
     "date": "2026-11-11"
   },
   "fr/conversation-ia-locale/": {
-    "hash": "47bbedb02176f2a9",
-    "date": "2026-11-11"
+    "hash": "2d803ebe30d49bf4",
+    "date": "2026-11-15"
   },
   "en/local-ai-chat/": {
-    "hash": "a82e82360ed51ae4",
-    "date": "2026-11-11"
+    "hash": "407e765764f1e19e",
+    "date": "2026-11-15"
   },
   "es/chat-ia-local/": {
-    "hash": "c7147f4985eef655",
-    "date": "2026-11-11"
+    "hash": "607bd01d64e74721",
+    "date": "2026-11-15"
   },
   "fr/modeles-ia-locaux/": {
-    "hash": "78592eb598c4c955",
-    "date": "2026-11-10"
+    "hash": "139e332fedff009f",
+    "date": "2026-11-15"
   },
   "en/local-ai-models/": {
-    "hash": "bac3e3c7cf32c9bc",
-    "date": "2026-11-10"
+    "hash": "3f70d178573d46ca",
+    "date": "2026-11-15"
   },
   "es/modelos-ia-locales/": {
-    "hash": "0d47e83e2f1f4d73",
-    "date": "2026-11-10"
+    "hash": "536074d6ff4291fa",
+    "date": "2026-11-15"
   },
   "fr/dictee-vocale/": {
-    "hash": "c4b7337331824904",
-    "date": "2026-11-10"
+    "hash": "4e9b385967521f91",
+    "date": "2026-11-15"
   },
   "en/voice-dictation/": {
-    "hash": "988fe3e550b265c5",
-    "date": "2026-11-10"
+    "hash": "d612678f3a5d658d",
+    "date": "2026-11-15"
   },
   "es/dictado-por-voz/": {
-    "hash": "4c29a0f39401ae51",
-    "date": "2026-11-10"
+    "hash": "513d2e23810229ce",
+    "date": "2026-11-15"
   },
   "fr/mode-vocal/": {
-    "hash": "f21f09b85888d516",
-    "date": "2026-11-10"
+    "hash": "1c7a861610627eaa",
+    "date": "2026-11-15"
   },
   "en/voice-mode/": {
-    "hash": "632aebcad14f08b0",
-    "date": "2026-11-10"
+    "hash": "3e4cf830576f5271",
+    "date": "2026-11-15"
   },
   "es/modo-de-voz/": {
-    "hash": "20a4761e78c9ed26",
-    "date": "2026-11-10"
+    "hash": "52de92dd32f229cc",
+    "date": "2026-11-15"
   },
   "fr/correcteur-de-texte/": {
-    "hash": "104f6956c2bc58c8",
-    "date": "2026-11-10"
+    "hash": "b70d7fb65cdfd7b4",
+    "date": "2026-11-15"
   },
   "en/proofreading/": {
-    "hash": "57339d357d2e18c1",
-    "date": "2026-11-10"
+    "hash": "5df71802626bc7af",
+    "date": "2026-11-15"
   },
   "es/corrector-de-textos/": {
-    "hash": "6f48f6945d7078d7",
-    "date": "2026-11-10"
+    "hash": "dbe3a30153f58af1",
+    "date": "2026-11-15"
   },
   "fr/apprendre-avec-une-ia/": {
-    "hash": "05aa3b6e115c60e2",
-    "date": "2026-11-11"
+    "hash": "66177d98181b1f9d",
+    "date": "2026-11-15"
   },
   "en/learn-with-ai/": {
-    "hash": "a9d0d9b2f0917ebf",
-    "date": "2026-11-11"
+    "hash": "277103fcf9219bb3",
+    "date": "2026-11-15"
   },
   "es/aprender-con-ia/": {
-    "hash": "a178ded3f7b0e728",
-    "date": "2026-11-11"
+    "hash": "44855217ead48555",
+    "date": "2026-11-15"
   },
   "fr/pourquoi-chatonlm/": {
-    "hash": "29be7e1081b5951e",
-    "date": "2026-11-10"
+    "hash": "c5a0c69fde9dbf64",
+    "date": "2026-11-15"
   },
   "en/why-chatonlm/": {
-    "hash": "9e2b7abea423c206",
-    "date": "2026-11-10"
+    "hash": "67cff181eec4d5d2",
+    "date": "2026-11-15"
   },
   "es/por-que-chatonlm/": {
-    "hash": "de1df4731a65b26b",
-    "date": "2026-11-10"
+    "hash": "894fa4c338debd97",
+    "date": "2026-11-15"
   },
   "fr/generateur-d-images-ia/": {
-    "hash": "baf10aa6536f60e8",
-    "date": "2026-11-10"
+    "hash": "ae836239e9439016",
+    "date": "2026-11-15"
   },
   "en/local-ai-image-generator/": {
-    "hash": "6e727e68dd3921f7",
-    "date": "2026-11-10"
+    "hash": "e7d23af4d6b97b3a",
+    "date": "2026-11-15"
   },
   "es/generador-de-imagenes-ia/": {
-    "hash": "df2e758295946937",
-    "date": "2026-11-10"
+    "hash": "4c6c98cbeaadb8aa",
+    "date": "2026-11-15"
+  },
+  "fr/transcription-audio-video/": {
+    "hash": "edc3d039a44536a9",
+    "date": "2026-11-15"
+  },
+  "en/audio-video-transcription/": {
+    "hash": "a8a5416d65719441",
+    "date": "2026-11-15"
+  },
+  "es/transcripcion-audio-video/": {
+    "hash": "775c88e984fde36f",
+    "date": "2026-11-15"
   },
   "fr/extension-vs-code/": {
-    "hash": "46ae919fa8951ba2",
-    "date": "2026-11-10"
+    "hash": "02a41b06b45c5d33",
+    "date": "2026-11-15"
   },
   "en/vs-code-extension/": {
-    "hash": "ae909e9843a338fd",
-    "date": "2026-11-10"
+    "hash": "a3c6579d5ea9e568",
+    "date": "2026-11-15"
   },
   "es/extension-vs-code/": {
-    "hash": "cd91878a11b4dcf8",
-    "date": "2026-11-10"
+    "hash": "6eb1a92d30b3687c",
+    "date": "2026-11-15"
   }
 }

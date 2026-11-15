@@ -378,12 +378,12 @@ describe("fabrication complète", () => {
     }
   });
 
-  it("rend cliquable, dans la fenêtre dessinée, chacun des sept outils", () => {
+  it("rend cliquable, dans la fenêtre dessinée, chacun des huit outils", () => {
     const html = read("fr/index.html");
     const outils = [
       ...html.matchAll(/class="onglet[^"]*" data-vue="([a-z]+)"/g),
     ].map((m) => m[1]);
-    expect(outils).toHaveLength(7);
+    expect(outils).toHaveLength(8);
     // Chaque outil de la fenêtre a sa page.
     expect(outils.sort()).toEqual(
       Object.values(TOOLS)

@@ -3,7 +3,7 @@
     "home": {
       "title": "Free local AI app for Windows and Linux · ChatonLM",
       "social_title": "ChatonLM, an indoor AI",
-      "description": "ChatonLM is a free, open-source local AI app for Windows and Linux: chat, images, dictation, voice, proofreading and study. Works offline, no account."
+      "description": "ChatonLM is a free, open-source local AI app for Windows and Linux: chat, images, dictation, voice, transcription, proofreading and study. Offline, no account."
     },
     "contact": {
       "title": "Contact · ChatonLM",
@@ -59,9 +59,13 @@
       "title": "Local AI image generator, free and offline · ChatonLM",
       "description": "Create images from a description on your own computer: built-in image engine, open models of your choice, your pictures stay home. Free, for Windows and Linux."
     },
+    "transcription": {
+      "title": "Transcribe audio and video to text, locally · ChatonLM",
+      "description": "Turn a lecture, a talk or an interview, from a file or a video online, into text on your computer, then into a document to read. Free, for Windows and Linux."
+    },
     "choose": {
       "title": "Why choose ChatonLM: all-in-one local AI",
-      "description": "Seven local AI tools in one free app, a voice that reads correctly, conversations that don’t overflow, graphics memory in plain sight: why choose ChatonLM."
+      "description": "Eight local AI tools in one free app, a voice that reads correctly, conversations that don’t overflow, graphics memory in plain sight: why choose ChatonLM."
     },
     "donate": {
       "title": "Support ChatonLM: make a donation",
@@ -101,7 +105,7 @@
   "hero": {
     "eyebrow": "Local AI · Windows and Linux · free",
     "title": "An<br /><em>indoor AI.</em>",
-    "lead": "Chat, dictate, listen, proofread, learn, create images: ChatonLM puts what you do with AI into a single app. It lives on your computer, not in the cloud.",
+    "lead": "Chat, dictate, listen, proofread, learn, transcribe, create images: ChatonLM puts what you do with AI into a single app. It lives on your computer, not in the cloud.",
     "other": "Windows 11 and Linux, 64-bit",
     "note": "Version 0.10 beta · free and open source · no account"
   },
@@ -131,8 +135,8 @@
     "requirements": "64-bit PC (x86-64). A graphics card speeds up the models but isn’t required. No macOS version for now. On Linux, global shortcuts need KDE Plasma 6 or GNOME 48; elsewhere, set them in your desktop’s settings."
   },
   "tools": {
-    "title": "Seven tools. <em>One window.</em>",
-    "lead": "Take a look around: every tool is one click away, and they all share your models.",
+    "title": "Eight tools. <em>One window.</em>",
+    "lead": "Take a look around: every tool is one click away, and they all share your models. Study, Proofread and Transcription sit together in the Tools tab.",
     "label": "ChatonLM tools",
     "chat": {
       "name": "Chat",
@@ -162,14 +166,18 @@
       "name": "Images",
       "text": "Describe a picture in the chat, or ask your model for one: the built-in image engine draws it on your computer, with the open model of your choice."
     },
+    "transcription": {
+      "name": "Transcription",
+      "text": "Choose an audio or video file, or paste the address of a video online: the speech becomes text on your computer, then, if you like, a document to read."
+    },
     "new": "New",
     "easylink": "Also <strong>Easy Link</strong>, to write to your models from your phone through your own Telegram or Discord bot, and get the pictures they make, as long as ChatonLM is running on your computer.",
     "vscode": "Coding? <a href='/{{lang}}/{{path:vscode}}'>The ChatonLM extension for VS Code</a> brings these models into your editor: explain, fix, complete, even talk your code through out loud."
   },
   "app": {
     "chat": "Chat",
+    "tools": "Tools",
     "proofread": "Proofread",
-    "study": "Study",
     "settings": "Settings",
     "today": "Today",
     "history1": "Black holes",
@@ -219,11 +227,18 @@
       "created": "Created an image",
       "placeholder": "Describe the image to create",
       "button": "Image"
+    },
+    "transcription": {
+      "title": "Transcription · lecture.mp4",
+      "line1": "Welcome back. Today: how a leaf turns light into sugar.",
+      "line2": "It all happens in the chloroplasts. Let’s look inside one.",
+      "copy": "Copy",
+      "summarize": "Summarize"
     }
   },
   "merge": {
-    "title": "Seven apps elsewhere. <em>One here.</em>",
-    "lead": "Usually you need one app to talk to a model, another to dictate, a third to have a text read aloud, a fourth to proofread it, a fifth to make pictures. Each has its own settings, its own models to download all over again, sometimes its own account. ChatonLM installs once, and everything works together.",
+    "title": "Eight apps elsewhere. <em>One here.</em>",
+    "lead": "Usually you need one app to talk to a model, another to dictate, a third to have a text read aloud, a fourth to proofread it, a fifth to make pictures, a sixth to turn a recording into text. Each has its own settings, its own models to download all over again, sometimes its own account. ChatonLM installs once, and everything works together.",
     "w1": "Chat",
     "w2": "Find models",
     "w3": "Dictate",
@@ -231,7 +246,8 @@
     "w5": "Proofread",
     "w6": "Study",
     "w7": "Create images",
-    "before": "Seven installs, seven sets of settings, seven updates",
+    "w8": "Transcribe",
+    "before": "Eight installs, eight sets of settings, eight updates",
     "after": "One app, one set of settings",
     "replay": "Replay"
   },
@@ -242,7 +258,8 @@
     "w4": "Proofread",
     "w5": "Learn",
     "w6": "Search",
-    "w7": "Draw"
+    "w7": "Draw",
+    "w8": "Transcribe"
   },
   "free": {
     "eyebrow": "The price",
@@ -288,12 +305,12 @@
     "stays": "Stays on your computer",
     "stays1": "Your conversations, attachments and the images you create",
     "stays2": "Your voice: dictation, read aloud and voice mode",
-    "stays3": "The texts you proofread and your courses",
+    "stays3": "The texts you proofread, your courses and your transcriptions",
     "stays4": "Your settings and history",
     "goes": "Goes over the internet",
     "goes1": "The catalog and downloads of models and voices",
     "goes2": "Checking for updates, all of them signed",
-    "goes3": "Web search, remote models with your own key, and Easy Link, if you turn them on",
+    "goes3": "Web search, remote models with your own key, Easy Link, and the sound of a video online you transcribe, only if you use them",
     "more": "The details, connection by connection"
   },
   "faq": {
@@ -307,13 +324,13 @@
     "q4": "What about macOS?",
     "a4": "Not for now. ChatonLM is available for Windows 11 and Linux, 64-bit.",
     "q5": "What else do I need to install?",
-    "a5": "Nothing to get started. The engine that runs the models is included; you just pick a model in ModelHub, and one click is enough. Voices and speech recognition are downloaded the first time you use them.",
+    "a5": "Nothing to get started. The engine that runs the models is included; you just pick a model in ModelHub, and one click is enough. Voices and speech recognition are downloaded the first time you use them. To transcribe a video online, ChatonLM offers to download two free third-party tools, yt-dlp and Deno, and does so only once you agree.",
     "q6": "Windows shows a warning during installation",
     "a6": "ChatonLM is a young app: its installer doesn’t yet have a certificate that Windows recognizes, hence the “Windows protected your PC” screen. Click “More info”, then “Run anyway”. The code is open, and every update is signed.",
     "what_q": "What is ChatonLM?",
-    "what_a": "ChatonLM is a free, open-source local AI app for Windows 11 and Linux. It brings seven tools together in one window: chat with a language model (LLM), a model catalog, voice dictation, voice (read aloud and voice mode), proofreading, study and image generation. Models run on your own computer, with no account and no subscription.",
+    "what_a": "ChatonLM is a free, open-source local AI app for Windows 11 and Linux. It brings eight tools together in one window: chat with a language model (LLM), a model catalog, voice dictation, voice (read aloud and voice mode), proofreading, study, transcription and image generation. Models run on your own computer, with no account and no subscription.",
     "offline_q": "Does it work without an internet connection?",
-    "offline_a": "Yes, once your models, voices and speech recognition are downloaded. Chat, image generation, dictation, voice, proofreading and study all work offline. The internet is only used to browse the catalog, to download models and voices, to check for updates and, if you turn them on, for web search, remote models and Easy Link.",
+    "offline_a": "Yes, once your models, voices and speech recognition are downloaded. Chat, image generation, dictation, voice, proofreading, study and the transcription of a file all work offline. The internet is only used to browse the catalog, to download models and voices, to check for updates, to transcribe a video online and, if you turn them on, for web search, remote models and Easy Link.",
     "models_q": "Which models can I use?",
     "models_a": "Models you can download and run locally, such as Gemma, Qwen, Mistral or Llama. ModelHub lists them in one catalog, tells you which ones fit your machine, and installs them in one click.",
     "images_q": "Can ChatonLM create images?",
@@ -372,7 +389,7 @@
   "privacy": {
     "title": "Privacy",
     "lead": "This site doesn’t track you: no cookies, no analytics, no content loaded from a third party.",
-    "body": "<h2>When you visit this site</h2><p>No cookie is set and no analytics tool is installed. The fonts and images come from the site itself.</p><p>Like any web server, ours records the IP address, the date, the requested page, the browser used and the referring page in a technical log. This log is used for the security and proper running of the site; it is deleted automatically after a few weeks.</p><h2>When you write to us</h2><p>The form sends us your name, your email address and your message by email, to a Gmail (Google) mailbox. They are used only to reply to you and are not stored anywhere else. The controller of this processing is the site’s publisher, relying on its legitimate interest in replying to you. Google may store these emails outside the European Union. They are deleted at the latest one year after our last exchange.</p><p>To limit abusive submissions, your IP address is kept in working memory for one day at most, never on disk.</p><h2>When you download ChatonLM</h2><p>The files are hosted by GitHub: your browser downloads them from GitHub, which therefore sees your IP address, under its own privacy policy.</p><h2>In the ChatonLM app</h2><p>ChatonLM has no account, no telemetry and no analytics. Your conversations, attachments, the images you create and your settings stay on your computer; dictation and voice mode are transcribed locally, and images are made there too. The text that dictation and proofreading put on the clipboard stays out of its history and, on Windows, out of its cloud sync.</p><p>An ephemeral chat, opened with the ghost kitten, stays out of your history: it is erased, down to the database files, as soon as you open another chat or quit the app, unless you choose to keep it.</p><p>The app only connects to:</p><ul><li><strong>Hugging Face</strong>, when you open ModelHub (model lists and model pages, image models included), when you download a model, an image model, a speech recognition model or a voice, and to check whether a model installed from Hugging Face has a newer version;</li><li><strong>GitHub</strong>, to check for and download updates, and to download the files of a voice;</li><li><strong>the search engine you choose</strong> (DuckDuckGo by default, or Brave Search, Mojeek or a SearXNG instance with your own key or address), only when a model searches the web: the search goes from your computer, without going through a ChatonLM server. Only the titles and links of the results are kept with the conversation (details: <a href='/en/web-search/'>Web search</a>);</li><li><strong>GitHub and NVIDIA</strong>, only if you ask for NVIDIA acceleration, to download its pack: ChatonLM’s part from GitHub, NVIDIA’s libraries from NVIDIA, under its license, shown first;</li><li><strong>the providers of remote models</strong> you add with your own API key, only if you turn remote models on (they are off by default);</li><li><strong>Telegram or Discord</strong>, only if you connect a bot with Easy Link (see below).</li><li><strong>chatonlm.com</strong>, only when you send a bug report from the settings (see below).</li></ul><p>Conversations with a local model are handled by the engine built into ChatonLM, on your computer. Remote models are off by default: if you turn them on in the settings and pick one, your messages and their attachments are sent to its provider and processed on its servers, under its own terms. Dictation is never sent to a remote model.</p><h2>When you create an image</h2><p>The image is made on your computer by the image engine built into ChatonLM (stable-diffusion.cpp), which runs locally and does not connect to the internet. Your description and the image stay on your computer; the image is saved with the conversation and is never sent back to the language model. When the language model is the one asking for the image, your message goes to that model, like any message.</p><h2>With Easy Link</h2><p>Easy Link lets you write to your models from Telegram or Discord, through a bot you create yourself. As long as you haven’t connected a bot, the app doesn’t connect to either service. Once a bot is connected, and while the app is running, your messages to the bot (text, photos, voice messages) and everything it replies, the model’s answers and the images it creates included, go through the servers of that service, under its own privacy policy. The app talks to that service directly: no other server sits in between, and nothing is sent to ChatonLM’s publisher.</p><p>The bot’s token is kept in the app’s database, on your computer, and is only sent to that service. Voice messages are transcribed on your computer, the model answers as it does in the app, and these conversations are saved on your computer with the others, except in ephemeral mode (the /ephemeral on command), where they are erased as in the app.</p><h2>With the VS Code extension</h2><p>The ChatonLM extension for VS Code connects to the app through a link that stays on your computer (a local channel that does not go through the network). The link is off until you allow it, and only editors paired with a code can use it. The code, changes or terminal output you attach to a request go to the model chosen in ChatonLM, like any message: with a local model, they stay on your computer. Before each request, the panel shows what is sent; to a remote model, it leaves out sensitive files (such as .env files or keys) and masks, as best it can, lines that look like secrets. The extension can only read and continue the chats started in the editor: those of the app and of your bots stay closed to it.</p><p>The extension has no telemetry. Easy Link notifications only contain the task’s name, how long it took and whether it worked, never code or terminal output. The editor’s agents, if you give them access, see neither your chats nor your settings. The extension is installed from Microsoft’s Visual Studio Marketplace or from Open VSX (Eclipse Foundation), under their own privacy policies.</p><h2>When you report a bug</h2><p>From Settings › General, “Report a bug” sends your message to chatonlm.com, which forwards it to us by email, to the same Gmail inbox as the website form. Nothing is sent until you click Send. You can leave an email address so we can reply, or not.</p><p>If you leave the diagnostic box ticked, it goes with your message: versions of ChatonLM and of its engine (llama.cpp, with the graphics card it uses), system, type of installation and the end of the app’s technical log. You can read it before sending. It never contains your conversations; your home folder and user name are hidden. These messages are kept and deleted like those of the form, and your IP address is used in the same way to limit abuse.</p><p>The app’s technical log (the chatonlm.log file) stays on your computer; only what you send reaches us.</p><h2>Your rights</h2><p>You can ask to see, correct or delete the data about you, or object to its processing, by writing to <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>. You can also lodge a complaint with the CNIL (cnil.fr).</p>",
+    "body": "<h2>When you visit this site</h2><p>No cookie is set and no analytics tool is installed. The fonts and images come from the site itself.</p><p>Like any web server, ours records the IP address, the date, the requested page, the browser used and the referring page in a technical log. This log is used for the security and proper running of the site; it is deleted automatically after a few weeks.</p><h2>When you write to us</h2><p>The form sends us your name, your email address and your message by email, to a Gmail (Google) mailbox. They are used only to reply to you and are not stored anywhere else. The controller of this processing is the site’s publisher, relying on its legitimate interest in replying to you. Google may store these emails outside the European Union. They are deleted at the latest one year after our last exchange.</p><p>To limit abusive submissions, your IP address is kept in working memory for one day at most, never on disk.</p><h2>When you download ChatonLM</h2><p>The files are hosted by GitHub: your browser downloads them from GitHub, which therefore sees your IP address, under its own privacy policy.</p><h2>In the ChatonLM app</h2><p>ChatonLM has no account, no telemetry and no analytics. Your conversations, attachments, the images you create and your settings stay on your computer; dictation and voice mode are transcribed locally, and images are made there too. The text that dictation and proofreading put on the clipboard stays out of its history and, on Windows, out of its cloud sync.</p><p>An ephemeral chat, opened with the ghost kitten, stays out of your history: it is erased, down to the database files, as soon as you open another chat or quit the app, unless you choose to keep it.</p><p>The app only connects to:</p><ul><li><strong>Hugging Face</strong>, when you open ModelHub (model lists and model pages, image models included), when you download a model, an image model, a speech recognition model or a voice, and to check whether a model installed from Hugging Face has a newer version;</li><li><strong>GitHub</strong>, to check for and download updates, and to download the files of a voice;</li><li><strong>GitHub</strong>, only if you transcribe a video online and agree to it, to download the third-party tools yt-dlp and Deno, then their newer versions;</li><li><strong>the site at the address you give</strong>, only when you transcribe a video online: yt-dlp fetches its sound straight from your computer, and the site sees your IP address, as with a browser;</li><li><strong>the search engine you choose</strong> (DuckDuckGo by default, or Brave Search, Mojeek or a SearXNG instance with your own key or address), only when a model searches the web: the search goes from your computer, without going through a ChatonLM server. Only the titles and links of the results are kept with the conversation (details: <a href='/en/web-search/'>Web search</a>);</li><li><strong>GitHub and NVIDIA</strong>, only if you ask for NVIDIA acceleration, to download its pack: ChatonLM’s part from GitHub, NVIDIA’s libraries from NVIDIA, under its license, shown first;</li><li><strong>the providers of remote models</strong> you add with your own API key, only if you turn remote models on (they are off by default);</li><li><strong>Telegram or Discord</strong>, only if you connect a bot with Easy Link (see below).</li><li><strong>chatonlm.com</strong>, only when you send a bug report from the settings (see below).</li></ul><p>Conversations with a local model are handled by the engine built into ChatonLM, on your computer. Remote models are off by default: if you turn them on in the settings and pick one, your messages and their attachments are sent to its provider and processed on its servers, under its own terms. Dictation is never sent to a remote model.</p><h2>When you create an image</h2><p>The image is made on your computer by the image engine built into ChatonLM (stable-diffusion.cpp), which runs locally and does not connect to the internet. Your description and the image stay on your computer; the image is saved with the conversation and is never sent back to the language model. When the language model is the one asking for the image, your message goes to that model, like any message.</p><h2>When you transcribe</h2><p>Speech recognition runs on your computer: the sound of a file or of a video online is transcribed there and sent nowhere. For a video online, you provide the address, and ChatonLM fetches the sound with yt-dlp, a third-party tool downloaded with your agreement; this sound is only a working file, deleted once transcribed. ChatonLM keeps neither the sound nor the video, only the text, saved on your computer with the document you may have made from it. That document is written by the model you choose, like a message: with a local model, it stays on your computer.</p><h2>With Easy Link</h2><p>Easy Link lets you write to your models from Telegram or Discord, through a bot you create yourself. As long as you haven’t connected a bot, the app doesn’t connect to either service. Once a bot is connected, and while the app is running, your messages to the bot (text, photos, voice messages) and everything it replies, the model’s answers and the images it creates included, go through the servers of that service, under its own privacy policy. The app talks to that service directly: no other server sits in between, and nothing is sent to ChatonLM’s publisher.</p><p>The bot’s token is kept in the app’s database, on your computer, and is only sent to that service. Voice messages are transcribed on your computer, the model answers as it does in the app, and these conversations are saved on your computer with the others, except in ephemeral mode (the /ephemeral on command), where they are erased as in the app.</p><h2>With the VS Code extension</h2><p>The ChatonLM extension for VS Code connects to the app through a link that stays on your computer (a local channel that does not go through the network). The link is off until you allow it, and only editors paired with a code can use it. The code, changes or terminal output you attach to a request go to the model chosen in ChatonLM, like any message: with a local model, they stay on your computer. Before each request, the panel shows what is sent; to a remote model, it leaves out sensitive files (such as .env files or keys) and masks, as best it can, lines that look like secrets. The extension can only read and continue the chats started in the editor: those of the app and of your bots stay closed to it.</p><p>The extension has no telemetry. Easy Link notifications only contain the task’s name, how long it took and whether it worked, never code or terminal output. The editor’s agents, if you give them access, see neither your chats nor your settings. The extension is installed from Microsoft’s Visual Studio Marketplace or from Open VSX (Eclipse Foundation), under their own privacy policies.</p><h2>When you report a bug</h2><p>From Settings › General, “Report a bug” sends your message to chatonlm.com, which forwards it to us by email, to the same Gmail inbox as the website form. Nothing is sent until you click Send. You can leave an email address so we can reply, or not.</p><p>If you leave the diagnostic box ticked, it goes with your message: versions of ChatonLM and of its engine (llama.cpp, with the graphics card it uses), system, type of installation and the end of the app’s technical log. You can read it before sending. It never contains your conversations; your home folder and user name are hidden. These messages are kept and deleted like those of the form, and your IP address is used in the same way to limit abuse.</p><p>The app’s technical log (the chatonlm.log file) stays on your computer; only what you send reaches us.</p><h2>Your rights</h2><p>You can ask to see, correct or delete the data about you, or object to its processing, by writing to <a href='mailto:contact.chatonlm@gmail.com'>contact.chatonlm@gmail.com</a>. You can also lodge a complaint with the CNIL (cnil.fr).</p>",
     "updated": "Last updated: November 2026."
   },
   "search": {
@@ -408,11 +425,11 @@
     "end_lead": "Every donation, however small, helps ChatonLM grow."
   },
   "toolpage": {
-    "back": "All seven tools",
+    "back": "All eight tools",
     "more": "Learn more",
     "free": "Free and open source · no account",
     "end_lead": "ChatonLM is free, for Windows and Linux.",
-    "others_title": "The seven tools in <em>ChatonLM</em>"
+    "others_title": "The eight tools in <em>ChatonLM</em>"
   },
   "pages": {
     "dictation": {
@@ -633,7 +650,7 @@
       "fact5_title": "A tutor you can ask",
       "fact5_text": "Something still unclear? Ask the tutor, without leaving the lesson.",
       "fact6_title": "Your courses, saved",
-      "fact6_text": "Completed courses stay in the Study tab: you can reread them whenever you like.",
+      "fact6_text": "Completed courses stay in Study, in the Tools tab: you can reread them whenever you like.",
       "privacy_title": "Your courses <em>stay home.</em>",
       "privacy_text": "Your topics, documents and answers never leave your computer: it’s your own model that writes the course. Two exceptions, which are yours to decide: web search, if you turn it on, sends the model’s searches to the chosen search engine, straight from your computer; and a remote model, if study uses one, receives what the model reads.",
       "faq_title": "Questions about <em>Study</em>",
@@ -687,6 +704,45 @@
       "q5": "Is it really free?",
       "a5": "Yes. Image generation is part of ChatonLM, open-source software under the MIT license: no credits to buy, no subscription, no account. The models are free to download; their license says what you may do with the pictures.",
       "end_title": "Ready to <em>draw?</em>"
+    },
+    "transcription": {
+      "eyebrow": "Transcription · audio and video to text, locally",
+      "title": "Hear it once, <em>read it anytime.</em>",
+      "lead": "ChatonLM’s Transcription tool turns a lecture, a talk or an interview into written text, from an audio or video file on your computer or from the address of a video online. The speech is recognized on your computer, and your model can then make it a document to read.",
+      "steps_title": "Three steps, <em>from sound to page.</em>",
+      "step1_title": "Give a file or an address",
+      "step1_text": "Open Tools, then Transcription. Choose an audio or video file, drop it on the window, or paste the address of a video online that you have the right to copy.",
+      "step2_title": "Let it transcribe",
+      "step2_text": "Parakeet or Whisper turns the speech into text, passage by passage. The text appears as it goes, and you can cancel at any time.",
+      "step3_title": "Read, export, summarize",
+      "step3_text": "Copy the text or save it as .txt, .md or subtitles (.srt). Summarize turns it into a document with headings and key points, to save as .md, .docx or .pdf.",
+      "facts_title": "What it <em>can do.</em>",
+      "fact1_title": "Files and addresses",
+      "fact1_text": "An audio or video file from your computer, or a video online whose address you paste. For an address, only the sound is fetched, as a working file deleted once transcribed.",
+      "fact2_title": "Two speech models",
+      "fact2_text": "Parakeet, fast, knows 25 European languages. Whisper knows 99 and copes with recordings that mix two languages, but it is much slower on a processor.",
+      "fact3_title": "Long recordings",
+      "fact3_text": "An hour-long lecture is cut at its pauses and transcribed piece by piece. With Parakeet on a recent computer, an hour of sound takes a few minutes.",
+      "fact4_title": "A document to read",
+      "fact4_text": "Summarize: your model rewrites the transcription as a document with a title, sections and key points, faithful to what was said and in its language.",
+      "fact5_title": "Exports",
+      "fact5_text": "The transcription as text (.txt), Markdown (.md) or subtitles (.srt), with or without timestamps; the document as Markdown, Word (.docx) or PDF.",
+      "fact6_title": "Third-party tools, on request",
+      "fact6_text": "For a video online, ChatonLM uses yt-dlp (Unlicense) and Deno (MIT). It downloads them from their official GitHub pages only once you agree, checks them and keeps them up to date. A file needs neither.",
+      "privacy_title": "Your recordings <em>stay home.</em>",
+      "privacy_text": "Speech recognition runs on your computer: no sound is sent to a server. For a video online, the sound comes from the site at the address you give, straight to your computer, and is deleted once transcribed; ChatonLM keeps neither the sound nor the video, only the text. The document is written by your own model, unless you pick a remote one.",
+      "faq_title": "Questions about <em>Transcription</em>",
+      "q1": "What can I transcribe?",
+      "a1": "Audio and video files from your computer (a recording, a lecture, a podcast you have saved) and videos online whose address you paste. You provide the address: only use it for content you have the right to copy for your personal use, such as your own videos, content under a free license or what the law of your country allows, and respect the site’s terms.",
+      "q2": "Does ChatonLM save the video?",
+      "a2": "No. It transcribes; it doesn’t save videos. There is no button to keep a video or its sound: for an address, yt-dlp fetches only the sound, as a working file that ChatonLM deletes once it is transcribed.",
+      "q3": "What are yt-dlp and Deno?",
+      "a3": "Two free, open-source third-party tools: yt-dlp (Unlicense) reads the sound of a video page, and Deno (MIT) is a JavaScript engine it relies on. ChatonLM doesn’t ship them. The first time you transcribe an address, it shows their licenses and asks for your agreement, then downloads them from their official GitHub pages. You can remove them at any time.",
+      "q4": "How long does it take?",
+      "a4": "It depends on the model and on your computer. Parakeet is fast: on a recent computer, an hour of sound takes a few minutes. Whisper is much slower on a processor, it can take about as long as the recording, and ChatonLM tells you before you start.",
+      "q5": "Which languages does it understand?",
+      "a5": "Parakeet knows 25 European languages, Whisper 99. ChatonLM can detect the language on its own, or you choose it. If a recording mixes two languages, choose Whisper: Parakeet keeps only one language per passage.",
+      "end_title": "Something <em>to transcribe?</em>"
     },
     "vscode": {
       "eyebrow": "VS Code extension · local AI",
@@ -747,7 +803,7 @@
     "r1": {
       "topic": "The tools",
       "else": "One app to chat, another to dictate, others to read aloud, to proofread, to create images.",
-      "here": "Seven tools in a single window, sharing your models and settings."
+      "here": "Eight tools in a single window, sharing your models and settings."
     },
     "r2": {
       "topic": "The price",
@@ -818,7 +874,7 @@
     "q1": "Can ChatonLM replace an online AI assistant?",
     "a1": "For many uses, yes: chatting, summarizing, proofreading, translating, dictating, studying, creating images. A model that fits on your computer is smaller than those of the big online services and doesn’t match them on everything; in return, it’s free, works offline, and your data stays home.",
     "q2": "What does it offer beyond a simple chat interface?",
-    "a2": "Chat is just one of its seven tools. ChatonLM adds dictation, voice, proofreading, study and image generation, a model catalog that knows your machine, context and graphics memory gauges, and it ships the engine that runs the models.",
+    "a2": "Chat is just one of its eight tools. ChatonLM adds dictation, voice, proofreading, study, transcription and image generation, a model catalog that knows your machine, context and graphics memory gauges, and it ships the engine that runs the models.",
     "q3": "Do I need to know about local AI?",
     "a3": "No. A guided tour shows you the essentials on first launch, ModelHub points you to the models that fit your machine, and everything installs in one click, with no terminal.",
     "q4": "Can I keep the models I already have?",
