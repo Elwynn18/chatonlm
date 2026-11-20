@@ -115,14 +115,17 @@
   --shadow-2xl: 0 25px 50px -12px rgb(42 26 16 / 0.3);
 
   /* Onglet Study : toujours par la variante motion-safe (rien sous
-     prefers-reduced-motion). */
+     prefers-reduced-motion). Jamais d'animation sans fin sur une page
+     qu'on lit : WebKitGTK recompose alors toute la fenêtre à chaque image,
+     ce qui saccade le défilement en plein écran sur un écran à haute
+     densité (essai : scripts/theme-contrast.test.mjs). */
   --animate-study-card-in: study-card-in 280ms ease-out both;
   --animate-study-reveal: study-reveal 240ms ease-out both;
   --animate-study-pop: study-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
   --animate-study-bounce: study-bounce 480ms ease-out both;
   --animate-study-shake: study-shake 420ms ease-in-out both;
-  --animate-study-pulse: study-pulse 2.4s ease-in-out infinite;
-  --animate-study-flame: study-flame 1.6s ease-in-out infinite;
+  --animate-study-pulse: study-pulse 2.4s ease-in-out 3;
+  --animate-study-flame: study-flame 1.6s ease-in-out 2;
   --animate-study-confetti: study-confetti 1.8s ease-in forwards;
 }
 

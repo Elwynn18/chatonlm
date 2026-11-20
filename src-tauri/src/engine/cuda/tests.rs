@@ -19,6 +19,7 @@ use super::manager::{CudaPhase, CudaStatus, Sources, install_from, retry_busy};
 use super::pack::{self, Manifest};
 use super::pins::{Pins, Redist};
 use super::*;
+use crate::i18n::t;
 
 /// Épingles du dépôt, build et version de llama.cpp fixées à celles des
 /// fichiers d'essai (un llama.env plus récent ne les change pas).
@@ -608,8 +609,59 @@ async fn the_manager_downloads_verifies_and_installs_the_pack() {
     other.install(true).await.unwrap();
     let failed = wait_for(&statuses, |status| status.error.is_some()).await;
     assert_eq!(failed.phase, CudaPhase::Absent);
-    assert!(failed.error.unwrap().contains("another version"));
+    assert_eq!(failed.error.unwrap(), t!("engine.cuda.invalid"));
     assert!(!root.join("downloads").exists() || runtime.installed().is_none());
+}
+
+/// Erreur d'un pack demandé à `release`, après acceptation de la licence.
+async fn fetch_error(release: String) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let (pins, _) = fake_nvidia(Platform::Linux);
+    let runtime = Runtime::fixed_with(
+        dir.path().join("cuda"),
+        Platform::Linux,
+        vec![rtx3090()],
+        pins,
+    );
+    let statuses = Arc::new(parking_lot::Mutex::new(Vec::<CudaStatus>::new()));
+    let seen = statuses.clone();
+    let cuda = Cuda::with_sources(
+        runtime,
+        "9.9.9",
+        move |status| seen.lock().push(status.clone()),
+        Sources {
+            release: Some(release),
+            nvidia: None,
+            pubkey: Some(TEST_PUBKEY.into()),
+        },
+    );
+    cuda.status(false).await;
+    cuda.install(true).await.unwrap();
+    let failed = wait_for(&statuses, |status| status.error.is_some()).await;
+    assert_eq!(failed.phase, CudaPhase::Absent);
+    failed.error.unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_missing_or_unreachable_pack_gets_a_clear_sentence_without_the_address() {
+    // Release sans pack (brouillon, publication en cours) : 404.
+    let (url, requests) = serve(HashMap::new()).await;
+    let missing = fetch_error(format!("{url}/release")).await;
+    assert_eq!(missing, t!("engine.cuda.notPublished"));
+    assert!(!requests.lock().is_empty(), "le manifeste a été demandé");
+    // Serveur fermé : GitHub injoignable.
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = closed.local_addr().unwrap().port();
+    drop(closed);
+    let unreachable = fetch_error(format!("http://127.0.0.1:{port}/release")).await;
+    assert_eq!(unreachable, t!("engine.cuda.unreachable"));
+    for message in [&missing, &unreachable] {
+        assert!(
+            !message.contains("http") && !message.contains("404"),
+            "{message}"
+        );
+        assert!(message.starts_with(char::is_uppercase), "{message}");
+    }
 }
 
 #[tokio::test]

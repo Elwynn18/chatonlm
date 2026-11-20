@@ -613,9 +613,11 @@
     "cuda": {
       "licenseRequired": "acepta la licencia de NVIDIA para descargar el paquete de NVIDIA",
       "incompatible": "este equipo no puede usar el paquete de NVIDIA",
-      "fetchFailed": "no se pudo obtener el paquete de NVIDIA para esta versión de ChatonLM: {reason}",
-      "downloadFailed": "la descarga del paquete de NVIDIA falló: {reason}",
-      "installFailed": "no se pudo instalar el paquete de NVIDIA: {reason}",
+      "notPublished": "El paquete de NVIDIA de esta versión de ChatonLM aún no está disponible. Vuelve a intentarlo más tarde.",
+      "unreachable": "No se pudo conectar con GitHub para obtener el paquete de NVIDIA. Comprueba tu conexión a internet y vuelve a intentarlo.",
+      "invalid": "El paquete de NVIDIA recibido no es válido: no se instaló nada. Actualiza ChatonLM si vuelve a pasar.",
+      "downloadFailed": "La descarga del paquete de NVIDIA falló: {reason}",
+      "installFailed": "No se pudo instalar el paquete de NVIDIA: {reason}",
       "removeFailed": "no se pudo quitar el paquete de NVIDIA: {reason}"
     }
   },

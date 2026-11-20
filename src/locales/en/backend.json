@@ -613,9 +613,11 @@
     "cuda": {
       "licenseRequired": "accept NVIDIA's license to download the NVIDIA pack",
       "incompatible": "this computer can't use the NVIDIA pack",
-      "fetchFailed": "couldn't get the NVIDIA pack for this version of ChatonLM: {reason}",
-      "downloadFailed": "the download of the NVIDIA pack failed: {reason}",
-      "installFailed": "couldn't install the NVIDIA pack: {reason}",
+      "notPublished": "The NVIDIA pack for this version of ChatonLM isn't available yet. Try again later.",
+      "unreachable": "Couldn't reach GitHub to get the NVIDIA pack. Check your internet connection, then try again.",
+      "invalid": "The NVIDIA pack received isn't valid: nothing was installed. Update ChatonLM if this keeps happening.",
+      "downloadFailed": "The download of the NVIDIA pack failed: {reason}",
+      "installFailed": "Couldn't install the NVIDIA pack: {reason}",
       "removeFailed": "couldn't remove the NVIDIA pack: {reason}"
     }
   },

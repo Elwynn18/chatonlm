@@ -242,3 +242,17 @@ describe("thème central", () => {
     ).toEqual([]);
   });
 });
+
+describe("animations du thème", () => {
+  // Une animation sans fin oblige WebKitGTK à recomposer toute la fenêtre à
+  // chaque image, même au repos : en plein écran sur un écran 4K à échelle
+  // fractionnaire (dessiné à 200 %, puis réduit), le défilement saccade.
+  it("aucune animation propre à l'app ne tourne sans fin", () => {
+    const animations = [...css.matchAll(/--animate-([a-z0-9-]+):\s*([^;]+);/g)];
+    expect(animations.length).toBeGreaterThan(0);
+    const endless = animations
+      .filter(([, , value]) => /\binfinite\b/.test(value))
+      .map(([, name]) => name);
+    expect(endless).toEqual([]);
+  });
+});

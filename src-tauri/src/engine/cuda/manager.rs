@@ -310,8 +310,9 @@ impl Cuda {
                     drop(state);
                     this.queue().enqueue(Arc::new(item));
                 }
-                Err(reason) => {
-                    state.error = Some(t!("engine.cuda.fetchFailed", reason = reason));
+                Err(failure) => {
+                    crate::app_log!("chatonlm: NVIDIA pack not obtained: {}", failure.detail());
+                    state.error = Some(failure.message());
                     drop(state);
                     this.0.emit_now();
                 }
@@ -553,23 +554,62 @@ impl Inner {
     }
 }
 
+/// Échec de la lecture du manifeste : une phrase claire pour la page
+/// ([`FetchFailure::message`]), le détail (adresse, statut) pour le journal
+/// seulement ([`FetchFailure::detail`]).
+#[derive(Debug)]
+enum FetchFailure {
+    /// La Release de cette version n'a pas (encore) le pack : 404.
+    Missing(String),
+    /// GitHub injoignable ou en erreur (réseau, délai, autre statut).
+    Unreachable(String),
+    /// Manifeste refusé (signature, autre version, contenu, clé absente).
+    Invalid(String),
+    /// Place insuffisante : message déjà traduit et complet.
+    Space(String),
+}
+
+impl FetchFailure {
+    fn message(&self) -> String {
+        match self {
+            Self::Missing(_) => t!("engine.cuda.notPublished"),
+            Self::Unreachable(_) => t!("engine.cuda.unreachable"),
+            Self::Invalid(_) => t!("engine.cuda.invalid"),
+            Self::Space(message) => message.clone(),
+        }
+    }
+
+    fn detail(&self) -> &str {
+        match self {
+            Self::Missing(detail)
+            | Self::Unreachable(detail)
+            | Self::Invalid(detail)
+            | Self::Space(detail) => detail,
+        }
+    }
+}
+
 /// Petit fichier (manifeste, signature), [`pack::MAX_SMALL`] au plus.
-async fn get_small(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
-    let mut response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|error| error.to_string())?;
-    if !response.status().is_success() {
-        // i18n-ignore : détail technique, dans un message traduit.
-        return Err(format!("HTTP {} ({url})", response.status().as_u16()));
+async fn get_small(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, FetchFailure> {
+    // i18n-ignore : détails techniques, pour le journal seulement.
+    let unreachable = |error: reqwest::Error| FetchFailure::Unreachable(format!("{error} ({url})"));
+    let mut response = client.get(url).send().await.map_err(unreachable)?;
+    let status = response.status();
+    if !status.is_success() {
+        // i18n-ignore : détail technique, pour le journal seulement.
+        let detail = format!("HTTP {} ({url})", status.as_u16());
+        return Err(if status == reqwest::StatusCode::NOT_FOUND {
+            FetchFailure::Missing(detail)
+        } else {
+            FetchFailure::Unreachable(detail)
+        });
     }
     let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+    while let Some(chunk) = response.chunk().await.map_err(unreachable)? {
         body.extend_from_slice(&chunk);
         if body.len() > pack::MAX_SMALL {
-            // i18n-ignore : détail technique, dans un message traduit.
-            return Err(format!("too large ({url})"));
+            // i18n-ignore : détail technique, pour le journal seulement.
+            return Err(FetchFailure::Invalid(format!("too large ({url})")));
         }
     }
     Ok(body)
@@ -584,36 +624,37 @@ async fn fetch(
     pins: &Pins,
     root: &Path,
     cancel: &AtomicBool,
-) -> Result<(Manifest, CudaItem), String> {
+) -> Result<(Manifest, CudaItem), FetchFailure> {
     crate::http::ensure_crypto_provider();
     let client = reqwest::Client::builder()
         .connect_timeout(SMALL_TIMEOUT)
         .timeout(SMALL_TIMEOUT)
         .user_agent(concat!("ChatonLM/", env!("CARGO_PKG_VERSION")))
         .build()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| FetchFailure::Unreachable(error.to_string()))?;
     let base = sources.release_url(version);
     let name = pack::manifest_name(platform, &pins.llama_build);
     let json = get_small(&client, &format!("{base}{name}")).await?;
     let signature = get_small(&client, &format!("{base}{name}.sig")).await?;
     if cancel.load(Ordering::Relaxed) {
         // i18n-ignore : jamais montré (annulé).
-        return Err("cancelled".to_owned());
+        return Err(FetchFailure::Invalid("cancelled".to_owned()));
     }
     let pubkey = sources
         .pubkey
         .clone()
         .or_else(pack::production_pubkey)
-        // i18n-ignore : détail technique, dans un message traduit.
-        .ok_or_else(|| "no public key".to_owned())?;
+        // i18n-ignore : détail technique, pour le journal seulement.
+        .ok_or_else(|| FetchFailure::Invalid("no public key".to_owned()))?;
     pack::verify_signature(
         &json,
         &String::from_utf8_lossy(&signature),
         &pubkey,
         &name,
         version,
-    )?;
-    let manifest = pack::parse_manifest(&json, platform, pins)?;
+    )
+    .map_err(FetchFailure::Invalid)?;
+    let manifest = pack::parse_manifest(&json, platform, pins).map_err(FetchFailure::Invalid)?;
     let item = item_for(&manifest, &base, &sources.nvidia_url(pins), pins);
     let downloads = root.join("downloads");
     let files = item
@@ -624,7 +665,8 @@ async fn fetch(
             pack::build_dir(root, &pins.llama_build),
             INSTALLED_ESTIMATE,
         )));
-    crate::image_models::downloads::space_check(files, crate::disk::free_space_for(root))?;
+    crate::image_models::downloads::space_check(files, crate::disk::free_space_for(root))
+        .map_err(FetchFailure::Space)?;
     Ok((manifest, item))
 }
 
