@@ -381,6 +381,7 @@
     "deleteTextInUse": "Le modèle sera supprimé de cet ordinateur. La génération d'images ne fonctionnera plus tant que vous ne l'aurez pas retéléchargé ou que vous n'aurez pas choisi un autre modèle d'images.",
     "repo": {
       "files": "Choisissez un fichier",
+      "topFolder": "Dossier principal",
       "components": "Aussi nécessaires",
       "componentsHint": "Fichiers dont cette famille a besoin en plus du modèle. Ils sont partagés par vos modèles de la même famille.",
       "present": "Déjà sur cet ordinateur",

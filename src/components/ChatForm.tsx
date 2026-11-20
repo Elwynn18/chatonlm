@@ -73,7 +73,9 @@
  * read again, show none chosen), and an amber line under the composer warns
  * when there is no graphics card; while it is on, the model picker lists the
  * installed image models instead of the chat models (ImageModelPicker.tsx, same
- * close handle), its failure to choose one shown in the same notice;
+ * close handle), its failure to choose one shown in the same notice, and
+ * ChatonLM's image settings button beside it (ImageSettingsButton.tsx: steps,
+ * CFG, negative prompt, seed of the chosen image model);
  * the line breaks and spaces ending a message are removed when it is sent
  * (sentText), in both modes; ChatonLM's own snail (SlowModelSnail.tsx) after
  * the model picker while the chosen model runs partly (or, after a failure
@@ -110,6 +112,7 @@ import { DropOverlay } from "@/components/DropOverlay";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { ImageButton } from "@/components/ImageButton";
 import { ImageModelPicker } from "@/components/ImageModelPicker";
+import { ImageSettingsButton } from "@/components/ImageSettingsButton";
 import { SlowModelSnail } from "@/components/SlowModelSnail";
 import { Logo } from "@/components/Logo";
 import { ModelPicker, type ModelPickerHandle } from "@/components/ModelPicker";
@@ -946,19 +949,23 @@ export function ChatForm({
             {/* Mode Image : les modèles d'images installés à la place de
                 ceux de la conversation. */}
             {imageActive ? (
-              <ImageModelPicker
-                ref={modelPickerRef}
-                onModelSelect={() => textareaRef.current?.focus()}
-                onError={(message) =>
-                  setImageNotice((notice) =>
-                    message !== null
-                      ? { kind: "pick", message }
-                      : notice?.kind === "pick"
-                        ? null
-                        : notice,
-                  )
-                }
-              />
+              <>
+                <ImageModelPicker
+                  ref={modelPickerRef}
+                  onModelSelect={() => textareaRef.current?.focus()}
+                  onError={(message) =>
+                    setImageNotice((notice) =>
+                      message !== null
+                        ? { kind: "pick", message }
+                        : notice?.kind === "pick"
+                          ? null
+                          : notice,
+                    )
+                  }
+                />
+                {/* Étapes, CFG, prompt négatif, graine du modèle choisi. */}
+                <ImageSettingsButton />
+              </>
             ) : (
               <ModelPicker
                 ref={modelPickerRef}

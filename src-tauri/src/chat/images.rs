@@ -358,10 +358,12 @@ impl EnginePainter<'_> {
         let (width, height) = (request.width, request.height);
         let wanted = image_gen::Request {
             prompt: request.prompt,
-            negative_prompt: String::new(),
+            // Réglages de l'utilisateur pour ce modèle (vides : ceux de sa
+            // famille), dans la conversation, Easy Link et VS Code.
+            negative_prompt: selected.negative_prompt,
             width,
             height,
-            seed: None,
+            seed: selected.seed,
             sampling: selected.sampling,
             preview: true,
         };

@@ -293,5 +293,28 @@
     "notice": "Conversation éphémère : elle n'apparaîtra pas dans l'historique et sera effacée quand vous ouvrirez une autre conversation ou quitterez ChatonLM.",
     "keep": "Garder",
     "keepFailed": "Impossible de garder cette conversation : {error}"
+  },
+  "imageSettings": {
+    "button": "Réglages de l'image",
+    "title": "Réglages de l'image",
+    "forModel": "Pour {model}",
+    "steps": "Étapes",
+    "stepsHint": "Plus d'étapes : plus fin et plus lent. Valeur du modèle : {value}.",
+    "invalidSteps": "Un nombre entier entre 1 et {max}.",
+    "cfg": "Guidage (CFG)",
+    "cfgHint": "À quel point l'image suit le prompt. Valeur du modèle : {value}.",
+    "invalidCfg": "Un nombre entre 0 et {max}.",
+    "negative": "Prompt négatif",
+    "negativePlaceholder": "Ce que l'image ne doit pas contenir",
+    "tooLong": "{max} caractères au plus.",
+    "noGuidance": "Ce modèle n'utilise pas de guidage : la CFG et un prompt négatif seraient sans effet sur lui.",
+    "seed": "Graine",
+    "seedRandom": "Aléatoire",
+    "seedFixed": "Fixe",
+    "seedValue": "Valeur de la graine",
+    "seedHint": "Une graine fixe donne la même image pour le même prompt.",
+    "invalidSeed": "Un nombre entier entre 0 et {max}.",
+    "reset": "Valeurs du modèle",
+    "saveError": "Les réglages n'ont pas pu être enregistrés : {message}"
   }
 }

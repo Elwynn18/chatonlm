@@ -381,6 +381,7 @@
     "deleteTextInUse": "Esto elimina el modelo de este equipo. La generación de imágenes no funcionará hasta que lo vuelvas a descargar o elijas otro modelo de imágenes.",
     "repo": {
       "files": "Elige un archivo",
+      "topFolder": "Carpeta principal",
       "components": "También necesarios",
       "componentsHint": "Archivos que esta familia necesita además del modelo. Se comparten entre tus modelos de la misma familia.",
       "present": "Ya está en este equipo",

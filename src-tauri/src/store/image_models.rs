@@ -1,13 +1,14 @@
 //! Modèles d'images enregistrés (migration 0026, contrat 83 § 3 ; temps de
-//! la dernière image : migration 0027, contrat 85 § 2) et modèle choisi pour
-//! la génération (`settings.image_model`).
+//! la dernière image : migration 0027, contrat 85 § 2 ; réglages avancés :
+//! migration 0049) et modèle choisi pour la génération
+//! (`settings.image_model`).
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
 use crate::image_gen::Component;
-use crate::image_models::types::ImageComponentRole;
+use crate::image_models::types::{ImageComponentRole, ImageSettings};
 
 /// Fichier d'un modèle : le modèle choisi ou une pièce annexe, tel que relevé
 /// au moment du choix.
@@ -130,6 +131,51 @@ pub fn record_seconds(connection: &Connection, id: &str, seconds: u32) -> AppRes
         params![id, seconds],
     )?;
     Ok(())
+}
+
+/// Réglages avancés du modèle `id` ; absents, illisibles (journalisé) ou
+/// modèle inconnu : ceux de sa famille (tout vide).
+pub fn settings(connection: &Connection, id: &str) -> AppResult<ImageSettings> {
+    let json: Option<String> = connection
+        .query_row(
+            "SELECT settings FROM image_models WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(json
+        .and_then(|json| match serde_json::from_str(&json) {
+            Ok(settings) => Some(settings),
+            Err(error) => {
+                // i18n-ignore : journal.
+                crate::app_log!("chatonlm: image settings of {id} ignored: {error}");
+                None
+            }
+        })
+        .unwrap_or_default())
+}
+
+/// Enregistre les réglages avancés du modèle `id` (tout vide : effacés) ;
+/// rendu : le modèle existe.
+pub fn set_settings(
+    connection: &Connection,
+    id: &str,
+    settings: &ImageSettings,
+) -> AppResult<bool> {
+    let json = if *settings == ImageSettings::default() {
+        None
+    } else {
+        Some(
+            serde_json::to_string(settings)
+                .map_err(|error| AppError::Internal(error.to_string()))?,
+        )
+    };
+    let changed = connection.execute(
+        "UPDATE image_models SET settings = ?2 WHERE id = ?1",
+        params![id, json],
+    )?;
+    Ok(changed > 0)
 }
 
 /// Enregistre `model` ; déjà là : remplacé, sa date de création,
@@ -261,6 +307,47 @@ mod tests {
                 assert_eq!(selected(c)?, "");
                 assert!(delete(c, "a/b/first.gguf")?.is_none());
                 assert!(get(c, "a/b/first.gguf")?.is_none());
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn advanced_settings_are_saved_kept_and_cleared() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .blocking(|c| {
+                let id = "a/b/m.gguf";
+                let chosen = ImageSettings {
+                    steps: Some(30),
+                    cfg_scale: Some(3.5),
+                    negative_prompt: "blurry".into(),
+                    seed: Some(42),
+                };
+                // Modèle inconnu : rien d'enregistré, valeurs de la famille.
+                assert!(!set_settings(c, id, &chosen)?);
+                assert_eq!(settings(c, id)?, ImageSettings::default());
+                save(c, &model(id, 1))?;
+                assert_eq!(settings(c, id)?, ImageSettings::default());
+                assert!(set_settings(c, id, &chosen)?);
+                assert_eq!(settings(c, id)?, chosen);
+                // Gardés quand le modèle est enregistré de nouveau (nouveau
+                // téléchargement, autre révision).
+                let mut again = model(id, 2);
+                again.revision = "4567".into();
+                save(c, &again)?;
+                assert_eq!(settings(c, id)?, chosen);
+                // Tout vide : colonne effacée.
+                assert!(set_settings(c, id, &ImageSettings::default())?);
+                let raw: Option<String> = c.query_row(
+                    "SELECT settings FROM image_models WHERE id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(raw, None);
+                // Illisible : valeurs de la famille.
+                c.execute("UPDATE image_models SET settings = '{' WHERE id = ?1", [id])?;
+                assert_eq!(settings(c, id)?, ImageSettings::default());
                 Ok(())
             })
             .unwrap();

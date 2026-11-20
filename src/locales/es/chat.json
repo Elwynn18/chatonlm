@@ -293,5 +293,28 @@
     "notice": "Chat efímero: no aparecerá en tu historial y se borrará cuando abras otro chat o cierres ChatonLM.",
     "keep": "Conservar",
     "keepFailed": "No se pudo conservar este chat: {error}"
+  },
+  "imageSettings": {
+    "button": "Ajustes de imagen",
+    "title": "Ajustes de imagen",
+    "forModel": "Para {model}",
+    "steps": "Pasos",
+    "stepsHint": "Más pasos: más detalle y más lentitud. Valor del modelo: {value}.",
+    "invalidSteps": "Un número entero entre 1 y {max}.",
+    "cfg": "Guía (CFG)",
+    "cfgHint": "Cuánto se ciñe la imagen al prompt. Valor del modelo: {value}.",
+    "invalidCfg": "Un número entre 0 y {max}.",
+    "negative": "Prompt negativo",
+    "negativePlaceholder": "Lo que la imagen no debe contener",
+    "tooLong": "{max} caracteres como máximo.",
+    "noGuidance": "Este modelo no usa guía: la CFG y un prompt negativo no tendrían ningún efecto en él.",
+    "seed": "Semilla",
+    "seedRandom": "Aleatoria",
+    "seedFixed": "Fija",
+    "seedValue": "Valor de la semilla",
+    "seedHint": "Una semilla fija da la misma imagen con el mismo prompt.",
+    "invalidSeed": "Un número entero entre 0 y {max}.",
+    "reset": "Valores del modelo",
+    "saveError": "No se pudieron guardar los ajustes: {message}"
   }
 }

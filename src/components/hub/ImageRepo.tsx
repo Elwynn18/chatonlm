@@ -10,7 +10,9 @@
 // et Download, désactivé avec sa raison visible (dépôt non pris en charge ou
 // restreint, modèle non censuré sans le réglage, processeur, place) ;
 // pendant le téléchargement du fichier choisi, sa progression et Cancel ;
-// installé, un lien vers l'onglet. Hugging Face injoignable : fiche du cache
+// installé, un lien vers l'onglet. Liste des fichiers de hauteur bornée (elle
+// défile seule : Download reste visible), rangée par dossier quand le dépôt en
+// a plusieurs (Chroma). Hugging Face injoignable : fiche du cache
 // avec son bandeau, sinon l'état plein (Retry, sauf dépôt introuvable ou
 // restreint).
 
@@ -336,6 +338,8 @@ function DownloadPanel({
         entry.id === `${summary.id}/${file.file}` &&
         isActiveSpeechDownload(entry),
     );
+  const groups = byFolder(files);
+  const grouped = groups.length > 1;
   const missing = components.filter((component) => !component.present);
   const total =
     (chosen && !installed(chosen) ? chosen.sizeBytes : 0) +
@@ -387,75 +391,108 @@ function DownloadPanel({
   return (
     <div ref={panelRef} className={`${CARD} flex flex-col gap-5 p-5`}>
       {files.length > 0 && (
-        <fieldset aria-labelledby={legendId}>
+        // min-w-0 : un fieldset ne rétrécit jamais sous son contenu (le plus
+        // long chemin de fichier débordait de la colonne).
+        <fieldset aria-labelledby={legendId} className="min-w-0">
           <legend
             id={legendId}
             className="font-rounded text-base font-medium text-neutral-900 dark:text-white"
           >
             {t("hub.images.repo.files")}
           </legend>
-          <div className="mt-3 flex flex-col gap-2">
-            {files.map((file) => {
-              const checked = chosen?.file === file.file;
-              return (
-                <label
-                  key={file.file}
-                  data-testid="image-file"
-                  className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2 ${
-                    checked
-                      ? "border-accent-fg bg-neutral-100 dark:bg-neutral-800"
-                      : "border-neutral-200 dark:border-neutral-800"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name={`image-file-${summary.id}`}
-                    value={file.file}
-                    checked={checked}
-                    onChange={() => {
-                      // L'erreur d'un autre fichier ne vaut plus.
-                      start.reset();
-                      setChoice(file.file);
-                    }}
-                    className="mt-1 h-4 w-4 flex-none accent-neutral-900 dark:accent-white"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      {file.quant !== null ? (
-                        <VariantChip variant={file.quant} />
-                      ) : (
-                        <span className="text-sm font-medium break-all text-neutral-900 dark:text-white">
-                          {file.file}
+          {/* Hauteur bornée : Download reste à portée, même avec douze
+              fichiers (la liste défile seule). */}
+          <div
+            data-testid="image-file-list"
+            className="mt-3 flex max-h-[min(28rem,55vh)] flex-col gap-3 overflow-y-auto pr-1"
+          >
+            {groups.map((group) => (
+              <div
+                key={group.folder}
+                role={grouped ? "group" : undefined}
+                aria-label={
+                  grouped
+                    ? group.folder || t("hub.images.repo.topFolder")
+                    : undefined
+                }
+                className="flex flex-col gap-2"
+              >
+                {grouped && (
+                  <p
+                    aria-hidden="true"
+                    data-testid="image-file-folder"
+                    title={group.folder}
+                    className="truncate font-mono text-xs font-medium text-neutral-600 dark:text-neutral-300"
+                  >
+                    {group.folder || t("hub.images.repo.topFolder")}
+                  </p>
+                )}
+                {group.files.map((file) => {
+                  const checked = chosen?.file === file.file;
+                  return (
+                    <label
+                      key={file.file}
+                      data-testid="image-file"
+                      className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2 ${
+                        checked
+                          ? "border-accent-fg bg-neutral-100 dark:bg-neutral-800"
+                          : "border-neutral-200 dark:border-neutral-800"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name={`image-file-${summary.id}`}
+                        value={file.file}
+                        checked={checked}
+                        onChange={() => {
+                          // L'erreur d'un autre fichier ne vaut plus.
+                          start.reset();
+                          setChoice(file.file);
+                        }}
+                        className="mt-1 h-4 w-4 flex-none accent-neutral-900 dark:accent-white"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          {file.quant !== null ? (
+                            <VariantChip variant={file.quant} />
+                          ) : (
+                            <span className="text-sm font-medium break-all text-neutral-900 dark:text-white">
+                              {file.file}
+                            </span>
+                          )}
+                          <span className="text-xs text-neutral-500 tabular-nums dark:text-neutral-400">
+                            {formatBytes(t, file.sizeBytes)}
+                          </span>
+                          {file.recommended && <RecommendedBadge />}
+                          {installed(file) && <InstalledBadge />}
                         </span>
-                      )}
-                      <span className="text-xs text-neutral-500 tabular-nums dark:text-neutral-400">
-                        {formatBytes(t, file.sizeBytes)}
+                        {file.quant !== null && (
+                          <span
+                            title={file.file}
+                            className="mt-0.5 block truncate font-mono text-xs text-neutral-500 dark:text-neutral-400"
+                          >
+                            {grouped ? baseName(file.file) : file.file}
+                          </span>
+                        )}
+                        <span className="mt-2 block">
+                          <Facts inline className="grid-cols-1 gap-y-1 text-xs">
+                            <SpeedFact
+                              measured={null}
+                              estimated={file.estimatedSeconds}
+                              machine={machine}
+                            />
+                            <MemoryFact
+                              vramBytes={file.vramBytes}
+                              machine={machine}
+                            />
+                          </Facts>
+                        </span>
                       </span>
-                      {file.recommended && <RecommendedBadge />}
-                      {installed(file) && <InstalledBadge />}
-                    </span>
-                    {file.quant !== null && (
-                      <span className="mt-0.5 block truncate font-mono text-xs text-neutral-500 dark:text-neutral-400">
-                        {file.file}
-                      </span>
-                    )}
-                    <span className="mt-2 block">
-                      <Facts inline className="grid-cols-1 gap-y-1 text-xs">
-                        <SpeedFact
-                          measured={null}
-                          estimated={file.estimatedSeconds}
-                          machine={machine}
-                        />
-                        <MemoryFact
-                          vramBytes={file.vramBytes}
-                          machine={machine}
-                        />
-                      </Facts>
-                    </span>
-                  </span>
-                </label>
-              );
-            })}
+                    </label>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </fieldset>
       )}
@@ -569,4 +606,35 @@ function RepoSkeleton() {
       </div>
     </div>
   );
+}
+
+/** Dossier d'un chemin du dépôt (`""` : à la racine). */
+function folderOf(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash < 0 ? "" : path.slice(0, slash);
+}
+
+/** Nom du fichier, sans son dossier. */
+function baseName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/**
+ * Fichiers rangés par dossier, dans l'ordre de leur première apparition
+ * (Chroma : « Chroma1-HD » puis « Chroma1-HD/Chroma1-HD-dc-f1 »).
+ */
+function byFolder(
+  files: ImageFileChoice[],
+): { folder: string; files: ImageFileChoice[] }[] {
+  const groups: { folder: string; files: ImageFileChoice[] }[] = [];
+  for (const file of files) {
+    const folder = folderOf(file.file);
+    const group = groups.find((entry) => entry.folder === folder);
+    if (group) {
+      group.files.push(file);
+    } else {
+      groups.push({ folder, files: [file] });
+    }
+  }
+  return groups;
 }

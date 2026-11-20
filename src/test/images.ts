@@ -53,6 +53,8 @@ import type { ImageRepoDetail } from "@/bindings/ImageRepoDetail";
 import type { ImageRepoSummary } from "@/bindings/ImageRepoSummary";
 import type { ImageRepoUnsupported } from "@/bindings/ImageRepoUnsupported";
 import type { ImageSearchResult } from "@/bindings/ImageSearchResult";
+import type { ImageSettings } from "@/bindings/ImageSettings";
+import type { ImageSettingsView } from "@/bindings/ImageSettingsView";
 import type { ImageUsage } from "@/bindings/ImageUsage";
 import type { SpeechDownload } from "@/bindings/SpeechDownload";
 import type { Args, Simulator } from "@/test/simulator";
@@ -76,6 +78,7 @@ export const KLEIN_9B: ImageFamily = {
 };
 export const SDXL: ImageFamily = { id: "sdxl", name: "Stable Diffusion XL" };
 export const FLUX1_DEV: ImageFamily = { id: "flux1-dev", name: "FLUX.1 dev" };
+export const CHROMA: ImageFamily = { id: "chroma", name: "Chroma" };
 
 /**
  * Familles.json du moteur : temps de référence (image 1024×1024, RTX 3090),
@@ -129,6 +132,8 @@ export const UNKNOWN_REPO = "someone/mystery-diffusion-GGUF";
 export const GATED_REPO = "black-forest-labs/FLUX.1-dev-GGUF";
 export const SDXL_REPO = "chatonlm/sdxl-single";
 export const SDXL_FILE = "sd_xl_base_1.0.safetensors";
+/** Dépôt rangé en dossiers (comme silveroxides/Chroma-GGUF). */
+export const CHROMA_REPO = "silveroxides/Chroma-GGUF";
 
 /** Pièces annexes de chaque famille (sans `present`). */
 type Piece = Omit<ImageComponentInfo, "present">;
@@ -397,6 +402,8 @@ export interface FakeImages {
   selected: string;
   /** Temps de la dernière image, en secondes, par modèle. */
   measured: Map<string, number>;
+  /** Réglages avancés enregistrés, par modèle (absent : valeurs du modèle). */
+  settings: Map<string, ImageSettings>;
   /** Téléchargements, dans l'ordre de demande. */
   downloads: SpeechDownload[];
   /** Hugging Face injoignable (recherche et fiches) ; null : à jour. */
@@ -453,6 +460,21 @@ const REFUSALS = {
   notInstalled: "This model isn't installed",
   revisionChanged:
     "This repository has changed since its page was opened: open it again",
+  steps: "the number of steps must be between 1 and 150",
+  cfg: "the guidance scale must be between 0 and 30",
+};
+
+/** Bornes du moteur (src-tauri/src/image_gen/mod.rs). */
+const MAX_STEPS = 150;
+const MAX_PROMPT = 8000;
+
+/** Étapes et CFG des familles d'essai (src-tauri/src/image_models/families.json). */
+const SAMPLING: Record<string, { steps: number; cfg: number }> = {
+  "flux2-klein-4b": { steps: 4, cfg: 1 },
+  "flux2-klein-9b": { steps: 4, cfg: 1 },
+  "z-image-turbo": { steps: 8, cfg: 1 },
+  sdxl: { steps: 25, cfg: 6 },
+  chroma: { steps: 26, cfg: 4 },
 };
 
 /** Gestionnaires des commandes image_*. */
@@ -475,6 +497,7 @@ export function fakeImages(
     disk: new Set(),
     selected: "",
     measured: new Map(),
+    settings: new Map(),
     downloads: [],
     problem: null,
     stale: false,
@@ -945,6 +968,51 @@ export function fakeImages(
     if (dropDownload(id)) emitNow();
     return null;
   });
+  simulator.handle("image_settings", (): ImageSettingsView | null => {
+    failure("image_settings");
+    const row = images.rows.find((entry) => entry.id === images.selected);
+    if (!row) return null;
+    const family = repoOf(row.repo).summary.family?.id ?? "";
+    const sampling = SAMPLING[family];
+    if (!sampling) throw simulator.fail(`no sampling for family "${family}"`);
+    return {
+      modelId: row.id,
+      modelName: row.name,
+      settings: images.settings.get(row.id) ?? {
+        steps: null,
+        cfgScale: null,
+        negativePrompt: "",
+        seed: null,
+      },
+      defaultSteps: sampling.steps,
+      defaultCfgScale: sampling.cfg,
+      guidance: sampling.cfg > 1,
+      maxSteps: MAX_STEPS,
+      maxPrompt: MAX_PROMPT,
+    };
+  });
+  simulator.handle("image_set_settings", (args: Args) => {
+    failure("image_set_settings");
+    const id = args.id as string;
+    const settings = args.settings as ImageSettings;
+    if (!images.rows.some((row) => row.id === id)) {
+      throw invalid(REFUSALS.notInstalled);
+    }
+    if (
+      settings.steps !== null &&
+      (settings.steps < 1 || settings.steps > MAX_STEPS)
+    ) {
+      throw invalid(REFUSALS.steps);
+    }
+    if (
+      settings.cfgScale !== null &&
+      (settings.cfgScale < 0 || settings.cfgScale > 30)
+    ) {
+      throw invalid(REFUSALS.cfg);
+    }
+    images.settings.set(id, { ...settings });
+    return null;
+  });
   simulator.handle("image_use_model", (args: Args) => {
     failure("image_use_model");
     const id = args.id as string;
@@ -959,4 +1027,54 @@ export function fakeImages(
   });
 
   return images;
+}
+
+/**
+ * Dépôt rangé en deux dossiers (comme silveroxides/Chroma-GGUF), hors de
+ * [`imageRepos`] : les essais de recherche comptent les dépôts.
+ */
+export function chromaRepo(): FakeImageRepo {
+  return {
+    summary: summary(CHROMA_REPO, { family: CHROMA, downloads: 75_308 }),
+    revision: "f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6",
+    files: [
+      {
+        file: "Chroma1-HD/Chroma1-HD-BF16.gguf",
+        sizeBytes: 17_800_000_000,
+        quant: "BF16",
+        recommended: false,
+      },
+      {
+        file: "Chroma1-HD/Chroma1-HD-Q4_0.gguf",
+        sizeBytes: 5_500_000_000,
+        quant: "Q4_0",
+        recommended: true,
+      },
+      {
+        file: "Chroma1-HD/Chroma1-HD-Q8_0.gguf",
+        sizeBytes: 9_800_000_000,
+        quant: "Q8_0",
+        recommended: false,
+      },
+      {
+        file: "Chroma1-HD/Chroma1-HD-dc-f1/Chroma1-HD-dc-f1-BF16.gguf",
+        sizeBytes: 17_800_000_000,
+        quant: "BF16",
+        recommended: false,
+      },
+      {
+        file: "Chroma1-HD/Chroma1-HD-dc-f1/Chroma1-HD-dc-f1-Q4_0.gguf",
+        sizeBytes: 5_500_000_000,
+        quant: "Q4_0",
+        recommended: false,
+      },
+      {
+        file: "Chroma1-HD/Chroma1-HD-dc-f1/Chroma1-HD-dc-f1-Q8_0.gguf",
+        sizeBytes: 9_800_000_000,
+        quant: "Q8_0",
+        recommended: false,
+      },
+    ],
+    unsupported: null,
+  };
 }

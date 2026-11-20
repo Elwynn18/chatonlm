@@ -476,6 +476,7 @@
     "invalid": {
       "emptyPrompt": "la description de l'image est vide",
       "longPrompt": "la description de l'image est trop longue ({max} caractères au plus)",
+      "longNegative": "le prompt négatif est trop long ({max} caractères au plus)",
       "size": "la taille de l'image doit être comprise entre {min} et {max} pixels, par pas de {step}",
       "steps": "le nombre d'étapes doit être compris entre 1 et {max}",
       "cfg": "l'échelle de guidage doit être comprise entre 0 et 30"

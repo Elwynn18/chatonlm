@@ -293,5 +293,28 @@
     "notice": "Ephemeral chat: it won't appear in your history and will be erased when you open another chat or quit ChatonLM.",
     "keep": "Keep",
     "keepFailed": "Couldn't keep this chat: {error}"
+  },
+  "imageSettings": {
+    "button": "Image settings",
+    "title": "Image settings",
+    "forModel": "For {model}",
+    "steps": "Steps",
+    "stepsHint": "More steps: finer and slower. Model value: {value}.",
+    "invalidSteps": "A whole number between 1 and {max}.",
+    "cfg": "Guidance (CFG)",
+    "cfgHint": "How closely the picture follows the prompt. Model value: {value}.",
+    "invalidCfg": "A number between 0 and {max}.",
+    "negative": "Negative prompt",
+    "negativePlaceholder": "What the picture shouldn't contain",
+    "tooLong": "{max} characters at most.",
+    "noGuidance": "This model doesn't use guidance: the CFG and a negative prompt would have no effect on it.",
+    "seed": "Seed",
+    "seedRandom": "Random",
+    "seedFixed": "Fixed",
+    "seedValue": "Seed value",
+    "seedHint": "A fixed seed gives the same picture for the same prompt.",
+    "invalidSeed": "A whole number between 0 and {max}.",
+    "reset": "Model values",
+    "saveError": "The settings couldn't be saved: {message}"
   }
 }

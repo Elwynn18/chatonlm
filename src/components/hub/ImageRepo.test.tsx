@@ -20,6 +20,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { setLanguage } from "@/i18n";
 import {
+  CHROMA_REPO,
+  chromaRepo,
   GATED_REPO,
   KLEIN_9B_FILE,
   KLEIN_9B_REPO,
@@ -61,6 +63,52 @@ const about = () =>
   screen.getByTestId("image-family").closest("section") as HTMLElement;
 
 describe("Image repo page", () => {
+  it("files in several folders: grouped by folder, short names, bounded list that never overflows", async () => {
+    renderHub(page(CHROMA_REPO), ({ backend }) => {
+      backend.images.repos.set(CHROMA_REPO, chromaRepo());
+    });
+    await screen.findAllByTestId("image-file");
+    const list = screen.getByTestId("image-file-list");
+    const groups = within(list).getAllByRole("group");
+    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
+      "Chroma1-HD",
+      "Chroma1-HD/Chroma1-HD-dc-f1",
+    ]);
+    expect(
+      screen
+        .getAllByTestId("image-file-folder")
+        .map((node) => node.textContent),
+    ).toEqual(["Chroma1-HD", "Chroma1-HD/Chroma1-HD-dc-f1"]);
+    const second = within(groups[1]).getAllByTestId("image-file");
+    expect(second).toHaveLength(3);
+    // Le nom seul sous la variante, le chemin entier en infobulle.
+    const path = second[1].querySelector<HTMLElement>(".font-mono")!;
+    expect(path.textContent).toBe("Chroma1-HD-dc-f1-Q4_0.gguf");
+    expect(path.title).toBe(
+      "Chroma1-HD/Chroma1-HD-dc-f1/Chroma1-HD-dc-f1-Q4_0.gguf",
+    );
+    // Le conseillé (premier dossier) est coché.
+    expect(radios().findIndex((radio) => radio.checked)).toBe(1);
+    // Un fieldset ne rétrécit pas sous son contenu sans min-w-0 ; la liste
+    // défile dans une hauteur bornée (Download reste à portée).
+    expect(list.closest("fieldset")!.className).toContain("min-w-0");
+    expect(list.className).toMatch(/\bmax-h-\S+/);
+    expect(list.className).toContain("overflow-y-auto");
+    expect(downloadButton().disabled).toBe(false);
+  });
+
+  it("files in one folder: no folder heading, the whole path under the variant", async () => {
+    renderHub(page(KLEIN_REPO));
+    await screen.findAllByTestId("image-file");
+    expect(screen.queryAllByTestId("image-file-folder")).toEqual([]);
+    expect(
+      within(screen.getByTestId("image-file-list")).queryAllByRole("group"),
+    ).toEqual([]);
+    expect(
+      files()[0].querySelector<HTMLElement>(".font-mono")!.textContent,
+    ).toBe(KLEIN_FILE);
+  });
+
   it("family and its sentence, usage, downloads; license and pieces folded in Details", async () => {
     renderHub(page(KLEIN_REPO));
     expect((await screen.findByRole("heading", { level: 2 })).textContent).toBe(

@@ -381,6 +381,7 @@
     "deleteTextInUse": "This removes the model from this computer. Image generation won't work until you download it again or choose another image model.",
     "repo": {
       "files": "Choose a file",
+      "topFolder": "Top folder",
       "components": "Also needed",
       "componentsHint": "Files this family needs besides the model. They're shared by your models of the same family.",
       "present": "Already on this computer",

@@ -114,6 +114,40 @@ pub struct ImageModelInfo {
     pub measured_seconds: Option<u32>,
 }
 
+/// Réglages avancés d'un modèle d'images choisis par l'utilisateur ; `None`
+/// (ou vide) : valeur de la famille du modèle.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ImageSettings {
+    pub steps: Option<u32>,
+    pub cfg_scale: Option<f64>,
+    /// Sans effet pour une famille sans guidage (CFG de 1).
+    pub negative_prompt: String,
+    /// `None` : graine tirée au hasard à chaque image.
+    pub seed: Option<u32>,
+}
+
+/// Réglages du modèle choisi pour la génération, avec les valeurs de sa
+/// famille et les bornes du moteur.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ImageSettingsView {
+    /// `<dépôt>/<fichier>`.
+    pub model_id: String,
+    pub model_name: String,
+    pub settings: ImageSettings,
+    pub default_steps: u32,
+    pub default_cfg_scale: f64,
+    /// La famille emploie le guidage (CFG au-dessus de 1) : la CFG et le
+    /// prompt négatif ont un effet.
+    pub guidance: bool,
+    pub max_steps: u32,
+    /// Longueur maximale du prompt négatif, en caractères.
+    pub max_prompt: u32,
+}
+
 /// Dépôt Hugging Face trouvé par la recherche.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]

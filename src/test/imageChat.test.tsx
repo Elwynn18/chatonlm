@@ -388,6 +388,41 @@ describe("image mode of the composer", () => {
     await waitFor(() => expect(app.path()).toMatch(/^\/hub\/images\/?$/));
   });
 
+  it("image settings: only in image mode with a model chosen, saved for that model", async () => {
+    const { backend } = setup({ chosen: false });
+    backend.images.install(KLEIN_ID, Z_IMAGE_ID);
+    await field();
+    const settingsButton = () =>
+      screen.queryByRole("button", { name: "Image settings" });
+    expect(settingsButton()).toBeNull();
+    await enableImageMode();
+    const picker = await screen.findByTitle("Select image model");
+    await waitFor(() =>
+      expect(picker.textContent).toBe("Choose an image model"),
+    );
+    expect(settingsButton()).toBeNull();
+    await userEvent.click(picker);
+    await userEvent.click(
+      screen.getByRole("option", { name: `${IMAGE_MODEL} Q4_0` }),
+    );
+    await waitFor(() => expect(settingsButton()).not.toBeNull());
+    await userEvent.click(settingsButton()!);
+    const panel = screen.getByRole("dialog", { name: "Image settings" });
+    // FLUX.2 klein : 4 étapes, sans guidage.
+    expect(
+      (within(panel).getByLabelText("Steps") as HTMLInputElement).placeholder,
+    ).toBe("4");
+    expect(within(panel).queryByLabelText("Negative prompt")).toBeNull();
+    await userEvent.type(within(panel).getByLabelText("Steps"), "6");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(backend.images.settings.get(KLEIN_ID)?.steps).toBe(6),
+    );
+    // Mode coupé : plus de réglages d'image.
+    await userEvent.click(await imageButton());
+    expect(settingsButton()).toBeNull();
+  });
+
   it("does not need a language model, and turning it off sends normally again", async () => {
     const { simulator } = setup({ selectedModel: "", models: [] });
     simulator.queue(buttonSequence(SUCCESS, ""));

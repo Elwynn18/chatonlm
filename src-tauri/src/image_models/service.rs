@@ -17,14 +17,15 @@ use super::downloads::{
 use super::families::{Families, Family, Piece, Recommendation, accepted_gguf, single_file};
 use super::types::{
     ImageComponentInfo, ImageComponentRole, ImageFileChoice, ImageMachine, ImageModelInfo,
-    ImageRepoDetail, ImageRepoSummary, ImageRepoUnsupported, ImageSearchResult, ImageUsage,
+    ImageRepoDetail, ImageRepoSummary, ImageRepoUnsupported, ImageSearchResult, ImageSettings,
+    ImageSettingsView, ImageUsage,
 };
 use crate::error::{AppError, AppResult};
 use crate::hub::curation::CURATION;
 use crate::hub::hardware::{Detector, KEEP, Machine};
 use crate::hub::types::{HubGpu, HubProblem};
 use crate::i18n::t;
-use crate::image_gen::{ImageGen, ModelSpec, Sampling};
+use crate::image_gen::{ImageGen, MAX_PROMPT, MAX_STEPS, ModelSpec, Sampling};
 use crate::store::image_models::{self as stored, StoredFile, StoredModel};
 use crate::store::{Store, now_ms};
 
@@ -63,6 +64,59 @@ pub struct SelectedModel {
     pub default_side: u32,
     /// Identifiant du modèle (`<dépôt>/<fichier>`) : où noter le temps mesuré.
     pub id: String,
+    /// Prompt négatif choisi (vide : aucun ; toujours vide sans guidage).
+    pub negative_prompt: String,
+    /// Graine fixe choisie ; `None` : au hasard.
+    pub seed: Option<u32>,
+}
+
+/// Plus grande CFG acceptée par le moteur.
+const MAX_CFG: f64 = 30.0;
+
+/// La famille emploie le guidage : au-dessus de 1, la CFG et le prompt
+/// négatif agissent (les familles distillées, à 1, les ignorent).
+pub fn uses_guidance(family: &Sampling) -> bool {
+    family.cfg_scale > 1.0
+}
+
+/// Réglages d'une image : ceux de la famille, remplacés par ceux de
+/// l'utilisateur (étapes ; CFG et prompt négatif seulement avec le guidage) ;
+/// rendus avec le prompt négatif.
+pub fn sampling_with(family: &Sampling, settings: &ImageSettings) -> (Sampling, String) {
+    let mut sampling = family.clone();
+    if let Some(steps) = settings.steps {
+        sampling.steps = steps;
+    }
+    if !uses_guidance(family) {
+        return (sampling, String::new());
+    }
+    if let Some(cfg) = settings.cfg_scale {
+        // Borné par `ImageModels::set_settings` (0 à 30) : sans perte utile.
+        #[allow(clippy::cast_possible_truncation)]
+        let cfg = cfg as f32;
+        sampling.cfg_scale = cfg;
+    }
+    (sampling, settings.negative_prompt.trim().to_owned())
+}
+
+/// Réglages acceptés par le moteur ; sinon le message du premier refus.
+fn check_settings(settings: &ImageSettings) -> Result<(), String> {
+    if settings
+        .steps
+        .is_some_and(|steps| !(1..=MAX_STEPS).contains(&steps))
+    {
+        return Err(t!("imageGen.invalid.steps", max = MAX_STEPS));
+    }
+    if settings
+        .cfg_scale
+        .is_some_and(|cfg| !(cfg.is_finite() && (0.0..=MAX_CFG).contains(&cfg)))
+    {
+        return Err(t!("imageGen.invalid.cfg"));
+    }
+    if settings.negative_prompt.chars().count() > MAX_PROMPT {
+        return Err(t!("imageGen.invalid.longNegative", max = MAX_PROMPT));
+    }
+    Ok(())
 }
 
 pub struct ImageModels {
@@ -1022,13 +1076,18 @@ impl ImageModels {
     }
 
     /// Modèle choisi pour la génération, prêt pour le moteur : fichiers
-    /// (tous présents), réglages de sa famille, nom affiché et côté par
-    /// défaut ; `None` : aucun, ou plus utilisable.
+    /// (tous présents), réglages de sa famille remplacés par ceux de
+    /// l'utilisateur, nom affiché et côté par défaut ; `None` : aucun, ou plus
+    /// utilisable.
     pub async fn selected_spec(&self, store: &Store) -> Option<SelectedModel> {
-        let model = store
+        let (model, settings) = store
             .call(|connection| {
                 let id = stored::selected(connection)?;
-                stored::get(connection, &id)
+                let Some(model) = stored::get(connection, &id)? else {
+                    return Ok(None);
+                };
+                let settings = stored::settings(connection, &id)?;
+                Ok(Some((model, settings)))
             })
             .await
             .ok()??;
@@ -1036,6 +1095,7 @@ impl ImageModels {
         if !model.files.iter().all(|file| present(&self.root, file)) {
             return None;
         }
+        let (sampling, negative_prompt) = sampling_with(&family.sampling, &settings);
         Some(SelectedModel {
             spec: ModelSpec {
                 files: model
@@ -1045,11 +1105,64 @@ impl ImageModels {
                     .collect(),
                 options: family.options.clone(),
             },
-            sampling: family.sampling.clone(),
+            sampling,
             name: model.name,
             default_side: family.default_side,
             id: model.id,
+            negative_prompt,
+            seed: settings.seed,
         })
+    }
+
+    /// Réglages avancés du modèle choisi, avec les valeurs de sa famille ;
+    /// `None` : aucun modèle choisi (ou famille inconnue).
+    pub async fn settings_view(&self, store: &Store) -> AppResult<Option<ImageSettingsView>> {
+        let found = store
+            .call(|connection| {
+                let id = stored::selected(connection)?;
+                let Some(model) = stored::get(connection, &id)? else {
+                    return Ok(None);
+                };
+                let settings = stored::settings(connection, &id)?;
+                Ok(Some((model, settings)))
+            })
+            .await?;
+        let Some((model, settings)) = found else {
+            return Ok(None);
+        };
+        let Some(family) = self.families.get(&model.family) else {
+            return Ok(None);
+        };
+        Ok(Some(ImageSettingsView {
+            model_id: model.id,
+            model_name: model.name,
+            settings,
+            default_steps: family.sampling.steps,
+            default_cfg_scale: f64::from(family.sampling.cfg_scale),
+            guidance: uses_guidance(&family.sampling),
+            max_steps: MAX_STEPS,
+            max_prompt: u32::try_from(MAX_PROMPT).unwrap_or(u32::MAX),
+        }))
+    }
+
+    /// Enregistre les réglages avancés du modèle `id` (refusés hors des
+    /// bornes du moteur, ou pour un modèle inconnu).
+    pub async fn set_settings(
+        &self,
+        store: &Store,
+        id: &str,
+        mut settings: ImageSettings,
+    ) -> AppResult<()> {
+        check_settings(&settings).map_err(refuse)?;
+        settings.negative_prompt = settings.negative_prompt.trim().to_owned();
+        let id = id.to_owned();
+        let known = store
+            .call(move |connection| stored::set_settings(connection, &id, &settings))
+            .await?;
+        if !known {
+            return Err(refuse(t!("imageModels.notInstalled")));
+        }
+        Ok(())
     }
 }
 

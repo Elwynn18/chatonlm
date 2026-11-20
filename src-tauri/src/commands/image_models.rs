@@ -7,7 +7,8 @@ use crate::dictation::downloads::SpeechDownload;
 use crate::error::AppResult;
 use crate::image_gen::ImageGen;
 use crate::image_models::types::{
-    ImageMachine, ImageModelInfo, ImageRepoDetail, ImageSearchResult,
+    ImageMachine, ImageModelInfo, ImageRepoDetail, ImageSearchResult, ImageSettings,
+    ImageSettingsView,
 };
 use crate::image_models::{ImageDownloads, ImageModels};
 use crate::store::Store;
@@ -123,4 +124,24 @@ pub async fn image_use_model(
     id: String,
 ) -> AppResult<()> {
     models.use_model(&downloads, &store, &id).await
+}
+
+/// Réglages avancés du modèle choisi (`None` : aucun modèle choisi).
+#[tauri::command]
+pub async fn image_settings(
+    models: State<'_, ImageModels>,
+    store: State<'_, Store>,
+) -> AppResult<Option<ImageSettingsView>> {
+    models.settings_view(&store).await
+}
+
+/// Enregistre les réglages avancés du modèle `id` (vides : ceux de sa famille).
+#[tauri::command]
+pub async fn image_set_settings(
+    models: State<'_, ImageModels>,
+    store: State<'_, Store>,
+    id: String,
+    settings: ImageSettings,
+) -> AppResult<()> {
+    models.set_settings(&store, &id, settings).await
 }

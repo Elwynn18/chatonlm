@@ -567,6 +567,8 @@ pub fn run() {
             commands::image_models::image_repo,
             commands::image_models::image_search,
             commands::image_models::image_use_model,
+            commands::image_models::image_settings,
+            commands::image_models::image_set_settings,
             commands::engine::cuda_cancel,
             commands::engine::cuda_install,
             commands::engine::cuda_remove,

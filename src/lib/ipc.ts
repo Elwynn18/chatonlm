@@ -83,6 +83,8 @@ import type { ReadAloudState } from "@/bindings/ReadAloudState";
 import type { VoiceModelInfo } from "@/bindings/VoiceModelInfo";
 import type { ImageMachine } from "@/bindings/ImageMachine";
 import type { ImageModelInfo } from "@/bindings/ImageModelInfo";
+import type { ImageSettings } from "@/bindings/ImageSettings";
+import type { ImageSettingsView } from "@/bindings/ImageSettingsView";
 import type { ImageRepoDetail } from "@/bindings/ImageRepoDetail";
 import type { ImageSearchResult } from "@/bindings/ImageSearchResult";
 import type { VoiceModeInfo } from "@/bindings/VoiceModeInfo";
@@ -1389,6 +1391,22 @@ export function imageDeleteModel(id: string): Promise<void> {
 /** Choisit le modèle de la génération d'images (`""` : aucun). */
 export function imageUseModel(id: string): Promise<void> {
   return invoke<void>("image_use_model", { id });
+}
+
+/**
+ * Réglages avancés du modèle d'images choisi (étapes, CFG, prompt négatif,
+ * graine) et valeurs de sa famille ; `null` : aucun modèle choisi.
+ */
+export function imageSettings(): Promise<ImageSettingsView | null> {
+  return invoke<ImageSettingsView | null>("image_settings");
+}
+
+/** Enregistre les réglages avancés du modèle `id` (vides : valeurs du modèle). */
+export function imageSetSettings(
+  id: string,
+  settings: ImageSettings,
+): Promise<void> {
+  return invoke<void>("image_set_settings", { id, settings });
 }
 
 /** Événement du moteur à chaque changement des téléchargements des modèles d'images. */

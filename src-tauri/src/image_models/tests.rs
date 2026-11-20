@@ -716,6 +716,102 @@ async fn the_chosen_model_gives_the_engine_its_files_and_settings() {
     );
     assert!(spec.files.iter().all(|(_, path)| path.is_file()));
     assert_eq!((sampling.steps, sampling.cfg_scale), (4, 1.0));
+    assert_eq!(
+        (selected.negative_prompt.as_str(), selected.seed),
+        ("", None)
+    );
+
+    // Réglages avancés : ceux de la famille rappelés, sans guidage (CFG 1).
+    let view = setup
+        .models
+        .settings_view(&setup.store)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (
+            view.model_id.as_str(),
+            view.default_steps,
+            view.default_cfg_scale
+        ),
+        (klein.as_str(), 4, 1.0)
+    );
+    assert!(!view.guidance);
+    assert_eq!(view.settings, ImageSettings::default());
+    // Hors bornes ou modèle inconnu : refusés, rien d'enregistré.
+    let refused = |steps, cfg_scale, negative: &str| ImageSettings {
+        steps,
+        cfg_scale,
+        negative_prompt: negative.into(),
+        seed: None,
+    };
+    for (settings, message) in [
+        (
+            refused(Some(0), None, ""),
+            "the number of steps must be between 1 and 150",
+        ),
+        (
+            refused(None, Some(30.5), ""),
+            "the guidance scale must be between 0 and 30",
+        ),
+        (
+            refused(None, Some(f64::NAN), ""),
+            "the guidance scale must be between 0 and 30",
+        ),
+        (
+            refused(None, None, &"x".repeat(MAX_PROMPT + 1)),
+            "the negative prompt is too long (at most 8000 characters)",
+        ),
+    ] {
+        assert_eq!(
+            invalid(
+                setup
+                    .models
+                    .set_settings(&setup.store, &klein, settings)
+                    .await
+            ),
+            message
+        );
+    }
+    assert_eq!(
+        invalid(
+            setup
+                .models
+                .set_settings(&setup.store, "a/b/c.gguf", ImageSettings::default())
+                .await
+        ),
+        "This model isn't installed"
+    );
+    // Étapes et graine appliquées ; CFG et prompt négatif ignorés sans
+    // guidage (gardés pour un modèle qui l'emploierait : rien n'est perdu).
+    let chosen = ImageSettings {
+        steps: Some(6),
+        cfg_scale: Some(5.0),
+        negative_prompt: "  blurry  ".into(),
+        seed: Some(9),
+    };
+    setup
+        .models
+        .set_settings(&setup.store, &klein, chosen)
+        .await
+        .unwrap();
+    let selected = setup.models.selected_spec(&setup.store).await.unwrap();
+    assert_eq!(
+        (selected.sampling.steps, selected.sampling.cfg_scale),
+        (6, 1.0)
+    );
+    assert_eq!(
+        (selected.negative_prompt.as_str(), selected.seed),
+        ("", Some(9))
+    );
+    let view = setup
+        .models
+        .settings_view(&setup.store)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(view.settings.negative_prompt, "blurry", "espaces retirés");
+    assert_eq!(view.settings.cfg_scale, Some(5.0));
     // Un fichier disparu : plus prêt.
     let (_, model) = &spec.files[0];
     std::fs::remove_file(model).unwrap();
@@ -1406,4 +1502,40 @@ async fn the_machine_tells_its_largest_card() {
         assert!(!info.gpu);
         assert_eq!((info.vram_bytes, info.gpu_name), (None, None));
     }
+}
+
+#[test]
+fn user_settings_replace_the_family_ones_and_need_guidance_for_cfg_and_negative() {
+    let guided = Sampling {
+        steps: 26,
+        cfg_scale: 4.0,
+        sample_method: Some("euler".into()),
+        scheduler: None,
+        flow_shift: None,
+    };
+    let distilled = Sampling {
+        steps: 4,
+        cfg_scale: 1.0,
+        ..guided.clone()
+    };
+    assert!(uses_guidance(&guided));
+    assert!(!uses_guidance(&distilled));
+    // Rien de choisi : la famille telle quelle.
+    assert_eq!(
+        sampling_with(&guided, &ImageSettings::default()),
+        (guided.clone(), String::new())
+    );
+    let chosen = ImageSettings {
+        steps: Some(40),
+        cfg_scale: Some(3.5),
+        negative_prompt: " text, watermark ".into(),
+        seed: Some(1),
+    };
+    let (sampling, negative) = sampling_with(&guided, &chosen);
+    assert_eq!((sampling.steps, sampling.cfg_scale), (40, 3.5));
+    assert_eq!(sampling.sample_method.as_deref(), Some("euler"));
+    assert_eq!(negative, "text, watermark");
+    let (sampling, negative) = sampling_with(&distilled, &chosen);
+    assert_eq!((sampling.steps, sampling.cfg_scale), (40, 1.0));
+    assert_eq!(negative, "");
 }

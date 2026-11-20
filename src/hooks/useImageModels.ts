@@ -18,6 +18,7 @@ import {
 } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type { ImageModelInfo } from "@/bindings/ImageModelInfo";
+import type { ImageSettings } from "@/bindings/ImageSettings";
 import type { SpeechDownload } from "@/bindings/SpeechDownload";
 import { useSettings } from "@/hooks/useSettings";
 import {
@@ -30,6 +31,8 @@ import {
   imageModels,
   imageRepo,
   imageSearch,
+  imageSetSettings,
+  imageSettings,
   imageUseModel,
   listenImageDownloads,
 } from "@/lib/ipc";
@@ -39,6 +42,8 @@ export const imagesKey = ["images"] as const;
 export const imageModelsKey = ["images", "models"] as const;
 export const imageMachineKey = ["images", "machine"] as const;
 export const imageDownloadsKey = ["images", "downloads"] as const;
+/** Sous imageModelsKey : relus quand le modèle choisi change. */
+export const imageSettingsKey = ["images", "models", "settings"] as const;
 /** Préfixe des fiches (toutes). */
 export const imageReposKey = ["images", "repo"] as const;
 
@@ -323,4 +328,23 @@ export function useImageActions() {
       queryClient.invalidateQueries({ queryKey: imageModelsKey }),
   });
   return { download, retry, cancel, dismiss, remove, use };
+}
+
+/**
+ * Réglages avancés du modèle d'images choisi (`view` : `null` sans modèle,
+ * `undefined` pendant la lecture) et leur enregistrement.
+ */
+export function useImageSettings() {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: imageSettingsKey,
+    queryFn: imageSettings,
+  });
+  const save = useMutation({
+    mutationFn: ({ id, settings }: { id: string; settings: ImageSettings }) =>
+      imageSetSettings(id, settings),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: imageSettingsKey }),
+  });
+  return { view: query.data, save };
 }
