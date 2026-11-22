@@ -25,7 +25,10 @@
  * (repairIncompleteMarkdown instead of Streamdown's parseIncompleteMarkdown),
  * so that finished blocks are never rendered again, nothing is remounted at
  * the end of a reply and the final rendering is the text as written; error
- * fallback keeps line breaks.
+ * fallback keeps line breaks; the code block is also exported
+ * (CodeBlockView) for the code blocks of sent messages (UserText.tsx),
+ * its top padding written on the block itself (the official one gets it
+ * from prose-pre:pt-1, which only applies inside a reply).
  */
 
 import clsx from "clsx";
@@ -307,8 +310,26 @@ const CodeBlock = memo(function CodeBlock({ children }: ElementProps<"pre">) {
     ? children.props
     : { className: undefined, children };
   const language = code.className?.replace(/language-/, "") || "";
-  const codeText = extractText(code.children);
+  return (
+    <CodeBlockView language={language} code={extractText(code.children)} />
+  );
+});
 
+/**
+ * Bloc de code coloré avec son langage et son bouton Copier : celui des
+ * réponses, repris par les messages envoyés (UserText.tsx). `code` se
+ * termine par "\n", comme le texte que react-markdown donne aux blocs.
+ */
+export const CodeBlockView = memo(function CodeBlockView({
+  language,
+  code: codeText,
+  className = "my-6",
+}: {
+  language: string;
+  code: string;
+  /** Marges autour du bloc. */
+  className?: string;
+}) {
   // Coloration dès que le surligneur est prêt (rendu de nouveau à ce
   // moment) ; pendant le flux, seules les nouvelles lignes sont tokenisées.
   // Un rendu ne dépasse pas le budget de temps de la tâche : les lignes qui
@@ -343,7 +364,9 @@ const CodeBlock = memo(function CodeBlock({ children }: ElementProps<"pre">) {
       : codeText;
 
   return (
-    <div className="relative bg-neutral-100 dark:bg-neutral-800 rounded-2xl overflow-hidden my-6">
+    <div
+      className={`relative bg-neutral-100 dark:bg-neutral-800 rounded-2xl overflow-hidden ${className}`}
+    >
       <div className="flex select-none" data-code-block-header="">
         {language && (
           <div className="text-[13px] text-neutral-500 dark:text-neutral-400 font-mono px-4 py-2">
@@ -360,14 +383,14 @@ const CodeBlock = memo(function CodeBlock({ children }: ElementProps<"pre">) {
       </div>
       {/* Light mode */}
       <pre
-        className="dark:hidden m-0 bg-neutral-100 text-sm overflow-x-auto p-4"
+        className="dark:hidden m-0 bg-neutral-100 text-sm overflow-x-auto px-4 pt-1 pb-4"
         data-theme="light"
       >
         <code className="font-mono text-sm">{render(null)}</code>
       </pre>
       {/* Dark mode */}
       <pre
-        className="hidden dark:block m-0 bg-neutral-800 text-sm overflow-x-auto p-4"
+        className="hidden dark:block m-0 bg-neutral-800 text-sm overflow-x-auto px-4 pt-1 pb-4"
         data-theme="dark"
       >
         <code className="font-mono text-sm">

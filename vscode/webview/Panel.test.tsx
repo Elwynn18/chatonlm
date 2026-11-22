@@ -227,6 +227,32 @@ describe("Panel", () => {
   });
 
   describe("sending", () => {
+    it("keeps Enter for a new line inside an open ``` code block", async () => {
+      const post = renderPanel();
+      const user = userEvent.setup();
+      await user.click(composer());
+      await user.keyboard("```ts{Enter}let a = 1;{Enter}");
+      expect(composer()).toHaveProperty("value", "```ts\nlet a = 1;\n");
+      expect(posted(post).filter((m) => m.type === "send")).toEqual([]);
+
+      await user.keyboard("```{Enter}");
+      expect(posted(post)).toContainEqual({
+        type: "send",
+        text: "```ts\nlet a = 1;\n```",
+      });
+      // Le bloc envoyé est montré comme un bloc de code.
+      const sent = document.querySelector("[data-role=user] [data-user-code]");
+      expect(sent?.querySelector("pre code")?.textContent).toBe("let a = 1;\n");
+    });
+
+    it("sends with Ctrl+Enter inside an open ``` code block", async () => {
+      const post = renderPanel();
+      const user = userEvent.setup();
+      await user.click(composer());
+      await user.keyboard("```{Enter}open{Control>}{Enter}{/Control}");
+      expect(posted(post)).toContainEqual({ type: "send", text: "```\nopen" });
+    });
+
     it("sends with Enter and goes to a new line with Shift+Enter", async () => {
       const post = renderPanel();
       const user = userEvent.setup();

@@ -383,10 +383,10 @@ describe("StreamingMarkdownContent (real Streamdown)", () => {
       ).toBe("def greet(name):\n    return name\n");
     }
     expect(container.querySelector('pre[data-theme="light"]')?.className).toBe(
-      "dark:hidden m-0 bg-neutral-100 text-sm overflow-x-auto p-4",
+      "dark:hidden m-0 bg-neutral-100 text-sm overflow-x-auto px-4 pt-1 pb-4",
     );
     expect(container.querySelector('pre[data-theme="dark"]')?.className).toBe(
-      "hidden dark:block m-0 bg-neutral-800 text-sm overflow-x-auto p-4",
+      "hidden dark:block m-0 bg-neutral-800 text-sm overflow-x-auto px-4 pt-1 pb-4",
     );
   });
 

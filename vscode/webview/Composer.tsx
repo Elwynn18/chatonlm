@@ -1,4 +1,5 @@
-// Zone de saisie du panneau : Entrée envoie, Maj+Entrée va à la ligne, le
+// Zone de saisie du panneau : Entrée envoie, Maj+Entrée va à la ligne (Entrée
+// aussi dans un bloc ``` ouvert, Ctrl+Entrée envoie alors), le
 // bouton devient Stop pendant une réponse ; actions rapides au-dessus
 // (le texte de chacune est construit par l'hôte, avec le code de l'éditeur) ;
 // micro « Talk it through » (chaton en caoutchouc, lot 2) ; passage d'une
@@ -17,6 +18,7 @@ import {
   useState,
 } from "react";
 import { useT } from "@/i18n";
+import { insideOpenCodeBlock, isForcedSend } from "@/lib/shortcuts";
 import type { Notice, PanelState, QuickAction } from "../shared/protocol";
 import { linesLabel } from "./labels";
 
@@ -134,6 +136,13 @@ export function Composer({
       !event.shiftKey &&
       !event.nativeEvent.isComposing
     ) {
+      // Bloc ``` ouvert au curseur : Entrée seule va à la ligne, comme
+      // l'app ; Ctrl+Entrée envoie quand même.
+      if (
+        !isForcedSend(event.nativeEvent) &&
+        insideOpenCodeBlock(event.currentTarget)
+      )
+        return;
       event.preventDefault();
       submit();
     }

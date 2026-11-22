@@ -786,7 +786,7 @@
         "undoTyping": "Annuler dans un champ de texte",
         "redoTyping": "Rétablir dans un champ de texte",
         "send": "Envoyer",
-        "newLine": "Nouvelle ligne",
+        "newLine": "Nouvelle ligne (Entrée seule aussi, dans un bloc de code ``` ouvert)",
         "stopAnswer": "Arrêter la réponse",
         "cancelEdit": "Annuler la modification du message",
         "paste": "Coller du texte, des images ou des fichiers",

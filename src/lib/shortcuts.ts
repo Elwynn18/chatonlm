@@ -9,6 +9,7 @@
 
 import type { ShortcutKeys } from "@/bindings/ShortcutKeys";
 import type { TFunction } from "@/i18n";
+import { insideOpenFence } from "@/lib/codeFence";
 
 /**
  * Saisie d'une combinaison de raccourci global en cours (Windows, où l'app
@@ -166,6 +167,22 @@ export function zoomShortcut(event: KeyboardEvent): ZoomShortcut | null {
  */
 export function isSendShortcut(event: KeyboardEvent): boolean {
   return event.key === "Enter" && !event.shiftKey && !event.isComposing;
+}
+
+/**
+ * Ctrl+Entrée (Cmd+Entrée) : envoie même dans un bloc de code encore ouvert,
+ * où Entrée seule ajoute une ligne (insideOpenCodeBlock).
+ */
+export function isForcedSend(event: KeyboardEvent): boolean {
+  return event.ctrlKey || event.metaKey;
+}
+
+/**
+ * Le curseur d'une zone de texte est-il dans un bloc ``` encore ouvert ?
+ * Avec une sélection, c'est son début qui compte (elle sera remplacée).
+ */
+export function insideOpenCodeBlock(field: HTMLTextAreaElement): boolean {
+  return insideOpenFence(field.value, field.selectionStart);
 }
 
 /** Maj+Entrée : nouvelle ligne (comportement natif de la zone de texte). */

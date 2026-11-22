@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -419,7 +420,7 @@ describe("MessageList", () => {
   });
 
   it("keeps the user's text as typed: indentation, and Markdown as plain text", () => {
-    const typed = "```\n  indented\n```";
+    const typed = "  indented\n# not a title *nor bold*";
     render(list([message(1, "user", typed)], false));
     const bubble = screen.getByText(
       (_, element) =>
@@ -427,6 +428,32 @@ describe("MessageList", () => {
     );
     expect(bubble.className).toContain("whitespace-pre-wrap");
     expect(bubble.closest("[data-role=user]")).not.toBeNull();
+  });
+
+  it("shows the user's ``` code blocks and `inline code` like the replies'", () => {
+    render(
+      list(
+        [
+          message(
+            1,
+            "user",
+            "Why does `x` fail?\n```python\nprint(x)\n```\nThanks",
+          ),
+        ],
+        false,
+      ),
+    );
+    const bubble = document.querySelector("[data-role=user]")!;
+    const block = bubble.querySelector("[data-user-code]")!;
+    expect(
+      block.querySelector("[data-code-block-header]")?.textContent,
+    ).toContain("python");
+    expect(block.querySelector("pre code")?.textContent).toBe("print(x)\n");
+    // Avec son bouton Copier.
+    expect(within(block as HTMLElement).getByRole("button")).toBeTruthy();
+    expect(bubble.querySelector("code.font-mono")?.textContent).toBe("x");
+    expect(bubble.textContent).not.toContain("```");
+    expect(bubble.textContent).toContain("Thanks");
   });
   describe("while the model is downloaded", () => {
     it("shows the download block with its progress", () => {

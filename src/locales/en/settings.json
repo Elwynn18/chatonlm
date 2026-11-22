@@ -786,7 +786,7 @@
         "undoTyping": "Undo in a text field",
         "redoTyping": "Redo in a text field",
         "send": "Send",
-        "newLine": "New line",
+        "newLine": "New line (Enter alone too, inside an open ``` code block)",
         "stopAnswer": "Stop the response",
         "cancelEdit": "Cancel editing a message",
         "paste": "Paste text, images or files",

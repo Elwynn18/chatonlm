@@ -39,7 +39,9 @@
  * any other control), also takes it on mount during a reply, and leaves
  * Space to the focused button; texts translated into English, Spanish and French
  * (src/i18n); Enter, Escape and Ctrl+V read from the shortcut catalog
- * (src/lib/shortcuts.ts), also shown in the settings;
+ * (src/lib/shortcuts.ts), also shown in the settings; inside a ``` code
+ * block still open at the caret, Enter alone adds a line (Ctrl+Enter still
+ * sends), as in Discord or Claude (src/lib/codeFence.ts);
  * ChatonLM's own voice mode: a "wave" button next to Send (and Ctrl+Shift+
  * Space, which also ends it) starts it for this chat, and its bar
  * (VoiceModeBar.tsx) takes the place of the message field while it lasts
@@ -158,6 +160,8 @@ import { streamsFor } from "@/lib/streams";
 import {
   isEscapeKey,
   isPasteShortcut,
+  insideOpenCodeBlock,
+  isForcedSend,
   isSendShortcut,
   isVoiceModeShortcut,
 } from "@/lib/shortcuts";
@@ -771,6 +775,10 @@ export function ChatForm({
     const composing = composingRef.current || e.nativeEvent.isComposing;
     // Enter sends, Shift+Enter adds a line; never during an IME composition
     if (isSendShortcut(e.nativeEvent) && !composing) {
+      // Bloc ``` ouvert au curseur : Entrée seule ajoute une ligne (comme
+      // Discord ou Claude), Ctrl+Entrée envoie quand même.
+      if (!isForcedSend(e.nativeEvent) && insideOpenCodeBlock(e.currentTarget))
+        return;
       e.preventDefault();
       if (!isStreaming) submit();
       return;

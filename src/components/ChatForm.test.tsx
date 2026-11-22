@@ -231,6 +231,46 @@ describe("ChatForm", () => {
     expect((textarea as HTMLTextAreaElement).value).toBe("");
   });
 
+  it("inside an open ``` code block, Enter adds a line; Ctrl+Enter sends", async () => {
+    const { onSubmit, textarea } = renderForm();
+    await waitFor(() =>
+      expect(screen.getByTitle("Select model").textContent).toBe("qwen3:0.6b"),
+    );
+    await userEvent.type(textarea, "Why?{Enter}");
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    onSubmit.mockClear();
+
+    await userEvent.type(textarea, "```js{Enter}const a = 1;{Enter}");
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect((textarea as HTMLTextAreaElement).value).toBe(
+      "```js\nconst a = 1;\n",
+    );
+    // Bloc refermé : Entrée envoie de nouveau.
+    await userEvent.type(textarea, "```{Enter}");
+    expect(onSubmit).toHaveBeenCalledWith(
+      "```js\nconst a = 1;\n```",
+      "qwen3:0.6b",
+      undefined,
+      [],
+      [],
+      false,
+    );
+    onSubmit.mockClear();
+
+    await userEvent.type(
+      textarea,
+      "```{Enter}unfinished{Control>}{Enter}{/Control}",
+    );
+    expect(onSubmit).toHaveBeenCalledWith(
+      "```\nunfinished",
+      "qwen3:0.6b",
+      undefined,
+      [],
+      [],
+      false,
+    );
+  });
+
   it("sends without the line breaks and spaces that end the message", async () => {
     const { onSubmit, textarea } = renderForm();
     await waitFor(() =>

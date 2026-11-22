@@ -18,7 +18,9 @@
  * shows empty squares in their place; the image row only when there are
  * images (no empty 8 px row for text files) and without justify-end (it made
  * the first images of an overflowing row unreachable); messages keyed by their id; no duplicated element id on replies;
- * user messages keep their indentation (pre-wrap); blank thinking not shown;
+ * user messages keep their indentation (pre-wrap), their ``` code blocks
+ * and `inline code` shown like those of the replies (UserText.tsx, wider
+ * bubble for a code block); blank thinking not shown;
  * thinking without an end time shown as in progress only while the reply is
  * being written (a reply stopped while thinking is shown as finished); the
  * download block needs a total above 1 KiB, never renders a stray "0" when the
@@ -77,9 +79,11 @@ import { ReadAloudButton, ReadAloudStatus } from "@/components/ReadAloudButton";
 import { StreamingMarkdownContent } from "@/components/StreamingMarkdownContent";
 import { Thinking } from "@/components/Thinking";
 import { ToolCallDisplay, ToolResult } from "@/components/ToolCalls";
+import { UserText } from "@/components/UserText";
 import { useReadAloud } from "@/hooks/useReadAloud";
 import { useT } from "@/i18n";
 import { attachmentImageUrl } from "@/lib/attachments";
+import { hasCodeBlock } from "@/lib/codeFence";
 import {
   IMAGE_TOOL,
   imagePrompt,
@@ -463,7 +467,9 @@ function UserMessage({
         </div>
       )}
 
-      <div className="mb-8 max-w-md self-end">
+      <div
+        className={`mb-8 self-end ${hasCodeBlock(message.content) ? "max-w-full min-w-0" : "max-w-md"}`}
+      >
         <div
           className="group/message relative rounded-3xl bg-neutral-200 px-4 py-2 leading-normal dark:bg-neutral-700 dark:text-white"
           data-role="user"
@@ -499,7 +505,7 @@ function UserMessage({
           )}
 
           <div className="break-words whitespace-pre-wrap">
-            {message.content}
+            <UserText content={message.content} />
           </div>
 
           {/* Edit button */}

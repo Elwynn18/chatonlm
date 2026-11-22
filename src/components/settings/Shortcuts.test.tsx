@@ -76,7 +76,10 @@ describe("Keyboard shortcuts tab", () => {
     ]);
     expect(group("chat")).toEqual([
       ["Send", "Enter or Ctrl+Enter"],
-      ["New line", "Shift+Enter"],
+      [
+        "New line (Enter alone too, inside an open ``` code block)",
+        "Shift+Enter",
+      ],
       ["Stop the response", "Esc"],
       ["Cancel editing a message", "Esc"],
       ["Paste text, images or files", "Ctrl+V"],
@@ -507,7 +510,10 @@ describe("Keyboard shortcuts in other languages", () => {
     ]);
     act(() => setLanguage("es"));
     expect(group("chat")[0]).toEqual(["Enviar", "Enter o Ctrl+Enter"]);
-    expect(group("chat")[1]).toEqual(["Nueva línea", "Shift+Enter"]);
+    expect(group("chat")[1]).toEqual([
+      "Nueva línea (también Enter solo, dentro de un bloque de código ``` abierto)",
+      "Shift+Enter",
+    ]);
     expect(screen.getByTestId("settings-tab-shortcuts").textContent).toBe(
       "Atajos de teclado",
     );

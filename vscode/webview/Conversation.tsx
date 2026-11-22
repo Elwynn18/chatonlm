@@ -2,14 +2,17 @@
 // les envois de cette session (message envoyé, réponse en flux, raisonnement
 // repliable, erreur), avec le reçu de ce qui est parti sous chaque message
 // envoyé d'ici. Rendu des réponses : celui de l'app (StreamingMarkdownContent,
-// Thinking), liens et copies par l'hôte du panneau (src/lib/host.ts).
+// Thinking), liens et copies par l'hôte du panneau (src/lib/host.ts) ; blocs
+// de code des messages envoyés comme dans l'app (UserText).
 import { memo, useLayoutEffect, useRef } from "react";
 import { CopyButton } from "@/components/CopyButton";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { StreamingMarkdownContent } from "@/components/StreamingMarkdownContent";
 import { Thinking } from "@/components/Thinking";
+import { UserText } from "@/components/UserText";
 import type { Message } from "@/bindings/Message";
 import { useT } from "@/i18n";
+import { hasCodeBlock } from "@/lib/codeFence";
 import type { Receipt } from "../shared/protocol";
 import {
   type PanelModel,
@@ -40,9 +43,12 @@ const UserMessage = memo(function UserMessage({
   receipt: Receipt | null;
 }) {
   return (
-    <div className="mb-6 flex max-w-[90%] flex-col self-end" data-role="user">
+    <div
+      className={`mb-6 flex flex-col self-end ${hasCodeBlock(content) ? "max-w-full min-w-0" : "max-w-[90%]"}`}
+      data-role="user"
+    >
       <div className="max-h-60 overflow-y-auto rounded-3xl bg-neutral-200 px-4 py-2 leading-normal break-words whitespace-pre-wrap text-neutral-900 dark:bg-neutral-700 dark:text-white">
-        {content}
+        <UserText content={content} />
       </div>
       {receipt && <ReceiptView receipt={receipt} />}
     </div>
