@@ -110,6 +110,24 @@ jobs:
           restore-keys: |
             packages-windows-
 
+      # Cache d'une image précédente du runner : un CMakeCache.txt qui nomme un
+      # compilateur disparu (mise à jour de MSVC, ex. 14.51.36231 absent le
+      # 22 nov. 2026) fait échouer les crates construites par cmake
+      # (whisper-rs-sys…). Leur construction est effacée : elle est refaite.
+      - name: Cache Cargo (constructions cmake périmées)
+        run: |
+          find src-tauri/target -name CMakeCache.txt -path '*/build/*/out/*' 2>/dev/null |
+            while IFS= read -r cache; do
+              compiler="$(sed -n 's/^CMAKE_C_COMPILER:[A-Z]*=//p' "$cache" | head -1 | tr -d '\r')"
+              if [ -n "$compiler" ] && [ ! -e "$compiler" ]; then
+                dir="${cache%%/out/*}"
+                crate="$(basename "$dir")"
+                profile="$(dirname "$(dirname "$dir")")"
+                echo "Construction cmake périmée ($compiler absent) : $crate"
+                rm -rf "$dir" "$profile/.fingerprint/$crate"
+              fi
+            done
+
       - name: cargo-about (version de scripts/package-notices.mjs)
         run: |
           version="$(sed -n 's/^export const CARGO_ABOUT_VERSION = "\(.*\)";$/\1/p' scripts/package-notices.mjs)"

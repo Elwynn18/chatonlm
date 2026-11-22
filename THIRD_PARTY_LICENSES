@@ -912,21 +912,23 @@ https://datatracker.ietf.org/ipr/1526/
 
 -- ONNX Runtime --
 
-Library:  ONNX Runtime 1.28.3, https://github.com/microsoft/onnxruntime,
-          official Microsoft build (onnxruntime-linux-x64-1.28.3.tgz),
-          shipped unmodified as /usr/lib/chatonlm/libonnxruntime.so.1 and
-          loaded at run time through the ort crate
+Library:  ONNX Runtime 1.28.0, https://onnxruntime.ai, official Microsoft
+          build from the NuGet package Microsoft.ML.OnnxRuntime 1.28.0
+          (https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime),
+          its runtimes/linux-x64/native/libonnxruntime.so shipped unmodified
+          as /usr/lib/chatonlm/libonnxruntime.so.1 and loaded at run time
+          through the ort crate
 License:  MIT, Copyright (c) Microsoft Corporation
 
 ONNX Runtime runs the Parakeet dictation model. Its license, and the notices
 of the third-party code it includes (the ThirdPartyNotices.txt of the same
-archive), are shipped as licenses/onnxruntime-LICENSE.txt and
+package), are shipped as licenses/onnxruntime-LICENSE.txt and
 licenses/onnxruntime-ThirdPartyNotices.txt.
 
-The Windows installer ships the official Microsoft build for Windows of the
-same release instead (its onnxruntime-win-x64 archive), unmodified, as
-onnxruntime.dll next to chatonlm.exe, with the same two files in its licenses
-folder.
+The Windows installer ships the official Microsoft build for Windows from the
+same package instead (runtimes/win-x64/native/onnxruntime.dll), unmodified,
+as onnxruntime.dll next to chatonlm.exe, with the same two files in its
+licenses folder.
 
 -- SQLite --
 

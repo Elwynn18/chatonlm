@@ -480,8 +480,8 @@ The program is `src-tauri/target/release/chatonlm`. A copy built this way:
   `packaging/llama.env`), whose output in `.tools/runtimes/llama-server` a
   development build finds on its own;
 - needs ONNX Runtime 1.28 for Parakeet dictation: set `ORT_DYLIB_PATH` to its
-  `libonnxruntime.so.1`, for example from Microsoft's
-  `onnxruntime-linux-x64-1.28.3.tgz`. Without it, Whisper still works;
+  `libonnxruntime.so.1`, for example `scripts/fetch-onnxruntime.sh` (Microsoft's
+  NuGet package `Microsoft.ML.OnnxRuntime` 1.28.0). Without it, Whisper still works;
 - doesn't update itself.
 
 For development, `npm run tauri dev -- --config src-tauri/tauri.dev.conf.json`
@@ -525,8 +525,8 @@ folder of the installation on Windows.
 - The packages include `llama-server`, the server of
   [llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT), built by
   ChatonLM with the CPU and Vulkan backends of ggml (THIRD_PARTY_LICENSES,
-  part 11), and [ONNX Runtime](https://github.com/microsoft/onnxruntime)
-  1.28.3 (MIT), unmodified.
+  part 11), and [ONNX Runtime](https://onnxruntime.ai) 1.28.0 (MIT, from
+  Microsoft's NuGet package), unmodified.
 - The optional NVIDIA acceleration pack holds ChatonLM's build of the CUDA
   backend of ggml (MIT), published with each release. NVIDIA's CUDA
   libraries are not shipped by ChatonLM: they are downloaded from NVIDIA, on

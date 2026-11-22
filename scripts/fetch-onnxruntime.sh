@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Télécharge ONNX Runtime à la version épinglée (packaging/onnxruntime.env),
-# vérifie son empreinte et place dans .tools/runtimes/onnxruntime :
+# Télécharge ONNX Runtime à la version épinglée (packaging/onnxruntime.env :
+# paquet NuGet officiel), vérifie son empreinte et place dans
+# .tools/runtimes/onnxruntime :
 #   libonnxruntime.so.1   (Linux : sous son nom de SONAME, sans liens
 #                          symboliques)
 #   onnxruntime.dll       (Windows : sous Git Bash, ou avec --windows)
@@ -29,18 +30,15 @@ if [ "${1:-}" = "--windows" ]; then
 fi
 
 dest="$root/.tools/runtimes/onnxruntime"
+# Paquet NuGet officiel (le même pour les deux systèmes).
+url="$ORT_NUGET_URL"
+sha256="$ORT_NUGET_SHA256"
 if [ "$windows" = 1 ]; then
   name="onnxruntime.dll"
-  url="$ORT_WIN_URL"
-  sha256="$ORT_WIN_SHA256"
-  top="onnxruntime-win-x64-$ORT_VERSION"
-  member="$top/lib/onnxruntime.dll"
+  member="runtimes/win-x64/native/onnxruntime.dll"
 else
   name="libonnxruntime.so.1"
-  url="$ORT_URL"
-  sha256="$ORT_SHA256"
-  top="onnxruntime-linux-x64-$ORT_VERSION"
-  member="$top/lib/libonnxruntime.so.$ORT_VERSION"
+  member="runtimes/linux-x64/native/libonnxruntime.so"
 fi
 lib="$dest/$name"
 
@@ -69,18 +67,16 @@ if ! echo "$sha256  $archive" | sha256sum -c --quiet -; then
   rm -rf "$work"
   exit 1
 fi
-# Archive vérifiée : on n'en extrait que ce qui est livré.
-if [ "$windows" = 1 ]; then
-  unzip -q "$archive" "$member" "$top/LICENSE" "$top/ThirdPartyNotices.txt" -d "$work/x"
-else
-  tar -xzf "$archive" -C "$work/x" "$member" "$top/LICENSE" "$top/ThirdPartyNotices.txt"
-fi
+# Paquet vérifié : on n'en extrait que ce qui est livré (un .nupkg est un zip ;
+# chaque nom est donné en entier, l'unzip de Git pour Windows arrêtant « * »
+# aux « / »).
+unzip -q "$archive" "$member" LICENSE ThirdPartyNotices.txt -d "$work/x"
 
 rm -rf "$dest"
 mkdir -p "$dest"
 install -m 0644 "$work/x/$member" "$lib"
-install -m 0644 "$work/x/$top/LICENSE" "$dest/LICENSE"
-install -m 0644 "$work/x/$top/ThirdPartyNotices.txt" "$dest/ThirdPartyNotices.txt"
+install -m 0644 "$work/x/LICENSE" "$dest/LICENSE"
+install -m 0644 "$work/x/ThirdPartyNotices.txt" "$dest/ThirdPartyNotices.txt"
 echo "$ORT_VERSION" >"$dest/VERSION"
 rm -rf "$work"
 show "$lib"

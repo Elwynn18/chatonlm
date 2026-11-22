@@ -21,6 +21,12 @@ ignore = [
   { id = "RUSTSEC-2026-0371", reason = "zbus_names fondue dans zbus 6, tirée par zbus 5 ; sans faille connue" },
   { id = "RUSTSEC-2026-0370", reason = "zvariant fondue dans zbus 6, tirée par zbus 5 ; sans faille connue" },
   { id = "RUSTSEC-2026-0372", reason = "zvariant_derive fondue dans zbus 6, tirée par zbus 5 ; sans faille connue" },
+  # chrono 0.4 et humantime 2 (21 nov. 2026, chronotope/chrono#1768) : plus
+  # maintenues, sans faille connue, toutes versions concernées. chrono :
+  # dates des PDF lus par oxidize-pdf (texte des documents joints) ;
+  # humantime : env_logger 0.10 de transcribe-rs (journaux, inutilisés).
+  { id = "RUSTSEC-2026-0543", reason = "chrono plus maintenue, tirée par oxidize-pdf ; sans faille connue ni remplaçante" },
+  { id = "RUSTSEC-2026-0542", reason = "humantime plus maintenue, tirée par env_logger de transcribe-rs ; sans faille connue" },
 ]
 
 [licenses]
