@@ -840,6 +840,17 @@ async fn copy_last_copies_the_last_text() {
     assert!(rig.last_result().unwrap().copied);
 }
 
+/// « Erase my data » : le dernier texte dicté est oublié.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_last_text_can_be_forgotten() {
+    let rig = rig("").await;
+    rig.dictate().await;
+    assert!(rig.last_result().is_some());
+    rig.core.forget_last();
+    assert_eq!(rig.last_result(), None);
+    assert_eq!(rig.core.copy_last().await, Err(CopyError::Nothing));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_clipboard_failure_keeps_the_text_in_the_result() {
     let rig = rig("").await;

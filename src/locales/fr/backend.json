@@ -700,5 +700,9 @@
     "failed": "La synthèse a échoué : {detail}",
     "timedOut": "le modèle a mis trop de temps à répondre",
     "notSaved": "La synthèse n'a pas pu être enregistrée : {detail}"
+  },
+  "erase": {
+    "busy": "Vos données sont déjà en cours d'effacement.",
+    "noDatabase": "ChatonLM ne peut pas ouvrir sa base de données : vos données ne peuvent pas être effacées."
   }
 }

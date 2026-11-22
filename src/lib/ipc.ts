@@ -15,6 +15,7 @@ import type { DictationInfo } from "@/bindings/DictationInfo";
 import type { DictationPatch } from "@/bindings/DictationPatch";
 import type { DictationSettings } from "@/bindings/DictationSettings";
 import type { DictationStatus } from "@/bindings/DictationStatus";
+import type { EraseReport } from "@/bindings/EraseReport";
 import type { HubDownload } from "@/bindings/HubDownload";
 import type { HubDownloadRequest } from "@/bindings/HubDownloadRequest";
 import type { HubFilters } from "@/bindings/HubFilters";
@@ -150,6 +151,15 @@ export function getSettings(): Promise<Settings> {
 
 export function updateSettings(patch: SettingsPatch): Promise<Settings> {
   return invoke<Settings>("update_settings", { patch });
+}
+
+/**
+ * « Erase my data » (propre à ChatonLM) : efface les données de
+ * l'utilisateur, jamais les modèles ; l'app reste ouverte. Rejet : rien n'a
+ * été effacé.
+ */
+export function eraseUserData(): Promise<EraseReport> {
+  return invoke<EraseReport>("erase_user_data");
 }
 
 /**
@@ -1836,13 +1846,15 @@ export function transcriptionSynthesisStatus(): Promise<SynthesisStatus | null> 
  * Événement de la synthèse : étape et document entier tel qu'il est (il
  * grandit pendant l'écriture ; vide pendant les notes d'une transcription
  * longue). Une fois `done`, il est aussi rendu par `transcriptionGet`.
+ * `null` : plus de synthèse à montrer (« Erase my data »).
  */
 export const TRANSCRIPTION_SYNTHESIS_EVENT = "transcription-synthesis";
 
 export function listenTranscriptionSynthesis(
-  onChange: (status: SynthesisStatus) => void,
+  onChange: (status: SynthesisStatus | null) => void,
 ): Promise<UnlistenFn> {
-  return listen<SynthesisStatus>(TRANSCRIPTION_SYNTHESIS_EVENT, (event) =>
-    onChange(event.payload),
+  return listen<SynthesisStatus | null>(
+    TRANSCRIPTION_SYNTHESIS_EVENT,
+    (event) => onChange(event.payload),
   );
 }

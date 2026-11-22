@@ -11,6 +11,7 @@ mod dictation;
 mod disk;
 mod easy_link;
 mod engine;
+mod erase;
 mod error;
 mod gpu;
 mod graphics;
@@ -605,6 +606,7 @@ pub fn run() {
             commands::image_models::image_use_model,
             commands::image_models::image_settings,
             commands::image_models::image_set_settings,
+            commands::erase::erase_user_data,
             commands::engine::cuda_cancel,
             commands::engine::cuda_install,
             commands::engine::cuda_remove,

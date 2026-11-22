@@ -171,6 +171,10 @@ describe("thème central", () => {
       expect(failing(palette, ["neutral-900"], ["accent"], 4.5)).toEqual([]);
       // Bouton principal : clair = encre, texte blanc ; sombre = l'inverse.
       expect(failing(palette, ["white"], ["neutral-900"], 4.5)).toEqual([]);
+      // Bouton qui efface (« Erase my data ») : texte blanc sur le rouge.
+      expect(failing(palette, ["white"], ["red-600", "red-700"], 4.5)).toEqual(
+        [],
+      );
     }
   });
 

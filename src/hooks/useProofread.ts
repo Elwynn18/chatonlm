@@ -447,8 +447,14 @@ export function claimSelectionRequest(key: string): boolean {
   return true;
 }
 
-/** Essais : état initial (le magasin vit aussi longtemps que le module). */
-export function resetProofreadForTests() {
+/**
+ * État initial : texte, revue et page gardée oubliés (« Erase my data » ;
+ * essais : le magasin vit aussi longtemps que le module).
+ */
+export function resetProofread() {
   servedRequests.clear();
   set(INITIAL);
 }
+
+/** Essais : état initial. */
+export const resetProofreadForTests = resetProofread;

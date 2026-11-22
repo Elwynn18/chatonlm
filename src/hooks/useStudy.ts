@@ -344,8 +344,14 @@ export function forgetLevelStreams(courseId: string, level: number) {
   }
 }
 
-/** Essais : aucun flux (le magasin vit aussi longtemps que le module). */
-export function resetStudyStreamsForTests() {
+/**
+ * Aucun flux : explications et réponses oubliées (« Erase my data » ;
+ * essais : le magasin vit aussi longtemps que le module).
+ */
+export function resetStudyStreams() {
   streams.clear();
   for (const listener of listeners) listener();
 }
+
+/** Essais : aucun flux. */
+export const resetStudyStreamsForTests = resetStudyStreams;

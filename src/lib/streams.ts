@@ -657,3 +657,12 @@ export function resetStreams() {
   if (scheduled) clearTimeout(scheduled);
   scheduled = null;
 }
+
+/**
+ * « Erase my data » : envois, réponses et erreurs gardés oubliés, les vues
+ * prévenues (les réponses en cours sont déjà arrêtées par le moteur).
+ */
+export function forgetStreams() {
+  resetStreams();
+  notify();
+}

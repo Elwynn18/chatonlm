@@ -87,6 +87,15 @@ pub async fn reset_trigger(app: &AppHandle, id: &str) -> AppResult<()> {
     }
 }
 
+/// « Erase my data » : combinaisons choisies oubliées, toutes ensemble
+/// (Windows ; sous Linux, le portail du bureau les choisit : rien à faire).
+pub async fn reset_all_triggers(app: &AppHandle) {
+    #[cfg(windows)]
+    os::reset_all_triggers(app).await;
+    #[cfg(not(windows))]
+    let _ = app;
+}
+
 /// Zone de saisie d'une combinaison ouverte (`active`) ou fermée : pendant la
 /// saisie, les raccourcis globaux sont suspendus, sinon la combinaison
 /// actuelle lancerait la dictée au lieu d'arriver à la page (Windows ; rien

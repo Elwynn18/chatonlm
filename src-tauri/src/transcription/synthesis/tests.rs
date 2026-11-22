@@ -47,10 +47,16 @@ fn bench() -> FakeBench {
 
 /// États envoyés, dans l'ordre.
 #[derive(Clone, Default)]
-struct Sent(Arc<Mutex<Vec<SynthesisStatus>>>);
+struct Sent(Arc<Mutex<Vec<Option<SynthesisStatus>>>>);
 
 impl Sent {
+    /// États envoyés (sans les `None` d'un oubli).
     fn all(&self) -> Vec<SynthesisStatus> {
+        self.0.lock().iter().flatten().cloned().collect()
+    }
+
+    /// Tout ce qui est parti, `None` compris.
+    fn raw(&self) -> Vec<Option<SynthesisStatus>> {
         self.0.lock().clone()
     }
 }
@@ -60,7 +66,7 @@ fn synthesizer() -> (Synthesizer, Sent) {
     let sent = Sent::default();
     let collected = sent.clone();
     let synthesizer = Synthesizer::with_timing(
-        move |status| collected.0.lock().push(status.clone()),
+        move |status| collected.0.lock().push(status.cloned()),
         Timing {
             emit_gap: Duration::ZERO,
             stall: Duration::from_secs(20),
@@ -571,6 +577,47 @@ async fn a_synthesis_can_be_cancelled_at_any_time() {
             .any(|request| message(request, "system").contains(DOCUMENT_MARK)
                 && message(request, "user").contains("<notes>"))
     );
+    bench.shutdown().await;
+}
+
+/// « Erase my data » : la synthèse est annulée et oubliée, la page le sait
+/// (`None`) ; même finie après l'attente, elle ne montre plus rien et
+/// n'écrit rien ; une autre peut commencer ensuite.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_forgotten_synthesis_shows_nothing_even_when_it_ends_later() {
+    let bench = bench();
+    add(&bench, "t", "en", &[paragraph(1), paragraph(2)]);
+    let (synthesizer, sent) = synthesizer();
+    synthesizer
+        .start(&bench.access, "t".into(), Some(SLOW.into()))
+        .await
+        .unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while synthesizer.status().unwrap().markdown.is_empty() {
+        assert!(tokio::time::Instant::now() < deadline, "nothing shown");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    // Attente trop courte : la synthèse annulée finit après l'oubli.
+    synthesizer.forget(Duration::ZERO).await;
+    assert_eq!(synthesizer.status(), None);
+    let forgotten = sent.raw().len();
+    assert_eq!(sent.raw().last(), Some(&None));
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while synthesizer.is_busy() {
+        assert!(tokio::time::Instant::now() < deadline, "still running");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(synthesizer.status(), None);
+    assert!(
+        sent.raw()[forgotten..].iter().all(Option::is_none),
+        "{:?}",
+        &sent.raw()[forgotten..]
+    );
+    assert_eq!(summary_of(&bench, "t"), None);
+    synthesizer
+        .start(&bench.access, "t".into(), Some(SLOW.into()))
+        .await
+        .unwrap();
     bench.shutdown().await;
 }
 

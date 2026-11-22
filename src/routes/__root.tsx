@@ -45,7 +45,9 @@
  * the extension asks for (autocomplete) is offered for download here, on any
  * page, and only downloaded once the user accepts; the end of an import of
  * Ollama models (ChatonLM's own) is followed here: the models and the
- * settings (selected model under its new id) are read again.
+ * settings (selected model under its new id) are read again; ChatonLM's own
+ * short notices (components/Notice.tsx: "Your data has been erased.", once
+ * the settings are left for a new chat) are shown here, on any page.
  */
 
 import type { QueryClient } from "@tanstack/react-query";
@@ -59,6 +61,7 @@ import { useEffect } from "react";
 import { EditorVoiceBanner } from "@/components/EditorVoiceBanner";
 import { OfferPullDialog } from "@/components/OfferPullDialog";
 import { ModelPreloader } from "@/components/ModelPreloader";
+import { Notice } from "@/components/Notice";
 import { Tour } from "@/components/onboarding/Tour";
 import { useChatsEvents } from "@/hooks/useChats";
 import { useDictationEvents } from "@/hooks/useDictation";
@@ -302,6 +305,8 @@ function RootComponent() {
         <EditorVoiceBanner />
         {/* Modèle d'autocomplétion demandé par VS Code : proposé ici. */}
         <OfferPullDialog />
+        {/* Annonce de toute l'app (« Your data has been erased. »). */}
+        <Notice />
       </div>
       {touring && <Tour />}
     </>

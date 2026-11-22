@@ -49,6 +49,36 @@
       "button": "Rétablir les valeurs par défaut",
       "resetting": "Réinitialisation…",
       "error": "ChatonLM n'a pas pu rétablir tous les paramètres. Vérifiez les paramètres ci-dessus, puis réessayez."
+    },
+    "erase": {
+      "title": "Effacer mes données",
+      "description": "Efface de cet ordinateur vos conversations, cours, transcriptions, liaisons et paramètres. Vos modèles restent.",
+      "button": "Effacer mes données",
+      "erasing": "Effacement…",
+      "error": "Vos données n'ont pas pu être effacées : {message}",
+      "errorStopped": "Vos données n'ont pas pu être effacées ({message}). Les travaux en cours ont été arrêtés.",
+      "dialog": {
+        "title": "Effacer vos données ?",
+        "erasedHeading": "Effacé de cet ordinateur :",
+        "erased": {
+          "chats": "Vos conversations, avec leurs pièces jointes et leurs images",
+          "study": "Vos cours et vos transcriptions",
+          "links": "Vos bots Easy Link et les comptes liés, vos éditeurs VS Code appairés, vos fournisseurs de modèles distants et votre moteur de recherche, avec leurs clés",
+          "settings": "Vos paramètres, dictionnaire de la dictée compris",
+          "logs": "Les journaux de l'app et les copies de sa base de données"
+        },
+        "keptHeading": "Gardé :",
+        "kept": {
+          "models": "Vos modèles, leurs fichiers (texte, images, transcription, voix) et les modèles que vous avez choisis",
+          "tools": "Les outils téléchargés et le pack CUDA",
+          "language": "La langue de l'interface"
+        },
+        "warning": "Cette action est irréversible.",
+        "confirm": "Effacer mes données"
+      },
+      "done": "Vos données ont été effacées.",
+      "leftovers": "Certains fichiers n'ont pas pu être effacés : {files}.",
+      "browsingData": "données de la page"
     }
   },
   "engine": {

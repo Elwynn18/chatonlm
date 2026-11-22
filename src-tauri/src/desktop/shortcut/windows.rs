@@ -388,6 +388,18 @@ pub async fn set_trigger(app: &AppHandle, id: &str, keys: Option<ShortcutKeys>) 
     Ok(())
 }
 
+/// « Erase my data » : les trois combinaisons reviennent ensemble à celles
+/// par défaut (déjà effacées des réglages par `store::erase`), saisie
+/// finie, puis enregistrées auprès de Windows.
+pub async fn reset_all_triggers(app: &AppHandle) {
+    {
+        let mut inner = shortcuts(app).inner.lock();
+        inner.combos.reset();
+        inner.recording = false;
+    }
+    sync(app).await;
+}
+
 /// Saisie ouverte ou fermée dans la page : raccourcis suspendus le temps de
 /// la saisie, [`RECORDING_LIMIT`] au plus.
 pub async fn recording(app: &AppHandle, active: bool) {

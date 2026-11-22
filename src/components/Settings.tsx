@@ -27,7 +27,10 @@
  * "Auto-download updates" switch; untouched by "Reset to defaults";
  * scrolled into view and focused each time the page is opened for it from
  * the system tray, card=updates), then "Reset to defaults", then ChatonLM's
- * own "Report a bug" card (settings/BugReport.tsx: a message sent through
+ * own "Erase my data" zone, in red (settings/EraseData.tsx: the user's data
+ * erased at once, never the models, after a confirmation that lists what is
+ * erased and what is kept; the app stays open, on a new chat, and says that
+ * the data has been erased), then ChatonLM's own "Report a bug" card (settings/BugReport.tsx: a message sent through
  * chatonlm.com, an optional reply address, diagnostic shown before sending,
  * logs folder) and "Support ChatonLM" card, last (settings/Donate.tsx: what
  * donations pay for, and a button that opens the donation page of the
@@ -83,6 +86,7 @@ import { CloseButtonRow } from "@/components/settings/CloseButton";
 import { Donate } from "@/components/settings/Donate";
 import { EasyLink } from "@/components/settings/EasyLink";
 import { EngineRow } from "@/components/settings/Engine";
+import { EraseData } from "@/components/settings/EraseData";
 import { MenuEntryRow } from "@/components/settings/MenuEntry";
 import { ModelImport } from "@/components/settings/ModelImport";
 import { Models } from "@/components/settings/Models";
@@ -526,6 +530,10 @@ export function Settings({
                   : t("settings.general.reset.button")}
               </button>
             </div>
+
+            {/* Propre à ChatonLM : données de l'utilisateur effacées (jamais
+                les modèles), dans une zone rouge à part. */}
+            <EraseData />
 
             {/* Propres à ChatonLM, tout en bas : aucun réglage. */}
             <BugReport />

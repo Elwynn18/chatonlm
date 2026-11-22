@@ -1312,6 +1312,46 @@ async fn unlinking_stops_the_answer_being_written() {
     assert!(started.elapsed() < Duration::from_secs(4));
 }
 
+/// « Erase my data » : bots arrêtés, réponse en cours arrêtée, code retiré ;
+/// la base effacée, l'état est vide ; le service reste ouvert (un bot relié
+/// de nouveau est écouté, l'ancien compte n'y est plus lié).
+#[tokio::test(flavor = "multi_thread")]
+async fn erasing_the_data_stops_the_bots_and_keeps_the_service_open() {
+    let bench = bench(STALL).await;
+    bench.telegram_linked().await;
+    let before = bench.told().len();
+    bench.say("write slowly");
+    wait_until("réponse commencée", || bench.told().len() > before).await;
+    bench.service.pair(Platform::Telegram).await.unwrap();
+    let started = std::time::Instant::now();
+    bench.service.erase().await;
+    wait_until("réponse arrêtée", || !bench.busy()).await;
+    assert!(started.elapsed() < Duration::from_secs(4));
+    assert_eq!(bench.link_of(Platform::Telegram), EasyLinkLink::Off);
+    bench
+        .store
+        .blocking(crate::store::erase::erase_user_data)
+        .unwrap();
+    bench.service.publish().await;
+    let state = bench.state();
+    assert!(state.accounts.is_empty());
+    assert_eq!(state.pairing, None);
+    assert!(state.bots.iter().all(|bot| !bot.configured && !bot.enabled));
+
+    bench
+        .service
+        .connect(Platform::Telegram, fake_telegram::TOKEN)
+        .await
+        .unwrap();
+    wait_until("Telegram de nouveau connecté", || {
+        bench.link_of(Platform::Telegram) == EasyLinkLink::Connected
+    })
+    .await;
+    bench.say("hello");
+    bench.wait_told("This bot is private").await;
+    bench.done().await;
+}
+
 /// Réponse coupée parce que la conversation remplit le contexte : le
 /// correspondant, qui ne peut pas compacter, est invité à renvoyer son
 /// message (l'envoi suivant compactera de lui-même).

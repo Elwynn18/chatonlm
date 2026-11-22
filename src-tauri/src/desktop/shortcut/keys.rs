@@ -290,6 +290,15 @@ impl Combos {
     }
 
     /// `combo` est déjà celle d'un autre raccourci que `id`.
+    /// Les trois combinaisons reviennent ensemble à celles par défaut
+    /// (« Erase my data ») : une à une, deux combinaisons échangées seraient
+    /// refusées ([`Self::used_by_another`] compare aux autres, pas encore
+    /// remises).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
     pub fn used_by_another(&self, id: &str, combo: Combo) -> bool {
         [DICTATION_ID, PROOFREAD_ID, READ_ALOUD_ID]
             .into_iter()
@@ -355,6 +364,24 @@ pub(super) fn command_for(id: &str, pressed: bool, hold: bool) -> Option<Command
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Combinaisons échangées (dictée ↔ correction) : une remise une à une
+    /// serait refusée ; la remise de toutes ensemble donne celles par
+    /// défaut, toutes différentes.
+    #[test]
+    fn swapped_combinations_are_reset_together() {
+        let mut combos = Combos {
+            dictation: Combo::default_for(PROOFREAD_ID),
+            proofread: Combo::default_for(DICTATION_ID),
+            read_aloud: Combo::parse("Ctrl+Alt+F2").unwrap(),
+        };
+        assert!(combos.used_by_another(DICTATION_ID, Combo::default_for(DICTATION_ID)));
+        combos.reset();
+        for id in [DICTATION_ID, PROOFREAD_ID, READ_ALOUD_ID] {
+            assert_eq!(combos.get(id), Combo::default_for(id), "{id}");
+            assert!(!combos.used_by_another(id, combos.get(id)), "{id}");
+        }
+    }
 
     #[test]
     fn a_refused_registration_is_taken_or_failed() {

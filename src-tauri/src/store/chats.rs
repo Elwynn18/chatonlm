@@ -842,7 +842,7 @@ pub fn forget_all(connection: &Connection) -> AppResult<usize> {
 /// pourrait l'empêcher (SQLite répond « busy » sans erreur ; l'app n'a qu'une
 /// connexion) : le journal est alors vidé au prochain effacement, ou supprimé
 /// à la fermeture de la base.
-fn truncate_journal(connection: &Connection) {
+pub(crate) fn truncate_journal(connection: &Connection) {
     if let Err(error) = connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())) {
         crate::app_log!("chatonlm: cannot truncate the journal: {error}");
     }

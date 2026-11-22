@@ -450,6 +450,45 @@ impl<H: Host> EasyLink<H> {
         self.0.state().await
     }
 
+    /// « Erase my data », avant l'effacement de la base : bots arrêtés (plus
+    /// d'écoute), code d'appairage retiré, réponses des comptes liés
+    /// arrêtées, images en attente et tâches de VS Code oubliées (les
+    /// messages déjà servis : [`Self::forget_served`]). Le service reste ouvert : un bot relié ensuite est écouté. La
+    /// base effacée, [`Self::publish`] montre l'état vide.
+    pub async fn erase(&self) {
+        let _changing = self.0.changing.lock().await;
+        for platform in [Platform::Telegram, Platform::Discord] {
+            self.0.stop(platform);
+        }
+        self.0.pairings.lock().cancel();
+        let accounts: Vec<i64> = self.0.busy.lock().keys().copied().collect();
+        for account in accounts {
+            self.0.stop_answer(account);
+        }
+        let pending: Vec<String> = self
+            .0
+            .pending
+            .lock()
+            .drain()
+            .flat_map(|(_, files)| files)
+            .collect();
+        self.0.staging.unstage(&pending);
+        self.0.missed.lock().clear();
+        self.0.board.clear();
+    }
+
+    /// « Erase my data », une fois la base effacée : messages déjà servis
+    /// oubliés (avant, un échec de la base les laisserait servir de
+    /// nouveau au bot remis en route).
+    pub fn forget_served(&self) {
+        self.0.served.lock().clear();
+    }
+
+    /// État envoyé à la page (après « Erase my data »).
+    pub async fn publish(&self) {
+        self.0.publish().await;
+    }
+
     /// Fermeture de l'app : plus d'écoute, plus de nouvelle réponse (celles en
     /// cours sont arrêtées et enregistrées par le moteur de chat).
     pub fn shutdown(&self) {

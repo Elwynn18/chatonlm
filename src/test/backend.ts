@@ -52,6 +52,11 @@
 // jointe à la réponse enregistrée (imageProgress n'enregistre rien) ;
 // save_image note la pièce jointe dans imageSaves et répond imageSave
 // (vrai : écrite, faux : annulé, ou l'erreur renvoyée).
+// « Erase my data » (propre à ChatonLM) : erase_user_data vide les
+// conversations, les cours et les réglages Think, remet les réglages par
+// défaut (langue, visite guidée et modèles choisis gardés) et répond eraseReport ; échec
+// forcé par eraseError (rien n'est effacé, comme le moteur) ; eraseHold
+// retient la réponse jusqu'à son appel.
 // Pour les tests seulement.
 
 import type { AppVersions } from "@/bindings/AppVersions";
@@ -69,6 +74,7 @@ import type { ChatSource } from "@/bindings/ChatSource";
 import type { Message } from "@/bindings/Message";
 import type { ModelDetails } from "@/bindings/ModelDetails";
 import type { EngineRunningModel } from "@/bindings/EngineRunningModel";
+import type { EraseReport } from "@/bindings/EraseReport";
 import type { MachineMemory } from "@/bindings/MachineMemory";
 import type { ResourcesView } from "@/bindings/ResourcesView";
 import type { RecommendedModel } from "@/bindings/RecommendedModel";
@@ -398,6 +404,48 @@ export interface FakeBackend {
   imageSaves: number[];
   /** Réponse de save_image (vrai par défaut), ou l'erreur renvoyée. */
   imageSave: boolean | AppError;
+  /** Réponse de erase_user_data : rien de resté par défaut. */
+  eraseReport: EraseReport;
+  /** Échec forcé de erase_user_data (null : réponse normale). */
+  eraseError: AppError | null;
+  /**
+   * Posé : erase_user_data attend son appel avant d'effacer et de répondre
+   * (état occupé de la page).
+   */
+  eraseHold: Promise<void> | null;
+}
+
+/**
+ * Réglages du moteur par défaut (base neuve), avec `selectedModel` choisi
+ * (la page en choisit un dès qu'elle lit la liste) et la visite guidée faite.
+ */
+function defaultSettings(selectedModel: string): Settings {
+  return {
+    formerServerUrl: "",
+    contextLength: 0,
+    theme: "system",
+    selectedModel,
+    windowWidth: null,
+    windowHeight: null,
+    webSearchEnabled: false,
+    keepAlive: 0,
+    preloadModel: false,
+    language: "system",
+    effectiveLanguage: "en",
+    proofreadModel: "",
+    proofreadShortcut: false,
+    proofreadPaste: true,
+    readAloudShortcut: false,
+    proofreadKeepOrder: false,
+    proofreadFormatting: true,
+    proofreadDigits: false,
+    studyModel: "",
+    autoRead: false,
+    onboardingDone: true,
+    showUncensored: false,
+    systemPrompt: "",
+    remoteModels: false,
+  };
 }
 
 /**
@@ -424,7 +472,8 @@ export interface FakeBackend {
  * voice_mode_*, get_voice_mode_settings et update_voice_mode_settings
  * (src/test/voiceMode.ts), easy_link_* (src/test/easyLink.ts), bridge_*
  * (src/test/bridge.ts), image_*
- * (src/test/images.ts), save_image (backend.imageSave), menu_entry_status,
+ * (src/test/images.ts), save_image (backend.imageSave), erase_user_data
+ * (backend.eraseReport, eraseError, eraseHold), menu_entry_status,
  * set_menu_entry, update_status, app_versions, check_for_updates,
  * download_update, restart_to_update et set_auto_download,
  * branchés sur le simulateur ; un send_message qui joint un
@@ -481,32 +530,7 @@ export function fakeBackend(
     bridge?: FakeBridge;
     images?: FakeImages;
   } = {
-    settings: {
-      formerServerUrl: "",
-      contextLength: 0,
-      theme: "system",
-      selectedModel,
-      windowWidth: null,
-      windowHeight: null,
-      webSearchEnabled: false,
-      keepAlive: 0,
-      preloadModel: false,
-      language: "system",
-      effectiveLanguage: "en",
-      proofreadModel: "",
-      proofreadShortcut: false,
-      proofreadPaste: true,
-      readAloudShortcut: false,
-      proofreadKeepOrder: false,
-      proofreadFormatting: true,
-      proofreadDigits: false,
-      studyModel: "",
-      autoRead: false,
-      onboardingDone: true,
-      showUncensored: false,
-      systemPrompt: "",
-      remoteModels: false,
-    },
+    settings: defaultSettings(selectedModel),
     settingsErrors: { get: null, update: null },
     details: new Map<string, ModelDetails | AppError>(
       details.map((entry) =>
@@ -573,6 +597,9 @@ export function fakeBackend(
     versions: { chatonlm: "0.9.0", llamaCpp: null },
     imageSaves: [],
     imageSave: true,
+    eraseReport: { leftovers: [], browsingDataCleared: true },
+    eraseError: null,
+    eraseHold: null,
     updateErrors: {
       check: null,
       download: null,
@@ -617,6 +644,31 @@ export function fakeBackend(
     backend.imageSaves.push(args.attachmentId as number);
     if (typeof backend.imageSave !== "boolean") throw backend.imageSave;
     return backend.imageSave;
+  });
+  simulator.handle("erase_user_data", async () => {
+    if (backend.eraseHold) await backend.eraseHold;
+    if (backend.eraseError) throw backend.eraseError;
+    backend.chats.clear();
+    backend.thinkPrefs.clear();
+    backend.study?.courses.clear();
+    // Gardés : langue, visite guidée et modèles choisis.
+    const {
+      language,
+      effectiveLanguage,
+      onboardingDone,
+      selectedModel,
+      proofreadModel,
+      studyModel,
+    } = backend.settings;
+    backend.settings = {
+      ...defaultSettings(selectedModel),
+      language,
+      effectiveLanguage,
+      onboardingDone,
+      proofreadModel,
+      studyModel,
+    };
+    return { ...backend.eraseReport };
   });
   simulator.handle("app_platform", () => backend.platform);
   simulator.handle("close_button_status", () => ({ ...backend.closeButton }));

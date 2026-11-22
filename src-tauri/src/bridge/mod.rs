@@ -482,6 +482,12 @@ impl<H: Host> Bridge<H> {
         self.0.unlink(client_id, None).await
     }
 
+    /// État envoyé à la page (après « Erase my data », qui coupe le pont par
+    /// [`Self::set_enabled`] puis efface les éditeurs appairés dans la base).
+    pub async fn publish(&self) {
+        self.0.emit().await;
+    }
+
     /// Fin de l'app : point d'accès fermé, fichier de découverte retiré.
     pub fn shutdown(&self) {
         self.0.closed.store(true, Ordering::SeqCst);

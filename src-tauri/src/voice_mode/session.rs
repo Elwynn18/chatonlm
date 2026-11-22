@@ -237,6 +237,13 @@ impl VoiceMode {
         self.core.chat_deleted(chat);
     }
 
+    /// « Erase my data » : séance finie, qu'elle soit tenue par la page ou
+    /// par l'éditeur (micro fermé avant le retour) ; une autre peut commencer
+    /// ensuite.
+    pub fn stop_all(&self) {
+        self.core.stop(true);
+    }
+
     /// Sortie de l'app : séance finie (micro fermé avant le retour), plus
     /// rien ne commence.
     pub fn shutdown(&self) {

@@ -700,5 +700,9 @@
     "failed": "The synthesis failed: {detail}",
     "timedOut": "the model took too long to answer",
     "notSaved": "The synthesis couldn't be saved: {detail}"
+  },
+  "erase": {
+    "busy": "Your data is already being erased.",
+    "noDatabase": "ChatonLM can't open its database, so your data can't be erased."
   }
 }

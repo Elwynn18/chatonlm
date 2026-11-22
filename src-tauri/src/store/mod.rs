@@ -11,6 +11,7 @@ pub mod chats;
 pub mod desktop;
 pub mod dictation;
 pub mod easy_link;
+pub mod erase;
 pub mod image_models;
 pub mod local_models;
 pub mod model_import;

@@ -700,5 +700,9 @@
     "failed": "La síntesis falló: {detail}",
     "timedOut": "el modelo tardó demasiado en responder",
     "notSaved": "No se pudo guardar la síntesis: {detail}"
+  },
+  "erase": {
+    "busy": "Tus datos ya se están borrando.",
+    "noDatabase": "ChatonLM no puede abrir su base de datos, así que no se pueden borrar tus datos."
   }
 }

@@ -171,8 +171,11 @@ export function useSynthesisEvents() {
     let active = true;
     let stop: (() => void) | null = null;
     listenTranscriptionSynthesis((status) => {
+      // null : plus de synthèse à montrer (« Erase my data »).
       client.setQueryData<SynthesisStatus | null>(synthesisKey, status);
-      if (status.stage !== "running") refreshTranscription(client, status.id);
+      if (status && status.stage !== "running") {
+        refreshTranscription(client, status.id);
+      }
     }).then(
       (unlisten) => {
         if (active) stop = unlisten;

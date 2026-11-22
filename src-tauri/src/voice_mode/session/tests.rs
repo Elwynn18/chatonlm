@@ -1148,6 +1148,20 @@ async fn shutdown_closes_the_microphone_before_returning() {
     assert_eq!(rig.opens(), 1);
 }
 
+/// « Erase my data » (`VoiceMode::stop_all`) : la séance finit, micro fermé
+/// avant le retour, sans fermer le service : une autre peut commencer.
+#[tokio::test]
+async fn stopping_every_session_lets_another_one_start() {
+    let rig = rig();
+    rig.started().await;
+    let probe = rig.probe();
+    rig.core.stop(true);
+    assert!(probe.closed());
+    assert_eq!(rig.phase(), Off);
+    rig.started().await;
+    assert_eq!(rig.opens(), 2);
+}
+
 #[test]
 fn the_phrase_language_falls_back_to_the_expected_voice() {
     // Repli : la langue attendue (indice de la voix), pas l'interface.

@@ -387,6 +387,13 @@ impl Dictation {
         }
     }
 
+    /// « Erase my data » : le dernier texte dicté est oublié, la page
+    /// prévenue.
+    pub fn forget_last(&self, app: &AppHandle) {
+        self.core.forget_last();
+        self.emit_status(app);
+    }
+
     /// Envoie [`DictationStatus`] à la page.
     pub fn emit_status(&self, app: &AppHandle) {
         let _ = app.emit(STATUS_EVENT, self.status(app));
@@ -1202,6 +1209,12 @@ impl Core {
     async fn copy_offer(&self, offer: Offer) -> Result<bool, String> {
         self.services.clipboard.copy(offer.text).await?;
         Ok(self.mark_copied(offer.session))
+    }
+
+    /// « Erase my data » : le dernier résultat (texte dicté compris) est
+    /// oublié ; « Copy last dictation » n'a plus rien à copier.
+    fn forget_last(&self) {
+        self.inner.lock().last_result = None;
     }
 
     /// Copie le texte du dernier résultat (non vide).

@@ -24,7 +24,8 @@ export interface DialogAction {
  * location), ces boutons suivent « Cancel » à la place du bouton de
  * confirmation, le dernier ayant le focus. `initialFocus="cancel"` met le
  * focus sur « Cancel » (accord qui engage l'utilisateur : outils de la
- * Transcription) : un Entrée répété ne vaut pas accord. « OK » et « Cancel »
+ * Transcription) : un Entrée répété ne vaut pas accord. `destructive` : le
+ * bouton de confirmation est rouge (« Erase my data »). « OK » et « Cancel »
  * dans la langue affichée. Fermée, elle rend le focus à
  * l'élément qui l'avait à l'ouverture (bouton qui l'a ouverte), s'il est
  * encore dans la page et que le focus n'a pas été mis ailleurs entre-temps
@@ -38,6 +39,7 @@ export function ConfirmDialog({
   onCancel,
   actions,
   initialFocus = "confirm",
+  destructive = false,
 }: {
   /** Titre, nom de la boîte pour les lecteurs d'écran. */
   title?: string;
@@ -49,6 +51,8 @@ export function ConfirmDialog({
   actions?: DialogAction[];
   /** Bouton qui a le focus à l'ouverture : la confirmation, ou « Cancel ». */
   initialFocus?: "confirm" | "cancel";
+  /** Action qui efface : bouton de confirmation rouge. */
+  destructive?: boolean;
 }) {
   const t = useT();
   const titleId = useId();
@@ -119,7 +123,7 @@ export function ConfirmDialog({
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
         aria-describedby={messageId}
-        className="w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-5 shadow-xl dark:border-neutral-700 dark:bg-neutral-800"
+        className="max-h-full w-full max-w-sm overflow-y-auto rounded-2xl border border-neutral-200 bg-white p-5 shadow-xl dark:border-neutral-700 dark:bg-neutral-800"
       >
         {title && (
           <h2
@@ -153,9 +157,11 @@ export function ConfirmDialog({
                 data-default={last ? "" : undefined}
                 onClick={button.onSelect}
                 className={
-                  last
-                    ? "rounded-full bg-neutral-900 px-4 py-1.5 text-sm text-white outline-none hover:bg-neutral-700 focus-visible:ring-2 focus-visible:ring-accent-fg dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-                    : "rounded-full border border-neutral-300 px-4 py-1.5 text-sm text-neutral-800 outline-none hover:bg-neutral-100 focus-visible:ring-2 focus-visible:ring-accent-fg dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-700"
+                  last && destructive
+                    ? "rounded-full bg-red-600 px-4 py-1.5 text-sm text-white outline-none hover:bg-red-700 focus-visible:ring-2 focus-visible:ring-accent-fg"
+                    : last
+                      ? "rounded-full bg-neutral-900 px-4 py-1.5 text-sm text-white outline-none hover:bg-neutral-700 focus-visible:ring-2 focus-visible:ring-accent-fg dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+                      : "rounded-full border border-neutral-300 px-4 py-1.5 text-sm text-neutral-800 outline-none hover:bg-neutral-100 focus-visible:ring-2 focus-visible:ring-accent-fg dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-700"
                 }
               >
                 {button.label}

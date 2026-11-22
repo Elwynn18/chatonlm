@@ -424,6 +424,15 @@ export function registerVoiceModeUtterances(
   };
 }
 
+/**
+ * « Erase my data » : brouillons cédés et phrases dites en attente oubliés
+ * (la séance elle-même est arrêtée par le moteur, qui l'annonce).
+ */
+export function forgetVoiceModeDrafts() {
+  handedDrafts.clear();
+  queued = [];
+}
+
 /** Pour les essais : remet le magasin à zéro. */
 export function resetVoiceModeForTests() {
   snapshot = INITIAL;

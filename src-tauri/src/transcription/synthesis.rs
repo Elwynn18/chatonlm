@@ -146,9 +146,14 @@ pub struct Synthesizer {
     shared: Arc<Shared>,
 }
 
+/// Envoi de l'état à la page (`None` : plus rien à montrer).
+type Emit = Box<dyn Fn(Option<&SynthesisStatus>) + Send + Sync>;
+
 struct Shared {
     inner: Mutex<Inner>,
-    emit: Box<dyn Fn(&SynthesisStatus) + Send + Sync>,
+    /// État envoyé à la page ; `None` : plus de synthèse à montrer (« Erase
+    /// my data »).
+    emit: Emit,
     timing: Timing,
 }
 
@@ -174,12 +179,12 @@ struct Job {
 }
 
 impl Synthesizer {
-    pub fn new(emit: impl Fn(&SynthesisStatus) + Send + Sync + 'static) -> Self {
+    pub fn new(emit: impl Fn(Option<&SynthesisStatus>) + Send + Sync + 'static) -> Self {
         Self::with_timing(emit, Timing::default())
     }
 
     pub fn with_timing(
-        emit: impl Fn(&SynthesisStatus) + Send + Sync + 'static,
+        emit: impl Fn(Option<&SynthesisStatus>) + Send + Sync + 'static,
         timing: Timing,
     ) -> Self {
         Self {
@@ -279,6 +284,18 @@ impl Synthesizer {
         Ok(())
     }
 
+    /// « Erase my data » : synthèse annulée, attendue `limit` au plus, puis
+    /// son état oublié (document compris) et la page prévenue (`None`). Une
+    /// synthèse qui finit plus tard ne montre plus rien : sans état, sa fin
+    /// n'a rien à écrire (et sa transcription n'est plus dans la base) ;
+    /// une autre peut commencer ensuite.
+    pub async fn forget(&self, limit: Duration) {
+        self.shutdown(limit).await;
+        let mut inner = self.shared.inner.lock();
+        inner.status = None;
+        self.shared.send(&mut inner);
+    }
+
     /// Fermeture de l'app : synthèse annulée, attendue `limit` au plus.
     pub async fn shutdown(&self, limit: Duration) {
         let task = {
@@ -304,12 +321,10 @@ impl Synthesizer {
 }
 
 impl Shared {
-    /// État envoyé à la page.
+    /// État envoyé à la page (`None` après « Erase my data »).
     fn send(&self, inner: &mut Inner) {
         inner.last_emit = Some(Instant::now());
-        if let Some(status) = &inner.status {
-            (self.emit)(status);
-        }
+        (self.emit)(inner.status.as_ref());
     }
 
     /// Document montré pendant le flux (10 fois par seconde au plus).

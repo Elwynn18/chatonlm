@@ -892,6 +892,36 @@ impl Transcription {
         })
     }
 
+    /// « Erase my data » : transcription en cours annulée et attendue
+    /// `limit` au plus (audio de travail effacé par sa fin), puis son état
+    /// oublié (passages compris) et la page prévenue ; une autre peut
+    /// commencer dès que l'annulée a fini.
+    pub async fn forget(&self, limit: Duration) {
+        let task = {
+            let mut inner = self.shared.inner.lock();
+            if let Some(cancel) = &inner.cancel {
+                cancel.raise();
+            }
+            inner.task.take()
+        };
+        // Comme à la fermeture : un morceau encore dans le moteur (Whisper sur
+        // le processeur) est attendu jusqu'à sa fin, pour que la tâche
+        // annulée efface elle-même son audio de travail avant que
+        // l'effacement ne passe sur son dossier.
+        if let Some(mut task) = task
+            && tokio::time::timeout(limit, &mut task).await.is_err()
+            && self.shared.services.engine.piece_running()
+        {
+            let wait = crate::dictation::engine::PIECE_EXIT_WAIT.saturating_sub(limit);
+            let _ = tokio::time::timeout(wait, task).await;
+        }
+        let mut inner = self.shared.inner.lock();
+        inner.job = None;
+        inner.sent = 0;
+        let payload = self.shared.payload(&mut inner);
+        (self.shared.services.emit)(&payload);
+    }
+
     /// Fermeture de l'app : transcription arrêtée (« interrompue », ce qui
     /// est fait gardé), attendue `limit` au plus (audio de travail effacé,
     /// état enregistré) ; un morceau encore dans le moteur (Whisper sur le

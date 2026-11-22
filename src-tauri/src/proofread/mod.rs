@@ -616,6 +616,12 @@ impl Proofreader {
     pub fn last_selection(&self) -> Option<SelectionResult> {
         self.last_selection.lock().clone()
     }
+
+    /// « Erase my data » : la dernière correction de la sélection (texte
+    /// compris) est oubliée.
+    pub fn forget_last_selection(&self) {
+        *self.last_selection.lock() = None;
+    }
 }
 
 /// Travail de la page (commande `proofread_run`) : réglages lus, modèle

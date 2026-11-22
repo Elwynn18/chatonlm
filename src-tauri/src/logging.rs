@@ -69,11 +69,41 @@ impl Sink {
         }
     }
 
+    /// Vide le journal (« Erase my data ») par un second fichier ouvert en
+    /// écriture : celui du journal est ouvert en ajout (sous Windows, sans le
+    /// droit de changer la taille), et les lignes suivantes repartent du
+    /// début sous les deux systèmes ; le `.1` est supprimé, sinon vidé.
+    /// Erreur : le journal n'a pas pu être vidé.
+    fn clear(&mut self) -> std::io::Result<()> {
+        empty(&rotated(&self.path), true)?;
+        empty(&self.path, false)?;
+        self.size = 0;
+        Ok(())
+    }
+
     /// Le journal devient `.1` : fermé avant d'être renommé (Windows).
     fn rotate(&mut self) {
         self.file = None;
         let _ = std::fs::rename(&self.path, rotated(&self.path));
         *self = Sink::open(self.path.clone(), self.max);
+    }
+}
+
+/// Fichier vidé (taille 0), ou supprimé si `remove` (vidé si la suppression
+/// est refusée) ; absent : rien à faire.
+fn empty(path: &Path, remove: bool) -> std::io::Result<()> {
+    let missing = |error: &std::io::Error| error.kind() == std::io::ErrorKind::NotFound;
+    if remove {
+        match std::fs::remove_file(path) {
+            Ok(()) => return Ok(()),
+            Err(error) if missing(&error) => return Ok(()),
+            Err(_) => {}
+        }
+    }
+    match OpenOptions::new().write(true).open(path) {
+        Ok(file) => file.set_len(0),
+        Err(error) if missing(&error) => Ok(()),
+        Err(error) => Err(error),
     }
 }
 
@@ -141,6 +171,15 @@ fn install_panic_hook() {
         }
         previous(info);
     }));
+}
+
+/// Vide le journal de l'app et son `.1` (« Erase my data ») ; sans effet
+/// avant [`init`]. Erreur : un des deux n'a pas pu être vidé.
+pub fn clear() -> std::io::Result<()> {
+    match SINK.get() {
+        Some(sink) => sink.lock().clear(),
+        None => Ok(()),
+    }
 }
 
 /// Chemin du journal, une fois [`init`] fait.
@@ -227,6 +266,30 @@ mod tests {
 
     fn dir() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
+    }
+
+    /// Journal vidé par son propre fichier : la ligne suivante est seule, au
+    /// début, et la taille comptée repart de zéro (pas de rotation trop
+    /// tôt) ; le précédent (`.1`) disparaît.
+    #[test]
+    fn a_cleared_log_starts_again_from_the_beginning() {
+        let dir = dir();
+        let path = dir.path().join(FILE_NAME);
+        std::fs::write(rotated(&path), "old secret\n").unwrap();
+        let mut sink = Sink::open(path.clone(), 30);
+        sink.write("a secret line\n");
+        sink.clear().unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+        assert!(!rotated(&path).exists());
+        sink.write("after the erase, again\n");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "after the erase, again\n"
+        );
+        assert!(
+            !rotated(&path).exists(),
+            "no rotation: the size starts again"
+        );
     }
 
     #[test]

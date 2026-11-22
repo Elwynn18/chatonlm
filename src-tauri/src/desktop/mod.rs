@@ -33,7 +33,7 @@ use crate::store::Store;
 
 pub use shortcut::{
     ShortcutKeys, apply, bind_shortcut, bind_shortcuts, configure_shortcut, recording,
-    reset_trigger, set_trigger,
+    reset_all_triggers, reset_trigger, set_trigger,
 };
 
 /// Argument qui bascule la dictée (commande à lier dans les raccourcis du

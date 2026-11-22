@@ -689,6 +689,40 @@ async fn cancel_stops_between_chunks_and_removes_the_work_audio() {
     assert_eq!(bench.finished().await.stage, Stage::Done);
 }
 
+/// « Erase my data » : la transcription en cours est annulée et attendue,
+/// son audio de travail effacé, puis son état oublié (la page reçoit un état
+/// vide) ; une autre peut commencer ensuite.
+#[tokio::test(flavor = "multi_thread")]
+async fn forgetting_cancels_waits_and_clears_the_state() {
+    let bench = bench();
+    let (go, gate) = std::sync::mpsc::channel();
+    *bench.script.gate.lock() = Some(gate);
+    let (samples, _) = lecture();
+    let path = bench.file("cours.wav", &samples);
+    bench.start(file_request(&path)).unwrap();
+    for _ in 0..2_000 {
+        if bench.transcription.status().job.unwrap().stage == Stage::Transcribing
+            && bench.engine_busy()
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let transcription = bench.transcription.clone();
+    let forgetting =
+        tokio::spawn(async move { transcription.forget(Duration::from_secs(30)).await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!forgetting.is_finished(), "the running piece is waited for");
+    go.send(()).unwrap();
+    forgetting.await.unwrap();
+    assert_eq!(bench.transcription.status().job, None);
+    assert!(bench.events.lock().last().unwrap().job.is_none());
+    assert!(!bench.transcription.shared().inner.lock().running);
+    assert!(bench.work_root_is_empty());
+    bench.start(file_request(&path)).unwrap();
+    assert_eq!(bench.finished().await.stage, Stage::Done);
+}
+
 impl Bench {
     /// Le faux moteur tient le verrou (un morceau en cours).
     fn engine_busy(&self) -> bool {

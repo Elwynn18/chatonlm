@@ -49,6 +49,36 @@
       "button": "Restablecer valores predeterminados",
       "resetting": "Restableciendo…",
       "error": "ChatonLM no pudo restablecer todos los ajustes. Revisa los ajustes de arriba y vuelve a intentarlo."
+    },
+    "erase": {
+      "title": "Borrar mis datos",
+      "description": "Borra de este equipo tus chats, cursos, transcripciones, conexiones y configuración. Tus modelos se conservan.",
+      "button": "Borrar mis datos",
+      "erasing": "Borrando…",
+      "error": "No se pudieron borrar tus datos: {message}",
+      "errorStopped": "No se pudieron borrar tus datos ({message}). Se detuvieron los trabajos en curso.",
+      "dialog": {
+        "title": "¿Borrar tus datos?",
+        "erasedHeading": "Se borra de este equipo:",
+        "erased": {
+          "chats": "Tus chats, con sus archivos adjuntos e imágenes",
+          "study": "Tus cursos y transcripciones",
+          "links": "Tus bots de Easy Link y las cuentas vinculadas, tus editores de VS Code emparejados, tus proveedores de modelos remotos y tu buscador, con sus claves",
+          "settings": "Tu configuración, incluido el diccionario del dictado",
+          "logs": "Los registros de la app y las copias de su base de datos"
+        },
+        "keptHeading": "Se conserva:",
+        "kept": {
+          "models": "Tus modelos, sus archivos (texto, imágenes, transcripción, voces) y los modelos que elegiste",
+          "tools": "Las herramientas descargadas y el paquete CUDA",
+          "language": "El idioma de la interfaz"
+        },
+        "warning": "Esta acción no se puede deshacer.",
+        "confirm": "Borrar mis datos"
+      },
+      "done": "Se han borrado tus datos.",
+      "leftovers": "No se pudieron borrar algunos archivos: {files}.",
+      "browsingData": "datos de la página"
     }
   },
   "engine": {

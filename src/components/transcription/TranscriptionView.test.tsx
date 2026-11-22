@@ -556,6 +556,30 @@ describe("Transcription page", () => {
     expect(simulator.callsTo("transcription_delete")).toEqual([{ id: "t-1" }]);
   });
 
+  it("forgets the document being written when the data is erased (null event)", async () => {
+    const user = userEvent.setup();
+    const { fake, simulator } = setup();
+    const detail = openDone(fake);
+    const panel = await screen.findByTestId("transcription-synthesis");
+    await user.click(within(panel).getByRole("button", { name: "Summarize" }));
+    await fake.synthesisEvent({
+      id: detail.item.id,
+      stage: "running",
+      markdown: "# Lecture 3\n\nCopyright is",
+      model: "qwen3:0.6b",
+      error: null,
+    });
+    await within(panel).findByRole("heading", { name: "Lecture 3" });
+    fake.synthesis = null;
+    await simulator.emitEvent("transcription-synthesis", null);
+    await waitFor(() =>
+      expect(
+        within(panel).queryByRole("heading", { name: "Lecture 3" }),
+      ).toBeNull(),
+    );
+    expect(screen.queryByTestId("transcription-synthesis-phase")).toBeNull();
+  });
+
   it("writes the reading document in a stream, stops it, then saves it", async () => {
     const user = userEvent.setup();
     const { fake, simulator } = setup();

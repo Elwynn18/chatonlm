@@ -49,6 +49,36 @@
       "button": "Reset to defaults",
       "resetting": "Resetting…",
       "error": "ChatonLM could not reset every setting. Check the settings above and try again."
+    },
+    "erase": {
+      "title": "Erase my data",
+      "description": "Erases your conversations, courses, transcriptions, connections and settings from this computer. Your models stay.",
+      "button": "Erase my data",
+      "erasing": "Erasing…",
+      "error": "Your data could not be erased: {message}",
+      "errorStopped": "Your data could not be erased ({message}). The work in progress was stopped.",
+      "dialog": {
+        "title": "Erase your data?",
+        "erasedHeading": "Erased from this computer:",
+        "erased": {
+          "chats": "Your conversations, with their attachments and images",
+          "study": "Your courses and transcriptions",
+          "links": "Your Easy Link bots and linked accounts, your paired VS Code editors, your remote model providers and search engine, with their keys",
+          "settings": "Your settings, including the dictation dictionary",
+          "logs": "The app logs and the copies of its database"
+        },
+        "keptHeading": "Kept:",
+        "kept": {
+          "models": "Your models, their files (text, images, transcription, voices) and the models you chose",
+          "tools": "The downloaded tools and the CUDA pack",
+          "language": "The interface language"
+        },
+        "warning": "This can't be undone.",
+        "confirm": "Erase my data"
+      },
+      "done": "Your data has been erased.",
+      "leftovers": "Some files could not be erased: {files}.",
+      "browsingData": "page data"
     }
   },
   "engine": {
