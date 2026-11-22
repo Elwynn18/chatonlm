@@ -95,6 +95,12 @@ pub(crate) fn isolate(command: &mut Command) {
     command.creation_flags(CREATE_NO_WINDOW.0 | CREATE_NEW_PROCESS_GROUP.0);
 }
 
+/// Comme [`isolate`] : sous Windows, le Job Object tue déjà le processus à la
+/// fin de ChatonLM, sans arrêt « poli ».
+pub(crate) fn isolate_killed_with_app(command: &mut Command) {
+    isolate(command);
+}
+
 /// Sans objet sous Windows (pas de fichier `core` ; le rapport d'erreurs
 /// de Windows reste réglé par le système).
 pub(crate) fn no_core_dump(_command: &mut Command) {}

@@ -47,8 +47,8 @@ pub(crate) use os::Owned;
 #[cfg(all(test, windows))]
 pub(crate) use os::alive;
 pub(crate) use os::{
-    desktop_changes, exit_signal, is_executable, isolate, no_core_dump, scrub, terminate,
-    watch_exit,
+    desktop_changes, exit_signal, is_executable, isolate, isolate_killed_with_app, no_core_dump,
+    scrub, terminate, watch_exit,
 };
 
 /// Ports jamais pris : celui d'un Ollama de la machine (qui peut démarrer

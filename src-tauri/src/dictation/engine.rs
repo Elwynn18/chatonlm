@@ -572,6 +572,12 @@ impl Engine {
         });
         match slot {
             Some(mut slot) => {
+                // Whisper sur la carte : son serveur arrêté et attendu ici
+                // (l'app se ferme juste après ; un arrêt lancé en tâche
+                // n'aurait pas lieu).
+                if let Some(loaded) = slot.as_mut() {
+                    loaded.recognizer.release_card();
+                }
                 *slot = None;
                 true
             }
@@ -1081,6 +1087,13 @@ mod tests {
         assert_eq!(released.load(Ordering::SeqCst), 1);
         assert!(engine.loaded().is_none());
         assert_eq!(engine.loaded_model().as_deref(), None);
+        // Fermeture de l'app : la carte est rendue (serveur arrêté et
+        // attendu), pas seulement le modèle oublié.
+        engine
+            .transcribe(&spec("whisper-card"), &[0.0], &Request::default(), &GO)
+            .unwrap();
+        assert!(engine.shutdown(Duration::from_secs(1)));
+        assert_eq!(released.load(Ordering::SeqCst), 2);
     }
 
     /// Modèle dont le chargement prend `delay` ; compte les chargements

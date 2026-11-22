@@ -73,13 +73,25 @@ pub(crate) fn scrub(
 /// `PR_SET_PDEATHSIG` : le processus reçoit SIGTERM quand le fil qui l'a créé
 /// se termine.
 pub(crate) fn isolate(command: &mut Command) {
+    isolate_with(command, libc::SIGTERM);
+}
+
+/// Comme [`isolate`], mais SIGKILL à la fin de ChatonLM : pour un serveur
+/// sans rien à enregistrer dont l'arrêt « poli » peut se bloquer
+/// (whisper-server appelle l'arrêt de son serveur HTTP depuis son
+/// gestionnaire de signal).
+pub(crate) fn isolate_killed_with_app(command: &mut Command) {
+    isolate_with(command, libc::SIGKILL);
+}
+
+fn isolate_with(command: &mut Command, signal: libc::c_int) {
     command.process_group(0);
     let parent = std::process::id();
     // SAFETY : entre fork et exec, seulement des appels système
     // (async-signal-safe), sans allocation.
     unsafe {
         command.pre_exec(move || {
-            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM as libc::c_ulong) != 0 {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, signal as libc::c_ulong) != 0 {
                 return Err(io::Error::last_os_error());
             }
             // ChatonLM déjà mort entre fork et prctl : pas de processus orphelin.

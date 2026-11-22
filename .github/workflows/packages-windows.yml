@@ -110,20 +110,22 @@ jobs:
           restore-keys: |
             packages-windows-
 
-      # Cache d'une image précédente du runner : un CMakeCache.txt qui nomme un
-      # compilateur disparu (mise à jour de MSVC, ex. 14.51.36231 absent le
-      # 22 nov. 2026) fait échouer les crates construites par cmake
-      # (whisper-rs-sys…). Leur construction est effacée : elle est refaite.
+      # Cache d'une image précédente du runner, ou d'avant le passage à Ninja
+      # (étape « Environnement MSVC et Ninja ») : un CMakeCache.txt qui nomme
+      # un compilateur disparu (mise à jour de MSVC) ou un autre générateur
+      # fait échouer les crates construites par cmake (whisper-rs-sys…). Leur
+      # construction est effacée : elle est refaite.
       - name: Cache Cargo (constructions cmake périmées)
         run: |
           find src-tauri/target -name CMakeCache.txt -path '*/build/*/out/*' 2>/dev/null |
             while IFS= read -r cache; do
               compiler="$(sed -n 's/^CMAKE_C_COMPILER:[A-Z]*=//p' "$cache" | head -1 | tr -d '\r')"
-              if [ -n "$compiler" ] && [ ! -e "$compiler" ]; then
+              generator="$(sed -n 's/^CMAKE_GENERATOR:INTERNAL=//p' "$cache" | head -1 | tr -d '\r')"
+              if { [ -n "$compiler" ] && [ ! -e "$compiler" ]; } || [ "$generator" != Ninja ]; then
                 dir="${cache%%/out/*}"
                 crate="$(basename "$dir")"
                 profile="$(dirname "$(dirname "$dir")")"
-                echo "Construction cmake périmée ($compiler absent) : $crate"
+                echo "Construction cmake périmée (compilateur $compiler, générateur $generator) : $crate"
                 rm -rf "$dir" "$profile/.fingerprint/$crate"
               fi
             done
@@ -201,6 +203,23 @@ jobs:
 
       # Exigé par le contexte de Tauri à la compilation (frontendDist) et par
       # les notices (dist/.vite/license.json).
+      # Crates construites par cmake (whisper-rs-sys, Whisper de l'app) : avec
+      # le générateur Visual Studio 18 2026 et `-Thost=x64` (crate cmake),
+      # CMake nomme un compilateur MSVC absent (14.51 au lieu du 14.52
+      # installé, 22 nov. 2026). Ninja dans l'environnement de vcvarsall
+      # prend le compilateur réellement installé, comme le pack CUDA.
+      - name: Environnement MSVC et Ninja (crates construites par cmake)
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+          cmd /c "`"$vs\VC\Auxiliary\Build\vcvarsall.bat`" x64 >NUL && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+              "$($Matches[1])=$($Matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+          }
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) { choco install ninja -y --no-progress }
+          "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Frontend
         run: npm run build
 

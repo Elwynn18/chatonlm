@@ -40,8 +40,8 @@ use tokio::sync::oneshot;
 use super::audio::RATE;
 use super::engine::{ModelSpec, Piece, Recognizer, Request, Timed, transcription_failed};
 use crate::process::{
-    Spawner, desktop_changes, is_executable, isolate, pick_port, rotate_log, scrub, spawn_with,
-    terminate,
+    Spawner, desktop_changes, is_executable, isolate_killed_with_app, pick_port, rotate_log, scrub,
+    spawn_with, terminate,
 };
 
 /// Dossier du serveur, sous les ressources comme dans la construction locale.
@@ -294,7 +294,9 @@ fn prepare(placement: &Placement, spec: &ModelSpec, port: u16) -> std::io::Resul
     if let Some(dir) = placement.log.parent() {
         command.current_dir(dir);
     }
-    isolate(&mut command);
+    // Tué avec ChatonLM : son arrêt sur SIGTERM peut se bloquer (voir
+    // `isolate_killed_with_app`).
+    isolate_killed_with_app(&mut command);
     Ok(command)
 }
 
