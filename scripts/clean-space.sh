@@ -13,6 +13,9 @@
 # - .tools/ci : tout ce qui a plus de N jours, sauf le dossier de la version
 #   en cours (tauri.conf.json), les paquets publiés étant sur GitHub.
 # - .tools/e2e-runs et .tools/tmp : entrées de plus de N jours.
+# - Dossiers de travail des moteurs livrés (.tools/*-build : sources et objets
+#   de llama-server, sd-server, whisper-server) inutilisés depuis N jours ; le
+#   résultat (.tools/runtimes) reste.
 # Ne touche jamais aux données, aux modèles, aux outils ni aux clés. Refuse de
 # tourner pendant une compilation (cargo, rustc).
 set -euo pipefail
@@ -29,7 +32,7 @@ while [ $# -gt 0 ]; do
     --days) days="${2:?--days N}"; shift ;;
     --max-size) max_size="${2:?--max-size GO}"; shift ;;
     -h | --help)
-      sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -89,6 +92,15 @@ for dir in "${targets[@]}"; do
     # debug/incremental/<crate> ou <cible>/debug/incremental/<crate>.
     done < <(find "$dir" -mindepth 3 -maxdepth 4 -type d -regextype posix-extended \
       -regex '.*/incremental/[^/]+' ! -newermt "@$limit" -print0 2>/dev/null)
+  fi
+done
+
+echo "== Dossiers de travail des moteurs"
+for dir in .tools/*-build; do
+  [ -d "$dir" ] || continue
+  used="$(last_use "$dir")"
+  if [ "${used:-0}" -lt "$limit" ]; then
+    remove "$dir" "inutilisé depuis $(((now - used) / 86400)) jours"
   fi
 done
 

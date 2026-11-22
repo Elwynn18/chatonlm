@@ -3,7 +3,8 @@
 // d'installation fabriqués ici), notices Windows
 // (package-notices-windows.mjs), configuration du bundle
 // (src-tauri/tauri.windows.conf.json, packaging/windows/), crochets NSIS et
-// workflows de la CI (dont le moteur d'images, sd-server).
+// workflows de la CI (dont les moteurs d'images, de texte et de
+// transcription).
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -23,6 +24,7 @@ import {
   RETIRED_DIRS,
   SD_SERVER_EXE,
   versionString,
+  whisperHookPatterns,
 } from "./inspect-windows.mjs";
 import { EXCLUDED_ENGINES } from "./inspect-packages.mjs";
 import { parseEnv, renderSdServerReadme } from "./package-notices.mjs";
@@ -33,6 +35,7 @@ import {
   windowsAboutConfig,
 } from "./package-notices-windows.mjs";
 import { renderLlamaServerReadme } from "./package-notices-llama.mjs";
+import { renderWhisperServerReadme } from "./package-notices-whisper.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const text = (file) => readFileSync(path.join(ROOT, file), "utf8");
@@ -42,6 +45,8 @@ const SD_PINNED = "master-964-1d0a58a";
 const SD_VERSION = `${SD_PINNED}+chatonlm.0123456789ab`;
 const LLAMA_PINNED = "v0.9.0";
 const LLAMA_VERSION = `${LLAMA_PINNED}+chatonlm.0123456789ab`;
+const WHISPER_PINNED = "v1.9.5";
+const WHISPER_VERSION = `${WHISPER_PINNED}+chatonlm.0123456789ab`;
 
 /**
  * Fichier PE32+ minimal : une section, avec la table des imports
@@ -269,6 +274,38 @@ function installation(overrides = {}) {
       windows: true,
     }),
   });
+  set("whisper-server/whisper-server.exe", {
+    pe: {
+      imports: [
+        "kernel32.dll",
+        "whisper.dll",
+        "ggml.dll",
+        "ggml-base.dll",
+        "msvcp140.dll",
+        "vcruntime140.dll",
+        "ws2_32.dll",
+      ],
+    },
+  });
+  set("whisper-server/ggml-cpu-haswell.dll", {
+    pe: { imports: ["kernel32.dll", "ggml-base.dll"] },
+  });
+  set("whisper-server/ggml-vulkan.dll", {
+    pe: { imports: ["kernel32.dll", "ggml-base.dll", "vulkan-1.dll"] },
+  });
+  set("whisper-server/VERSION", { text: `${WHISPER_VERSION}\n` });
+  set("licenses/whisper-server/README.txt", {
+    text: renderWhisperServerReadme({
+      env: {
+        WHISPER_VERSION: WHISPER_PINNED,
+        WHISPER_REPO: "https://github.com/ggml-org/whisper.cpp",
+        WHISPER_COMMIT: "d1be6fde1",
+        WHISPER_GGML_VERSION: "0.26.0",
+      },
+      licenseFiles: [],
+      windows: true,
+    }),
+  });
   set("licenses/sd-server/README.txt", {
     text: renderSdServerReadme({
       env: {
@@ -303,6 +340,11 @@ function installation(overrides = {}) {
       .filter((f) => f.startsWith("llama-server/"))
       .map((f) => [f.slice("llama-server/".length), `sum:${content(f)}`]),
   );
+  const whisperServer = new Map(
+    [...entries.keys()]
+      .filter((f) => f.startsWith("whisper-server/"))
+      .map((f) => [f.slice("whisper-server/".length), `sum:${content(f)}`]),
+  );
   return {
     files: new Map([...entries.keys()].map((f) => [f, 1])),
     read: content,
@@ -322,6 +364,8 @@ function installation(overrides = {}) {
       sdServerPinned: SD_PINNED,
       llamaServer,
       llamaServerPinned: LLAMA_PINNED,
+      whisperServer,
+      whisperServerPinned: WHISPER_PINNED,
     },
     version: "0.9.0",
   };
@@ -474,10 +518,12 @@ describe("contenu de l'installateur", () => {
       sdServerPinned: null,
       llamaServer: null,
       llamaServerPinned: null,
+      whisperServer: null,
+      whisperServerPinned: null,
     };
     const result = contentProblems(bare);
     expect(result.errors).toEqual([]);
-    expect(result.warnings).toHaveLength(3);
+    expect(result.warnings).toHaveLength(4);
     expect(result.warnings[0]).toMatch(
       /^Copie de référence d'ONNX Runtime absente/,
     );
@@ -675,6 +721,90 @@ describe("contenu de l'installateur", () => {
     ]);
   });
 
+  it("exige le moteur de transcription, identique au dossier construit, sans chargeur à lui", () => {
+    const extra = installation({
+      "whisper-server/ggml-cpu-old.dll": { pe: { imports: ["kernel32.dll"] } },
+    });
+    extra.reference.whisperServer.delete("ggml-cpu-old.dll");
+    expect(contentProblems(extra).errors).toEqual([
+      "Moteur de transcription : fichier inattendu : whisper-server/ggml-cpu-old.dll",
+    ]);
+    const changed = installation();
+    changed.reference.whisperServer.set("whisper.dll", "sum:autre");
+    expect(contentProblems(changed).errors).toEqual([
+      "Moteur de transcription : fichier modifié : whisper-server/whisper.dll",
+    ]);
+    // Runtime Visual C++ dans son propre dossier : celui de llama-server ne
+    // compte pas (un processus enfant ne cherche que dans le sien).
+    const crt = installation({ "whisper-server/msvcp140.dll": null });
+    crt.reference.whisperServer.delete("msvcp140.dll");
+    expect(contentProblems(crt).errors).toEqual([
+      "Fichier absent : whisper-server/msvcp140.dll",
+      "whisper-server/whisper-server.exe : DLL demandée et non livrée à côté : msvcp140.dll",
+    ]);
+    // SDL ou ffmpeg (coupés à la construction) : refusés.
+    const sdl = installation({
+      "whisper-server/whisper-server.exe": {
+        pe: { imports: ["kernel32.dll", "whisper.dll", "sdl2.dll"] },
+      },
+    });
+    expect(contentProblems(sdl).errors).toEqual([
+      "whisper-server/whisper-server.exe : DLL d'OpenMP, de GCC ou d'OpenSSL importée : sdl2.dll",
+    ]);
+    const version = installation({
+      "whisper-server/VERSION": { text: "1.9.5\n" },
+    });
+    expect(contentProblems(version).errors).toEqual([
+      `whisper-server/VERSION : « 1.9.5 » au lieu de ${WHISPER_PINNED}+chatonlm.<empreinte> (packaging/whispercpp.env)`,
+    ]);
+    // Fichier que les crochets ne retireraient pas avant une mise à jour,
+    // dont un chargeur Vulkan à lui (celui de llama-server suffit).
+    const uncovered = installation({
+      "whisper-server/fallback/vulkan-1.dll": {
+        pe: { imports: ["kernel32.dll"] },
+      },
+    });
+    expect(contentProblems(uncovered).errors).toEqual([
+      "Moteur de transcription : fichier que les crochets NSIS ne retirent pas avant une mise à jour : whisper-server/fallback/vulkan-1.dll",
+    ]);
+    // Le chargeur Vulkan peut manquer : celui de llama-server/fallback le
+    // remplace (fin de PATH donnée par l'app).
+    expect(
+      importProblems({
+        files: new Map([
+          ["whisper-server/ggml-vulkan.dll", "whisper-server/ggml-vulkan.dll"],
+        ]),
+        pe: () => ({ machine: 0x8664, imports: ["vulkan-1.dll"] }),
+      }),
+    ).toEqual({ errors: [], warnings: [] });
+    const missing = installation();
+    missing.reference.whisperServer = null;
+    expect(contentProblems(missing).warnings).toEqual([
+      "Copie de référence du moteur de transcription absente (.tools/runtimes/whisper-server) : fichiers non comparés",
+    ]);
+    expect(
+      contentProblems({ ...installation(), hooks: "; vide\n" }).errors.filter(
+        (error) => error.includes("CHATONLM_WHISPER_FILES"),
+      ),
+    ).toEqual([
+      "packaging/windows/hooks.nsh : motifs de CHATONLM_WHISPER_FILES illisibles",
+    ]);
+  });
+
+  it("exige la notice du moteur de transcription pour Windows", () => {
+    const linux = renderWhisperServerReadme({
+      env: { WHISPER_VERSION: WHISPER_PINNED },
+      licenseFiles: [],
+    });
+    const { errors } = contentProblems(
+      installation({ "licenses/whisper-server/README.txt": { text: linux } }),
+    );
+    expect(errors).toEqual([
+      "licenses/whisper-server/README.txt : mention absente (llama-server\\\\fallback\\\\vulkan-1\\.dll)",
+      "licenses/whisper-server/README.txt : mention absente (Visual\\sC\\+\\+)",
+    ]);
+  });
+
   it("exige la notice du moteur d'images pour Windows", () => {
     const linux = renderSdServerReadme({
       env: { SDCPP_VERSION: SD_PINNED },
@@ -826,6 +956,7 @@ describe("configuration Windows du bundle", () => {
       "../.tools/runtimes/sd-server/fallback/": "sd-server/fallback/",
       "../.tools/runtimes/sd-server/VERSION": "sd-server/VERSION",
       "../.tools/runtimes/llama-server/": "llama-server/",
+      "../.tools/runtimes/whisper-server/": "whisper-server/",
       "../.tools/package/notices/windows/": "licenses/",
     });
     expect(text("scripts/package-windows.sh")).toContain(
@@ -1000,6 +1131,87 @@ describe("crochets NSIS", () => {
     }
   });
 
+  it("traite le moteur de transcription comme le moteur de texte : marque, arrêt, retrait par motifs", () => {
+    const macro = (name) =>
+      code
+        .split(`!macro ${name}`)[1]
+        .split("!macroend")[0]
+        .trim()
+        .split("\n")
+        .map((line) => line.trim());
+    const ours = macro("CHATONLM_OUR_WHISPER");
+    expect(ours[0]).toBe("StrCpy $R1 0");
+    expect(ours).toContain(
+      String.raw`FileOpen $R2 "$INSTDIR\whisper-server\VERSION" r`,
+    );
+    expect(ours).toContain('${If} $R5 == "+chatonlm."');
+    expect(ours).toContain("StrCpy $R1 1");
+    const builtin = macro("CHATONLM_STOP_ENGINES");
+    const stop = builtin.indexOf(
+      String.raw`!insertmacro CHATONLM_STOP_FILE "$INSTDIR\whisper-server\whisper-server.exe"`,
+    );
+    expect(builtin.slice(stop - 2, stop + 2)).toEqual([
+      "!insertmacro CHATONLM_OUR_WHISPER",
+      "${If} $R1 = 1",
+      builtin[stop],
+      "${EndIf}",
+    ]);
+    const pre = macro("NSIS_HOOK_PREINSTALL");
+    const remove = pre.indexOf("!insertmacro CHATONLM_REMOVE_WHISPER");
+    expect(pre.slice(remove - 2, remove + 2)).toEqual([
+      "!insertmacro CHATONLM_OUR_WHISPER",
+      "${If} $R1 = 1",
+      "!insertmacro CHATONLM_REMOVE_WHISPER",
+      "${EndIf}",
+    ]);
+    expect(pre.indexOf("!insertmacro CHATONLM_STOP_ALL")).toBeLessThan(remove);
+    expect(macro("NSIS_HOOK_PREUNINSTALL").join("\n")).not.toMatch(
+      /REMOVE_WHISPER/,
+    );
+    expect(macro("CHATONLM_REMOVE_WHISPER")).toEqual([
+      "!insertmacro CHATONLM_WHISPER_FILES CHATONLM_DELETE_PATTERN",
+      "${For} $R3 1 10",
+      "StrCpy $R2 0",
+      "!insertmacro CHATONLM_WHISPER_FILES CHATONLM_COUNT_LEFT",
+      "${If} $R2 = 0",
+      "${ExitFor}",
+      "${EndIf}",
+      "Sleep 500",
+      "!insertmacro CHATONLM_WHISPER_FILES CHATONLM_DELETE_PATTERN",
+      "${Next}",
+      String.raw`Delete "$INSTDIR\whisper-server\VERSION"`,
+      String.raw`RMDir "$INSTDIR\whisper-server"`,
+    ]);
+    const patterns = whisperHookPatterns(hooks);
+    const removed = (file) => patterns.some((pattern) => pattern.test(file));
+    for (const file of [
+      "whisper-server.exe",
+      "whisper.dll",
+      "ggml.dll",
+      "ggml-base.dll",
+      "GGML-CPU-ZEN4.DLL",
+      "ggml-vulkan.dll",
+      "vcruntime140.dll",
+      "vcruntime140_1.dll",
+      "msvcp140.dll",
+      "SHA256SUMS",
+      "VERSION",
+    ]) {
+      expect(removed(file), file).toBe(true);
+    }
+    for (const file of [
+      "ggml-large-v3.bin",
+      "whisper-cli.exe",
+      "fallback/vulkan-1.dll",
+      "sub/ggml-base.dll",
+      "VERSION.txt",
+    ]) {
+      expect(removed(file), file).toBe(false);
+    }
+    // Les motifs du moteur de texte ne débordent pas sur ce dossier.
+    expect(llamaHookPatterns(hooks).length).toBeGreaterThan(0);
+  });
+
   it("réessaie de supprimer uninstall.exe après la désinstallation, lui seul", () => {
     const again = code
       .split("!macro CHATONLM_DELETE_AGAIN filePath")[1]
@@ -1030,11 +1242,13 @@ describe("crochets NSIS", () => {
     // Le dossier n'est retiré que vide.
     expect(lines.at(-1)).toBe('RMDir "$INSTDIR"');
     // Aucune autre suppression de fichier dans les crochets que celles du
-    // moteur de texte (motifs de CHATONLM_LLAMA_FILES et sa marque) et de
-    // l'ancien Ollama intégré (son serveur et sa marque).
+    // moteurs de texte et de transcription (motifs de CHATONLM_LLAMA_FILES et
+    // CHATONLM_WHISPER_FILES, et leur marque) et de l'ancien Ollama intégré
+    // (son serveur et sa marque).
     expect(code.match(/^\s*Delete .*/gm)).toEqual([
       '  Delete "${pattern}"',
       String.raw`  Delete "$INSTDIR\llama-server\VERSION"`,
+      String.raw`  Delete "$INSTDIR\whisper-server\VERSION"`,
       String.raw`    Delete "$INSTDIR\ollama\ollama.exe"`,
       String.raw`    Delete "$INSTDIR\ollama\VERSION"`,
       '    Delete "${filePath}"',
@@ -1198,7 +1412,8 @@ describe("workflow packages-windows.yml", () => {
     const next = yaml.indexOf("\n      - name: ", start + 1);
     return yaml.slice(start, next < 0 ? undefined : next);
   };
-  const SD_STEP = "SDK Vulkan et moteurs (sd-server, llama-server)";
+  const SD_STEP =
+    "SDK Vulkan et moteurs (sd-server, llama-server, whisper-server)";
 
   it("construit le moteur d'images dans les deux workflows, sans nouvelle action", () => {
     for (const [name, yaml] of [
@@ -1212,6 +1427,11 @@ describe("workflow packages-windows.yml", () => {
       // Le moteur de texte après le moteur d'images (chargeur de secours).
       expect(
         body.indexOf("scripts/build-llama-server.sh"),
+        name,
+      ).toBeGreaterThan(body.indexOf("scripts/build-sd-server.sh"));
+      // Le moteur de transcription aussi, avec les mêmes outils Vulkan.
+      expect(
+        body.indexOf("scripts/build-whisper-server.sh"),
         name,
       ).toBeGreaterThan(body.indexOf("scripts/build-sd-server.sh"));
       expect(body, name).not.toMatch(/^\s*(?:- )?uses:/m);
@@ -1243,6 +1463,8 @@ describe("workflow packages-windows.yml", () => {
       "'scripts/build-sd-server.sh'",
       "'packaging/llama/*.patch'",
       "'scripts/build-llama-server.sh'",
+      "'packaging/whispercpp/*.patch'",
+      "'scripts/build-whisper-server.sh'",
     ]) {
       expect(inputs).toContain(input);
     }

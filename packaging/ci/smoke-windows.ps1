@@ -22,12 +22,18 @@
 #    puis refusé (code 1, « failed to load model »), et un vrai petit modèle
 #    (stories260K, empreinte épinglée) sur le processeur : /health, 401 sans
 #    la clé d'API, complétion avec elle.
-# 4. Réinstallation silencieuse par-dessus une app et un llama-server en
-#    marche, et par-dessus un ancien Ollama intégré (dossier ollama\ des
+#    Puis le moteur de transcription (whisper-server) : fichiers conformes à
+#    SHA256SUMS, aucun chargeur Vulkan à lui (celui de llama-server en fin de
+#    PATH, comme l'app), --help (moteur du processeur chargé), modèle
+#    illisible d'un dossier accentué ouvert puis refusé (« bad magic »), et
+#    le modèle d'essai de whisper.cpp sur le processeur : transcription
+#    d'une seconde de silence.
+# 4. Réinstallation silencieuse par-dessus une app, un llama-server et un
+#    whisper-server en marche, et par-dessus un ancien Ollama intégré (dossier ollama\ des
 #    versions 0.9.x, reconstitué, son runner en marche) : les crochets de
 #    packaging/windows/hooks.nsh doivent les arrêter (par leur chemin),
-#    retirer nos fichiers du dossier llama-server (une variante
-#    ggml-cpu-*.dll d'une autre version n'y reste pas, un fichier de
+#    retirer nos fichiers des dossiers llama-server et whisper-server (une
+#    variante ggml-cpu-*.dll d'une autre version n'y reste pas, un fichier de
 #    l'utilisateur si), retirer l'ancien Ollama intégré et ses notices (un
 #    fichier de l'utilisateur posé dans ollama\ reste), l'installateur
 #    réussir, et rien ne rester en marche.
@@ -201,8 +207,10 @@ foreach ($file in @(
     "sd-server\sd-server.exe", "sd-server\VERSION", "sd-server\fallback\vulkan-1.dll",
     "llama-server\llama-server.exe", "llama-server\VERSION", "llama-server\SHA256SUMS",
     "llama-server\fallback\vulkan-1.dll",
+    "whisper-server\whisper-server.exe", "whisper-server\VERSION", "whisper-server\SHA256SUMS",
     "licenses\LICENSE.txt", "licenses\THIRD_PARTY_LICENSES.txt",
-    "licenses\sd-server\README.txt", "licenses\llama-server\README.txt")) {
+    "licenses\sd-server\README.txt", "licenses\llama-server\README.txt",
+    "licenses\whisper-server\README.txt")) {
   if (-not (Test-Path -LiteralPath (Join-Path $install $file))) { Fail "Fichier installé absent : $file" }
 }
 # Plus d'Ollama intégré depuis le moteur llama.cpp.
@@ -410,6 +418,108 @@ if ((Test-Path -LiteralPath $llama) -and (Test-Path -LiteralPath $llamaVersionFi
   Fail "llama-server non installé : essai du moteur de texte impossible."
 }
 
+# --- 3 ter. Le moteur de transcription seul --------------------------------
+Section "Moteur de transcription (whisper-server)"
+$whisper = Join-Path $install "whisper-server\whisper-server.exe"
+$whisperDir = Join-Path $install "whisper-server"
+# Modèle d'essai de whisper.cpp (poids réduits, 575 ko, MIT), au commit de
+# packaging/whispercpp.env ; même fichier que packaging/ci/smoke-whisper-server.sh.
+$whisperModelUrl = "https://raw.githubusercontent.com/ggml-org/whisper.cpp/d1be6fde11ac6e0407606b4e42fe72d34add8037/models/for-tests-ggml-tiny.bin"
+$whisperModelSha256 = "c486fb9f14a28b1c1dc252741a431646cc573450c900b9d9c406e10294aa01e6"
+$whisperModel = $null
+if ((Test-Path -LiteralPath $whisper) -and (Test-Path -LiteralPath (Join-Path $whisperDir "VERSION"))) {
+  $sums = Get-Content -LiteralPath (Join-Path $whisperDir "SHA256SUMS")
+  $bad = @()
+  foreach ($line in $sums) {
+    if ($line -notmatch '^([0-9a-f]{64}) [ *](.+)$') { continue }
+    $file = Join-Path $whisperDir ($Matches[2] -replace '/', '\')
+    $hash = if (Test-Path -LiteralPath $file) { (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLower() } else { "" }
+    if ($hash -ne $Matches[1]) { $bad += $Matches[2] }
+  }
+  if ($sums.Count -gt 0 -and $bad.Count -eq 0) { Pass "whisper-server : $($sums.Count) fichiers conformes à SHA256SUMS." } else { Fail "whisper-server : fichiers différents de SHA256SUMS : $($bad -join ', ')" }
+  if (Test-Path -LiteralPath (Join-Path $whisperDir "fallback")) { Fail "whisper-server\fallback installé (attendu : le chargeur de llama-server)." }
+  # Le chargeur de secours de llama-server est déjà en fin de PATH (§ 3 bis),
+  # comme l'app le donne à whisper-server.
+  $whisperHelp = (& $whisper --help 2>&1) -join "`n"
+  $whisperCode = $LASTEXITCODE
+  if ($whisperCode -eq 0 -and $whisperHelp -match "loaded CPU backend") {
+    Pass "whisper-server --help : $((([regex]::Matches($whisperHelp, 'loaded \w+ backend')) | ForEach-Object { $_.Value }) -join ', ')"
+  } else {
+    Fail "whisper-server --help : code $whisperCode, sortie : $whisperHelp"
+  }
+  # Modèle illisible dans un dossier accentué : ouvert (page de code UTF-8,
+  # packaging/whispercpp/0001-…), puis refusé.
+  $accented = Join-Path $work "Thé chaton"
+  New-Item -ItemType Directory -Force -Path $accented | Out-Null
+  $badModel = Join-Path $accented "modèle illisible.bin"
+  [IO.File]::WriteAllBytes($badModel, [Text.Encoding]::ASCII.GetBytes("not a whisper model"))
+  $whisperLog = Join-Path $work "whisper-server-accent"
+  $whisperProcess = Start-Logged $whisper @("--host", "127.0.0.1", "--port", "18442", "-m", "`"$badModel`"") $whisperLog
+  if (-not $whisperProcess.WaitForExit(60000)) {
+    Stop-Process -Id $whisperProcess.Id -Force -ErrorAction SilentlyContinue
+    Fail "whisper-server ne s'est pas arrêté sur un modèle illisible en 60 s."
+  } else {
+    $whisperOutput = (Get-Content -LiteralPath "$whisperLog.out.log", "$whisperLog.err.log" -Raw -ErrorAction SilentlyContinue) -join "`n"
+    if ($whisperProcess.ExitCode -eq 0) { Fail "whisper-server : code de sortie 0 sur un modèle illisible." }
+    if ($whisperOutput -match "bad magic") { Pass "whisper-server : modèle d'un dossier accentué ouvert (code $($whisperProcess.ExitCode))." } else { Fail "whisper-server : modèle d'un dossier accentué non ouvert (code 0x$('{0:X8}' -f $whisperProcess.ExitCode))." }
+    Save-Log "$whisperLog.err.log" "whisper-server-accent.err.log"
+  }
+  # Modèle d'essai, sur le processeur : une seconde de silence (WAV PCM 16
+  # bits, mono, 16 kHz).
+  $whisperModel = Join-Path $work "for-tests-ggml-tiny.bin"
+  Invoke-WebRequest -Uri $whisperModelUrl -OutFile $whisperModel -UseBasicParsing
+  if ((Get-FileHash -LiteralPath $whisperModel -Algorithm SHA256).Hash.ToLower() -ne $whisperModelSha256) {
+    Fail "Empreinte inattendue du modèle d'essai de whisper-server."
+    $whisperModel = $null
+  } else {
+    $wav = Join-Path $work "silence.wav"
+    $header = [byte[]](0x52, 0x49, 0x46, 0x46, 0x24, 0x7d, 0, 0, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20,
+      0x10, 0, 0, 0, 1, 0, 1, 0, 0x80, 0x3e, 0, 0, 0, 0x7d, 0, 0, 2, 0, 0x10, 0,
+      0x64, 0x61, 0x74, 0x61, 0, 0x7d, 0, 0)
+    [IO.File]::WriteAllBytes($wav, $header + (New-Object byte[] 32000))
+    $whisperLog = Join-Path $work "whisper-server-run"
+    # Arguments de l'app (src-tauri/src/dictation/whisper_server.rs), sur le processeur.
+    $whisperProcess = Start-Logged $whisper @("--host", "127.0.0.1", "--port", "18442", "--model", "`"$whisperModel`"",
+      "--threads", "4", "--beam-size", "3", "--suppress-nst", "--no-speech-thold", "0.2", "--language", "auto", "-ng") $whisperLog
+    $ready = $false
+    for ($i = 0; $i -lt 240 -and -not $whisperProcess.HasExited; $i++) {
+      if (Test-Port 18442) { $ready = $true; break }
+      Start-Sleep -Milliseconds 500
+    }
+    if (-not $ready) {
+      Fail "whisper-server n'écoute pas."
+      Show-Log "whisper-server (erreurs)" "$whisperLog.err.log" 60
+    } else {
+      try {
+        $answer = Invoke-RestMethod -Uri "http://127.0.0.1:18442/inference" -Method Post -Form @{ file = Get-Item -LiteralPath $wav; response_format = "json" } -TimeoutSec 120
+        if ($null -ne $answer.text) { Pass "whisper-server : transcription sur le processeur : « $($answer.text) »." } else { Fail "whisper-server : réponse sans texte." }
+      } catch {
+        Fail "whisper-server : transcription en échec : $($_.Exception.Message)"
+      }
+      # Requêtes d'ailleurs que l'app (page web, /load) : refusées (correctif
+      # packaging/whispercpp/0002-refuse-browser-requests.patch).
+      foreach ($case in @(
+          @{ Label = "page web (Origin)"; Uri = "http://127.0.0.1:18442/health"; Method = "Get"; Headers = @{ Origin = "http://example.com" } },
+          @{ Label = "/load"; Uri = "http://127.0.0.1:18442/load"; Method = "Post"; Headers = @{} })) {
+        $code = 0
+        try {
+          $response = Invoke-WebRequest -Uri $case.Uri -Method $case.Method -Headers $case.Headers -UseBasicParsing -TimeoutSec 30
+          $code = [int]$response.StatusCode
+        } catch {
+          if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+        }
+        if ($code -eq 403) { Pass "whisper-server : $($case.Label) refusé (403)." } else { Fail "whisper-server : $($case.Label) : code $code (attendu : 403)." }
+      }
+      if ($whisperProcess.HasExited) { Fail "whisper-server s'est arrêté après les requêtes refusées." }
+    }
+    Stop-Process -Id $whisperProcess.Id -Force -ErrorAction SilentlyContinue
+    $null = $whisperProcess.WaitForExit(10000)
+    Save-Log "$whisperLog.err.log" "whisper-server-run.err.log"
+  }
+} else {
+  Fail "whisper-server non installé : essai du moteur de transcription impossible."
+}
+
 # --- 4. Réinstallation par-dessus une app en marche ------------------------
 Section "Réinstallation par-dessus une app en marche"
 $data = Join-Path $work "$dataName 3"
@@ -429,6 +539,18 @@ if (Test-Path -LiteralPath $llama) {
   $foreignSet = $true
   if ($llamaModel) {
     $null = Start-Logged $llama @("--host", "127.0.0.1", "--port", "18439", "-m", "`"$llamaModel`"", "-c", "256", "-ngl", "0", "--no-webui", "--offline") (Join-Path $work "llama-server-reinstall")
+  }
+}
+# De même pour le moteur de transcription.
+$whisperStale = Join-Path $install "whisper-server\ggml-cpu-ancienne.dll"
+$whisperForeign = Join-Path $install "whisper-server\modele-utilisateur.bin"
+$whisperForeignSet = $false
+if (Test-Path -LiteralPath $whisper) {
+  Set-Content -LiteralPath $whisperStale -Value "ancienne variante"
+  Set-Content -LiteralPath $whisperForeign -Value "fichier de l'utilisateur"
+  $whisperForeignSet = $true
+  if ($whisperModel) {
+    $null = Start-Logged $whisper @("--host", "127.0.0.1", "--port", "18443", "-m", "`"$whisperModel`"", "-ng") (Join-Path $work "whisper-server-reinstall")
   }
 }
 # Ancien Ollama intégré d'une 0.9.x, reconstitué : ollama.exe (un fichier
@@ -468,7 +590,7 @@ if ($left.Count -gt 0) {
 } else {
   Pass "App et moteurs arrêtés par l'installateur."
 }
-foreach ($file in @($MainBinary, "onnxruntime.dll", "llama-server\llama-server.exe", "llama-server\VERSION")) {
+foreach ($file in @($MainBinary, "onnxruntime.dll", "llama-server\llama-server.exe", "llama-server\VERSION", "whisper-server\whisper-server.exe", "whisper-server\VERSION")) {
   if (-not (Test-Path -LiteralPath (Join-Path $install $file))) { Fail "Fichier absent après la réinstallation : $file" }
 }
 if (Test-Path -LiteralPath $stale) { Fail "Variante d'une autre version restée dans llama-server après la réinstallation." } else { Pass "Nos fichiers de llama-server retirés avant la copie (aucune variante d'une autre version)." }
@@ -478,6 +600,13 @@ if (Test-Path -LiteralPath $foreign) {
   Remove-Item -LiteralPath $foreign -Force -ErrorAction SilentlyContinue
 } elseif ($foreignSet) {
   Fail "Fichier de l'utilisateur effacé de llama-server par la réinstallation."
+}
+if (Test-Path -LiteralPath $whisperStale) { Fail "Variante d'une autre version restée dans whisper-server après la réinstallation." } else { Pass "Nos fichiers de whisper-server retirés avant la copie (aucune variante d'une autre version)." }
+if (Test-Path -LiteralPath $whisperForeign) {
+  Pass "Fichier de l'utilisateur gardé dans whisper-server (seuls nos fichiers sont retirés)."
+  Remove-Item -LiteralPath $whisperForeign -Force -ErrorAction SilentlyContinue
+} elseif ($whisperForeignSet) {
+  Fail "Fichier de l'utilisateur effacé de whisper-server par la réinstallation."
 }
 if ($oldSet) {
   $oldLeft = @(@("ollama\ollama.exe", "ollama\VERSION", "ollama\lib", "licenses\ollama") | Where-Object { Test-Path -LiteralPath (Join-Path $install $_) })

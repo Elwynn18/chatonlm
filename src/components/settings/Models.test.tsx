@@ -1088,6 +1088,155 @@ describe("Settings: Models, VRAM gauge", () => {
   });
 });
 
+describe("Settings: Models, Whisper and the image engine", () => {
+  const GIB = 1024 ** 3;
+  const MIB = 1024 ** 2;
+  const resourceTexts = () =>
+    within(screen.getByTestId("resources-list"))
+      .getAllByRole("listitem")
+      .map((item) => item.textContent);
+
+  it("shows Whisper on the card and the image engine at work, out of the other uses", async () => {
+    setup((backend) => {
+      backend.running = [
+        runningModel("qwen3:0.6b", { sizeBytes: 2 * GIB, vramBytes: 2 * GIB }),
+      ];
+      backend.machine = {
+        gpus: [
+          { name: "Radeon RX 7600", vramTotal: 8 * GIB, vramFree: 4 * GIB },
+        ],
+        ramTotal: 32 * GIB,
+        ramAvailable: 16 * GIB,
+      };
+      backend.resources = {
+        speech: {
+          modelId: "whisper-large-v3-turbo",
+          device: "card",
+          vramBytes: 512 * MIB,
+        },
+        images: { busy: true, vramBytes: GIB },
+      };
+    });
+    const list = await screen.findByTestId("resources-list");
+    expect(list.getAttribute("aria-label")).toBe(
+      "Where speech recognition and image creation run",
+    );
+    await waitFor(() =>
+      expect(resourceTexts()).toEqual([
+        "Whisper Large v3 Turbo — graphics card, 512 MB",
+        "Image engine — graphics card, 1.0 GB, creating an image",
+      ]),
+    );
+    const gauge = screen.getByTestId("vram-gauge");
+    // 4 Gio occupés : 2 pour le modèle, 1 pour les images, 0,5 pour Whisper,
+    // 0,5 pour le reste.
+    expect(
+      within(gauge)
+        .getAllByTestId("vram-extra")
+        .map((part) => [part.dataset.kind, part.style.width]),
+    ).toEqual([
+      ["images", "12.5%"],
+      ["speech", "6.25%"],
+    ]);
+    expect(within(gauge).getByTestId("vram-other").style.width).toBe("6.25%");
+    expect(within(gauge).getByText("Other uses: 512 MB")).toBeTruthy();
+    expect(within(gauge).getByTestId("vram-speech-legend").textContent).toBe(
+      "Whisper Large v3 Turbo: 512 MB",
+    );
+    expect(within(gauge).getByTestId("vram-images-legend").textContent).toBe(
+      "Image engine: 1.0 GB",
+    );
+    expect(within(gauge).getByTestId("vram-usage").textContent).toBe(
+      "4.0 GB of 8.0 GB used",
+    );
+  });
+
+  it("says when Whisper runs on the processor and the image engine waits", async () => {
+    setup((backend) => {
+      backend.resources = {
+        speech: {
+          modelId: "whisper-small",
+          device: "processor",
+          vramBytes: null,
+        },
+        images: { busy: false, vramBytes: null },
+      };
+    });
+    await screen.findByTestId("resources-list");
+    await waitFor(() =>
+      expect(resourceTexts()).toEqual([
+        "Whisper Small — processor",
+        "Image engine — waiting for the next image",
+      ]),
+    );
+    // Rien sur la jauge : ni Whisper (processeur) ni images (VRAM inconnue).
+    expect(screen.queryAllByTestId("vram-extra")).toEqual([]);
+    expect(screen.queryByTestId("vram-speech-legend")).toBeNull();
+    expect(screen.queryByTestId("vram-images-legend")).toBeNull();
+  });
+
+  it("shows the identifier of a model missing from the catalog", async () => {
+    setup((backend) => {
+      backend.resources = {
+        speech: { modelId: "whisper-medium", device: "card", vramBytes: null },
+        images: null,
+      };
+    });
+    await screen.findByTestId("resources-list");
+    expect(resourceTexts()).toEqual(["whisper-medium — graphics card"]);
+  });
+
+  it("says processor on a computer without a graphics card", async () => {
+    setup((backend) => {
+      backend.machine = { gpus: [], ramTotal: 16 * GIB, ramAvailable: 8 * GIB };
+      backend.resources = {
+        speech: { modelId: "whisper-small", device: "card", vramBytes: null },
+        images: { busy: true, vramBytes: null },
+      };
+    });
+    await screen.findByTestId("vram-no-gpu");
+    await waitFor(() =>
+      expect(resourceTexts()).toEqual([
+        "Whisper Small — processor",
+        "Image engine — processor, creating an image",
+      ]),
+    );
+  });
+
+  it("shows nothing when neither is loaded, and reads them again", async () => {
+    const { backend } = setup((backend) => {
+      backend.running = [runningModel("qwen3:0.6b")];
+    });
+    await screen.findByTestId("vram-gauge");
+    expect(screen.queryByTestId("resources-list")).toBeNull();
+    expect(screen.queryAllByTestId("vram-extra")).toEqual([]);
+    // Whisper chargé entre deux lectures : il paraît à la suivante.
+    backend.resources = {
+      speech: {
+        modelId: "whisper-large-v3-turbo",
+        device: "card",
+        vramBytes: GIB,
+      },
+      images: null,
+    };
+    await waitFor(
+      () =>
+        expect(screen.getByTestId("resources-speech").textContent).toBe(
+          "Whisper Large v3 Turbo — graphics card, 1.0 GB",
+        ),
+      { timeout: 4000 },
+    );
+    expect(screen.getAllByTestId("vram-extra")).toHaveLength(1);
+    // Puis déchargé : plus rien.
+    backend.resources = { speech: null, images: null };
+    await waitFor(
+      () => expect(screen.queryByTestId("resources-list")).toBeNull(),
+      { timeout: 4000 },
+    );
+    expect(screen.queryAllByTestId("vram-extra")).toEqual([]);
+  });
+});
+
 describe("Settings: Models in other languages", () => {
   /** Noms des modèles (et leurs morceaux, montrés par ModelLabel) : des données. */
   const NAMES = [
@@ -1168,6 +1317,41 @@ describe("Settings: Models in other languages", () => {
     await userEvent.click(screen.getAllByTestId("unload-model")[0]);
     await screen.findByTestId("unload-error");
     expect(untranslatedTexts(tab(), [...allow, "busy"])).toEqual([]);
+  });
+
+  it("writes Whisper and the image engine from the catalogs", async () => {
+    setup((backend) => {
+      backend.machine = {
+        gpus: [
+          {
+            name: "NVIDIA GeForce RTX 3090",
+            vramTotal: 24 * 1024 ** 3,
+            vramFree: 12 * 1024 ** 3,
+          },
+        ],
+        ramTotal: 64 * 1024 ** 3,
+        ramAvailable: 48 * 1024 ** 3,
+      };
+      backend.resources = {
+        speech: {
+          modelId: "whisper-large-v3-turbo",
+          device: "card",
+          vramBytes: 1024 ** 3,
+        },
+        images: { busy: false, vramBytes: 2 * 1024 ** 3 },
+      };
+    });
+    usePseudoLanguage();
+    await waitFor(() =>
+      expect(screen.getByTestId("resources-speech").textContent).toMatch(
+        /^⟦Whisper Large v3 Turbo/,
+      ),
+    );
+    await screen.findByTestId("vram-speech-legend");
+    await screen.findByTestId("vram-images-legend");
+    expect(
+      untranslatedTexts(tab(), [...NAMES, "Whisper Large v3 Turbo"]),
+    ).toEqual([]);
   });
 
   it("writes the empty and unreachable states from the catalogs", async () => {

@@ -27,6 +27,7 @@ mod os_util;
 mod paths;
 mod process;
 mod proofread;
+mod resources;
 mod search;
 mod shutdown;
 mod startup;
@@ -180,14 +181,49 @@ pub fn run() {
                     gpu.poke();
                 }
             });
+            // Arbitre des ressources (choix du 20 nov. 2026) : texte, images
+            // et Whisper se font de la place sur la carte graphique en
+            // arrêtant ce qui est chargé sans servir ; Whisper passe sur la
+            // carte (`whisper-server`) quand il y a la place.
+            let resources = resources::Resources::new();
+            let speech = app.state::<Dictation>().engine();
+            resources.attach(
+                text_engine.clone(),
+                app.state::<image_gen::ImageGen>().inner().clone(),
+                speech.clone(),
+            );
+            // Processeur imposé aux essais (`CHATONLM_LLAMA_CPU_ONLY`) : Whisper
+            // aussi.
+            if !engine::options::forced_cpu()
+                && let Some(bin) = dictation::whisper_server::locate(
+                    dictation::whisper_server::overridden().as_deref(),
+                    app.path().resource_dir().ok().as_deref(),
+                    dictation::whisper_server::dev_dir().as_deref(),
+                )
+            {
+                let fallback = engine::binary::llama_server_bin(app.handle()).and_then(|bin| {
+                    bin.parent()
+                        .map(|dir| dir.join(engine::binary::FALLBACK_DIR))
+                });
+                speech.set_placement(Arc::new(dictation::whisper_server::Placement::new(
+                    bin,
+                    fallback,
+                    resources::whisper_log(&text_engine.logs_dir()),
+                    Arc::new(resources.clone()),
+                )));
+            }
             let releasing = text_engine.clone();
+            let releasing_speech = resources.clone();
             app.state::<image_gen::ImageGen>()
                 .before_image(Arc::new(move || {
                     let engine = releasing.clone();
+                    let resources = releasing_speech.clone();
                     Box::pin(async move {
                         engine.release_idle().await;
+                        resources.release_speech().await;
                     })
                 }));
+            app.manage(resources);
             app.state::<gpu::GpuChief>()
                 .attach_engine(text_engine.clone());
             // Pack CUDA facultatif (écran du moteur) : état vers la page à
@@ -575,6 +611,7 @@ pub fn run() {
             commands::engine::cuda_set_enabled,
             commands::engine::cuda_status,
             commands::engine::engine_status,
+            commands::engine::resources_view,
             commands::engine::open_engine_logs,
             commands::models::get_think_pref,
             commands::models::auto_model,

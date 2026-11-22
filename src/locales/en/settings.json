@@ -251,7 +251,21 @@
       "freeSize": "Free: {size}",
       "noGpu": "No graphics card detected: models run on the processor, in system memory.",
       "unknown": "VRAM usage can't be read on this computer.",
-      "spilled": "{size} doesn't fit in VRAM: that part runs from system memory, more slowly."
+      "spilled": "{size} doesn't fit in VRAM: that part runs from system memory, more slowly.",
+      "speechSize": "{name}: {size}",
+      "imagesSize": "Image engine: {size}"
+    },
+    "resources": {
+      "label": "Where speech recognition and image creation run",
+      "speechCard": "{name} — graphics card, {size}",
+      "speechCardUnmeasured": "{name} — graphics card",
+      "speechProcessor": "{name} — processor",
+      "imagesCardBusy": "Image engine — graphics card, {size}, creating an image",
+      "imagesCardIdle": "Image engine — graphics card, {size}, waiting for the next image",
+      "imagesProcessorBusy": "Image engine — processor, creating an image",
+      "imagesProcessorIdle": "Image engine — processor, waiting for the next image",
+      "imagesBusy": "Image engine — creating an image",
+      "imagesIdle": "Image engine — waiting for the next image"
     },
     "loaded": {
       "title": "Loaded models",

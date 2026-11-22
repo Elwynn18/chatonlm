@@ -11,6 +11,13 @@
 //! perdus ; un seul bloc de 75 s, 31 mots sur ~220). L'abandon prend effet
 //! entre deux morceaux.
 //!
+//! Whisper passe sur la carte graphique quand l'arbitre de la carte a la
+//! place (`whisper_server`, posé par [`Engine::set_placement`]) ; sinon, ou
+//! si la carte échoue, sur le processeur dans l'app. Une transcription
+//! longue peut faire décharger les modèles de texte inactifs ; une dictée,
+//! non (elle prépare souvent le prochain message : recharger le modèle de la
+//! conversation coûterait plus que Whisper sur le processeur).
+//!
 //! La transcription longue (`crate::transcription`) passe par
 //! [`Engine::transcribe_piece`] : un morceau à la fois, verrou du modèle pris
 //! et rendu à chaque morceau, après la dictée et le mode vocal s'ils
@@ -18,14 +25,15 @@
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use parking_lot::Mutex;
 
 use super::audio::{BLOCK, RATE};
 use super::models::{CatalogModel, SpeechEngine};
+use super::whisper_server::{self, Placement, ServerWhisper};
 use crate::i18n::t;
 
 /// Modèle gardé en mémoire après sa dernière utilisation.
@@ -62,6 +70,27 @@ const CUT_SEARCH: usize = 4 * RATE as usize;
 
 /// Fils de calcul de Whisper au plus (au-delà, plus lent : mémoire).
 const MAX_THREADS: usize = 8;
+
+/// Dit si un autre calcul tient déjà le processeur (un modèle de texte qui
+/// y répond) : Whisper sur le processeur prend alors moitié moins de fils
+/// (posé par l'arbitre des ressources, `crate::resources`).
+static PROCESSOR_SHARED: OnceLock<Box<dyn Fn() -> bool + Send + Sync>> = OnceLock::new();
+
+/// Pose la question de [`PROCESSOR_SHARED`] (une fois, au démarrage).
+pub fn share_processor_with(busy: impl Fn() -> bool + Send + Sync + 'static) {
+    let _ = PROCESSOR_SHARED.set(Box::new(busy));
+}
+
+/// Fils de Whisper sur le processeur : `cores` (au plus [`MAX_THREADS`]),
+/// moitié moins (2 au moins) quand `shared`.
+fn whisper_threads(cores: usize, shared: bool) -> usize {
+    let threads = cores.min(MAX_THREADS);
+    if shared {
+        (threads / 2).max(2).min(threads)
+    } else {
+        threads
+    }
+}
 
 /// Fichiers d'un modèle sur le disque.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -228,6 +257,15 @@ pub trait Recognizer: Send {
         let text = self.transcribe(samples, request)?;
         Ok(Piece::whole(&text, seconds(samples)))
     }
+
+    /// Le modèle occupe la carte graphique (Whisper par `whisper-server`).
+    fn on_card(&self) -> bool {
+        false
+    }
+
+    /// Rend la carte graphique et attend que ce soit fait (fil qui peut
+    /// bloquer) : avant de libérer le modèle pour un autre calcul.
+    fn release_card(&mut self) {}
 }
 
 /// Durée de `samples` à 16 kHz, en secondes.
@@ -246,10 +284,23 @@ pub type Loader = dyn Fn(&ModelSpec) -> Result<Box<dyn Recognizer>, String> + Se
 #[derive(Clone)]
 pub struct Engine {
     shared: Arc<Shared>,
+    /// Whisper sur la carte (posé au démarrage de l'app ; absent dans les
+    /// essais et sans `whisper-server`).
+    placement: Arc<OnceLock<Arc<Placement>>>,
 }
+
+/// Le modèle est chargé pour une transcription longue (voir l'en-tête du
+/// module) : posé autour du chargement par [`Engine::transcribe_piece`].
+#[derive(Default)]
+struct LongJob(AtomicBool);
 
 struct Shared {
     loader: Box<Loader>,
+    /// Drapeau lu par le chargeur de [`Engine::new`] (voir [`LongJob`]).
+    long_job: OnceLock<Arc<LongJob>>,
+    /// Dernier modèle chargé (vue des ressources, lisible pendant une
+    /// transcription).
+    last_loaded: Mutex<Option<String>>,
     idle: Duration,
     slot: Mutex<Option<Loaded>>,
     /// Dictées en cours : le modèle n'est pas libéré pendant ce temps.
@@ -286,14 +337,61 @@ impl Default for Engine {
 }
 
 impl Engine {
-    /// Moteur de transcribe-rs, modèle libéré après [`IDLE`].
+    /// Moteur de transcribe-rs, modèle libéré après [`IDLE`] ; Whisper sur
+    /// la carte une fois [`Engine::set_placement`] appelé.
     pub fn new() -> Self {
-        Self::with_loader(Box::new(load), IDLE)
+        let placement: Arc<OnceLock<Arc<Placement>>> = Arc::default();
+        let long_job: Arc<LongJob> = Arc::default();
+        let (seen, job) = (placement.clone(), long_job.clone());
+        let mut engine = Self::with_loader(
+            Box::new(move |spec| load_with(spec, seen.get(), job.0.load(Ordering::SeqCst))),
+            IDLE,
+        );
+        engine.placement = placement;
+        engine.shared.long_job.set(long_job).ok();
+        engine
+    }
+
+    /// Whisper sur la carte graphique : comment lancer `whisper-server` et
+    /// qui arbitre la carte (une seule fois, au démarrage de l'app).
+    pub fn set_placement(&self, placement: Arc<Placement>) {
+        let _ = self.placement.set(placement);
+    }
+
+    /// Modèle chargé (vue des ressources) : sans attendre une transcription
+    /// en cours (le modèle qui la fait, dernier chargé).
+    pub fn loaded_model(&self) -> Option<String> {
+        match self.shared.slot.try_lock() {
+            Some(slot) => slot.as_ref().map(|loaded| loaded.id.clone()),
+            None => self.shared.last_loaded.lock().clone(),
+        }
+    }
+
+    /// Libère le modèle s'il occupe la carte graphique et ne sert pas
+    /// (aucune dictée ni transcription en cours) : sa VRAM revient aux autres
+    /// calculs. Bloquant (arrêt du serveur attendu) ; vrai s'il a été libéré.
+    pub fn release_card_if_idle(&self) -> bool {
+        if self.shared.holds.load(Ordering::SeqCst) > 0 {
+            return false;
+        }
+        let Some(mut slot) = self.shared.slot.try_lock() else {
+            return false;
+        };
+        if let Some(loaded) = slot.as_mut().filter(|loaded| loaded.recognizer.on_card()) {
+            // Arrêt attendu : la VRAM est libre au retour.
+            loaded.recognizer.release_card();
+            *slot = None;
+            return true;
+        }
+        false
     }
 
     pub fn with_loader(loader: Box<Loader>, idle: Duration) -> Self {
         Self {
+            placement: Arc::default(),
             shared: Arc::new(Shared {
+                long_job: OnceLock::new(),
+                last_loaded: Mutex::new(None),
                 loader,
                 idle,
                 slot: Mutex::new(None),
@@ -317,6 +415,17 @@ impl Engine {
     /// l'enregistrement). Un échec est signalé par [`Engine::transcribe`],
     /// qui réessaie.
     pub fn preload(&self, spec: ModelSpec) {
+        self.preload_for(spec, false);
+    }
+
+    /// Comme [`Engine::preload`], pour une transcription longue (voir
+    /// l'en-tête du module : elle peut faire décharger les modèles de texte
+    /// inactifs pour mettre Whisper sur la carte).
+    pub fn preload_long(&self, spec: ModelSpec) {
+        self.preload_for(spec, true);
+    }
+
+    fn preload_for(&self, spec: ModelSpec, long_job: bool) {
         if self.shared.closed.load(Ordering::SeqCst) {
             return;
         }
@@ -326,7 +435,7 @@ impl Engine {
                 let _urgent = shared.urgent();
                 shared.slot.lock()
             };
-            if let Err(error) = shared.ensure(&mut slot, &spec) {
+            if let Err(error) = shared.ensure_for(&mut slot, &spec, long_job) {
                 crate::app_log!("chatonlm: speech model {}: {error}", spec.id);
             }
         });
@@ -395,7 +504,7 @@ impl Engine {
         // Compté jusqu'à la sortie (même garde que l'attente prioritaire).
         self.shared.pieces.fetch_add(1, Ordering::SeqCst);
         let _piece = Urgent(&self.shared.pieces);
-        let loaded = self.shared.ensure(&mut slot, spec)?;
+        let loaded = self.shared.ensure_for(&mut slot, spec, true)?;
         loaded.recognizer.transcribe_timed(samples, request)
     }
 
@@ -477,6 +586,25 @@ impl Shared {
         Urgent(&self.urgent)
     }
 
+    /// [`Shared::ensure`], le chargeur averti d'une transcription longue
+    /// (`long_job`, voir [`LongJob`] ; le verrou du modèle est tenu).
+    fn ensure_for<'a>(
+        &self,
+        slot: &'a mut Option<Loaded>,
+        spec: &ModelSpec,
+        long_job: bool,
+    ) -> Result<&'a mut Loaded, String> {
+        let flag = self.long_job.get().filter(|_| long_job);
+        if let Some(flag) = flag {
+            flag.0.store(true, Ordering::SeqCst);
+        }
+        let loaded = self.ensure(slot, spec);
+        if let Some(flag) = flag {
+            flag.0.store(false, Ordering::SeqCst);
+        }
+        loaded
+    }
+
     fn ensure<'a>(
         &self,
         slot: &'a mut Option<Loaded>,
@@ -496,6 +624,7 @@ impl Shared {
                 id: spec.id.clone(),
                 recognizer: (self.loader)(spec)?,
             });
+            *self.last_loaded.lock() = Some(spec.id.clone());
         }
         Ok(slot.as_mut().expect("model just loaded"))
     }
@@ -578,6 +707,40 @@ impl Drop for Hold {
 /// Charge un modèle de transcribe-rs.
 fn load(spec: &ModelSpec) -> Result<Box<dyn Recognizer>, String> {
     load_on(spec, super::engine_support)
+}
+
+/// Charge un modèle : Whisper sur la carte si `placement` est posé et que
+/// l'arbitre a la place (`long_job` : transcription longue, qui peut faire
+/// décharger les modèles de texte inactifs), sinon comme [`load`].
+fn load_with(
+    spec: &ModelSpec,
+    placement: Option<&Arc<Placement>>,
+    long_job: bool,
+) -> Result<Box<dyn Recognizer>, String> {
+    if spec.engine == SpeechEngine::Whisper
+        && let Some(placement) = placement
+    {
+        match whisper_server::start(placement, spec, long_job) {
+            Ok(Some(server)) => {
+                // i18n-ignore : journal.
+                crate::app_log!("chatonlm: Whisper {} on the graphics card", spec.id);
+                let cpu_spec = spec.clone();
+                return Ok(Box::new(ServerWhisper::new(
+                    server,
+                    placement.budget.clone(),
+                    Box::new(move || load(&cpu_spec)),
+                )));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                // i18n-ignore : journal.
+                crate::app_log!(
+                    "chatonlm: Whisper could not start on the graphics card ({error}); using the processor"
+                );
+            }
+        }
+    }
+    load(spec)
 }
 
 /// Charge un modèle si `support` accepte son moteur sur cette machine ;
@@ -668,9 +831,11 @@ struct Whisper(transcribe_rs::whisper_cpp::WhisperEngine);
 impl Whisper {
     fn params(request: &Request) -> transcribe_rs::whisper_cpp::WhisperInferenceParams {
         use transcribe_rs::whisper_cpp::WhisperInferenceParams;
-        let threads = std::thread::available_parallelism()
-            .map_or(4, usize::from)
-            .min(MAX_THREADS);
+        let shared = PROCESSOR_SHARED.get().is_some_and(|busy| busy());
+        let threads = whisper_threads(
+            std::thread::available_parallelism().map_or(4, usize::from),
+            shared,
+        );
         WhisperInferenceParams {
             language: request.language.clone(),
             n_threads: threads as i32,
@@ -729,6 +894,17 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     use super::*;
+
+    #[test]
+    fn whisper_leaves_half_the_processor_to_a_text_model_answering_on_it() {
+        assert_eq!(whisper_threads(16, false), 8);
+        assert_eq!(whisper_threads(16, true), 4);
+        assert_eq!(whisper_threads(6, false), 6);
+        assert_eq!(whisper_threads(6, true), 3);
+        // Jamais moins de 2, jamais plus que les cœurs.
+        assert_eq!(whisper_threads(2, true), 2);
+        assert_eq!(whisper_threads(1, true), 1);
+    }
 
     /// Modèle qui rend « <id>: <n échantillons> » et compte ses chargements.
     struct Echo(String);
@@ -855,6 +1031,56 @@ mod tests {
             .unwrap();
         engine.release_except(None);
         assert!(engine.loaded().is_none());
+    }
+
+    /// Modèle sur la carte : compte les fois où il la rend.
+    struct OnCard(Arc<AtomicUsize>);
+
+    impl Recognizer for OnCard {
+        fn transcribe(&mut self, _samples: &[f32], _request: &Request) -> Result<String, String> {
+            Ok("on the card".into())
+        }
+        fn on_card(&self) -> bool {
+            true
+        }
+        fn release_card(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Libération pour un autre calcul : seulement un modèle sur la carte,
+    /// jamais pendant une dictée ; la carte est rendue (attendue) avant que
+    /// le modèle parte. Un modèle sur le processeur reste.
+    #[test]
+    fn only_an_idle_model_on_the_card_gives_it_back() {
+        let released = Arc::new(AtomicUsize::new(0));
+        let counter = released.clone();
+        let engine = Engine::with_loader(
+            Box::new(move |spec: &ModelSpec| {
+                Ok(if spec.id == "whisper-card" {
+                    Box::new(OnCard(counter.clone())) as Box<dyn Recognizer>
+                } else {
+                    Box::new(Echo(spec.id.clone())) as Box<dyn Recognizer>
+                })
+            }),
+            IDLE,
+        );
+        engine
+            .transcribe(&spec("whisper-tiny"), &[0.0], &Request::default(), &GO)
+            .unwrap();
+        assert!(!engine.release_card_if_idle());
+        assert_eq!(engine.loaded().as_deref(), Some("whisper-tiny"));
+        engine
+            .transcribe(&spec("whisper-card"), &[0.0], &Request::default(), &GO)
+            .unwrap();
+        let hold = engine.hold();
+        assert!(!engine.release_card_if_idle());
+        assert_eq!(released.load(Ordering::SeqCst), 0);
+        drop(hold);
+        assert!(engine.release_card_if_idle());
+        assert_eq!(released.load(Ordering::SeqCst), 1);
+        assert!(engine.loaded().is_none());
+        assert_eq!(engine.loaded_model().as_deref(), None);
     }
 
     /// Modèle dont le chargement prend `delay` ; compte les chargements

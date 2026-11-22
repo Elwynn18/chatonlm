@@ -106,7 +106,7 @@ jobs:
             src-tauri/target
             !src-tauri/target/release/bundle
             .tools/runtimes
-          key: packages-windows-${{ hashFiles('rust-toolchain.toml', 'src-tauri/Cargo.lock', 'scripts/package-notices.mjs', 'packaging/*.env', 'packaging/sdcpp/*.patch', 'scripts/build-sd-server.sh', 'packaging/llama/*.patch', 'scripts/build-llama-server.sh') }}
+          key: packages-windows-${{ hashFiles('rust-toolchain.toml', 'src-tauri/Cargo.lock', 'scripts/package-notices.mjs', 'packaging/*.env', 'packaging/sdcpp/*.patch', 'scripts/build-sd-server.sh', 'packaging/llama/*.patch', 'scripts/build-llama-server.sh', 'packaging/whispercpp/*.patch', 'scripts/build-whisper-server.sh') }}
           restore-keys: |
             packages-windows-
 
@@ -130,19 +130,21 @@ jobs:
           ls -l .tools/runtimes/onnxruntime
           echo "ORT_DYLIB_PATH=$(cygpath -w "$PWD/.tools/runtimes/onnxruntime/onnxruntime.dll")" >>"$GITHUB_ENV"
 
-      # Moteurs d'images et de texte construits depuis leurs sources
-      # (scripts/build-sd-server.sh puis scripts/build-llama-server.sh, Visual
-      # Studio 2022 ; sd-server en CRT statique, llama-server en CRT en DLL
-      # (/MD) avec les DLL du runtime Visual C++ copiées à côté de lui : en
-      # /MT, chaque DLL de llama.cpp aurait son propre CRT), gardés dans
+      # Moteurs d'images, de texte et de transcription construits depuis leurs
+      # sources (scripts/build-sd-server.sh, scripts/build-llama-server.sh
+      # puis scripts/build-whisper-server.sh, Visual Studio 2022 ; sd-server
+      # en CRT statique, llama-server et whisper-server en CRT en DLL (/MD)
+      # avec les DLL du runtime Visual C++ copiées à côté d'eux : en /MT,
+      # chacune de leurs DLL aurait son propre CRT), gardés dans
       # .tools/runtimes par le cache :
       # le SDK Vulkan de LunarG (packaging/sdcpp.env, empreinte vérifiée)
       # n'est installé que s'il faut en reconstruire un ; le chargeur Vulkan de
       # secours est construit depuis ses sources par le script de sd-server,
       # puis repris par celui de llama-server.
-      - name: SDK Vulkan et moteurs (sd-server, llama-server)
+      - name: SDK Vulkan et moteurs (sd-server, llama-server, whisper-server)
         run: |
-          if scripts/build-sd-server.sh --check && scripts/build-llama-server.sh --check; then
+          if scripts/build-sd-server.sh --check && scripts/build-llama-server.sh --check &&
+            scripts/build-whisper-server.sh --check; then
             exit 0
           fi
           source packaging/sdcpp.env
@@ -171,6 +173,13 @@ jobs:
           fi
           du -sh .tools/runtimes/llama-server
           ls -l .tools/runtimes/llama-server
+          echo "== Construction de whisper-server"
+          if ! WHISPER_JOBS="$(nproc)" timeout 5400 scripts/build-whisper-server.sh; then
+            tail -n 60 .tools/whisper-build/configure.log .tools/whisper-build/build.log 2>/dev/null || true
+            exit 1
+          fi
+          du -sh .tools/runtimes/whisper-server
+          ls -l .tools/runtimes/whisper-server
 
       # Exigé par le contexte de Tauri à la compilation (frontendDist) et par
       # les notices (dist/.vite/license.json).

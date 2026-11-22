@@ -8,7 +8,8 @@
 // identique à celui de scripts/build-sd-server.sh (CRT statique : aucune DLL
 // de Visual C++ ni d'OpenMP importée), moteur de texte identique à celui de
 // scripts/build-llama-server.sh (mêmes contrôles, pour chacune de ses DLL),
-// et surtout imports PE de
+// moteur de transcription identique à celui de scripts/build-whisper-server.sh
+// (de même), et surtout imports PE de
 // chaque exécutable et de chaque DLL : une DLL demandée doit être livrée à
 // côté, ou appartenir à Windows. C'est ce contrôle qui remplace la « machine
 // neuve » : le runner de la CI a le redistribuable Visual C++, WebView2 et
@@ -20,7 +21,8 @@
 //
 // Usage : node scripts/inspect-windows.mjs [options] <ChatonLM_x.y.z_x64-setup.exe>
 //   --runtimes <dossier>   copies de référence (défaut : .tools/runtimes ;
-//                          onnxruntime, sd-server, llama-server)
+//                          onnxruntime, sd-server, llama-server,
+//                          whisper-server)
 //   --report <fichier>     copie du rapport
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -85,6 +87,19 @@ export const REQUIRED_FILES = [
   "llama-server/fallback/vulkan-1.dll",
   "llama-server/VERSION",
   "llama-server/SHA256SUMS",
+  // Moteur de transcription (scripts/build-whisper-server.sh) : de même, sans
+  // chargeur Vulkan à lui (l'app prend celui de llama-server/fallback).
+  "whisper-server/whisper-server.exe",
+  "whisper-server/whisper.dll",
+  "whisper-server/ggml.dll",
+  "whisper-server/ggml-base.dll",
+  "whisper-server/ggml-vulkan.dll",
+  "whisper-server/ggml-cpu-x64.dll",
+  "whisper-server/ggml-cpu-haswell.dll",
+  "whisper-server/vcruntime140.dll",
+  "whisper-server/msvcp140.dll",
+  "whisper-server/VERSION",
+  "whisper-server/SHA256SUMS",
   // Notices (scripts/package-notices-windows.mjs).
   "licenses/LICENSE.txt",
   "licenses/THIRD_PARTY_LICENSES.txt",
@@ -100,6 +115,8 @@ export const REQUIRED_FILES = [
   "licenses/sd-server/README.txt",
   "licenses/llama-server/README.txt",
   "licenses/llama-server/llama.cpp-LICENSE.txt",
+  "licenses/whisper-server/README.txt",
+  "licenses/whisper-server/whisper.cpp-LICENSE.txt",
 ];
 
 /**
@@ -196,16 +213,34 @@ export const LLAMA_SERVER_DIR = "llama-server/";
  * (« / »), insensibles à la casse comme Windows.
  */
 export function llamaHookPatterns(hooks) {
+  return engineHookPatterns(hooks, LLAMA_ENGINE);
+}
+
+/**
+ * De même pour le moteur de transcription (macro CHATONLM_WHISPER_FILES,
+ * dossier whisper-server\).
+ */
+export function whisperHookPatterns(hooks) {
+  return engineHookPatterns(hooks, WHISPER_ENGINE);
+}
+
+/** Motifs de la macro `engine.macro` sur le dossier `engine.folder`. */
+function engineHookPatterns(hooks, engine) {
   const code = hooks
     .split("\n")
     .filter((line) => !line.trim().startsWith(";"))
     .join("\n");
   const files = code
-    .split("!macro CHATONLM_LLAMA_FILES")[1]
+    .split(new RegExp(`!macro ${engine.macro}\\b`))[1]
     ?.split("!macroend")[0];
+  const folder = engine.folder.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
   const quoted = [
-    ...(files ?? "").matchAll(/"\$INSTDIR\\llama-server\\([^"]+)"/g),
-    ...code.matchAll(/^\s*Delete "\$INSTDIR\\llama-server\\(VERSION)"/gm),
+    ...(files ?? "").matchAll(
+      new RegExp(`"\\$INSTDIR\\\\${folder}\\\\([^"]+)"`, "g"),
+    ),
+    ...code.matchAll(
+      new RegExp(`^\\s*Delete "\\$INSTDIR\\\\${folder}\\\\(VERSION)"`, "gm"),
+    ),
   ].map((match) => match[1]);
   return quoted.map(
     (glob) =>
@@ -227,6 +262,45 @@ export function llamaHookPatterns(hooks) {
  */
 export const LLAMA_SERVER_FORBIDDEN =
   /^(vcomp|libomp|libgomp|libstdc|libgcc|libwinpthread|libssl|libcrypto|libcurl)/;
+
+/** Dossier du moteur de transcription dans l'installation. */
+export const WHISPER_SERVER_DIR = "whisper-server/";
+
+/**
+ * DLL qu'aucun fichier du moteur de transcription ne doit importer : celles
+ * du moteur de texte, plus SDL et ffmpeg (coupés à la construction, voir
+ * scripts/build-whisper-server.sh).
+ */
+export const WHISPER_SERVER_FORBIDDEN =
+  /^(vcomp|libomp|libgomp|libstdc|libgcc|libwinpthread|libssl|libcrypto|libcurl|sdl2|avcodec|avformat|avutil|swresample)/;
+
+/**
+ * Moteurs construits par nos scripts, contrôlés de la même façon
+ * (engineProblems) : nom dans les messages, dossier dans l'installation,
+ * dossier de .tools/runtimes, macro des crochets NSIS qui liste ses fichiers,
+ * fichier d'épinglage, DLL interdites, sous-dossier exempté du contrôle des
+ * imports (chargeur Vulkan de secours, construit à part).
+ */
+export const LLAMA_ENGINE = {
+  name: "Moteur de texte",
+  of: "du moteur de texte",
+  dir: LLAMA_SERVER_DIR,
+  folder: "llama-server",
+  macro: "CHATONLM_LLAMA_FILES",
+  env: "llama.env",
+  forbidden: LLAMA_SERVER_FORBIDDEN,
+  fallback: `${LLAMA_SERVER_DIR}fallback/`,
+};
+export const WHISPER_ENGINE = {
+  name: "Moteur de transcription",
+  of: "du moteur de transcription",
+  dir: WHISPER_SERVER_DIR,
+  folder: "whisper-server",
+  macro: "CHATONLM_WHISPER_FILES",
+  env: "whispercpp.env",
+  forbidden: WHISPER_SERVER_FORBIDDEN,
+  fallback: null,
+};
 
 /** Dossier du moteur d'images dans l'installation, et son serveur. */
 export const SD_SERVER_DIR = "sd-server/";
@@ -270,6 +344,15 @@ export const NOTICE_MENTIONS = [
       /Visual\sC\+\+/,
     ],
   ],
+  [
+    "licenses/whisper-server/README.txt",
+    [
+      /whisper\.cpp/,
+      /llama-server\\fallback\\vulkan-1\.dll/,
+      /Apache License/,
+      /Visual\sC\+\+/,
+    ],
+  ],
 ];
 
 /**
@@ -298,7 +381,8 @@ export const SYSTEM_DLLS = new Set(
 /**
  * DLL que seul le système de l'utilisateur fournit, et qui peuvent manquer :
  * le chargeur Vulkan vient du pilote graphique (sd-server.exe et
- * llama-server.exe prennent sinon celui de leur dossier fallback).
+ * llama-server.exe prennent sinon celui de leur dossier fallback,
+ * whisper-server.exe celui de llama-server).
  */
 export const HOST_ONLY_DLLS = new Set(["vulkan-1.dll"]);
 
@@ -456,6 +540,10 @@ function searchDirs(file) {
   // trouvent ggml-base.dll dans le dossier du processus).
   if (file.startsWith(LLAMA_SERVER_DIR))
     dirs.push("llama-server", "llama-server/fallback");
+  // Moteur de transcription : son dossier, puis le chargeur de secours de
+  // llama-server, que l'app met en fin de PATH.
+  if (file.startsWith(WHISPER_SERVER_DIR))
+    dirs.push("whisper-server", "llama-server/fallback");
   return [...new Set(dirs)];
 }
 
@@ -509,9 +597,11 @@ export function importProblems({ files, pe }) {
  * dossier d'installation (« / ») → taille ; `read(chemin)` : texte ;
  * `hash(chemin)` : SHA-256 ; `pe(chemin)` : en-têtes PE ; `reference` :
  * { onnxruntime: SHA-256 | null, sdServer: Map(chemin relatif → SHA-256)
- *   | null, sdServerPinned, llamaServer: Map | null, llamaServerPinned }
- * (copies vérifiées de .tools/runtimes, versions de packaging/sdcpp.env et
- * packaging/llama.env) ; `version` de l'app ;
+ *   | null, sdServerPinned, llamaServer: Map | null, llamaServerPinned,
+ *   whisperServer: Map | null, whisperServerPinned } (copies vérifiées de
+ * .tools/runtimes, versions de packaging/sdcpp.env, packaging/llama.env et
+ * packaging/whispercpp.env ; un moteur sans clé dans `reference` n'est pas
+ * contrôlé) ; `version` de l'app ;
  * `bytes(chemin)` : contenu brut (exécutable sans le code des essais). Rend
  * { errors, warnings }.
  */
@@ -606,81 +696,34 @@ export function contentProblems({
     }
   }
 
-  // Moteur de texte : exactement les fichiers du dossier construit
-  // (SHA256SUMS compris), sans OpenMP ni runtime de GCC.
-  if (reference.llamaServer) {
-    for (const [rel, sum] of reference.llamaServer) {
-      const file = `${LLAMA_SERVER_DIR}${rel}`;
-      if (!files.has(file)) {
-        errors.push(
-          `Moteur de texte : fichier absent de l'installateur : ${file}`,
-        );
-      } else if (hash(file) !== sum) {
-        errors.push(`Moteur de texte : fichier modifié : ${file}`);
-      }
-    }
-    for (const file of files.keys()) {
-      if (
-        file.startsWith(LLAMA_SERVER_DIR) &&
-        !reference.llamaServer.has(file.slice(LLAMA_SERVER_DIR.length))
-      ) {
-        errors.push(`Moteur de texte : fichier inattendu : ${file}`);
-      }
-    }
-  } else {
-    warnings.push(
-      "Copie de référence du moteur de texte absente (.tools/runtimes/llama-server) : fichiers non comparés",
-    );
-  }
-  // Chaque fichier livré est retiré par les crochets NSIS avant une mise à
-  // jour (sinon une variante d'une autre version resterait, et serait
-  // chargée) ; ils ne retirent que des fichiers à nous, par motifs.
-  const removed = llamaHookPatterns(hooks);
-  if (removed.length === 0) {
+  // Moteurs de texte et de transcription : exactement les fichiers du
+  // dossier construit (SHA256SUMS compris), sans OpenMP ni runtime de GCC,
+  // chacun retiré par les crochets NSIS avant une mise à jour.
+  errors.push(
+    ...engineProblems(LLAMA_ENGINE, {
+      files,
+      read,
+      hash,
+      pe,
+      hooks,
+      sums: reference.llamaServer,
+      pinned: reference.llamaServerPinned,
+      warnings,
+    }),
+  );
+  if ("whisperServer" in reference) {
     errors.push(
-      "packaging/windows/hooks.nsh : motifs de CHATONLM_LLAMA_FILES illisibles",
+      ...engineProblems(WHISPER_ENGINE, {
+        files,
+        read,
+        hash,
+        pe,
+        hooks,
+        sums: reference.whisperServer,
+        pinned: reference.whisperServerPinned,
+        warnings,
+      }),
     );
-  } else {
-    for (const file of [...files.keys()].sort()) {
-      if (!file.startsWith(LLAMA_SERVER_DIR)) continue;
-      const rel = file.slice(LLAMA_SERVER_DIR.length);
-      if (!removed.some((pattern) => pattern.test(rel))) {
-        errors.push(
-          `Moteur de texte : fichier que les crochets NSIS ne retirent pas avant une mise à jour : ${file}`,
-        );
-      }
-    }
-  }
-  const llamaVersion = `${LLAMA_SERVER_DIR}VERSION`;
-  if (reference.llamaServerPinned && files.has(llamaVersion)) {
-    const shipped = read(llamaVersion).trim();
-    const pinned = reference.llamaServerPinned.replace(
-      /[.*+?^${}()|[\]\\]/g,
-      "\\$&",
-    );
-    if (!new RegExp(`^${pinned}\\+chatonlm\\.[0-9a-f]{12}$`).test(shipped)) {
-      errors.push(
-        `${llamaVersion} : « ${shipped} » au lieu de ${reference.llamaServerPinned}+chatonlm.<empreinte> (packaging/llama.env)`,
-      );
-    }
-  }
-  for (const file of [...files.keys()].sort()) {
-    if (
-      !file.startsWith(LLAMA_SERVER_DIR) ||
-      file.startsWith(`${LLAMA_SERVER_DIR}fallback/`) ||
-      !/\.(exe|dll)$/i.test(file)
-    ) {
-      continue;
-    }
-    const headers = pe(file);
-    const banned = [...headers.imports, ...(headers.delayImports ?? [])].filter(
-      (name) => LLAMA_SERVER_FORBIDDEN.test(name),
-    );
-    if (banned.length > 0) {
-      errors.push(
-        `${file} : DLL d'OpenMP, de GCC ou d'OpenSSL importée : ${[...new Set(banned)].join(", ")}`,
-      );
-    }
   }
 
   for (const [file, mentions] of NOTICE_MENTIONS) {
@@ -712,6 +755,88 @@ export function contentProblems({
     }
   }
   return { errors, warnings };
+}
+
+/**
+ * Contrôles d'un moteur construit par nos scripts (`engine` : LLAMA_ENGINE ou
+ * WHISPER_ENGINE) : fichiers identiques à ceux de sa copie de référence
+ * (`sums` : chemin relatif → SHA-256, ou null : avertissement ajouté à
+ * `warnings`), aucun de plus ; chacun retiré par les crochets NSIS avant une
+ * mise à jour (une variante d'une autre version resterait, et serait
+ * chargée), qui ne retirent que des fichiers à nous, par motifs ; VERSION de
+ * la forme « <pinned>+chatonlm.<empreinte> » ; aucune DLL interdite importée.
+ * Rend des erreurs.
+ */
+function engineProblems(
+  engine,
+  { files, read, hash, pe, hooks, sums, pinned, warnings },
+) {
+  const errors = [];
+  const { name, dir } = engine;
+  if (sums) {
+    for (const [rel, sum] of sums) {
+      const file = `${dir}${rel}`;
+      if (!files.has(file)) {
+        errors.push(`${name} : fichier absent de l'installateur : ${file}`);
+      } else if (hash(file) !== sum) {
+        errors.push(`${name} : fichier modifié : ${file}`);
+      }
+    }
+    for (const file of files.keys()) {
+      if (file.startsWith(dir) && !sums.has(file.slice(dir.length))) {
+        errors.push(`${name} : fichier inattendu : ${file}`);
+      }
+    }
+  } else {
+    warnings.push(
+      `Copie de référence ${engine.of} absente (.tools/runtimes/${engine.folder}) : fichiers non comparés`,
+    );
+  }
+  const removed = engineHookPatterns(hooks, engine);
+  if (removed.length === 0) {
+    errors.push(
+      `packaging/windows/hooks.nsh : motifs de ${engine.macro} illisibles`,
+    );
+  } else {
+    for (const file of [...files.keys()].sort()) {
+      if (!file.startsWith(dir)) continue;
+      const rel = file.slice(dir.length);
+      if (!removed.some((pattern) => pattern.test(rel))) {
+        errors.push(
+          `${name} : fichier que les crochets NSIS ne retirent pas avant une mise à jour : ${file}`,
+        );
+      }
+    }
+  }
+  const versionFile = `${dir}VERSION`;
+  if (pinned && files.has(versionFile)) {
+    const shipped = read(versionFile).trim();
+    const escaped = pinned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!new RegExp(`^${escaped}\\+chatonlm\\.[0-9a-f]{12}$`).test(shipped)) {
+      errors.push(
+        `${versionFile} : « ${shipped} » au lieu de ${pinned}+chatonlm.<empreinte> (packaging/${engine.env})`,
+      );
+    }
+  }
+  for (const file of [...files.keys()].sort()) {
+    if (
+      !file.startsWith(dir) ||
+      (engine.fallback && file.startsWith(engine.fallback)) ||
+      !/\.(exe|dll)$/i.test(file)
+    ) {
+      continue;
+    }
+    const headers = pe(file);
+    const banned = [...headers.imports, ...(headers.delayImports ?? [])].filter(
+      (dll) => engine.forbidden.test(dll),
+    );
+    if (banned.length > 0) {
+      errors.push(
+        `${file} : DLL d'OpenMP, de GCC ou d'OpenSSL importée : ${[...new Set(banned)].join(", ")}`,
+      );
+    }
+  }
+  return errors;
 }
 
 /** Contrôles du fichier de l'installateur lui-même. */
@@ -794,6 +919,14 @@ function readReference(runtimes) {
       walk(llamaDir).map((rel) => [rel, sha256(path.join(llamaDir, rel))]),
     );
   }
+  // Moteur de transcription : de même.
+  const whisperDir = path.join(runtimes, "whisper-server");
+  let whisperServer = null;
+  if (existsSync(path.join(whisperDir, "whisper-server.exe"))) {
+    whisperServer = new Map(
+      walk(whisperDir).map((rel) => [rel, sha256(path.join(whisperDir, rel))]),
+    );
+  }
   const env = (file) =>
     parseEnv(readFileSync(path.join(root, "packaging", file), "utf8"));
   return {
@@ -802,6 +935,8 @@ function readReference(runtimes) {
     sdServerPinned: env("sdcpp.env").SDCPP_VERSION ?? null,
     llamaServer,
     llamaServerPinned: env("llama.env").LLAMA_VERSION ?? null,
+    whisperServer,
+    whisperServerPinned: env("whispercpp.env").WHISPER_VERSION ?? null,
   };
 }
 
@@ -843,6 +978,7 @@ export function formatReport({
     `    racine (exe, DLL) : ${formatSize(group(""))}`,
     `    sd-server/ : ${formatSize(group(SD_SERVER_DIR))}`,
     `    llama-server/ : ${formatSize(group(LLAMA_SERVER_DIR))}`,
+    `    whisper-server/ : ${formatSize(group(WHISPER_SERVER_DIR))}`,
     `    licenses/ : ${formatSize(group("licenses/"))}`,
     "",
     "Exécutables et DLL (imports hors Windows, signature) :",

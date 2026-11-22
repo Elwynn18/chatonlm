@@ -259,7 +259,7 @@ impl Run {
         // Modèle chargé pendant le décodage, gardé jusqu'à la fin.
         let engine = self.shared.services().engine.clone();
         let _hold = engine.hold();
-        engine.preload(spec.clone());
+        engine.preload_long(spec.clone());
 
         let (analysis, complete) = self.decode(&audio).await?;
         if !complete {

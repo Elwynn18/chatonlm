@@ -251,7 +251,21 @@
       "freeSize": "Libre : {size}",
       "noGpu": "Aucune carte graphique détectée : les modèles tournent sur le processeur, en mémoire vive.",
       "unknown": "L'occupation de la VRAM ne peut pas être lue sur cet ordinateur.",
-      "spilled": "{size} ne tiennent pas en VRAM : cette part tourne en mémoire vive, plus lentement."
+      "spilled": "{size} ne tiennent pas en VRAM : cette part tourne en mémoire vive, plus lentement.",
+      "speechSize": "{name} : {size}",
+      "imagesSize": "Moteur d'images : {size}"
+    },
+    "resources": {
+      "label": "Où tournent la transcription et la création d'images",
+      "speechCard": "{name} — carte graphique, {size}",
+      "speechCardUnmeasured": "{name} — carte graphique",
+      "speechProcessor": "{name} — processeur",
+      "imagesCardBusy": "Moteur d'images — carte graphique, {size}, création d'une image en cours",
+      "imagesCardIdle": "Moteur d'images — carte graphique, {size}, en attente de la prochaine image",
+      "imagesProcessorBusy": "Moteur d'images — processeur, création d'une image en cours",
+      "imagesProcessorIdle": "Moteur d'images — processeur, en attente de la prochaine image",
+      "imagesBusy": "Moteur d'images — création d'une image en cours",
+      "imagesIdle": "Moteur d'images — en attente de la prochaine image"
     },
     "loaded": {
       "title": "Modèles chargés",

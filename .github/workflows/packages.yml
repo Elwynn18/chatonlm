@@ -15,9 +15,10 @@
 # résumé du run, puis le code source des bibliothèques LGPL
 # (scripts/appimage-libs.sh --sources), à publier à côté de l'AppImage.
 # Essais de fumée : l'app (packaging/ci/smoke-launch.sh), puis les moteurs
-# d'images (packaging/ci/smoke-sd-server.sh) et de texte
+# d'images (packaging/ci/smoke-sd-server.sh), de texte
 # (packaging/ci/smoke-llama-server.sh : vrai petit modèle sur le processeur)
-# de chaque paquet. Pack CUDA facultatif (job `cuda`) : construit à part,
+# et de transcription (packaging/ci/smoke-whisper-server.sh : modèle d'essai
+# de whisper.cpp sur le processeur) de chaque paquet. Pack CUDA facultatif (job `cuda`) : construit à part,
 # publié dans la Release, jamais dans les paquets.
 name: Packages
 
@@ -169,11 +170,22 @@ jobs:
           path: .tools/runtimes/llama-server
           key: llama-server-${{ runner.os }}-${{ inputs.build-runner || 'ubuntu-22.04' }}-${{ hashFiles('packaging/llama.env', 'packaging/sdcpp.env', 'packaging/llama/*.patch', 'scripts/build-llama-server.sh') }}
 
+      # Moteur de transcription construit de même
+      # (scripts/build-whisper-server.sh, mêmes outils Vulkan) : en cache tant
+      # que sa version, ses épingles, ses correctifs et son script ne changent
+      # pas.
+      - name: Cache du moteur de transcription (restauration)
+        id: whisper-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/runtimes/whisper-server
+          key: whisper-server-${{ runner.os }}-${{ inputs.build-runner || 'ubuntu-22.04' }}-${{ hashFiles('packaging/whispercpp.env', 'packaging/sdcpp.env', 'packaging/whispercpp/*.patch', 'scripts/build-whisper-server.sh') }}
+
       # En-têtes Vulkan, SPIR-V et glslc récents (ceux d'Ubuntu 22.04 sont trop
       # anciens pour ggml-vulkan) : dépôt de LunarG, version de packaging/sdcpp.env.
       # Son chargeur libvulkan.so.1 devient le chargeur de secours livré.
-      - name: SDK Vulkan et moteurs (sd-server, llama-server)
-        if: steps.sd-cache.outputs.cache-hit != 'true' || steps.llama-cache.outputs.cache-hit != 'true'
+      - name: SDK Vulkan et moteurs (sd-server, llama-server, whisper-server)
+        if: steps.sd-cache.outputs.cache-hit != 'true' || steps.llama-cache.outputs.cache-hit != 'true' || steps.whisper-cache.outputs.cache-hit != 'true'
         run: |
           source packaging/sdcpp.env
           curl -fsSL https://packages.lunarg.com/lunarg-signing-key-pub.asc |
@@ -190,6 +202,12 @@ jobs:
           fi
           du -sh .tools/runtimes/llama-server
           ls -l .tools/runtimes/llama-server
+          if ! WHISPER_JOBS="$(nproc)" scripts/build-whisper-server.sh; then
+            tail -n 60 .tools/whisper-build/configure.log .tools/whisper-build/build.log 2>/dev/null || true
+            exit 1
+          fi
+          du -sh .tools/runtimes/whisper-server
+          ls -l .tools/runtimes/whisper-server
 
       - name: Cache du moteur d'images (sauvegarde)
         if: steps.sd-cache.outputs.cache-hit != 'true'
@@ -204,6 +222,13 @@ jobs:
         with:
           path: .tools/runtimes/llama-server
           key: ${{ steps.llama-cache.outputs.cache-primary-key }}
+
+      - name: Cache du moteur de transcription (sauvegarde)
+        if: steps.whisper-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/runtimes/whisper-server
+          key: ${{ steps.whisper-cache.outputs.cache-primary-key }}
 
       # Sans clé (paquets non signés : voir l'en-tête).
       - name: Construction, inventaire et 2e passe de l'AppImage
@@ -246,6 +271,7 @@ jobs:
             echo
             echo "Moteur d'images : $(du -sh .tools/runtimes/sd-server | cut -f1) non compressé ($(cat .tools/runtimes/sd-server/VERSION))."
             echo "Moteur de texte : $(du -sh .tools/runtimes/llama-server | cut -f1) non compressé ($(cat .tools/runtimes/llama-server/VERSION))."
+            echo "Moteur de transcription : $(du -sh .tools/runtimes/whisper-server | cut -f1) non compressé ($(cat .tools/runtimes/whisper-server/VERSION))."
           } >>"$GITHUB_STEP_SUMMARY"
 
       - name: Code source des bibliothèques de l'AppImage
@@ -422,6 +448,9 @@ jobs:
       - name: Moteur de texte
         run: packaging/ci/smoke-llama-server.sh /usr/lib/chatonlm/llama-server
 
+      - name: Moteur de transcription
+        run: packaging/ci/smoke-whisper-server.sh /usr/lib/chatonlm/whisper-server
+
   smoke-appimage:
     name: AppImage sur ubuntu-24.04
     needs: build
@@ -465,6 +494,7 @@ jobs:
           "$app" --appimage-extract >/dev/null
           "$GITHUB_WORKSPACE/packaging/ci/smoke-sd-server.sh" squashfs-root/usr/lib/chatonlm/sd-server
           "$GITHUB_WORKSPACE/packaging/ci/smoke-llama-server.sh" squashfs-root/usr/lib/chatonlm/llama-server
+          "$GITHUB_WORKSPACE/packaging/ci/smoke-whisper-server.sh" squashfs-root/usr/lib/chatonlm/whisper-server
 
   smoke-appimage-fedora:
     name: AppImage sur Fedora 44
@@ -514,3 +544,4 @@ jobs:
           "$app" --appimage-extract >/dev/null
           "$GITHUB_WORKSPACE/packaging/ci/smoke-sd-server.sh" squashfs-root/usr/lib/chatonlm/sd-server
           "$GITHUB_WORKSPACE/packaging/ci/smoke-llama-server.sh" squashfs-root/usr/lib/chatonlm/llama-server
+          "$GITHUB_WORKSPACE/packaging/ci/smoke-whisper-server.sh" squashfs-root/usr/lib/chatonlm/whisper-server

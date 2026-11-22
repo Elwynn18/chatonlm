@@ -240,6 +240,17 @@ pub async fn run(argv: Vec<String>) -> i32 {
         eprintln!("  what():  vk::Queue::submit: ErrorDeviceLost");
         std::process::abort();
     }
+    if gpu && scenario == Scenario::VramFail {
+        log('I', "ggml_vulkan: Found 1 Vulkan devices:");
+        tokio::time::sleep(config.load_delay).await;
+        log(
+            'E',
+            "ggml_vulkan: Device memory allocation of size 4294967296 failed.",
+        );
+        eprintln!("terminate called after throwing an instance of 'vk::OutOfDeviceMemoryError'");
+        eprintln!("  what():  vk::Device::allocateMemory: ErrorOutOfDeviceMemory");
+        std::process::abort();
+    }
     if scenario == Scenario::BigCtx && config.ctx > BIG_CTX_LIMIT {
         tokio::time::sleep(scenario.load_delay().unwrap_or(config.load_delay)).await;
         log(

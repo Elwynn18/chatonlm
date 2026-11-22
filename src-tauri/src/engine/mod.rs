@@ -47,7 +47,7 @@ pub mod journal;
 mod launch;
 pub mod options;
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -424,6 +424,9 @@ struct Inner {
     /// Gels en cours ([`Engine::freeze`]) : aucun lancement tant qu'il y en a.
     frozen: watch::Sender<usize>,
     vram_total: parking_lot::Mutex<Option<u64>>,
+    /// Crochet posé par l'app : avant un modèle qui ne tient pas sur la
+    /// carte, les autres calculs inactifs (images, Whisper) rendent la VRAM.
+    release_others: parking_lot::Mutex<Option<ReleaseOthers>>,
     /// Soi-même, pour les tâches et les `Lease`.
     this: Weak<Inner>,
     #[cfg(test)]
@@ -450,11 +453,42 @@ pub(crate) struct Hooks {
 struct State {
     instances: Vec<Instance>,
     next_generation: u64,
-    /// Modèles dont la carte a échoué : sur le processeur pour la session.
-    gpu_failed: HashSet<String>,
+    /// Modèles dont la carte a échoué, et pourquoi : sur le processeur
+    /// jusqu'à ce qu'une autre partie de l'app rende de la VRAM (manque de
+    /// mémoire, [`Engine::gpu_freed`]) ou pour la session (pilote, carte).
+    gpu_failed: HashMap<String, GpuFailure>,
     /// Modèles en cours d'effacement : aucun lancement.
     deleting: Vec<String>,
 }
+
+/// Échec d'un modèle sur la carte graphique.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GpuFailure {
+    /// Mémoire de la carte insuffisante : nouvel essai sur la carte quand
+    /// une autre partie de l'app en rend ([`Engine::gpu_freed`]).
+    Memory,
+    /// Pilote, carte ou plantage : processeur pour toute la session.
+    Other,
+}
+
+impl GpuFailure {
+    /// Cause lue dans le journal du lancement raté.
+    fn of(log: &str) -> Self {
+        if journal::out_of_memory(log) || cuda::journal_cuda_out_of_memory(log) {
+            Self::Memory
+        } else {
+            Self::Other
+        }
+    }
+}
+
+/// VRAM rendue d'un coup à partir de laquelle un modèle replié faute de
+/// mémoire réessaie la carte.
+const RETRY_FREED: u64 = 1024 * 1024 * 1024;
+
+/// Crochet qui demande au reste de l'app (images, Whisper) de rendre la
+/// VRAM de ce qu'il garde sans s'en servir.
+pub type ReleaseOthers = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
 /// Résultat d'un chargement, pour ceux qui l'attendent.
 type Outcome = Option<Result<(), EngineError>>;
@@ -644,6 +678,7 @@ impl Engine {
                 closed: watch::channel(false).0,
                 frozen: watch::channel(0).0,
                 vram_total: parking_lot::Mutex::new(None),
+                release_others: parking_lot::Mutex::new(None),
                 this: this.clone(),
                 #[cfg(test)]
                 hooks: parking_lot::Mutex::new(Hooks::default()),
@@ -885,7 +920,7 @@ impl Engine {
             model.capabilities.vision,
         );
         let state = inner.state.lock();
-        let cpu = inner.wants_cpu(options) || state.gpu_failed.contains(&model.id);
+        let cpu = inner.wants_cpu(options) || state.gpu_failed.contains_key(&model.id);
         state.instances.iter().any(|instance| {
             same_model(&instance.id, &model.id)
                 && matches!(instance.phase, Phase::Ready)
@@ -960,6 +995,25 @@ impl Engine {
     /// Machine vue par le moteur (cartes, mémoire), lecture récente.
     pub async fn machine(&self) -> Option<Machine> {
         self.inner.models.machine().await
+    }
+
+    /// Machine lue à neuf (mémoire libre après un arrêt).
+    pub async fn machine_now(&self) -> Option<Machine> {
+        self.inner.models.machine_now().await
+    }
+
+    /// Pose le crochet qui fait rendre la VRAM aux autres calculs inactifs
+    /// de l'app (voir [`ReleaseOthers`]).
+    pub fn release_others(&self, hook: ReleaseOthers) {
+        *self.inner.release_others.lock() = Some(hook);
+    }
+
+    /// Une autre partie de l'app vient de rendre `freed` octets de VRAM
+    /// (`None` : quantité inconnue ; moteur d'images ou Whisper arrêté) :
+    /// les modèles repliés sur le processeur faute de mémoire réessaieront
+    /// la carte à leur prochain chargement, si c'est assez pour compter.
+    pub fn gpu_freed(&self, freed: Option<u64>) {
+        self.inner.gpu_freed(freed);
     }
 
     /// Arrête les modèles inactifs (aucune requête en cours, chargement fini) :
@@ -1057,7 +1111,7 @@ impl Inner {
         if state.deleting.iter().any(|id| same_model(id, &model.id)) {
             return Next::Fail(EngineError::NotInstalled(model.id.clone()));
         }
-        let cpu = self.wants_cpu(options) || state.gpu_failed.contains(&model.id);
+        let cpu = self.wants_cpu(options) || state.gpu_failed.contains_key(&model.id);
         let spec = Spec {
             model: PathBuf::from(&model.path),
             mmproj: model.mmproj.as_deref().map(PathBuf::from),
@@ -1218,7 +1272,7 @@ impl Inner {
         if state.deleting.iter().any(|id| same_model(id, &model.id)) {
             return None;
         }
-        let cpu = self.wants_cpu(options) || state.gpu_failed.contains(&model.id);
+        let cpu = self.wants_cpu(options) || state.gpu_failed.contains_key(&model.id);
         let spec = Spec {
             model: PathBuf::from(&model.path),
             mmproj: model.mmproj.as_deref().map(PathBuf::from),
@@ -1273,7 +1327,10 @@ impl Inner {
                     let exited = process.exited().unwrap_or_else(launch::Exited::lost);
                     let log = journal::read(&process.log);
                     if !instance.spec.cpu && journal::vulkan_failed(&log) {
-                        self.state.lock().gpu_failed.insert(instance.id.clone());
+                        self.state
+                            .lock()
+                            .gpu_failed
+                            .insert(instance.id.clone(), GpuFailure::of(&log));
                     }
                     Some((instance, died(&log, &exited)))
                 }
@@ -1421,7 +1478,24 @@ impl Inner {
             tokio::time::timeout(self.stop_limit(), creating.wait_for(|creating| !*creating)).await;
         if let Some(process) = &instance.process {
             process.stop().await;
+            // Sa VRAM est rendue : un modèle replié faute de mémoire
+            // réessaiera la carte.
+            if !instance.spec.cpu {
+                self.gpu_freed(Some(instance.memory.gpu));
+            }
         }
+    }
+
+    /// Voir [`Engine::gpu_freed`] : moins de [`RETRY_FREED`] rendus ne
+    /// valent pas un nouvel essai (deux chargements pour rien).
+    fn gpu_freed(&self, freed: Option<u64>) {
+        if freed.is_some_and(|freed| freed < RETRY_FREED) {
+            return;
+        }
+        self.state
+            .lock()
+            .gpu_failed
+            .retain(|_, failure| *failure != GpuFailure::Memory);
     }
 
     async fn stop_all(&self, taken: Vec<Instance>) {
@@ -1555,7 +1629,7 @@ impl Inner {
                         );
                         retried = true;
                         spec.cpu = true;
-                        if !self.fall_back(generation, &model.id) {
+                        if !self.fall_back(generation, &model.id, GpuFailure::of(&log)) {
                             return Err(gone());
                         }
                         // Le journal du premier essai reste en `.1`.
@@ -1618,11 +1692,12 @@ impl Inner {
         }
     }
 
-    /// Repli sur le processeur noté pour le modèle (et pour la session).
-    fn fall_back(&self, generation: u64, id: &str) -> bool {
+    /// Repli sur le processeur noté pour le modèle (`failure` : jusqu'à quand,
+    /// voir [`GpuFailure`]).
+    fn fall_back(&self, generation: u64, id: &str, failure: GpuFailure) -> bool {
         let found = {
             let mut state = self.state.lock();
-            state.gpu_failed.insert(id.to_owned());
+            state.gpu_failed.insert(id.to_owned(), failure);
             match state
                 .instances
                 .iter_mut()
@@ -1668,7 +1743,10 @@ impl Inner {
             .map(|process| journal::read(&process.log))
             .unwrap_or_default();
         if !instance.spec.cpu && journal::vulkan_failed(&log) {
-            self.state.lock().gpu_failed.insert(instance.id.clone());
+            self.state
+                .lock()
+                .gpu_failed
+                .insert(instance.id.clone(), GpuFailure::of(&log));
         }
         // i18n-ignore : journal.
         crate::app_log!(
@@ -1686,12 +1764,32 @@ impl Inner {
     async fn make_room(&self, generation: u64, model: &LocalModel, spec: &Spec) {
         // Lecture fraîche : un modèle prêt depuis la dernière lecture (un
         // lancement juste avant celui-ci) occupe déjà la carte.
-        let machine = self.models.machine_now().await;
+        let mut machine = self.models.machine_now().await;
         let on_card = !spec.cpu && machine.as_ref().is_some_and(|m| !m.gpus.is_empty());
         let need =
             estimate(model, spec.ctx)
                 .await
                 .saturating_add(if on_card { FIT_TARGET } else { 0 });
+        // Pas assez de place sur la carte : d'abord ce que le reste de l'app
+        // y garde sans s'en servir (moteur d'images, Whisper), puis, s'il le
+        // faut encore, les modèles de texte inactifs (ci-dessous). Ce qui
+        // calcule garde sa place (choix du 20 nov. 2026).
+        let vram_free = |machine: &Option<Machine>| {
+            machine.as_ref().and_then(|machine| {
+                machine
+                    .gpus
+                    .iter()
+                    .map(|gpu| gpu.vram_free)
+                    .sum::<Option<u64>>()
+            })
+        };
+        if on_card && vram_free(&machine).is_some_and(|free| need > free) {
+            let hook = self.release_others.lock().clone();
+            if let Some(hook) = hook {
+                hook().await;
+                machine = self.models.machine_now().await;
+            }
+        }
         // Mémoire libre où le modèle ira : VRAM (inconnue pour une carte AMD
         // sous Windows : rien n'est décidé), ou RAM.
         let free = machine.as_ref().and_then(|machine| {

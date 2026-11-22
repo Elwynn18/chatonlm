@@ -62,7 +62,8 @@
           "/usr/lib/chatonlm/sd-server/sd-server": "../.tools/runtimes/sd-server/sd-server",
           "/usr/lib/chatonlm/sd-server/fallback": "../.tools/runtimes/sd-server/fallback",
           "/usr/lib/chatonlm/sd-server/VERSION": "../.tools/runtimes/sd-server/VERSION",
-          "/usr/lib/chatonlm/llama-server": "../.tools/runtimes/llama-server"
+          "/usr/lib/chatonlm/llama-server": "../.tools/runtimes/llama-server",
+          "/usr/lib/chatonlm/whisper-server": "../.tools/runtimes/whisper-server"
         }
       },
       "appimage": {
@@ -75,7 +76,8 @@
           "/usr/libexec/chatonlm/sd-server/sd-server": "../.tools/runtimes/sd-server/sd-server",
           "/usr/libexec/chatonlm/sd-server/fallback": "../.tools/runtimes/sd-server/fallback",
           "/usr/libexec/chatonlm/sd-server/VERSION": "../.tools/runtimes/sd-server/VERSION",
-          "/usr/libexec/chatonlm/llama-server": "../.tools/runtimes/llama-server"
+          "/usr/libexec/chatonlm/llama-server": "../.tools/runtimes/llama-server",
+          "/usr/libexec/chatonlm/whisper-server": "../.tools/runtimes/whisper-server"
         }
       }
     }

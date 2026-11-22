@@ -6,6 +6,7 @@
       "../.tools/runtimes/sd-server/fallback/": "sd-server/fallback/",
       "../.tools/runtimes/sd-server/VERSION": "sd-server/VERSION",
       "../.tools/runtimes/llama-server/": "llama-server/",
+      "../.tools/runtimes/whisper-server/": "whisper-server/",
       "../.tools/package/notices/windows/": "licenses/"
     }
   }

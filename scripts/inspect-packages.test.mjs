@@ -5,8 +5,9 @@
 // (appimage-libs.sh : classement des licences, liste, comparaison),
 // configuration du bundle (src-tauri/tauri.conf.json), moteur d'images
 // (sd-server : contrôles des paquets, rangement dans le bundle), moteur de
-// texte (llama-server : de même), aucun fichier CUDA, ROCm ni HIP ni de
-// l'ancien Ollama intégré dans les paquets.
+// texte (llama-server : de même), moteur de transcription (whisper-server :
+// de même), aucun fichier CUDA, ROCm ni HIP ni de l'ancien Ollama intégré
+// dans les paquets.
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -62,6 +63,13 @@ import {
   sdServerErrors,
   sdServerLines,
   walk,
+  APPIMAGE_WHISPER_PREFIX,
+  WHISPER_FILES,
+  WHISPER_LINK,
+  WHISPER_LINK_TARGET,
+  WHISPER_PREFIX,
+  whisperServerErrors,
+  whisperServerLines,
 } from "./inspect-packages.mjs";
 import {
   CSS_PACKAGES,
@@ -191,6 +199,11 @@ const SD_README_TEXT =
 const LLAMA_README = "usr/share/doc/chatonlm/licenses/llama-server/README.txt";
 const LLAMA_README_TEXT =
   "llama-server of llama.cpp\nfallback/libvulkan.so.1: Apache License\n";
+/** Notice du moteur de transcription, réduite à ce que noticeErrors exige. */
+const WHISPER_README =
+  "usr/share/doc/chatonlm/licenses/whisper-server/README.txt";
+const WHISPER_README_TEXT =
+  "whisper-server of whisper.cpp\nllama-server/fallback/libvulkan.so.1: Apache License\n";
 const crateLines = (names) =>
   `Crates\n${names.map((name) => `  ${name} 0.2.0 (BSD-3-Clause) https://example.org\n`).join("")}`;
 
@@ -202,6 +215,7 @@ function packageFiles(extra = {}) {
   files[RUST_CRATES] = crateLines(SONORA);
   files[SD_README] = SD_README_TEXT;
   files[LLAMA_README] = LLAMA_README_TEXT;
+  files[WHISPER_README] = WHISPER_README_TEXT;
   files["usr/bin/chatonlm"] = { elf: true };
   files["usr/share/applications/chatonlm.desktop"] = HIDDEN;
   files["usr/share/doc/chatonlm/copyright"] = debCopyright({
@@ -580,6 +594,7 @@ describe("appImageErrors", () => {
     const files = packageFiles({
       [SD_LINK]: { link: SD_LINK_TARGET },
       [LLAMA_LINK]: { link: LLAMA_LINK_TARGET },
+      [WHISPER_LINK]: { link: WHISPER_LINK_TARGET },
       ...extra,
     });
     for (const rel of APPIMAGE_FILES) files[rel] ??= "x";
@@ -1499,6 +1514,7 @@ describe("image engine (sd-server) in the packages", () => {
     ]);
     const appimage = packageFiles({
       [LLAMA_LINK]: { link: LLAMA_LINK_TARGET },
+      [WHISPER_LINK]: { link: WHISPER_LINK_TARGET },
       [`${SD_PREFIX}sd-server`]: { elf: true },
     });
     for (const rel of APPIMAGE_FILES) appimage[rel] ??= "x";
@@ -1771,6 +1787,7 @@ describe("text engine (llama-server) in the packages", () => {
     }
     const appimage = packageFiles({
       [SD_LINK]: { link: SD_LINK_TARGET },
+      [WHISPER_LINK]: { link: WHISPER_LINK_TARGET },
       [`${LLAMA_PREFIX}llama-server`]: { elf: true },
     });
     for (const rel of APPIMAGE_FILES) appimage[rel] ??= "x";
@@ -1889,5 +1906,175 @@ describe("text engine in the bundle configuration", () => {
     );
     expect(sd).toBeGreaterThan(0);
     expect(llama).toBeGreaterThan(sd);
+  });
+});
+
+describe("transcription engine (whisper-server) in the packages", () => {
+  const PINNED = "v1.9.5";
+  const VERSION = `${PINNED}+chatonlm.0123456789ab`;
+  const SUMS = new Map([
+    ["whisper-server", "a".repeat(64)],
+    ["libwhisper.so.1", "b".repeat(64)],
+    ["libggml-base.so.0", "c".repeat(64)],
+    ["libggml-cpu-haswell.so", "d".repeat(64)],
+    ["VERSION", "f".repeat(64)],
+  ]);
+  const SUMS_TEXT = [...SUMS].map(([rel, sum]) => `${sum}  ${rel}\n`).join("");
+
+  /** Vue d'un paquet : le moteur de SUMS sous `prefix`, puis `changes`. */
+  function view(changes = {}, prefix = WHISPER_PREFIX) {
+    const entries = new Map();
+    for (const [rel, sum] of SUMS) {
+      entries.set(`${prefix}${rel}`, {
+        content: rel === "VERSION" ? `${VERSION}\n` : sum,
+        sum,
+        mode: rel === "whisper-server" ? 0o100755 : 0o100644,
+      });
+    }
+    entries.set(`${prefix}SHA256SUMS`, { content: SUMS_TEXT, mode: 0o100644 });
+    for (const [rel, change] of Object.entries(changes)) {
+      if (change === null) entries.delete(rel);
+      else entries.set(rel, { ...entries.get(rel), ...change });
+    }
+    const files = new Map(
+      [...entries].map(([rel, e]) => [
+        rel,
+        { size: 1, mode: e.mode ?? 0o100644, link: e.link ?? null },
+      ]),
+    );
+    const content = (rel) => entries.get(rel)?.content ?? "";
+    const hash = (rel) =>
+      rel.endsWith("/VERSION") ? entries.get(rel)?.sum : content(rel);
+    return { files, hash, read: content };
+  }
+  const check = (
+    changes,
+    { sums = SUMS, version = VERSION, pinned = PINNED, prefix } = {},
+  ) =>
+    whisperServerErrors({
+      ...view(changes, prefix),
+      sums,
+      version,
+      pinned,
+      ...(prefix ? { prefix } : {}),
+    });
+
+  it("accepts the files of the built directory, in both packages", () => {
+    expect(check({})).toEqual([]);
+    expect(check({}, { prefix: APPIMAGE_WHISPER_PREFIX })).toEqual([]);
+    for (const rel of WHISPER_FILES) {
+      expect(DEB_FILES).toContain(`${WHISPER_PREFIX}${rel}`);
+      expect(APPIMAGE_FILES).toContain(`${APPIMAGE_WHISPER_PREFIX}${rel}`);
+    }
+    // Pas de chargeur Vulkan à lui (celui de llama-server/fallback).
+    expect(WHISPER_FILES.some((rel) => rel.startsWith("fallback/"))).toBe(
+      false,
+    );
+    expect(COMMON_FILES).toContain(WHISPER_README);
+  });
+
+  it("refuses a missing, changed or extra file, a fallback of its own, a CUDA backend, another version", () => {
+    expect(
+      check({
+        [`${WHISPER_PREFIX}libwhisper.so.1`]: null,
+        [`${WHISPER_PREFIX}libggml-base.so.0`]: { content: "stripped" },
+        [`${WHISPER_PREFIX}fallback/libvulkan.so.1`]: { content: "x" },
+        [`${WHISPER_PREFIX}libggml-cuda.so`]: { content: "x" },
+      }),
+    ).toEqual([
+      `Moteur de transcription : fichier absent : ${WHISPER_PREFIX}libwhisper.so.1`,
+      `Moteur de transcription : fichier modifié (strip, patchelf ?) : ${WHISPER_PREFIX}libggml-base.so.0`,
+      `Moteur de transcription : fichier inattendu : ${WHISPER_PREFIX}fallback/libvulkan.so.1`,
+      `Moteur de transcription : moteur exclu livré : ${WHISPER_PREFIX}libggml-cuda.so`,
+    ]);
+    expect(check({}, { pinned: "v1.9.6" })).toEqual([
+      `Moteur de transcription : VERSION ${VERSION} hors de la forme v1.9.6+chatonlm.<empreinte> (packaging/whispercpp.env)`,
+    ]);
+    expect(
+      check({
+        [`${WHISPER_PREFIX}SHA256SUMS`]: { content: SUMS_TEXT.split("\n")[0] },
+      }),
+    ).toEqual([
+      `Moteur de transcription : ${WHISPER_PREFIX}SHA256SUMS différent des empreintes de référence`,
+    ]);
+    expect(check({}, { sums: new Map() })).toEqual([
+      "empreintes du moteur de transcription absentes (lancer scripts/build-whisper-server.sh)",
+    ]);
+  });
+
+  it("keeps the AppImage copy out of usr/lib, behind a link", () => {
+    const appimage = packageFiles({
+      [SD_LINK]: { link: SD_LINK_TARGET },
+      [LLAMA_LINK]: { link: LLAMA_LINK_TARGET },
+      [`${WHISPER_PREFIX}whisper-server`]: { elf: true },
+    });
+    for (const rel of APPIMAGE_FILES) appimage[rel] ??= "x";
+    expect(
+      appImageErrors({
+        ...filesView(appimage),
+        rootDesktops: ["chatonlm.desktop"],
+        requireInventory: false,
+      }),
+    ).toEqual([
+      `fichier propre au .deb dans l'AppImage : ${WHISPER_PREFIX}whisper-server`,
+      `${WHISPER_LINK} : lien vers ${WHISPER_LINK_TARGET} attendu (absent)`,
+      `Moteur de transcription dans usr/lib (linuxdeploy le traiterait) : ${WHISPER_PREFIX}whisper-server`,
+    ]);
+  });
+
+  it("requires the project and the Vulkan loader of llama-server in its notice", () => {
+    const files = new Map([[WHISPER_README, { size: 1 }]]);
+    expect(
+      noticeErrors({ files, read: () => "whisper.cpp, Apache License" }),
+    ).toEqual([
+      `${WHISPER_README} : mention absente (llama-server\\/fallback\\/libvulkan\\.so\\.1)`,
+    ]);
+  });
+
+  it("reports its libraries under its own name", () => {
+    const { files } = view();
+    const entry = (rel, more = {}) => ({
+      rel,
+      needed: ["libggml-base.so.0", "libc.so.6"],
+      versions: { GLIBC: "2.34" },
+      missing: [],
+      linked: ["libggml-base.so.0", "libc.so.6"],
+      ...more,
+    });
+    const ok = whisperServerLines(files, [entry("whisper-server")], {
+      maxGlibc: "2.35",
+    });
+    expect(ok.errors).toEqual([]);
+    expect(ok.lines[0]).toMatch(
+      /^Moteur de transcription \(whisper-server\) : 6 fichiers, 6 o, 1 ELF ;/,
+    );
+    const bad = whisperServerLines(
+      files,
+      [entry("whisper-server", { linked: ["libSDL2-2.0.so.0"] })],
+      { maxGlibc: "2.35" },
+    );
+    expect(bad.errors).toEqual([
+      "moteur de transcription : whisper-server dépend de libSDL2-2.0.so.0 (hors du système de base)",
+    ]);
+  });
+
+  it("is installed from the built directory, built and linked by package.sh", () => {
+    const { deb, appimage } = CONFIG.bundle.linux;
+    const built = "../.tools/runtimes/whisper-server";
+    expect(deb.files[`/${WHISPER_LINK}`]).toBe(built);
+    expect(appimage.files[`/${APPIMAGE_WHISPER_PREFIX.slice(0, -1)}`]).toBe(
+      built,
+    );
+    expect(
+      Object.values(appimage.files).filter((v) => v === built),
+    ).toHaveLength(1);
+    const script = readFileSync(path.join(ROOT, "scripts/package.sh"), "utf8");
+    const lib = script.split("appimage_lib() {")[1].split("\n}")[0];
+    expect(lib).toContain(`ln -s ${WHISPER_LINK_TARGET} "$dir/whisper-server"`);
+    expect(
+      script.indexOf(
+        'run "Moteur de transcription épinglé" scripts/build-whisper-server.sh',
+      ),
+    ).toBeLessThan(script.indexOf('run "Construction ('));
   });
 });

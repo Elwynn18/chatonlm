@@ -17,7 +17,10 @@
 // chargeur Vulkan de secours), licences du moteur de texte
 // (licenses/llama-server/ : notice, textes des parties compilées dans
 // llama-server, de packaging/llama/licenses, et Apache-2.0 ; voir
-// scripts/package-notices-llama.mjs), attribution des modèles de dictée
+// scripts/package-notices-llama.mjs), licences du moteur de transcription
+// (licenses/whisper-server/ : notice, textes des parties compilées dans
+// whisper-server, de packaging/whispercpp/licenses, et Apache-2.0 ; voir
+// scripts/package-notices-whisper.mjs), attribution des modèles de dictée
 // téléchargés à l'usage.
 //
 // L'inventaire de l'AppImage vient de scripts/appimage-libs.sh (Ubuntu, CI),
@@ -49,6 +52,11 @@ import {
   readLlamaServer,
   renderLlamaServerReadme,
 } from "./package-notices-llama.mjs";
+import {
+  readWhisperServer,
+  renderWhisperServerReadme,
+  whisperServerCopyright,
+} from "./package-notices-whisper.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 
@@ -267,6 +275,7 @@ export function debCopyright({
   appimage = false,
   sdServer = null,
   llamaServer = null,
+  whisperServer = null,
 }) {
   const libraries = appimage
     ? [
@@ -292,12 +301,16 @@ export function debCopyright({
     " ChatonLM includes third-party code (Rust crates, npm packages, whisper.cpp,",
     " ONNX Runtime) and a model built into its executable (Silero VAD, MIT).",
     " The packages also hold programs that ChatonLM runs separately:",
-    " the text engine (llama-server of llama.cpp) and the",
+    " the text engine (llama-server of llama.cpp), the transcription engine",
+    " (whisper-server of whisper.cpp) and the",
     " image engine (sd-server of stable-diffusion.cpp). Their notices are in",
     " THIRD_PARTY_LICENSES and in the licenses/ directory next to this file.",
     ...libraries,
     "",
     ...(llamaServer ? llamaServerCopyright({ ...llamaServer, appimage }) : []),
+    ...(whisperServer
+      ? whisperServerCopyright({ ...whisperServer, appimage })
+      : []),
     ...(sdServer ? sdServerCopyright({ ...sdServer, appimage }) : []),
     ...(sdServer || llamaServer ? apacheLicense({ appimage }) : []),
     "License: Expat",
@@ -913,6 +926,8 @@ function main() {
   errors.push(...sdServer.errors);
   const llamaServer = readLlamaServer(root);
   errors.push(...llamaServer.errors);
+  const whisperServer = readWhisperServer(root);
+  errors.push(...whisperServer.errors);
   if (errors.length > 0) fail(errors.join("\n"));
   const installed = installedCargoAbout();
   if (installed !== CARGO_ABOUT_VERSION) {
@@ -981,6 +996,13 @@ function main() {
   for (const [file, text] of Object.entries(llamaServer.texts)) {
     common[`licenses/llama-server/${file}`] = text;
   }
+  common["licenses/whisper-server/README.txt"] = renderWhisperServerReadme({
+    env: whisperServer.env,
+    licenseFiles: whisperServer.licenseFiles,
+  });
+  for (const [file, text] of Object.entries(whisperServer.texts)) {
+    common[`licenses/whisper-server/${file}`] = text;
+  }
   const sd = {
     version: sdServer.env.SDCPP_VERSION,
     commit: sdServer.env.SDCPP_COMMIT,
@@ -988,6 +1010,10 @@ function main() {
   const llama = {
     version: llamaServer.env.LLAMA_VERSION,
     commit: llamaServer.env.LLAMA_COMMIT,
+  };
+  const whisper = {
+    version: whisperServer.env.WHISPER_VERSION,
+    commit: whisperServer.env.WHISPER_COMMIT,
   };
 
   rmSync(out, { recursive: true, force: true });
@@ -1000,7 +1026,12 @@ function main() {
   write(
     deb,
     "copyright",
-    debCopyright({ license, sdServer: sd, llamaServer: llama }),
+    debCopyright({
+      license,
+      sdServer: sd,
+      llamaServer: llama,
+      whisperServer: whisper,
+    }),
   );
   write(
     appimage,
@@ -1010,6 +1041,7 @@ function main() {
       appimage: true,
       sdServer: sd,
       llamaServer: llama,
+      whisperServer: whisper,
     }),
   );
   for (const file of APPIMAGE_LICENSE_TEXTS) {

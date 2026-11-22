@@ -24,6 +24,7 @@
 //! | `chatonlm-longload` | chargement de 6 s |
 //! | `chatonlm-loadfail` | chargement raté : le processus s'arrête (code 1) au bout du délai de chargement |
 //! | `chatonlm-vulkanfail` | binaire seulement : sur la carte, erreur de Vulkan puis `abort` au chargement ; sur le processeur (`-ngl 0`, `GGML_VK_VISIBLE_DEVICES=none`), comme `chatonlm-simple` |
+//! | `chatonlm-vramfail` | binaire seulement : sur la carte, VRAM refusée (`ErrorOutOfDeviceMemory`) puis `abort` au chargement ; sur le processeur, comme `chatonlm-simple` |
 //! | `chatonlm-bigctx` | binaire seulement : chargement de 1,5 s, puis refus (code 1, cache de contexte non alloué) si `-c` dépasse 8 192 ; sinon comme `chatonlm-simple` |
 //! | `chatonlm-bindfail` | binaire seulement : le premier lancement (fichier `<modèle>.bound` absent, alors créé) ne peut pas lier son port (code 1, comme le vrai) ; les suivants servent ; chaque lancement ajoute une ligne à `<modèle>.attempts` |
 //! | `chatonlm-bindfail-always` | idem, à chaque lancement |
@@ -79,6 +80,7 @@ pub enum Scenario {
     LongLoad,
     LoadFail,
     VulkanFail,
+    VramFail,
     BigCtx,
     BindFail,
     BindFailAlways,
@@ -99,6 +101,7 @@ const NAMES: &[(&str, Scenario)] = &[
     ("chatonlm-longload", Scenario::LongLoad),
     ("chatonlm-loadfail", Scenario::LoadFail),
     ("chatonlm-vulkanfail", Scenario::VulkanFail),
+    ("chatonlm-vramfail", Scenario::VramFail),
     ("chatonlm-bigctx", Scenario::BigCtx),
     ("chatonlm-bindfail-always", Scenario::BindFailAlways),
     ("chatonlm-bindfail", Scenario::BindFail),

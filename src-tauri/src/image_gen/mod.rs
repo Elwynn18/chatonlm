@@ -306,7 +306,23 @@ struct Inner {
     closed: watch::Sender<bool>,
     /// Appelé avant chaque image, une fois son tour venu.
     before: parking_lot::Mutex<Option<BeforeImage>>,
+    /// Appelé après chaque arrêt du serveur (sa VRAM est rendue).
+    released: parking_lot::Mutex<Option<Released>>,
 }
+
+impl Inner {
+    /// Arrête `running`, puis annonce la VRAM rendue ([`ImageGen::on_release`]).
+    async fn stop_running(&self, running: Running) {
+        running.stop(&self.config.timing).await;
+        let hook = self.released.lock().clone();
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+}
+
+/// Crochet appelé après chaque arrêt du serveur d'images.
+pub type Released = Arc<dyn Fn() + Send + Sync>;
 
 /// Crochet appelé avant chaque image (mémoire de la carte libérée).
 pub type BeforeImage = Arc<dyn Fn() -> futures_util::future::BoxFuture<'static, ()> + Send + Sync>;
@@ -323,6 +339,7 @@ impl ImageGen {
                 activity: AtomicU64::new(0),
                 closed: watch::channel(false).0,
                 before: parking_lot::Mutex::new(None),
+                released: parking_lot::Mutex::new(None),
             }),
         }
     }
@@ -337,6 +354,28 @@ impl ImageGen {
     /// au serveur d'images, qui ne prend que la mémoire libre).
     pub fn before_image(&self, hook: BeforeImage) {
         *self.inner.before.lock() = Some(hook);
+    }
+
+    /// Pose le crochet appelé après chaque arrêt du serveur (l'app : les
+    /// modèles de texte repliés faute de VRAM réessaieront la carte).
+    pub fn on_release(&self, hook: Released) {
+        *self.inner.released.lock() = Some(hook);
+    }
+
+    /// Arrête le serveur s'il ne calcule pas d'image : sa VRAM revient aux
+    /// autres calculs (texte, Whisper ; une image en cours garde sa place).
+    /// Vrai s'il a été arrêté.
+    pub async fn release_idle(&self) -> bool {
+        let Ok(mut slot) = self.inner.server.try_lock() else {
+            return false;
+        };
+        match slot.take() {
+            Some(running) => {
+                self.inner.stop_running(running).await;
+                true
+            }
+            None => false,
+        }
     }
 
     /// Instructions du processeur qui manquent au moteur (vide : aucune).
@@ -355,18 +394,18 @@ impl ImageGen {
         if slot.as_ref().is_some_and(|running| uses(running.spec()))
             && let Some(running) = slot.take()
         {
-            running.stop(&self.inner.config.timing).await;
+            self.inner.stop_running(running).await;
         }
         true
     }
 
-    /// Numéro du processus du serveur lancé (jauge de la VRAM), même pendant
-    /// une image. Seuls les essais le lisent tant que la jauge de la VRAM ne
-    /// compte pas encore le moteur d'images.
-    #[cfg_attr(
-        not(test),
-        allow(dead_code, reason = "jauge de la VRAM, pas encore branchée")
-    )]
+    /// Une image est en cours (ou attend son tour).
+    pub fn busy(&self) -> bool {
+        self.inner.server.try_lock().is_err()
+    }
+
+    /// Numéro du processus du serveur lancé (vue des ressources), même
+    /// pendant une image.
     pub fn server_pid(&self) -> Option<u32> {
         Some(self.inner.pid.load(Ordering::SeqCst)).filter(|pid| *pid != 0)
     }
@@ -442,7 +481,7 @@ impl ImageGen {
             Err(ImageGenError::Crashed(_) | ImageGenError::Lost(_) | ImageGenError::Closed)
         ) && let Some(running) = slot.take()
         {
-            running.stop(&self.inner.config.timing).await;
+            self.inner.stop_running(running).await;
         }
         outcome
     }
@@ -593,7 +632,7 @@ impl ImageGen {
                 return;
             }
             if let Some(running) = slot.take() {
-                running.stop(&inner.config.timing).await;
+                inner.stop_running(running).await;
             }
         });
     }
@@ -606,7 +645,7 @@ impl ImageGen {
         let stopping = async {
             let mut slot = self.inner.server.lock().await;
             if let Some(running) = slot.take() {
-                running.stop(&self.inner.config.timing).await;
+                self.inner.stop_running(running).await;
             }
             drop(slot);
             self.inner.stops.settled(limit).await;

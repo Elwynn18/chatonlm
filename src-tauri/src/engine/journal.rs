@@ -321,6 +321,21 @@ pub fn vulkan_failed(log: &str) -> bool {
     })
 }
 
+/// Le journal accuse un manque de mémoire de la carte graphique (Vulkan :
+/// `ErrorOutOfDeviceMemory`, allocation refusée) : un nouvel essai sur la
+/// carte a un sens quand de la VRAM se libère.
+pub fn out_of_memory(log: &str) -> bool {
+    log.lines().any(|line| {
+        let lower = line.to_ascii_lowercase();
+        line.contains("ErrorOutOfDeviceMemory")
+            || line.contains("VK_ERROR_OUT_OF_DEVICE_MEMORY")
+            || lower.contains("out of device memory")
+            || (lower.contains("ggml_vulkan") && lower.contains("memory allocation of size"))
+            || (lower.contains("failed to allocate")
+                && (lower.contains("vulkan") || lower.contains("buffer")))
+    })
+}
+
 /// Fin d'un processus, réduite à ce qui décide d'un nouvel essai.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ExitFacts {
@@ -521,6 +536,28 @@ mod tests {
             "0.00.100.000 W resolve_fused_ops: layer 0 is assigned to device Vulkan0 but Flash Attention is not supported\n",
         ] {
             assert!(!vulkan_failed(log));
+        }
+    }
+
+    #[test]
+    fn a_lack_of_card_memory_is_told_from_other_card_failures() {
+        for log in [
+            "0.00.100.000 E ggml_vulkan: Device memory allocation of size 123 failed.\n",
+            "0.00.100.000 E llama_init: failed to allocate buffer: VK_ERROR_OUT_OF_DEVICE_MEMORY\n",
+            "ggml_vulkan: vk::Device::allocateMemory: ErrorOutOfDeviceMemory\n",
+            "E llama_model_load: failed to allocate Vulkan0 buffer of size 4096\n",
+        ] {
+            assert!(out_of_memory(log), "{log}");
+        }
+        for log in [
+            GPU,
+            CPU,
+            VISION,
+            "terminate called after throwing an instance of 'vk::DeviceLostError'\n  what():  vk::Queue::submit: ErrorDeviceLost\n",
+            "ggml_vulkan: vk::Device::createComputePipeline: ErrorInitializationFailed\n",
+            "ggml_vulkan: Error: Vulkan 1.2 required.\n",
+        ] {
+            assert!(!out_of_memory(log), "{log}");
         }
     }
 

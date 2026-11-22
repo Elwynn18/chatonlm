@@ -60,6 +60,7 @@ import type { ProofreadEvent } from "@/bindings/ProofreadEvent";
 import type { ProofreadMode } from "@/bindings/ProofreadMode";
 import type { Lang } from "@/bindings/Lang";
 import type { RecommendedModel } from "@/bindings/RecommendedModel";
+import type { ResourcesView } from "@/bindings/ResourcesView";
 import type { SelectionResult } from "@/bindings/SelectionResult";
 import type { SendRequest } from "@/bindings/SendRequest";
 import type { Settings } from "@/bindings/Settings";
@@ -786,6 +787,15 @@ export function hubHardware(): Promise<HubHardware | null> {
  */
 export function machineMemory(): Promise<MachineMemory | null> {
   return invoke<MachineMemory | null>("machine_memory");
+}
+
+/**
+ * Ce qui occupe la machine hors modèles de texte (vue des ressources, près
+ * de la jauge de VRAM des réglages) : modèle de transcription chargé et
+ * moteur d'images lancé, où ils calculent et la VRAM qu'ils prennent.
+ */
+export function resourcesView(): Promise<ResourcesView> {
+  return invoke<ResourcesView>("resources_view");
 }
 
 /**

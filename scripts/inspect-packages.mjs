@@ -7,7 +7,9 @@
 // ceux du dossier construit, ni strip ni patchelf de linuxdeploy, glibc et
 // bibliothèques demandées, sans libgomp), moteur de texte (llama-server
 // construit par scripts/build-llama-server.sh : mêmes contrôles, chaque
-// bibliothèque et moteur de calcul compris, rien hors du système de base), et
+// bibliothèque et moteur de calcul compris, rien hors du système de base),
+// moteur de transcription (whisper-server construit par
+// scripts/build-whisper-server.sh : de même, sans chargeur Vulkan à lui), et
 // aucun fichier CUDA, ROCm ni HIP nulle part dans les paquets (le pack CUDA
 // est un téléchargement facultatif de l'app).
 // Rapport lisible sur la sortie standard ; code 1 si un contrôle échoue.
@@ -23,6 +25,8 @@
 //   --llama-sums <fichier>  empreintes attendues du moteur de texte (défaut :
 //                           .tools/runtimes/llama-server/SHA256SUMS ; VERSION
 //                           attendue : celle du même dossier)
+//   --whisper-sums <fichier>  de même pour le moteur de transcription
+//                           (défaut : .tools/runtimes/whisper-server/SHA256SUMS)
 //   --report <fichier>      copie du rapport
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -75,6 +79,9 @@ export const COMMON_FILES = [
   // Licences du moteur de texte (ses fichiers : LLAMA_FILES).
   "usr/share/doc/chatonlm/licenses/llama-server/README.txt",
   "usr/share/doc/chatonlm/licenses/llama-server/llama.cpp-LICENSE.txt",
+  // Licences du moteur de transcription (ses fichiers : WHISPER_FILES).
+  "usr/share/doc/chatonlm/licenses/whisper-server/README.txt",
+  "usr/share/doc/chatonlm/licenses/whisper-server/whisper.cpp-LICENSE.txt",
 ];
 
 /**
@@ -240,7 +247,61 @@ export const LLAMA_COMPONENT = {
   extra: ["SHA256SUMS"],
   source: "scripts/build-llama-server.sh",
 };
-export const BUILTIN_COMPONENTS = [SD_COMPONENT, LLAMA_COMPONENT];
+
+/**
+ * Moteur de transcription (whisper-server de whisper.cpp, construit par
+ * scripts/build-whisper-server.sh dans .tools/runtimes/whisper-server), rangé
+ * comme le moteur de texte. Pas de chargeur Vulkan à lui : l'app lui donne
+ * celui de llama-server/fallback.
+ */
+export const WHISPER_PREFIX = "usr/lib/chatonlm/whisper-server/";
+export const APPIMAGE_WHISPER_PREFIX = "usr/libexec/chatonlm/whisper-server/";
+export const WHISPER_LINK = "usr/lib/chatonlm/whisper-server";
+export const WHISPER_LINK_TARGET = "../../libexec/chatonlm/whisper-server";
+
+/**
+ * Fichiers du moteur de transcription exigés (chemins relatifs à son
+ * dossier) : le serveur, ses bibliothèques, le moteur Vulkan, les variantes
+ * du processeur sans AVX (x64) et avec AVX2 (haswell), la version et les
+ * empreintes. Le détail est comparé aux empreintes du dossier construit
+ * (whisperServerErrors).
+ */
+export const WHISPER_FILES = [
+  "whisper-server",
+  "libwhisper.so.1",
+  "libggml.so.0",
+  "libggml-base.so.0",
+  "libggml-vulkan.so",
+  "libggml-cpu-x64.so",
+  "libggml-cpu-haswell.so",
+  "VERSION",
+  "SHA256SUMS",
+];
+
+/** Seul fichier exécutable du moteur de transcription. */
+export const WHISPER_EXECUTABLES = ["whisper-server"];
+
+export const WHISPER_COMPONENT = {
+  name: "Moteur de transcription",
+  of: "du moteur de transcription",
+  prefix: WHISPER_PREFIX,
+  appImagePrefix: APPIMAGE_WHISPER_PREFIX,
+  link: WHISPER_LINK,
+  linkTarget: WHISPER_LINK_TARGET,
+  executables: WHISPER_EXECUTABLES,
+  onlyExecutables: true,
+  // Aucun moteur CUDA, ROCm ni HIP.
+  excluded: EXCLUDED_ENGINES,
+  hostOnly: [],
+  // Livré à côté des fichiers qu'il décrit (absent de ses propres empreintes).
+  extra: ["SHA256SUMS"],
+  source: "scripts/build-whisper-server.sh",
+};
+export const BUILTIN_COMPONENTS = [
+  SD_COMPONENT,
+  LLAMA_COMPONENT,
+  WHISPER_COMPONENT,
+];
 
 /**
  * Fichiers propres au .deb : entrée de menu visible, AppStream, moteurs
@@ -251,6 +312,7 @@ export const DEB_FILES = [
   `usr/share/metainfo/${ID}.metainfo.xml`,
   ...SD_FILES.map((f) => `${SD_PREFIX}${f}`),
   ...LLAMA_FILES.map((f) => `${LLAMA_PREFIX}${f}`),
+  ...WHISPER_FILES.map((f) => `${WHISPER_PREFIX}${f}`),
 ];
 
 /** Fichiers propres à l'AppImage : textes de la LGPL et notice des bibliothèques. */
@@ -264,6 +326,7 @@ export const APPIMAGE_FILES = [
   "usr/share/doc/chatonlm/appimage-libraries/README.txt",
   ...SD_FILES.map((f) => `${APPIMAGE_SD_PREFIX}${f}`),
   ...LLAMA_FILES.map((f) => `${APPIMAGE_LLAMA_PREFIX}${f}`),
+  ...WHISPER_FILES.map((f) => `${APPIMAGE_WHISPER_PREFIX}${f}`),
 ];
 
 /** Dépendances du .deb exigées (les deux premières viennent du CLI Tauri). */
@@ -483,6 +546,14 @@ export const NOTICE_MENTIONS = [
   [
     "usr/share/doc/chatonlm/licenses/llama-server/README.txt",
     [/llama\.cpp/, /fallback\/libvulkan\.so\.1/, /Apache License/],
+  ],
+  [
+    "usr/share/doc/chatonlm/licenses/whisper-server/README.txt",
+    [
+      /whisper\.cpp/,
+      /llama-server\/fallback\/libvulkan\.so\.1/,
+      /Apache License/,
+    ],
   ],
 ];
 
@@ -711,7 +782,8 @@ export function appImageErrors({
       ),
     );
   }
-  // Moteurs d'images et de texte : hors de usr/lib, derrière un lien.
+  // Moteurs d'images, de texte et de transcription : hors de usr/lib,
+  // derrière un lien.
   for (const component of BUILTIN_COMPONENTS) {
     const link = files.get(component.link);
     if (link?.link !== component.linkTarget) {
@@ -881,16 +953,39 @@ export function sdServerErrors({ pinned, ...options }) {
  * livrée doit être « <pinned>+chatonlm.<empreinte de 12 caractères> », et le
  * SHA256SUMS livré, identique aux empreintes de référence.
  */
-export function llamaServerErrors({ pinned, ...options }) {
-  const errors = builtinErrors(LLAMA_COMPONENT, options);
-  const prefix = options.prefix ?? LLAMA_PREFIX;
+export function llamaServerErrors(options) {
+  return pinnedEngineErrors(LLAMA_COMPONENT, "packaging/llama.env", options);
+}
+
+/**
+ * Contrôles du moteur de transcription, comme llamaServerErrors : `sums` de
+ * .tools/runtimes/whisper-server/SHA256SUMS, `version` du VERSION de ce
+ * dossier, `pinned` (WHISPER_VERSION de packaging/whispercpp.env).
+ */
+export function whisperServerErrors(options) {
+  return pinnedEngineErrors(
+    WHISPER_COMPONENT,
+    "packaging/whispercpp.env",
+    options,
+  );
+}
+
+/**
+ * builtinErrors d'un moteur qui livre ses empreintes, plus : VERSION de la
+ * forme « <pinned>+chatonlm.<empreinte de 12 caractères> » (`envFile` : son
+ * épinglage, cité dans le message), SHA256SUMS livré identique aux
+ * empreintes de référence.
+ */
+function pinnedEngineErrors(component, envFile, { pinned, ...options }) {
+  const errors = builtinErrors(component, options);
+  const prefix = options.prefix ?? component.prefix;
   if (!(options.sums?.size > 0)) return errors;
   if (pinned && options.files.has(`${prefix}VERSION`)) {
     const shipped = options.read(`${prefix}VERSION`).trim();
     const escaped = pinned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     if (!new RegExp(`^${escaped}\\+chatonlm\\.[0-9a-f]{12}$`).test(shipped)) {
       errors.push(
-        `Moteur de texte : VERSION ${shipped} hors de la forme ${pinned}+chatonlm.<empreinte> (packaging/llama.env)`,
+        `${component.name} : VERSION ${shipped} hors de la forme ${pinned}+chatonlm.<empreinte> (${envFile})`,
       );
     }
   }
@@ -902,7 +997,7 @@ export function llamaServerErrors({ pinned, ...options }) {
       [...options.sums].every(([rel, sum]) => shipped.get(rel) === sum);
     if (!same) {
       errors.push(
-        `Moteur de texte : ${listed} différent des empreintes de référence`,
+        `${component.name} : ${listed} différent des empreintes de référence`,
       );
     }
   }
@@ -1119,10 +1214,28 @@ function inspectLlamaServer(dir, files, llamaServer, prefix) {
   return { errors, elf: inspectLlamaServerElf(dir, files, prefix) };
 }
 
+/**
+ * Moteur de transcription d'un paquet extrait dans `dir` : erreurs
+ * (whisperServerErrors) et inspection de ses fichiers ELF (comme le moteur
+ * de texte). `whisperServer` : {sums, version, pinned}, ou null (essais).
+ */
+function inspectWhisperServer(dir, files, whisperServer, prefix) {
+  if (!whisperServer) return { errors: [], elf: null };
+  const read = (rel) => readFileSync(path.join(dir, rel), "utf8");
+  const errors = whisperServerErrors({
+    files,
+    read,
+    hash: (rel) => sha256(path.join(dir, rel)),
+    prefix,
+    ...whisperServer,
+  });
+  return { errors, elf: inspectLlamaServerElf(dir, files, prefix) };
+}
+
 /** Inspection d'un .deb, extrait dans `work`. */
 export function inspectDeb(
   file,
-  { work, version, sdServer = null, llamaServer = null },
+  { work, version, sdServer = null, llamaServer = null, whisperServer = null },
 ) {
   const members = parseAr(readFileSync(file));
   const member = (prefix) => members.find((m) => m.name.startsWith(prefix));
@@ -1170,6 +1283,13 @@ export function inspectDeb(
   errors.push(...images.errors);
   const text = inspectLlamaServer(dataDir, files, llamaServer, LLAMA_PREFIX);
   errors.push(...text.errors);
+  const speech = inspectWhisperServer(
+    dataDir,
+    files,
+    whisperServer,
+    WHISPER_PREFIX,
+  );
+  errors.push(...speech.errors);
   return {
     file,
     size: statSync(file).size,
@@ -1179,6 +1299,7 @@ export function inspectDeb(
     binary,
     sdServerElf: images.elf,
     llamaServerElf: text.elf,
+    whisperServerElf: speech.elf,
     missingTools: validation.missing,
   };
 }
@@ -1207,7 +1328,14 @@ export function appImageRuntime(buffer) {
 /** Inspection d'une AppImage, extraite dans `work` (--appimage-extract). */
 export function inspectAppImage(
   file,
-  { work, requireInventory, runtimePin, sdServer = null, llamaServer = null },
+  {
+    work,
+    requireInventory,
+    runtimePin,
+    sdServer = null,
+    llamaServer = null,
+    whisperServer = null,
+  },
 ) {
   const buffer = readFileSync(file);
   const runtime = appImageRuntime(buffer);
@@ -1258,6 +1386,7 @@ export function inspectAppImage(
         !info.link &&
         !rel.startsWith(APPIMAGE_SD_PREFIX) &&
         !rel.startsWith(APPIMAGE_LLAMA_PREFIX) &&
+        !rel.startsWith(APPIMAGE_WHISPER_PREFIX) &&
         /\.so(\.[0-9.]+)?$/.test(rel),
     )
     .map(([rel, info]) => ({ rel, size: info.size }))
@@ -1282,6 +1411,13 @@ export function inspectAppImage(
     APPIMAGE_LLAMA_PREFIX,
   );
   errors.push(...text.errors);
+  const speech = inspectWhisperServer(
+    dir,
+    files,
+    whisperServer,
+    APPIMAGE_WHISPER_PREFIX,
+  );
+  errors.push(...speech.errors);
   return {
     file,
     size: buffer.length,
@@ -1293,6 +1429,7 @@ export function inspectAppImage(
     binary,
     sdServerElf: images.elf,
     llamaServerElf: text.elf,
+    whisperServerElf: speech.elf,
     missingTools: validation.missing,
   };
 }
@@ -1382,6 +1519,33 @@ export function llamaServerLines(
   elf,
   { maxGlibc, prefix = LLAMA_PREFIX },
 ) {
+  return engineLines(files, elf, {
+    maxGlibc,
+    prefix,
+    title: "Moteur de texte (llama-server)",
+    label: "moteur de texte",
+  });
+}
+
+/** De même pour le moteur de transcription (whisper-server). */
+export function whisperServerLines(
+  files,
+  elf,
+  { maxGlibc, prefix = WHISPER_PREFIX },
+) {
+  return engineLines(files, elf, {
+    maxGlibc,
+    prefix,
+    title: "Moteur de transcription (whisper-server)",
+    label: "moteur de transcription",
+  });
+}
+
+/**
+ * Lignes du rapport sur un moteur à bibliothèques et moteurs de calcul
+ * (llamaServerLines) : `title` en tête du rapport, `label` dans les erreurs.
+ */
+function engineLines(files, elf, { maxGlibc, prefix, title, label }) {
   if (!elf) return { lines: [], errors: [] };
   let size = 0;
   let count = 0;
@@ -1400,12 +1564,12 @@ export function llamaServerLines(
     }
   }
   const lines = [
-    `Moteur de texte (llama-server) : ${count} fichiers, ${formatSize(size)}, ` +
+    `${title} : ${count} fichiers, ${formatSize(size)}, ` +
       `${elf.length} ELF ; versions de symboles les plus récentes : ${symbolList(versions)}`,
   ];
   const errors = [];
   if (elf.length === 0) {
-    errors.push(`moteur de texte : aucun fichier ELF dans ${prefix}`);
+    errors.push(`${label} : aucun fichier ELF dans ${prefix}`);
   }
   if (
     maxGlibc &&
@@ -1413,7 +1577,7 @@ export function llamaServerLines(
     compareVersions(versions.GLIBC, maxGlibc) > 0
   ) {
     errors.push(
-      `le moteur de texte demande GLIBC_${versions.GLIBC} (maximum permis : ${maxGlibc})`,
+      `le ${label} demande GLIBC_${versions.GLIBC} (maximum permis : ${maxGlibc})`,
     );
   }
   const own = new Set(
@@ -1425,7 +1589,7 @@ export function llamaServerLines(
     const missing = entry.missing.filter((name) => name !== "libvulkan.so.1");
     if (missing.length > 0) {
       errors.push(
-        `moteur de texte : ${entry.rel} : bibliothèques introuvables (ldd) : ${missing.join(", ")}`,
+        `${label} : ${entry.rel} : bibliothèques introuvables (ldd) : ${missing.join(", ")}`,
       );
     }
     const outside = [...new Set([...entry.needed, ...entry.linked])]
@@ -1435,7 +1599,7 @@ export function llamaServerLines(
       );
     if (outside.length > 0) {
       errors.push(
-        `moteur de texte : ${entry.rel} dépend de ${outside.join(", ")} (hors du système de base)`,
+        `${label} : ${entry.rel} dépend de ${outside.join(", ")} (hors du système de base)`,
       );
     }
   }
@@ -1511,11 +1675,16 @@ export function formatReport({ deb, appimage, maxGlibc }) {
     lines.push(...images.lines);
     const text = llamaServerLines(deb.files, deb.llamaServerElf, { maxGlibc });
     lines.push(...text.lines);
+    const speech = whisperServerLines(deb.files, deb.whisperServerElf, {
+      maxGlibc,
+    });
+    lines.push(...speech.lines);
     errors.push(
       ...deb.errors.map((e) => `.deb : ${e}`),
       ...bin.errors.map((e) => `.deb : ${e}`),
       ...images.errors.map((e) => `.deb : ${e}`),
       ...text.errors.map((e) => `.deb : ${e}`),
+      ...speech.errors.map((e) => `.deb : ${e}`),
     );
     lines.push("");
   }
@@ -1561,11 +1730,18 @@ export function formatReport({ deb, appimage, maxGlibc }) {
       prefix: APPIMAGE_LLAMA_PREFIX,
     });
     lines.push(...text.lines);
+    const speech = whisperServerLines(
+      appimage.files,
+      appimage.whisperServerElf,
+      { maxGlibc, prefix: APPIMAGE_WHISPER_PREFIX },
+    );
+    lines.push(...speech.lines);
     errors.push(
       ...appimage.errors.map((e) => `AppImage : ${e}`),
       ...bin.errors.map((e) => `AppImage : ${e}`),
       ...images.errors.map((e) => `AppImage : ${e}`),
       ...text.errors.map((e) => `AppImage : ${e}`),
+      ...speech.errors.map((e) => `AppImage : ${e}`),
     );
     lines.push("");
   }
@@ -1592,6 +1768,7 @@ function main() {
     report: null,
     sdSums: path.join(root, ".tools/runtimes/sd-server/SHA256SUMS"),
     llamaSums: path.join(root, ".tools/runtimes/llama-server/SHA256SUMS"),
+    whisperSums: path.join(root, ".tools/runtimes/whisper-server/SHA256SUMS"),
   };
   const packages = [];
   for (let i = 0; i < args.length; i += 1) {
@@ -1600,6 +1777,7 @@ function main() {
     else if (args[i] === "--report") options.report = args[++i];
     else if (args[i] === "--sd-sums") options.sdSums = args[++i];
     else if (args[i] === "--llama-sums") options.llamaSums = args[++i];
+    else if (args[i] === "--whisper-sums") options.whisperSums = args[++i];
     else if (args[i].startsWith("--")) {
       // Option inconnue (--ollama-sums, retirée avec l'Ollama intégré…) :
       // jamais prise pour un paquet.
@@ -1612,7 +1790,7 @@ function main() {
   if ((!debFile && !appFile) || packages.length > 2) {
     console.error(
       "Usage : node scripts/inspect-packages.mjs [--max-glibc x.y] [--require-inventory] " +
-        "[--sd-sums fichier] [--llama-sums fichier] " +
+        "[--sd-sums fichier] [--llama-sums fichier] [--whisper-sums fichier] " +
         "[--report fichier] " +
         "<paquet.deb> <paquet.AppImage>",
     );
@@ -1651,6 +1829,23 @@ function main() {
       readFileSync(path.join(root, "packaging/llama.env"), "utf8"),
     ).LLAMA_VERSION,
   };
+  // Moteur de transcription : de même, dossier construit par
+  // build-whisper-server.sh.
+  const whisperVersion = path.join(
+    path.dirname(options.whisperSums),
+    "VERSION",
+  );
+  const whisperServer = {
+    sums: existsSync(options.whisperSums)
+      ? parseSums(readFileSync(options.whisperSums, "utf8"))
+      : new Map(),
+    version: existsSync(whisperVersion)
+      ? readFileSync(whisperVersion, "utf8").trim()
+      : null,
+    pinned: parseEnv(
+      readFileSync(path.join(root, "packaging/whispercpp.env"), "utf8"),
+    ).WHISPER_VERSION,
+  };
   const work = path.join(root, ".tools/package/inspect");
   const deb = debFile
     ? inspectDeb(debFile, {
@@ -1658,6 +1853,7 @@ function main() {
         version,
         sdServer,
         llamaServer,
+        whisperServer,
       })
     : null;
   const appimage = appFile
@@ -1667,6 +1863,7 @@ function main() {
         runtimePin: pin,
         sdServer,
         llamaServer,
+        whisperServer,
       })
     : null;
   const { text, errors } = formatReport({

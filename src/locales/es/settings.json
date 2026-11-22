@@ -251,7 +251,21 @@
       "freeSize": "Libre: {size}",
       "noGpu": "No se detectó ninguna tarjeta gráfica: los modelos se ejecutan en el procesador, en la memoria del sistema.",
       "unknown": "No se puede leer el uso de la VRAM en este equipo.",
-      "spilled": "{size} no caben en la VRAM: esa parte se ejecuta en la memoria del sistema, más despacio."
+      "spilled": "{size} no caben en la VRAM: esa parte se ejecuta en la memoria del sistema, más despacio.",
+      "speechSize": "{name}: {size}",
+      "imagesSize": "Motor de imágenes: {size}"
+    },
+    "resources": {
+      "label": "Dónde se ejecutan la transcripción y la creación de imágenes",
+      "speechCard": "{name} — tarjeta gráfica, {size}",
+      "speechCardUnmeasured": "{name} — tarjeta gráfica",
+      "speechProcessor": "{name} — procesador",
+      "imagesCardBusy": "Motor de imágenes — tarjeta gráfica, {size}, creando una imagen",
+      "imagesCardIdle": "Motor de imágenes — tarjeta gráfica, {size}, esperando la próxima imagen",
+      "imagesProcessorBusy": "Motor de imágenes — procesador, creando una imagen",
+      "imagesProcessorIdle": "Motor de imágenes — procesador, esperando la próxima imagen",
+      "imagesBusy": "Motor de imágenes — creando una imagen",
+      "imagesIdle": "Motor de imágenes — esperando la próxima imagen"
     },
     "loaded": {
       "title": "Modelos cargados",

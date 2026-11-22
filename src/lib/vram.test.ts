@@ -1,10 +1,11 @@
-// Jauge de la VRAM : parts des modèles, autres usages, libre, débordement en
-// mémoire vive, lectures incohérentes.
+// Jauge de la VRAM : parts des modèles, de Whisper et du moteur d'images,
+// autres usages, libre, débordement en mémoire vive, lectures incohérentes.
 
 import { describe, expect, it } from "vitest";
 import type { MachineMemory } from "@/bindings/MachineMemory";
+import type { ResourcesView } from "@/bindings/ResourcesView";
 import { runningModel } from "@/test/backend";
-import { modelShade, share, vramView } from "./vram";
+import { modelShade, share, vramExtras, vramView } from "./vram";
 
 const GIB = 1024 ** 3;
 
@@ -44,6 +45,7 @@ describe("vramView", () => {
       gpus: ["GPU 0", "GPU 1"],
       total: 16 * GIB,
       models: [{ name: "a", index: 0, bytes: 4 * GIB }],
+      extras: [],
       other: 2 * GIB,
       used: 6 * GIB,
       free: 10 * GIB,
@@ -138,6 +140,95 @@ describe("vramView", () => {
         runningModel("a", { sizeBytes: 6 * GIB, vramBytes: 6 * GIB }),
       ]),
     ).toMatchObject({ other: 0, used: 4 * GIB, free: 0 });
+  });
+});
+
+describe("vramView with Whisper and the image engine", () => {
+  const MIB = 1024 ** 2;
+  const onCard: ResourcesView = {
+    speech: {
+      modelId: "whisper-large-v3-turbo",
+      device: "card",
+      vramBytes: 512 * MIB,
+    },
+    images: { busy: true, vramBytes: GIB },
+  };
+
+  it("gives them their part, taken out of the other uses", () => {
+    const view = vramView(
+      machine([8, 3]),
+      [runningModel("a", { sizeBytes: 2 * GIB, vramBytes: 2 * GIB })],
+      onCard,
+    );
+    // 5 Gio occupés : 2 pour le modèle, 1 pour les images, 0,5 pour
+    // Whisper, 1,5 pour le reste.
+    expect(view).toEqual({
+      kind: "gauge",
+      gpus: ["GPU 0"],
+      total: 8 * GIB,
+      models: [{ name: "a", index: 0, bytes: 2 * GIB }],
+      extras: [
+        { kind: "images", bytes: GIB },
+        { kind: "speech", bytes: 512 * MIB },
+      ],
+      other: 1.5 * GIB,
+      used: 5 * GIB,
+      free: 3 * GIB,
+      spilled: 0,
+    });
+  });
+
+  it("counts them in the used memory when the free memory is unknown", () => {
+    expect(vramView(machine([8, null]), [], onCard)).toMatchObject({
+      other: 0,
+      used: 1.5 * GIB,
+      free: 6.5 * GIB,
+    });
+  });
+
+  it("never goes past the total, nor below zero for the other uses", () => {
+    expect(
+      vramView(
+        machine([2, 1]),
+        [runningModel("a", { sizeBytes: 2 * GIB, vramBytes: 2 * GIB })],
+        onCard,
+      ),
+    ).toMatchObject({ other: 0, used: 2 * GIB, free: 0 });
+  });
+
+  it("leaves out Whisper on the processor and unknown parts", () => {
+    expect(
+      vramExtras({
+        speech: {
+          modelId: "whisper-small",
+          device: "processor",
+          vramBytes: null,
+        },
+        images: { busy: false, vramBytes: null },
+      }),
+    ).toEqual([]);
+    expect(vramExtras({ speech: null, images: null })).toEqual([]);
+    expect(vramExtras(undefined)).toEqual([]);
+    expect(
+      vramExtras({
+        speech: { modelId: "whisper-small", device: "card", vramBytes: null },
+        images: null,
+      }),
+    ).toEqual([]);
+  });
+
+  it("is unknown when they are on a card that was not recognized", () => {
+    expect(vramView(machine(), [], onCard)).toEqual({ kind: "unknown" });
+    expect(
+      vramView(machine(), [], {
+        speech: {
+          modelId: "whisper-small",
+          device: "processor",
+          vramBytes: null,
+        },
+        images: { busy: false, vramBytes: null },
+      }),
+    ).toEqual({ kind: "noGpu" });
   });
 });
 

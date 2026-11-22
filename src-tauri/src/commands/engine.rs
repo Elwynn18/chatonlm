@@ -105,6 +105,16 @@ pub async fn engine_status(engine: State<'_, Engine>) -> AppResult<EngineStatus>
     Ok(current(&engine).await)
 }
 
+/// Vue des ressources (Réglages › Modèles, près de la jauge de la VRAM) :
+/// où sont Whisper et le moteur d'images (les modèles de texte sont dans la
+/// liste du moteur).
+#[tauri::command]
+pub async fn resources_view(
+    resources: State<'_, crate::resources::Resources>,
+) -> AppResult<crate::resources::ResourcesView> {
+    Ok(resources.view().await)
+}
+
 /// État du pack CUDA ; `fresh` : cartes NVIDIA détectées de nouveau.
 #[tauri::command]
 pub async fn cuda_status(cuda: State<'_, Cuda>, fresh: bool) -> AppResult<CudaStatus> {

@@ -1,0 +1,42 @@
+diff --git a/examples/server/server.cpp b/examples/server/server.cpp
+index b745f4d..028f256 100644
+--- a/examples/server/server.cpp
++++ b/examples/server/server.cpp
+@@ -735,9 +735,25 @@ int main(int argc, char ** argv) {
+     state.store(SERVER_STATE_READY);
+ 
+ 
+-    svr->set_default_headers({{"Server", "whisper.cpp"},
+-                             {"Access-Control-Allow-Origin", "*"},
+-                             {"Access-Control-Allow-Headers", "content-type, authorization"}});
++    // ChatonLM: no CORS headers; only the app talks to this server.
++    svr->set_default_headers({{"Server", "whisper.cpp"}});
++    // ChatonLM: one request per connection. A refused request's body is never
++    // read; with keep-alive it would be parsed as a second request (smuggling
++    // past the checks below).
++    svr->set_keep_alive_max_count(1);
++    // ChatonLM: a request from a web page (Origin header), for another host
++    // name (DNS rebinding) or to /load (loads any file given by the request,
++    // exits on a bad one) is refused.
++    svr->set_pre_routing_handler([&sparams](const Request &req, Response &res) {
++        const std::string expected_host = sparams.hostname + ":" + std::to_string(sparams.port);
++        if (req.has_header("Origin") || req.get_header_value("Host") != expected_host ||
++            req.path == sparams.request_path + "/load") {
++            res.status = 403;
++            res.set_content(R"({"error":"forbidden"})", "application/json");
++            return httplib::Server::HandlerResponse::Handled;
++        }
++        return httplib::Server::HandlerResponse::Unhandled;
++    });
+ 
+     std::string const default_content = R"(
+     <html>
+@@ -1243,7 +1259,7 @@ int main(int argc, char ** argv) {
+     svr->set_error_handler([](const Request &req, Response &res) {
+         if (res.status == 400) {
+             res.set_content("Invalid request", "text/plain");
+-        } else if (res.status != 500) {
++        } else if (res.status != 500 && res.status != 403) { // ChatonLM: keep refusals (see above)
+             res.set_content("File Not Found (" + req.path + ")", "text/plain");
+             res.status = 404;
+         }

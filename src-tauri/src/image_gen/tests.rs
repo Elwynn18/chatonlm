@@ -288,6 +288,37 @@ async fn the_server_is_kept_for_the_same_model_and_restarted_for_another() {
 
 /// Modèle supprimé : le serveur qui le charge est arrêté, pas celui d'un
 /// autre ; pendant une image, rien n'est arrêté passé le délai.
+/// Pour un autre calcul : le serveur inactif s'arrête (VRAM rendue, crochet
+/// prévenu) ; une image en cours garde sa place.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_idle_server_gives_back_the_card_and_says_so() {
+    let dir = temp_dir();
+    let engine = ImageGen::new(fake_config(dir.path()));
+    let told = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = told.clone();
+    engine.on_release(Arc::new(move || {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }));
+    assert!(!engine.release_idle().await);
+    let klein = spec(dir.path(), "klein");
+    let worker = hanging(&engine, &klein, "[hang] a kitten").await;
+    let pid = engine.server_pid().unwrap();
+    assert!(engine.busy());
+    assert!(!engine.release_idle().await);
+    assert_eq!(engine.server_pid(), Some(pid));
+    assert_eq!(told.load(std::sync::atomic::Ordering::SeqCst), 0);
+    worker.abort();
+    let _ = worker.await;
+    generate(&engine, &klein, "one").await.unwrap();
+    let pid = engine.server_pid().unwrap();
+    assert!(!engine.busy());
+    assert!(engine.release_idle().await);
+    assert!(gone_within(pid, Duration::from_secs(5)).await);
+    assert_eq!(engine.server_pid(), None);
+    assert!(told.load(std::sync::atomic::Ordering::SeqCst) >= 1);
+    engine.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn the_server_is_released_only_for_the_deleted_model() {
     let dir = temp_dir();

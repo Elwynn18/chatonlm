@@ -70,6 +70,7 @@ import type { Message } from "@/bindings/Message";
 import type { ModelDetails } from "@/bindings/ModelDetails";
 import type { EngineRunningModel } from "@/bindings/EngineRunningModel";
 import type { MachineMemory } from "@/bindings/MachineMemory";
+import type { ResourcesView } from "@/bindings/ResourcesView";
 import type { RecommendedModel } from "@/bindings/RecommendedModel";
 import type { Settings } from "@/bindings/Settings";
 import type { SettingsPatch } from "@/bindings/SettingsPatch";
@@ -322,6 +323,11 @@ export interface FakeBackend {
    */
   machine: MachineMemory | null;
   /**
+   * Vue des ressources (resources_view, près de la jauge de la VRAM) : par
+   * défaut, ni modèle de transcription chargé ni moteur d'images lancé.
+   */
+  resources: ResourcesView;
+  /**
    * Échecs forcés de running_models, load_model (par modèle) et
    * unload_model / unload_all_models (null : réponse normale).
    */
@@ -410,8 +416,8 @@ export interface FakeBackend {
  * dictation_bind_shortcut, dictation_configure_shortcut, speech_models,
  * speech_downloads, speech_download, speech_cancel_download,
  * speech_dismiss_download, speech_delete_model (src/test/dictation.ts),
- * running_models, machine_memory, load_model, unload_model,
- * unload_all_models, quit_app,
+ * running_models, machine_memory, resources_view, load_model,
+ * unload_model, unload_all_models, quit_app,
  * proofread_run, proofread_cancel, proofread_last_selection et shortcuts_*
  * (src/test/proofread.ts), study_* (src/test/study.ts), read_aloud,
  * read_aloud_stop, read_aloud_state et voice_* (src/test/tts.ts),
@@ -551,6 +557,7 @@ export function fakeBackend(
       ramTotal: 64 * 1024 ** 3,
       ramAvailable: 48 * 1024 ** 3,
     },
+    resources: { speech: null, images: null },
     runningErrors: { list: null, load: new Map(), unload: null },
     platform: "linux",
     menuEntry: { available: false, enabled: true },
@@ -942,6 +949,7 @@ export function fakeBackend(
       .map((id) => modelInfo(id)),
   );
   simulator.handle("machine_memory", () => backend.machine);
+  simulator.handle("resources_view", () => backend.resources);
   simulator.handle("auto_model", () => {
     if (backend.runningErrors.list)
       return backend.settings.selectedModel || null;

@@ -29,8 +29,9 @@
 #
 # Composants livrés tels quels dans /usr/lib/chatonlm (dossier des ressources
 # de Tauri) : ONNX Runtime (scripts/fetch-onnxruntime.sh), le moteur d'images (scripts/build-sd-server.sh, construit depuis les sources,
-# 15 min environ la première fois) et le moteur de texte
-# (scripts/build-llama-server.sh, de même, 11 min environ).
+# 15 min environ la première fois), le moteur de texte
+# (scripts/build-llama-server.sh, de même, 11 min environ) et le moteur de
+# transcription (scripts/build-whisper-server.sh, de même).
 #
 # Le runtime de l'AppImage est épinglé (packaging/appimage-runtime.env) :
 # téléchargé une fois dans .tools/package/runtime, empreinte vérifiée, puis
@@ -154,13 +155,17 @@ run "Moteur d'images épinglé" scripts/build-sd-server.sh
 # Moteur de texte (llama-server de llama.cpp, packaging/llama.env), installé
 # de la même façon dans /usr/lib/chatonlm/llama-server.
 run "Moteur de texte épinglé" scripts/build-llama-server.sh
+# Moteur de transcription (whisper-server de whisper.cpp,
+# packaging/whispercpp.env), de même dans /usr/lib/chatonlm/whisper-server ;
+# sans chargeur Vulkan à lui (l'app prend celui de llama-server/fallback).
+run "Moteur de transcription épinglé" scripts/build-whisper-server.sh
 
 # AppImage : linuxdeploy traite chaque fichier ELF de usr/lib (dépendances
 # copiées, RPATH, strip), ce que les moteurs ne supportent pas : le chargeur
 # Vulkan de secours du moteur d'images ne doit jamais être pris par
 # linuxdeploy pour celui du système, et les bibliothèques et moteurs de calcul
-# du moteur de texte sont trouvés par leur RUNPATH $ORIGIN, que linuxdeploy
-# réécrirait. Leurs fichiers vont donc dans usr/libexec/chatonlm/<moteur>, que
+# des moteurs de texte et de transcription sont trouvés par leur RUNPATH
+# $ORIGIN, que linuxdeploy réécrirait. Leurs fichiers vont donc dans usr/libexec/chatonlm/<moteur>, que
 # linuxdeploy ignore, et usr/lib/chatonlm/<moteur> (resource_dir()/<moteur>,
 # comme dans le .deb) est un lien vers ce dossier, copié tel quel par
 # bundle.linux.appimage.files.
@@ -170,6 +175,7 @@ appimage_lib() {
   mkdir -p "$dir"
   ln -s ../../libexec/chatonlm/sd-server "$dir/sd-server"
   ln -s ../../libexec/chatonlm/llama-server "$dir/llama-server"
+  ln -s ../../libexec/chatonlm/whisper-server "$dir/whisper-server"
 }
 run "Liens vers les moteurs (AppImage)" appimage_lib
 

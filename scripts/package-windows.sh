@@ -19,14 +19,18 @@
 #    VERSION) ; moteur de texte construit de même
 #    (scripts/build-llama-server.sh, après sd-server dont il reprend le
 #    chargeur Vulkan de secours) : .tools/runtimes/llama-server/
-#    (llama-server.exe, ses DLL, fallback\, VERSION, SHA256SUMS).
+#    (llama-server.exe, ses DLL, fallback\, VERSION, SHA256SUMS) ; moteur
+#    de transcription de même (scripts/build-whisper-server.sh) :
+#    .tools/runtimes/whisper-server/ (whisper-server.exe, ses DLL, VERSION,
+#    SHA256SUMS ; pas de fallback\ : l'app prend celui de llama-server).
 # 2. Frontend (dist/), s'il n'est pas déjà construit, puis une première
 #    écriture des notices (scripts/package-notices.mjs) : build.rs copie les
 #    ressources de packaging/windows/bundle.conf.json à la compilation, le
 #    dossier des notices doit donc exister avant elle. Le CLI refait ensuite
 #    les deux (beforeBuildCommand, beforeBundleCommand).
 # 3. `tauri build --bundles nsis` avec packaging/windows/bundle.conf.json
-#    (ressources : onnxruntime.dll, sd-server\, llama-server\, licenses\).
+#    (ressources : onnxruntime.dll, sd-server\, llama-server\,
+#    whisper-server\, licenses\).
 #    Ces ressources ne sont pas dans src-tauri/tauri.windows.conf.json :
 #    `cargo check` et `cargo test` n'ont pas à les télécharger.
 # 4. Copie de l'installateur dans out/ (inspection : scripts/inspect-windows.mjs).
@@ -84,8 +88,10 @@ step "Moteur d'images épinglé"
 scripts/build-sd-server.sh
 step "Moteur de texte épinglé"
 scripts/build-llama-server.sh
+step "Moteur de transcription épinglé"
+scripts/build-whisper-server.sh
 
-# Ce que packaging/windows/bundle.conf.json attend des trois scripts.
+# Ce que packaging/windows/bundle.conf.json attend des quatre scripts.
 missing=()
 for file in \
   ".tools/runtimes/onnxruntime/onnxruntime.dll" \
@@ -94,7 +100,10 @@ for file in \
   ".tools/runtimes/sd-server/VERSION" \
   ".tools/runtimes/llama-server/llama-server.exe" \
   ".tools/runtimes/llama-server/fallback/vulkan-1.dll" \
-  ".tools/runtimes/llama-server/VERSION"; do
+  ".tools/runtimes/llama-server/VERSION" \
+  ".tools/runtimes/whisper-server/whisper-server.exe" \
+  ".tools/runtimes/whisper-server/VERSION" \
+  ".tools/runtimes/whisper-server/SHA256SUMS"; do
   [ -f "$root/$file" ] || missing+=("$file")
 done
 if [ "${#missing[@]}" -gt 0 ]; then

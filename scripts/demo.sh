@@ -154,13 +154,14 @@ if ! (
   echo "Échec de la compilation : voir $log" >&2
   exit 1
 fi
-# Moteurs livrés (texte : llama-server ; images : sd-server) : sous Linux,
-# Tauri ne prend le dossier du binaire pour celui des ressources que si son
-# parent s'appelle « target » (ici « real-target ») ; sinon
-# <binaire>/../lib/chatonlm s'il existe, puis /usr/lib/chatonlm (tauri-utils,
-# resource_dir_from). Les constructions locales (scripts/build-llama-server.sh,
-# scripts/build-sd-server.sh) sont liées dans le premier ; rien d'autre n'y est
-# lu ici (ONNX Runtime : ORT_DYLIB_PATH).
+# Moteurs livrés (texte : llama-server ; images : sd-server ; transcription :
+# whisper-server) : sous Linux, Tauri ne prend le dossier du binaire pour
+# celui des ressources que si son parent s'appelle « target » (ici
+# « real-target ») ; sinon <binaire>/../lib/chatonlm s'il existe, puis
+# /usr/lib/chatonlm (tauri-utils, resource_dir_from). Les constructions
+# locales (scripts/build-llama-server.sh, scripts/build-sd-server.sh,
+# scripts/build-whisper-server.sh) sont liées dans le premier ; rien d'autre
+# n'y est lu ici (ONNX Runtime : ORT_DYLIB_PATH).
 if $real; then
   rm -f "$target/release/sd-server"
   mkdir -p "$target/lib/chatonlm"
@@ -175,6 +176,12 @@ if $real; then
   else
     rm -f "$target/lib/chatonlm/sd-server"
     echo "Moteur d'images absent (scripts/build-sd-server.sh) : génération d'images indisponible." >&2
+  fi
+  if [ -x "$root/.tools/runtimes/whisper-server/whisper-server" ]; then
+    ln -sfn "$root/.tools/runtimes/whisper-server" "$target/lib/chatonlm/whisper-server"
+  else
+    rm -f "$target/lib/chatonlm/whisper-server"
+    echo "Moteur de transcription absent (scripts/build-whisper-server.sh) : transcription sur la carte graphique indisponible." >&2
   fi
 fi
 

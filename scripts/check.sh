@@ -245,6 +245,7 @@ if $full; then
     cargo clippy --manifest-path "$manifest" --all-targets --locked --features e2e -- -D warnings
   step "Moteur de texte épinglé (llama-server)" scripts/build-llama-server.sh
   step "Moteur d'images épinglé (sd-server)" scripts/build-sd-server.sh
+  step "Moteur de transcription épinglé (whisper-server)" scripts/build-whisper-server.sh
   step "Contrats avec le moteur d'images" sd_contracts
   step "Modèles d'essai épinglés (.tools/llama-test)" scripts/test-llama.sh fetch
   step "Contrats avec le vrai moteur et Hugging Face" contracts

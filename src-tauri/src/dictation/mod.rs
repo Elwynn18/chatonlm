@@ -39,6 +39,7 @@ pub mod onnx;
 pub mod polish;
 #[cfg(test)]
 mod test_data;
+pub mod whisper_server;
 
 use std::path::PathBuf;
 use std::sync::Arc;

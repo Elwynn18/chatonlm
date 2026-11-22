@@ -1,0 +1,47 @@
+Code of other projects ported or adapted into whisper.cpp and ggml
+==================================================================
+
+The source files of whisper.cpp and ggml compiled into whisper-server name
+the projects below as the origin of some of their code (ported, adapted,
+copied or based on). whisper.cpp distributes that code under its MIT
+License (whisper.cpp-LICENSE.txt in this directory); the notes below repeat
+what the source files say about each origin.
+
+-- OpenAI Whisper --
+
+Used in:  src/whisper.cpp (dtw_and_backtrace, the dynamic time warping of
+          the token timestamps), "based on
+          https://github.com/openai/whisper/blob/main/whisper/timing.py#L83";
+          the other references to OpenAI Whisper in src/whisper.cpp
+          (tokenizer, decoding, audio) point to the algorithms it follows
+License:  MIT, "Copyright (c) 2022 OpenAI" (LICENSE of
+          https://github.com/openai/whisper)
+
+-- llama.cpp --
+
+Used in:  src/whisper.cpp (grammar-constrained sampling), "Grammar - ported
+          from llama.cpp", https://github.com/ggml-org/llama.cpp
+License:  MIT, "Copyright (c) 2023-2026 The ggml authors": the same license
+          and copyright holders as whisper.cpp (whisper.cpp-LICENSE.txt in
+          this directory)
+
+-- YaRN --
+
+Used in:  ggml/src/ggml-cpu/ops.cpp (rope_yarn), "based on
+          LlamaYaRNScaledRotaryEmbedding.py from
+          https://github.com/jquesnelle/yarn"
+License:  "MIT licensed. Copyright (c) 2023 Jeffrey Quesnelle and Bowen Peng."
+
+-- llamafile (Mozilla) --
+
+Used in:  ggml/src/ggml-cpu/llamafile/sgemm.cpp (matrix multiplication
+          kernels of the CPU backend), https://github.com/Mozilla-Ocho/llamafile
+License:  MIT, "Copyright 2024 Mozilla Foundation" (header of sgemm.cpp)
+
+-- Arm Optimized Routines --
+
+Used in:  ggml/src/ggml-cpu/vec.h (vectorized exp and silu), "adapted from
+          arm limited optimized routine",
+          https://github.com/ARM-software/optimized-routines
+License:  MIT OR Apache-2.0 WITH LLVM-exception (the text of the Apache
+          License, Version 2.0 is in Apache-2.0.txt in this directory)

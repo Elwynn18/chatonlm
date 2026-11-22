@@ -17,6 +17,10 @@
 //   llama-server\README.txt    le moteur de texte (llama-server construit
 //   llama-server\<licences>    par scripts/build-llama-server.sh) : textes
 //                              de packaging/llama/licenses et Apache-2.0
+//   whisper-server\README.txt  le moteur de transcription (whisper-server
+//   whisper-server\<licences>  construit par scripts/build-whisper-server.sh) :
+//                              textes de packaging/whispercpp/licenses et
+//                              Apache-2.0
 //
 // Pas de fichier copyright (format de Debian), pas de textes GPL ni LGPL :
 // l'installateur n'embarque aucune bibliothèque du système.
@@ -34,6 +38,10 @@ import {
   readLlamaServer,
   renderLlamaServerReadme,
 } from "./package-notices-llama.mjs";
+import {
+  readWhisperServer,
+  renderWhisperServerReadme,
+} from "./package-notices-whisper.mjs";
 import {
   CARGO_ABOUT_VERSION,
   CSS_PACKAGES,
@@ -116,8 +124,9 @@ libraries, Copyright (c) Microsoft Corporation. ChatonLM and ONNX Runtime
 need them. They are not open-source software: they are redistributable files
 of Microsoft Visual Studio, shipped unmodified under the Microsoft Software
 License Terms of Visual Studio.
-llama-server\\, the text engine, has its own copies of them (a program
-started by ChatonLM does not look next to chatonlm.exe);
+llama-server\\, the text engine, and whisper-server\\, the transcription
+engine, have their own copies of them (a program started by ChatonLM does
+not look next to chatonlm.exe);
 sd-server\\sd-server.exe, the image engine, contains the static version of
 these libraries. All under the same terms.
 `;
@@ -181,6 +190,8 @@ export function main() {
   errors.push(...sdServer.errors);
   const llamaServer = readLlamaServer(root);
   errors.push(...llamaServer.errors);
+  const whisperServer = readWhisperServer(root);
+  errors.push(...whisperServer.errors);
   if (errors.length > 0) fail(errors.join("\n"));
   const installed = installedCargoAbout();
   if (installed !== CARGO_ABOUT_VERSION) {
@@ -258,6 +269,14 @@ export function main() {
   for (const [file, text] of Object.entries(llamaServer.texts)) {
     files[`llama-server/${file}`] = text;
   }
+  files["whisper-server/README.txt"] = renderWhisperServerReadme({
+    env: whisperServer.env,
+    licenseFiles: whisperServer.licenseFiles,
+    windows: true,
+  });
+  for (const [file, text] of Object.entries(whisperServer.texts)) {
+    files[`whisper-server/${file}`] = text;
+  }
 
   rmSync(out, { recursive: true, force: true });
   for (const [file, content] of Object.entries(files)) {
@@ -267,6 +286,7 @@ export function main() {
     `Notices Windows écrites dans ${WINDOWS_NOTICES_DIR} ` +
       `(${about.crates.length} crates, ` +
       `${Object.keys(sdServer.texts).length} du moteur d'images, ` +
-      `${Object.keys(llamaServer.texts).length} du moteur de texte).`,
+      `${Object.keys(llamaServer.texts).length} du moteur de texte, ` +
+      `${Object.keys(whisperServer.texts).length} du moteur de transcription).`,
   );
 }

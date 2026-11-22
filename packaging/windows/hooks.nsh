@@ -5,8 +5,8 @@
 ; Le modèle ne surveille que l'exécutable principal. Avant de copier les
 ; fichiers (installation, mise à jour) et avant de les supprimer
 ; (désinstallation), ces crochets arrêtent l'app, puis les moteurs qu'elle
-; lance ($INSTDIR\sd-server\, $INSTDIR\llama-server\), désignés par leur
-; chemin exact. Jamais d'arrêt par nom (« taskkill /im llama-server.exe » ou
+; lance ($INSTDIR\sd-server\, $INSTDIR\llama-server\,
+; $INSTDIR\whisper-server\), désignés par leur chemin exact. Jamais d'arrêt par nom (« taskkill /im llama-server.exe » ou
 ; « ollama.exe ») : il arrêterait le llama.cpp ou l'Ollama que l'utilisateur a
 ; installé lui-même.
 ;
@@ -120,6 +120,65 @@
   RMDir "$INSTDIR\llama-server"
 !macroend
 
+; Moteur de transcription (whisper-server de whisper.cpp), traité comme le
+; moteur de texte : $R1 = 1 si $INSTDIR\whisper-server\VERSION porte la
+; marque de nos constructions (écrite par scripts/build-whisper-server.sh), 0
+; sinon (dossier absent, fichier illisible, ou whisper.cpp de l'utilisateur).
+; Registres : $R1 à $R5.
+!macro CHATONLM_OUR_WHISPER
+  StrCpy $R1 0
+  ClearErrors
+  FileOpen $R2 "$INSTDIR\whisper-server\VERSION" r
+  ${IfNot} ${Errors}
+    FileRead $R2 $R3 200
+    FileClose $R2
+    StrLen $R4 $R3
+    ${For} $R2 0 $R4
+      StrCpy $R5 $R3 10 $R2
+      ${If} $R5 == "+chatonlm."
+        StrCpy $R1 1
+        ${ExitFor}
+      ${EndIf}
+    ${Next}
+  ${EndIf}
+!macroend
+
+; Ce que scripts/build-whisper-server.sh livre dans whisper-server\, par
+; motifs (le serveur, les DLL de whisper.cpp et de ggml, dont les variantes
+; ggml-cpu-*.dll, le runtime Visual C++, SHA256SUMS ; pas de fallback\ : l'app
+; prend le chargeur de llama-server), sauf VERSION, la marque, retirée en
+; dernier. Rien d'autre : un fichier de l'utilisateur (un modèle .bin…) reste.
+; L'inspection (scripts/inspect-windows.mjs) vérifie que chaque fichier livré
+; y répond. `action` : macro appliquée à chaque motif.
+!macro CHATONLM_WHISPER_FILES action
+  !insertmacro ${action} "$INSTDIR\whisper-server\whisper-server.exe"
+  !insertmacro ${action} "$INSTDIR\whisper-server\whisper*.dll"
+  !insertmacro ${action} "$INSTDIR\whisper-server\ggml*.dll"
+  !insertmacro ${action} "$INSTDIR\whisper-server\vcruntime140*.dll"
+  !insertmacro ${action} "$INSTDIR\whisper-server\msvcp140*.dll"
+  !insertmacro ${action} "$INSTDIR\whisper-server\concrt140*.dll"
+  !insertmacro ${action} "$INSTDIR\whisper-server\SHA256SUMS"
+!macroend
+
+; Retire nos fichiers de whisper-server\ (d'une version précédente, avant la
+; copie de la nouvelle), comme CHATONLM_REMOVE_LLAMA : jusqu'à dix nouveaux
+; essais (cinq secondes) s'il en reste, dossier retiré seulement vide.
+; Registres : $R2 et $R3.
+!macro CHATONLM_REMOVE_WHISPER
+  !insertmacro CHATONLM_WHISPER_FILES CHATONLM_DELETE_PATTERN
+  ${For} $R3 1 10
+    StrCpy $R2 0
+    !insertmacro CHATONLM_WHISPER_FILES CHATONLM_COUNT_LEFT
+    ${If} $R2 = 0
+      ${ExitFor}
+    ${EndIf}
+    Sleep 500
+    !insertmacro CHATONLM_WHISPER_FILES CHATONLM_DELETE_PATTERN
+  ${Next}
+  Delete "$INSTDIR\whisper-server\VERSION"
+  RMDir "$INSTDIR\whisper-server"
+!macroend
+
 ; $R1 = 1 si $INSTDIR\ollama\ est l'Ollama intégré d'une version 0.9.x
 ; (ollama.exe et le fichier VERSION que ces versions y installaient,
 ; absent de l'Ollama officiel), 0 sinon.
@@ -180,8 +239,9 @@
   ${EndIf}
 !macroend
 
-; Les moteurs d'images (sd-server) et de texte (llama-server), lancés par
-; l'app, et l'ancien Ollama intégré s'il est encore là.
+; Les moteurs d'images (sd-server), de texte (llama-server) et de
+; transcription (whisper-server), lancés par l'app, et l'ancien Ollama intégré
+; s'il est encore là.
 !macro CHATONLM_STOP_ENGINES
   !insertmacro CHATONLM_STOP_FILE "$INSTDIR\sd-server\sd-server.exe"
   ; Seulement s'il est le nôtre : un dossier llama-server\ trouvé dans un
@@ -190,6 +250,11 @@
   !insertmacro CHATONLM_OUR_LLAMA
   ${If} $R1 = 1
     !insertmacro CHATONLM_STOP_FILE "$INSTDIR\llama-server\llama-server.exe"
+  ${EndIf}
+  ; De même pour le moteur de transcription.
+  !insertmacro CHATONLM_OUR_WHISPER
+  ${If} $R1 = 1
+    !insertmacro CHATONLM_STOP_FILE "$INSTDIR\whisper-server\whisper-server.exe"
   ${EndIf}
   !insertmacro CHATONLM_OLD_OLLAMA
   ${If} $R1 = 1
@@ -207,8 +272,9 @@
 
 ; Seulement dans une installation de ChatonLM déjà en place (son exécutable
 ; est là) : un dossier d'installation saisi à la main peut contenir un dossier
-; « ollama » ou « llama-server » qui n'est pas le nôtre (%LOCALAPPDATA%\Programs
-; contient l'Ollama officiel) ; rien n'y est arrêté ni effacé.
+; « ollama », « llama-server » ou « whisper-server » qui n'est pas le nôtre
+; (%LOCALAPPDATA%\Programs contient l'Ollama officiel) ; rien n'y est arrêté
+; ni effacé.
 !macro NSIS_HOOK_PREINSTALL
   ${If} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
     !insertmacro CHATONLM_STOP_ALL
@@ -222,6 +288,12 @@
     !insertmacro CHATONLM_OUR_LLAMA
     ${If} $R1 = 1
       !insertmacro CHATONLM_REMOVE_LLAMA
+    ${EndIf}
+    ; Moteur de transcription : de même (il charge lui aussi toutes les
+    ; variantes ggml-cpu-*.dll de son dossier).
+    !insertmacro CHATONLM_OUR_WHISPER
+    ${If} $R1 = 1
+      !insertmacro CHATONLM_REMOVE_WHISPER
     ${EndIf}
   ${EndIf}
 !macroend

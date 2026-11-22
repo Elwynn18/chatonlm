@@ -578,6 +578,50 @@ async fn models_are_evicted_when_the_card_is_full() {
     bench.engine.shutdown().await;
 }
 
+/// Pas assez de VRAM libre : le reste de l'app (moteur d'images, Whisper)
+/// rend d'abord ce qu'il garde sans s'en servir, puis la mémoire est relue ;
+/// assez de place ensuite : aucun modèle de texte ne part. Assez de place
+/// d'emblée : le reste de l'app n'est pas dérangé.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_rest_of_the_app_gives_back_the_card_before_text_models_are_evicted() {
+    let bench = bench();
+    let small = bench.install("small-simple", GIB / 2);
+    let big = bench.install("big-simple", 6 * GIB);
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (seen, models) = (calls.clone(), bench.models.clone());
+    bench.engine.release_others(Arc::new(move || {
+        seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // Le moteur d'images s'arrête : la carte se vide.
+        models.set_free_vram(20 * GIB);
+        Box::pin(async {})
+    }));
+    bench.engine.preload(&small, kept()).await.unwrap();
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    bench.models.set_free_vram(GIB);
+    bench.engine.preload(&big, kept()).await.unwrap();
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    // Le petit reste : la place rendue suffisait.
+    assert_eq!(bench.ids(), [big.clone(), small.clone()]);
+    bench.engine.shutdown().await;
+}
+
+/// Un modèle sur la carte arrêté rend sa VRAM : un modèle replié faute de
+/// mémoire réessaiera la carte (au moins 1 Gio rendu).
+#[tokio::test(flavor = "multi_thread")]
+async fn stopping_a_model_on_the_card_lets_a_lack_of_memory_be_retried() {
+    let bench = bench();
+    let failing = bench.install("chatonlm-vramfail", GIB);
+    let other = bench.install("other-simple", 2 * GIB);
+    bench.engine.preload(&other, kept()).await.unwrap();
+    let lease = bench.engine.ensure(&failing, kept()).await.unwrap();
+    assert!(lease.cpu_fallback);
+    drop(lease);
+    assert!(bench.engine.gpu_failed());
+    bench.engine.unload(&other).await;
+    assert!(!bench.engine.gpu_failed());
+    bench.engine.shutdown().await;
+}
+
 /// Déchargement : même en cours de chargement (l'attente finit en
 /// `Unloaded`), même tenu ; tout d'un coup ; sans effet sur un modèle absent.
 #[tokio::test(flavor = "multi_thread")]
@@ -635,6 +679,52 @@ async fn models_are_unloaded_even_while_loading() {
         assert!(dead(pid).await);
     }
     bench.engine.shutdown().await;
+}
+
+/// La carte manque de mémoire au chargement : repli sur le processeur, mais
+/// pas pour la session (choix du 20 nov. 2026) : dès qu'une autre partie de
+/// l'app rend de la VRAM (`gpu_freed`), le prochain chargement réessaie la
+/// carte. Un autre échec de la carte (pilote) reste noté pour la session.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lack_of_card_memory_is_retried_once_memory_is_freed() {
+    let bench = bench();
+    let id = bench.install("chatonlm-vramfail", GIB);
+    let lease = tokio::time::timeout(Duration::from_secs(20), bench.engine.ensure(&id, kept()))
+        .await
+        .expect("no endless relaunch")
+        .unwrap();
+    assert!(lease.cpu_fallback);
+    assert!(bench.engine.gpu_failed());
+    drop(lease);
+    // Trop peu rendu : rien ne change.
+    bench.engine.gpu_freed(Some(256 * 1024 * 1024));
+    assert!(bench.engine.gpu_failed());
+    bench.engine.gpu_freed(None);
+    assert!(!bench.engine.gpu_failed());
+    // Prochain chargement : sur la carte d'abord (raté de nouveau ici, puis
+    // processeur), jamais en boucle.
+    bench.engine.unload(&id).await;
+    let lease = tokio::time::timeout(Duration::from_secs(20), bench.engine.ensure(&id, kept()))
+        .await
+        .expect("no endless relaunch")
+        .unwrap();
+    assert!(lease.cpu_fallback);
+    assert!(bench.engine.gpu_failed());
+    drop(lease);
+    bench.engine.shutdown().await;
+
+    // Pilote en cause : gardé pour la session.
+    let driver = self::bench();
+    let id = driver.install("chatonlm-vulkanfail", GIB);
+    let lease = tokio::time::timeout(Duration::from_secs(20), driver.engine.ensure(&id, kept()))
+        .await
+        .expect("no endless relaunch")
+        .unwrap();
+    assert!(lease.cpu_fallback);
+    drop(lease);
+    driver.engine.gpu_freed(None);
+    assert!(driver.engine.gpu_failed());
+    driver.engine.shutdown().await;
 }
 
 /// La carte échoue au chargement (Vulkan, plantage) : un nouvel essai sur le
