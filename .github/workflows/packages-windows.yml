@@ -212,8 +212,11 @@ jobs:
         shell: pwsh
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+          # Sans VCINSTALLDIR : avec elle, rustc (crate cc) prendrait le
+          # link.exe du PATH, celui de Git dans les étapes en bash ; sans
+          # elle, il garde l'éditeur de liens de MSVC trouvé par vswhere.
           cmd /c "`"$vs\VC\Auxiliary\Build\vcvarsall.bat`" x64 >NUL && set" | ForEach-Object {
-            if ($_ -match '^([^=]+)=(.*)$') {
+            if ($_ -match '^([^=]+)=(.*)$' -and $Matches[1] -ne 'VCINSTALLDIR') {
               "$($Matches[1])=$($Matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
             }
           }
