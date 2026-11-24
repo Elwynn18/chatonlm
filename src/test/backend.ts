@@ -156,11 +156,11 @@ const EXCERPT_CHARS = 100;
 /** Taille maximale d'un fichier : 10 Mio (MAX_FILE_SIZE du moteur). */
 export const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-/** Extensions acceptées par le moteur (attachments/mod.rs, sans docx). */
+/** Extensions acceptées par le moteur (attachments/mod.rs). */
 const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp"];
 // prettier-ignore
 const TEXT_EXTENSIONS = [
-  "pdf", "txt", "md", "csv", "json", "xml", "html", "htm", "js", "jsx", "ts",
+  "pdf", "docx", "txt", "md", "csv", "json", "xml", "html", "htm", "js", "jsx", "ts",
   "tsx", "py", "java", "cpp", "c", "cc", "h", "cs", "php", "rb", "go", "rs",
   "swift", "kt", "scala", "sh", "bat", "yaml", "yml", "toml", "ini", "cfg",
   "conf", "log", "rtf",

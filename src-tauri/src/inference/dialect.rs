@@ -145,6 +145,7 @@ mod tests {
             ],
             tools: vec![json!({ "type": "function", "function": { "name": "web_search" } })],
             think: Think::Effort(Effort::High),
+            thinking_budget: Some(64),
             response_format: Some(ResponseFormat::JsonObject),
             max_tokens: Some(8),
             temperature: Some(0.5),
@@ -178,7 +179,13 @@ mod tests {
             request.body(true)
         );
         let body = request.body(true);
-        for key in ["top_k", "cache_prompt", "reasoning_effort", "repeat_last_n"] {
+        for key in [
+            "top_k",
+            "cache_prompt",
+            "reasoning_effort",
+            "repeat_last_n",
+            "thinking_budget_tokens",
+        ] {
             assert!(body.get(key).is_some(), "{key}");
         }
     }

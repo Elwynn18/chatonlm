@@ -216,6 +216,13 @@ pub struct ChatRequest {
     /// "function": {name, description, parameters}}`), telles quelles.
     pub tools: Vec<Value>,
     pub think: Think,
+    /// Budget de réflexion (jetons), lu par requête par `llama-server`
+    /// (`thinking_budget_tokens`, b12110) : la réflexion est close au-delà et
+    /// la réponse suit. Envoyé seulement si la réflexion n'est pas coupée
+    /// ([`Think::Off`]) ; jamais à un fournisseur distant (`dialect.rs`).
+    /// Sans budget, un gros modèle peut réfléchir jusqu'à `max_tokens` sans
+    /// rien répondre (lot 0 de l'Atelier).
+    pub thinking_budget: Option<u32>,
     pub response_format: Option<ResponseFormat>,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
@@ -281,6 +288,11 @@ impl ChatRequest {
                 };
                 body.insert("reasoning_effort".into(), json!(effort));
             }
+        }
+        if let Some(budget) = self.thinking_budget
+            && self.think != Think::Off
+        {
+            body.insert("thinking_budget_tokens".into(), json!(budget));
         }
         match &self.response_format {
             None => {}
@@ -586,6 +598,49 @@ mod tests {
         assert!(effort.get("chat_template_kwargs").is_none());
     }
 
+    /// Budget de réflexion : envoyé quand la réflexion n'est pas coupée
+    /// (gabarit, marche, niveau), jamais avec `Think::Off`, jamais à un
+    /// fournisseur distant.
+    #[test]
+    fn the_thinking_budget_goes_only_where_thinking_may_happen() {
+        let request = |think, budget| ChatRequest {
+            think,
+            thinking_budget: budget,
+            ..ChatRequest::new(vec![Message::user("hi")])
+        };
+        for think in [Think::Default, Think::On, Think::Effort(Effort::Low)] {
+            assert_eq!(
+                request(think, Some(64)).body(true)["thinking_budget_tokens"],
+                64,
+                "{think:?}"
+            );
+            assert!(
+                request(think, None)
+                    .body(true)
+                    .get("thinking_budget_tokens")
+                    .is_none()
+            );
+        }
+        assert!(
+            request(Think::Off, Some(64))
+                .body(true)
+                .get("thinking_budget_tokens")
+                .is_none()
+        );
+        for dialect in [
+            crate::inference::Dialect::OpenAi,
+            crate::inference::Dialect::Mistral,
+        ] {
+            assert!(
+                request(Think::On, Some(64))
+                    .body_for(dialect, false)
+                    .get("thinking_budget_tokens")
+                    .is_none(),
+                "{dialect:?}"
+            );
+        }
+    }
+
     #[test]
     fn the_body_carries_every_setting_and_only_those_given() {
         let mut request = ChatRequest::new(vec![Message::system("Be brief."), Message::user("hi")]);
@@ -604,6 +659,7 @@ mod tests {
             "stop",
             "cache_prompt",
             "response_format",
+            "thinking_budget_tokens",
         ] {
             assert!(bare.get(key).is_none(), "{key}");
         }

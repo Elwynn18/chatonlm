@@ -842,6 +842,7 @@ impl Core {
         abort: Arc<AtomicBool>,
         origin: Origin,
     ) {
+        let _user = crate::resources::interactive::hold();
         let end = self.dictate(&host, session, stopped, abort, origin).await;
         if self.finish(session, end) {
             host.changed(DictationPhase::Idle);

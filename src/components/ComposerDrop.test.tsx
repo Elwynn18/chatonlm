@@ -95,22 +95,22 @@ describe("dropped files", () => {
   it("stages the dropped paths, in order", async () => {
     const { simulator } = setup({
       "/a/notes.txt": { size: 3 },
-      "/a/report.docx": { error: "File type not supported" },
+      "/a/report.xlsx": { error: "File type not supported" },
     });
     await listening(simulator);
     await simulator.emitEvent("tauri://drag-enter", {
-      paths: ["/a/notes.txt", "/a/report.docx"],
+      paths: ["/a/notes.txt", "/a/report.xlsx"],
       position: POSITION,
     });
     await simulator.emitEvent("tauri://drag-drop", {
-      paths: ["/a/notes.txt", "/a/report.docx"],
+      paths: ["/a/notes.txt", "/a/report.xlsx"],
       position: POSITION,
     });
     expect(overlay()).toBeNull();
     await waitFor(() => expect(chips()).toEqual(["notes.txt"]));
-    expect(errorChips()).toEqual(["report.docx• File type not supported"]);
+    expect(errorChips()).toEqual(["report.xlsx• File type not supported"]);
     expect(simulator.callsTo("stage_paths")).toEqual([
-      { paths: ["/a/notes.txt", "/a/report.docx"] },
+      { paths: ["/a/notes.txt", "/a/report.xlsx"] },
     ]);
   });
 

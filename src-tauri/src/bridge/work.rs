@@ -389,6 +389,9 @@ pub(super) async fn image_generate<H: Host>(
     let Some(painter) = shared.host.engine().painter() else {
         return no_image(out, id, &PaintRefusal::Unavailable);
     };
+    // Image demandée par l'utilisateur dans l'éditeur : les travaux de fond
+    // (Atelier) lui cèdent la place.
+    let _user = crate::resources::interactive::hold();
     let ready = match painter.ready().await {
         Ok(ready) => ready,
         Err(refusal) => return no_image(out, id, &refusal),

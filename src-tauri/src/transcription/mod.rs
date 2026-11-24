@@ -24,6 +24,11 @@
 //! `transcription_pick_file`, dépôt natif sur la fenêtre) peut être lu, sur
 //! le modèle des pièces jointes (`attachments::Staging::grant`) ; les
 //! chemins remis sont oubliés au rechargement de la page.
+//!
+//! Depuis le moteur (Atelier) : demande préparée hors commande
+//! ([`prepare_file`], [`prepare_url`]), fin attendue par [`Transcription::wait`]
+//! (ou suivie par [`Transcription::subscribe`]) ; la page n'en voit pas
+//! d'autre différence (même événement, mêmes états).
 
 pub mod job;
 mod language;
@@ -43,7 +48,8 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
+use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 
 use crate::dictation::models::{self, CatalogModel, SpeechEngine};
@@ -65,6 +71,10 @@ const MAX_GRANTED: usize = 10_000;
 
 /// Attente maximale de la fin d'une transcription à la fermeture de l'app.
 pub const SHUTDOWN_WAIT: Duration = Duration::from_secs(5);
+
+/// Fins gardées pour les abonnés en retard ([`Transcription::subscribe`]),
+/// et pour une attente commencée après la fin ([`Transcription::wait`]).
+const ENDS_KEPT: usize = 16;
 
 /// D'où vient le son.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -575,6 +585,116 @@ impl Prepared {
     }
 }
 
+/// Réglages de la dictée et modèles présents (dossier de l'app) : ce que
+/// chaque transcription lit au lancement, pour la page
+/// (`transcription_start`) comme pour le moteur ([`prepare_file`],
+/// [`prepare_url`]).
+pub(crate) async fn prepare(app: &tauri::AppHandle, store: &Store) -> AppResult<Prepared> {
+    prepare_in(store, crate::paths::speech_models_dir(app)?).await
+}
+
+/// [`prepare`] avec ce dossier des modèles (essais).
+pub(crate) async fn prepare_in(store: &Store, models_dir: PathBuf) -> AppResult<Prepared> {
+    let settings = store
+        .call(|connection| crate::store::dictation::get(connection))
+        .await?;
+    let root = models_dir.clone();
+    Ok(Prepared {
+        speech_model: settings.speech_model,
+        language: settings.language,
+        dictionary: settings.dictionary,
+        models_dir,
+        installed: Box::new(move |model| models::installed(&root, model)),
+    })
+}
+
+/// Transcription d'un fichier demandée par le moteur, avec le modèle et la
+/// langue de la dictée. Le chemin doit être remis
+/// ([`Transcription::grant`]) avant [`Transcription::start`], comme ceux du
+/// sélecteur.
+#[expect(
+    dead_code,
+    reason = "appelant : l'Atelier (lot 2) ; parties essayées : `prepare_in`, `file_request`"
+)]
+pub(crate) async fn prepare_file(
+    app: &tauri::AppHandle,
+    store: &Store,
+    path: &str,
+) -> AppResult<(Prepared, TranscriptionRequest)> {
+    Ok((prepare(app, store).await?, file_request(path)))
+}
+
+/// Transcription d'une adresse de vidéo demandée par le moteur, avec le
+/// modèle et la langue de la dictée.
+#[expect(
+    dead_code,
+    reason = "appelant : l'Atelier (lot 2) ; parties essayées : `prepare_in`, `url_request`"
+)]
+pub(crate) async fn prepare_url(
+    app: &tauri::AppHandle,
+    store: &Store,
+    url: &str,
+) -> AppResult<(Prepared, TranscriptionRequest)> {
+    Ok((prepare(app, store).await?, url_request(url)))
+}
+
+/// Demande pour un fichier, réglages de la dictée.
+#[cfg_attr(not(test), expect(dead_code, reason = "appelant : l'Atelier (lot 2)"))]
+pub(crate) fn file_request(path: &str) -> TranscriptionRequest {
+    TranscriptionRequest {
+        source: Source::File { path: path.into() },
+        model: None,
+        language: None,
+    }
+}
+
+/// Demande pour une adresse, réglages de la dictée.
+#[cfg_attr(not(test), expect(dead_code, reason = "appelant : l'Atelier (lot 2)"))]
+pub(crate) fn url_request(url: &str) -> TranscriptionRequest {
+    TranscriptionRequest {
+        source: Source::Url { url: url.into() },
+        model: None,
+        language: None,
+    }
+}
+
+/// Issue d'une transcription, pour le moteur ([`Transcription::wait`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum TranscriptionOutcome {
+    /// Finie (peut-être incomplète : voir l'avertissement).
+    Done {
+        segments: Vec<Segment>,
+        warning: Option<TranscriptionWarning>,
+    },
+    /// Échouée ; ce qui était transcrit est gardé.
+    Failed {
+        error: TranscriptionError,
+        segments: Vec<Segment>,
+    },
+    /// Annulée (bouton, moteur, « Erase my data »).
+    Cancelled,
+    /// App fermée pendant la transcription.
+    Interrupted,
+}
+
+/// Fin d'une transcription (diffusée par [`Transcription::subscribe`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TranscriptionEnd {
+    pub id: String,
+    pub outcome: TranscriptionOutcome,
+}
+
+/// Attente impossible ([`Transcription::wait`]).
+#[cfg_attr(not(test), expect(dead_code, reason = "appelant : l'Atelier (lot 2)"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaitError {
+    /// Ni en cours, ni parmi les [`ENDS_KEPT`] dernières finies
+    /// (identifiant inconnu, trop ancien, ou état oublié).
+    Unknown,
+    /// Attente abandonnée par l'appelant (la transcription est annulée).
+    Cancelled,
+}
+
 /// Récupération de l'audio d'une adresse (yt-dlp, ou un faux dans les
 /// essais).
 pub trait Fetcher: Send + Sync {
@@ -668,6 +788,26 @@ impl Services {
     }
 }
 
+/// Issue d'une transcription finie (`closing` : annulée parce que l'app
+/// ferme).
+fn outcome_of(job: &TranscriptionJob, closing: bool) -> TranscriptionOutcome {
+    match job.stage {
+        Stage::Failed => TranscriptionOutcome::Failed {
+            error: job
+                .error
+                .clone()
+                .unwrap_or_else(|| TranscriptionError::of(TranscriptionErrorCode::Failed)),
+            segments: job.segments.clone(),
+        },
+        Stage::Cancelled if closing => TranscriptionOutcome::Interrupted,
+        Stage::Cancelled => TranscriptionOutcome::Cancelled,
+        _ => TranscriptionOutcome::Done {
+            segments: job.segments.clone(),
+            warning: job.warning.clone(),
+        },
+    }
+}
+
 /// État de l'outil (état géré de l'app, clonable).
 #[derive(Clone)]
 pub struct Transcription {
@@ -677,6 +817,8 @@ pub struct Transcription {
 pub(crate) struct Shared {
     services: Services,
     inner: Mutex<Inner>,
+    /// Fins diffusées au moteur (envoyées sous le verrou de `inner`).
+    ended: broadcast::Sender<TranscriptionEnd>,
     /// Détecteur gardé d'une transcription à l'autre (remis à zéro).
     detector: Mutex<Option<Box<dyn SpeechDetector + Send>>>,
 }
@@ -730,6 +872,20 @@ struct Inner {
     last_emit: Option<Instant>,
     /// Passages déjà envoyés à la page.
     sent: usize,
+    /// Fins des [`ENDS_KEPT`] dernières transcriptions, la plus récente à
+    /// la fin (pour une attente commencée après).
+    ends: VecDeque<TranscriptionEnd>,
+}
+
+impl Inner {
+    /// Issue de la transcription `id` si elle fait partie des fins gardées.
+    fn ended(&self, id: &str) -> Option<TranscriptionOutcome> {
+        self.ends
+            .iter()
+            .rev()
+            .find(|end| end.id == id)
+            .map(|end| end.outcome.clone())
+    }
 }
 
 /// Chemins remis par le moteur, comparés tels quels (comme les pièces
@@ -760,6 +916,7 @@ impl Transcription {
             shared: Arc::new(Shared {
                 services,
                 inner: Mutex::new(Inner::default()),
+                ended: broadcast::channel(ENDS_KEPT).0,
                 detector: Mutex::new(None),
             }),
         }
@@ -862,6 +1019,76 @@ impl Transcription {
         }
     }
 
+    /// Annule la transcription `id` si c'est elle qui tourne (une autre,
+    /// lancée depuis par la page, continue).
+    #[cfg_attr(not(test), expect(dead_code, reason = "appelant : l'Atelier (lot 2)"))]
+    pub fn cancel_id(&self, id: &str) {
+        let inner = self.shared.inner.lock();
+        if inner.running
+            && inner.job.as_ref().is_some_and(|job| job.id == id)
+            && let Some(cancel) = &inner.cancel
+        {
+            cancel.raise();
+        }
+    }
+
+    /// Fins des transcriptions à venir (page et moteur confondus).
+    /// S'abonner AVANT [`Transcription::start`] reste le plus sûr : une fin
+    /// déjà passée n'est pas rediffusée (seul [`Transcription::wait`] relit
+    /// les [`ENDS_KEPT`] dernières).
+    #[cfg_attr(not(test), expect(dead_code, reason = "appelant : l'Atelier (lot 2)"))]
+    pub fn subscribe(&self) -> broadcast::Receiver<TranscriptionEnd> {
+        self.shared.ended.subscribe()
+    }
+
+    /// Attend la fin de la transcription `id` (en cours, ou parmi les
+    /// [`ENDS_KEPT`] dernières finies). `cancel` abandonne l'attente et
+    /// annule cette transcription.
+    #[cfg_attr(not(test), expect(dead_code, reason = "appelant : l'Atelier (lot 2)"))]
+    pub async fn wait(
+        &self,
+        id: &str,
+        cancel: &CancellationToken,
+    ) -> Result<TranscriptionOutcome, WaitError> {
+        // Sous le verrou : la fin est envoyée sous ce même verrou, elle ne
+        // peut tomber entre la lecture de l'état et l'abonnement.
+        let mut ends = {
+            let inner = self.shared.inner.lock();
+            if let Some(outcome) = inner.ended(id) {
+                return Ok(outcome);
+            }
+            if !(inner.running && inner.job.as_ref().is_some_and(|job| job.id == id)) {
+                return Err(WaitError::Unknown);
+            }
+            self.shared.ended.subscribe()
+        };
+        loop {
+            let received = tokio::select! {
+                biased;
+                () = cancel.cancelled() => {
+                    self.cancel_id(id);
+                    return Err(WaitError::Cancelled);
+                }
+                received = ends.recv() => received,
+            };
+            match received {
+                Ok(end) if end.id == id => return Ok(end.outcome),
+                Ok(_) => {}
+                // Abonné en retard : les fins gardées disent si c'était elle.
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    let inner = self.shared.inner.lock();
+                    if let Some(outcome) = inner.ended(id) {
+                        return Ok(outcome);
+                    }
+                    if !inner.running {
+                        return Err(WaitError::Unknown);
+                    }
+                }
+                Err(broadcast::error::RecvError::Closed) => return Err(WaitError::Unknown),
+            }
+        }
+    }
+
     /// Fiche d'un fichier remis (durée), sans le décoder.
     pub async fn probe(&self, path: String) -> AppResult<TranscriptionProbe> {
         if !self.is_granted(&path) {
@@ -917,6 +1144,7 @@ impl Transcription {
         }
         let mut inner = self.shared.inner.lock();
         inner.job = None;
+        inner.ends.clear();
         inner.sent = 0;
         let payload = self.shared.payload(&mut inner);
         (self.shared.services.emit)(&payload);
@@ -999,10 +1227,26 @@ impl Shared {
         if let Some(job) = inner.job.as_mut() {
             change(job);
         }
+        let closing = inner
+            .cancel
+            .as_ref()
+            .is_some_and(|cancel| cancel.is_closing());
+        let end = inner.job.as_ref().map(|job| TranscriptionEnd {
+            id: job.id.clone(),
+            outcome: outcome_of(job, closing),
+        });
         inner.running = false;
         inner.cancel = None;
         let payload = self.payload(&mut inner);
         (self.services.emit)(&payload);
+        if let Some(end) = end {
+            // Aucun abonné : rien à faire.
+            let _ = self.ended.send(end.clone());
+            if inner.ends.len() == ENDS_KEPT {
+                inner.ends.pop_front();
+            }
+            inner.ends.push_back(end);
+        }
     }
 
     /// État envoyé : les seuls passages nouveaux.

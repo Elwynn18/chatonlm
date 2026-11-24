@@ -985,3 +985,90 @@ async fn a_hostile_page_is_read_under_the_tool_delay_and_can_be_stopped() {
     let stop = std::sync::atomic::AtomicBool::new(true);
     assert!(page::html_until(&links, &base, &stop).links.is_empty());
 }
+
+/// Lecture d'une page par le moteur (Atelier) : sans liste des adresses
+/// permises (aucune conversation ne l'a écrite), mais avec toutes les
+/// protections : réseau local refusé, même au bout d'une redirection,
+/// redirections bornées, délai, arrêt.
+#[tokio::test]
+async fn the_engine_reads_public_pages_with_the_same_guard() {
+    let site = Site::start(|path| match path {
+        "/page" => Reply::html("<title>Guide</title><p>Semer en mars.</p>"),
+        "/local" => Reply::redirect("http://127.0.0.1:9/secret"),
+        "/slow" => Reply {
+            delay: Duration::from_secs(30),
+            ..Reply::html("late")
+        },
+        _ => Reply::redirect("/loop"),
+    })
+    .await;
+    let policy = site.policy();
+    let never = CancellationToken::new();
+    let read = |url: String, timeout: Duration| {
+        let (policy, never) = (policy.clone(), never.clone());
+        async move { read_page_with(&policy, &url, &never, timeout).await }
+    };
+    let page = read(site.url("/page"), FETCH_TIMEOUT).await.unwrap();
+    assert_eq!(page.title, "Guide");
+    assert!(page.text.contains("Semer en mars."), "{page:?}");
+    assert_eq!(
+        read(site.url("/local"), FETCH_TIMEOUT).await,
+        Err(ReadPageError::Fetch(FetchError::NotPublic))
+    );
+    assert_eq!(
+        read(site.url("/loop"), FETCH_TIMEOUT).await,
+        Err(ReadPageError::Fetch(FetchError::Redirects))
+    );
+    // Délai donné tenu (la page répond en 30 s).
+    let started = Instant::now();
+    assert_eq!(
+        read(site.url("/slow"), Duration::from_millis(200)).await,
+        Err(ReadPageError::Timeout)
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
+    // Arrêt de l'appelant pendant la lecture.
+    let cancel = CancellationToken::new();
+    let stopping = {
+        let cancel = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            cancel.cancel();
+        })
+    };
+    let started = Instant::now();
+    assert_eq!(
+        read_page_with(&policy, &site.url("/slow"), &cancel, FETCH_TIMEOUT).await,
+        Err(ReadPageError::Cancelled)
+    );
+    assert!(started.elapsed() < Duration::from_secs(5));
+    stopping.await.unwrap();
+}
+
+/// Les règles de l'app : la machine et son réseau sont refusés, sans
+/// qu'aucune requête ne parte.
+#[tokio::test]
+async fn the_engine_cannot_read_local_addresses() {
+    let site = Site::start(|_| Reply::html("secret")).await;
+    let never = CancellationToken::new();
+    for url in [
+        format!("http://127.0.0.1:{}/", site.addr.port()),
+        format!("http://localhost:{}/", site.addr.port()),
+        "http://192.168.1.1/".to_owned(),
+        "http://[::1]/".to_owned(),
+    ] {
+        assert_eq!(
+            read_page(&url, &never).await,
+            Err(ReadPageError::Fetch(FetchError::NotPublic)),
+            "{url}"
+        );
+    }
+    assert_eq!(
+        read_page("file:///etc/passwd", &never).await,
+        Err(ReadPageError::Fetch(FetchError::Scheme))
+    );
+    assert_eq!(site.hits.load(Ordering::SeqCst), 0);
+}

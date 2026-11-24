@@ -40,6 +40,10 @@
 //!   première recherche de l'envoi (pas de réseau, blocage de DuckDuckGo,
 //!   clé refusée), qui l'arrête avec son code ([`Executed::Stop`]) ;
 //! - l'arrêt de l'envoi interrompt la requête en cours.
+//!
+//! Hors d'une conversation (Atelier, propre à ChatonLM) : [`read_page`] lit
+//! une page publique avec les mêmes protections, sans la liste des adresses
+//! permises (le moteur qui l'appelle décide lui-même quoi lire).
 
 mod fetch;
 mod page;
@@ -59,6 +63,7 @@ use crate::store::chats::{ToolCallError, ToolCallErrorCode};
 use web_search::SearchError;
 
 pub use fetch::Policy;
+pub(crate) use fetch::{FetchError, Page, fetch};
 
 pub const WEB_SEARCH: &str = "web_search";
 pub const WEB_FETCH: &str = "web_fetch";
@@ -479,6 +484,49 @@ async fn web_fetch(
     match serde_json::to_string(&response) {
         Ok(text) => Executed::Result(text),
         Err(error) => marshal_failed(&error),
+    }
+}
+
+/// Échec de [`read_page`].
+#[cfg_attr(not(test), expect(dead_code, reason = "appelant : l'Atelier (lot 2)"))]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum ReadPageError {
+    /// Arrêt demandé par l'appelant.
+    #[error("cancelled")]
+    Cancelled,
+    #[error("timed out")]
+    Timeout,
+    #[error(transparent)]
+    Fetch(#[from] FetchError),
+}
+
+/// Lit une page publique pour le moteur (Atelier) : mêmes protections que
+/// `web_fetch` (adresses publiques seulement, revérifiées à chaque
+/// redirection, [`fetch::MAX_REDIRECTS`] au plus, 4 Mio, 30 s extraction
+/// comprise, 40 000 caractères de texte), sans la liste des adresses
+/// permises d'une conversation ; `cancel` interrompt la lecture.
+#[cfg_attr(not(test), expect(dead_code, reason = "appelant : l'Atelier (lot 2)"))]
+pub(crate) async fn read_page(
+    url: &str,
+    cancel: &CancellationToken,
+) -> Result<Page, ReadPageError> {
+    read_page_with(&Policy::public(), url, cancel, FETCH_TIMEOUT).await
+}
+
+#[cfg_attr(not(test), expect(dead_code, reason = "appelant : l'Atelier (lot 2)"))]
+async fn read_page_with(
+    policy: &Policy,
+    url: &str,
+    cancel: &CancellationToken,
+    timeout: Duration,
+) -> Result<Page, ReadPageError> {
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => Err(ReadPageError::Cancelled),
+        fetched = tokio::time::timeout(timeout, fetch(policy, url.trim())) => match fetched {
+            Err(_) => Err(ReadPageError::Timeout),
+            Ok(page) => Ok(page?),
+        },
     }
 }
 

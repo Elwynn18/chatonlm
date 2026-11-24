@@ -818,6 +818,11 @@ async fn closing_the_app_records_interrupted() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert!(bench.engine.piece_running());
+    // Le moteur qui attend apprend « interrompue », pas « annulée ».
+    let waiting = {
+        let (transcription, id) = (bench.transcription.clone(), id.clone());
+        tokio::spawn(async move { waited(&transcription, &id, &CancellationToken::new()).await })
+    };
     let engine = bench.engine.clone();
     let closing = tokio::task::spawn_blocking(move || engine.shutdown(Duration::from_millis(100)));
     let transcription = bench.transcription.clone();
@@ -832,6 +837,10 @@ async fn closing_the_app_records_interrupted() {
     assert_eq!(job.stage, Stage::Cancelled);
     let row = bench.row(&id).unwrap();
     assert_eq!(row.item.state, TranscriptionState::Interrupted);
+    assert_eq!(
+        waiting.await.unwrap(),
+        Ok(TranscriptionOutcome::Interrupted)
+    );
     assert_eq!(row.segments.len(), 1);
     assert_eq!(bench.pieces().len(), 1);
     assert!(bench.work_root_is_empty());
@@ -1267,4 +1276,221 @@ fn progress_alone_is_throttled() {
     assert_eq!(events.len(), 3);
     assert_eq!(events[2].job.as_ref().unwrap().done_s, 49.0);
     assert_eq!(EMIT_GAP, Duration::from_millis(250));
+}
+
+// --- Attente depuis le moteur (Atelier) ------------------------------------
+
+/// [`Transcription::wait`] bornée : une fin jamais annoncée fait échouer
+/// l'essai au lieu de le bloquer.
+async fn waited(
+    transcription: &Transcription,
+    id: &str,
+    cancel: &CancellationToken,
+) -> Result<TranscriptionOutcome, WaitError> {
+    tokio::time::timeout(Duration::from_secs(120), transcription.wait(id, cancel))
+        .await
+        .expect("the end of the transcription never came")
+}
+
+/// Attente d'une transcription par le moteur : rien ne change pour la page
+/// (mêmes événements que sans attente), la fin arrive avec ses passages,
+/// aussi à un abonné ; une attente commencée après la fin la reçoit aussi.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_engine_waits_for_the_end_of_a_transcription() {
+    let bench = bench();
+    let (samples, _) = lecture();
+    let path = bench.file("cours.wav", &samples);
+    let mut ends = bench.transcription.subscribe();
+    let id = bench.start(file_request(&path)).unwrap();
+    let never = CancellationToken::new();
+    let outcome = waited(&bench.transcription, &id, &never).await.unwrap();
+    let TranscriptionOutcome::Done { segments, warning } = outcome.clone() else {
+        panic!("{outcome:?}");
+    };
+    assert!(!segments.is_empty());
+    assert_eq!(warning, None);
+    assert_eq!(segments, bench.row(&id).unwrap().segments);
+    assert_eq!(segments, bench.segments_from_events());
+    let end = ends.recv().await.unwrap();
+    assert_eq!(
+        end,
+        TranscriptionEnd {
+            id: id.clone(),
+            outcome: outcome.clone()
+        }
+    );
+    // Fin déjà passée : rendue aussitôt.
+    assert_eq!(waited(&bench.transcription, &id, &never).await, Ok(outcome));
+}
+
+/// Fins d'échec et d'annulation, chacune avec son issue.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_transcription_is_told_to_the_engine() {
+    let bench = bench();
+    *bench.script.fail_at.lock() = Some(1);
+    let (samples, _) = lecture();
+    let path = bench.file("cours.wav", &samples);
+    let id = bench.start(file_request(&path)).unwrap();
+    let outcome = waited(&bench.transcription, &id, &CancellationToken::new())
+        .await
+        .unwrap();
+    let TranscriptionOutcome::Failed { error, segments } = outcome else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(error.code, TranscriptionErrorCode::Failed);
+    assert_eq!(segments.len(), 1, "what was done is kept");
+}
+
+/// L'appelant abandonne : la transcription attendue est annulée (pas une
+/// autre), l'attente rend la main aussitôt, la fin dit « annulée ».
+#[tokio::test(flavor = "multi_thread")]
+async fn giving_up_the_wait_cancels_that_transcription() {
+    let bench = bench();
+    let (go, gate) = std::sync::mpsc::channel();
+    *bench.script.gate.lock() = Some(gate);
+    let (samples, _) = lecture();
+    let path = bench.file("cours.wav", &samples);
+    let id = bench.start(file_request(&path)).unwrap();
+    // Une autre transcription ne se fait pas annuler par cet identifiant.
+    bench.transcription.cancel_id("another");
+    let cancel = CancellationToken::new();
+    let waiting = {
+        let (transcription, id, cancel) = (bench.transcription.clone(), id.clone(), cancel.clone());
+        tokio::spawn(async move { waited(&transcription, &id, &cancel).await })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(!waiting.is_finished());
+    cancel.cancel();
+    assert_eq!(waiting.await.unwrap(), Err(WaitError::Cancelled));
+    go.send(()).unwrap();
+    assert_eq!(bench.finished().await.stage, Stage::Cancelled);
+    assert_eq!(
+        waited(&bench.transcription, &id, &CancellationToken::new()).await,
+        Ok(TranscriptionOutcome::Cancelled)
+    );
+}
+
+/// Deux transcriptions finies avant l'attente de la première : son issue
+/// est rendue (pas seulement celle de la dernière).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_earlier_end_is_still_known_after_another_transcription() {
+    let bench = bench();
+    *bench.script.fail_at.lock() = Some(1);
+    let (samples, _) = lecture();
+    let path = bench.file("cours.wav", &samples);
+    let first = bench.start(file_request(&path)).unwrap();
+    assert_eq!(bench.finished().await.stage, Stage::Failed);
+    *bench.script.fail_at.lock() = None;
+    let second = bench.start(file_request(&path)).unwrap();
+    assert_ne!(first, second);
+    assert_eq!(bench.finished().await.id, second);
+    let never = CancellationToken::new();
+    let outcome = waited(&bench.transcription, &first, &never).await;
+    assert!(
+        matches!(outcome, Ok(TranscriptionOutcome::Failed { .. })),
+        "{outcome:?}"
+    );
+    let outcome = waited(&bench.transcription, &second, &never).await;
+    assert!(
+        matches!(outcome, Ok(TranscriptionOutcome::Done { .. })),
+        "{outcome:?}"
+    );
+}
+
+/// Les `ENDS_KEPT` dernières fins sont gardées, pas plus.
+#[tokio::test]
+async fn only_the_last_ends_are_kept() {
+    let bench = bench();
+    let shared = bench.transcription.shared().clone();
+    let source = url_request().source;
+    for n in 0..=ENDS_KEPT {
+        let mut job = TranscriptionJob::new(format!("t{n}"), &source);
+        job.stage = Stage::Done;
+        shared.inner.lock().job = Some(job);
+        shared.finish(|_| {});
+    }
+    let never = CancellationToken::new();
+    assert_eq!(
+        waited(&bench.transcription, "t0", &never).await,
+        Err(WaitError::Unknown)
+    );
+    for n in 1..=ENDS_KEPT {
+        assert!(
+            waited(&bench.transcription, &format!("t{n}"), &never)
+                .await
+                .is_ok(),
+            "t{n}"
+        );
+    }
+}
+
+/// Identifiant ni en cours ni dernier : refus ; « Erase my data » oublie la
+/// dernière fin (ses passages).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unknown_or_forgotten_transcription_cannot_be_waited_for() {
+    let bench = bench();
+    let never = CancellationToken::new();
+    assert_eq!(
+        waited(&bench.transcription, "nope", &never).await,
+        Err(WaitError::Unknown)
+    );
+    let (samples, _) = lecture();
+    let path = bench.file("cours.wav", &samples);
+    let id = bench.start(file_request(&path)).unwrap();
+    assert!(waited(&bench.transcription, &id, &never).await.is_ok());
+    bench.transcription.forget(Duration::from_secs(5)).await;
+    assert_eq!(
+        waited(&bench.transcription, &id, &never).await,
+        Err(WaitError::Unknown)
+    );
+}
+
+/// Préparation hors commande : réglages de la dictée lus dans la base,
+/// modèles cherchés dans le dossier donné ; demandes sans modèle ni langue
+/// (ceux de la dictée).
+#[tokio::test]
+async fn requests_are_prepared_from_the_dictation_settings() {
+    let bench = bench();
+    bench
+        .store
+        .blocking(|connection| {
+            crate::store::dictation::update(
+                connection,
+                crate::store::dictation::DictationPatch {
+                    speech_model: Some("whisper-tiny".into()),
+                    language: Some("fr".into()),
+                    dictionary: Some(vec!["Atelier".into()]),
+                    ..Default::default()
+                },
+            )
+        })
+        .unwrap();
+    let models_dir = bench.root.join("speech-models");
+    let prepared = prepare_in(&bench.store, models_dir.clone()).await.unwrap();
+    assert_eq!(prepared.speech_model, "whisper-tiny");
+    assert_eq!(prepared.language, "fr");
+    assert_eq!(prepared.dictionary, ["Atelier"]);
+    assert_eq!(prepared.models_dir, models_dir);
+    // Aucun fichier de modèle dans le dossier : rien d'installé.
+    assert!(prepared.default_model().is_none());
+    assert_eq!(
+        super::file_request("/a/cours.mp3"),
+        TranscriptionRequest {
+            source: Source::File {
+                path: "/a/cours.mp3".into()
+            },
+            model: None,
+            language: None,
+        }
+    );
+    assert_eq!(
+        super::url_request("https://example.org/v"),
+        TranscriptionRequest {
+            source: Source::Url {
+                url: "https://example.org/v".into()
+            },
+            model: None,
+            language: None,
+        }
+    );
 }

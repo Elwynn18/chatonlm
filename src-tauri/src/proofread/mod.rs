@@ -282,6 +282,7 @@ pub async fn run(
 ) -> Outcome {
     // L'autocomplétion de l'éditeur attend pendant ce temps.
     let _working = crate::gpu::activity::hold();
+    let _user = crate::resources::interactive::hold();
     Job {
         server,
         model,

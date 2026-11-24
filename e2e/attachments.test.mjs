@@ -8,9 +8,10 @@
 //   notes.txt, red.png (vraie image PNG), brief.pdf (PDF avec du texte),
 //   extra.md et blue.png en pastilles, dans l'ordre ; vignettes chargées
 //   (chatonlm://localhost/staged/<id>, sous la CSP de production) ; refus
-//   officiels : report.docx « File type not supported », big.txt de 10 Mio +
+//   officiels : report.xlsx « File type not supported », big.txt de 10 Mio +
 //   1 octet « File too large », locked.txt sans droits « Error reading
-//   file » ; avec une erreur, Send désactivé et une vraie touche Entrée
+//   file » ; propre à ChatonLM : broken.docx (archive abîmée) « Error
+//   reading file » ; avec une erreur, Send désactivé et une vraie touche Entrée
 //   n'envoie rien (aucune requête, aucune conversation, texte gardé) ;
 //   « Remove <nom> » retire pastilles et erreurs (image retirée : plus
 //   servie par chatonlm://) ; sélecteur annulé : rien ;
@@ -28,7 +29,9 @@
 //   de l'image en rouge
 //   avec « This model does not support images », envoi permis ; à l'envoi,
 //   aucune image dans la requête, ni dans le message affiché ni en base, et
-//   l'image n'est plus servie (libérée) ; le fichier texte part ; après un
+//   l'image n'est plus servie (libérée) ; le fichier texte part, et le texte
+//   de minutes.docx (vrai petit document Word construit par l'essai,
+//   e2e/lib/docx.mjs) encadré comme lui ; après un
 //   rechargement de la page, l'image préparée n'est plus servie (zone vidée) ;
 // - vrai sélecteur GTK (sans le crochet) : « + » ouvre la fenêtre « Select
 //   Files » (cherchée par KWin), qui prend le focus ; Échap la ferme sans
@@ -47,6 +50,7 @@ import {
 import path from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { ROOT, withApp } from "./lib/app.mjs";
+import { docx } from "./lib/docx.mjs";
 import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { PENDING_CALLS, shownModel } from "./lib/page.mjs";
 import { chordsOf, pressKeys } from "./lib/keyboard.mjs";
@@ -132,7 +136,11 @@ writeFileSync(file("red.png"), RED);
 writeFileSync(file("blue.png"), png(4, 4, [0, 0, 255]));
 writeFileSync(file("brief.pdf"), pdf([PDF_LINE]));
 writeFileSync(file("extra.md"), "# Extra\n");
-writeFileSync(file("report.docx"), "PK\u0003\u0004 not a real document");
+// Type refusé (tableur), document Word abîmé, vrai document Word.
+writeFileSync(file("report.xlsx"), "PK\u0003\u0004 not a real sheet");
+writeFileSync(file("broken.docx"), "PK\u0003\u0004 not a real document");
+const MINUTES = ["Minutes of the garden club.", "Beans & peas <soon>."];
+writeFileSync(file("minutes.docx"), docx(MINUTES));
 writeFileSync(file("big.txt"), "");
 truncateSync(file("big.txt"), MAX_FILE_SIZE + 1);
 writeFileSync(file("locked.txt"), "secret");
@@ -447,6 +455,8 @@ const shotOnFailure = (name, fn) => async (driver) => {
 const VISION_TEXT = "Describe these files.";
 const PLAIN_TEXT = "What is in the files?";
 const notesFrame = `\n--- File: notes.txt ---\n${NOTES}\n--- End of notes.txt ---`;
+/** Texte lu dans minutes.docx : un paragraphe par bloc. */
+const minutesFrame = `\n--- File: minutes.docx ---\n${MINUTES.join("\n\n")}\n--- End of minutes.docx ---`;
 
 /** Message envoyé au modèle à vision tel qu'affiché, avant et après relecture. */
 function isVisionMessage(message) {
@@ -532,15 +542,16 @@ try {
       assert.equal(state.sendDisabled, true);
 
       // Refus officiels, après les pastilles, dans l'ordre du choix.
-      pick("report.docx", "big.txt", "locked.txt");
+      pick("report.xlsx", "broken.docx", "big.txt", "locked.txt");
       await clickPlus(driver);
       state = await waitComposer(
         driver,
-        (s) => s.errors.length === 3 && s.reading === 0,
-        "trois refus",
+        (s) => s.errors.length === 4 && s.reading === 0,
+        "quatre refus",
       );
       assert.deepEqual(state.errors, [
-        ["report.docx", "• File type not supported"],
+        ["report.xlsx", "• File type not supported"],
+        ["broken.docx", "• Error reading file"],
         ["big.txt", "• File too large"],
         ["locked.txt", "• Error reading file"],
       ]);
@@ -560,7 +571,12 @@ try {
       assert.equal(await textareaValue(driver), VISION_TEXT);
 
       // « Remove <nom> » retire les erreurs une à une : Send revient.
-      for (const name of ["big.txt", "report.docx", "locked.txt"]) {
+      for (const name of [
+        "big.txt",
+        "report.xlsx",
+        "broken.docx",
+        "locked.txt",
+      ]) {
         await driver.click(
           await driver.find(
             `[data-testid=composer-file-error] button[aria-label='Remove ${name}']`,
@@ -700,24 +716,25 @@ try {
       // l'avertissement officiel ; l'envoi reste permis.
       await newChat(driver);
       await useModel(driver, PLAIN);
-      pick("notes.txt", "red.png");
+      pick("notes.txt", "minutes.docx", "red.png");
       await clickPlus(driver);
       state = await waitComposer(
         driver,
         (s) =>
-          s.files.length === 2 && s.reading === 0 && s.files[1].image?.loaded,
+          s.files.length === 3 && s.reading === 0 && s.files[2].image?.loaded,
         "pastilles sans vision",
       );
-      assert.deepEqual(names(state), ["notes.txt", "red.png"]);
+      assert.deepEqual(names(state), ["notes.txt", "minutes.docx", "red.png"]);
       assert.deepEqual(
         state.files.map((f) => [f.red, f.warning]),
         [
+          [false, false],
           [false, false],
           [true, true],
         ],
       );
       assert.equal(state.warnings, 1);
-      const unsupported = state.files[1].image.src;
+      const unsupported = state.files[2].image.src;
       await driver.type(await driver.waitFor(TEXTAREA), PLAIN_TEXT);
       state = await composerState(driver);
       assert.equal(state.sendDisabled, false, "image sans vision bloquante");
@@ -729,13 +746,18 @@ try {
       const plainRequests = await requestsOf(PLAIN);
       assert.equal(plainRequests.length, 1);
       const plainSent = plainRequests[0].messages.at(-1);
-      assert.equal(plainSent.content, `${PLAIN_TEXT}${notesFrame}`);
+      // Texte du .docx encadré comme celui d'un fichier texte.
+      assert.equal(
+        plainSent.content,
+        `${PLAIN_TEXT}${notesFrame}${minutesFrame}`,
+      );
       assert.deepEqual(imagesOf(plainSent), [], "image envoyée sans vision");
       message = await waitSent(
         driver,
         (m) =>
           m.text === PLAIN_TEXT &&
-          JSON.stringify(m.files) === JSON.stringify(["notes.txt"]),
+          JSON.stringify(m.files) ===
+            JSON.stringify(["notes.txt", "minutes.docx"]),
         "message sans image",
       );
       assert.deepEqual(message.images, []);
@@ -744,8 +766,19 @@ try {
         id: await currentChatId(driver),
       });
       assert.deepEqual(
-        plainChat.messages[0].attachments.map((a) => a.filename),
-        ["notes.txt"],
+        plainChat.messages[0].attachments.map(({ filename, kind, mime }) => ({
+          filename,
+          kind,
+          mime,
+        })),
+        [
+          { filename: "notes.txt", kind: "text", mime: "text/plain" },
+          {
+            filename: "minutes.docx",
+            kind: "text",
+            mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          },
+        ],
       );
       // Image retirée à l'envoi : libérée, plus servie.
       await waitUntil(

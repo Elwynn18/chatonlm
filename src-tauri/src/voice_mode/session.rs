@@ -1498,6 +1498,8 @@ impl Host for AppHost {
     }
 
     fn changed(&self, state: &VoiceModeState) {
+        // Priorité de l'utilisateur : la séance, hors pause.
+        crate::resources::interactive::latch("voice-mode", !matches!(state.phase, Off | Paused));
         let _ = self.0.emit(STATE_EVENT, state);
     }
 

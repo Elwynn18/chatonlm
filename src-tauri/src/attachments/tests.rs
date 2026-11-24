@@ -95,19 +95,22 @@ const OFFICIAL_TEXT_EXTENSIONS: [&str; 37] = [
 ];
 
 #[tokio::test]
-async fn the_official_extensions_are_accepted_except_docx() {
+async fn the_official_extensions_are_accepted() {
     let staging = staging();
+    let word = docx::tests::docx("<w:p><w:r><w:t>x</w:t></w:r></w:p>", None);
     for extension in OFFICIAL_TEXT_EXTENSIONS.iter().chain(&IMAGE_EXTENSIONS) {
         for name in [
             format!("file.{extension}"),
             format!("FILE.{}", extension.to_uppercase()),
         ] {
-            let result = staging.stage_bytes(name.clone(), b"x".to_vec()).await;
-            if *extension == "docx" {
-                assert_eq!(rejection(&result), (name.as_str(), FILE_TYPE_NOT_SUPPORTED));
+            // Un .docx doit être une vraie archive (voir plus bas).
+            let data = if *extension == "docx" {
+                word.clone()
             } else {
-                assert_eq!(staged(&result).filename, name);
-            }
+                b"x".to_vec()
+            };
+            let result = staging.stage_bytes(name.clone(), data).await;
+            assert_eq!(staged(&result).filename, name);
         }
     }
     // Extension = dernier morceau après un point, en minuscules ; un nom sans
@@ -130,15 +133,84 @@ async fn the_official_extensions_are_accepted_except_docx() {
     }
 }
 
-/// Le sélecteur natif filtre sur la même liste, dans l'ordre de l'officiel.
+/// Le sélecteur natif filtre sur la même liste, dans l'ordre de l'officiel
+/// (`.docx` compris, sous Linux et sous Windows).
 #[test]
 fn the_picker_offers_the_accepted_extensions() {
     let expected: Vec<&str> = OFFICIAL_TEXT_EXTENSIONS
         .into_iter()
-        .filter(|extension| *extension != "docx")
         .chain(["png", "jpg", "jpeg", "webp"])
         .collect();
     assert_eq!(accepted_extensions().collect::<Vec<_>>(), expected);
+    assert!(accepted_extensions().any(|extension| extension == "docx"));
+}
+
+/// Un `.docx` : son texte extrait (titres, listes, tableaux), son contenu
+/// gardé tel quel ; abîmé ou bombe : « Error reading file », comme un
+/// fichier illisible ; vide : un texte de remplacement, comme un PDF.
+#[tokio::test]
+async fn word_documents_give_their_text() {
+    let staging = staging();
+    let word = docx::tests::docx(
+        r#"<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Rapport</w:t></w:r></w:p>
+<w:p><w:r><w:t>Résultats du trimestre.</w:t></w:r></w:p>
+<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Ventes</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>12</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"#,
+        None,
+    );
+    let result = staging
+        .stage_bytes("Rapport.DOCX".into(), word.clone())
+        .await;
+    let file = staged(&result);
+    assert_eq!(file.kind, AttachmentKind::Text);
+    assert_eq!(
+        file.mime,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
+    let kept = staging.get(&file.id).unwrap();
+    assert_eq!(
+        kept.text.as_deref(),
+        Some("# Rapport\n\nRésultats du trimestre.\n\nVentes | 12")
+    );
+    assert_eq!(kept.data, word);
+    // Abîmé (tronqué), ou pas une archive.
+    for data in [word[..word.len() / 2].to_vec(), b"PK not really".to_vec()] {
+        let result = staging.stage_bytes("abîmé.docx".into(), data).await;
+        assert_eq!(rejection(&result), ("abîmé.docx", ERROR_READING_FILE));
+    }
+    // Bombe (24 Mio de XML) : refusée de même.
+    let bomb = docx::tests::zip_of(&[("word/document.xml", &vec![b' '; 24 * 1024 * 1024])]);
+    let result = staging.stage_bytes("bombe.docx".into(), bomb).await;
+    assert_eq!(rejection(&result), ("bombe.docx", ERROR_READING_FILE));
+    // Sans texte.
+    let empty = docx::tests::docx("<w:p/>", None);
+    let size = empty.len();
+    let result = staging.stage_bytes("vide.docx".into(), empty).await;
+    let kept = staging.get(&staged(&result).id).unwrap();
+    assert_eq!(
+        kept.text,
+        Some(format!(
+            "[Word file - {size} bytes - no text content found]"
+        ))
+    );
+}
+
+/// Un `.docx` choisi par le sélecteur passe par le même chemin qu'un PDF
+/// (lecture bornée à 10 Mio, puis extraction).
+#[tokio::test]
+async fn a_picked_word_document_is_staged() {
+    let dir = temp_dir();
+    let path = dir.path().join("lettre.docx");
+    std::fs::write(
+        &path,
+        docx::tests::docx("<w:p><w:r><w:t>Bonjour</w:t></w:r></w:p>", None),
+    )
+    .unwrap();
+    let staging = staging();
+    let path = path_string(&path);
+    staging.grant([path.clone()]);
+    let results = staging.stage_paths(vec![path]).await;
+    let kept = staging.get(&staged(&results[0]).id).unwrap();
+    assert_eq!(kept.text.as_deref(), Some("Bonjour"));
 }
 
 #[tokio::test]

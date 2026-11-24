@@ -11,10 +11,11 @@ use crate::error::{AppError, AppResult};
 use crate::i18n::t;
 use crate::store::{Store, transcriptions};
 use crate::transcription::paragraphs::{to_markdown, to_srt, to_text};
+use crate::transcription::prepare;
 use crate::transcription::synthesis::{SynthesisStatus, Synthesizer};
 use crate::transcription::{
-    ExportFormat, Prepared, Transcription, TranscriptionDetail, TranscriptionItem,
-    TranscriptionOptions, TranscriptionProbe, TranscriptionRequest, TranscriptionStatus,
+    ExportFormat, Transcription, TranscriptionDetail, TranscriptionItem, TranscriptionOptions,
+    TranscriptionProbe, TranscriptionRequest, TranscriptionStatus,
 };
 
 /// Extensions proposées par le sélecteur (formats lus par `media_audio`).
@@ -22,22 +23,6 @@ const MEDIA_EXTENSIONS: &[&str] = &[
     "mp3", "m4a", "aac", "mp4", "m4v", "mov", "mkv", "webm", "mka", "ogg", "oga", "opus", "flac",
     "wav", "aif", "aiff", "caf",
 ];
-
-/// Réglages de la dictée et modèles présents.
-async fn prepared(app: &AppHandle, store: &Store) -> AppResult<Prepared> {
-    let settings = store
-        .call(|connection| crate::store::dictation::get(connection))
-        .await?;
-    let models_dir = crate::paths::speech_models_dir(app)?;
-    let root = models_dir.clone();
-    Ok(Prepared {
-        speech_model: settings.speech_model,
-        language: settings.language,
-        dictionary: settings.dictionary,
-        models_dir,
-        installed: Box::new(move |model| crate::dictation::models::installed(&root, model)),
-    })
-}
 
 /// Ouvre le sélecteur de fichiers natif (un fichier audio ou vidéo) ; le
 /// chemin choisi est remis à la transcription. `None` si l'utilisateur
@@ -94,7 +79,7 @@ pub async fn transcription_options(
     app: AppHandle,
     store: State<'_, Store>,
 ) -> AppResult<TranscriptionOptions> {
-    Ok(prepared(&app, &store).await?.options())
+    Ok(prepare(&app, &store).await?.options())
 }
 
 /// Durée annoncée d'un fichier remis, ou pourquoi il ne sera pas lu.
@@ -114,7 +99,7 @@ pub async fn transcription_start(
     transcription: State<'_, Transcription>,
     request: TranscriptionRequest,
 ) -> AppResult<String> {
-    let prepared = prepared(&app, &store).await?;
+    let prepared = prepare(&app, &store).await?;
     transcription.start(store.inner().clone(), prepared, request)
 }
 

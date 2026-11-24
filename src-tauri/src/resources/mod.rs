@@ -20,6 +20,11 @@
 //!   ([`crate::engine::Engine::gpu_freed`]).
 //! - Vue des ressources (Réglages › Modèles, près de la jauge de la VRAM) :
 //!   [`Resources::view`], qui dit où sont Whisper et le moteur d'images.
+//! - Prêt de la carte à un travail de fond (Atelier) : [`Resources::lend_gpu`]
+//!   ([`lend`]) ; priorité de l'utilisateur sur ce travail : [`interactive`].
+
+pub mod interactive;
+pub mod lend;
 
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
@@ -33,6 +38,8 @@ use ts_rs::TS;
 use crate::dictation::whisper_server::Budget;
 use crate::hub::hardware::{Machine, nvidia_smi};
 use crate::os_util::NoWindow;
+
+pub use interactive::Interactive;
 
 /// Délai de la lecture de la VRAM par processus (`nvidia-smi`).
 const NVIDIA_TIMEOUT: Duration = Duration::from_secs(3);

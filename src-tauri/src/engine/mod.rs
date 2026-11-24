@@ -80,7 +80,7 @@ pub const MAX_LOADED: usize = 3;
 
 /// Marge laissée libre sur la carte par `--fit` (`--fit-target`, 1 024 Mio
 /// par défaut) : comptée avant de décider s'il faut faire de la place.
-const FIT_TARGET: u64 = 1024 * 1024 * 1024;
+pub(crate) const FIT_TARGET: u64 = 1024 * 1024 * 1024;
 
 /// Délai minimal avant de décharger un modèle qui vient d'être prêt : le
 /// demandeur prend son `Lease` juste après (même avec `KeepAlive::Unload`).
@@ -1883,7 +1883,7 @@ fn died(log: &str, exited: &launch::Exited) -> EngineError {
 /// Mémoire estimée d'un modèle installé avec ce contexte (`hub/fit.rs`) :
 /// poids (projecteur compris) + cache de contexte (lu dans l'en-tête GGUF,
 /// sinon estimé d'après la taille annoncée) + marge.
-async fn estimate(model: &LocalModel, ctx: u32) -> u64 {
+pub(crate) async fn estimate(model: &LocalModel, ctx: u32) -> u64 {
     let path = PathBuf::from(&model.path);
     let facts = tokio::task::spawn_blocking(move || read_facts(&path))
         .await

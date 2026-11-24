@@ -17,11 +17,10 @@ use super::repair;
 use super::{StudyError, StudyErrorCode, model_of};
 use crate::chat::stream::Think;
 use crate::chat::{ChatErrorKind, Server};
-use crate::engine::{ModelState, RunningModel};
+use crate::engine::RunningModel;
 use crate::i18n::t;
 use crate::inference::{self, Event, InferenceError, Message};
 use crate::llm::{Access, LlmError, OpenOptions, Session};
-use crate::local_models::id::same_model;
 use crate::proofread::Cancel;
 
 /// Délais : partie en JSON (réponse complète), flux (sans fragment),
@@ -114,20 +113,9 @@ fn failure(cause: &LlmError, model: &str) -> Failure {
 /// Contexte demandé pour les cours : au moins [`prompts::STUDY_CONTEXT`]
 /// (et le réglage s'il est plus grand) ; si le modèle est déjà prêt avec au
 /// moins autant (chargé par le chat), ce contexte-là, pour ne pas le
-/// relancer.
+/// relancer (règle commune à l'Atelier : [`crate::agent::context_at_least`]).
 pub fn study_context(setting: u32, running: &[RunningModel], model: &str) -> u32 {
-    let wanted = setting.max(prompts::STUDY_CONTEXT);
-    running
-        .iter()
-        .filter(|running| {
-            same_model(&running.id, model)
-                && running.state == ModelState::Ready
-                && (!running.cpu_only || running.cpu_fallback)
-        })
-        .map(|running| running.context_length)
-        .filter(|ctx| *ctx >= wanted)
-        .max()
-        .unwrap_or(wanted)
+    crate::agent::context_at_least(setting.max(prompts::STUDY_CONTEXT), running, model)
 }
 
 /// Connexion d'un travail au moteur, avec le modèle des cours.
@@ -514,6 +502,7 @@ impl Visible {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::ModelState;
 
     fn running(id: &str, state: ModelState, ctx: u32, cpu_only: bool) -> RunningModel {
         RunningModel {

@@ -6,8 +6,11 @@
 // files app/ui/app/src/utils/fileValidation.ts and app/ui/extract.go,
 // commit 42e911bc3d05
 // (accepted extensions, validation order and messages, convertBytesToText).
-// Modified for ChatonLM: .docx is refused; files are validated, read and
-// extracted once in Rust when they are added, then kept in memory until sent.
+// Modified for ChatonLM: the text of a .docx is extracted by the app (the
+// official app accepts it but sends it as binary, without its text; a .docx
+// that cannot be read is refused "Error reading file"); files are validated,
+// read and extracted once in Rust when they are added, then kept in memory
+// until sent.
 
 //! Pièces jointes : zone de préparation, validation et extraction du texte.
 //!
@@ -21,10 +24,13 @@
 //! moteur (sélecteur natif, dépôt natif), chacun une seule fois ; un chemin
 //! inventé par la page (script injecté) est refusé sans toucher au disque.
 //!
-//! Écart à l'officiel (plan § D) : `.docx` est refusé (l'officiel l'accepte
-//! mais n'en extrait rien : archive ZIP, envoyée comme « binaire »).
+//! Écart à l'officiel : le texte d'un `.docx` est extrait ([`docx`] ;
+//! l'officiel l'accepte mais n'en extrait rien : archive ZIP, envoyée comme
+//! « binaire ») ; un `.docx` illisible (abîmé, bombe) est refusé « Error
+//! reading file ». Il était refusé avant l'Atelier (plan § D).
 
 pub mod clipboard;
+pub mod docx;
 pub mod pdf;
 pub mod pdf_child;
 pub mod protocol;
@@ -46,11 +52,11 @@ use pdf::PdfExtractor;
 /// Taille maximale d'un fichier : 10 Mio, comme l'officiel.
 pub const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024;
 
-/// `TEXT_FILE_EXTENSIONS` de l'officiel, sans `docx`.
-const TEXT_EXTENSIONS: [&str; 36] = [
-    "pdf", "txt", "md", "csv", "json", "xml", "html", "htm", "js", "jsx", "ts", "tsx", "py",
-    "java", "cpp", "c", "cc", "h", "cs", "php", "rb", "go", "rs", "swift", "kt", "scala", "sh",
-    "bat", "yaml", "yml", "toml", "ini", "cfg", "conf", "log", "rtf",
+/// `TEXT_FILE_EXTENSIONS` de l'officiel.
+const TEXT_EXTENSIONS: [&str; 37] = [
+    "pdf", "docx", "txt", "md", "csv", "json", "xml", "html", "htm", "js", "jsx", "ts", "tsx",
+    "py", "java", "cpp", "c", "cc", "h", "cs", "php", "rb", "go", "rs", "swift", "kt", "scala",
+    "sh", "bat", "yaml", "yml", "toml", "ini", "cfg", "conf", "log", "rtf",
 ];
 
 /// `IMAGE_EXTENSIONS` de l'officiel.
@@ -167,6 +173,7 @@ fn mime_of(extension: &str) -> &'static str {
         "jpg" | "jpeg" => "image/jpeg",
         "webp" => "image/webp",
         "pdf" => "application/pdf",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "json" => "application/json",
         "xml" => "application/xml",
         "csv" => "text/csv",
@@ -179,18 +186,39 @@ fn mime_of(extension: &str) -> &'static str {
 /// Texte d'un fichier, calculé une fois à la préparation, comme
 /// `convertBytesToText` (extract.go) ; `None` pour une image. (Le cas
 /// « Binary file of type <ext> » de l'officiel ne concerne aucune extension
-/// acceptée.)
-async fn text_of(data: &[u8], extension: &str, extractor: &PdfExtractor) -> Option<String> {
+/// acceptée.) Un `.docx` illisible est refusé.
+async fn text_of(
+    data: &[u8],
+    extension: &str,
+    extractor: &PdfExtractor,
+) -> Result<Option<String>, Refusal> {
     if IMAGE_EXTENSIONS.contains(&extension) {
-        return None;
+        return Ok(None);
     }
     if extension == "pdf" {
-        return Some(pdf::pdf_text(data, extractor).await);
+        return Ok(Some(pdf::pdf_text(data, extractor).await));
     }
-    Some(match std::str::from_utf8(data) {
+    if extension == "docx" {
+        // Hors du fil async : jusqu'à 20 Mio de XML.
+        let size = data.len();
+        let data = data.to_vec();
+        return match tauri::async_runtime::spawn_blocking(move || docx::docx_text(&data)).await {
+            Ok(Ok(text)) if text.trim().is_empty() => Ok(Some(format!(
+                "[Word file - {size} bytes - no text content found]"
+            ))),
+            Ok(Ok(text)) => Ok(Some(text)),
+            Ok(Err(error)) => {
+                // i18n-ignore : journal.
+                crate::app_log!("chatonlm: .docx not read: {error}");
+                Err(Refusal::ErrorReadingFile)
+            }
+            Err(_) => Err(Refusal::ErrorReadingFile),
+        };
+    }
+    Ok(Some(match std::str::from_utf8(data) {
         Ok(text) => text.to_owned(),
         Err(_) => format!("[Binary file - {} bytes - not valid UTF-8]", data.len()),
-    })
+    }))
 }
 
 /// Zone de préparation (état géré de l'app).
@@ -470,7 +498,10 @@ impl Staging {
         let Some(kind) = kind_of(&extension) else {
             return rejected(filename, Refusal::FileTypeNotSupported);
         };
-        let text = text_of(&data, &extension, &self.extractor).await;
+        let text = match text_of(&data, &extension, &self.extractor).await {
+            Ok(text) => text,
+            Err(refusal) => return rejected(filename, refusal),
+        };
         let file = StagedFile {
             id: uuid::Uuid::now_v7().to_string(),
             filename,

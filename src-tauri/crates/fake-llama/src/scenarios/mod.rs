@@ -13,6 +13,8 @@
 //! communes du faux (contexte dépassé, image sans projecteur, clé, file des
 //! emplacements) valent avant le script.
 
+/// Atelier (moteur de tâches).
+pub mod agent;
 pub mod e;
 pub mod l5a;
 pub mod l7;
@@ -127,6 +129,7 @@ pub struct Custom {
 
 /// Scénarios de tous les lots.
 pub static ALL: &[&[Custom]] = &[
+    agent::SCENARIOS,
     l5a::SCENARIOS,
     l7::SCENARIOS,
     l8::SCENARIOS,
@@ -155,6 +158,7 @@ fn all() -> &'static [&'static [Custom]] {
 #[cfg(test)]
 fn all() -> &'static [&'static [Custom]] {
     static WITH_TESTS: &[&[Custom]] = &[
+        agent::SCENARIOS,
         l5a::SCENARIOS,
         l7::SCENARIOS,
         l8::SCENARIOS,

@@ -178,7 +178,7 @@ describe("attachments in the fake backend", () => {
       },
     });
     for (const refused of [
-      "report.docx",
+      "report.xlsx",
       "README",
       "archive.tar.gz",
       "photo.png.exe",
@@ -191,9 +191,9 @@ describe("attachments in the fake backend", () => {
       });
     }
     // Extension d'abord ; taille déclarée trop grande : corps vide accepté.
-    expect(await stageBytes("huge.docx", bytes(), MAX_FILE_SIZE + 1)).toEqual({
+    expect(await stageBytes("huge.xlsx", bytes(), MAX_FILE_SIZE + 1)).toEqual({
       status: "rejected",
-      filename: "huge.docx",
+      filename: "huge.xlsx",
       error: "File type not supported",
     });
     expect(await stageBytes("huge.png", bytes(), MAX_FILE_SIZE + 1)).toEqual({

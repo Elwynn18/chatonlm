@@ -14,8 +14,10 @@
 //   (couleurs du voile différentes) ; drag-over le garde ; drag-leave le
 //   retire sans rien joindre ; drag-drop le retire et joint les fichiers dans
 //   l'ordre, un dossier donnant ses fichiers de premier niveau triés par nom
-//   (sous-dossier ignoré), report.docx refusé « File type not supported »,
-//   vignette de l'image chargée (chatonlm://localhost/staged/<id>). Sur la
+//   (sous-dossier ignoré), report.xlsx refusé « File type not supported »,
+//   broken.docx (document Word abîmé) « Error reading file », minutes.docx
+//   (vrai petit document Word, e2e/lib/docx.mjs) joint, vignette de l'image
+//   chargée (chatonlm://localhost/staged/<id>). Sur la
 //   page de nouvelle conversation et dans une conversation existante ; page
 //   Settings (pas de zone de saisie) : aucun voile. Un évènement émis par la
 //   page n'autorise aucun chemin (seul le dépôt natif intercepté en Rust le
@@ -54,6 +56,7 @@ import path from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { ROOT, withApp } from "./lib/app.mjs";
 import { holdClipboard } from "./lib/clipboard.mjs";
+import { docx } from "./lib/docx.mjs";
 import { DRAG_SOURCE_CAPTION, startDragSource } from "./lib/drag.mjs";
 import { fakeModel, startEngine } from "./lib/fake.mjs";
 import { PENDING_CALLS, shownModel } from "./lib/page.mjs";
@@ -102,7 +105,10 @@ function png(width, height, [r, g, b]) {
 const NOTES = "Line 1\nLine 2";
 writeFileSync(file("notes.txt"), NOTES);
 writeFileSync(file("red.png"), png(4, 4, [255, 0, 0]));
-writeFileSync(file("report.docx"), "PK\u0003\u0004 not a real document");
+// Type refusé (tableur), document Word abîmé, vrai document Word.
+writeFileSync(file("report.xlsx"), "PK\u0003\u0004 not a real sheet");
+writeFileSync(file("broken.docx"), "PK\u0003\u0004 not a real document");
+writeFileSync(file("minutes.docx"), docx(["Minutes of the garden club."]));
 // Jamais remis : un dépôt simulé sans e2e_allow_paths ne le lit pas.
 writeFileSync(file("private.md"), "# never handed over\n");
 // Dossier : fichiers de premier niveau triés par nom (octets : majuscules
@@ -634,10 +640,20 @@ await withApp(
     // et en sombre.
     await dropFlow(
       driver,
-      [file("notes.txt"), file("red.png"), FOLDER, file("report.docx")],
+      [
+        file("notes.txt"),
+        file("red.png"),
+        FOLDER,
+        file("report.xlsx"),
+        file("broken.docx"),
+        file("minutes.docx"),
+      ],
       {
-        files: ["notes.txt", "red.png", ...FOLDER_FILES],
-        errors: [["report.docx", "• File type not supported"]],
+        files: ["notes.txt", "red.png", ...FOLDER_FILES, "minutes.docx"],
+        errors: [
+          ["report.xlsx", "• File type not supported"],
+          ["broken.docx", "• Error reading file"],
+        ],
       },
       async () => {
         await setTheme(driver, "light");
@@ -860,9 +876,9 @@ await withApp(
     );
 
     // Dépôt dans la conversation existante.
-    await dropFlow(driver, [file("red.png"), FOLDER, file("report.docx")], {
+    await dropFlow(driver, [file("red.png"), FOLDER, file("report.xlsx")], {
       files: ["red.png", ...FOLDER_FILES],
-      errors: [["report.docx", "• File type not supported"]],
+      errors: [["report.xlsx", "• File type not supported"]],
     });
     assert.equal(await currentChatId(driver), chatId);
     await removeAll(driver);

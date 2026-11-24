@@ -759,6 +759,8 @@ pub async fn send_to(
     origin: Origin,
     sink: &(dyn Fn(ChatEvent) + Send + Sync),
 ) -> AppResult<()> {
+    // Priorité de l'utilisateur (page, bot, éditeur ; images comprises).
+    let _user = crate::resources::interactive::hold();
     // Comme l'officiel : un message fait seulement d'espaces est refusé, les
     // autres sont enregistrés et envoyés tels quels. Un texte est requis même
     // avec des pièces jointes.

@@ -210,26 +210,26 @@ describe("ComposerFiles", () => {
 
   it("shows refused files with the official text, and they block sending (Enter too)", async () => {
     const { onSubmit, textarea } = renderForm({
-      picks: [["/a/notes.txt", "/a/report.docx"]],
+      picks: [["/a/notes.txt", "/a/report.xlsx"]],
       stage: (paths) => [
         staged(paths[0]),
         {
           status: "rejected",
-          filename: "report.docx",
+          filename: "report.xlsx",
           error: "File type not supported",
         },
       ],
     });
     await ready();
     await pick();
-    expect(errorChips()).toEqual(["report.docx• File type not supported"]);
+    expect(errorChips()).toEqual(["report.xlsx• File type not supported"]);
     await userEvent.type(textarea, "Hello{Enter}");
     expect(onSubmit).not.toHaveBeenCalled();
     expect(sendButton().disabled).toBe(true);
 
     // Erreur retirée : pas de retrait côté backend (rien n'y est préparé).
     await userEvent.click(
-      screen.getByRole("button", { name: "Remove report.docx" }),
+      screen.getByRole("button", { name: "Remove report.xlsx" }),
     );
     expect(errorChips()).toEqual([]);
     expect(sendButton().disabled).toBe(false);

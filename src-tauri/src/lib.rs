@@ -1,5 +1,6 @@
 //! ChatonLM : client desktop pour des modèles de langage locaux (moteur llama.cpp livré).
 
+mod agent;
 pub mod attachments;
 mod bridge;
 mod bug_report;
@@ -225,6 +226,10 @@ pub fn run() {
                     })
                 }));
             app.manage(resources);
+            // Priorité de l'utilisateur sur les travaux de fond (Atelier).
+            let interactive = resources::Interactive::new();
+            resources::interactive::install(interactive.clone());
+            app.manage(interactive);
             app.state::<gpu::GpuChief>()
                 .attach_engine(text_engine.clone());
             // Pack CUDA facultatif (écran du moteur) : état vers la page à

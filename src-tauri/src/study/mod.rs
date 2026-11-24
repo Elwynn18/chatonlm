@@ -19,8 +19,10 @@ mod grade;
 mod notes;
 pub(crate) mod passage;
 mod prompts;
-mod repair;
-mod request;
+// Visibles dans le crate : réparation du JSON et filtre du raisonnement en
+// flux, repris par l'Atelier (`crate::agent`).
+pub(crate) mod repair;
+pub(crate) mod request;
 mod sources;
 
 pub use engine::{Ctx, StudyEngine};

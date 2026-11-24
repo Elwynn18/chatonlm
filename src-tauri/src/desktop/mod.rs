@@ -15,6 +15,7 @@
 //! sous `cfg`.
 
 pub mod menu_entry;
+pub mod notify;
 pub mod shortcut;
 mod tray;
 
@@ -606,59 +607,22 @@ pub fn on_close_requested<R: Runtime>(window: &Window<R>, api: &CloseRequestApi)
     let Some(store) = app.try_state::<Store>().map(|store| store.inner().clone()) else {
         return;
     };
-    let identifier = app.config().identifier.clone();
-    // Icône écrite par les notifications de la dictée, si elle existe déjà.
-    let icon = crate::paths::notification_icon(app)
-        .ok()
-        .filter(|path| path.is_file())
-        .map(|path| path.to_string_lossy().into_owned());
+    let app = app.clone();
     tauri::async_runtime::spawn(async move {
         match store
             .call(|connection| crate::store::dictation::take_tray_hint(connection))
             .await
         {
-            Ok(true) => notify_tray_hint(&identifier, icon.as_deref()).await,
+            // Notification « ChatonLM is still running », montrée à la
+            // première fermeture qui ne fait que masquer.
+            Ok(true) => {
+                let (summary, body) = (t!("tray.hint.summary"), t!("tray.hint.body"));
+                notify::notify(&app, &summary, &body).await;
+            }
             Ok(false) => {}
             Err(error) => crate::app_log!("chatonlm: cannot read the tray hint flag: {error}"),
         }
     });
-}
-
-/// Notification « ChatonLM is still running », montrée à la première
-/// fermeture qui ne fait que masquer (sans serveur de notifications : rien,
-/// l'erreur est journalisée).
-#[cfg(target_os = "linux")]
-async fn notify_tray_hint(identifier: &str, icon: Option<&str>) {
-    let mut notification = notify_rust::Notification::new();
-    notification
-        .appname("ChatonLM")
-        .summary(&t!("tray.hint.summary"))
-        .body(&t!("tray.hint.body"))
-        .icon(icon.unwrap_or(identifier))
-        .hint(notify_rust::Hint::DesktopEntry(identifier.to_owned()));
-    if let Err(error) = notification.show_async().await {
-        crate::app_log!("chatonlm: cannot show the tray notification: {error}");
-    }
-}
-
-/// Sous Windows : toast au nom de l'app (son icône est celle de son
-/// identifiant, `icon` ne sert pas).
-#[cfg(windows)]
-async fn notify_tray_hint(identifier: &str, _icon: Option<&str>) {
-    let identifier = identifier.to_owned();
-    let shown = tauri::async_runtime::spawn_blocking(move || {
-        crate::dictation::notify::show_simple(
-            &identifier,
-            &t!("tray.hint.summary"),
-            &t!("tray.hint.body"),
-        )
-    })
-    .await;
-    match shown {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => crate::app_log!("chatonlm: cannot show the tray notification: {error}"),
-        Err(error) => crate::app_log!("chatonlm: cannot show the tray notification: {error}"),
-    }
 }
 
 /// Envoie à la page le statut de la dictée (zone de notification, raccourci)

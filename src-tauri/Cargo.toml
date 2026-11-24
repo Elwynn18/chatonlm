@@ -282,4 +282,6 @@ lzma-rust2 = { version = "0.15.8", default-features = false, features = ["encode
 # « test » : app simulée (tauri::test) pour construire le greffon des mises à
 # jour dans les essais du module updater.
 tauri = { version = "2.12", features = ["image-png", "test"] }
-tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }
+# « test-util » : temps de tokio en pause (délais de la priorité de
+# l'utilisateur et du prêt de la carte, `resources`).
+tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread", "test-util"] }
