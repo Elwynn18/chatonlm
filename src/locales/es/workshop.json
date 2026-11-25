@@ -67,8 +67,9 @@
     "modelAuto": "Auto",
     "modelChecking": "Comprobando el modelo…",
     "modelChosen": "El proyecto usará {model}.",
-    "modelAutoChosen": "El Taller usará {model}, el modelo más grande que cabe.",
+    "modelAutoChosen": "El Taller usará {model}, elegido automáticamente.",
     "modelCheckError": "No se pudo comprobar el modelo: {message}",
+    "openHub": "Abrir el ModelHub",
     "modelErrors": {
       "noModel": "No hay ningún modelo instalado. Descarga uno primero en el ModelHub.",
       "modelNotFound": "Este modelo ya no está instalado.",
@@ -80,7 +81,7 @@
     "strategyAuto": "Auto (elegida según la tarea)",
     "soon": "{strategy} (pronto)",
     "folder": "Nombre de la carpeta",
-    "folderPlaceholder": "Proyecto",
+    "folderPlaceholder": "Automático: según su tema",
     "folderIn": "Se crea en {dir}",
     "create": "Lanzar el proyecto",
     "creating": "Lanzando…"

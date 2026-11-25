@@ -67,8 +67,9 @@
     "modelAuto": "Auto",
     "modelChecking": "Checking the model…",
     "modelChosen": "The project will use {model}.",
-    "modelAutoChosen": "The Workshop will use {model}, the largest model that fits.",
+    "modelAutoChosen": "The Workshop will use {model}, chosen automatically.",
     "modelCheckError": "Couldn't check the model: {message}",
+    "openHub": "Open the ModelHub",
     "modelErrors": {
       "noModel": "No model is installed. Download one in the ModelHub first.",
       "modelNotFound": "This model is no longer installed.",
@@ -80,7 +81,7 @@
     "strategyAuto": "Auto (chosen for the task)",
     "soon": "{strategy} (soon)",
     "folder": "Folder name",
-    "folderPlaceholder": "Project",
+    "folderPlaceholder": "Automatic: named after its subject",
     "folderIn": "Created in {dir}",
     "create": "Start the project",
     "creating": "Starting…"

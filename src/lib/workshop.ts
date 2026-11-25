@@ -146,11 +146,6 @@ export function folderNameOf(wanted: string): string {
   return trimmed;
 }
 
-/** Nom du sous-dossier proposé pour une tâche (celui que prendrait le moteur). */
-export function proposedFolderName(task: string): string {
-  return folderNameOf(titleOf(task));
-}
-
 // --- Erreurs, avertissements ------------------------------------------------
 
 /** Codes d'erreur traduits un à un ; les autres passent par un groupe. */

@@ -160,6 +160,9 @@ pub(super) fn read_spec(value: &Value) -> Option<Spec> {
         .unwrap_or(0);
     Some(Spec {
         goal: str_field(value, "goal")?,
+        title: str_field(value, "title")
+            .map(|title| clean_title(&title))
+            .unwrap_or_default(),
         deliverables: strings_field(value, "deliverables"),
         criteria: read_criteria(value),
         audience: str_field(value, "audience").unwrap_or_default(),
@@ -171,6 +174,24 @@ pub(super) fn read_spec(value: &Value) -> Option<Spec> {
         assumptions: strings_field(value, "assumptions"),
         constraints: strings_field(value, "constraints"),
     })
+}
+
+/// Titre du projet proposé par le modèle : une ligne, sans guillemets ni
+/// point final, borné à 80 caractères ; vide s'il ne reste rien.
+pub(super) fn clean_title(title: &str) -> String {
+    let line = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed = line
+        .trim_matches(|c: char| {
+            matches!(c, '"' | '\'' | '«' | '»' | '“' | '”' | '`' | '*' | '#') || c.is_whitespace()
+        })
+        .trim_end_matches(['.', ' '])
+        .trim();
+    trimmed
+        .chars()
+        .take(80)
+        .collect::<String>()
+        .trim()
+        .to_owned()
 }
 
 /// Questions du juge de forme sur le livrable entier : chaque critère, la
@@ -383,6 +404,8 @@ impl Run<'_> {
         self.phase(Phase::Spec, true).await;
         if let Some(mut spec) = self.load::<Spec>(StateKey::Spec).await {
             spec.criteria.iter_mut().for_each(settle_criterion);
+            // Reprise : le nom a pu ne pas être donné (app coupée entre les deux).
+            self.host.name_project(&spec.title).await;
             self.phase(Phase::Spec, false).await;
             return Ok(spec);
         }
@@ -463,6 +486,7 @@ impl Run<'_> {
             }
         }
         self.save(StateKey::Spec, &spec).await;
+        self.host.name_project(&spec.title).await;
         self.phase(Phase::Spec, false).await;
         Ok(spec)
     }

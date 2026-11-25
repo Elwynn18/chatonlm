@@ -1,7 +1,8 @@
 //! Modèle d'un projet de l'Atelier, choisi au lancement (conception § 5 et
 //! § 4.5) : le modèle demandé ; sinon le plus gros modèle de texte installé
 //! qui tient sur la carte à [`PROJECT_CONTEXT`] jetons
-//! (`engine::auto::largest_fitting`) ; sinon celui du chat. Les
+//! (`engine::auto::largest_fitting`) ; sinon celui du chat s'il peut servir ;
+//! sinon le plus gros modèle de texte installé. Les
 //! avertissements (`engine::auto::size_warning`) suivent le modèle retenu,
 //! sans jamais bloquer.
 
@@ -100,11 +101,54 @@ pub(crate) fn decide(
         choice.ctx = pick.ctx;
         return Ok(choice);
     }
+    // Modèle du chat seulement s'il peut servir : un nom resté d'une version
+    // précédente, désinstallé, ou un modèle cloud désactivé ne doit pas
+    // bloquer Auto quand un autre modèle est installé.
     let chat = chat.trim();
-    if chat.is_empty() {
-        return Err("noModel");
+    let chat_usable = !chat.is_empty()
+        && if crate::llm::ids::is_remote(chat) {
+            remote_on
+        } else {
+            installed.iter().any(|model| same_model(&model.id, chat))
+        };
+    let mut refusal = None;
+    if chat_usable {
+        match chosen(chat, installed, remote_on, true) {
+            Ok(choice) => return Ok(choice),
+            Err(code) => refusal = Some(code),
+        }
     }
-    chosen(chat, installed, remote_on, true)
+    match largest_installed(installed) {
+        Some(model) => chosen(&model.id, installed, remote_on, true),
+        // Le modèle du chat dit pourquoi il ne sert pas (contexte trop petit).
+        None => Err(refusal.unwrap_or("noModel")),
+    }
+}
+
+/// Plus gros modèle de texte installé qui tient assez de contexte (rang :
+/// paramètres annoncés, sinon estimés d'après le fichier), quand aucun ne
+/// tient sur la carte et que le modèle du chat ne peut pas servir.
+fn largest_installed(installed: &[LocalModel]) -> Option<&LocalModel> {
+    use crate::engine::auto::{estimated_parameters, writes_text};
+    installed
+        .iter()
+        .filter(|model| writes_text(model))
+        .filter(|model| {
+            model
+                .context_max
+                .is_none_or(|max| max == 0 || max >= MIN_CONTEXT)
+        })
+        .map(|model| {
+            let rank = model
+                .params_label
+                .as_deref()
+                .and_then(total_parameters)
+                .or_else(|| estimated_parameters(model))
+                .unwrap_or(0.0);
+            (model, rank)
+        })
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(model, _)| model)
 }
 
 /// [`decide`] sur la base et le moteur de l'app.
@@ -214,8 +258,14 @@ mod tests {
             decide("tiny/m:Q8_0", &installed, None, "", false),
             Err("contextTooSmall")
         );
+        // Celui du chat ne sert pas : un autre installé le remplace ; aucun
+        // autre : son refus.
         assert_eq!(
-            decide("", &installed, None, "tiny/m:Q8_0", false),
+            decide("", &installed, None, "tiny/m:Q8_0", false).map(|c| c.id),
+            Ok("big/m:Q4_K_M".to_owned())
+        );
+        assert_eq!(
+            decide("", &installed[1..2], None, "tiny/m:Q8_0", false),
             Err("contextTooSmall")
         );
         assert_eq!(
@@ -261,7 +311,31 @@ mod tests {
         let choice = decide("", &installed(), None, "mid/m:Q8_0", false).unwrap();
         assert_eq!(choice.id, "mid/m:Q8_0");
         assert!(choice.auto);
-        assert_eq!(decide("", &installed(), None, " ", false), Err("noModel"));
+        assert_eq!(decide("", &[], None, " ", false), Err("noModel"));
+    }
+
+    #[test]
+    fn a_chat_model_that_cannot_serve_gives_way_to_the_largest_installed() {
+        // Ancien nom (d'avant la 0.10), cloud désactivé, ou aucun : le plus
+        // gros modèle installé qui tient assez de contexte, jamais un refus.
+        for chat in [
+            "hf.co/unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+            "@remote/mistral/mistral-large",
+            "",
+        ] {
+            let choice = decide("", &installed(), None, chat, false).unwrap();
+            assert_eq!(choice.id, "big/m:Q4_K_M", "{chat}");
+            assert!(choice.auto);
+        }
+        // Le plus gros a trop peu de contexte : le suivant qui en a assez.
+        let small_context = vec![
+            local("tiny/m:Q8_0", "0.6B", 8_192, false),
+            local("mid/m:Q8_0", "0.6B", 20_000, false),
+        ];
+        let choice = decide("", &small_context, None, "gone/m:Q4_0", false).unwrap();
+        assert_eq!(choice.id, "mid/m:Q8_0");
+        // Rien d'installé : aucun modèle, pas « plus installé ».
+        assert_eq!(decide("", &[], None, "gone/m:Q4_0", false), Err("noModel"));
     }
 
     #[test]

@@ -55,4 +55,13 @@ pub trait Host: Send + Sync {
 
     /// Arrêt du projet (pause ou annulation : le socle sait lequel).
     fn cancelled(&self) -> CancellationToken;
+
+    /// Nom du projet trouvé au cadrage (`title`, vide : aucun) : le socle en
+    /// fait le titre du projet et, si l'utilisateur n'a pas nommé le dossier,
+    /// renomme le dossier provisoire. Sans effet en cas d'échec (dit au
+    /// journal de l'app) ; appelé de nouveau à une reprise.
+    fn name_project<'a>(&'a self, title: &'a str) -> HostFuture<'a, ()> {
+        let _ = title;
+        Box::pin(async {})
+    }
 }

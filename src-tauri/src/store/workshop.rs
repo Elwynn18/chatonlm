@@ -28,6 +28,9 @@ pub struct NewProject {
     pub model: String,
     pub language: String,
     pub folder: String,
+    /// Nom du dossier donné par l'utilisateur ; faux : nom provisoire,
+    /// remplacé par le titre du cadrage.
+    pub folder_named: bool,
     /// État de départ (« queued » d'habitude).
     pub state: String,
     pub queue_seq: i64,
@@ -49,6 +52,8 @@ pub struct ProjectRow {
     pub state: String,
     pub phase: Option<String>,
     pub folder: String,
+    /// Faux : nom provisoire du dossier, pas encore remplacé.
+    pub folder_named: bool,
     pub queue_seq: i64,
     pub error: Option<String>,
     pub created_at: i64,
@@ -58,7 +63,7 @@ pub struct ProjectRow {
 
 const PROJECT_COLUMNS: &str = "id, title, task, strategy, strategy_forced, autonomy, model,
     model_used, language, state, phase, folder, queue_seq, error, created_at, updated_at,
-    finished_at";
+    finished_at, folder_named";
 
 fn project(row: &Row) -> rusqlite::Result<ProjectRow> {
     Ok(ProjectRow {
@@ -79,6 +84,7 @@ fn project(row: &Row) -> rusqlite::Result<ProjectRow> {
         created_at: row.get(14)?,
         updated_at: row.get(15)?,
         finished_at: row.get(16)?,
+        folder_named: row.get(17)?,
     })
 }
 
@@ -93,8 +99,8 @@ pub fn insert(
     transaction.execute(
         "INSERT INTO workshop_projects
              (title, task, strategy, strategy_forced, autonomy, model, language, state,
-              folder, queue_seq, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
+              folder, queue_seq, created_at, updated_at, folder_named)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12)",
         params![
             new.title,
             new.task,
@@ -106,7 +112,8 @@ pub fn insert(
             new.state,
             new.folder,
             new.queue_seq,
-            new.created_at
+            new.created_at,
+            new.folder_named
         ],
     )?;
     let id = transaction.last_insert_rowid();
@@ -230,6 +237,25 @@ pub fn set_model_used(connection: &Connection, id: i64, model: &str, now: i64) -
     connection.execute(
         "UPDATE workshop_projects SET model_used = ?2, updated_at = ?3 WHERE id = ?1",
         params![id, model, now],
+    )?;
+    Ok(())
+}
+
+/// Titre donné par le cadrage ; `folder` : nouveau chemin du dossier, qui
+/// devient alors définitif (plus jamais renommé).
+pub fn set_title(
+    connection: &Connection,
+    id: i64,
+    title: &str,
+    folder: Option<&str>,
+    now: i64,
+) -> AppResult<()> {
+    connection.execute(
+        "UPDATE workshop_projects
+         SET title = ?2, folder = COALESCE(?3, folder),
+             folder_named = CASE WHEN ?3 IS NULL THEN folder_named ELSE 1 END, updated_at = ?4
+         WHERE id = ?1",
+        params![id, title, folder, now],
     )?;
     Ok(())
 }
@@ -606,6 +632,7 @@ mod tests {
             model: String::new(),
             language: "en".into(),
             folder: format!("/projects/{title}"),
+            folder_named: true,
             state: "queued".into(),
             queue_seq: created_at,
             created_at,

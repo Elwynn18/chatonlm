@@ -54,7 +54,6 @@ import {
   MAX_TASK_CHARS,
   modelWarningKey,
   nextAutonomy,
-  proposedFolderName,
   STRATEGIES,
   strategyAvailable,
 } from "@/lib/workshop";
@@ -94,8 +93,9 @@ export function NewProject() {
   const autonomy = chosenAutonomy ?? settings.data?.autonomy ?? "ask";
   const [model, setModel] = useState("");
   const [strategy, setStrategy] = useState<Strategy | "">("");
-  // Nom donné par l'utilisateur ; null : celui tiré de la tâche.
-  const [folder, setFolder] = useState<string | null>(null);
+  // Nom donné par l'utilisateur ; vide : le projet se nomme lui-même au
+  // cadrage (jamais d'après le texte de la tâche).
+  const [folder, setFolder] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const files = useComposerFiles();
@@ -117,14 +117,12 @@ export function NewProject() {
     creating ||
     modelRefused ||
     !check.data;
-  const proposed = proposedFolderName(task);
-  const folderValue = folder ?? proposed;
 
   const create = () => {
     if (disabled) return;
     setCreating(true);
     setError(null);
-    const name = folder?.trim() ?? "";
+    const name = folder.trim();
     workshopCreate({
       task: task.trim(),
       attachmentIds: documents.map((file) => file.id),
@@ -348,9 +346,9 @@ export function NewProject() {
             <input
               id={ids.folder}
               type="text"
-              value={folderValue}
+              value={folder}
               maxLength={MAX_FOLDER_CHARS}
-              placeholder={proposed || t("workshop.new.folderPlaceholder")}
+              placeholder={t("workshop.new.folderPlaceholder")}
               onChange={(event) => setFolder(event.target.value)}
               data-testid="workshop-folder"
               className={`${FIELD} h-8 w-full max-w-md`}
@@ -453,18 +451,29 @@ function ModelCheckLine({
   if (data.error !== null || data.model === null) {
     const code = data.error ?? "";
     return (
-      <p
-        role="alert"
-        data-testid="workshop-model-error"
-        data-code={code}
-        className="text-sm text-red-600 dark:text-red-400"
-      >
-        {(MODEL_ERRORS as readonly string[]).includes(code)
-          ? t(
-              `workshop.new.modelErrors.${code as (typeof MODEL_ERRORS)[number]}`,
-            )
-          : t("workshop.new.modelErrors.unknown")}
-      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <p
+          role="alert"
+          data-testid="workshop-model-error"
+          data-code={code}
+          className="text-sm text-red-600 dark:text-red-400"
+        >
+          {(MODEL_ERRORS as readonly string[]).includes(code)
+            ? t(
+                `workshop.new.modelErrors.${code as (typeof MODEL_ERRORS)[number]}`,
+              )
+            : t("workshop.new.modelErrors.unknown")}
+        </p>
+        {code === "noModel" && (
+          <Link
+            to="/hub"
+            data-testid="workshop-open-hub"
+            className="text-sm font-medium text-accent-fg underline underline-offset-2"
+          >
+            {t("workshop.new.openHub")}
+          </Link>
+        )}
+      </div>
     );
   }
   const name = shortModelName(data.model);

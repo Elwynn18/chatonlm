@@ -894,6 +894,7 @@ pub(crate) mod tests {
     pub(crate) fn spec() -> Spec {
         Spec {
             goal: "Un guide du potager sur un balcon.".into(),
+            title: "Potager sur un balcon".into(),
             deliverables: vec!["guide".into()],
             criteria: vec![
                 Criterion {

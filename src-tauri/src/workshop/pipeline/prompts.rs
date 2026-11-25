@@ -227,6 +227,9 @@ every writer working on the deliverable will share. Everything in it is DECIDED:
 \"or\", no \"possibly\", no alternatives, no slash between two options.
 - \"analysis\" first: what the user really wants, the audience, the pitfalls.
 - \"goal\": 2 or 3 sentences.
+- \"title\": the project's name, 2 to 6 words in the output language, as on a book cover or \
+a folder (for example \"Tomato growing guide\"): what the deliverable is about, never a copy of \
+the user's instruction, no quotes, no final period.
 - \"deliverables\": what is handed over.
 - \"criteria\": 4 to 10 acceptance criteria, each VERIFIABLE by reading the deliverable, each \
 an ordinary sentence in normal sentence case (never in capital letters) stating one observable \
@@ -310,6 +313,7 @@ pub fn spec_call(
             json!({
                 "analysis": {"type": "string", "maxLength": 1500},
                 "goal": {"type": "string", "maxLength": 600},
+                "title": {"type": "string", "maxLength": 80},
                 "deliverables": {"type": "array", "items": {"type": "string", "maxLength": 200}, "minItems": 1, "maxItems": 5},
                 "criteria": {"type": "array", "minItems": 4, "maxItems": 10, "items": {
                     "type": "object",
@@ -333,6 +337,7 @@ pub fn spec_call(
             &[
                 "analysis",
                 "goal",
+                "title",
                 "deliverables",
                 "criteria",
                 "audience",

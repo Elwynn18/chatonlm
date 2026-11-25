@@ -6,7 +6,12 @@ import type { WorkshopRegister } from "./WorkshopRegister";
  * Spécification : le contrat que partagent toutes les parties. Tout y est
  * TRANCHÉ (langue, registre, unités, longueur), sans « si » ni « ou ».
  */
-export type WorkshopSpec = { goal: string, deliverables: Array<string>, criteria: Array<WorkshopCriterion>, audience: string, 
+export type WorkshopSpec = { goal: string, 
+/**
+ * Nom court du projet (titre de la liste, nom du dossier provisoire) ;
+ * vide : spécification d'avant ce champ, ou titre illisible.
+ */
+title: string, deliverables: Array<string>, criteria: Array<WorkshopCriterion>, audience: string, 
 /**
  * Langue de sortie, code ISO 639-1 (« fr », « en »…).
  */

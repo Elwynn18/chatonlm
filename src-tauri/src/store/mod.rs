@@ -87,6 +87,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0048_tool_call_error_code.sql"),
     include_str!("../../migrations/0049_image_model_settings.sql"),
     include_str!("../../migrations/0050_workshop.sql"),
+    include_str!("../../migrations/0051_workshop_folder_named.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.

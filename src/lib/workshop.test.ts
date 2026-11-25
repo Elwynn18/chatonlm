@@ -26,7 +26,6 @@ import {
   nextAutonomy,
   phaseMarks,
   planChanged,
-  proposedFolderName,
   readMeasure,
   titleOf,
   warningKey,
@@ -74,11 +73,11 @@ describe("workshop logic", () => {
     expect(nextAutonomy("autonomous")).toBe("plan");
   });
 
-  it("takes the title and folder from the task like the engine", () => {
+  it("takes the title from the task and cleans a folder name like the engine", () => {
     expect(titleOf("\n\n  Guide :  la   permaculture ?  \nsuite")).toBe(
       "Guide : la permaculture ?",
     );
-    expect(proposedFolderName("  Guide : la  permaculture ?  ")).toBe(
+    expect(folderNameOf("  Guide : la  permaculture ?  ")).toBe(
       "Guide - la permaculture",
     );
     const long = `${"word ".repeat(30)}end`;

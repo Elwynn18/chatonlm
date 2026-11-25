@@ -1,5 +1,5 @@
 # Lance ChatonLM tel qu'il est dans un commit (par défaut le dernier).
-#   scripts/demo.sh [--build-only] [--onboarding] [--real [--reset] [--vscode] [--import-ollama <dossier>] [--machine-ollama]] [commit]
+#   scripts/demo.sh [--build-only] [--onboarding] [--real [--reset] [--vscode] [--import-ollama <dossier>] [--machine-ollama] [--app-models]] [commit]
 # Le code du commit est extrait dans .tools/demo-src : les modifications en
 # cours dans le dépôt ne changent pas l'app pendant un essai. Fermer la fenêtre
 # arrête tout.
@@ -30,6 +30,12 @@
 # l'Ollama de la machine (service, ~/.ollama/models, dossiers des paquets),
 # en lecture seule, comme l'app installée ; sans elle, aucun dossier de
 # l'Ollama de la machine n'est regardé (CHATONLM_OLLAMA_MACHINE_DIRS vide).
+# --app-models (avec --real) : prête à la recette les modèles de texte de
+# l'app installée (~/.local/share/com.chatonlm.chatonlm), sans rien copier ni
+# modifier chez elle : un lien par fichier dans le dossier des modèles de
+# .tools/real-data, et leurs lignes ajoutées à sa base (celles déjà là sont
+# gardées). Supprimer un de ces modèles dans la recette enlève le lien, pas
+# l'original. Les données de recette doivent exister (un premier lancement).
 # --onboarding : montre le premier démarrage (choix de la langue, présentation
 # de l'app), même avec des données qui ont déjà servi ; sans lui, --real le
 # montre seulement à des données neuves, et la démonstration jamais.
@@ -60,7 +66,8 @@ onboarding=false
 vscode=false
 import_ollama=""
 machine_ollama=false
-usage="Usage : $0 [--build-only] [--onboarding] [--real [--reset] [--vscode] [--import-ollama <dossier>] [--machine-ollama]] [commit]"
+app_models=false
+usage="Usage : $0 [--build-only] [--onboarding] [--real [--reset] [--vscode] [--import-ollama <dossier>] [--machine-ollama] [--app-models]] [commit]"
 while [ $# -gt 0 ]; do
   case "$1" in
     --build-only) build_only=true ;;
@@ -69,6 +76,7 @@ while [ $# -gt 0 ]; do
     --onboarding) onboarding=true ;;
     --vscode) vscode=true ;;
     --machine-ollama) machine_ollama=true ;;
+    --app-models) app_models=true ;;
     --import-ollama)
       import_ollama="${2:-}"
       if [ -z "$import_ollama" ]; then
@@ -97,6 +105,10 @@ if $machine_ollama && ! $real; then
   echo "--machine-ollama ne va qu'avec --real." >&2
   exit 2
 fi
+if $app_models && ! $real; then
+  echo "--app-models ne va qu'avec --real." >&2
+  exit 2
+fi
 if [ -n "$import_ollama" ]; then
   if ! $real; then
     echo "--import-ollama ne va qu'avec --real." >&2
@@ -108,6 +120,47 @@ if [ -n "$import_ollama" ]; then
   fi
   import_ollama="$(cd "$import_ollama" && pwd)"
 fi
+# Modèles de l'app installée prêtés à la recette (--app-models) : lus
+# seulement (base ouverte en lecture seule, « immutable »), liens fichier par
+# fichier sous le dossier des modèles de la recette, lignes ajoutées à sa base.
+lend_app_models() {
+  local recipe="$1"
+  local app_data="${XDG_DATA_HOME:-$HOME/.local/share}/com.chatonlm.chatonlm"
+  local app_db="$app_data/db/chatonlm.sqlite"
+  local recipe_db="$recipe/db/chatonlm.sqlite"
+  if [ ! -f "$app_db" ]; then
+    echo "--app-models : aucune app installée ($app_db), rien de prêté." >&2
+    return 0
+  fi
+  if [ ! -f "$recipe_db" ]; then
+    echo "--app-models : données de recette neuves ; lancer une première fois, puis relancer avec --app-models." >&2
+    return 0
+  fi
+  local app_uri="file:$app_db?mode=ro&immutable=1"
+  local app_dir recipe_dir cols rel source link lent=0
+  app_dir="$(sqlite3 "$app_uri" "SELECT COALESCE(models_dir, '') FROM engine_settings WHERE id = 1" 2>/dev/null || true)"
+  [ -n "$app_dir" ] || app_dir="$app_data/models"
+  recipe_dir="$(sqlite3 "$recipe_db" "SELECT COALESCE(models_dir, '') FROM engine_settings WHERE id = 1" 2>/dev/null || true)"
+  [ -n "$recipe_dir" ] || recipe_dir="$recipe/models"
+  while IFS= read -r rel; do
+    case "$rel" in "" | /* | *..*) continue ;; esac
+    source="$app_dir/$rel"
+    link="$recipe_dir/$rel"
+    [ -f "$source" ] || continue
+    mkdir -p "$(dirname "$link")"
+    [ -e "$link" ] || ln -sfn "$source" "$link"
+    lent=$((lent + 1))
+  done < <(sqlite3 "$app_uri" "SELECT j.value FROM local_models, json_each(local_models.files) AS j
+                               UNION ALL SELECT mmproj FROM local_models WHERE mmproj IS NOT NULL")
+  # Colonnes communes aux deux bases (versions différentes de l'app).
+  cols="$(sqlite3 "$recipe_db" "ATTACH '$app_uri' AS app;
+    SELECT group_concat(name, ', ') FROM pragma_table_info('local_models')
+    WHERE name IN (SELECT name FROM pragma_table_info('local_models', 'app'))")"
+  sqlite3 "$recipe_db" "ATTACH '$app_uri' AS app;
+    INSERT OR IGNORE INTO main.local_models ($cols) SELECT $cols FROM app.local_models;"
+  echo "Modèles de l'app installée prêtés à la recette : $lent fichiers liés, $(sqlite3 "$recipe_db" "SELECT COUNT(*) FROM local_models") modèles inscrits."
+}
+
 commit="$(git rev-parse --verify "${1:-HEAD}^{commit}")"
 src="$root/.tools/demo-src"
 if $real; then
@@ -246,6 +299,9 @@ if $real; then
     esac
     chatonlm_copy_ollama_models "$import_ollama" "$copy" || exit 1
     echo "Copie faite : la reprise des modèles de l'intégré démarre au lancement."
+  fi
+  if $app_models; then
+    lend_app_models "$data"
   fi
   echo "Moteur : llama-server intégré."
   # Mode conversation vocale : une ligne « chatonlm-voice-timing » par tour

@@ -242,6 +242,7 @@ impl FakeModel {
             "spec" => Reply::Json(json!({
                 "analysis": "a",
                 "goal": "Un guide du potager sur un balcon.",
+                "title": "« Potager sur un balcon. »",
                 "deliverables": ["Guide du balcon"],
                 "criteria": [
                     "QUAND on lit, LE LIVRABLE DOIT lister les cultures",
@@ -391,6 +392,8 @@ pub struct FakeHost {
     pub refuse_writes: Mutex<Option<String>>,
     pub trace: Trace,
     pub yields: AtomicUsize,
+    /// Noms donnés au projet (`name_project`), dans l'ordre.
+    pub names: Mutex<Vec<String>>,
     cancel: Mutex<CancellationToken>,
     /// Faux : l'utilisateur occupe l'app ; `yield_to_user` attend `true`.
     pub free: watch::Sender<bool>,
@@ -418,6 +421,7 @@ impl FakeHost {
             refuse_writes: Mutex::new(None),
             trace: Arc::new(Mutex::new(Vec::new())),
             yields: AtomicUsize::new(0),
+            names: Mutex::new(Vec::new()),
             cancel: Mutex::new(CancellationToken::new()),
             free: watch::Sender::new(true),
         }
@@ -539,5 +543,10 @@ impl Host for FakeHost {
 
     fn cancelled(&self) -> CancellationToken {
         self.token()
+    }
+
+    fn name_project<'a>(&'a self, title: &'a str) -> HostFuture<'a, ()> {
+        self.names.lock().unwrap().push(title.to_owned());
+        Box::pin(async {})
     }
 }

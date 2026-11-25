@@ -144,6 +144,10 @@ pub enum Register {
 #[ts(rename = "WorkshopSpec", export)]
 pub struct Spec {
     pub goal: String,
+    /// Nom court du projet (titre de la liste, nom du dossier provisoire) ;
+    /// vide : spécification d'avant ce champ, ou titre illisible.
+    #[serde(default)]
+    pub title: String,
     pub deliverables: Vec<String>,
     pub criteria: Vec<Criterion>,
     pub audience: String,

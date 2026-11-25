@@ -281,16 +281,10 @@ async fn a_created_project_runs_and_its_events_are_recorded() {
     assert_eq!(detail.project.model_used, "big/m:Q4_K_M");
     assert_eq!(detail.attachments, ["notes.md"]);
     assert!(detail.project.finished_at.is_some());
-    // Dossier du projet : sous le dossier des projets, sources gardées,
-    // livrable écrit.
+    // Dossier du projet : sous le dossier des projets, nom provisoire (le
+    // pipeline n'a pas donné de nom), sources gardées, livrable écrit.
     let folder = PathBuf::from(&detail.project.folder);
-    assert_eq!(
-        folder,
-        h.root
-            .path()
-            .join("ChatonLM")
-            .join("Write a guide to urban permaculture")
-    );
+    assert_eq!(folder, h.root.path().join("ChatonLM").join("Project"));
     assert_eq!(
         std::fs::read_to_string(folder.join(".atelier/sources/01-notes.md.txt")).unwrap(),
         "mes notes"
@@ -681,6 +675,7 @@ async fn an_answer_given_after_a_restart_is_found_without_asking_again() {
                     model: String::new(),
                     language: "en".into(),
                     folder: folder_path,
+                    folder_named: true,
                     state: "waiting".into(),
                     queue_seq: 1,
                     created_at: 1,
@@ -754,6 +749,7 @@ async fn at_launch_interrupted_projects_are_paused_and_announced() {
                         model: String::new(),
                         language: "en".into(),
                         folder: "/nowhere".into(),
+                        folder_named: true,
                         state: state.into(),
                         queue_seq: 1,
                         created_at: 1,
@@ -995,6 +991,54 @@ async fn a_forced_strategy_and_a_folder_name_are_kept() {
     assert_eq!(first.strategy, Some(Strategy::Generic));
     assert!(first.folder.ends_with("Mon guide - v1"));
     assert!(second.folder.ends_with("Mon guide - v1 (2)"));
+}
+
+#[tokio::test]
+async fn the_name_found_at_framing_renames_only_a_provisional_folder() {
+    let h = harness(Arc::new(|host| {
+        Box::pin(async move {
+            host.name_project("  Guide des tomates ").await;
+            // Les écritures suivantes vont dans le dossier renommé.
+            host.write_file("guide.md", b"# Tomates").await?;
+            // Une reprise redonne le nom : rien ne bouge.
+            host.name_project("Guide des tomates").await;
+            Ok(())
+        })
+    }));
+    let provisional = h
+        .create("Écris-moi un guide complet pour faire pousser des tomates")
+        .await;
+    let mut named = request("Écris-moi un guide complet pour faire pousser des tomates");
+    named.folder_name = Some("Mes tomates".into());
+    let named = h.workshop.create(&h.staging, named).await.unwrap();
+    h.wait_state(named, ProjectState::Done).await;
+    h.wait_state(provisional, ProjectState::Done).await;
+    let root = h.root.path().join("ChatonLM");
+
+    let project = h.workshop.get(provisional).await.unwrap().project;
+    assert_eq!(project.title, "Guide des tomates");
+    assert_eq!(
+        PathBuf::from(&project.folder),
+        root.join("Guide des tomates")
+    );
+    assert!(!root.join("Project").exists());
+    assert_eq!(
+        std::fs::read(root.join("Guide des tomates/guide.md")).unwrap(),
+        b"# Tomates"
+    );
+    // Nom donné par l'utilisateur : gardé ; le titre suit le cadrage.
+    let project = h.workshop.get(named).await.unwrap().project;
+    assert_eq!(project.title, "Guide des tomates");
+    assert_eq!(PathBuf::from(&project.folder), root.join("Mes tomates"));
+    assert!(root.join("Mes tomates/guide.md").is_file());
+    // Plus jamais renommé ensuite (nom définitif).
+    let row = h
+        .store
+        .call(move |c| db::get(c, provisional))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(row.folder_named);
 }
 
 #[tokio::test]

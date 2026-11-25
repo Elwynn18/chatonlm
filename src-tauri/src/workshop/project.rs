@@ -10,10 +10,13 @@
 //! - cession à l'utilisateur : `Interactive::idle(3 s)`, projet `yielding`
 //!   (événements `Yielding` / `Resumed`) seulement s'il a fallu attendre ;
 //! - écriture sous le dossier du projet avec les garde-fous de
-//!   [`super::files`].
+//!   [`super::files`] ;
+//! - nom du projet trouvé au cadrage : titre de la ligne, et dossier
+//!   provisoire renommé (si l'utilisateur ne l'a pas nommé).
 
-use std::sync::Arc;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use futures_util::FutureExt;
 use serde_json::Value;
@@ -26,12 +29,17 @@ use super::pipeline::types::{
     Answer, Event, EventKind, ProjectInfo, ProjectState, Question, StateKey,
 };
 use super::service::{Alert, Shared, WorkshopUpdate};
+use crate::i18n::t;
 use crate::store::{now_ms, workshop as db};
 
 /// Le socle, vu d'un projet lancé.
 pub(crate) struct ProjectHost {
     shared: Arc<Shared>,
     info: ProjectInfo,
+    /// Dossier et titre du moment : ceux de `info` jusqu'au nom donné par le
+    /// cadrage ([`Host::name_project`]).
+    dir: Mutex<PathBuf>,
+    title: Mutex<String>,
     cancel: CancellationToken,
     /// Le journal a reçu la fin du projet (`Finished`).
     finished: AtomicBool,
@@ -41,6 +49,8 @@ impl ProjectHost {
     pub(super) fn new(shared: Arc<Shared>, info: ProjectInfo, cancel: CancellationToken) -> Self {
         Self {
             shared,
+            dir: Mutex::new(info.dir.clone()),
+            title: Mutex::new(info.title.clone()),
             info,
             cancel,
             finished: AtomicBool::new(false),
@@ -54,6 +64,88 @@ impl ProjectHost {
 
     fn id(&self) -> i64 {
         self.info.id
+    }
+
+    fn dir(&self) -> PathBuf {
+        self.dir
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn title(&self) -> String {
+        self.title
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Nom trouvé au cadrage : titre de la ligne ; dossier provisoire renommé
+    /// (nom libre à côté de lui), qui devient définitif même si le
+    /// renommage échoue (fichier ouvert sous Windows, droits : journal).
+    async fn name(&self, title: &str) {
+        let title = super::service::title_of(title);
+        if title.is_empty() {
+            return;
+        }
+        let id = self.id();
+        let Ok(Some(row)) = self.shared.store.call(move |c| db::get(c, id)).await else {
+            return;
+        };
+        let mut folder: Option<PathBuf> = None;
+        if !row.folder_named {
+            let old = PathBuf::from(&row.folder);
+            let name = files::folder_name(&title, &t!("workshop.disk.project"));
+            let moved = {
+                let old = old.clone();
+                tauri::async_runtime::spawn_blocking(move || files::rename_project_dir(&old, &name))
+                    .await
+            };
+            folder = Some(match moved {
+                Ok(Ok(path)) => path,
+                Ok(Err(error)) => {
+                    // i18n-ignore : journal.
+                    crate::app_log!(
+                        "chatonlm: workshop: folder of project {id} not renamed: {error}"
+                    );
+                    old
+                }
+                Err(error) => {
+                    // i18n-ignore : journal.
+                    crate::app_log!(
+                        "chatonlm: workshop: folder of project {id} not renamed: {error}"
+                    );
+                    old
+                }
+            });
+        }
+        if folder.is_none() && row.title == title {
+            return;
+        }
+        let path = folder
+            .as_ref()
+            .map(|path| path.to_string_lossy().into_owned());
+        let saved = {
+            let title = title.clone();
+            self.shared
+                .store
+                .call(move |c| db::set_title(c, id, &title, path.as_deref(), now_ms()))
+                .await
+        };
+        if let Err(error) = saved {
+            // i18n-ignore : journal.
+            crate::app_log!("chatonlm: workshop: name of project {id} not saved: {error}");
+        }
+        if let Some(folder) = folder {
+            *self
+                .dir
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = folder;
+        }
+        *self
+            .title
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = title;
     }
 
     /// Enregistre l'événement, met à jour la ligne du projet, le diffuse ;
@@ -203,7 +295,7 @@ impl ProjectHost {
         }
         self.shared.set_state(id, ProjectState::Waiting, None).await;
         self.shared.alert(Alert::Waiting {
-            title: self.info.title.clone(),
+            title: self.title(),
         });
         tokio::select! {
             biased;
@@ -266,7 +358,7 @@ impl ProjectHost {
     }
 
     async fn write(&self, relative: &str, bytes: &[u8]) -> Result<(), String> {
-        let root = self.info.dir.clone();
+        let root = self.dir();
         let relative = relative.to_owned();
         let bytes = bytes.to_vec();
         let written = {
@@ -325,5 +417,9 @@ impl Host for ProjectHost {
 
     fn cancelled(&self) -> CancellationToken {
         self.cancel.clone()
+    }
+
+    fn name_project<'a>(&'a self, title: &'a str) -> HostFuture<'a, ()> {
+        Box::pin(self.name(title))
     }
 }

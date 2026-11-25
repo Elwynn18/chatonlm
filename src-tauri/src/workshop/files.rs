@@ -265,9 +265,59 @@ pub(crate) fn create_project_dir(root: &Path, name: &str) -> std::io::Result<Pat
     Err(std::io::Error::other("no free folder name"))
 }
 
+/// Renomme le dossier de projet `old` en `<name>` à côté de lui (nom libre :
+/// `<name>`, puis `<name> (2)`…) ; déjà ce nom : rien. Rend le nouveau
+/// chemin. Jamais par-dessus un dossier existant.
+pub(crate) fn rename_project_dir(old: &Path, name: &str) -> std::io::Result<PathBuf> {
+    let parent = old
+        .parent()
+        .ok_or_else(|| std::io::Error::other("project folder without parent"))?;
+    for n in 1..10_000u32 {
+        let candidate = if n == 1 {
+            parent.join(name)
+        } else {
+            parent.join(format!("{name} ({n})"))
+        };
+        if candidate == old {
+            return Ok(candidate);
+        }
+        if std::fs::symlink_metadata(&candidate).is_ok() {
+            continue;
+        }
+        match std::fs::rename(old, &candidate) {
+            Ok(()) => return Ok(candidate),
+            // Pris entre-temps.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::DirectoryNotEmpty
+                ) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::other("no free folder name"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_provisional_folder_takes_a_free_name_beside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = create_project_dir(dir.path(), "Projet").unwrap();
+        std::fs::write(first.join("source.md"), b"x").unwrap();
+        // Nom déjà pris par un autre dossier : jamais écrasé.
+        std::fs::create_dir(dir.path().join("Guide")).unwrap();
+        let renamed = rename_project_dir(&first, "Guide").unwrap();
+        assert_eq!(renamed, dir.path().join("Guide (2)"));
+        assert!(!first.exists());
+        assert_eq!(std::fs::read(renamed.join("source.md")).unwrap(), b"x");
+        assert!(renamed.join(WORK_DIR).is_dir());
+        // Même nom : rien ne bouge.
+        assert_eq!(rename_project_dir(&renamed, "Guide (2)").unwrap(), renamed);
+        assert!(dir.path().join("Guide").is_dir());
+    }
 
     fn project() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();

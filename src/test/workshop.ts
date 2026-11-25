@@ -44,7 +44,6 @@ import type { WorkshopSpec } from "@/bindings/WorkshopSpec";
 import {
   MAX_ATTACHMENTS,
   MAX_TASK_CHARS,
-  proposedFolderName,
   strategyAvailable,
   titleOf,
   folderNameOf,
@@ -205,6 +204,7 @@ export const DEMO_PLAN: WorkshopPlan = {
 /** Spécification de démonstration. */
 export const DEMO_SPEC: WorkshopSpec = {
   goal: "A guide to urban permaculture for beginners",
+  title: "Urban permaculture",
   deliverables: ["guide"],
   criteria: [
     { id: "C1", text: "Explains how to build a living soil", scope: "section" },
@@ -329,7 +329,8 @@ export function fakeWorkshop(
           modelUsed: "",
           position: null,
           error: null,
-          folder: `${fake.settings.dir}/${proposedFolderName(task) || "Project"}`,
+          // Projet déjà nommé (cadrage passé) : dossier d'après son titre.
+          folder: `${fake.settings.dir}/${folderNameOf(titleOf(task)) || "Project"}`,
           createdAt: WORKSHOP_TIME + lastId * 1000,
           updatedAt: WORKSHOP_TIME + lastId * 1000,
           finishedAt: null,
@@ -653,10 +654,9 @@ export function fakeWorkshop(
       return file;
     });
     for (const file of files) backend.staged.delete(file.id);
-    const name =
-      folderNameOf(request.folderName ?? "") ||
-      proposedFolderName(task) ||
-      "Project";
+    // Sans nom donné : nom provisoire, comme le moteur (le cadrage nomme
+    // ensuite le projet).
+    const name = folderNameOf(request.folderName ?? "") || "Project";
     const project = fake.seed({
       task,
       strategy: request.strategy ?? null,

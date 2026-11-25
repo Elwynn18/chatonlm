@@ -81,6 +81,9 @@ async fn a_direct_version_that_holds_is_delivered() {
     assert!(matches!(asked[0], Question::Framing(_)));
     // Les réponses du cadrage arrivent à la spécification.
     assert!(model.of("spec")[0].user.contains("Plein sud, 2 m²."));
+    // Le titre de la spécification nomme le projet (guillemets et point
+    // retirés), une fois.
+    assert_eq!(*host.names.lock().unwrap(), ["Potager sur un balcon"]);
     // Réflexion coupée pour les tirages, températures 0,2 / 0,6 / 1,0.
     let temperatures: Vec<f32> = model.of("strategy").iter().map(|r| r.temperature).collect();
     assert_eq!(temperatures, vec![0.2, 0.6, 1.0]);
@@ -701,6 +704,13 @@ async fn an_interrupted_project_resumes_without_redoing_anything() {
                 .map(|r| (r.role.clone(), r.user.clone())),
         );
         assert_eq!(done.len(), full.len(), "interruption {k} : rien refait");
+        // Repris après la spécification : le nom est redonné (l'app a pu
+        // être coupée entre la spécification et le renommage).
+        assert_eq!(
+            host.names.lock().unwrap().last().map(String::as_str),
+            Some("Potager sur un balcon"),
+            "interruption {k}"
+        );
         assert!(done == full, "interruption {k} : même suite de requêtes");
         assert_eq!(host.file("guide-du-balcon.md").unwrap(), doc);
     }

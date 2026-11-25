@@ -185,7 +185,7 @@ const NOT_TEXT_WORDS: &[&str] = &["embed", "rerank"];
 /// modèles d'autocomplétion FIM), ni architecture d'embeddings ou autre
 /// architecture qui ne converse pas, ni modèle d'embeddings ou de
 /// reclassement d'après son identifiant (casse ignorée).
-fn writes_text(model: &LocalModel) -> bool {
+pub(crate) fn writes_text(model: &LocalModel) -> bool {
     let id = model.id.to_ascii_lowercase();
     !model.capabilities.base
         && !model
@@ -198,7 +198,7 @@ fn writes_text(model: &LocalModel) -> bool {
 /// Paramètres estimés d'après la taille du fichier et la densité de sa
 /// quantification (`hub::quant::density`, octets par paramètre ;
 /// quantification inconnue : celle de Q4_K_M) ; `None` sans taille.
-fn estimated_parameters(model: &LocalModel) -> Option<f64> {
+pub(crate) fn estimated_parameters(model: &LocalModel) -> Option<f64> {
     let density = crate::hub::quant::density(Some(&model.quant.to_ascii_uppercase()));
     (model.size_bytes > 0 && density > 0).then(|| model.size_bytes as f64 * 1000.0 / density as f64)
 }

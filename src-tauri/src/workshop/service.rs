@@ -892,11 +892,18 @@ impl Workshop {
             }
         }
         let title = title_of(&task);
-        // Noms de repli sur le disque : dans la langue de l'app.
-        let name = files::folder_name(
-            request.folder_name.as_deref().unwrap_or(&title),
-            &files::folder_name(&title, &t!("workshop.disk.project")),
-        );
+        // Nom donné par l'utilisateur, gardé ; sinon nom provisoire (« Projet »,
+        // « Projet (2) »… dans la langue de l'app), remplacé par le titre que
+        // le cadrage donne au projet (`ProjectHost::name_project`). Jamais
+        // le début de la tâche : une consigne n'est pas un nom.
+        let given = request
+            .folder_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty());
+        let folder_named = given.is_some();
+        let provisional = t!("workshop.disk.project");
+        let name = files::folder_name(given.unwrap_or(&provisional), &provisional);
         let source_fallback = t!("workshop.disk.source");
         let written = {
             let sources = sources.clone();
@@ -929,6 +936,7 @@ impl Workshop {
             model: request.model.unwrap_or_default().trim().to_owned(),
             language: crate::i18n::current().code().to_owned(),
             folder: folder.to_string_lossy().into_owned(),
+            folder_named,
             state: "queued".into(),
             queue_seq: 0,
             created_at: now_ms(),
@@ -1470,6 +1478,7 @@ mod unit {
             state: state.into(),
             phase: None,
             folder: String::new(),
+            folder_named: true,
             queue_seq: seq,
             error: None,
             created_at: 0,

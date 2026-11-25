@@ -439,6 +439,7 @@ mod tests {
     fn spec() -> Spec {
         Spec {
             goal: "g".into(),
+            title: String::new(),
             deliverables: vec![],
             criteria: vec![Criterion {
                 id: "C1".into(),

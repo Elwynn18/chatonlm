@@ -152,7 +152,7 @@ describe("New Workshop project", () => {
     });
     await ready();
     expect(screen.getByTestId("workshop-model-check").textContent).toBe(
-      "The Workshop will use qwen3:0.6b, the largest model that fits.",
+      "The Workshop will use qwen3:0.6b, chosen automatically.",
     );
     await user.type(task(), "Write a guide");
     expect(startButton().disabled).toBe(false);
@@ -188,7 +188,28 @@ describe("New Workshop project", () => {
     expect(refusal.textContent).toBe(
       "This model can't hold enough context for a project (at least 16,384 tokens).",
     );
+    expect(screen.queryByTestId("workshop-open-hub")).toBeNull();
     expect(startButton().disabled).toBe(true);
+  });
+
+  it("says no model is installed and leads to the ModelHub", async () => {
+    const user = userEvent.setup();
+    const { app } = setup((b) => {
+      b.workshop.modelCheck = () => ({
+        model: null,
+        auto: true,
+        warnings: [],
+        error: "noModel",
+      });
+    });
+    const refusal = await screen.findByTestId("workshop-model-error");
+    expect(refusal.textContent).toBe(
+      "No model is installed. Download one in the ModelHub first.",
+    );
+    await user.type(task(), "Write a guide");
+    expect(startButton().disabled).toBe(true);
+    await user.click(screen.getByRole("link", { name: "Open the ModelHub" }));
+    await waitFor(() => expect(app.path()).toBe("/hub"));
   });
 
   it("creates the project with the task, documents, autonomy, model, strategy and folder, then opens it", async () => {
@@ -199,11 +220,12 @@ describe("New Workshop project", () => {
     await ready();
     expect(startButton().disabled).toBe(true);
     await user.type(task(), "Guide : la permaculture ?{Enter}Pour débutants.");
-    // Nom proposé : celui que le moteur tirerait du titre.
+    // Aucun nom tiré de la tâche : le projet se nomme au cadrage.
     const folder = screen.getByRole<HTMLInputElement>("textbox", {
       name: "Folder name",
     });
-    expect(folder.value).toBe("Guide - la permaculture");
+    expect(folder.value).toBe("");
+    expect(folder.placeholder).toBe("Automatic: named after its subject");
     expect(screen.getByTestId("workshop-form").textContent).toContain(
       "Created in /home/user/Documents/ChatonLM",
     );
@@ -233,7 +255,6 @@ describe("New Workshop project", () => {
       ["code", true, "Code (soon)"],
     ]);
     await user.selectOptions(strategy, "longForm");
-    await user.clear(folder);
     await user.type(folder, "Permaculture");
     await user.click(task());
     await user.keyboard("{Shift>}{Tab}{/Shift}");
