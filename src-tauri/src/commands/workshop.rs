@@ -13,10 +13,10 @@ use tauri_plugin_dialog::DialogExt;
 use crate::attachments::Staging;
 use crate::error::AppResult;
 use crate::i18n::t;
-use crate::workshop::pipeline::types::Event;
+use crate::workshop::pipeline::types::{Event, Spec};
 use crate::workshop::{
     AnswerRequest, ModelCheck, NewProjectRequest, ProjectDetail, ProjectSummary, Workshop,
-    WorkshopSettings, WorkshopSettingsPatch,
+    WorkshopPart, WorkshopPartSummary, WorkshopSettings, WorkshopSettingsPatch,
 };
 
 /// Crée un projet (sous-dossier du dossier des projets, sources gardées
@@ -52,6 +52,27 @@ pub async fn workshop_events(
     since_seq: u64,
 ) -> AppResult<Vec<Event>> {
     workshop.events(id, since_seq).await
+}
+
+/// Parties du projet (plan, sous-parties après leur parent ; version
+/// directe : une seule partie, id 0), relues de l'état sauvé.
+#[tauri::command]
+pub async fn workshop_parts(
+    workshop: State<'_, Workshop>,
+    id: i64,
+) -> AppResult<Vec<WorkshopPartSummary>> {
+    workshop.parts(id).await
+}
+
+/// Une partie en détail : dernier texte sauvé (au plus 200 000 caractères),
+/// vérifications ; `brick_id` 0 : version directe.
+#[tauri::command]
+pub async fn workshop_part(
+    workshop: State<'_, Workshop>,
+    id: i64,
+    brick_id: u32,
+) -> AppResult<WorkshopPart> {
+    workshop.part(id, brick_id).await
 }
 
 /// Réponse à la question en attente (« J'ai besoin de toi »).
@@ -96,6 +117,21 @@ pub async fn workshop_delete(
 pub async fn workshop_open_folder(workshop: State<'_, Workshop>, id: i64) -> AppResult<()> {
     let folder = workshop.folder(id).await?;
     crate::commands::system::open_path(&folder).await
+}
+
+/// Spécification retenue du projet (`null` avant qu'elle soit écrite) :
+/// textes des critères pour la page.
+#[tauri::command]
+pub async fn workshop_spec(workshop: State<'_, Workshop>, id: i64) -> AppResult<Option<Spec>> {
+    workshop.spec(id).await
+}
+
+/// Ouvre le livrable avec l'application par défaut ; `NotFound` avant la
+/// livraison.
+#[tauri::command]
+pub async fn workshop_open_file(workshop: State<'_, Workshop>, id: i64) -> AppResult<()> {
+    let file = workshop.delivered(id).await?;
+    crate::commands::system::open_path(&file).await
 }
 
 /// Sélecteur de dossier natif « dossier des projets », au-dessus de la

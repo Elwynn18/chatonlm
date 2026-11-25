@@ -106,6 +106,17 @@ fn default_root(app: &AppHandle) -> Option<PathBuf> {
         .map(|documents| documents.join(PROJECTS_DIR))
 }
 
+/// Ce que fait un projet lancé : le pipeline avec un vrai modèle ; essais de
+/// l'app réelle avec `CHATONLM_E2E_WORKSHOP` : un déroulé écrit, sans modèle
+/// ([`super::scripted`]).
+fn runner(access: Access) -> Arc<dyn Runner> {
+    #[cfg(feature = "e2e")]
+    if let Some(path) = std::env::var_os(super::scripted::SCRIPT_ENV) {
+        return Arc::new(super::scripted::ScriptRunner::new(path.into()));
+    }
+    Arc::new(AppRunner { access })
+}
+
 /// Pose l'Atelier une fois la base ouverte et l'accès aux modèles posé
 /// (démarrage, ou base récupérée ; une seule fois) : projets interrompus mis
 /// en pause, notification s'il y en a.
@@ -122,7 +133,7 @@ pub(crate) fn setup(app: &AppHandle) {
     let workshop = Workshop::new(
         store,
         Deps {
-            runner: Arc::new(AppRunner { access }),
+            runner: runner(access),
             alert: Arc::new(move |alert| {
                 let app = alerting.clone();
                 service::spawn(async move {

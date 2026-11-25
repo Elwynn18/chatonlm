@@ -1,12 +1,14 @@
 // Outils de la page Tools (propre à ChatonLM) : une entrée par carte, dans
-// l'ordre de la page (Study, Proofread, Transcription).
+// l'ordre de la page (Study, Proofread, Transcription, Workshop).
 
 import {
   AcademicCapIcon,
   ChatBubbleBottomCenterTextIcon,
   DocumentCheckIcon,
+  WrenchScrewdriverIcon,
 } from "@heroicons/react/24/outline";
 import type { ComponentType, SVGProps } from "react";
+import { WorkshopBadge } from "@/components/workshop/WorkshopBadge";
 import type { TKey } from "@/i18n";
 
 /** Un outil de la page : sa carte et la page qu'elle ouvre. */
@@ -14,12 +16,17 @@ export interface Tool {
   /** Nom court : `data-testid="tool-card-<id>"`. */
   id: string;
   /** Page de l'outil (un outil de plus : son chemin ici). */
-  to: "/study" | "/proofread" | "/transcription";
+  to: "/study" | "/proofread" | "/transcription" | "/workshop";
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   /** Nom de l'outil : le titre de sa page. */
   name: TKey;
   /** Une phrase qui dit ce qu'il fait. */
   description: TKey;
+  /**
+   * Pastille de la carte (Atelier : un projet calcule ou attend
+   * l'utilisateur) ; rien quand il n'y a rien à dire.
+   */
+  badge?: ComponentType;
 }
 
 /**
@@ -47,5 +54,13 @@ export const TOOLS: readonly Tool[] = [
     icon: ChatBubbleBottomCenterTextIcon,
     name: "transcription.title",
     description: "tools.cards.transcription",
+  },
+  {
+    id: "workshop",
+    to: "/workshop",
+    icon: WrenchScrewdriverIcon,
+    name: "workshop.title",
+    description: "tools.cards.workshop",
+    badge: WorkshopBadge,
   },
 ];

@@ -32,6 +32,9 @@
 // les faux moteurs de la dictée et des voix pour ses prérequis.
 // Modèles d'images : faux moteur de src/test/images.ts (backend.images), qui
 // lit le réglage showUncensored.
+// Atelier (moteur de tâches longues) : faux moteur de src/test/workshop.ts
+// (backend.workshop) : aucun projet, dossier des projets par défaut ; il
+// reprend les fichiers de la zone de préparation à la création d'un projet.
 // Mises à jour de ChatonLM : update_status et app_versions sur updates et
 // versions, set_auto_download change updates.autoDownload ; check_for_updates,
 // download_update et restart_to_update répondent sans rien changer (le test
@@ -106,6 +109,7 @@ import {
   type Simulator,
 } from "@/test/simulator";
 import { type FakeStudy, fakeStudy } from "@/test/study";
+import { type FakeWorkshop, fakeWorkshop } from "@/test/workshop";
 import { type FakeTts, fakeTts } from "@/test/tts";
 import { type FakeVoiceMode, fakeVoiceMode } from "@/test/voiceMode";
 import { installWebSearch } from "@/test/webSearch";
@@ -400,6 +404,8 @@ export interface FakeBackend {
   bridge: FakeBridge;
   /** Faux moteur des modèles d'images (image_*). */
   images: FakeImages;
+  /** Faux moteur de l'Atelier (workshop_*). */
+  workshop: FakeWorkshop;
   /** Pièces jointes demandées à save_image, dans l'ordre. */
   imageSaves: number[];
   /** Réponse de save_image (vrai par défaut), ou l'erreur renvoyée. */
@@ -472,7 +478,8 @@ function defaultSettings(selectedModel: string): Settings {
  * voice_mode_*, get_voice_mode_settings et update_voice_mode_settings
  * (src/test/voiceMode.ts), easy_link_* (src/test/easyLink.ts), bridge_*
  * (src/test/bridge.ts), image_*
- * (src/test/images.ts), save_image (backend.imageSave), erase_user_data
+ * (src/test/images.ts), workshop_* (src/test/workshop.ts), save_image
+ * (backend.imageSave), erase_user_data
  * (backend.eraseReport, eraseError, eraseHold), menu_entry_status,
  * set_menu_entry, update_status, app_versions, check_for_updates,
  * download_update, restart_to_update et set_auto_download,
@@ -517,6 +524,7 @@ export function fakeBackend(
     | "easyLink"
     | "bridge"
     | "images"
+    | "workshop"
   > & {
     hub?: FakeHub;
     engine?: FakeEngine;
@@ -529,6 +537,7 @@ export function fakeBackend(
     easyLink?: FakeEasyLink;
     bridge?: FakeBridge;
     images?: FakeImages;
+    workshop?: FakeWorkshop;
   } = {
     settings: defaultSettings(selectedModel),
     settingsErrors: { get: null, update: null },
@@ -637,6 +646,7 @@ export function fakeBackend(
   backend.easyLink = fakeEasyLink(simulator);
   backend.bridge = fakeBridge(simulator);
   backend.images = fakeImages(simulator, () => backend.settings.showUncensored);
+  backend.workshop = fakeWorkshop(simulator, backend);
   installRemote(simulator);
   installWebSearch(simulator);
   simulator.handle("quit_app", () => null);

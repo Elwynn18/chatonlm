@@ -2,6 +2,8 @@
 // Le titre (h1) est celui du gabarit (SidebarLayout). Les outils gardent
 // leurs pages, leurs adresses et leurs raccourcis ; l'entrée Tools de la
 // barre latérale est surlignée sur chacune. Liste des outils : src/lib/tools.ts.
+// Une carte peut porter une pastille (Atelier : un projet calcule ou attend
+// l'utilisateur), tenue à jour par les événements du moteur.
 
 import { Link } from "@tanstack/react-router";
 import { useT } from "@/i18n";
@@ -33,6 +35,7 @@ export function ToolsPage() {
 function ToolCard({ tool }: { tool: Tool }) {
   const t = useT();
   const Icon = tool.icon;
+  const Badge = tool.badge;
   return (
     <Link
       to={tool.to}
@@ -44,8 +47,9 @@ function ToolCard({ tool }: { tool: Tool }) {
         <Icon className="h-5 w-5" aria-hidden="true" />
       </span>
       <span className="flex min-w-0 flex-col gap-1">
-        <span className="font-medium text-neutral-900 dark:text-white">
+        <span className="flex flex-wrap items-center gap-2 font-medium text-neutral-900 dark:text-white">
           {t(tool.name)}
+          {Badge && <Badge />}
         </span>
         <span className="text-sm text-neutral-500 dark:text-neutral-400">
           {t(tool.description)}

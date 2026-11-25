@@ -53,6 +53,12 @@ function aliases(): Alias[] {
       find: /^@\/lib\/appHost$/,
       replacement: path.join(webview, "noAppHost.ts"),
     },
+    // Textes de l'Atelier : jamais montrés par le panneau (57 Ko pour les
+    // trois langues) ; un catalogue vide à leur place.
+    {
+      find: /^@\/locales\/(en|es|fr)\/workshop\.json$/,
+      replacement: path.join(webview, "emptyCatalog.json"),
+    },
     ...own,
   ];
 }

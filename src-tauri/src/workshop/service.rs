@@ -36,14 +36,15 @@ use tokio_util::sync::CancellationToken;
 
 use super::model::{ChoiceError, ModelChoice};
 use super::pipeline::types::{
-    Answer, Attachment, Event, EventKind, ProjectInfo, ProjectState, Question, Report, StateKey,
-    Strategy,
+    Answer, Attachment, Event, EventKind, ProjectInfo, ProjectState, Question, Report, Spec,
+    StateKey, Strategy,
 };
 use super::project::ProjectHost;
 use super::{
     AnswerRequest, MAX_ATTACHMENTS, MAX_EVENTS_PER_READ, MAX_TASK_CHARS, ModelCheck,
     NewProjectRequest, PendingQuestion, ProjectDetail, ProjectSummary, WorkshopNotice,
-    WorkshopSettings, WorkshopSettingsPatch, dec, enc, files,
+    WorkshopPart, WorkshopPartSummary, WorkshopSettings, WorkshopSettingsPatch, dec, enc, files,
+    parts,
 };
 use crate::attachments::Staging;
 use crate::error::{AppError, AppResult};
@@ -1033,6 +1034,111 @@ impl Workshop {
                 })
             })
             .collect())
+    }
+
+    /// Relit le projet, tout son journal et son état sauvé, puis applique
+    /// `read` (lecteur d'état : nom de clé → JSON) ; `NotFound` s'il
+    /// n'existe pas.
+    async fn read_parts<T: Send + 'static>(
+        &self,
+        id: i64,
+        read: impl FnOnce(&mut parts::Load<'_>, &[Event], &ProjectRow) -> T + Send + 'static,
+    ) -> AppResult<T> {
+        self.shared
+            .store
+            .call(move |c| {
+                let Some(row) = db::get(c, id)? else {
+                    return Ok(None);
+                };
+                let events: Vec<Event> = db::events_since(c, id, 0, usize::MAX)?
+                    .into_iter()
+                    .filter_map(|row| {
+                        Some(Event {
+                            seq: row.seq,
+                            at_ms: row.at,
+                            kind: serde_json::from_str(&row.event).ok()?,
+                        })
+                    })
+                    .collect();
+                let mut load = |key: &str| {
+                    db::load_state(c, id, key)
+                        .ok()
+                        .flatten()
+                        .and_then(|value| serde_json::from_str(&value).ok())
+                };
+                Ok(Some(read(&mut load, &events, &row)))
+            })
+            .await?
+            .ok_or_else(not_found)
+    }
+
+    /// Parties du projet relues de l'état sauvé (version directe : id 0).
+    pub async fn parts(&self, id: i64) -> AppResult<Vec<WorkshopPartSummary>> {
+        self.read_parts(id, |load, events, row| {
+            parts::summaries(load, events, &row.title)
+        })
+        .await
+    }
+
+    /// Une partie en détail ; `NotFound` si le projet ou la partie
+    /// n'existe pas. Version directe livrée : le texte est le livrable.
+    pub async fn part(&self, id: i64, brick: u32) -> AppResult<WorkshopPart> {
+        let found = self
+            .read_parts(id, move |load, events, row| {
+                parts::detail(load, events, &row.title, brick).map(|(part, file)| {
+                    (
+                        part,
+                        file.and_then(|f| parts::delivered_path(Path::new(&row.folder), &f)),
+                    )
+                })
+            })
+            .await?;
+        let (mut part, file) = found.ok_or_else(not_found)?;
+        if let Some(file) = file {
+            let read = tauri::async_runtime::spawn_blocking(move || std::fs::read_to_string(file))
+                .await
+                .ok()
+                .and_then(Result::ok);
+            if let Some(text) = read {
+                (part.text, part.truncated) = parts::clip(text);
+            }
+        }
+        Ok(part)
+    }
+
+    /// État sauvé `key` du projet (JSON relu) ; `NotFound` si le projet
+    /// n'existe pas.
+    async fn saved<T: serde::de::DeserializeOwned + Send + 'static>(
+        &self,
+        id: i64,
+        key: StateKey,
+    ) -> AppResult<(ProjectRow, Option<T>)> {
+        let name = key.name();
+        let (row, value) = self
+            .shared
+            .store
+            .call(move |c| {
+                let Some(row) = db::get(c, id)? else {
+                    return Ok(None);
+                };
+                Ok(Some((row, db::load_state(c, id, &name)?)))
+            })
+            .await?
+            .ok_or_else(not_found)?;
+        Ok((row, value.and_then(|v| serde_json::from_str(&v).ok())))
+    }
+
+    /// Spécification retenue (`None` avant qu'elle soit écrite).
+    pub async fn spec(&self, id: i64) -> AppResult<Option<Spec>> {
+        Ok(self.saved(id, StateKey::Spec).await?.1)
+    }
+
+    /// Livrable du projet (chemin absolu) ; `NotFound` avant la livraison.
+    pub async fn delivered(&self, id: i64) -> AppResult<PathBuf> {
+        let (row, report) = self.saved::<Report>(id, StateKey::Report).await?;
+        report
+            .and_then(|report| parts::delivered_path(Path::new(&row.folder), &report.file))
+            .ok_or_else(not_found)
     }
 
     /// Répond à la question en attente du projet : le projet qui l'attend la

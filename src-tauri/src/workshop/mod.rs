@@ -18,8 +18,12 @@
 pub(crate) mod app;
 pub(crate) mod files;
 pub(crate) mod model;
+pub(crate) mod parts;
 pub mod pipeline;
 pub(crate) mod project;
+/// Pipeline scénarisé des essais de l'app réelle (`CHATONLM_E2E_WORKSHOP`).
+#[cfg(any(test, feature = "e2e"))]
+pub(crate) mod scripted;
 pub(crate) mod service;
 #[cfg(test)]
 mod tests;
@@ -30,6 +34,7 @@ use ts_rs::TS;
 use crate::engine::auto::ModelWarning;
 use pipeline::types::{Answer, Autonomy, Phase, ProjectState, Question, Report, Strategy};
 
+pub use parts::{WorkshopPart, WorkshopPartSummary};
 pub use service::Workshop;
 
 /// Événement Tauri : un projet a changé (débit borné : la page relit).
@@ -102,10 +107,8 @@ pub struct ProjectSummary {
 #[ts(export)]
 pub struct PendingQuestion {
     pub id: i64,
-    /// `Question` du pipeline (`{type, value}`). Sans type TypeScript tant
-    /// que ses types `Plan` et `Question` n'ont pas de nom ts-rs propre :
-    /// ceux de l'Étude portent déjà ces noms dans `src/bindings`.
-    #[ts(type = "unknown")]
+    /// `Question` du pipeline (`{type, value}`), `WorkshopQuestion` côté
+    /// page (les noms `Plan` et `Question` sont pris par l'Étude).
     pub question: Question,
     pub asked_at: i64,
 }
@@ -177,8 +180,7 @@ pub struct ModelCheck {
 #[ts(export)]
 pub struct AnswerRequest {
     pub question_id: i64,
-    /// `Answer` du pipeline (`{type, value}`) ; voir `PendingQuestion`.
-    #[ts(type = "unknown")]
+    /// `Answer` du pipeline (`{type, value}`), `WorkshopAnswer` côté page.
     pub answer: Answer,
 }
 

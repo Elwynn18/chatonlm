@@ -16,6 +16,7 @@ import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as StudyRouteImport } from "./routes/study"
 import { Route as ToolsRouteImport } from "./routes/tools"
 import { Route as TranscriptionRouteImport } from "./routes/transcription"
+import { Route as WorkshopRouteImport } from "./routes/workshop"
 import { Route as CChatIdRouteImport } from "./routes/c.$chatId"
 import { Route as HubIndexRouteImport } from "./routes/hub.index"
 import { Route as HubDownloadsRouteImport } from "./routes/hub.downloads"
@@ -27,6 +28,9 @@ import { Route as StudyIndexRouteImport } from "./routes/study.index"
 import { Route as StudyCourseIdRouteImport } from "./routes/study.$courseId"
 import { Route as TranscriptionIndexRouteImport } from "./routes/transcription.index"
 import { Route as TranscriptionTranscriptionIdRouteImport } from "./routes/transcription.$transcriptionId"
+import { Route as WorkshopIndexRouteImport } from "./routes/workshop.index"
+import { Route as WorkshopProjectIdRouteImport } from "./routes/workshop.$projectId"
+import { Route as WorkshopNewRouteImport } from "./routes/workshop.new"
 import { Route as HubImagesIndexRouteImport } from "./routes/hub.images.index"
 import { Route as HubImagesAuthorRepoRouteImport } from "./routes/hub.images.$author.$repo"
 import { Route as HubModelAuthorRepoRouteImport } from "./routes/hub.model.$author.$repo"
@@ -66,6 +70,11 @@ const TranscriptionRoute = TranscriptionRouteImport.update({
   path: "/transcription",
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import("./routes/transcription.lazy").then((d) => d.Route))
+const WorkshopRoute = WorkshopRouteImport.update({
+  id: "/workshop",
+  path: "/workshop",
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import("./routes/workshop.lazy").then((d) => d.Route))
 const CChatIdRoute = CChatIdRouteImport.update({
   id: "/c/$chatId",
   path: "/c/$chatId",
@@ -130,6 +139,25 @@ const TranscriptionTranscriptionIdRoute =
   } as any).lazy(() =>
     import("./routes/transcription.$transcriptionId.lazy").then((d) => d.Route),
   )
+const WorkshopIndexRoute = WorkshopIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => WorkshopRoute,
+} as any).lazy(() =>
+  import("./routes/workshop.index.lazy").then((d) => d.Route),
+)
+const WorkshopProjectIdRoute = WorkshopProjectIdRouteImport.update({
+  id: "/$projectId",
+  path: "/$projectId",
+  getParentRoute: () => WorkshopRoute,
+} as any).lazy(() =>
+  import("./routes/workshop.$projectId.lazy").then((d) => d.Route),
+)
+const WorkshopNewRoute = WorkshopNewRouteImport.update({
+  id: "/new",
+  path: "/new",
+  getParentRoute: () => WorkshopRoute,
+} as any).lazy(() => import("./routes/workshop.new.lazy").then((d) => d.Route))
 const HubImagesIndexRoute = HubImagesIndexRouteImport.update({
   id: "/images/",
   path: "/images/",
@@ -160,6 +188,7 @@ export interface FileRoutesByFullPath {
   "/study": typeof StudyRouteWithChildren
   "/tools": typeof ToolsRoute
   "/transcription": typeof TranscriptionRouteWithChildren
+  "/workshop": typeof WorkshopRouteWithChildren
   "/c/$chatId": typeof CChatIdRoute
   "/hub/downloads": typeof HubDownloadsRoute
   "/hub/installed": typeof HubInstalledRoute
@@ -168,9 +197,12 @@ export interface FileRoutesByFullPath {
   "/hub/voices": typeof HubVoicesRoute
   "/study/$courseId": typeof StudyCourseIdRoute
   "/transcription/$transcriptionId": typeof TranscriptionTranscriptionIdRoute
+  "/workshop/$projectId": typeof WorkshopProjectIdRoute
+  "/workshop/new": typeof WorkshopNewRoute
   "/hub/": typeof HubIndexRoute
   "/study/": typeof StudyIndexRoute
   "/transcription/": typeof TranscriptionIndexRoute
+  "/workshop/": typeof WorkshopIndexRoute
   "/hub/images/": typeof HubImagesIndexRoute
   "/hub/images/$author/$repo": typeof HubImagesAuthorRepoRoute
   "/hub/model/$author/$repo": typeof HubModelAuthorRepoRoute
@@ -188,9 +220,12 @@ export interface FileRoutesByTo {
   "/hub/voices": typeof HubVoicesRoute
   "/study/$courseId": typeof StudyCourseIdRoute
   "/transcription/$transcriptionId": typeof TranscriptionTranscriptionIdRoute
+  "/workshop/$projectId": typeof WorkshopProjectIdRoute
+  "/workshop/new": typeof WorkshopNewRoute
   "/hub": typeof HubIndexRoute
   "/study": typeof StudyIndexRoute
   "/transcription": typeof TranscriptionIndexRoute
+  "/workshop": typeof WorkshopIndexRoute
   "/hub/images": typeof HubImagesIndexRoute
   "/hub/images/$author/$repo": typeof HubImagesAuthorRepoRoute
   "/hub/model/$author/$repo": typeof HubModelAuthorRepoRoute
@@ -204,6 +239,7 @@ export interface FileRoutesById {
   "/study": typeof StudyRouteWithChildren
   "/tools": typeof ToolsRoute
   "/transcription": typeof TranscriptionRouteWithChildren
+  "/workshop": typeof WorkshopRouteWithChildren
   "/c/$chatId": typeof CChatIdRoute
   "/hub/downloads": typeof HubDownloadsRoute
   "/hub/installed": typeof HubInstalledRoute
@@ -212,9 +248,12 @@ export interface FileRoutesById {
   "/hub/voices": typeof HubVoicesRoute
   "/study/$courseId": typeof StudyCourseIdRoute
   "/transcription/$transcriptionId": typeof TranscriptionTranscriptionIdRoute
+  "/workshop/$projectId": typeof WorkshopProjectIdRoute
+  "/workshop/new": typeof WorkshopNewRoute
   "/hub/": typeof HubIndexRoute
   "/study/": typeof StudyIndexRoute
   "/transcription/": typeof TranscriptionIndexRoute
+  "/workshop/": typeof WorkshopIndexRoute
   "/hub/images/": typeof HubImagesIndexRoute
   "/hub/images/$author/$repo": typeof HubImagesAuthorRepoRoute
   "/hub/model/$author/$repo": typeof HubModelAuthorRepoRoute
@@ -229,6 +268,7 @@ export interface FileRouteTypes {
     | "/study"
     | "/tools"
     | "/transcription"
+    | "/workshop"
     | "/c/$chatId"
     | "/hub/downloads"
     | "/hub/installed"
@@ -237,9 +277,12 @@ export interface FileRouteTypes {
     | "/hub/voices"
     | "/study/$courseId"
     | "/transcription/$transcriptionId"
+    | "/workshop/$projectId"
+    | "/workshop/new"
     | "/hub/"
     | "/study/"
     | "/transcription/"
+    | "/workshop/"
     | "/hub/images/"
     | "/hub/images/$author/$repo"
     | "/hub/model/$author/$repo"
@@ -257,9 +300,12 @@ export interface FileRouteTypes {
     | "/hub/voices"
     | "/study/$courseId"
     | "/transcription/$transcriptionId"
+    | "/workshop/$projectId"
+    | "/workshop/new"
     | "/hub"
     | "/study"
     | "/transcription"
+    | "/workshop"
     | "/hub/images"
     | "/hub/images/$author/$repo"
     | "/hub/model/$author/$repo"
@@ -272,6 +318,7 @@ export interface FileRouteTypes {
     | "/study"
     | "/tools"
     | "/transcription"
+    | "/workshop"
     | "/c/$chatId"
     | "/hub/downloads"
     | "/hub/installed"
@@ -280,9 +327,12 @@ export interface FileRouteTypes {
     | "/hub/voices"
     | "/study/$courseId"
     | "/transcription/$transcriptionId"
+    | "/workshop/$projectId"
+    | "/workshop/new"
     | "/hub/"
     | "/study/"
     | "/transcription/"
+    | "/workshop/"
     | "/hub/images/"
     | "/hub/images/$author/$repo"
     | "/hub/model/$author/$repo"
@@ -296,6 +346,7 @@ export interface RootRouteChildren {
   StudyRoute: typeof StudyRouteWithChildren
   ToolsRoute: typeof ToolsRoute
   TranscriptionRoute: typeof TranscriptionRouteWithChildren
+  WorkshopRoute: typeof WorkshopRouteWithChildren
   CChatIdRoute: typeof CChatIdRoute
 }
 
@@ -348,6 +399,13 @@ declare module "@tanstack/react-router" {
       path: "/transcription"
       fullPath: "/transcription"
       preLoaderRoute: typeof TranscriptionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/workshop": {
+      id: "/workshop"
+      path: "/workshop"
+      fullPath: "/workshop"
+      preLoaderRoute: typeof WorkshopRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/c/$chatId": {
@@ -427,6 +485,27 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof TranscriptionTranscriptionIdRouteImport
       parentRoute: typeof TranscriptionRoute
     }
+    "/workshop/": {
+      id: "/workshop/"
+      path: "/"
+      fullPath: "/workshop/"
+      preLoaderRoute: typeof WorkshopIndexRouteImport
+      parentRoute: typeof WorkshopRoute
+    }
+    "/workshop/$projectId": {
+      id: "/workshop/$projectId"
+      path: "/$projectId"
+      fullPath: "/workshop/$projectId"
+      preLoaderRoute: typeof WorkshopProjectIdRouteImport
+      parentRoute: typeof WorkshopRoute
+    }
+    "/workshop/new": {
+      id: "/workshop/new"
+      path: "/new"
+      fullPath: "/workshop/new"
+      preLoaderRoute: typeof WorkshopNewRouteImport
+      parentRoute: typeof WorkshopRoute
+    }
     "/hub/images/": {
       id: "/hub/images/"
       path: "/images"
@@ -503,6 +582,22 @@ const TranscriptionRouteWithChildren = TranscriptionRoute._addFileChildren(
   TranscriptionRouteChildren,
 )
 
+interface WorkshopRouteChildren {
+  WorkshopProjectIdRoute: typeof WorkshopProjectIdRoute
+  WorkshopNewRoute: typeof WorkshopNewRoute
+  WorkshopIndexRoute: typeof WorkshopIndexRoute
+}
+
+const WorkshopRouteChildren: WorkshopRouteChildren = {
+  WorkshopProjectIdRoute: WorkshopProjectIdRoute,
+  WorkshopNewRoute: WorkshopNewRoute,
+  WorkshopIndexRoute: WorkshopIndexRoute,
+}
+
+const WorkshopRouteWithChildren = WorkshopRoute._addFileChildren(
+  WorkshopRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   HubRoute: HubRouteWithChildren,
@@ -511,6 +606,7 @@ const rootRouteChildren: RootRouteChildren = {
   StudyRoute: StudyRouteWithChildren,
   ToolsRoute: ToolsRoute,
   TranscriptionRoute: TranscriptionRouteWithChildren,
+  WorkshopRoute: WorkshopRouteWithChildren,
   CChatIdRoute: CChatIdRoute,
 }
 export const routeTree = rootRouteImport

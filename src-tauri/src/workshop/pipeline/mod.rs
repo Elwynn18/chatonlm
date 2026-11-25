@@ -52,8 +52,12 @@ use tokio_util::sync::CancellationToken;
 use crate::agent::{AgentError, Call, Write};
 use crate::inference::Message;
 
+/// Lecture de l'état sauvé par le socle (parties montrées par la page,
+/// `workshop_part(s)`, lot 3) : mêmes formes que celles du pipeline.
+pub(crate) use build::{BrickRecord, body_words, read_split};
 pub use host::Host;
 pub use model::Model;
+pub(crate) use text::words;
 use types::{Activity, Autonomy, EventKind, Phase, ProjectState, StateKey};
 
 /// Fin d'un passage du pipeline.

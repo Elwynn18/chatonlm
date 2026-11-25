@@ -103,6 +103,7 @@ pub enum BrickState {
 /// 300 mots, toujours faux, redécoupée pendant une heure).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "WorkshopCriterionScope")]
 pub enum CriterionScope {
     Document,
     #[default]
@@ -112,6 +113,7 @@ pub enum CriterionScope {
 /// Critère d'acceptation de la spécification.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "WorkshopCriterion")]
 pub struct Criterion {
     /// « C1 », « C2 »… (numérotés par le programme).
     pub id: String,
@@ -125,6 +127,7 @@ pub struct Criterion {
 /// Registre d'adresse au lecteur, tranché par la spécification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "WorkshopRegister")]
 pub enum Register {
     /// Deuxième personne familière (« tu », « tú », « du »).
     Informal,
@@ -138,6 +141,7 @@ pub enum Register {
 /// TRANCHÉ (langue, registre, unités, longueur), sans « si » ni « ou ».
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "WorkshopSpec", export)]
 pub struct Spec {
     pub goal: String,
     pub deliverables: Vec<String>,
@@ -161,6 +165,7 @@ pub struct Spec {
 /// Nature d'une partie du plan.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "WorkshopBrickKind")]
 pub enum BrickKind {
     Text,
     /// Introduction : écrite à la fin, depuis les cartes des autres.
@@ -172,6 +177,7 @@ pub enum BrickKind {
 /// Une partie du plan.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "WorkshopBrickPlan")]
 pub struct BrickPlan {
     /// Entier de 1 à 99 dans le plan ; sous-partie d'un redécoupage :
     /// `parent * 100 + k` (k de 1 à 3).
@@ -190,6 +196,7 @@ pub struct BrickPlan {
 /// Plan du livrable.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "WorkshopPlan")]
 pub struct Plan {
     /// Titre du livrable (dans la langue de sortie).
     #[serde(default)]
@@ -244,6 +251,7 @@ pub struct Check {
 /// Ce qui se passe en ce moment, en codes et données (la page traduit).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", tag = "code")]
+#[ts(rename = "WorkshopActivity")]
 pub enum Activity {
     /// Choix de la stratégie, tirage `draw` (1 à 3).
     ChoosingStrategy {
@@ -293,6 +301,7 @@ pub enum Activity {
 /// Question posée à l'utilisateur ([`super::host::Host::ask`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", tag = "type", content = "value")]
+#[ts(rename = "WorkshopQuestion")]
 pub enum Question {
     /// Tirages de la stratégie non unanimes : les stratégies proposées, la
     /// plus votée d'abord.
@@ -308,6 +317,7 @@ pub enum Question {
 /// Réponse de l'utilisateur.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", tag = "type", content = "value")]
+#[ts(rename = "WorkshopAnswer")]
 pub enum Answer {
     Strategy(Strategy),
     /// Une réponse par question de cadrage, dans l'ordre (vide : pas de
@@ -326,6 +336,7 @@ pub enum Answer {
 /// Ce qui arrive à un projet.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", tag = "type")]
+#[ts(rename = "WorkshopEventKind")]
 pub enum EventKind {
     PhaseStarted {
         phase: Phase,
@@ -403,6 +414,7 @@ pub enum EventKind {
 /// Un événement numéroté.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename = "WorkshopEvent", export)]
 pub struct Event {
     pub seq: u64,
     pub at_ms: i64,

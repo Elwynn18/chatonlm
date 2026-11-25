@@ -1,0 +1,464 @@
+{
+  "title": "Atelier",
+  "badge": {
+    "working": "Un projet est au travail",
+    "needsYou": "Un projet a besoin de vous"
+  },
+  "home": {
+    "description": "Confiez une longue tâche à vos modèles. L'Atelier la planifie, l'écrit partie par partie, vérifie chaque partie et livre les fichiers dans un dossier. Le temps ne compte pas : la qualité, si.",
+    "newProject": "Nouveau projet",
+    "projects": "Projets",
+    "empty": "Aucun projet pour l'instant. Décrivez ce qu'il vous faut, l'Atelier fait le reste.",
+    "listError": "Impossible de lire les projets : {message}",
+    "noStrategy": "Stratégie à choisir",
+    "phase": "Phase : {phase}",
+    "position": "Position {position} dans la file",
+    "parts": "{done}/{total} parties",
+    "partsLabel": "Parties faites"
+  },
+  "settings": {
+    "title": "Réglages de l'Atelier",
+    "folder": "Dossier des projets",
+    "default": "Par défaut",
+    "noFolder": "Aucun dossier Documents trouvé : choisissez un dossier pour vos projets.",
+    "choose": "Choisir…",
+    "useDefault": "Reprendre le dossier par défaut",
+    "web": "Recherche web",
+    "webHint": "Les projets peuvent chercher sur le web quand leur tâche le demande.",
+    "autonomy": "Autonomie des nouveaux projets",
+    "loadError": "Impossible de lire les réglages : {message}",
+    "saveError": "Impossible d'enregistrer les réglages : {message}"
+  },
+  "autonomy": {
+    "label": "Autonomie",
+    "levels": {
+      "plan": "Plan",
+      "ask": "Demander",
+      "acceptActions": "Accepter les actions",
+      "autonomous": "Autonome"
+    },
+    "help": {
+      "plan": "L'Atelier cadre la tâche et propose un plan, puis attend : vous le relisez, le modifiez et lancez le travail.",
+      "ask": "Il vous demande d'approuver le plan, et avant chaque action qui a un effet (une recherche web, la lecture d'une page).",
+      "acceptActions": "Il vous demande seulement d'approuver le plan ; ensuite il travaille seul, web compris.",
+      "autonomous": "Il ne demande rien : ses questions deviennent des hypothèses écrites, et il approuve lui-même son plan."
+    },
+    "shortcut": "<kbd>Maj+Tab</kbd> dans la tâche la change ; <kbd>Échap</kbd> puis <kbd>Maj+Tab</kbd> sort de la tâche."
+  },
+  "new": {
+    "title": "Nouveau projet",
+    "back": "Projets",
+    "task": "Que doit faire l'Atelier ?",
+    "taskPlaceholder": "Décrivez la tâche : ce que vous voulez, pour qui, de quelle longueur. Par exemple : un guide de 3 000 mots sur la permaculture en ville, pour débutants.",
+    "characters": "{count}/{max}",
+    "attach": "Joindre des documents",
+    "attachHint": "Documents texte : .txt, .md, .pdf, .docx",
+    "attachments": "Documents joints",
+    "removeAttachment": "Retirer {name}",
+    "imageRefused": "{name} : un projet ne peut pas utiliser d'images",
+    "fileError": "{name} : {error}",
+    "readError": "Impossible de lire le fichier",
+    "tooMany": {
+      "one": "{count} document au plus",
+      "other": "{count} documents au plus"
+    },
+    "drop": "Déposez vos documents pour les joindre",
+    "model": "Modèle",
+    "modelAuto": "Auto",
+    "modelChecking": "Vérification du modèle…",
+    "modelChosen": "Le projet utilisera {model}.",
+    "modelAutoChosen": "L'Atelier utilisera {model}, le plus grand modèle qui tient.",
+    "modelCheckError": "Impossible de vérifier le modèle : {message}",
+    "modelErrors": {
+      "noModel": "Aucun modèle n'est installé. Téléchargez-en un d'abord dans le ModelHub.",
+      "modelNotFound": "Ce modèle n'est plus installé.",
+      "remoteOff": "C'est un modèle cloud, et les modèles cloud sont désactivés dans les paramètres.",
+      "contextTooSmall": "Ce modèle ne peut pas tenir assez de contexte pour un projet (16 384 jetons au moins).",
+      "unknown": "Ce modèle ne peut pas servir à un projet."
+    },
+    "strategy": "Stratégie",
+    "strategyAuto": "Auto (choisie selon la tâche)",
+    "soon": "{strategy} (bientôt)",
+    "folder": "Nom du dossier",
+    "folderPlaceholder": "Projet",
+    "folderIn": "Créé dans {dir}",
+    "create": "Lancer le projet",
+    "creating": "Lancement…"
+  },
+  "states": {
+    "queued": "En file",
+    "running": "Au travail",
+    "waiting": "Vous attend",
+    "paused": "En pause",
+    "yielding": "En attente",
+    "done": "Fini",
+    "failed": "Échoué",
+    "cancelled": "Arrêté"
+  },
+  "phases": {
+    "collect": "Collecte",
+    "strategy": "Stratégie",
+    "framing": "Cadrage",
+    "spec": "Spécification",
+    "plan": "Plan",
+    "build": "Rédaction",
+    "assemble": "Assemblage",
+    "verify": "Vérification",
+    "deliver": "Livraison"
+  },
+  "phaseMarks": {
+    "label": "Phases",
+    "done": "faite",
+    "current": "en cours",
+    "pending": "à venir",
+    "item": "{phase}, {status}"
+  },
+  "strategies": {
+    "generic": "Générique",
+    "longForm": "Rédaction longue",
+    "research": "Recherche documentée",
+    "documents": "Analyse de documents",
+    "code": "Code"
+  },
+  "partStates": {
+    "pending": "À faire",
+    "running": "En écriture",
+    "checking": "En vérification",
+    "fixing": "En correction",
+    "done": "Finie",
+    "toReview": "À revoir",
+    "refused": "Refusée",
+    "split": "Redécoupée"
+  },
+  "view": {
+    "loadError": "Impossible de lire ce projet : {message}",
+    "notFound": "Ce projet n'existe plus.",
+    "unknown": "Projet introuvable.",
+    "back": "Projets",
+    "pause": "Pause",
+    "resume": "Reprendre",
+    "stop": "Arrêter",
+    "more": "Plus d'actions",
+    "openFolder": "Ouvrir le dossier",
+    "delete": "Supprimer le projet…",
+    "actionError": "Cela n'a pas marché : {message}",
+    "stopTitle": "Arrêter « {title} » ?",
+    "stopMessage": "Ce qui est déjà écrit reste dans son dossier, mais le projet ne pourra pas reprendre.",
+    "stopConfirm": "Arrêter le projet",
+    "deleteTitle": "Supprimer « {title} » ?",
+    "deleteMessage": "Son dossier est {folder}. Garder les fichiers, ou les supprimer avec le projet ?",
+    "deleteKeep": "Garder les fichiers",
+    "deleteFiles": "Supprimer aussi les fichiers",
+    "task": "Tâche",
+    "attachments": "Joints : {names}"
+  },
+  "plan": {
+    "title": "Plan",
+    "direct": "Version d'un seul jet",
+    "directHint": "L'Atelier écrit d'abord tout d'un seul jet, puis le vérifie. Il ne découpe le travail en parties que si cette version échoue.",
+    "partNumber": "Partie {number}",
+    "writtenLast": "écrite à la fin",
+    "attempt": "essai {number}",
+    "words": "{words}/{target}",
+    "wordsWritten": "{words}",
+    "empty": "Le plan n'est pas encore prêt."
+  },
+  "part": {
+    "label": "Partie choisie",
+    "attempt": "Essai {number}",
+    "wordsOf": "{words} mots sur {target}",
+    "held": "Tenues : {passed} sur {count}",
+    "passed": "tenue",
+    "failed": "non tenue",
+    "doubtful": "douteuse",
+    "noChecks": "Pas encore vérifiée.",
+    "noOwnCheck": "Pas de vérification propre à cette partie.",
+    "preview": "Aperçu",
+    "noText": "Rien d'écrit pour l'instant.",
+    "loadError": "Impossible de lire cette partie : {message}"
+  },
+  "methods": {
+    "program": "mesurée par le programme",
+    "formJudge": "jugée sur la forme",
+    "factJudge": "jugée sur l'exactitude"
+  },
+  "activity": {
+    "label": "Ce que fait l'Atelier",
+    "starting": "Mise en route…",
+    "queued": "Attend son tour : position {position} dans la file.",
+    "queuedNext": "Attend son tour.",
+    "waiting": "J'ai besoin de vous : répondez ci-dessous pour que je continue.",
+    "yielding": "Vous utilisez l'app : le projet attend que vous ayez fini.",
+    "paused": "En pause. Rien n'est perdu : reprenez quand vous voulez.",
+    "done": "Fini ! Tout est dans le dossier du projet.",
+    "cancelled": "Projet arrêté.",
+    "gpuLent": "Le modèle de texte prête la carte graphique {engine}…",
+    "choosingStrategy": "Choix de la meilleure façon de faire (vote {draw} sur 3)…",
+    "writingSpec": "Écriture de la spécification (version {attempt})…",
+    "writingDirect": "Écriture de tout d'un seul jet…",
+    "checkingDirect": "Vérification de la version d'un seul jet…",
+    "writingPlan": "Écriture du plan {attempt} sur 3…",
+    "judgingPlan": "Jugement du plan {attempt} sur 3…",
+    "writingBrick": "Écriture de « {part} »…",
+    "checkingBrick": "Vérification de « {part} »…",
+    "fixingBrick": "Correction de « {part} »…",
+    "splittingBrick": "Découpage de « {part} » en parties plus petites…",
+    "summarizingBrick": "Résumé de « {part} » pour les parties suivantes…",
+    "fixingSentences": "Correction des phrases jugées fausses dans « {part} »…",
+    "assembling": "Assemblage des parties…",
+    "checkingWhole": "Vérification du document entier…",
+    "proofreading": "Relecture de la langue (passage {number})…",
+    "delivering": "Écriture des fichiers dans le dossier du projet…"
+  },
+  "engines": {
+    "image": "au moteur d'images",
+    "transcription": "à la transcription",
+    "generic": "à un autre moteur"
+  },
+  "gauge": {
+    "label": "Avancement",
+    "model": "Modèle",
+    "elapsed": "Temps de travail",
+    "words": "Écrit",
+    "parts": "Parties",
+    "partsValue": "{done}/{total}",
+    "underMinute": "moins d'une minute",
+    "minutes": {
+      "one": "{count} min",
+      "other": "{count} min"
+    },
+    "hours": "{hours} h {minutes} min"
+  },
+  "words": {
+    "one": "{count} mot",
+    "other": "{count} mots"
+  },
+  "log": {
+    "title": "Journal",
+    "empty": "Rien pour l'instant.",
+    "phaseStarted": "Phase « {phase} » commencée.",
+    "phaseDone": "Phase « {phase} » faite.",
+    "strategyChosen": "Stratégie : {strategy} (les votes divergeaient).",
+    "strategyChosenUnanimous": "Stratégie : {strategy} (trois votes sur trois).",
+    "planReady": {
+      "one": "Plan prêt : {count} partie.",
+      "other": "Plan prêt : {count} parties."
+    },
+    "brick": "« {part} » : {state}.",
+    "checksPassed": {
+      "one": "« {part} » : la vérification est tenue.",
+      "other": "« {part} » : les {count} vérifications sont tenues."
+    },
+    "checksFailed": {
+      "one": "« {part} » : {count} vérification sur {total} non tenue.",
+      "other": "« {part} » : {count} vérifications sur {total} non tenues."
+    },
+    "question": {
+      "strategy": "Question : quelle stratégie ?",
+      "framing": "Questions avant de commencer.",
+      "approvePlan": "Plan à approuver.",
+      "approveAction": "Action à permettre."
+    },
+    "answer": {
+      "strategy": "Réponse reçue : stratégie choisie.",
+      "framing": "Réponses reçues.",
+      "plan": "Réponse reçue sur le plan.",
+      "action": "Réponse reçue sur l'action.",
+      "cancelled": "Question abandonnée : projet arrêté."
+    },
+    "gpuLent": "Carte graphique prêtée {engine}.",
+    "gpuBack": "Carte graphique rendue au modèle de texte.",
+    "yielding": "En attente pendant que vous utilisez l'app.",
+    "resumed": "Retour au travail.",
+    "model": "Modèle : {model}.",
+    "modelWarnings": "Modèle : {model}. {warnings}",
+    "finishedDone": "Projet fini.",
+    "finishedFailed": "Projet échoué."
+  },
+  "needYou": {
+    "banner": "J'ai besoin de vous",
+    "sendError": "Impossible d'envoyer votre réponse : {message}",
+    "strategy": {
+      "title": "Quelle voie dois-je prendre ?",
+      "hint": "Mes votes divergeaient. Choisissez comment mener ce projet.",
+      "submit": "Continuer"
+    },
+    "framing": {
+      "title": "Quelques questions avant de commencer",
+      "hint": "Répondez à ce que vous pouvez. Une réponse vide devient une hypothèse écrite.",
+      "answer": "Votre réponse à la question {number}",
+      "submit": "Envoyer mes réponses"
+    },
+    "plan": {
+      "title": "Voici le plan",
+      "hint": "Changez les titres, les buts, les longueurs ou l'ordre si vous voulez, puis approuvez-le. Ou demandez un autre plan en disant pourquoi.",
+      "documentTitle": "Titre du document",
+      "partTitle": "Titre de la partie {number}",
+      "partGoal": "But de la partie {number}",
+      "partWords": "Mots de la partie {number}",
+      "moveUp": "Monter « {title} »",
+      "moveDown": "Descendre « {title} »",
+      "total": "{words} en tout",
+      "missingDocumentTitle": "Donnez un titre au document pour approuver le plan.",
+      "missingPartTitle": "Donnez un titre à la partie {number} pour approuver le plan.",
+      "missingPartWords": "Indiquez le nombre de mots de la partie {number} (« {title} ») pour approuver le plan.",
+      "approve": "Approuver le plan",
+      "approveEdited": "Approuver mes changements",
+      "note": "Que faut-il changer ?",
+      "notePlaceholder": "Par exemple : moins de parties, une partie par saison, pas de partie sur les outils.",
+      "refuse": "Demander un autre plan",
+      "noteIgnored": "Approuver n'envoie pas votre note : elle ne sert qu'à demander un autre plan."
+    },
+    "action": {
+      "title": "Puis-je faire ceci ?",
+      "tools": {
+        "webSearch": "Chercher sur le web",
+        "webFetch": "Lire une page web",
+        "readFile": "Lire un fichier",
+        "generic": "Utiliser un outil"
+      },
+      "allow": "Permettre",
+      "deny": "Ne pas permettre"
+    }
+  },
+  "report": {
+    "title": "Rapport de vérification",
+    "route": {
+      "direct": "Écrit d'un seul jet, puis vérifié.",
+      "parts": "Écrit partie par partie, puis assemblé et vérifié."
+    },
+    "words": "{words} écrits",
+    "wordsTarget": "{words} écrits, {target} demandés",
+    "file": "Livrable : {file}",
+    "openFile": "Ouvrir le livrable",
+    "openFolder": "Ouvrir le dossier",
+    "allGood": "Toutes les vérifications sont tenues.",
+    "noChecks": "Aucune vérification notée.",
+    "criteria": "Vérifications de l'ensemble",
+    "outline": "Les critères n'ont été jugés que sur le squelette : le document était trop long pour être jugé d'un coup.",
+    "toReviewCount": {
+      "one": "{count} point à revoir",
+      "other": "{count} points à revoir"
+    },
+    "doubtfulCount": {
+      "one": "{count} affirmation douteuse",
+      "other": "{count} affirmations douteuses"
+    },
+    "signals": "Signalements",
+    "notChecked": "Non vérifié",
+    "notCheckedCodes": {
+      "factJudge": "L'exactitude des faits : le juge n'a pas pu répondre.",
+      "formJudge": "La forme : le juge n'a pas pu répondre.",
+      "sources": "Les sources.",
+      "documents": "Une partie des documents joints : trop longs, ils ont été coupés.",
+      "generic": "Un point n'a pas pu être vérifié."
+    },
+    "warnings": "En cours de route",
+    "proofread": "Relecture de la langue : {blocks} passages relus, {changed} corrigés, {rejected} corrections écartées.",
+    "parts": "Parties",
+    "fixed": "corrigée"
+  },
+  "checks": {
+    "criterion": "Critère {id}",
+    "criterionText": "{id} : {text}",
+    "codes": {
+      "empty": "Texte non vide",
+      "length": "Longueur",
+      "internalWord": "Aucune tournure de l'Atelier restée dans le texte",
+      "engineWord": "Mots de l'Atelier dans le texte",
+      "outsideRegistry": "Noms hors de la liste commune",
+      "language": "Langue",
+      "register": "Façon de s'adresser au lecteur",
+      "goal": "But de la partie",
+      "forbidden": "Sujets laissés à d'autres parties",
+      "registryConflict": "Décision contraire à la liste commune",
+      "copiedRemark": "Remarque du juge recopiée dans le texte",
+      "contradiction": "Contradiction entre parties",
+      "contradictions": "Contradictions entre parties",
+      "generic": "Contrôle par le programme"
+    },
+    "units": {
+      "words": {
+        "one": "{count} mot",
+        "other": "{count} mots"
+      },
+      "headings": {
+        "one": "{count} titre",
+        "other": "{count} titres"
+      },
+      "headingsLevel": {
+        "one": "{count} titre de niveau {level}",
+        "other": "{count} titres de niveau {level}"
+      },
+      "sections": {
+        "one": "{count} section",
+        "other": "{count} sections"
+      },
+      "tables": {
+        "one": "{count} tableau",
+        "other": "{count} tableaux"
+      },
+      "items": {
+        "one": "{count} élément",
+        "other": "{count} éléments"
+      },
+      "generic": {
+        "one": "{count}",
+        "other": "{count}"
+      }
+    },
+    "measure": {
+      "exact": "{value} (visé : {target})",
+      "between": "{value} (visé : {min} à {max})",
+      "atLeast": "{value} (visé : au moins {min})",
+      "atMost": "{value} (visé : au plus {max})"
+    }
+  },
+  "modelWarnings": {
+    "tooSmall": "Ce modèle est tout petit : le résultat sera sans doute médiocre.",
+    "small": "Ce modèle est petit : attendez-vous à un résultat modeste.",
+    "smallContext": "Ce modèle tient peu de contexte : les longues tâches en souffriront.",
+    "noThinking": "Ce modèle ne sait pas réfléchir avant de répondre : plans et vérifications seront plus faibles.",
+    "unknownSize": "La taille de ce modèle est inconnue : l'Atelier ne peut pas dire s'il est assez grand."
+  },
+  "warnings": {
+    "strategyNotYet": "Cette stratégie n'est pas encore disponible : la générique a été prise.",
+    "planBestOfThree": "Aucun plan n'était sans défaut : le meilleur des trois a été gardé.",
+    "planDefect": "Le plan gardé a un défaut.",
+    "specBestOfThree": "Aucune spécification n'était sans défaut : la meilleure des trois a été gardée.",
+    "specDefect": "La spécification gardée a un défaut.",
+    "registryCondensed": "La liste des décisions communes a été resserrée pour tenir.",
+    "registryConflict": "Deux décisions se contredisaient : l'une a été écartée.",
+    "judgeUnavailable": "Un juge n'a pas pu répondre : un point n'a pas été vérifié.",
+    "attachmentsCut": "Les documents joints étaient trop longs et ont été coupés.",
+    "lengthCapped": "La longueur demandée était trop grande pour ce modèle et a été réduite.",
+    "modelRetry": "La réponse du modèle était illisible : nouvelle demande.",
+    "directFailed": "La version d'un seul jet n'a pas passé les vérifications : passage à un plan.",
+    "documentCriteriaRemoved": "Les critères qui portent sur le document entier ont été retirés des parties.",
+    "looping": "Le modèle se répétait : arrêté et relancé.",
+    "briefTooLong": "Les consignes d'une partie étaient trop longues et ont été raccourcies.",
+    "proofreadRejected": "Une correction de la langue a été écartée : elle changeait trop de choses.",
+    "surgeryNotFound": "Une phrase à corriger n'a pas été retrouvée dans le texte.",
+    "surgeryRejected": "Une correction de phrases allait trop loin : le texte a été gardé.",
+    "generic": "Un imprévu est arrivé ; le projet a continué."
+  },
+  "errors": {
+    "strategyNotYet": "Ce genre de projet n'est pas encore disponible.",
+    "specUndecided": "La spécification est restée indécise : la tâche doit être plus claire.",
+    "planUnusable": "Aucun plan utilisable n'a pu être écrit.",
+    "deliverWriteFailed": "Les fichiers n'ont pas pu être écrits dans le dossier du projet.",
+    "folderMissing": "Le dossier du projet a disparu.",
+    "noModel": "Aucun modèle n'est installé.",
+    "modelNotFound": "Le modèle du projet n'est plus installé.",
+    "remoteOff": "Le modèle du projet est un modèle cloud, et les modèles cloud sont désactivés.",
+    "contextTooSmall": "Le modèle ne peut pas tenir assez de contexte pour un projet.",
+    "contextExceeded": "Le modèle a manqué de contexte.",
+    "unreadable": "Les réponses du modèle sont restées illisibles.",
+    "looping": "Le modèle n'a pas cessé de se répéter.",
+    "incomplete": "Les réponses du modèle sont restées coupées.",
+    "engine": "Le moteur des modèles s'est arrêté.",
+    "connection": "La connexion au modèle a été perdue.",
+    "account": "Le compte cloud a refusé la demande.",
+    "unknown": "Quelque chose s'est mal passé."
+  }
+}

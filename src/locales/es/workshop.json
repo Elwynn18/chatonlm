@@ -1,0 +1,464 @@
+{
+  "title": "Taller",
+  "badge": {
+    "working": "Un proyecto está trabajando",
+    "needsYou": "Un proyecto te necesita"
+  },
+  "home": {
+    "description": "Confía una tarea larga a tus modelos. El Taller la planifica, la escribe por partes, revisa cada parte y entrega los archivos en una carpeta. El tiempo no cuenta: la calidad, sí.",
+    "newProject": "Nuevo proyecto",
+    "projects": "Proyectos",
+    "empty": "Todavía no hay proyectos. Describe lo que necesitas y el Taller hace el resto.",
+    "listError": "No se pudieron cargar los proyectos: {message}",
+    "noStrategy": "Estrategia por elegir",
+    "phase": "Fase: {phase}",
+    "position": "Puesto {position} en la cola",
+    "parts": "{done}/{total} partes",
+    "partsLabel": "Partes hechas"
+  },
+  "settings": {
+    "title": "Configuración del Taller",
+    "folder": "Carpeta de los proyectos",
+    "default": "Predeterminada",
+    "noFolder": "No se encontró la carpeta Documentos: elige una carpeta para tus proyectos.",
+    "choose": "Elegir…",
+    "useDefault": "Usar la carpeta predeterminada",
+    "web": "Búsqueda web",
+    "webHint": "Los proyectos pueden buscar en la web cuando su tarea lo necesita.",
+    "autonomy": "Autonomía de los proyectos nuevos",
+    "loadError": "No se pudo cargar la configuración: {message}",
+    "saveError": "No se pudo guardar la configuración: {message}"
+  },
+  "autonomy": {
+    "label": "Autonomía",
+    "levels": {
+      "plan": "Plan",
+      "ask": "Preguntar",
+      "acceptActions": "Aceptar acciones",
+      "autonomous": "Autónomo"
+    },
+    "help": {
+      "plan": "El Taller encuadra la tarea y propone un plan, luego espera: lo revisas, lo cambias y lanzas el trabajo.",
+      "ask": "Te pide aprobar el plan, y antes de cada acción con efecto (una búsqueda web, leer una página).",
+      "acceptActions": "Solo te pide aprobar el plan; después trabaja por su cuenta, web incluida.",
+      "autonomous": "No pregunta nada: sus preguntas se vuelven supuestos escritos y aprueba él mismo su plan."
+    },
+    "shortcut": "<kbd>Mayús+Tab</kbd> en la tarea la cambia; <kbd>Esc</kbd> y luego <kbd>Mayús+Tab</kbd> sale de la tarea."
+  },
+  "new": {
+    "title": "Nuevo proyecto",
+    "back": "Proyectos",
+    "task": "¿Qué debe hacer el Taller?",
+    "taskPlaceholder": "Describe la tarea: qué quieres, para quién, de qué extensión. Por ejemplo: una guía de 3000 palabras sobre permacultura urbana para principiantes.",
+    "characters": "{count}/{max}",
+    "attach": "Adjuntar documentos",
+    "attachHint": "Documentos de texto: .txt, .md, .pdf, .docx",
+    "attachments": "Documentos adjuntos",
+    "removeAttachment": "Quitar {name}",
+    "imageRefused": "{name}: un proyecto no puede usar imágenes",
+    "fileError": "{name}: {error}",
+    "readError": "No se pudo leer el archivo",
+    "tooMany": {
+      "one": "{count} documento como máximo",
+      "other": "{count} documentos como máximo"
+    },
+    "drop": "Suelta tus documentos para adjuntarlos",
+    "model": "Modelo",
+    "modelAuto": "Auto",
+    "modelChecking": "Comprobando el modelo…",
+    "modelChosen": "El proyecto usará {model}.",
+    "modelAutoChosen": "El Taller usará {model}, el modelo más grande que cabe.",
+    "modelCheckError": "No se pudo comprobar el modelo: {message}",
+    "modelErrors": {
+      "noModel": "No hay ningún modelo instalado. Descarga uno primero en el ModelHub.",
+      "modelNotFound": "Este modelo ya no está instalado.",
+      "remoteOff": "Es un modelo en la nube, y los modelos en la nube están desactivados en la configuración.",
+      "contextTooSmall": "Este modelo no puede guardar suficiente contexto para un proyecto (16 384 tokens como mínimo).",
+      "unknown": "Este modelo no sirve para un proyecto."
+    },
+    "strategy": "Estrategia",
+    "strategyAuto": "Auto (elegida según la tarea)",
+    "soon": "{strategy} (pronto)",
+    "folder": "Nombre de la carpeta",
+    "folderPlaceholder": "Proyecto",
+    "folderIn": "Se crea en {dir}",
+    "create": "Lanzar el proyecto",
+    "creating": "Lanzando…"
+  },
+  "states": {
+    "queued": "En cola",
+    "running": "Trabajando",
+    "waiting": "Te necesita",
+    "paused": "En pausa",
+    "yielding": "En espera",
+    "done": "Terminado",
+    "failed": "Fallido",
+    "cancelled": "Detenido"
+  },
+  "phases": {
+    "collect": "Recopilación",
+    "strategy": "Estrategia",
+    "framing": "Encuadre",
+    "spec": "Especificación",
+    "plan": "Plan",
+    "build": "Redacción",
+    "assemble": "Ensamblaje",
+    "verify": "Verificación",
+    "deliver": "Entrega"
+  },
+  "phaseMarks": {
+    "label": "Fases",
+    "done": "hecha",
+    "current": "en curso",
+    "pending": "por venir",
+    "item": "{phase}, {status}"
+  },
+  "strategies": {
+    "generic": "Genérica",
+    "longForm": "Redacción larga",
+    "research": "Investigación documentada",
+    "documents": "Análisis de documentos",
+    "code": "Código"
+  },
+  "partStates": {
+    "pending": "Pendiente",
+    "running": "Escribiéndose",
+    "checking": "Revisándose",
+    "fixing": "Corrigiéndose",
+    "done": "Hecha",
+    "toReview": "Por revisar",
+    "refused": "Rechazada",
+    "split": "Dividida"
+  },
+  "view": {
+    "loadError": "No se pudo cargar este proyecto: {message}",
+    "notFound": "Este proyecto ya no existe.",
+    "unknown": "Proyecto no encontrado.",
+    "back": "Proyectos",
+    "pause": "Pausa",
+    "resume": "Reanudar",
+    "stop": "Detener",
+    "more": "Más acciones",
+    "openFolder": "Abrir la carpeta",
+    "delete": "Eliminar el proyecto…",
+    "actionError": "No funcionó: {message}",
+    "stopTitle": "¿Detener «{title}»?",
+    "stopMessage": "Lo ya escrito se queda en su carpeta, pero el proyecto no podrá reanudarse.",
+    "stopConfirm": "Detener el proyecto",
+    "deleteTitle": "¿Eliminar «{title}»?",
+    "deleteMessage": "Su carpeta es {folder}. ¿Conservar los archivos o eliminarlos con el proyecto?",
+    "deleteKeep": "Conservar los archivos",
+    "deleteFiles": "Eliminar también los archivos",
+    "task": "Tarea",
+    "attachments": "Adjuntos: {names}"
+  },
+  "plan": {
+    "title": "Plan",
+    "direct": "Versión de una sola vez",
+    "directHint": "El Taller primero escribe todo de una sola vez y luego lo revisa. Solo divide el trabajo en partes si esa versión falla.",
+    "partNumber": "Parte {number}",
+    "writtenLast": "se escribe al final",
+    "attempt": "intento {number}",
+    "words": "{words}/{target}",
+    "wordsWritten": "{words}",
+    "empty": "El plan todavía no está listo."
+  },
+  "part": {
+    "label": "Parte elegida",
+    "attempt": "Intento {number}",
+    "wordsOf": "{words} de {target} palabras",
+    "held": "Superadas: {passed} de {count}",
+    "passed": "superada",
+    "failed": "no superada",
+    "doubtful": "dudosa",
+    "noChecks": "Todavía sin revisar.",
+    "noOwnCheck": "Sin revisión propia para esta parte.",
+    "preview": "Vista previa",
+    "noText": "Todavía no hay nada escrito.",
+    "loadError": "No se pudo cargar esta parte: {message}"
+  },
+  "methods": {
+    "program": "medida por el programa",
+    "formJudge": "juzgada por la forma",
+    "factJudge": "juzgada por la exactitud"
+  },
+  "activity": {
+    "label": "Lo que hace el Taller",
+    "starting": "Poniéndose en marcha…",
+    "queued": "Esperando su turno: puesto {position} en la cola.",
+    "queuedNext": "Esperando su turno.",
+    "waiting": "Te necesito: responde abajo para que pueda seguir.",
+    "yielding": "Estás usando la app: el proyecto espera a que termines.",
+    "paused": "En pausa. No se pierde nada: reanúdalo cuando quieras.",
+    "done": "¡Listo! Todo está en la carpeta del proyecto.",
+    "cancelled": "Proyecto detenido.",
+    "gpuLent": "El modelo de texto presta la tarjeta gráfica {engine}…",
+    "choosingStrategy": "Eligiendo la mejor manera de hacerlo (voto {draw} de 3)…",
+    "writingSpec": "Escribiendo la especificación (versión {attempt})…",
+    "writingDirect": "Escribiendo todo de una sola vez…",
+    "checkingDirect": "Revisando la versión de una sola vez…",
+    "writingPlan": "Escribiendo el plan {attempt} de 3…",
+    "judgingPlan": "Juzgando el plan {attempt} de 3…",
+    "writingBrick": "Escribiendo «{part}»…",
+    "checkingBrick": "Revisando «{part}»…",
+    "fixingBrick": "Corrigiendo «{part}»…",
+    "splittingBrick": "Dividiendo «{part}» en partes más pequeñas…",
+    "summarizingBrick": "Resumiendo «{part}» para las partes siguientes…",
+    "fixingSentences": "Corrigiendo las frases juzgadas falsas en «{part}»…",
+    "assembling": "Ensamblando las partes…",
+    "checkingWhole": "Revisando el documento entero…",
+    "proofreading": "Revisando el idioma (pasaje {number})…",
+    "delivering": "Escribiendo los archivos en la carpeta del proyecto…"
+  },
+  "engines": {
+    "image": "al motor de imágenes",
+    "transcription": "a la transcripción",
+    "generic": "a otro motor"
+  },
+  "gauge": {
+    "label": "Avance",
+    "model": "Modelo",
+    "elapsed": "Tiempo de trabajo",
+    "words": "Escrito",
+    "parts": "Partes",
+    "partsValue": "{done}/{total}",
+    "underMinute": "menos de un minuto",
+    "minutes": {
+      "one": "{count} min",
+      "other": "{count} min"
+    },
+    "hours": "{hours} h {minutes} min"
+  },
+  "words": {
+    "one": "{count} palabra",
+    "other": "{count} palabras"
+  },
+  "log": {
+    "title": "Registro",
+    "empty": "Nada todavía.",
+    "phaseStarted": "Fase «{phase}» iniciada.",
+    "phaseDone": "Fase «{phase}» hecha.",
+    "strategyChosen": "Estrategia: {strategy} (los votos no coincidían).",
+    "strategyChosenUnanimous": "Estrategia: {strategy} (tres votos de tres).",
+    "planReady": {
+      "one": "Plan listo: {count} parte.",
+      "other": "Plan listo: {count} partes."
+    },
+    "brick": "«{part}»: {state}.",
+    "checksPassed": {
+      "one": "«{part}»: la comprobación está superada.",
+      "other": "«{part}»: las {count} comprobaciones están superadas."
+    },
+    "checksFailed": {
+      "one": "«{part}»: {count} comprobación de {total} no superada.",
+      "other": "«{part}»: {count} comprobaciones de {total} no superadas."
+    },
+    "question": {
+      "strategy": "Pregunta: ¿qué estrategia?",
+      "framing": "Preguntas antes de empezar.",
+      "approvePlan": "Plan por aprobar.",
+      "approveAction": "Acción por permitir."
+    },
+    "answer": {
+      "strategy": "Respuesta recibida: estrategia elegida.",
+      "framing": "Respuestas recibidas.",
+      "plan": "Respuesta recibida sobre el plan.",
+      "action": "Respuesta recibida sobre la acción.",
+      "cancelled": "Pregunta abandonada: proyecto detenido."
+    },
+    "gpuLent": "Tarjeta gráfica prestada {engine}.",
+    "gpuBack": "Tarjeta gráfica devuelta al modelo de texto.",
+    "yielding": "En espera mientras usas la app.",
+    "resumed": "De vuelta al trabajo.",
+    "model": "Modelo: {model}.",
+    "modelWarnings": "Modelo: {model}. {warnings}",
+    "finishedDone": "Proyecto terminado.",
+    "finishedFailed": "Proyecto fallido."
+  },
+  "needYou": {
+    "banner": "Te necesito",
+    "sendError": "No se pudo enviar tu respuesta: {message}",
+    "strategy": {
+      "title": "¿Qué camino debo tomar?",
+      "hint": "Mis votos no coincidían. Elige cómo llevar este proyecto.",
+      "submit": "Continuar"
+    },
+    "framing": {
+      "title": "Unas preguntas antes de empezar",
+      "hint": "Responde lo que puedas. Una respuesta vacía se vuelve un supuesto escrito.",
+      "answer": "Tu respuesta a la pregunta {number}",
+      "submit": "Enviar mis respuestas"
+    },
+    "plan": {
+      "title": "Este es el plan",
+      "hint": "Cambia los títulos, los objetivos, las extensiones o el orden si quieres, y apruébalo. O pide otro plan y di por qué.",
+      "documentTitle": "Título del documento",
+      "partTitle": "Título de la parte {number}",
+      "partGoal": "Objetivo de la parte {number}",
+      "partWords": "Palabras de la parte {number}",
+      "moveUp": "Subir «{title}»",
+      "moveDown": "Bajar «{title}»",
+      "total": "{words} en total",
+      "missingDocumentTitle": "Pon un título al documento para aprobar el plan.",
+      "missingPartTitle": "Pon un título a la parte {number} para aprobar el plan.",
+      "missingPartWords": "Indica cuántas palabras tiene la parte {number} («{title}») para aprobar el plan.",
+      "approve": "Aprobar el plan",
+      "approveEdited": "Aprobar mis cambios",
+      "note": "¿Qué hay que cambiar?",
+      "notePlaceholder": "Por ejemplo: menos partes, una parte por estación, ninguna parte sobre herramientas.",
+      "refuse": "Pedir otro plan",
+      "noteIgnored": "Aprobar no envía tu nota: solo sirve para pedir otro plan."
+    },
+    "action": {
+      "title": "¿Puedo hacer esto?",
+      "tools": {
+        "webSearch": "Buscar en la web",
+        "webFetch": "Leer una página web",
+        "readFile": "Leer un archivo",
+        "generic": "Usar una herramienta"
+      },
+      "allow": "Permitir",
+      "deny": "No permitir"
+    }
+  },
+  "report": {
+    "title": "Informe de verificación",
+    "route": {
+      "direct": "Escrito de una sola vez y luego revisado.",
+      "parts": "Escrito por partes, luego ensamblado y revisado."
+    },
+    "words": "{words} escritas",
+    "wordsTarget": "{words} escritas, {target} pedidas",
+    "file": "Entregable: {file}",
+    "openFile": "Abrir el entregable",
+    "openFolder": "Abrir la carpeta",
+    "allGood": "Todas las comprobaciones están superadas.",
+    "noChecks": "Ninguna comprobación anotada.",
+    "criteria": "Comprobaciones del conjunto",
+    "outline": "Los criterios solo se juzgaron sobre el esquema: el documento era demasiado largo para juzgarlo de una vez.",
+    "toReviewCount": {
+      "one": "{count} punto por revisar",
+      "other": "{count} puntos por revisar"
+    },
+    "doubtfulCount": {
+      "one": "{count} afirmación dudosa",
+      "other": "{count} afirmaciones dudosas"
+    },
+    "signals": "Avisos",
+    "notChecked": "Sin verificar",
+    "notCheckedCodes": {
+      "factJudge": "La exactitud de los hechos: el juez no pudo responder.",
+      "formJudge": "La forma: el juez no pudo responder.",
+      "sources": "Las fuentes.",
+      "documents": "Parte de los documentos adjuntos: eran demasiado largos y se recortaron.",
+      "generic": "Un punto no pudo verificarse."
+    },
+    "warnings": "Por el camino",
+    "proofread": "Revisión del idioma: {blocks} pasajes revisados, {changed} corregidos, {rejected} correcciones descartadas.",
+    "parts": "Partes",
+    "fixed": "corregida"
+  },
+  "checks": {
+    "criterion": "Criterio {id}",
+    "criterionText": "{id}: {text}",
+    "codes": {
+      "empty": "Texto no vacío",
+      "length": "Extensión",
+      "internalWord": "Ningún giro del Taller en el texto",
+      "engineWord": "Palabras del Taller en el texto",
+      "outsideRegistry": "Nombres fuera de la lista común",
+      "language": "Idioma",
+      "register": "Forma de dirigirse al lector",
+      "goal": "Objetivo de la parte",
+      "forbidden": "Temas reservados a otras partes",
+      "registryConflict": "Decisión contraria a la lista común",
+      "copiedRemark": "Observación del juez copiada en el texto",
+      "contradiction": "Contradicción entre partes",
+      "contradictions": "Contradicciones entre partes",
+      "generic": "Control del programa"
+    },
+    "units": {
+      "words": {
+        "one": "{count} palabra",
+        "other": "{count} palabras"
+      },
+      "headings": {
+        "one": "{count} título",
+        "other": "{count} títulos"
+      },
+      "headingsLevel": {
+        "one": "{count} título de nivel {level}",
+        "other": "{count} títulos de nivel {level}"
+      },
+      "sections": {
+        "one": "{count} sección",
+        "other": "{count} secciones"
+      },
+      "tables": {
+        "one": "{count} tabla",
+        "other": "{count} tablas"
+      },
+      "items": {
+        "one": "{count} elemento",
+        "other": "{count} elementos"
+      },
+      "generic": {
+        "one": "{count}",
+        "other": "{count}"
+      }
+    },
+    "measure": {
+      "exact": "{value} (objetivo: {target})",
+      "between": "{value} (objetivo: de {min} a {max})",
+      "atLeast": "{value} (objetivo: al menos {min})",
+      "atMost": "{value} (objetivo: como máximo {max})"
+    }
+  },
+  "modelWarnings": {
+    "tooSmall": "Este modelo es muy pequeño: el resultado probablemente será pobre.",
+    "small": "Este modelo es pequeño: espera un resultado modesto.",
+    "smallContext": "Este modelo guarda poco contexto: las tareas largas lo notarán.",
+    "noThinking": "Este modelo no sabe pensar antes de responder: los planes y las revisiones serán más débiles.",
+    "unknownSize": "No se conoce el tamaño de este modelo: el Taller no puede saber si es lo bastante grande."
+  },
+  "warnings": {
+    "strategyNotYet": "Esa estrategia todavía no está disponible: se usó la genérica.",
+    "planBestOfThree": "Ningún plan era perfecto: se guardó el mejor de tres.",
+    "planDefect": "El plan guardado tiene un defecto.",
+    "specBestOfThree": "Ninguna especificación era perfecta: se guardó la mejor de tres.",
+    "specDefect": "La especificación guardada tiene un defecto.",
+    "registryCondensed": "La lista de decisiones comunes se condensó para que cupiera.",
+    "registryConflict": "Dos decisiones se contradecían: se descartó una.",
+    "judgeUnavailable": "Un juez no pudo responder: un punto quedó sin verificar.",
+    "attachmentsCut": "Los documentos adjuntos eran demasiado largos y se recortaron.",
+    "lengthCapped": "La extensión pedida era demasiado para este modelo y se redujo.",
+    "modelRetry": "La respuesta del modelo era ilegible: se volvió a pedir.",
+    "directFailed": "La versión de una sola vez no superó las comprobaciones: se pasa a un plan.",
+    "documentCriteriaRemoved": "Los criterios sobre el documento entero se quitaron de las partes.",
+    "looping": "El modelo se repetía: se detuvo y se volvió a intentar.",
+    "briefTooLong": "Las instrucciones de una parte eran demasiado largas y se acortaron.",
+    "proofreadRejected": "Se descartó una corrección del idioma: cambiaba demasiado.",
+    "surgeryNotFound": "No se encontró en el texto una frase por corregir.",
+    "surgeryRejected": "Una corrección de frases iba demasiado lejos: se conservó el texto.",
+    "generic": "Pasó algo inesperado; el proyecto siguió."
+  },
+  "errors": {
+    "strategyNotYet": "Este tipo de proyecto todavía no está disponible.",
+    "specUndecided": "La especificación quedó indecisa: la tarea tiene que ser más clara.",
+    "planUnusable": "No se pudo escribir ningún plan utilizable.",
+    "deliverWriteFailed": "No se pudieron escribir los archivos en la carpeta del proyecto.",
+    "folderMissing": "La carpeta del proyecto ya no está.",
+    "noModel": "No hay ningún modelo instalado.",
+    "modelNotFound": "El modelo del proyecto ya no está instalado.",
+    "remoteOff": "El modelo del proyecto es un modelo en la nube, y los modelos en la nube están desactivados.",
+    "contextTooSmall": "El modelo no puede guardar suficiente contexto para un proyecto.",
+    "contextExceeded": "El modelo se quedó sin contexto.",
+    "unreadable": "Las respuestas del modelo siguieron siendo ilegibles.",
+    "looping": "El modelo no dejó de repetirse.",
+    "incomplete": "Las respuestas del modelo siguieron cortadas.",
+    "engine": "El motor de los modelos dejó de funcionar.",
+    "connection": "Se perdió la conexión con el modelo.",
+    "account": "La cuenta en la nube rechazó la petición.",
+    "unknown": "Algo salió mal."
+  }
+}

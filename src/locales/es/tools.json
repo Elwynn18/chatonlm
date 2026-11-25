@@ -4,6 +4,7 @@
   "cards": {
     "study": "Convierte cualquier tema en un curso breve, con lecciones y preguntas.",
     "proofread": "Corrige o reformula un texto y ve cada cambio.",
-    "transcription": "Convierte un vídeo de la web o un archivo de audio en texto y luego en un documento para leer."
+    "transcription": "Convierte un vídeo de la web o un archivo de audio en texto y luego en un documento para leer.",
+    "workshop": "Confía una tarea larga a tus modelos: la planifican, la escriben por partes y revisan cada parte."
   }
 }

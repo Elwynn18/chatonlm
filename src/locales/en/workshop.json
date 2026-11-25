@@ -1,0 +1,464 @@
+{
+  "title": "Workshop",
+  "badge": {
+    "working": "A project is working",
+    "needsYou": "A project needs you"
+  },
+  "home": {
+    "description": "Hand a long task to your models. The Workshop plans it, writes it part by part, checks every part and delivers the files in a folder. Time doesn't count: quality does.",
+    "newProject": "New project",
+    "projects": "Projects",
+    "empty": "No projects yet. Describe what you need and the Workshop does the rest.",
+    "listError": "Couldn't load the projects: {message}",
+    "noStrategy": "Strategy to be chosen",
+    "phase": "Phase: {phase}",
+    "position": "Position {position} in the queue",
+    "parts": "{done}/{total} parts",
+    "partsLabel": "Parts done"
+  },
+  "settings": {
+    "title": "Workshop settings",
+    "folder": "Projects folder",
+    "default": "Default",
+    "noFolder": "No Documents folder was found: choose a folder for your projects.",
+    "choose": "Choose…",
+    "useDefault": "Use the default folder",
+    "web": "Web search",
+    "webHint": "Projects may search the web when their task needs it.",
+    "autonomy": "Autonomy of new projects",
+    "loadError": "Couldn't load the settings: {message}",
+    "saveError": "Couldn't save the settings: {message}"
+  },
+  "autonomy": {
+    "label": "Autonomy",
+    "levels": {
+      "plan": "Plan",
+      "ask": "Ask",
+      "acceptActions": "Accept actions",
+      "autonomous": "Autonomous"
+    },
+    "help": {
+      "plan": "The Workshop frames the task and drafts a plan, then waits: you read it, change it and start the work.",
+      "ask": "It asks you to approve the plan, and before every action with an effect (a web search, reading a page).",
+      "acceptActions": "It asks you to approve the plan only; then it works on its own, web included.",
+      "autonomous": "It asks nothing: its questions become written assumptions, and it approves its own plan."
+    },
+    "shortcut": "<kbd>Shift+Tab</kbd> in the task changes it; <kbd>Esc</kbd> then <kbd>Shift+Tab</kbd> leaves the task."
+  },
+  "new": {
+    "title": "New project",
+    "back": "Projects",
+    "task": "What should the Workshop do?",
+    "taskPlaceholder": "Describe the task: what you want, for whom, how long. For example: a 3,000-word guide to urban permaculture for beginners.",
+    "characters": "{count}/{max}",
+    "attach": "Attach documents",
+    "attachHint": "Text documents: .txt, .md, .pdf, .docx",
+    "attachments": "Attached documents",
+    "removeAttachment": "Remove {name}",
+    "imageRefused": "{name}: a project can't use images",
+    "fileError": "{name}: {error}",
+    "readError": "Couldn't read the file",
+    "tooMany": {
+      "one": "At most {count} document",
+      "other": "At most {count} documents"
+    },
+    "drop": "Drop your documents to attach them",
+    "model": "Model",
+    "modelAuto": "Auto",
+    "modelChecking": "Checking the model…",
+    "modelChosen": "The project will use {model}.",
+    "modelAutoChosen": "The Workshop will use {model}, the largest model that fits.",
+    "modelCheckError": "Couldn't check the model: {message}",
+    "modelErrors": {
+      "noModel": "No model is installed. Download one in the ModelHub first.",
+      "modelNotFound": "This model is no longer installed.",
+      "remoteOff": "This is a cloud model, and cloud models are turned off in the settings.",
+      "contextTooSmall": "This model can't hold enough context for a project (at least 16,384 tokens).",
+      "unknown": "This model can't be used for a project."
+    },
+    "strategy": "Strategy",
+    "strategyAuto": "Auto (chosen for the task)",
+    "soon": "{strategy} (soon)",
+    "folder": "Folder name",
+    "folderPlaceholder": "Project",
+    "folderIn": "Created in {dir}",
+    "create": "Start the project",
+    "creating": "Starting…"
+  },
+  "states": {
+    "queued": "Queued",
+    "running": "Working",
+    "waiting": "Needs you",
+    "paused": "Paused",
+    "yielding": "On hold",
+    "done": "Done",
+    "failed": "Failed",
+    "cancelled": "Stopped"
+  },
+  "phases": {
+    "collect": "Collect",
+    "strategy": "Strategy",
+    "framing": "Framing",
+    "spec": "Specification",
+    "plan": "Plan",
+    "build": "Writing",
+    "assemble": "Assembly",
+    "verify": "Checking",
+    "deliver": "Delivery"
+  },
+  "phaseMarks": {
+    "label": "Phases",
+    "done": "done",
+    "current": "in progress",
+    "pending": "to come",
+    "item": "{phase}, {status}"
+  },
+  "strategies": {
+    "generic": "General",
+    "longForm": "Long-form writing",
+    "research": "Documented research",
+    "documents": "Document analysis",
+    "code": "Code"
+  },
+  "partStates": {
+    "pending": "To do",
+    "running": "Writing",
+    "checking": "Checking",
+    "fixing": "Fixing",
+    "done": "Done",
+    "toReview": "To review",
+    "refused": "Refused",
+    "split": "Split"
+  },
+  "view": {
+    "loadError": "Couldn't load this project: {message}",
+    "notFound": "This project no longer exists.",
+    "unknown": "Project not found.",
+    "back": "Projects",
+    "pause": "Pause",
+    "resume": "Resume",
+    "stop": "Stop",
+    "more": "More actions",
+    "openFolder": "Open the folder",
+    "delete": "Delete the project…",
+    "actionError": "That didn't work: {message}",
+    "stopTitle": "Stop “{title}”?",
+    "stopMessage": "What's already written stays in its folder, but the project can't be resumed.",
+    "stopConfirm": "Stop the project",
+    "deleteTitle": "Delete “{title}”?",
+    "deleteMessage": "Its folder is {folder}. Keep the files, or delete them with the project?",
+    "deleteKeep": "Keep the files",
+    "deleteFiles": "Delete the files too",
+    "task": "Task",
+    "attachments": "Attached: {names}"
+  },
+  "plan": {
+    "title": "Plan",
+    "direct": "One-go version",
+    "directHint": "The Workshop first writes everything in one go, then checks it. It splits the work into parts only if that version fails.",
+    "partNumber": "Part {number}",
+    "writtenLast": "written at the end",
+    "attempt": "try {number}",
+    "words": "{words}/{target}",
+    "wordsWritten": "{words}",
+    "empty": "The plan isn't ready yet."
+  },
+  "part": {
+    "label": "Selected part",
+    "attempt": "Try {number}",
+    "wordsOf": "{words} of {target} words",
+    "held": "Passed: {passed} of {count}",
+    "passed": "passed",
+    "failed": "not passed",
+    "doubtful": "doubtful",
+    "noChecks": "Not checked yet.",
+    "noOwnCheck": "No separate check for this part.",
+    "preview": "Preview",
+    "noText": "Nothing written yet.",
+    "loadError": "Couldn't load this part: {message}"
+  },
+  "methods": {
+    "program": "measured by the program",
+    "formJudge": "judged on form",
+    "factJudge": "judged on accuracy"
+  },
+  "activity": {
+    "label": "What the Workshop is doing",
+    "starting": "Getting started…",
+    "queued": "Waiting for its turn: position {position} in the queue.",
+    "queuedNext": "Waiting for its turn.",
+    "waiting": "I need you: answer below so I can go on.",
+    "yielding": "You're using the app: the project waits until you're done.",
+    "paused": "Paused. Nothing is lost: resume it whenever you like.",
+    "done": "Done! Everything is in the project folder.",
+    "cancelled": "Project stopped.",
+    "gpuLent": "The text model lends the graphics card to {engine}…",
+    "choosingStrategy": "Choosing the best way to do it (vote {draw} of 3)…",
+    "writingSpec": "Writing the specification (draft {attempt})…",
+    "writingDirect": "Writing everything in one go…",
+    "checkingDirect": "Checking the one-go version…",
+    "writingPlan": "Drafting plan {attempt} of 3…",
+    "judgingPlan": "Judging plan {attempt} of 3…",
+    "writingBrick": "Writing “{part}”…",
+    "checkingBrick": "Checking “{part}”…",
+    "fixingBrick": "Fixing “{part}”…",
+    "splittingBrick": "Splitting “{part}” into smaller parts…",
+    "summarizingBrick": "Summing up “{part}” for the next parts…",
+    "fixingSentences": "Correcting the sentences judged wrong in “{part}”…",
+    "assembling": "Putting the parts together…",
+    "checkingWhole": "Checking the whole document…",
+    "proofreading": "Proofreading the language (passage {number})…",
+    "delivering": "Writing the files to the project folder…"
+  },
+  "engines": {
+    "image": "the image engine",
+    "transcription": "the transcription",
+    "generic": "another engine"
+  },
+  "gauge": {
+    "label": "Progress",
+    "model": "Model",
+    "elapsed": "Working time",
+    "words": "Written",
+    "parts": "Parts",
+    "partsValue": "{done}/{total}",
+    "underMinute": "under a minute",
+    "minutes": {
+      "one": "{count} min",
+      "other": "{count} min"
+    },
+    "hours": "{hours} h {minutes} min"
+  },
+  "words": {
+    "one": "{count} word",
+    "other": "{count} words"
+  },
+  "log": {
+    "title": "Activity log",
+    "empty": "Nothing yet.",
+    "phaseStarted": "Phase “{phase}” started.",
+    "phaseDone": "Phase “{phase}” done.",
+    "strategyChosen": "Strategy: {strategy} (the votes disagreed).",
+    "strategyChosenUnanimous": "Strategy: {strategy} (three votes out of three).",
+    "planReady": {
+      "one": "Plan ready: {count} part.",
+      "other": "Plan ready: {count} parts."
+    },
+    "brick": "“{part}”: {state}.",
+    "checksPassed": {
+      "one": "“{part}”: the check passed.",
+      "other": "“{part}”: all {count} checks passed."
+    },
+    "checksFailed": {
+      "one": "“{part}”: {count} check of {total} not passed.",
+      "other": "“{part}”: {count} checks of {total} not passed."
+    },
+    "question": {
+      "strategy": "Question: which strategy?",
+      "framing": "Questions before starting.",
+      "approvePlan": "Plan to approve.",
+      "approveAction": "Action to allow."
+    },
+    "answer": {
+      "strategy": "Answer received: strategy chosen.",
+      "framing": "Answers received.",
+      "plan": "Answer received about the plan.",
+      "action": "Answer received about the action.",
+      "cancelled": "Question dropped: project stopped."
+    },
+    "gpuLent": "Graphics card lent to {engine}.",
+    "gpuBack": "Graphics card back to the text model.",
+    "yielding": "On hold while you use the app.",
+    "resumed": "Back to work.",
+    "model": "Model: {model}.",
+    "modelWarnings": "Model: {model}. {warnings}",
+    "finishedDone": "Project done.",
+    "finishedFailed": "Project failed."
+  },
+  "needYou": {
+    "banner": "I need you",
+    "sendError": "Couldn't send your answer: {message}",
+    "strategy": {
+      "title": "Which way should I take?",
+      "hint": "My votes disagreed. Choose how to lead this project.",
+      "submit": "Continue"
+    },
+    "framing": {
+      "title": "A few questions before I start",
+      "hint": "Answer what you can. A blank answer becomes a written assumption.",
+      "answer": "Your answer to question {number}",
+      "submit": "Send my answers"
+    },
+    "plan": {
+      "title": "Here's the plan",
+      "hint": "Change the titles, goals, lengths or order if you like, then approve it. Or ask for another plan and say why.",
+      "documentTitle": "Title of the document",
+      "partTitle": "Title of part {number}",
+      "partGoal": "Goal of part {number}",
+      "partWords": "Words in part {number}",
+      "moveUp": "Move “{title}” up",
+      "moveDown": "Move “{title}” down",
+      "total": "{words} in all",
+      "missingDocumentTitle": "Give the document a title to approve the plan.",
+      "missingPartTitle": "Give part {number} a title to approve the plan.",
+      "missingPartWords": "Give part {number} (“{title}”) a number of words to approve the plan.",
+      "approve": "Approve the plan",
+      "approveEdited": "Approve my changes",
+      "note": "What should change?",
+      "notePlaceholder": "For example: fewer parts, one part per season, no part about tools.",
+      "refuse": "Ask for another plan",
+      "noteIgnored": "Approving doesn't send your note: it's only used when you ask for another plan."
+    },
+    "action": {
+      "title": "May I do this?",
+      "tools": {
+        "webSearch": "Search the web",
+        "webFetch": "Read a web page",
+        "readFile": "Read a file",
+        "generic": "Use a tool"
+      },
+      "allow": "Allow",
+      "deny": "Don't allow"
+    }
+  },
+  "report": {
+    "title": "Verification report",
+    "route": {
+      "direct": "Written in one go, then checked.",
+      "parts": "Written part by part, then assembled and checked."
+    },
+    "words": "{words} written",
+    "wordsTarget": "{words} written, {target} asked for",
+    "file": "Deliverable: {file}",
+    "openFile": "Open the deliverable",
+    "openFolder": "Open the folder",
+    "allGood": "Every check passed.",
+    "noChecks": "No checks noted.",
+    "criteria": "Checks of the whole",
+    "outline": "The criteria were judged on the outline only: the document was too long to be judged in one go.",
+    "toReviewCount": {
+      "one": "{count} point to review",
+      "other": "{count} points to review"
+    },
+    "doubtfulCount": {
+      "one": "{count} doubtful claim",
+      "other": "{count} doubtful claims"
+    },
+    "signals": "Notes",
+    "notChecked": "Not checked",
+    "notCheckedCodes": {
+      "factJudge": "The accuracy of the facts: the judge couldn't answer.",
+      "formJudge": "The form: the judge couldn't answer.",
+      "sources": "The sources.",
+      "documents": "Part of the attached documents: they were too long and were cut.",
+      "generic": "One point couldn't be checked."
+    },
+    "warnings": "Along the way",
+    "proofread": "Language proofreading: {blocks} passages read, {changed} corrected, {rejected} corrections set aside.",
+    "parts": "Parts",
+    "fixed": "corrected"
+  },
+  "checks": {
+    "criterion": "Criterion {id}",
+    "criterionText": "{id}: {text}",
+    "codes": {
+      "empty": "Text not empty",
+      "length": "Length",
+      "internalWord": "No Workshop wording left in the text",
+      "engineWord": "Workshop words in the text",
+      "outsideRegistry": "Names outside the shared list",
+      "language": "Language",
+      "register": "Way of addressing the reader",
+      "goal": "Goal of the part",
+      "forbidden": "Topics left to other parts",
+      "registryConflict": "Decision contrary to the shared list",
+      "copiedRemark": "Judge's remark copied into the text",
+      "contradiction": "Contradiction between parts",
+      "contradictions": "Contradictions between parts",
+      "generic": "Check by the program"
+    },
+    "units": {
+      "words": {
+        "one": "{count} word",
+        "other": "{count} words"
+      },
+      "headings": {
+        "one": "{count} heading",
+        "other": "{count} headings"
+      },
+      "headingsLevel": {
+        "one": "{count} level-{level} heading",
+        "other": "{count} level-{level} headings"
+      },
+      "sections": {
+        "one": "{count} section",
+        "other": "{count} sections"
+      },
+      "tables": {
+        "one": "{count} table",
+        "other": "{count} tables"
+      },
+      "items": {
+        "one": "{count} item",
+        "other": "{count} items"
+      },
+      "generic": {
+        "one": "{count}",
+        "other": "{count}"
+      }
+    },
+    "measure": {
+      "exact": "{value} (target: {target})",
+      "between": "{value} (target: {min} to {max})",
+      "atLeast": "{value} (target: at least {min})",
+      "atMost": "{value} (target: at most {max})"
+    }
+  },
+  "modelWarnings": {
+    "tooSmall": "This model is very small: the result will likely be poor.",
+    "small": "This model is small: expect a modest result.",
+    "smallContext": "This model holds little context: long tasks will suffer.",
+    "noThinking": "This model can't think before answering: plans and checks will be weaker.",
+    "unknownSize": "The size of this model is unknown: the Workshop can't tell whether it's big enough."
+  },
+  "warnings": {
+    "strategyNotYet": "That strategy isn't available yet: the general one was used.",
+    "planBestOfThree": "No plan was flawless: the best of three was kept.",
+    "planDefect": "The plan kept has a flaw.",
+    "specBestOfThree": "No specification was flawless: the best of three was kept.",
+    "specDefect": "The specification kept has a flaw.",
+    "registryCondensed": "The list of shared decisions was condensed to fit.",
+    "registryConflict": "Two decisions disagreed: one was set aside.",
+    "judgeUnavailable": "A judge couldn't answer: one point wasn't checked.",
+    "attachmentsCut": "The attached documents were too long and were cut.",
+    "lengthCapped": "The length asked for was too much for this model and was reduced.",
+    "modelRetry": "The model's answer was unreadable: asked again.",
+    "directFailed": "The one-go version didn't pass the checks: switching to a plan.",
+    "documentCriteriaRemoved": "Criteria about the whole document were taken out of the parts.",
+    "looping": "The model was repeating itself: stopped and retried.",
+    "briefTooLong": "The instructions for a part were too long and were shortened.",
+    "proofreadRejected": "A language correction was set aside: it changed too much.",
+    "surgeryNotFound": "A sentence to correct wasn't found in the text.",
+    "surgeryRejected": "A sentence correction went too far: the text was kept.",
+    "generic": "Something unexpected happened; the project went on."
+  },
+  "errors": {
+    "strategyNotYet": "This kind of project isn't available yet.",
+    "specUndecided": "The specification stayed undecided: the task needs to be clearer.",
+    "planUnusable": "No usable plan could be drafted.",
+    "deliverWriteFailed": "The files couldn't be written to the project folder.",
+    "folderMissing": "The project folder is gone.",
+    "noModel": "No model is installed.",
+    "modelNotFound": "The project's model is no longer installed.",
+    "remoteOff": "The project's model is a cloud model, and cloud models are turned off.",
+    "contextTooSmall": "The model can't hold enough context for a project.",
+    "contextExceeded": "The model ran out of context.",
+    "unreadable": "The model's answers stayed unreadable.",
+    "looping": "The model kept repeating itself.",
+    "incomplete": "The model's answers stayed cut off.",
+    "engine": "The model engine stopped working.",
+    "connection": "The connection to the model was lost.",
+    "account": "The cloud account refused the request.",
+    "unknown": "Something went wrong."
+  }
+}

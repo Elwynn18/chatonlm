@@ -23,6 +23,7 @@ import enTools from "@/locales/en/tools.json";
 import enTranscription from "@/locales/en/transcription.json";
 import enVoiceMode from "@/locales/en/voiceMode.json";
 import enVscode from "@/locales/en/vscode.json";
+import enWorkshop from "@/locales/en/workshop.json";
 import esChat from "@/locales/es/chat.json";
 import esCommon from "@/locales/es/common.json";
 import esDictation from "@/locales/es/dictation.json";
@@ -35,6 +36,7 @@ import esTools from "@/locales/es/tools.json";
 import esTranscription from "@/locales/es/transcription.json";
 import esVoiceMode from "@/locales/es/voiceMode.json";
 import esVscode from "@/locales/es/vscode.json";
+import esWorkshop from "@/locales/es/workshop.json";
 import frChat from "@/locales/fr/chat.json";
 import frCommon from "@/locales/fr/common.json";
 import frDictation from "@/locales/fr/dictation.json";
@@ -47,6 +49,7 @@ import frTools from "@/locales/fr/tools.json";
 import frTranscription from "@/locales/fr/transcription.json";
 import frVoiceMode from "@/locales/fr/voiceMode.json";
 import frVscode from "@/locales/fr/vscode.json";
+import frWorkshop from "@/locales/fr/workshop.json";
 
 export type { Lang };
 
@@ -66,6 +69,7 @@ const en = {
   transcription: enTranscription,
   voiceMode: enVoiceMode,
   vscode: enVscode,
+  workshop: enWorkshop,
 };
 
 type Catalog = typeof en;
@@ -85,6 +89,7 @@ const catalogs: Record<Lang, Catalog> = {
     transcription: esTranscription,
     voiceMode: esVoiceMode,
     vscode: esVscode,
+    workshop: esWorkshop,
   },
   fr: {
     common: frCommon,
@@ -99,6 +104,7 @@ const catalogs: Record<Lang, Catalog> = {
     transcription: frTranscription,
     voiceMode: frVoiceMode,
     vscode: frVscode,
+    workshop: frWorkshop,
   },
 };
 

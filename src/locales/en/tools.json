@@ -4,6 +4,7 @@
   "cards": {
     "study": "Turn any topic into a short course, with lessons and quizzes.",
     "proofread": "Correct or rephrase a text and see every change.",
-    "transcription": "Turn a video from the web or an audio file into text, then into a document to read."
+    "transcription": "Turn a video from the web or an audio file into text, then into a document to read.",
+    "workshop": "Hand a long task to your models: they plan it, write it part by part and check every part."
   }
 }

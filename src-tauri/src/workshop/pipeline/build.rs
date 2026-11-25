@@ -47,7 +47,7 @@ pub const MIN_SPLIT_WORDS: u32 = 600;
 /// Une partie finie (sauvée sous [`StateKey::Brick`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct BrickRecord {
+pub(crate) struct BrickRecord {
     pub id: u32,
     pub title: String,
     pub kind: BrickKind,
@@ -234,7 +234,7 @@ fn read_card(value: &Value) -> Card {
 
 /// Sous-parties lues d'un redécoupage (au plus 3) : identifiants
 /// `parent * 100 + k`, mêmes critères, chacune après la précédente.
-fn read_split(value: &Value, parent: &BrickPlan) -> Vec<BrickPlan> {
+pub(crate) fn read_split(value: &Value, parent: &BrickPlan) -> Vec<BrickPlan> {
     let Some(parts) = value.get("parts").and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -899,7 +899,7 @@ impl Run<'_> {
 }
 
 /// Mots du corps d'une section.
-pub(super) fn body_words(section: &str) -> u32 {
+pub(crate) fn body_words(section: &str) -> u32 {
     words(body_of(section))
 }
 

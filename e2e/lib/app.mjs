@@ -67,6 +67,9 @@ const DROPPED_ENV = [
   // s'en sert.
   "CHATONLM_E2E_VOICE_MIC",
   "CHATONLM_VOICE_TIMINGS",
+  // Atelier : déroulé écrit à la place du pipeline, donné par un test qui
+  // s'en sert (e2e/workshop.test.mjs).
+  "CHATONLM_E2E_WORKSHOP",
   // Easy Link : messageries, données par un test qui s'en sert (faux
   // serveurs).
   "CHATONLM_TELEGRAM_URL",

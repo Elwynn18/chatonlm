@@ -104,6 +104,18 @@ import type { OfferPull } from "@/bindings/OfferPull";
 import type { EasyLinkPlatform } from "@/bindings/EasyLinkPlatform";
 import type { EasyLinkState } from "@/bindings/EasyLinkState";
 import type { ReportOutcome } from "@/bindings/ReportOutcome";
+import type { ModelCheck } from "@/bindings/ModelCheck";
+import type { NewProjectRequest } from "@/bindings/NewProjectRequest";
+import type { ProjectDetail } from "@/bindings/ProjectDetail";
+import type { ProjectSummary } from "@/bindings/ProjectSummary";
+import type { WorkshopAnswer } from "@/bindings/WorkshopAnswer";
+import type { WorkshopEvent } from "@/bindings/WorkshopEvent";
+import type { WorkshopNotice } from "@/bindings/WorkshopNotice";
+import type { WorkshopPart } from "@/bindings/WorkshopPart";
+import type { WorkshopPartSummary } from "@/bindings/WorkshopPartSummary";
+import type { WorkshopSettings } from "@/bindings/WorkshopSettings";
+import type { WorkshopSettingsPatch } from "@/bindings/WorkshopSettingsPatch";
+import type { WorkshopSpec } from "@/bindings/WorkshopSpec";
 
 /** Problème rencontré à l'ouverture de la base au démarrage, ou null. */
 export function databaseProblem(): Promise<DatabaseProblem | null> {
@@ -1202,6 +1214,138 @@ export function listenStudyUpdated(
   onChange: (update: StudyUpdated) => void,
 ): Promise<UnlistenFn> {
   return listen<StudyUpdated>(STUDY_UPDATED_EVENT, (event) =>
+    onChange(event.payload),
+  );
+}
+
+/**
+ * Atelier (moteur de tâches longues, propre à ChatonLM) : projets, du plus
+ * récent au plus ancien (rang dans la file compris).
+ */
+export function workshopList(): Promise<ProjectSummary[]> {
+  return invoke<ProjectSummary[]>("workshop_list");
+}
+
+/** Projet complet : tâche, pièces jointes, question en attente, rapport. */
+export function workshopGet(id: number): Promise<ProjectDetail> {
+  return invoke<ProjectDetail>("workshop_get", { id });
+}
+
+/**
+ * Crée un projet (sous-dossier du dossier des projets) et le met en file ;
+ * les pièces jointes préparées (`attachmentIds`) sont reprises par le
+ * moteur. Rend son identifiant.
+ */
+export function workshopCreate(project: NewProjectRequest): Promise<number> {
+  return invoke<number>("workshop_create", { project });
+}
+
+/** Événements après `sinceSeq` (0 : depuis le début), au plus 1 000. */
+export function workshopEvents(
+  id: number,
+  sinceSeq: number,
+): Promise<WorkshopEvent[]> {
+  return invoke<WorkshopEvent[]>("workshop_events", { id, sinceSeq });
+}
+
+/** Parties du plan, état relu de ce que le moteur a sauvé. */
+export function workshopParts(id: number): Promise<WorkshopPartSummary[]> {
+  return invoke<WorkshopPartSummary[]>("workshop_parts", { id });
+}
+
+/** Une partie (0 : version d'un seul jet) : texte sauvé et vérifications. */
+export function workshopPart(
+  id: number,
+  brickId: number,
+): Promise<WorkshopPart> {
+  return invoke<WorkshopPart>("workshop_part", { id, brickId });
+}
+
+/** Réponse à la question en attente (« J'ai besoin de toi »). */
+export function workshopAnswer(
+  id: number,
+  questionId: number,
+  answer: WorkshopAnswer,
+): Promise<void> {
+  return invoke<void>("workshop_answer", {
+    id,
+    answer: { questionId, answer },
+  });
+}
+
+/** Pause : l'état est gardé, la reprise ne refait rien. */
+export function workshopPause(id: number): Promise<void> {
+  return invoke<void>("workshop_pause", { id });
+}
+
+/** Reprise d'un projet en pause, échoué, ou qui attendait au lancement. */
+export function workshopResume(id: number): Promise<void> {
+  return invoke<void>("workshop_resume", { id });
+}
+
+export function workshopCancel(id: number): Promise<void> {
+  return invoke<void>("workshop_cancel", { id });
+}
+
+/** Supprime le projet ; `deleteFiles` : son dossier aussi. */
+export function workshopDelete(
+  id: number,
+  deleteFiles: boolean,
+): Promise<void> {
+  return invoke<void>("workshop_delete", { id, deleteFiles });
+}
+
+/** Ouvre le dossier du projet dans le gestionnaire de fichiers. */
+export function workshopOpenFolder(id: number): Promise<void> {
+  return invoke<void>("workshop_open_folder", { id });
+}
+
+/** Ouvre le livrable avec l'application par défaut (refusé avant la livraison). */
+export function workshopOpenFile(id: number): Promise<void> {
+  return invoke<void>("workshop_open_file", { id });
+}
+
+/** Spécification retenue (critères numérotés), ou `null` avant. */
+export function workshopSpec(id: number): Promise<WorkshopSpec | null> {
+  return invoke<WorkshopSpec | null>("workshop_spec", { id });
+}
+
+/**
+ * Sélecteur de dossier natif du dossier des projets ; `null` si
+ * l'utilisateur annule. Seul le dossier rendu est accepté ensuite par
+ * `workshopSetSettings`.
+ */
+export function workshopPickDir(): Promise<string | null> {
+  return invoke<string | null>("workshop_pick_dir");
+}
+
+export function workshopSettings(): Promise<WorkshopSettings> {
+  return invoke<WorkshopSettings>("workshop_settings");
+}
+
+export function workshopSetSettings(
+  patch: WorkshopSettingsPatch,
+): Promise<WorkshopSettings> {
+  return invoke<WorkshopSettings>("workshop_set_settings", { patch });
+}
+
+/**
+ * Modèle qu'un nouveau projet prendrait (`model` vide : choisi par
+ * l'Atelier) et ses avertissements.
+ */
+export function workshopModelCheck(model: string): Promise<ModelCheck> {
+  return invoke<ModelCheck>("workshop_model_check", {
+    model: model === "" ? null : model,
+  });
+}
+
+/** Événement du moteur : un projet a changé (débit borné : relire). */
+export const WORKSHOP_EVENT = "workshop-event";
+
+export function listenWorkshop(
+  onChange: (notice: WorkshopNotice) => void,
+): Promise<UnlistenFn> {
+  return listen<WorkshopNotice>(WORKSHOP_EVENT, (event) =>
     onChange(event.payload),
   );
 }
