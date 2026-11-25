@@ -6,7 +6,9 @@
 //! Classement des tables (essai `every_table_is_classified` : une table
 //! ajoutée par une migration doit y entrer) :
 //! - effacées (`ERASED_TABLES`) : conversations (éphémères comprises) et
-//!   tout ce qui en dépend, cours de l'Étude, transcriptions, comptes liés
+//!   tout ce qui en dépend, cours de l'Étude, transcriptions, projets de
+//!   l'Atelier (la base seulement : les dossiers des projets, livrés à
+//!   l'utilisateur, restent sur son disque), comptes liés
 //!   d'Easy Link, éditeurs appairés du lien VS Code, fournisseurs distants,
 //!   préférences par modèle (bouton Think) ;
 //! - remises aux valeurs par défaut (`RESET_TABLES`, une seule ligne) :
@@ -47,6 +49,11 @@ const ERASED_TABLES: &[&str] = &[
     "bridge_clients",
     "remote_providers",
     "model_prefs",
+    "workshop_projects",
+    "workshop_attachments",
+    "workshop_state",
+    "workshop_events",
+    "workshop_questions",
 ];
 
 /// Tables d'une seule ligne (ou de lignes fixes) remises aux valeurs par
@@ -108,6 +115,11 @@ const ERASE: &str = "
     DELETE FROM course_sources;
     DELETE FROM courses;
     DELETE FROM transcriptions;
+    DELETE FROM workshop_questions;
+    DELETE FROM workshop_events;
+    DELETE FROM workshop_state;
+    DELETE FROM workshop_attachments;
+    DELETE FROM workshop_projects;
     DELETE FROM bridge_clients;
     INSERT OR IGNORE INTO remote_retired_ids (id) SELECT id FROM remote_providers;
     DELETE FROM remote_providers;
@@ -168,7 +180,8 @@ mod tests {
     /// jointe, appel d'outil et compactage, une éphémère, un cours, une
     /// transcription, un bot Easy Link et son compte lié, un éditeur VS Code
     /// appairé, un fournisseur distant, un moteur de recherche personnel,
-    /// des réglages partout ; et ce qui doit rester : un modèle local, un
+    /// un projet de l'Atelier (avec tout ce qui en dépend), des réglages
+    /// partout ; et ce qui doit rester : un modèle local, un
     /// modèle d'images avec ses réglages, un comportement observé, la reprise
     /// d'un modèle d'Ollama, le dossier des modèles.
     fn fill(connection: &mut Connection) {
@@ -242,7 +255,20 @@ mod tests {
                  UPDATE engine_settings SET models_dir = '/mnt/modèles';
                  INSERT INTO image_models (id, repo, revision, file, family, name, installed, components, created_at, settings)
                      VALUES ('i/j/m.gguf', 'i/j', 'r', 'm.gguf', 'sd15', 'M', 1, '[]', 1, '{\"steps\":30}');
-                 UPDATE settings SET image_model = 'i/j/m.gguf';",
+                 UPDATE settings SET image_model = 'i/j/m.gguf';
+                 UPDATE settings SET workshop_dir = '/home/u/Projets', workshop_web = 0,
+                     workshop_autonomy = 'autonomous';
+                 INSERT INTO workshop_projects
+                     (id, title, task, autonomy, language, state, folder, created_at, updated_at)
+                     VALUES (1, 'Guide', 'Écris un guide', 'ask', 'fr', 'waiting',
+                             '/home/u/Projets/guide', 1, 1);
+                 INSERT INTO workshop_attachments (project_id, position, filename, text)
+                     VALUES (1, 0, 'notes.txt', 'mes notes');
+                 INSERT INTO workshop_state (project_id, key, value, updated_at)
+                     VALUES (1, 'spec', '{}', 1);
+                 INSERT INTO workshop_events (project_id, seq, at, event) VALUES (1, 1, 1, '{}');
+                 INSERT INTO workshop_questions (project_id, question, created_at)
+                     VALUES (1, '{}', 1);",
             )
             .unwrap();
         connection
@@ -281,6 +307,15 @@ mod tests {
                 expected.proofread_model = "c/d:Q8_0".into();
                 expected.study_model = "e/f:Q4_0".into();
                 assert_eq!(after, expected);
+                // Réglages de l'Atelier remis à zéro.
+                assert_eq!(
+                    crate::store::workshop::settings(c)?,
+                    crate::store::workshop::SettingsRow {
+                        dir: String::new(),
+                        web: true,
+                        autonomy: "ask".into()
+                    }
+                );
                 let image_model: String =
                     c.query_row("SELECT image_model FROM settings", [], |row| row.get(0))?;
                 assert_eq!(image_model, "i/j/m.gguf");

@@ -6,7 +6,8 @@
 //! 1. ce qui tourne et utiliserait les données s'arrête, sans fermer les
 //!    services (un bot, un éditeur, une séance peuvent reprendre ensuite) :
 //!    mode vocal, bots d'Easy Link, pont de VS Code (coupé), réponses (et
-//!    leurs images), cours, corrections, transcription et synthèse, dictée,
+//!    leurs images), cours, corrections, transcription et synthèse, projet de
+//!    l'Atelier (la base seulement : les dossiers livrés restent), dictée,
 //!    lecture à voix haute ; les derniers textes gardés en mémoire (dictée,
 //!    correction de la sélection) sont oubliés. Les modèles chargés restent
 //!    chargés, les téléchargements continuent ;
@@ -151,6 +152,10 @@ pub(crate) trait Services: Sync {
     fn stop_replies(&self) -> impl Future<Output = ()> + Send;
     fn forget_transcription(&self) -> impl Future<Output = ()> + Send;
     fn forget_synthesis(&self) -> impl Future<Output = ()> + Send;
+    /// Projet de l'Atelier en cours arrêté sans rien écrire, réponses
+    /// attendues oubliées (les dossiers des projets restent : ce sont des
+    /// livrables de l'utilisateur, hors du dossier des données).
+    fn forget_workshop(&self) -> impl Future<Output = ()> + Send;
     /// Dictée abandonnée, dernier texte dicté oublié.
     fn stop_dictation(&self);
     fn stop_reading(&self);
@@ -194,6 +199,7 @@ pub(crate) async fn stop_services<S: Services>(services: &S) -> bool {
     services.stop_replies().await;
     services.forget_transcription().await;
     services.forget_synthesis().await;
+    services.forget_workshop().await;
     services.stop_dictation();
     services.stop_reading();
     services.forget_proofread();
@@ -359,6 +365,12 @@ impl Services for AppServices<'_> {
             .try_state::<crate::transcription::synthesis::Synthesizer>()
         {
             synthesizer.forget(WORK_WAIT).await;
+        }
+    }
+
+    async fn forget_workshop(&self) {
+        if let Some(workshop) = self.0.try_state::<crate::workshop::Workshop>() {
+            workshop.forget(WORK_WAIT).await;
         }
     }
 
@@ -591,6 +603,9 @@ mod tests {
         async fn forget_synthesis(&self) {
             self.note("synthesis");
         }
+        async fn forget_workshop(&self) {
+            self.note("workshop");
+        }
         fn stop_dictation(&self) {
             self.note("dictation");
         }
@@ -639,7 +654,7 @@ mod tests {
     }
 
     /// Avant la base : séance vocale, bots, pont, réponses, cours,
-    /// corrections, transcription, synthèse, dictée, lecture et dernière
+    /// corrections, transcription, synthèse, Atelier, dictée, lecture et dernière
     /// correction de la sélection, rien de plus ; le pont activé est retenu.
     #[test]
     fn every_service_is_stopped_before_the_database() {
@@ -656,6 +671,7 @@ mod tests {
                 "replies",
                 "transcription",
                 "synthesis",
+                "workshop",
                 "dictation",
                 "reading",
                 "proofread"

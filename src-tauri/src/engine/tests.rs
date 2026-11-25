@@ -1381,8 +1381,13 @@ async fn a_taken_port_is_tried_again_but_not_forever() {
     drop(lease);
     let always = bench.install("chatonlm-bindfail-always", GIB);
     let error = bench.engine.ensure(&always, kept()).await.unwrap_err();
+    // La raison est la dernière ligne d'erreur lue du journal : selon le
+    // moment de la lecture, la ligne de liaison ou celle qui la suit
+    // (« exiting due to HTTP server error ») ; les deux disent l'échec de
+    // liaison (essai instable sous charge, vu les 24 et 25 nov.).
     assert!(
-        matches!(&error, EngineError::StartFailed(reason) if reason.contains("couldn't bind")),
+        matches!(&error, EngineError::StartFailed(reason)
+            if reason.contains("couldn't bind") || reason.contains("HTTP server error")),
         "{error:?}"
     );
     assert_eq!(attempts(&always), 3);

@@ -23,6 +23,7 @@ pub mod transcriptions;
 pub mod updates;
 pub mod voice_mode;
 pub mod web_search;
+pub mod workshop;
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::Path;
@@ -85,6 +86,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../migrations/0047_transcription_warning.sql"),
     include_str!("../../migrations/0048_tool_call_error_code.sql"),
     include_str!("../../migrations/0049_image_model_settings.sql"),
+    include_str!("../../migrations/0050_workshop.sql"),
 ];
 
 /// Heure courante en millisecondes depuis l'époque Unix.

@@ -149,16 +149,7 @@ const NAME_MAX: usize = 150;
 /// au plus.
 pub fn safe_name(file: &str) -> bool {
     let name = basename(file);
-    let stem = name.split('.').next().unwrap_or(name).trim_end();
-    let reserved = matches!(
-        stem.to_ascii_uppercase().as_str(),
-        "CON" | "PRN" | "AUX" | "NUL"
-    ) || (stem.len() == 4
-        && ["COM", "LPT"].iter().any(|prefix| {
-            stem.get(..3)
-                .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
-        })
-        && matches!(stem.as_bytes()[3], b'1'..=b'9'));
+    let reserved = crate::os_util::windows_reserved(name);
     !name.is_empty()
         && name != "."
         && name != ".."

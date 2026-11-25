@@ -330,7 +330,9 @@ fn adopt(app: &AppHandle, startup: &Startup, result: AppResult<Store>) {
             crate::app_log!("chatonlm: model access unavailable: {error}");
         }
         app.manage(store);
-        // Easy Link n'a pas pu démarrer sans base : il démarre maintenant.
+        // Atelier, Easy Link et pont n'ont pas pu démarrer sans base : ils
+        // démarrent maintenant.
+        crate::workshop::app::setup(app);
         crate::easy_link::setup(app);
         crate::bridge::setup(app);
     }

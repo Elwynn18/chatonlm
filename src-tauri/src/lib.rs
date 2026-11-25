@@ -41,6 +41,7 @@ mod tts;
 mod updater;
 mod voice_mode;
 mod window;
+mod workshop;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -67,11 +68,16 @@ pub fn child_process() -> Option<i32> {
     attachments::pdf_child::run_if_requested()
 }
 
-/// Fermeture de l'app : réponses du chat, cours (rien noté en échec) et
-/// corrections (page et raccourci global) s'arrêtent.
+/// Fermeture de l'app : réponses du chat, cours (rien noté en échec),
+/// corrections (page et raccourci global) et projet de l'Atelier (en pause)
+/// s'arrêtent.
 fn stop_model_work(app: &tauri::AppHandle) {
     app.state::<ChatEngine>().cancel_all();
     app.state::<study::StudyEngine>().cancel_all();
+    // Projet de l'Atelier en cours : arrêté, repris en pause au lancement.
+    if let Some(workshop) = app.try_state::<workshop::Workshop>() {
+        workshop.cancel_all();
+    }
     app.state::<proofread::Proofreader>().cancel_all();
     app.state::<proofread::selection::Selection>().cancel();
 }
@@ -406,6 +412,9 @@ pub fn run() {
                 // les commandes, Easy Link et le pont.
                 llm::setup(app.handle(), store.clone())?;
                 app.manage(store);
+                // Atelier : projets interrompus par une fermeture mis en
+                // pause (rien ne calcule par surprise).
+                workshop::app::setup(app.handle());
             }
             app.manage(startup);
             // Mises à jour : moteur prêt avant la zone de notification (qui
@@ -706,6 +715,20 @@ pub fn run() {
             commands::web_search::set_web_search_engine,
             commands::web_search::forget_web_search_secret,
             commands::web_search::check_web_search_engine,
+            commands::workshop::workshop_answer,
+            commands::workshop::workshop_cancel,
+            commands::workshop::workshop_create,
+            commands::workshop::workshop_delete,
+            commands::workshop::workshop_events,
+            commands::workshop::workshop_get,
+            commands::workshop::workshop_list,
+            commands::workshop::workshop_model_check,
+            commands::workshop::workshop_open_folder,
+            commands::workshop::workshop_pause,
+            commands::workshop::workshop_pick_dir,
+            commands::workshop::workshop_resume,
+            commands::workshop::workshop_set_settings,
+            commands::workshop::workshop_settings,
             #[cfg(feature = "e2e")]
             context_menu::e2e::e2e_last_context_menu,
             startup::database_problem,
@@ -826,6 +849,14 @@ async fn stop_work(app: &AppHandle) {
             images.shutdown().await;
         }
     };
+    // Projet de l'Atelier : son état enregistré (en pause) avant l'arrêt
+    // des modèles.
+    let workshop = app.try_state::<workshop::Workshop>();
+    let workshop = async {
+        if let Some(workshop) = workshop {
+            workshop.shutdown(workshop::service::SHUTDOWN_WAIT).await;
+        }
+    };
     app.state::<tts::ReadAloud>().shutdown();
     tokio::join!(
         engine.stop_all(EXIT_GRACE),
@@ -837,7 +868,8 @@ async fn stop_work(app: &AppHandle) {
         tools,
         transcription,
         dictation.shutdown(),
-        images
+        images,
+        workshop
     );
 }
 

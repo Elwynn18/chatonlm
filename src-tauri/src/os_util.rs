@@ -1,5 +1,5 @@
 //! Aides partagées par le code propre à Windows : programmes lancés sans
-//! console, chaînes UTF-16 des API Win32. Sous Linux, [`NoWindow::no_window`]
+//! console, chaînes UTF-16 des API Win32, noms de fichiers réservés. Sous Linux, [`NoWindow::no_window`]
 //! ne fait rien : le code commun l'appelle sans `cfg`.
 //!
 //! Les conversions de chaînes sont de la logique pure, essayée sous Linux ;
@@ -83,9 +83,38 @@ pub fn from_wide_list(buffer: &[u16]) -> Vec<String> {
         .collect()
 }
 
+/// Noms réservés par Windows (`CON`, `NUL`, `COM1`…), refusés comme nom de
+/// fichier même suivis d'une extension (`con.md`), casse ignorée. Seule liste
+/// de l'app (Atelier, modèles d'images) ; logique pure, la même sous Linux :
+/// un dossier peut passer d'un système à l'autre.
+pub const WINDOWS_RESERVED: [&str; 22] = [
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+/// `name` (nom de fichier, extension comprise) est réservé par Windows : son
+/// radical (avant le premier point, espaces finaux retirés) est l'un de
+/// [`WINDOWS_RESERVED`].
+pub fn windows_reserved(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).trim_end();
+    WINDOWS_RESERVED
+        .iter()
+        .any(|reserved| reserved.eq_ignore_ascii_case(stem))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_reserved_names_are_found_with_or_without_extension() {
+        for name in ["CON", "con.md", "Nul.txt", "com1", "LPT9.gguf", "aux .txt"] {
+            assert!(windows_reserved(name), "{name}");
+        }
+        for name in ["contexte", "com10", "lpt", "console.md", "a.con", ""] {
+            assert!(!windows_reserved(name), "{name}");
+        }
+    }
 
     #[test]
     fn texts_become_zero_terminated_utf16() {

@@ -4,7 +4,8 @@
     "supportedFiles": "Supported Files",
     "selectModelDirectory": "Select Model Directory",
     "saveImage": "Save Image",
-    "pngImages": "PNG Images"
+    "pngImages": "PNG Images",
+    "selectWorkshopDirectory": "Select Projects Folder"
   },
   "documents": {
     "save": "Save Document",
@@ -704,5 +705,37 @@
   "erase": {
     "busy": "Your data is already being erased.",
     "noDatabase": "ChatonLM can't open its database, so your data can't be erased."
+  },
+  "workshop": {
+    "notFound": "project not found",
+    "notAllowed": "This action is not available for this project right now",
+    "emptyTask": "Describe the task",
+    "taskTooLong": "The task is too long: {max} characters at most",
+    "strategyNotYet": "This strategy is not available yet",
+    "tooManyAttachments": "{max} files at most",
+    "noFolder": "Choose a folder for your projects",
+    "unknownAttachment": "This file is no longer available: add it again",
+    "imageAttachment": "{name}: images can't be used in a project",
+    "folder": "The project folder can't be created",
+    "badFolder": "Choose the projects folder with the folder picker",
+    "noQuestion": "This question has already been answered",
+    "wrongAnswer": "This answer doesn't match the question",
+    "folderKept": "The project was deleted, but its folder couldn't be",
+    "folderMissing": "The project folder no longer exists",
+    "disk": {
+      "project": "Project",
+      "source": "source",
+      "document": "document"
+    },
+    "notify": {
+      "waitingTitle": "ChatonLM needs you",
+      "waitingBody": "{title}: a question is waiting in the Workshop.",
+      "doneTitle": "Project finished",
+      "doneBody": "{title}: the deliverable is ready in its folder.",
+      "failedTitle": "Project stopped",
+      "failedBody": "{title}: stopped on an error. Open the Workshop to see why.",
+      "pausedTitle": "Workshop projects paused",
+      "pausedBody": "Projects paused when ChatonLM closed: {count}. Resume them from the Workshop."
+    }
   }
 }

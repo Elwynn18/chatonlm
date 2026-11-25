@@ -9,14 +9,17 @@
 //! qui n'est plus le texte (réponse à une question du texte, traduction) : le
 //! passage garde alors son texte d'origine.
 
-mod answer;
+// Nettoyage d'une réponse : aussi pour la relecture de l'Atelier.
+pub(crate) mod answer;
 // Majuscule et point de la mise en forme automatique (voir `guard::settle_with`).
 mod format;
 // Distance d'édition et lettres sans accents : aussi pour les cours (`study`).
 pub(crate) mod guard;
 // Langue d'un texte : aussi pour les cours (`study`).
 pub(crate) mod language;
-mod prompts;
+// Consignes et exemples : aussi pour la relecture de l'Atelier
+// (`workshop::pipeline::language_pass`).
+pub(crate) mod prompts;
 // Retours à la ligne souples rendus à une correction (voir `guard::settle`).
 mod reflow;
 pub mod selection;

@@ -114,7 +114,6 @@ impl Interactive {
     /// Prêt quand plus rien n'est tenu depuis `grace` (aussitôt si rien n'a
     /// jamais été tenu). Une action qui commence pendant le délai le
     /// reprend à sa fin.
-    #[cfg_attr(not(test), expect(dead_code, reason = "appelant : l'Atelier (lot 2)"))]
     pub fn idle(&self, grace: Duration) -> impl Future<Output = ()> + Send + 'static {
         let mut changes = self.state.subscribe();
         async move {

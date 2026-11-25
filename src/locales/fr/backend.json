@@ -4,7 +4,8 @@
     "supportedFiles": "Fichiers pris en charge",
     "selectModelDirectory": "Choisir le dossier des modèles",
     "saveImage": "Enregistrer l'image",
-    "pngImages": "Images PNG"
+    "pngImages": "Images PNG",
+    "selectWorkshopDirectory": "Choisir le dossier des projets"
   },
   "documents": {
     "save": "Enregistrer le document",
@@ -704,5 +705,37 @@
   "erase": {
     "busy": "Vos données sont déjà en cours d'effacement.",
     "noDatabase": "ChatonLM ne peut pas ouvrir sa base de données : vos données ne peuvent pas être effacées."
+  },
+  "workshop": {
+    "notFound": "projet introuvable",
+    "notAllowed": "Cette action n'est pas possible pour ce projet en ce moment",
+    "emptyTask": "Décrivez la tâche",
+    "taskTooLong": "La tâche est trop longue : {max} caractères au plus",
+    "strategyNotYet": "Cette stratégie n'est pas encore disponible",
+    "tooManyAttachments": "{max} fichiers au plus",
+    "noFolder": "Choisissez un dossier pour vos projets",
+    "unknownAttachment": "Ce fichier n'est plus disponible : ajoutez-le de nouveau",
+    "imageAttachment": "{name} : une image ne peut pas servir dans un projet",
+    "folder": "Le dossier du projet ne peut pas être créé",
+    "badFolder": "Choisissez le dossier des projets avec le sélecteur de dossiers",
+    "noQuestion": "Cette question a déjà reçu une réponse",
+    "wrongAnswer": "Cette réponse ne correspond pas à la question",
+    "folderKept": "Le projet est supprimé, mais pas son dossier",
+    "folderMissing": "Le dossier du projet n'existe plus",
+    "disk": {
+      "project": "Projet",
+      "source": "source",
+      "document": "document"
+    },
+    "notify": {
+      "waitingTitle": "ChatonLM a besoin de vous",
+      "waitingBody": "{title} : une question vous attend dans l'Atelier.",
+      "doneTitle": "Projet terminé",
+      "doneBody": "{title} : le livrable est prêt dans son dossier.",
+      "failedTitle": "Projet arrêté",
+      "failedBody": "{title} : arrêt sur une erreur. Ouvrez l'Atelier pour savoir pourquoi.",
+      "pausedTitle": "Projets de l'Atelier en pause",
+      "pausedBody": "Projets mis en pause à la fermeture de ChatonLM : {count}. Reprenez-les depuis l'Atelier."
+    }
   }
 }

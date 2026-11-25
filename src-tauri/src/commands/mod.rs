@@ -28,3 +28,4 @@ pub mod tts;
 pub mod updates;
 pub mod voice_mode;
 pub mod web_search;
+pub mod workshop;
